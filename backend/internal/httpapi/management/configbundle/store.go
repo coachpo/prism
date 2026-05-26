@@ -169,26 +169,54 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 		return profileBundleResponse{}, err
 	}
 
+	exportedEndpoints, endpointByID, secretEntries, err := s.buildEndpointExports(endpoints, includeSecrets)
+	if err != nil {
+		return profileBundleResponse{}, err
+	}
+	exportedPricingTemplates, pricingTemplateByID := buildPricingTemplateExports(pricingTemplates)
+	exportedStrategies, strategyNameByID := buildLoadbalanceStrategyExports(strategies)
+	exportedVendorRefs, exportedModels, err := buildModelExports(ctx, exec, profileID, models, endpointByID, pricingTemplateByID, strategyNameByID)
+	if err != nil {
+		return profileBundleResponse{}, err
+	}
+	exportedProfileSettings, err := buildProfileSettingsExport(userSettings, fxMappings, endpointByID)
+	if err != nil {
+		return profileBundleResponse{}, err
+	}
+
+	return profileBundleResponse{
+		Version:               canonicalBundleVersion,
+		BundleKind:            canonicalProfileBundleKind,
+		ExportedAt:            exportTime,
+		VendorRefs:            exportedVendorRefs,
+		Endpoints:             exportedEndpoints,
+		PricingTemplates:      exportedPricingTemplates,
+		LoadbalanceStrategies: exportedStrategies,
+		Models:                exportedModels,
+		ProfileSettings:       exportedProfileSettings,
+		HeaderBlocklistRules:  buildHeaderBlocklistRuleExports(headerRules),
+		UserAgentClientRules:  buildUserAgentClientRuleExports(userAgentRules),
+		SecretPayload: secretPayloadExport{
+			Kind:    "encrypted",
+			Cipher:  bundleSecretCipher,
+			KeyID:   bundleSecretKeyID,
+			Entries: secretEntries,
+		},
+	}, nil
+}
+
+func (s *Service) buildEndpointExports(endpoints []endpointRow, includeSecrets bool) ([]endpointExport, map[int]endpointRow, []secretPayloadEntry, error) {
 	endpointByID := make(map[int]endpointRow, len(endpoints))
 	exportedEndpoints := make([]endpointExport, 0, len(endpoints))
 	secretEntries := make([]secretPayloadEntry, 0, len(endpoints))
 	for _, endpoint := range endpoints {
 		endpointByID[endpoint.ID] = endpoint
-		var secretRef *string
-		if includeSecrets && endpointdomain.HasAPIKey(endpoint.APIKey) {
-			decryptedAPIKey, decryptErr := endpointdomain.DecryptSecret(endpoint.APIKey, s.secretEncryptionKey)
-			if decryptErr != nil {
-				return profileBundleResponse{}, fmt.Errorf("decrypt endpoint %q secret: %w", endpoint.Name, decryptErr)
-			}
-			if strings.TrimSpace(decryptedAPIKey) != "" {
-				ref := fmt.Sprintf("endpoint:%s:api_key", endpoint.Name)
-				encryptedValue, encryptErr := s.bundleSecretEncrypter(decryptedAPIKey)
-				if encryptErr != nil {
-					return profileBundleResponse{}, fmt.Errorf("encrypt bundle secret for endpoint %q: %w", endpoint.Name, encryptErr)
-				}
-				secretRef = &ref
-				secretEntries = append(secretEntries, secretPayloadEntry{Ref: ref, Ciphertext: encryptedValue})
-			}
+		secretRef, entry, err := s.buildEndpointSecretExport(endpoint, includeSecrets)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if entry != nil {
+			secretEntries = append(secretEntries, *entry)
 		}
 		exportedEndpoints = append(exportedEndpoints, endpointExport{
 			Name:            endpoint.Name,
@@ -197,12 +225,34 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 			Position:        endpoint.Position,
 		})
 	}
+	return exportedEndpoints, endpointByID, secretEntries, nil
+}
 
-	pricingTemplateByID := make(map[int]pricingTemplateRow, len(pricingTemplates))
-	exportedPricingTemplates := make([]pricingTemplateExport, 0, len(pricingTemplates))
-	for _, template := range pricingTemplates {
+func (s *Service) buildEndpointSecretExport(endpoint endpointRow, includeSecrets bool) (*string, *secretPayloadEntry, error) {
+	if !includeSecrets || !endpointdomain.HasAPIKey(endpoint.APIKey) {
+		return nil, nil, nil
+	}
+	decryptedAPIKey, err := endpointdomain.DecryptSecret(endpoint.APIKey, s.secretEncryptionKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decrypt endpoint %q secret: %w", endpoint.Name, err)
+	}
+	if strings.TrimSpace(decryptedAPIKey) == "" {
+		return nil, nil, nil
+	}
+	ref := fmt.Sprintf("endpoint:%s:api_key", endpoint.Name)
+	encryptedValue, err := s.bundleSecretEncrypter(decryptedAPIKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encrypt bundle secret for endpoint %q: %w", endpoint.Name, err)
+	}
+	return &ref, &secretPayloadEntry{Ref: ref, Ciphertext: encryptedValue}, nil
+}
+
+func buildPricingTemplateExports(templates []pricingTemplateRow) ([]pricingTemplateExport, map[int]pricingTemplateRow) {
+	pricingTemplateByID := make(map[int]pricingTemplateRow, len(templates))
+	exportedTemplates := make([]pricingTemplateExport, 0, len(templates))
+	for _, template := range templates {
 		pricingTemplateByID[template.ID] = template
-		exportedPricingTemplates = append(exportedPricingTemplates, pricingTemplateExport{
+		exportedTemplates = append(exportedTemplates, pricingTemplateExport{
 			Name:                template.Name,
 			Description:         template.Description,
 			PricingUnit:         template.PricingUnit,
@@ -215,7 +265,10 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 			Version:             template.Version,
 		})
 	}
+	return exportedTemplates, pricingTemplateByID
+}
 
+func buildLoadbalanceStrategyExports(strategies []strategyRow) ([]loadbalanceStrategyExport, map[int]string) {
 	strategyNameByID := make(map[int]string, len(strategies))
 	exportedStrategies := make([]loadbalanceStrategyExport, 0, len(strategies))
 	for _, strategy := range strategies {
@@ -228,7 +281,40 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 			RoutingPolicy:      cloneBytes(strategy.RoutingPolicy),
 		})
 	}
+	return exportedStrategies, strategyNameByID
+}
 
+func buildModelExports(ctx context.Context, exec queryExecutor, profileID int, models []modelRow, endpointByID map[int]endpointRow, pricingTemplateByID map[int]pricingTemplateRow, strategyNameByID map[int]string) ([]vendorRefExport, []modelExport, error) {
+	modelIDs, vendorIDs := profileModelExportIDs(models)
+	vendorsByID, err := loadVendorsByIDs(ctx, exec, vendorIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	proxyTargetsByModelID, err := listProxyTargetsByModelIDs(ctx, exec, modelIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	connectionsByModelID, err := listConnectionsByModelIDs(ctx, exec, profileID, modelIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	exportedVendorRefs, err := buildVendorRefExports(vendorIDs, vendorsByID)
+	if err != nil {
+		return nil, nil, err
+	}
+	exportedModels := make([]modelExport, 0, len(models))
+	for _, model := range models {
+		exportedModel, err := buildModelExport(model, vendorsByID, strategyNameByID, proxyTargetsByModelID[model.ID], connectionsByModelID[model.ID], endpointByID, pricingTemplateByID)
+		if err != nil {
+			return nil, nil, err
+		}
+		exportedModels = append(exportedModels, exportedModel)
+	}
+	return exportedVendorRefs, exportedModels, nil
+}
+
+func profileModelExportIDs(models []modelRow) ([]int, []int) {
 	modelIDs := make([]int, 0, len(models))
 	vendorIDs := make([]int, 0, len(models))
 	seenVendorIDs := map[int]struct{}{}
@@ -241,24 +327,15 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 			}
 		}
 	}
-	vendorsByID, err := loadVendorsByIDs(ctx, exec, vendorIDs)
-	if err != nil {
-		return profileBundleResponse{}, err
-	}
-	proxyTargetsByModelID, err := listProxyTargetsByModelIDs(ctx, exec, modelIDs)
-	if err != nil {
-		return profileBundleResponse{}, err
-	}
-	connectionsByModelID, err := listConnectionsByModelIDs(ctx, exec, profileID, modelIDs)
-	if err != nil {
-		return profileBundleResponse{}, err
-	}
+	return modelIDs, vendorIDs
+}
 
+func buildVendorRefExports(vendorIDs []int, vendorsByID map[int]vendorRow) ([]vendorRefExport, error) {
 	exportedVendorRefs := make([]vendorRefExport, 0, len(vendorIDs))
 	for _, vendorID := range vendorIDs {
 		vendor, ok := vendorsByID[vendorID]
 		if !ok {
-			return profileBundleResponse{}, fmt.Errorf("load vendor %d for vendor refs", vendorID)
+			return nil, fmt.Errorf("load vendor %d for vendor refs", vendorID)
 		}
 		exportedVendorRefs = append(exportedVendorRefs, vendorRefExport{
 			Key:             vendor.Key,
@@ -267,78 +344,107 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 			IconKeyHint:     vendor.IconKey,
 		})
 	}
+	return exportedVendorRefs, nil
+}
 
-	exportedModels := make([]modelExport, 0, len(models))
-	for _, model := range models {
-		var vendorKey *string
-		if model.VendorID != nil {
-			vendor, ok := vendorsByID[*model.VendorID]
-			if !ok {
-				return profileBundleResponse{}, fmt.Errorf("load vendor %d for model %q", *model.VendorID, model.ModelID)
-			}
-			value := vendor.Key
-			vendorKey = &value
+func buildModelExport(model modelRow, vendorsByID map[int]vendorRow, strategyNameByID map[int]string, proxyTargets []proxyTargetRow, connections []connectionRow, endpointByID map[int]endpointRow, pricingTemplateByID map[int]pricingTemplateRow) (modelExport, error) {
+	vendorKey, err := buildModelVendorKey(model, vendorsByID)
+	if err != nil {
+		return modelExport{}, err
+	}
+	strategyName, err := buildModelLoadbalanceStrategyName(model, strategyNameByID)
+	if err != nil {
+		return modelExport{}, err
+	}
+	exportedConnections, err := buildConnectionExports(connections, endpointByID, pricingTemplateByID)
+	if err != nil {
+		return modelExport{}, err
+	}
+	return modelExport{
+		VendorKey:               vendorKey,
+		APIFamily:               model.APIFamily,
+		ModelID:                 model.ModelID,
+		DisplayName:             model.DisplayName,
+		ModelType:               model.ModelType,
+		ProxySelectionStrategy:  model.ProxySelectionStrategy,
+		ProxyTargets:            buildProxyTargetExports(proxyTargets),
+		LoadbalanceStrategyName: strategyName,
+		IsEnabled:               model.IsEnabled,
+		Connections:             exportedConnections,
+	}, nil
+}
+
+func buildModelVendorKey(model modelRow, vendorsByID map[int]vendorRow) (*string, error) {
+	if model.VendorID == nil {
+		return nil, nil
+	}
+	vendor, ok := vendorsByID[*model.VendorID]
+	if !ok {
+		return nil, fmt.Errorf("load vendor %d for model %q", *model.VendorID, model.ModelID)
+	}
+	value := vendor.Key
+	return &value, nil
+}
+
+func buildModelLoadbalanceStrategyName(model modelRow, strategyNameByID map[int]string) (*string, error) {
+	if model.ModelType != "native" || model.LoadbalanceStrategyID == nil {
+		return nil, nil
+	}
+	resolvedName, ok := strategyNameByID[*model.LoadbalanceStrategyID]
+	if !ok {
+		return nil, fmt.Errorf("load loadbalance strategy %d for model %q", *model.LoadbalanceStrategyID, model.ModelID)
+	}
+	return &resolvedName, nil
+}
+
+func buildProxyTargetExports(proxyTargets []proxyTargetRow) []proxyTargetExport {
+	exportedProxyTargets := make([]proxyTargetExport, 0, len(proxyTargets))
+	for _, proxyTarget := range proxyTargets {
+		exportedProxyTargets = append(exportedProxyTargets, proxyTargetExport{TargetModelID: proxyTarget.TargetModelID, Position: proxyTarget.Position, Weight: proxyTarget.Weight, TargetPriority: proxyTarget.TargetPriority})
+	}
+	return exportedProxyTargets
+}
+
+func buildConnectionExports(connections []connectionRow, endpointByID map[int]endpointRow, pricingTemplateByID map[int]pricingTemplateRow) ([]connectionExport, error) {
+	exportedConnections := make([]connectionExport, 0, len(connections))
+	for _, connection := range connections {
+		endpoint, ok := endpointByID[connection.EndpointID]
+		if !ok {
+			return nil, fmt.Errorf("load endpoint %d for connection %d", connection.EndpointID, connection.ID)
 		}
-
-		var strategyName *string
-		if model.ModelType == "native" && model.LoadbalanceStrategyID != nil {
-			resolvedName, ok := strategyNameByID[*model.LoadbalanceStrategyID]
-			if !ok {
-				return profileBundleResponse{}, fmt.Errorf("load loadbalance strategy %d for model %q", *model.LoadbalanceStrategyID, model.ModelID)
-			}
-			strategyName = &resolvedName
+		pricingTemplateName, err := buildConnectionPricingTemplateName(connection, pricingTemplateByID)
+		if err != nil {
+			return nil, err
 		}
-
-		rawProxyTargets := proxyTargetsByModelID[model.ID]
-		exportedProxyTargets := make([]proxyTargetExport, 0, len(rawProxyTargets))
-		for _, proxyTarget := range rawProxyTargets {
-			exportedProxyTargets = append(exportedProxyTargets, proxyTargetExport{TargetModelID: proxyTarget.TargetModelID, Position: proxyTarget.Position, Weight: proxyTarget.Weight, TargetPriority: proxyTarget.TargetPriority})
-		}
-
-		rawConnections := connectionsByModelID[model.ID]
-		exportedConnections := make([]connectionExport, 0, len(rawConnections))
-		for _, connection := range rawConnections {
-			endpoint, ok := endpointByID[connection.EndpointID]
-			if !ok {
-				return profileBundleResponse{}, fmt.Errorf("load endpoint %d for connection %d", connection.EndpointID, connection.ID)
-			}
-			var pricingTemplateName *string
-			if connection.PricingTemplateID != nil {
-				template, ok := pricingTemplateByID[*connection.PricingTemplateID]
-				if !ok {
-					return profileBundleResponse{}, fmt.Errorf("load pricing template %d for connection %d", *connection.PricingTemplateID, connection.ID)
-				}
-				pricingTemplateName = &template.Name
-			}
-			exportedConnections = append(exportedConnections, connectionExport{
-				EndpointName:               endpoint.Name,
-				PricingTemplateName:        pricingTemplateName,
-				IsActive:                   connection.IsActive,
-				Priority:                   connection.Priority,
-				Name:                       connection.Name,
-				AuthType:                   connection.AuthType,
-				CustomHeaders:              connection.CustomHeaders,
-				OpenAIProbeEndpointVariant: connection.OpenAIProbeEndpointVariant,
-				QPSLimit:                   connection.QPSLimit,
-				MaxInFlightNonStream:       connection.MaxInFlightNonStream,
-				MaxInFlightStream:          connection.MaxInFlightStream,
-			})
-		}
-
-		exportedModels = append(exportedModels, modelExport{
-			VendorKey:               vendorKey,
-			APIFamily:               model.APIFamily,
-			ModelID:                 model.ModelID,
-			DisplayName:             model.DisplayName,
-			ModelType:               model.ModelType,
-			ProxySelectionStrategy:  model.ProxySelectionStrategy,
-			ProxyTargets:            exportedProxyTargets,
-			LoadbalanceStrategyName: strategyName,
-			IsEnabled:               model.IsEnabled,
-			Connections:             exportedConnections,
+		exportedConnections = append(exportedConnections, connectionExport{
+			EndpointName:               endpoint.Name,
+			PricingTemplateName:        pricingTemplateName,
+			IsActive:                   connection.IsActive,
+			Priority:                   connection.Priority,
+			Name:                       connection.Name,
+			AuthType:                   connection.AuthType,
+			CustomHeaders:              connection.CustomHeaders,
+			OpenAIProbeEndpointVariant: connection.OpenAIProbeEndpointVariant,
+			QPSLimit:                   connection.QPSLimit,
+			MaxInFlightNonStream:       connection.MaxInFlightNonStream,
+			MaxInFlightStream:          connection.MaxInFlightStream,
 		})
 	}
+	return exportedConnections, nil
+}
 
+func buildConnectionPricingTemplateName(connection connectionRow, pricingTemplateByID map[int]pricingTemplateRow) (*string, error) {
+	if connection.PricingTemplateID == nil {
+		return nil, nil
+	}
+	template, ok := pricingTemplateByID[*connection.PricingTemplateID]
+	if !ok {
+		return nil, fmt.Errorf("load pricing template %d for connection %d", *connection.PricingTemplateID, connection.ID)
+	}
+	return &template.Name, nil
+}
+
+func buildProfileSettingsExport(userSettings *userSettingsRow, fxMappings []endpointFXMappingRow, endpointByID map[int]endpointRow) (profileSettingsExport, error) {
 	reportCurrencyCode := "USD"
 	reportCurrencySymbol := "$"
 	var timezonePreference *string
@@ -347,49 +453,44 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 		reportCurrencySymbol = userSettings.ReportCurrencySymbol
 		timezonePreference = userSettings.TimezonePreference
 	}
+	exportedFXMappings, err := buildEndpointFXMappingExports(fxMappings, endpointByID)
+	if err != nil {
+		return profileSettingsExport{}, err
+	}
+	return profileSettingsExport{
+		ReportCurrencyCode:   reportCurrencyCode,
+		ReportCurrencySymbol: reportCurrencySymbol,
+		TimezonePreference:   timezonePreference,
+		EndpointFXMappings:   exportedFXMappings,
+	}, nil
+}
 
+func buildEndpointFXMappingExports(fxMappings []endpointFXMappingRow, endpointByID map[int]endpointRow) ([]endpointFXMappingExport, error) {
 	exportedFXMappings := make([]endpointFXMappingExport, 0, len(fxMappings))
 	for _, mapping := range fxMappings {
 		endpoint, ok := endpointByID[mapping.EndpointID]
 		if !ok {
-			return profileBundleResponse{}, fmt.Errorf("load endpoint %d for FX mapping %q", mapping.EndpointID, mapping.ModelID)
+			return nil, fmt.Errorf("load endpoint %d for FX mapping %q", mapping.EndpointID, mapping.ModelID)
 		}
 		exportedFXMappings = append(exportedFXMappings, endpointFXMappingExport{ModelID: mapping.ModelID, EndpointName: endpoint.Name, FXRate: mapping.FXRate})
 	}
+	return exportedFXMappings, nil
+}
 
-	exportedHeaderRules := make([]headerBlocklistRuleExport, 0, len(headerRules))
-	for _, rule := range headerRules {
-		exportedHeaderRules = append(exportedHeaderRules, headerBlocklistRuleExport(rule))
+func buildHeaderBlocklistRuleExports(rules []headerBlocklistRuleRow) []headerBlocklistRuleExport {
+	exportedRules := make([]headerBlocklistRuleExport, 0, len(rules))
+	for _, rule := range rules {
+		exportedRules = append(exportedRules, headerBlocklistRuleExport(rule))
 	}
-	exportedUserAgentRules := make([]userAgentClientRuleExport, 0, len(userAgentRules))
-	for _, rule := range userAgentRules {
-		exportedUserAgentRules = append(exportedUserAgentRules, userAgentClientRuleExport(rule))
-	}
+	return exportedRules
+}
 
-	return profileBundleResponse{
-		Version:               canonicalBundleVersion,
-		BundleKind:            canonicalProfileBundleKind,
-		ExportedAt:            exportTime,
-		VendorRefs:            exportedVendorRefs,
-		Endpoints:             exportedEndpoints,
-		PricingTemplates:      exportedPricingTemplates,
-		LoadbalanceStrategies: exportedStrategies,
-		Models:                exportedModels,
-		ProfileSettings: profileSettingsExport{
-			ReportCurrencyCode:   reportCurrencyCode,
-			ReportCurrencySymbol: reportCurrencySymbol,
-			TimezonePreference:   timezonePreference,
-			EndpointFXMappings:   exportedFXMappings,
-		},
-		HeaderBlocklistRules: exportedHeaderRules,
-		UserAgentClientRules: exportedUserAgentRules,
-		SecretPayload: secretPayloadExport{
-			Kind:    "encrypted",
-			Cipher:  bundleSecretCipher,
-			KeyID:   bundleSecretKeyID,
-			Entries: secretEntries,
-		},
-	}, nil
+func buildUserAgentClientRuleExports(rules []userAgentClientRuleRow) []userAgentClientRuleExport {
+	exportedRules := make([]userAgentClientRuleExport, 0, len(rules))
+	for _, rule := range rules {
+		exportedRules = append(exportedRules, userAgentClientRuleExport(rule))
+	}
+	return exportedRules
 }
 
 func listOrderedEndpoints(ctx context.Context, exec queryExecutor, profileID int) ([]endpointRow, error) {

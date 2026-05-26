@@ -190,6 +190,38 @@ func (plan requestPlan) RequestGenerationParamsSnapshot() requestGenerationParam
 	return plan.RequestGenerationParams.clone()
 }
 
+type requestPlanningInput struct {
+	Request         *http.Request
+	RawBody         []byte
+	RuntimeConfig   RuntimeProxyConfigSnapshot
+	OperationMatch  RuntimeOperationMatch
+	ActiveProfileID int
+	Snapshot        *planningSnapshot
+}
+
+type resolvedRequestOperation struct {
+	Match            RuntimeOperationMatch
+	ContentType      string
+	RequestedModelID string
+}
+
+type resolvedExecutionTarget struct {
+	RequestedModel runtimeModelRecord
+	TargetModel    runtimeModelRecord
+	Connections    []runtimeConnection
+	RuntimeStates  map[int]loadbalance.RuntimeConnectionState
+	Strategy       loadbalance.RuntimeStrategy
+}
+
+type plannedUpstreamRequest struct {
+	EffectiveRequestPath    string
+	RawRequestBody          []byte
+	UpstreamBody            []byte
+	IsStreamingRequest      bool
+	ClientHeaders           map[string]string
+	RequestGenerationParams requestGenerationParamsSnapshot
+}
+
 type runtimeRequestBodySource struct {
 	bufferedBody         []byte
 	streamingBody        io.ReadCloser
@@ -291,6 +323,20 @@ type hedgedAttemptResult struct {
 	Outcome executionOutcome
 }
 
+type requestExecutionLimits struct {
+	HedgePolicy loadbalance.RuntimeHedgePolicy
+	MaxAttempts int
+}
+
+type requestExecutionState struct {
+	launchedAttempts    int
+	attempts            []executionAttempt
+	lastError           string
+	lastAdmissionReason string
+	admissionRejections int
+	hedgeUsed           bool
+}
+
 var errHedgeLoserCanceled = errors.New("hedge loser canceled")
 
 const hedgeCanceledAttemptStatusCode = 499
@@ -311,82 +357,129 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 }
 
 func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot) (requestPlan, error) {
-	operationMatch, err := validateResolvedRuntimeOperation(operationMatch, request.Method, request.URL.Path)
+	input := requestPlanningInput{
+		Request:         request,
+		RawBody:         rawBody,
+		RuntimeConfig:   runtimeConfig,
+		OperationMatch:  operationMatch,
+		ActiveProfileID: activeProfileID,
+		Snapshot:        snapshot,
+	}
+	operation, err := resolveRequestOperation(input)
 	if err != nil {
 		return requestPlan{}, err
 	}
-	requestContentType := request.Header.Get("Content-Type")
-	requestedModelID, err := resolveModelIDForOperation(rawBody, requestContentType, operationMatch)
+	target, err := s.resolveRequestPlanTarget(input, operation)
 	if err != nil {
 		return requestPlan{}, err
 	}
+	upstreamRequest, err := buildPlannedUpstreamRequest(input, operation, target.TargetModel)
+	if err != nil {
+		return requestPlan{}, err
+	}
+	return assembleRequestPlan(input, operation, target, upstreamRequest), nil
+}
 
-	requestedModel, found := snapshot.ModelsByID[requestedModelID]
+func resolveRequestOperation(input requestPlanningInput) (resolvedRequestOperation, error) {
+	operationMatch, err := validateResolvedRuntimeOperation(input.OperationMatch, input.Request.Method, input.Request.URL.Path)
+	if err != nil {
+		return resolvedRequestOperation{}, err
+	}
+	requestContentType := input.Request.Header.Get("Content-Type")
+	requestedModelID, err := resolveModelIDForOperation(input.RawBody, requestContentType, operationMatch)
+	if err != nil {
+		return resolvedRequestOperation{}, err
+	}
+	return resolvedRequestOperation{Match: operationMatch, ContentType: requestContentType, RequestedModelID: requestedModelID}, nil
+}
+
+func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation resolvedRequestOperation) (resolvedExecutionTarget, error) {
+	requestedModel, found := input.Snapshot.ModelsByID[operation.RequestedModelID]
 	if !found {
-		return requestPlan{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", requestedModelID)}
+		return resolvedExecutionTarget{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", operation.RequestedModelID)}
 	}
 
-	targetModel, connections, runtimeStates, strategy, err := s.resolveExecutionTargetFromSnapshot(activeProfileID, snapshot, requestedModel, s.nowUTC())
+	targetModel, connections, runtimeStates, strategy, err := s.resolveExecutionTargetFromSnapshot(input.ActiveProfileID, input.Snapshot, requestedModel, s.nowUTC())
 	if err != nil {
-		return requestPlan{}, err
+		return resolvedExecutionTarget{}, err
 	}
-	if err := validateOperationAPIFamily(operationMatch.Operation, targetModel); err != nil {
-		return requestPlan{}, err
+	if err := validateOperationAPIFamily(operation.Match.Operation, targetModel); err != nil {
+		return resolvedExecutionTarget{}, err
 	}
 
-	orderedConnectionIDs, err := loadbalance.OrderConnectionIDs(activeProfileID, targetModel.ID, strategy, toConnectionOrderCandidates(connections), runtimeStates, s.runtimeState, s.nowUTC())
+	orderedConnectionIDs, err := loadbalance.OrderConnectionIDs(input.ActiveProfileID, targetModel.ID, strategy, toConnectionOrderCandidates(connections), runtimeStates, s.runtimeState, s.nowUTC())
 	if err != nil {
-		return requestPlan{}, err
+		return resolvedExecutionTarget{}, err
 	}
 	orderedConnections := orderConnectionsByID(connections, orderedConnectionIDs)
 	if len(orderedConnections) == 0 {
-		return requestPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
+		return resolvedExecutionTarget{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", operation.RequestedModelID)}
 	}
 
-	effectiveRequestPath := request.URL.Path
-	upstreamBody := rawBody
-	switch operationMatch.Operation.ModelBindingSource {
+	return resolvedExecutionTarget{
+		RequestedModel: requestedModel,
+		TargetModel:    targetModel,
+		Connections:    orderedConnections,
+		RuntimeStates:  runtimeStates,
+		Strategy:       strategy,
+	}, nil
+}
+
+func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, targetModel runtimeModelRecord) (plannedUpstreamRequest, error) {
+	effectiveRequestPath := input.Request.URL.Path
+	upstreamBody := input.RawBody
+	switch operation.Match.Operation.ModelBindingSource {
 	case RuntimeOperationModelBindingPath:
-		pathModelID := strings.TrimSpace(operationMatch.PathParams["model"])
+		pathModelID := strings.TrimSpace(operation.Match.PathParams["model"])
 		if pathModelID != "" && pathModelID != targetModel.ModelID {
-			effectiveRequestPath = rewriteModelInPath(request.URL.Path, pathModelID, targetModel.ModelID)
+			effectiveRequestPath = rewriteModelInPath(input.Request.URL.Path, pathModelID, targetModel.ModelID)
 		}
 	case RuntimeOperationModelBindingBody:
-		if bodyModelID := extractModelFromBodyForOperation(rawBody, requestContentType, operationMatch.Operation); bodyModelID != "" && bodyModelID != targetModel.ModelID {
-			upstreamBody = rewriteModelInBodyForOperation(rawBody, requestContentType, operationMatch.Operation, targetModel.ModelID)
+		if bodyModelID := extractModelFromBodyForOperation(input.RawBody, operation.ContentType, operation.Match.Operation); bodyModelID != "" && bodyModelID != targetModel.ModelID {
+			upstreamBody = rewriteModelInBodyForOperation(input.RawBody, operation.ContentType, operation.Match.Operation, targetModel.ModelID)
 		}
 	default:
-		return requestPlan{}, unsupportedOperationModelBindingError(operationMatch.Operation)
+		return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
 	}
 
-	requestGenerationParams := extractBufferedRequestGenerationParams(operationMatch.Operation, rawBody)
-	return requestPlan{
-		RequestedModelID:            requestedModelID,
-		ResolvedTargetModelID:       stringPointerIfNotEmpty(targetModel.ModelID),
-		ResolvedPricingModelID:      strings.TrimSpace(targetModel.ModelID),
-		RequestedVendorID:           requestedModel.VendorID,
-		RequestedVendorKey:          requestedModel.VendorKey,
-		RequestedVendorName:         requestedModel.VendorName,
-		ProfileID:                   activeProfileID,
-		APIFamily:                   targetModel.APIFamily,
-		RuntimeOperation:            operationMatch.Operation,
-		RuntimeOperationPathParams:  cloneStringMap(operationMatch.PathParams),
-		AuditEnabledAtRequest:       targetModel.AuditEnabled,
-		AuditCaptureBodiesAtRequest: targetModel.AuditEnabled && targetModel.AuditCaptureBodies,
-		ReportCurrencySnapshot:      snapshot.ReportCurrency,
-		EffectiveRequestPath:        effectiveRequestPath,
-		RawRequestBody:              rawBody,
-		UpstreamBody:                upstreamBody,
-		IsStreamingRequest:          requestWantsStreamForOperation(operationMatch.Operation, rawBody, effectiveRequestPath),
-		Connections:                 orderedConnections,
-		RuntimeStates:               runtimeStates,
-		BlocklistRules:              snapshot.BlocklistRules,
-		ClientHeaders:               flattenHeaders(request.Header),
-		FailoverStatusCodes:         strategy.FailoverStatusCodes(),
-		Strategy:                    strategy,
-		RequestGenerationParams:     requestGenerationParams,
-		HTTPClient:                  runtimeConfig.HTTPClient,
+	return plannedUpstreamRequest{
+		EffectiveRequestPath:    effectiveRequestPath,
+		RawRequestBody:          input.RawBody,
+		UpstreamBody:            upstreamBody,
+		IsStreamingRequest:      requestWantsStreamForOperation(operation.Match.Operation, input.RawBody, effectiveRequestPath),
+		ClientHeaders:           flattenHeaders(input.Request.Header),
+		RequestGenerationParams: extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody),
 	}, nil
+}
+
+func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOperation, target resolvedExecutionTarget, upstreamRequest plannedUpstreamRequest) requestPlan {
+	return requestPlan{
+		RequestedModelID:            operation.RequestedModelID,
+		ResolvedTargetModelID:       stringPointerIfNotEmpty(target.TargetModel.ModelID),
+		ResolvedPricingModelID:      strings.TrimSpace(target.TargetModel.ModelID),
+		RequestedVendorID:           target.RequestedModel.VendorID,
+		RequestedVendorKey:          target.RequestedModel.VendorKey,
+		RequestedVendorName:         target.RequestedModel.VendorName,
+		ProfileID:                   input.ActiveProfileID,
+		APIFamily:                   target.TargetModel.APIFamily,
+		RuntimeOperation:            operation.Match.Operation,
+		RuntimeOperationPathParams:  cloneStringMap(operation.Match.PathParams),
+		AuditEnabledAtRequest:       target.TargetModel.AuditEnabled,
+		AuditCaptureBodiesAtRequest: target.TargetModel.AuditEnabled && target.TargetModel.AuditCaptureBodies,
+		ReportCurrencySnapshot:      input.Snapshot.ReportCurrency,
+		EffectiveRequestPath:        upstreamRequest.EffectiveRequestPath,
+		RawRequestBody:              upstreamRequest.RawRequestBody,
+		UpstreamBody:                upstreamRequest.UpstreamBody,
+		IsStreamingRequest:          upstreamRequest.IsStreamingRequest,
+		Connections:                 target.Connections,
+		RuntimeStates:               target.RuntimeStates,
+		BlocklistRules:              input.Snapshot.BlocklistRules,
+		ClientHeaders:               upstreamRequest.ClientHeaders,
+		FailoverStatusCodes:         target.Strategy.FailoverStatusCodes(),
+		Strategy:                    target.Strategy,
+		RequestGenerationParams:     upstreamRequest.RequestGenerationParams,
+		HTTPClient:                  input.RuntimeConfig.HTTPClient,
+	}
 }
 
 func runtimeSnapshotDomainError(err error) error {
@@ -478,103 +571,147 @@ func orderConnectionsByID(connections []runtimeConnection, orderedIDs []int) []r
 }
 
 func (s *Service) executeRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, bodySource *runtimeRequestBodySource) (executionResult, error) {
-	launchedAttempts := 0
-	attempts := make([]executionAttempt, 0, len(plan.Connections))
-	lastError := ""
-	lastAdmissionReason := ""
-	admissionRejections := 0
-	hedgePolicy := plan.Strategy.HedgePolicy()
-	hedgeUsed := false
-	maxAttempts := len(plan.Connections)
-	if strings.EqualFold(strings.TrimSpace(plan.Strategy.StrategyType), "adaptive") {
-		maxAttempts = max(minInt(maxAttempts, hedgePolicy.MaxAdditionalAttempts+1), 1)
-	}
+	state := newRequestExecutionState(plan)
+	limits := requestExecutionLimitsForPlan(plan)
 
 	for index := 0; index < len(plan.Connections); index++ {
-		remainingLaunchCapacity := maxAttempts - launchedAttempts
-		if remainingLaunchCapacity <= 0 {
+		if limits.remainingLaunchCapacity(state) <= 0 {
 			break
 		}
-		if !hedgeUsed && hedgePolicy.Enabled && remainingLaunchCapacity >= 2 && len(plan.Connections)-index >= 2 {
-			hedged, err := s.executeHedgedRequest(ctx, method, plan, requestQuery, index, hedgePolicy, bodySource)
+		if limits.shouldHedge(plan, state, index) {
+			hedged, err := s.executeHedgedRequest(ctx, method, plan, requestQuery, index, limits.HedgePolicy, bodySource)
 			if err != nil {
 				return executionResult{}, err
 			}
-			hedgeUsed = true
-			launchedAttempts += hedged.LaunchedAttempts
-			attempts = append(attempts, hedged.Attempts...)
-			admissionRejections += hedged.AdmissionRejections
-			if strings.TrimSpace(hedged.LastAdmissionReason) != "" {
-				lastAdmissionReason = hedged.LastAdmissionReason
-			}
-			if strings.TrimSpace(hedged.LastError) != "" {
-				lastError = hedged.LastError
-			}
+			state.recordHedgedResult(hedged)
 			if hedged.Winner != nil {
-				winner := hedged.Winner
-				if winner.Response.StatusCode >= 200 && winner.Response.StatusCode <= 299 && winner.Launched {
-					s.recordRuntimeSuccess(plan.ProfileID, winner.Connection, plan.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt)
-				}
-				return executionResult{Response: winner.Response, Connection: winner.Connection, RequestHeaders: winner.RequestHeaders, AttemptCount: launchedAttempts, Attempts: attempts}, nil
+				return s.executionResultForHedgedWinner(plan, state, hedged.Winner), nil
 			}
 			index += hedged.ConsumedConnections - 1
 			continue
 		}
 
 		outcome := s.executeSingleAttempt(ctx, method, plan, requestQuery, plan.Connections[index], bodySource)
-		if outcome.FatalError != nil {
-			return executionResult{}, outcome.FatalError
+		result, done, err := s.handleSingleExecutionOutcome(plan, &state, outcome, index, limits.MaxAttempts)
+		if err != nil {
+			return executionResult{}, err
 		}
-		if outcome.ProbeEligibleRecord != nil {
-			s.recordRuntimeProbeEligible(plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC())
+		if done {
+			return result, nil
 		}
-		if outcome.Skipped {
-			continue
-		}
-		if outcome.AdmissionReason != "" {
-			admissionRejections++
-			lastAdmissionReason = outcome.AdmissionReason
-			continue
-		}
-		if outcome.Launched {
-			launchedAttempts++
-			attempts = append(attempts, outcome.Attempt)
-		}
-		if outcome.Err != nil {
-			lastError = outcome.Err.Error()
-			if outcome.Launched && !outcome.SuppressTransportFeedback {
-				s.recordRuntimeTransportFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
-			}
-			continue
-		}
-		if outcome.FailoverEligible && outcome.Launched {
-			s.recordRuntimeFailoverHTTPFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
-		}
-		if outcome.FailoverEligible && index < len(plan.Connections)-1 && launchedAttempts < maxAttempts {
-			lastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
-			_ = outcome.Response.Body.Close()
-			continue
-		}
-		if outcome.Response.StatusCode >= 200 && outcome.Response.StatusCode <= 299 && outcome.Launched {
-			s.recordRuntimeSuccess(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt)
-		}
-		return executionResult{Response: outcome.Response, Connection: outcome.Connection, RequestHeaders: outcome.RequestHeaders, AttemptCount: launchedAttempts, Attempts: attempts}, nil
 	}
+	return state.failureResult(plan)
+}
 
+func newRequestExecutionState(plan requestPlan) requestExecutionState {
+	return requestExecutionState{attempts: make([]executionAttempt, 0, len(plan.Connections))}
+}
+
+func requestExecutionLimitsForPlan(plan requestPlan) requestExecutionLimits {
+	hedgePolicy := plan.Strategy.HedgePolicy()
+	maxAttempts := len(plan.Connections)
+	if strings.EqualFold(strings.TrimSpace(plan.Strategy.StrategyType), "adaptive") {
+		maxAttempts = max(minInt(maxAttempts, hedgePolicy.MaxAdditionalAttempts+1), 1)
+	}
+	return requestExecutionLimits{HedgePolicy: hedgePolicy, MaxAttempts: maxAttempts}
+}
+
+func (limits requestExecutionLimits) remainingLaunchCapacity(state requestExecutionState) int {
+	return limits.MaxAttempts - state.launchedAttempts
+}
+
+func (limits requestExecutionLimits) shouldHedge(plan requestPlan, state requestExecutionState, index int) bool {
+	return !state.hedgeUsed && limits.HedgePolicy.Enabled && limits.remainingLaunchCapacity(state) >= 2 && len(plan.Connections)-index >= 2
+}
+
+func (state *requestExecutionState) recordHedgedResult(hedged hedgedExecutionResult) {
+	state.hedgeUsed = true
+	state.launchedAttempts += hedged.LaunchedAttempts
+	state.attempts = append(state.attempts, hedged.Attempts...)
+	state.admissionRejections += hedged.AdmissionRejections
+	if strings.TrimSpace(hedged.LastAdmissionReason) != "" {
+		state.lastAdmissionReason = hedged.LastAdmissionReason
+	}
+	if strings.TrimSpace(hedged.LastError) != "" {
+		state.lastError = hedged.LastError
+	}
+}
+
+func (state *requestExecutionState) recordAdmissionRejection(reason string) {
+	state.admissionRejections++
+	state.lastAdmissionReason = reason
+}
+
+func (state *requestExecutionState) recordLaunchedAttempt(outcome executionOutcome) {
+	state.launchedAttempts++
+	state.attempts = append(state.attempts, outcome.Attempt)
+}
+
+func (state *requestExecutionState) result(response *http.Response, connection runtimeConnection, headers map[string]string) executionResult {
+	return executionResult{Response: response, Connection: connection, RequestHeaders: headers, AttemptCount: state.launchedAttempts, Attempts: state.attempts}
+}
+
+func (state *requestExecutionState) failureResult(plan requestPlan) (executionResult, error) {
 	if len(plan.Connections) == 0 {
 		return executionResult{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", plan.RequestedModelID)}
 	}
-	if launchedAttempts == 0 && admissionRejections > 0 {
+	if state.launchedAttempts == 0 && state.admissionRejections > 0 {
 		detail := fmt.Sprintf("All connections rejected for model '%s' because admission limits are exhausted.", plan.RequestedModelID)
-		if strings.TrimSpace(lastAdmissionReason) != "" {
-			detail = fmt.Sprintf("All connections rejected for model '%s' because admission limit '%s' is exhausted.", plan.RequestedModelID, lastAdmissionReason)
+		if strings.TrimSpace(state.lastAdmissionReason) != "" {
+			detail = fmt.Sprintf("All connections rejected for model '%s' because admission limit '%s' is exhausted.", plan.RequestedModelID, state.lastAdmissionReason)
 		}
 		return executionResult{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: detail}
 	}
+	lastError := state.lastError
 	if strings.TrimSpace(lastError) == "" {
 		lastError = "Unknown upstream failure"
 	}
 	return executionResult{}, &domainError{StatusCode: http.StatusBadGateway, Detail: fmt.Sprintf("All connections failed for model '%s'. Last error: %s", plan.RequestedModelID, lastError)}
+}
+
+func (s *Service) executionResultForHedgedWinner(plan requestPlan, state requestExecutionState, winner *executionOutcome) executionResult {
+	if winner.Response.StatusCode >= 200 && winner.Response.StatusCode <= 299 && winner.Launched {
+		s.recordRuntimeSuccess(plan.ProfileID, winner.Connection, plan.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt)
+	}
+	return state.result(winner.Response, winner.Connection, winner.RequestHeaders)
+}
+
+func (s *Service) handleSingleExecutionOutcome(plan requestPlan, state *requestExecutionState, outcome executionOutcome, index int, maxAttempts int) (executionResult, bool, error) {
+	if outcome.FatalError != nil {
+		return executionResult{}, false, outcome.FatalError
+	}
+	if outcome.ProbeEligibleRecord != nil {
+		s.recordRuntimeProbeEligible(plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC())
+	}
+	if outcome.Skipped {
+		return executionResult{}, false, nil
+	}
+	if outcome.AdmissionReason != "" {
+		state.recordAdmissionRejection(outcome.AdmissionReason)
+		return executionResult{}, false, nil
+	}
+	if outcome.Launched {
+		state.recordLaunchedAttempt(outcome)
+	}
+	if outcome.Err != nil {
+		state.lastError = outcome.Err.Error()
+		if outcome.Launched && !outcome.SuppressTransportFeedback {
+			s.recordRuntimeTransportFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
+		}
+		return executionResult{}, false, nil
+	}
+	if outcome.FailoverEligible && outcome.Launched {
+		s.recordRuntimeFailoverHTTPFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
+	}
+	if outcome.FailoverEligible && index < len(plan.Connections)-1 && state.launchedAttempts < maxAttempts {
+		state.lastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
+		_ = outcome.Response.Body.Close()
+		return executionResult{}, false, nil
+	}
+	if outcome.Response.StatusCode >= 200 && outcome.Response.StatusCode <= 299 && outcome.Launched {
+		s.recordRuntimeSuccess(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt)
+	}
+	return state.result(outcome.Response, outcome.Connection, outcome.RequestHeaders), true, nil
 }
 
 func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, startIndex int, hedgePolicy loadbalance.RuntimeHedgePolicy, bodySource *runtimeRequestBodySource) (hedgedExecutionResult, error) {
