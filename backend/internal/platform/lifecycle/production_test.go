@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -9,31 +10,77 @@ import (
 	"time"
 
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
+	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 func TestProductionCleanupOrdersSideEffectDrainBeforeSchedulerStopAndDBCloseLast(t *testing.T) {
+	const workerName background.WorkerName = "setup-cleanup-test"
+	scheduler := background.NewScheduler(background.Config{})
+	if err := scheduler.Register(background.WorkerSpec{
+		Name:           workerName,
+		Priority:       background.PriorityLowBackground,
+		DrainPolicy:    background.DrainFinishRunning,
+		CoalescePolicy: background.CoalesceNone,
+	}, func(context.Context, background.Job) background.JobResult {
+		return background.JobResult{Status: background.JobSucceeded}
+	}); err != nil {
+		t.Fatalf("register cleanup test worker: %v", err)
+	}
+
+	sideEffectErr := errors.New("side effect drain failed")
 	var events []string
-	record := func(name string) ShutdownHook {
-		return func(context.Context) error {
+	record := func(name string, err error) ShutdownHook {
+		return func(ctx context.Context) error {
+			assertSetupFailureCleanupContext(t, ctx)
 			events = append(events, name)
-			return nil
+			return err
 		}
 	}
 	resources := &productionResources{
-		realtimeShutdown: []ShutdownHook{record("realtime close")},
-		sideEffectDrain:  []ShutdownHook{record("side effect drain")},
-		serviceClose:     []ShutdownHook{record("service close")},
-		dbClose:          record("db close"),
+		scheduler:        scheduler,
+		realtimeShutdown: []ShutdownHook{record("realtime close", nil)},
+		sideEffectDrain:  []ShutdownHook{record("side effect drain", sideEffectErr)},
+		serviceClose: []ShutdownHook{func(ctx context.Context) error {
+			assertSetupFailureCleanupContext(t, ctx)
+			result := scheduler.Submit(ctx, background.JobRequest{Worker: workerName})
+			if result.Status != background.SubmitRejectedStopping {
+				t.Fatalf("scheduler submit during service close status = %q, want %q", result.Status, background.SubmitRejectedStopping)
+			}
+			events = append(events, "service close")
+			return nil
+		}},
+		dbClose: record("db close", nil),
 	}
-	if err := resources.cleanup(context.Background()); err != nil {
-		t.Fatalf("cleanup: %v", err)
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), setupFailureCleanupContextKey{}, "setup-failure"))
+	cancel()
+
+	err := resources.cleanupForSetupFailure(ctx)
+	if !errors.Is(err, sideEffectErr) {
+		t.Fatalf("cleanup error %v does not include %v", err, sideEffectErr)
 	}
 	want := []string{"realtime close", "side effect drain", "service close", "db close"}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("cleanup order = %v, want %v", events, want)
 	}
 }
+
+func assertSetupFailureCleanupContext(t *testing.T, ctx context.Context) {
+	t.Helper()
+	select {
+	case <-ctx.Done():
+		t.Fatalf("setup-failure cleanup hook received canceled context: %v", ctx.Err())
+	default:
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("setup-failure cleanup hook did not receive a deadline")
+	}
+	if got := ctx.Value(setupFailureCleanupContextKey{}); got != "setup-failure" {
+		t.Fatalf("setup-failure cleanup context value = %v, want setup-failure", got)
+	}
+}
+
+type setupFailureCleanupContextKey struct{}
 
 func TestRuntimeSideEffectOptionsFromSettings(t *testing.T) {
 	settings := config.Settings{RuntimeSideEffectsConfig: config.RuntimeSideEffectsConfig{AttemptTimeout: 17 * time.Second}}
