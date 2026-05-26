@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -225,6 +226,11 @@ func (s *Store) GetGlobalJob(ctx context.Context, id string) (Job, error) {
 	return scanJob(row)
 }
 
+func (s *Store) getGlobalJobByType(ctx context.Context, id string, jobType string) (Job, error) {
+	row := s.pool.QueryRow(ctx, `SELECT id, type, state, requested_by, requested_at, profile_id, started_at, finished_at, scope_json, reason, COALESCE(rows_matched_estimate, 0), rows_deleted, batches_completed, COALESCE(progress_json->>'last_cursor', ''), attempt_count, last_heartbeat_at, cancel_requested, error_code, error_message FROM management_jobs WHERE id = $1 AND profile_id = 0 AND type = $2`, id, jobType)
+	return scanJob(row)
+}
+
 func (s *Store) ListJobs(ctx context.Context, profileID int, limit int) (JobListResponse, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -254,8 +260,29 @@ func (s *Store) CancelJob(ctx context.Context, id string, profileID int) (Job, e
 	if err != nil {
 		return Job{}, err
 	}
+	job, err := s.GetJob(ctx, id, profileID)
+	if err != nil {
+		return Job{}, err
+	}
 	_ = s.appendEvent(ctx, id, "cancel_requested", "operator requested cancellation", 0)
-	return s.GetJob(ctx, id, profileID)
+	return job, nil
+}
+
+func (s *Store) CancelGlobalLogRetentionJob(ctx context.Context, id string) (Job, error) {
+	_, err := s.pool.Exec(ctx, `UPDATE management_jobs SET cancel_requested = TRUE, state = CASE WHEN state = 'queued' THEN 'cancelled' ELSE 'cancel_requested' END, finished_at = CASE WHEN state = 'queued' THEN now() ELSE finished_at END, updated_at = now() WHERE id = $1 AND profile_id = 0 AND type = $2 AND state IN ('queued', 'running')`, id, TypeLogRetention)
+	if err != nil {
+		return Job{}, err
+	}
+	job, err := s.getGlobalJobByType(ctx, id, TypeLogRetention)
+	if err != nil {
+		return Job{}, err
+	}
+	_ = s.appendEvent(ctx, id, "cancel_requested", "operator requested cancellation", 0)
+	return job, nil
+}
+
+func IsNotFound(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows)
 }
 
 func (s *Store) handleScheduledJobs(ctx context.Context, _ background.Job) background.JobResult {

@@ -144,9 +144,17 @@ func (s *Service) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	job, err := s.jobs.CancelJob(r.Context(), chi.URLParam(r, "job_id"), profile.ID)
+	jobID := chi.URLParam(r, "job_id")
+	job, err := s.jobs.CancelJob(r.Context(), jobID, profile.ID)
+	if err != nil && managementjobs.IsNotFound(err) {
+		job, err = s.jobs.CancelGlobalLogRetentionJob(r.Context(), jobID)
+	}
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Job not found")
+		if managementjobs.IsNotFound(err) {
+			writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Job not found")
+			return
+		}
+		writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, job)

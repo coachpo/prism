@@ -22,6 +22,7 @@ import (
 
 	auditdomain "github.com/coachpo/prism/backend/internal/domain/audit"
 	"github.com/coachpo/prism/backend/internal/domain/stats"
+	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -135,6 +136,88 @@ func TestLogRetentionSettingsAndJobRoutesAreGlobal(t *testing.T) {
 	scope, ok := jobPayload["scope"].(map[string]any)
 	if !ok || scope["table"] != "loadbalance_events" || scope["cutoff"] == nil {
 		t.Fatalf("expected loadbalance retention job cutoff fallback, got %+v", jobPayload)
+	}
+}
+
+func TestManagementGlobalQueuedLogRetentionCancel(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	store, pool, profileID := phase7JobStore(t, ctx, "global_queued_cancel")
+	defer pool.Close()
+	job := phase7CreateLogRetentionJob(t, ctx, store, "global-queued-cancel")
+	service, err := managementaudit.NewService(config.Settings{}, managementaudit.Options{Pool: pool, Jobs: store, Now: func() time.Time { return phase7Now }})
+	if err != nil {
+		t.Fatalf("create audit service: %v", err)
+	}
+	router := chiRouterForAudit(service)
+	request := httptest.NewRequest(http.MethodPost, "/management/jobs/"+job.ID+"/cancel", nil)
+	request.Header.Set("X-Profile-Id", fmt.Sprintf("%d", profileID))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("POST global queued cancel status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	cancelled, err := store.GetGlobalJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("reload global queued job: %v", err)
+	}
+	if cancelled.State != "cancelled" || !cancelled.CancelRequested || cancelled.FinishedAt == nil {
+		t.Fatalf("expected queued global log retention job to cancel, got %+v", cancelled)
+	}
+	if events := phase7CountRows(t, ctx, pool, `SELECT COUNT(*) FROM management_job_events WHERE job_id = $1 AND event_type = 'cancel_requested'`, job.ID); events != 1 {
+		t.Fatalf("expected one cancel_requested event for queued global job, got %d", events)
+	}
+}
+
+func TestManagementGlobalRunningLogRetentionCancel(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	store, pool, profileID := phase7JobStore(t, ctx, "global_running_cancel")
+	defer pool.Close()
+	job := phase7CreateLogRetentionJob(t, ctx, store, "global-running-cancel")
+	if _, err := pool.Exec(ctx, `UPDATE management_jobs SET state = 'running', locked_by = 'phase7-worker', locked_until = now() + interval '5 minutes', last_heartbeat_at = now(), updated_at = now() WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("seed running global job: %v", err)
+	}
+	service, err := managementaudit.NewService(config.Settings{}, managementaudit.Options{Pool: pool, Jobs: store, Now: func() time.Time { return phase7Now }})
+	if err != nil {
+		t.Fatalf("create audit service: %v", err)
+	}
+	router := chiRouterForAudit(service)
+	request := httptest.NewRequest(http.MethodPost, "/management/jobs/"+job.ID+"/cancel", nil)
+	request.Header.Set("X-Profile-Id", fmt.Sprintf("%d", profileID))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("POST global running cancel status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	cancelled, err := store.GetGlobalJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("reload global running job: %v", err)
+	}
+	if cancelled.State != "cancel_requested" || !cancelled.CancelRequested || cancelled.FinishedAt != nil {
+		t.Fatalf("expected running global log retention job to request cancellation, got %+v", cancelled)
+	}
+}
+
+func TestManagementGlobalCancelPreservesProfileStoreErrors(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	store, pool, profileID := phase7JobStore(t, ctx, "global_cancel_store_error")
+	defer pool.Close()
+	service, err := managementaudit.NewService(config.Settings{}, managementaudit.Options{Pool: pool, Jobs: store, Now: func() time.Time { return phase7Now }})
+	if err != nil {
+		t.Fatalf("create audit service: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE management_jobs RENAME TO management_jobs_unavailable`); err != nil {
+		t.Fatalf("break management job store: %v", err)
+	}
+	router := chiRouterForAudit(service)
+	request := httptest.NewRequest(http.MethodPost, "/management/jobs/job_missing/cancel", nil)
+	request.Header.Set("X-Profile-Id", fmt.Sprintf("%d", profileID))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError || strings.Contains(recorder.Body.String(), "Job not found") {
+		t.Fatalf("expected profile cancel store error to remain 500, got status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -688,6 +771,12 @@ func chiRouterForSettings(service *managementsettings.Service) http.Handler {
 	return router
 }
 
+func chiRouterForAudit(service *managementaudit.Service) http.Handler {
+	router := chi.NewRouter()
+	service.MountManagementRoutes(router)
+	return router
+}
+
 func chiRouterForStats(service *managementstats.Service) http.Handler {
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
@@ -740,6 +829,16 @@ func phase7CreateDeleteJob(t *testing.T, ctx context.Context, store *managementj
 	job, err := store.CreateAuditDeleteJob(ctx, managementjobs.CreateAuditDeleteJobRequest{ProfileID: profileID, RequestedBy: fmt.Sprintf("profile:%d", profileID), IdempotencyKey: key, Reason: "retention cleanup", Scope: managementjobs.AuditDeleteScope{Before: &before, DeleteAll: deleteAll}})
 	if err != nil {
 		t.Fatalf("create audit delete job: %v", err)
+	}
+	return job
+}
+
+func phase7CreateLogRetentionJob(t *testing.T, ctx context.Context, store *managementjobs.Store, key string) managementjobs.Job {
+	t.Helper()
+	cutoff := phase7Now.Add(-24 * time.Hour)
+	job, err := store.CreateLogRetentionJob(ctx, managementjobs.CreateLogRetentionJobRequest{RequestedBy: "global", IdempotencyKey: key, Reason: "global retention cleanup", Scope: managementjobs.LogRetentionScope{Table: "request_logs", Cutoff: &cutoff}})
+	if err != nil {
+		t.Fatalf("create log retention job: %v", err)
 	}
 	return job
 }
