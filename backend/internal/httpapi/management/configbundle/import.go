@@ -309,57 +309,113 @@ func validateProfileImportRequest(data profileImportRequest) error {
 	if err := validateProfileBundleEnvelope(data); err != nil {
 		return err
 	}
-	if data.SecretPayload.Kind != "encrypted" {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "Config import secret payload kind must be 'encrypted'"}
-	}
-	if data.SecretPayload.Cipher != bundleSecretCipher {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Config import secret payload cipher must be '%s'", bundleSecretCipher)}
+	if err := validateImportedSecretPayloadEnvelope(data.SecretPayload); err != nil {
+		return err
 	}
 
+	vendorKeys, err := validateImportedVendorRefs(data.VendorRefs)
+	if err != nil {
+		return err
+	}
+	endpointNames, endpointSecretRefs, err := validateImportedEndpoints(data.Endpoints)
+	if err != nil {
+		return err
+	}
+	if err := validateImportedSecretRefs(data.SecretPayload, endpointSecretRefs); err != nil {
+		return err
+	}
+	pricingTemplateNames, err := validateImportedPricingTemplates(data.PricingTemplates)
+	if err != nil {
+		return err
+	}
+	strategyNames, err := validateImportedLoadbalanceStrategies(data.LoadbalanceStrategies)
+	if err != nil {
+		return err
+	}
+
+	modelRefs := profileImportModelValidationRefs{
+		vendorKeys:           vendorKeys,
+		endpointNames:        endpointNames,
+		pricingTemplateNames: pricingTemplateNames,
+		strategyNames:        strategyNames,
+	}
+	nativeModelFamilies, importedConnectionPairs, err := validateImportedModels(data.Models, modelRefs)
+	if err != nil {
+		return err
+	}
+	if err := validateImportedProxyTargetReferences(data.Models, nativeModelFamilies); err != nil {
+		return err
+	}
+	if err := validateImportedProfileSettings(data.ProfileSettings, endpointNames, importedConnectionPairs); err != nil {
+		return err
+	}
+	if err := validateImportedHeaderBlocklistRules(data.HeaderBlocklistRules); err != nil {
+		return err
+	}
+	return validateImportedUserAgentClientRules(data.UserAgentClientRules)
+}
+
+func validateImportedSecretPayloadEnvelope(secretPayload secretPayloadExport) error {
+	if secretPayload.Kind != "encrypted" {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "Config import secret payload kind must be 'encrypted'"}
+	}
+	if secretPayload.Cipher != bundleSecretCipher {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Config import secret payload cipher must be '%s'", bundleSecretCipher)}
+	}
+	return nil
+}
+
+func validateImportedVendorRefs(vendorRefs []vendorRefExport) (map[string]struct{}, error) {
 	vendorKeys := map[string]struct{}{}
-	for _, vendor := range data.VendorRefs {
+	for _, vendor := range vendorRefs {
 		key := strings.TrimSpace(vendor.Key)
 		if key == "" {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "Vendor key must not be empty"}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "Vendor key must not be empty"}
 		}
 		if _, ok := vendorKeys[key]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate vendor key: '%s'", key)}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate vendor key: '%s'", key)}
 		}
 		vendorKeys[key] = struct{}{}
 	}
+	return vendorKeys, nil
+}
 
+func validateImportedEndpoints(endpoints []endpointExport) (map[string]struct{}, map[string]struct{}, error) {
 	endpointNames := map[string]struct{}{}
 	endpointSecretRefs := map[string]struct{}{}
-	for _, endpoint := range data.Endpoints {
+	for _, endpoint := range endpoints {
 		name := strings.TrimSpace(endpoint.Name)
 		if name == "" {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "Endpoint name must not be empty"}
+			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "Endpoint name must not be empty"}
 		}
 		if _, ok := endpointNames[name]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate endpoint name: '%s'", name)}
+			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate endpoint name: '%s'", name)}
 		}
 		endpointNames[name] = struct{}{}
 		if warnings := endpointdomain.ValidateBaseURL(endpointdomain.NormalizeBaseURL(endpoint.BaseURL)); len(warnings) > 0 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Endpoint '%s' has invalid base_url: %s", name, strings.Join(warnings, "; "))}
+			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Endpoint '%s' has invalid base_url: %s", name, strings.Join(warnings, "; "))}
 		}
 		if endpoint.Position < 0 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Endpoint '%s' has invalid position '%d'", name, endpoint.Position)}
+			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Endpoint '%s' has invalid position '%d'", name, endpoint.Position)}
 		}
 
 		if endpoint.APIKeySecretRef != nil {
 			secretRef := strings.TrimSpace(*endpoint.APIKeySecretRef)
 			if secretRef == "" {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Endpoint '%s' has invalid api_key_secret_ref", name)}
+				return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Endpoint '%s' has invalid api_key_secret_ref", name)}
 			}
 			if _, ok := endpointSecretRefs[secretRef]; ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate endpoint api_key_secret_ref: '%s'", secretRef)}
+				return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate endpoint api_key_secret_ref: '%s'", secretRef)}
 			}
 			endpointSecretRefs[secretRef] = struct{}{}
 		}
 	}
+	return endpointNames, endpointSecretRefs, nil
+}
 
+func validateImportedSecretRefs(secretPayload secretPayloadExport, endpointSecretRefs map[string]struct{}) error {
 	secretRefs := map[string]struct{}{}
-	for _, entry := range data.SecretPayload.Entries {
+	for _, entry := range secretPayload.Entries {
 		ref := strings.TrimSpace(entry.Ref)
 		if _, ok := secretRefs[ref]; ok {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate secret ref: '%s'", ref)}
@@ -376,158 +432,208 @@ func validateProfileImportRequest(data profileImportRequest) error {
 		sort.Strings(missingSecretRefs)
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Import is missing encrypted secret payload entries for refs: %s", strings.Join(missingSecretRefs, ", "))}
 	}
+	return nil
+}
 
+func validateImportedPricingTemplates(templates []pricingTemplateExport) (map[string]struct{}, error) {
 	pricingTemplateNames := map[string]struct{}{}
-	for _, template := range data.PricingTemplates {
+	for _, template := range templates {
 		name := strings.TrimSpace(template.Name)
 		if name == "" {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "Pricing template name must not be empty"}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "Pricing template name must not be empty"}
 		}
 		if _, ok := pricingTemplateNames[name]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate pricing template name: '%s'", name)}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate pricing template name: '%s'", name)}
 		}
 		if _, err := normalizeImportedPricingTemplatePrices(template); err != nil {
-			return err
+			return nil, err
 		}
 		pricingTemplateNames[name] = struct{}{}
 	}
+	return pricingTemplateNames, nil
+}
 
+func validateImportedLoadbalanceStrategies(strategies []loadbalanceStrategyExport) (map[string]struct{}, error) {
 	strategyNames := map[string]struct{}{}
-	if _, err := canonicalizeImportedStrategies(data.LoadbalanceStrategies); err != nil {
-		return err
+	if _, err := canonicalizeImportedStrategies(strategies); err != nil {
+		return nil, err
 	}
-	for _, strategy := range data.LoadbalanceStrategies {
+	for _, strategy := range strategies {
 		name := strings.TrimSpace(strategy.Name)
 		if name == "" {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "Loadbalance strategy name must not be empty"}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "Loadbalance strategy name must not be empty"}
 		}
 		if _, ok := strategyNames[name]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate loadbalance strategy name: '%s'", name)}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate loadbalance strategy name: '%s'", name)}
 		}
 		strategyNames[name] = struct{}{}
 	}
+	return strategyNames, nil
+}
 
+type profileImportModelValidationRefs struct {
+	vendorKeys           map[string]struct{}
+	endpointNames        map[string]struct{}
+	pricingTemplateNames map[string]struct{}
+	strategyNames        map[string]struct{}
+}
+
+func validateImportedModels(models []modelExport, refs profileImportModelValidationRefs) (map[string]string, map[string]struct{}, error) {
 	nativeModelFamilies := map[string]string{}
 	seenModelIDs := map[string]struct{}{}
 	importedConnectionPairs := map[string]struct{}{}
-	for _, model := range data.Models {
+	for _, model := range models {
 		modelID := strings.TrimSpace(model.ModelID)
 		if modelID == "" {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "Model id must not be empty"}
+			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "Model id must not be empty"}
 		}
 		if _, ok := seenModelIDs[modelID]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate model_id: '%s'", modelID)}
+			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate model_id: '%s'", modelID)}
 		}
 		seenModelIDs[modelID] = struct{}{}
 
 		apiFamily := strings.ToLower(strings.TrimSpace(model.APIFamily))
 		if _, ok := validImportAPIFamilies[apiFamily]; !ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown api family: '%s'", model.APIFamily)}
+			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown api family: '%s'", model.APIFamily)}
 		}
-		if model.VendorKey != nil {
-			vendorKey := strings.TrimSpace(*model.VendorKey)
-			if _, ok := vendorKeys[vendorKey]; !ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown vendor key: '%s'", vendorKey)}
-			}
+		if err := validateImportedModelVendorRef(model, refs.vendorKeys); err != nil {
+			return nil, nil, err
 		}
 
 		modelType := strings.ToLower(strings.TrimSpace(model.ModelType))
 		if modelType != "native" && modelType != "proxy" {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported model_type '%s' for model '%s'", model.ModelType, modelID)}
+			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported model_type '%s' for model '%s'", model.ModelType, modelID)}
 		}
 
 		if modelType == "native" {
-			if model.ProxySelectionStrategy != nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must not include proxy_selection_strategy", modelID)}
-			}
-			if len(model.ProxyTargets) > 0 {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must not have proxy_targets", modelID)}
-			}
-			strategyName := trimmedOptionalString(model.LoadbalanceStrategyName)
-			if strategyName == nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must include loadbalance_strategy_name", modelID)}
-			}
-			if _, ok := strategyNames[*strategyName]; !ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' references unknown loadbalance strategy '%s'", modelID, *strategyName)}
+			if err := validateImportedNativeModel(model, modelID, refs.strategyNames); err != nil {
+				return nil, nil, err
 			}
 			nativeModelFamilies[modelID] = apiFamily
-		} else {
-			selector := normalizedImportedProxySelectionStrategy(model.ProxySelectionStrategy)
-			if selector == nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must include proxy_selection_strategy", modelID)}
-			}
-			if !isValidImportedProxySelectionStrategy(*selector) {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has unknown proxy_selection_strategy '%s'", modelID, *selector)}
-			}
-			if trimmedOptionalString(model.LoadbalanceStrategyName) != nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must not include loadbalance_strategy_name", modelID)}
-			}
-			if len(model.Connections) > 0 {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must not have connections", modelID)}
-			}
-			if len(model.ProxyTargets) == 0 {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must include proxy_targets", modelID)}
-			}
-			for index, target := range model.ProxyTargets {
-				targetModelID := strings.TrimSpace(target.TargetModelID)
-				if targetModelID == "" {
-					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has proxy target with empty target_model_id", modelID)}
-				}
-				if target.Position != index {
-					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must use contiguous proxy_targets positions starting at 0", modelID)}
-				}
-				if !target.weightSet || target.weightNull {
-					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' must include weight", modelID, targetModelID)}
-				}
-				if target.Weight < 1 {
-					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' has invalid weight '%d'", modelID, targetModelID, target.Weight)}
-				}
-				if !target.targetPrioritySet || target.targetPriorityNull {
-					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' must include target_priority", modelID, targetModelID)}
-				}
-				if target.TargetPriority < 0 {
-					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' has invalid target_priority '%d'", modelID, targetModelID, target.TargetPriority)}
-				}
-			}
-			seenTargets := map[string]struct{}{}
-			for _, target := range model.ProxyTargets {
-				targetModelID := strings.TrimSpace(target.TargetModelID)
-				if _, ok := seenTargets[targetModelID]; ok {
-					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has duplicate proxy target '%s'", modelID, targetModelID)}
-				}
-				seenTargets[targetModelID] = struct{}{}
-			}
+		} else if err := validateImportedProxyModel(model, modelID); err != nil {
+			return nil, nil, err
 		}
 
-		for _, connection := range model.Connections {
-			if connection.QPSLimit != nil && *connection.QPSLimit < 1 {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' has invalid qps_limit '%d'", modelID, *connection.QPSLimit)}
-			}
-			if connection.MaxInFlightNonStream != nil && *connection.MaxInFlightNonStream < 1 {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' has invalid max_in_flight_non_stream '%d'", modelID, *connection.MaxInFlightNonStream)}
-			}
-
-			if connection.MaxInFlightStream != nil && *connection.MaxInFlightStream < 1 {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' has invalid max_in_flight_stream '%d'", modelID, *connection.MaxInFlightStream)}
-			}
-			if err := validateConnectionAuthType(connection.AuthType); err != nil {
-				return err
-			}
-			if _, err := normalizeOpenAIProbeEndpointVariant(apiFamily, connection.OpenAIProbeEndpointVariant); err != nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' %s", modelID, err.Error())}
-			}
-			endpointName, err := resolveImportedEndpointName(connection.EndpointName, endpointNames)
-			if err != nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' %s", modelID, err.Error())}
-			}
-			if _, err := resolveImportedPricingTemplateName(connection.PricingTemplateName, pricingTemplateNames); err != nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' %s", modelID, err.Error())}
-			}
-			importedConnectionPairs[connectionPairKey(modelID, endpointName)] = struct{}{}
+		if err := validateImportedConnections(modelID, apiFamily, model.Connections, refs, importedConnectionPairs); err != nil {
+			return nil, nil, err
 		}
 	}
+	return nativeModelFamilies, importedConnectionPairs, nil
+}
 
-	for _, model := range data.Models {
+func validateImportedModelVendorRef(model modelExport, vendorKeys map[string]struct{}) error {
+	if model.VendorKey == nil {
+		return nil
+	}
+	vendorKey := strings.TrimSpace(*model.VendorKey)
+	if _, ok := vendorKeys[vendorKey]; !ok {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown vendor key: '%s'", vendorKey)}
+	}
+	return nil
+}
+
+func validateImportedNativeModel(model modelExport, modelID string, strategyNames map[string]struct{}) error {
+	if model.ProxySelectionStrategy != nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must not include proxy_selection_strategy", modelID)}
+	}
+	if len(model.ProxyTargets) > 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must not have proxy_targets", modelID)}
+	}
+	strategyName := trimmedOptionalString(model.LoadbalanceStrategyName)
+	if strategyName == nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must include loadbalance_strategy_name", modelID)}
+	}
+	if _, ok := strategyNames[*strategyName]; !ok {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' references unknown loadbalance strategy '%s'", modelID, *strategyName)}
+	}
+	return nil
+}
+
+func validateImportedProxyModel(model modelExport, modelID string) error {
+	selector := normalizedImportedProxySelectionStrategy(model.ProxySelectionStrategy)
+	if selector == nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must include proxy_selection_strategy", modelID)}
+	}
+	if !isValidImportedProxySelectionStrategy(*selector) {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has unknown proxy_selection_strategy '%s'", modelID, *selector)}
+	}
+	if trimmedOptionalString(model.LoadbalanceStrategyName) != nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must not include loadbalance_strategy_name", modelID)}
+	}
+	if len(model.Connections) > 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must not have connections", modelID)}
+	}
+	if len(model.ProxyTargets) == 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must include proxy_targets", modelID)}
+	}
+	return validateImportedProxyTargets(modelID, model.ProxyTargets)
+}
+
+func validateImportedProxyTargets(modelID string, targets []proxyTargetExport) error {
+	for index, target := range targets {
+		targetModelID := strings.TrimSpace(target.TargetModelID)
+		if targetModelID == "" {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has proxy target with empty target_model_id", modelID)}
+		}
+		if target.Position != index {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must use contiguous proxy_targets positions starting at 0", modelID)}
+		}
+		if !target.weightSet || target.weightNull {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' must include weight", modelID, targetModelID)}
+		}
+		if target.Weight < 1 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' has invalid weight '%d'", modelID, targetModelID, target.Weight)}
+		}
+		if !target.targetPrioritySet || target.targetPriorityNull {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' must include target_priority", modelID, targetModelID)}
+		}
+		if target.TargetPriority < 0 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' has invalid target_priority '%d'", modelID, targetModelID, target.TargetPriority)}
+		}
+	}
+	seenTargets := map[string]struct{}{}
+	for _, target := range targets {
+		targetModelID := strings.TrimSpace(target.TargetModelID)
+		if _, ok := seenTargets[targetModelID]; ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has duplicate proxy target '%s'", modelID, targetModelID)}
+		}
+		seenTargets[targetModelID] = struct{}{}
+	}
+	return nil
+}
+
+func validateImportedConnections(modelID string, apiFamily string, connections []connectionExport, refs profileImportModelValidationRefs, importedConnectionPairs map[string]struct{}) error {
+	for _, connection := range connections {
+		if connection.QPSLimit != nil && *connection.QPSLimit < 1 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' has invalid qps_limit '%d'", modelID, *connection.QPSLimit)}
+		}
+		if connection.MaxInFlightNonStream != nil && *connection.MaxInFlightNonStream < 1 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' has invalid max_in_flight_non_stream '%d'", modelID, *connection.MaxInFlightNonStream)}
+		}
+
+		if connection.MaxInFlightStream != nil && *connection.MaxInFlightStream < 1 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' has invalid max_in_flight_stream '%d'", modelID, *connection.MaxInFlightStream)}
+		}
+		if err := validateConnectionAuthType(connection.AuthType); err != nil {
+			return err
+		}
+		if _, err := normalizeOpenAIProbeEndpointVariant(apiFamily, connection.OpenAIProbeEndpointVariant); err != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' %s", modelID, err.Error())}
+		}
+		endpointName, err := resolveImportedEndpointName(connection.EndpointName, refs.endpointNames)
+		if err != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' %s", modelID, err.Error())}
+		}
+		if _, err := resolveImportedPricingTemplateName(connection.PricingTemplateName, refs.pricingTemplateNames); err != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' %s", modelID, err.Error())}
+		}
+		importedConnectionPairs[connectionPairKey(modelID, endpointName)] = struct{}{}
+	}
+	return nil
+}
+
+func validateImportedProxyTargetReferences(models []modelExport, nativeModelFamilies map[string]string) error {
+	for _, model := range models {
 		if strings.ToLower(strings.TrimSpace(model.ModelType)) != "proxy" {
 			continue
 		}
@@ -544,36 +650,46 @@ func validateProfileImportRequest(data profileImportRequest) error {
 			}
 		}
 	}
+	return nil
+}
 
-	if data.ProfileSettings != nil {
-		seenFXMappings := map[string]struct{}{}
-
-		for _, mapping := range data.ProfileSettings.EndpointFXMappings {
-			endpointName, err := resolveImportedEndpointName(mapping.EndpointName, endpointNames)
-			if err != nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("FX mapping %s", err.Error())}
-			}
-			key := connectionPairKey(mapping.ModelID, endpointName)
-			if _, ok := seenFXMappings[key]; ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate FX mapping in import for model_id='%s', endpoint_name='%s'", mapping.ModelID, endpointName)}
-			}
-			seenFXMappings[key] = struct{}{}
-			if _, ok := importedConnectionPairs[key]; !ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("FX mapping must reference an imported model/endpoint connection pair: model_id='%s', endpoint_name='%s'", mapping.ModelID, endpointName)}
-			}
+func validateImportedProfileSettings(profileSettings *profileSettingsExport, endpointNames map[string]struct{}, importedConnectionPairs map[string]struct{}) error {
+	if profileSettings == nil {
+		return nil
+	}
+	seenFXMappings := map[string]struct{}{}
+	for _, mapping := range profileSettings.EndpointFXMappings {
+		endpointName, err := resolveImportedEndpointName(mapping.EndpointName, endpointNames)
+		if err != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("FX mapping %s", err.Error())}
+		}
+		key := connectionPairKey(mapping.ModelID, endpointName)
+		if _, ok := seenFXMappings[key]; ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate FX mapping in import for model_id='%s', endpoint_name='%s'", mapping.ModelID, endpointName)}
+		}
+		seenFXMappings[key] = struct{}{}
+		if _, ok := importedConnectionPairs[key]; !ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("FX mapping must reference an imported model/endpoint connection pair: model_id='%s', endpoint_name='%s'", mapping.ModelID, endpointName)}
 		}
 	}
+	return nil
+}
 
+func validateImportedHeaderBlocklistRules(rules []headerBlocklistRuleExport) error {
 	seenBlocklistRules := map[string]struct{}{}
-	for _, rule := range data.HeaderBlocklistRules {
+	for _, rule := range rules {
 		key := fmt.Sprintf("%s\x00%s", rule.MatchType, rule.Pattern)
 		if _, ok := seenBlocklistRules[key]; ok {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate header blocklist rule in import for match_type='%s', pattern='%s'", rule.MatchType, rule.Pattern)}
 		}
 		seenBlocklistRules[key] = struct{}{}
 	}
+	return nil
+}
+
+func validateImportedUserAgentClientRules(rules []userAgentClientRuleExport) error {
 	seenUserAgentRules := map[string]struct{}{}
-	for _, rule := range data.UserAgentClientRules {
+	for _, rule := range rules {
 		if _, ok := seenUserAgentRules[rule.Pattern]; ok {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate user-agent client rule in import for pattern='%s'", rule.Pattern)}
 		}
