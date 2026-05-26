@@ -131,7 +131,7 @@ function createSpendingReport() {
     },
     groups: [],
     groups_total: 0,
-    top_spending_models: [{ model_id: modelId, total_cost_micros: 125000 }],
+    top_spending_models: [{ model_id: modelId, model_label: "Model A", total_cost_micros: 125000 }],
     top_spending_endpoints: [],
     unpriced_breakdown: {},
     report_currency_code: "USD",

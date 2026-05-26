@@ -79,6 +79,7 @@ function createSpendingReport() {
     top_spending_models: [
       {
         model_id: "gpt-4o-mini",
+        model_label: "GPT 4o Mini",
         total_cost_micros: 1250000,
       },
     ],
@@ -439,6 +440,7 @@ async function mockCurrencyRoutes(
         topSpendingModels: [
           {
             model_id: model.model_id,
+            model_label: model.display_name,
             total_cost_micros: 1250000,
           },
         ],
