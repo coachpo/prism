@@ -1,15 +1,15 @@
 # BACKEND MANAGEMENT SIDECARS KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/sidecars/` owns the global `/api/sidecars/*` control plane for CLIProxyAPI sidecar instances. Prism stores sidecar registrations and optional normalized provider observations; CLIProxyAPI remains the source of truth for live auth/provider state.
+`management/sidecars/` owns the global `/api/sidecars*` control plane for CLIProxyAPI sidecar instances. It covers instance CRUD, connection tests, manual sync, live auth-file reads and mutations, provider inventory, persisted provider snapshots, and sync status. Prism stores registrations and optional normalized observations; CLIProxyAPI remains the source of truth for live auth/provider state.
 
 ## STRUCTURE
 ```text
 sidecars/
-├── service.go              # Service construction, route mounting, memory fallback store
-├── routes.go               # CRUD, connection test, response shaping, credential masks
-├── routes_sync.go          # Manual provider sync, live auth-file reads, sync status
-├── routes_mutations.go     # Operator auth-file status/field patches
+├── service.go              # Service construction, global route mounting, memory fallback store
+├── routes.go               # Instance CRUD, connection test, response shaping, credential masks
+├── routes_sync.go          # Manual sync, auth-file reads, auth-file models, provider reads, sync status
+├── routes_mutations.go     # Auth-file status, fields, and delete mutations
 ├── client.go               # CLIProxyAPI management client and network policy gates
 ├── providers.go            # Provider inventory normalization
 ├── sync.go                 # Sync orchestration and management-auth pause state
@@ -20,34 +20,28 @@ sidecars/
 ```
 
 ## WHERE TO LOOK
-- Route list and global mount contract: `service.go` (`MountManagementRoutes`).
+- Route list and global mount contract: `service.go`.
 - Instance CRUD, masked credential state, and connection test: `routes.go`.
-- Provider sync, live auth-file reads, and status payloads: `routes_sync.go`, `sync.go`, `providers.go`.
-- Auth-file operator mutations: `routes_mutations.go`.
-- CLIProxyAPI network/auth policy and supported management paths: `client.go`, `cliproxy_contract_test.go`.
-- Durable sidecar tables and uniqueness constraints: `../../../../migrations/000001_initial_schema.sql` plus `store.go`.
-- Lifecycle wiring and worker priority: `../../../platform/lifecycle/production.go`, `worker.go`, `../../../../tests/priority/sidecar_worker_priority_test.go`.
-- Regression coverage: `routes*_test.go`, `routes_removed_surfaces_test.go`, `sync_test.go`, `store_test.go`, `client_test.go`, `cliproxy_contract_test.go`, `../../../../tests/{contract,integration}/sidecars*_test.go`.
+- Manual sync, live auth-file reads, provider inventory, provider snapshots, and sync status: `routes_sync.go`, `sync.go`, `providers.go`.
+- Auth-file status, field, and delete mutations: `routes_mutations.go`.
+- Strict CLIProxyAPI path allowlist and envelope contract: `client.go`, `cliproxy_contract_test.go`, `routes_removed_surfaces_test.go`.
+- Durable sidecar tables and worker wiring: `store.go`, `worker.go`, `../../../platform/lifecycle/production.go`.
 
 ## CONVENTIONS
-
-- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
-- For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing surface is itself a shipped contract or guardrail.
 - Treat sidecar management as global instance control-plane state; it does not use selected-profile `X-Profile-Id` scope.
 - Keep management passwords write-only. Responses expose `credential_state` metadata and the mask string only.
-- Keep live auth/provider inventory owned by CLIProxyAPI; Prism reads auth-files live and persists only optional normalized provider observations for operator display.
-- Keep the CLIProxyAPI management path allowlist tight: `/auth-files`, read-only `/auth-files/models`, `/auth-files/status`, `/auth-files/fields`, and the five provider inventory paths.
-- Treat `/auth-files` as a strict top-level `files` envelope; old `auth_files`, missing `files`, null `files`, or non-array `files` payloads fail closed.
-- Keep provider inventory as a separate read-only supplement, never as an auth-file fallback.
-- Keep private-network, insecure-HTTP, TLS-skip, request-timeout, and management-auth pause behavior on the sidecar instance policy.
+- Accept live `/auth-files` only as a strict top-level `files` array envelope. Missing, null, non-array, or legacy `auth_files` envelopes fail closed.
+- Keep removed legacy auth inventory paths removed; provider inventory is a read-only supplement, never an auth-file fallback.
+- Keep the CLIProxyAPI allowlist tight: `/auth-files`, `/auth-files/models`, `/auth-files/status`, `/auth-files/fields`, and provider inventory paths only.
 - Keep `sidecar_snapshot_sync` as a bounded low-background worker with queue limit 1 and no priority elevation.
 
 ## LLM UPSTREAM MATRIX
-- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
+- When sidecar auth or provider inventory logic changes, check CLIProxyAPI observations across provider families without treating inventory as runtime compatibility.
 
 ## ANTI-PATTERNS
 - Do not let the browser call CLIProxyAPI directly; all sidecar traffic goes through the Prism backend service.
 - Do not persist or return raw management passwords, provider secrets, auth tokens, or unredacted provider observation fields.
-- Do not add destructive or unsupported CLIProxyAPI management paths such as `/usage-queue` to the allowlist.
 - Do not accept legacy `auth_files` envelopes or hide auth-sync contract violations behind provider inventory fallback.
+- Do not reintroduce removed legacy auth inventory routes; keep live auth-file reads on the strict `files` envelope.
+- Do not add destructive or unsupported CLIProxyAPI management paths such as `/usage-queue` to the allowlist.
 - Do not make sidecar workers borrow runtime/management request-path capacity or run above low-background priority.
