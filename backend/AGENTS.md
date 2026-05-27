@@ -35,6 +35,15 @@ backend/
 - `internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and retention-job endpoints.
 - `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
 - `internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registrations, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
+- `internal/httpapi/management/connections/AGENTS.md`: selected-profile model connection management, inline endpoint creation, health checks, and pricing templates.
+- `internal/httpapi/management/configrules/AGENTS.md`: selected-profile header-blocklist and user-agent/client mapping rules under `/api/config/*`.
+- `internal/httpapi/management/endpoints/AGENTS.md`: selected-profile endpoint CRUD, encrypted API keys, ordering, and connection dropdown support.
+- `internal/httpapi/management/loadbalance/AGENTS.md`: selected-profile load-balance strategy CRUD, canonical defaults, current state, and event reads.
+- `internal/httpapi/management/models/AGENTS.md`: selected-profile native and proxy model CRUD plus endpoint model lookups.
+- `internal/httpapi/management/profiles/AGENTS.md`: profile lifecycle, active/bootstrap state, activation checks, and soft deletion.
+- `internal/httpapi/management/stats/AGENTS.md`: selected-profile observability reads, request logs, dashboard snapshots, metrics, and invalidation.
+- `internal/httpapi/management/vendors/AGENTS.md`: global vendor catalog CRUD, presentation metadata, audit preferences, and model usage lookup.
+- `internal/httpapi/management/audit/AGENTS.md`: selected-profile audit log reads plus management job list/get/cancel seams.
 - `tests/AGENTS.md`: backend Go regression boundary, including operation route matrix, rejected-route isolation, bootstrap config, Dockerfile, sidecars, and priority/lane isolation tests.
 
 ## RUNTIME FACTS
@@ -67,6 +76,7 @@ backend/
 - Management settings costing, timezone, retention settings, and maintenance-job endpoints: `internal/httpapi/management/settings/AGENTS.md`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `internal/httpapi/management/auth/AGENTS.md`
 - Global sidecar registration, CLIProxyAPI sync, live auth-files, provider inventory, and direct auth-file mutation: `internal/httpapi/management/sidecars/AGENTS.md`
+- Management leaf packages for audit, connections, config rules, endpoints, load-balance strategies, models, profiles, stats, and vendors: `internal/httpapi/management/audit/AGENTS.md`, `internal/httpapi/management/connections/AGENTS.md`, `internal/httpapi/management/configrules/AGENTS.md`, `internal/httpapi/management/endpoints/AGENTS.md`, `internal/httpapi/management/loadbalance/AGENTS.md`, `internal/httpapi/management/models/AGENTS.md`, `internal/httpapi/management/profiles/AGENTS.md`, `internal/httpapi/management/stats/AGENTS.md`, `internal/httpapi/management/vendors/AGENTS.md`
 - Shared transaction helper: `internal/pgxutil/tx.go`
 - SQL migrations, partitioned log schema, and startup sequencing: `migrations/`, `internal/platform/migrate/`, `internal/platform/logretention/`
 - Runtime stats, request-log shaping, runtime partition ensuring, and loadbalance business logic: `internal/domain/stats/`, `internal/domain/loadbalance/`, `internal/domain/audit/`, `internal/httpapi/runtime/log_partitions.go`

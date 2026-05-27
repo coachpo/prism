@@ -1,4 +1,4 @@
-<!-- Generated: 2026-05-26 | branch: main | commit: 8c404b4 -->
+<!-- Generated: 2026-05-27 | branch: main | commit: f527d6a -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -48,6 +48,15 @@ prism/
 - `backend/internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and maintenance-job creation seams.
 - `backend/internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
 - `backend/internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registration, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
+- `backend/internal/httpapi/management/connections/AGENTS.md`: selected-profile model connection management, inline endpoint creation, health checks, and pricing templates.
+- `backend/internal/httpapi/management/configrules/AGENTS.md`: selected-profile header-blocklist and user-agent/client mapping rules under `/api/config/*`.
+- `backend/internal/httpapi/management/endpoints/AGENTS.md`: selected-profile endpoint CRUD, encrypted API keys, ordering, and connection dropdown support.
+- `backend/internal/httpapi/management/loadbalance/AGENTS.md`: selected-profile load-balance strategy CRUD, canonical defaults, current state, and event reads.
+- `backend/internal/httpapi/management/models/AGENTS.md`: selected-profile native and proxy model CRUD plus endpoint model lookups.
+- `backend/internal/httpapi/management/profiles/AGENTS.md`: profile lifecycle, active/bootstrap state, activation checks, and soft deletion.
+- `backend/internal/httpapi/management/stats/AGENTS.md`: selected-profile observability reads, request logs, dashboard snapshots, metrics, and invalidation.
+- `backend/internal/httpapi/management/vendors/AGENTS.md`: global vendor catalog CRUD, presentation metadata, audit preferences, and model usage lookup.
+- `backend/internal/httpapi/management/audit/AGENTS.md`: selected-profile audit log reads plus management job list/get/cancel seams.
 - `backend/tests/AGENTS.md`: backend contract, integration, runtime, route-matrix, rejected-route, Dockerfile, sidecar, and priority regression boundary.
 - `frontend/AGENTS.md`: frontend monorepo directory root for routes, shared shell, context, typed browser/backend seams, and child ownership routers under `src/`.
 - `frontend/src/pages/AGENTS.md`: route-domain handoff for mounted page surfaces and page-owned drill-down clusters.
@@ -95,7 +104,7 @@ prism/
 - Frontend toolchain and shadcn registry config: `frontend/package.json`, `frontend/components.json`, `frontend/src/index.css`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
-- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `backend/internal/httpapi/management/configbundle/AGENTS.md`, `backend/internal/httpapi/management/settings/AGENTS.md`, `backend/internal/httpapi/management/auth/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
+- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `backend/internal/httpapi/management/configbundle/AGENTS.md`, `backend/internal/httpapi/management/settings/AGENTS.md`, `backend/internal/httpapi/management/auth/AGENTS.md`, `backend/internal/httpapi/management/sidecars/AGENTS.md`, `backend/internal/httpapi/management/connections/AGENTS.md`, `backend/internal/httpapi/management/configrules/AGENTS.md`, `backend/internal/httpapi/management/endpoints/AGENTS.md`, `backend/internal/httpapi/management/loadbalance/AGENTS.md`, `backend/internal/httpapi/management/models/AGENTS.md`, `backend/internal/httpapi/management/profiles/AGENTS.md`, `backend/internal/httpapi/management/stats/AGENTS.md`, `backend/internal/httpapi/management/vendors/AGENTS.md`, `backend/internal/httpapi/management/audit/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
 - Docs provenance, archive naming, and active-plan handoff: `docs/AGENTS.md`, `docs/archive/AGENTS.md`, `.omo/plans/`, `.omo/evidence/`
 
 ## COMMANDS

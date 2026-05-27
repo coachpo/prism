@@ -15,6 +15,7 @@ httpapi/
 
 ## WHERE TO LOOK
 - Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, `management/sidecars/`, `management/stats/`, `management/vendors/`, `management/audit/`
+- Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/connections/AGENTS.md`, `management/configrules/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/stats/AGENTS.md`, `management/vendors/AGENTS.md`
 - Startup bootstrap ownership: `management/bootstrapconfig/AGENTS.md`, `management/bootstrapconfig/service.go`
 - Config bundle and vendor catalog ownership: `management/configbundle/AGENTS.md`, `management/configbundle/service.go`, `management/configbundle/routes.go`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `management/auth/AGENTS.md`

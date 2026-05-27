@@ -35,7 +35,8 @@ docs/
 - Config bundle and vendor catalog export/import ownership: `../backend/internal/httpapi/management/configbundle/AGENTS.md`, `../frontend/src/pages/settings/`, `../frontend/src/pages/settings/useConfigBackupData.ts`
 - Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000001_initial_schema.sql`
 - Sidecars control-plane contract: `../backend/internal/httpapi/management/sidecars/AGENTS.md`, `../backend/internal/httpapi/management/sidecars/`, `../backend/migrations/000001_initial_schema.sql`, `../frontend/src/pages/sidecars/`
-- Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
+- Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../backend/internal/httpapi/AGENTS.md`, `../backend/internal/httpapi/management/`, `../frontend/AGENTS.md`
+- Backend management child ownership: `../backend/internal/httpapi/management/audit/AGENTS.md`, `../backend/internal/httpapi/management/connections/AGENTS.md`, `../backend/internal/httpapi/management/configrules/AGENTS.md`, `../backend/internal/httpapi/management/endpoints/AGENTS.md`, `../backend/internal/httpapi/management/loadbalance/AGENTS.md`, `../backend/internal/httpapi/management/models/AGENTS.md`, `../backend/internal/httpapi/management/profiles/AGENTS.md`, `../backend/internal/httpapi/management/stats/AGENTS.md`, `../backend/internal/httpapi/management/vendors/AGENTS.md`
 - Product and request-log context: `PRD.md`, `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
 - Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
