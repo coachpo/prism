@@ -37,6 +37,7 @@ sections/
 - Timezone preference section: `TimezoneSection.tsx`
 - Shared page shell, section IDs, and save-state helpers: `../AGENTS.md`, `../settingsPageHelpers.ts`, `../sectionSaveState.tsx`
 - Costing bootstrap, derived state, and save logic that feeds billing and timezone sections: `../costing/AGENTS.md`
+- E2E seams for vendor catalog transport, reporting-currency save, retention, and user-agent/client rule copy: `../../../../tests/e2e/settings-vendor-catalog.spec.ts`, `../../../../tests/e2e/settings-reporting-currency-save.spec.ts`, `../../../../tests/e2e/settings-log-retention.spec.ts`, `../../../../tests/e2e/settings-user-agent-client-rules-copy.spec.ts`
 
 ## LOCAL CLUSTERS
 

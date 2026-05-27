@@ -21,6 +21,7 @@ authentication/
 - Operator account username, password, and save controls: `OperatorEmailCard.tsx`
 - Recovery email verification and resend flow: `RecoveryEmailCard.tsx`
 - Shared auth-section types: `types.ts`
+- E2E seam for auth session lifecycle and protected-shell auth behavior: `../../../../../tests/e2e/auth-session-lifecycle.spec.ts`
 
 ## CONVENTIONS
 

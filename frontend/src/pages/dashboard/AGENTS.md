@@ -32,12 +32,13 @@ dashboard/
 - Thin route shell, overview-versus-analytics tab split, and route-level navigation actions: `../DashboardPage.tsx`
 - Query-param state and canonical tab contract: `queryParams.ts`, `useDashboardPageState.ts`
 - Overview-tab composition boundary: `DashboardOverviewTab.tsx`
-- Analytics-tab handoff into the statistics domain: `DashboardAnalyticsContent.tsx`, `../statistics/AGENTS.md`
+- Analytics-tab handoff into the dashboard-owned statistics domain, which has no standalone `/statistics` route: `DashboardAnalyticsContent.tsx`, `../statistics/AGENTS.md`
 - High-level overview data composition: `useDashboardPageData.ts`
 - Initial bootstrap fan-out and routing payload shaping: `useDashboardBootstrapData.ts`
 - Realtime payload flow: `useDashboardRealtime.ts`, which reconciles the backend `dashboard.update` payload
 - Routing visualization barrel and leaf cluster: `routingDiagram.ts`, `RoutingDiagramCard.tsx`, `routing-diagram/AGENTS.md`
 - KPI, highlight, recent-activity, and spend presentation: `DashboardMetricsGrid.tsx`, `DashboardHighlightsGrid.tsx`, `RecentActivityCard.tsx`, `TopSpendingModelsCard.tsx`, `DashboardPageSkeleton.tsx`
+- E2E seams for aggregate bootstrap, routing-shell navigation, exact request-log handoff, and dashboard reporting-currency display: `../../../tests/e2e/dashboard-aggregate-overview.spec.ts`, `../../../tests/e2e/dashboard-routing-shell.spec.ts`, `../../../tests/e2e/dashboard-reporting-currency.spec.ts`
 
 ## CHILD DOCS
 

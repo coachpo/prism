@@ -44,6 +44,7 @@ model-detail/
 - Model-scoped loadbalance event refresh, paging, and detail wiring: `LoadbalanceEventsTab.tsx`, `useModelLoadbalanceEvents.ts`, `../../components/AGENTS.md`
 - Current recovery-state fetch and reset actions: `useModelLoadbalanceCurrentState.ts`
 - Shared latency and connection-label formatting: `modelDetailMetricsAndPaths.ts`
+- E2E seams for model-to-request-log handoff and connection probe behavior: `../../../tests/e2e/model-detail-request-logs-handoff.spec.ts`, `../../../tests/e2e/model-detail-connection-dialog-probe.spec.ts`
 
 ## CONVENTIONS
 

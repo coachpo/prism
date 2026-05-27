@@ -17,7 +17,7 @@ statistics/
 
 ## WHERE TO LOOK
 
-- Dashboard analytics shell and top-level section orchestration: `../DashboardPage.tsx`
+- Dashboard analytics shell and top-level section orchestration, with no standalone `/statistics` route in `App.tsx`: `../DashboardPage.tsx`
 - Shell copy and presentation labels: `../DashboardPage.tsx`, `@/i18n/useLocale`, `@/i18n/AGENTS.md`
 - Snapshot orchestration and persisted presentation state: `useUsageStatisticsPageData.ts`, `useUsageStatisticsPageState.ts`, `usageStatisticsStorage.ts`
 - Usage-snapshot charts, sections, and tables: `charts/`, `sections/`, `tables/`
@@ -26,6 +26,7 @@ statistics/
 - Shared statistics cards and chart wrappers used by dashboard analytics: `../../components/AGENTS.md`
 - Shared presentation helpers and timezone-aware formatting inputs: `@/hooks/useTimezone`, `@/components/ui/chart.tsx`
 - Reporting-currency trust and cost formatting seams: `@/context/ReportingCurrencyContext`, `@/lib/reportingCurrency`, `@/lib/costing`
+- E2E seams for shared chart statistics, TTFT percentiles, output-rate columns, selected-model totals, and proxy-key labels: `../../../tests/e2e/shared-chart-statistics.spec.ts`, `../../../tests/e2e/statistics-ttft.spec.ts`, `../../../tests/e2e/statistics-token-rate.spec.ts`, `../../../tests/e2e/statistics-filtered-totals.spec.ts`, `../../../tests/e2e/statistics-proxy-api-key-label.spec.ts`
 
 ## CONVENTIONS
 

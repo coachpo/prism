@@ -33,6 +33,7 @@ request-logs/
 - Detail sheet, exact-request fetch, audit capture state, sheet-scoped clipboard fallback, and lazy audit fetch: `RequestLogDetailSheet.tsx`, `useRequestLogDetail.ts`, `requestLogAuditState.ts`, `useAuditDetail.ts`
 - Stream telemetry helpers and TTFT/rate display logic: `streamTelemetry.ts`, `detail/RequestLogOverviewTab.tsx`
 - Connection navigation helpers for request-log detail context: `connectionNavigation.ts`
+- E2E seams for exact-request mode, audit provenance states, TTFT, and post-TTFT output-rate handling: `../../../tests/e2e/request-log-audit-disabled-state.spec.ts`, `../../../tests/e2e/request-logs-ttft.spec.ts`, `../../../tests/e2e/request-logs-token-rate.spec.ts`
 - Parent-covered detail cluster helpers: `detail/RequestLogOverviewTab.tsx`, `detail/RequestLogAuditTab.tsx`, `detail/RequestLogPayloadBlock.tsx`, `detail/requestLogDetailShared.tsx`, `detail/requestLogDetailUtils.ts`
 - Reporting-currency trust and spend display coupling: `../../context/ReportingCurrencyContext.tsx`, `../../lib/reportingCurrency.ts`, `detail/RequestLogOverviewTab.tsx`
 

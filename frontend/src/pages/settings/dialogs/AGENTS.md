@@ -22,6 +22,7 @@ dialogs/
 - Audit-rule create, edit, and delete flows: `RuleDialog.tsx`, `DeleteRuleConfirmDialog.tsx`, `UserAgentClientRuleDialog.tsx`, `DeleteUserAgentClientRuleConfirmDialog.tsx`
 - Shared vendor create, edit, and delete flows: `VendorDialog.tsx`, `DeleteVendorDialog.tsx`
 - Mutation state, selected-profile labels, and save orchestration feeding the dialogs: `../useSettingsPageData.ts`, `../useAuditConfigurationData.ts`, `../useRetentionDeletionData.ts`, `../useVendorManagementData.ts`
+- E2E seams for vendor catalog preview/apply and user-agent/client rule copy: `../../../../tests/e2e/settings-vendor-catalog.spec.ts`, `../../../../tests/e2e/settings-user-agent-client-rules-copy.spec.ts`
 
 ## CONVENTIONS
 

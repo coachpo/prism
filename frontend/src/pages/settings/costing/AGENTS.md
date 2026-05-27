@@ -20,6 +20,7 @@ costing/
 - Billing save, reporting-currency refresh/prime, and timezone save boundaries: `useCostingSettingsSave.ts`
 - Shared defaults, normalization helpers, mapping validation, and formatting helpers: `../settingsPageHelpers.ts`
 - Billing and currency rendering layer: `../sections/BillingCurrencySection.tsx`, `../sections/billing-currency/AGENTS.md`
+- E2E seam for reporting-currency save success, failure preservation, and provider priming: `../../../../tests/e2e/settings-reporting-currency-save.spec.ts`, `../../../../tests/e2e/reporting-currency-provider.spec.ts`
 
 ## BOUNDARY
 

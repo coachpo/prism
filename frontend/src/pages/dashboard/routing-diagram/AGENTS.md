@@ -24,6 +24,7 @@ routing-diagram/
 - Backend-aligned diagram payload contracts: `routingDiagramContracts.ts`
 - Layout math, empty-state shaping, and chart-data helpers: `routingDiagramLayout.ts`, `routingDiagramChartTypes.ts`, `routingDiagramChartUtils.ts`
 - Chart shell, node or link shapes, legend, and tooltip rendering: `RoutingDiagramChart.tsx`, `RoutingDiagramChartShell.tsx`, `RoutingDiagramNodeShape.tsx`, `RoutingDiagramLinkShape.tsx`, `RoutingDiagramLegend.tsx`, `RoutingDiagramTooltip.tsx`
+- E2E seam for routing shell chrome, model-node activation, aggregate strategy counts, and exact request-log handoff: `../../../../tests/e2e/dashboard-routing-shell.spec.ts`
 
 ## CONVENTIONS
 

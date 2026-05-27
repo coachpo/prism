@@ -34,8 +34,8 @@ settings/
 ## SHELL CONTRACT
 
 - `SettingsPage.tsx` renders three tabs: `Profile`, `Global`, and `Startup`.
-- The Profile tab owns section navigation and mounts backup, billing and currency, timezone, and audit and privacy.
-- The Global tab mounts instance-wide authentication, retention and deletion, plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the plaintext bootstrap config surface through `SettingsStartupTab.tsx`, while the dense field registry and section cluster live under `startup/AGENTS.md`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
+- The Profile tab owns selected-profile section navigation and mounts backup, billing and currency, timezone, and audit and privacy.
+- The Global tab mounts instance-wide authentication, retention and deletion, plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the instance bootstrap config surface through `SettingsStartupTab.tsx`, while the dense field registry and section cluster live under `startup/AGENTS.md`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
 - `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
 ## WHERE TO LOOK
@@ -50,6 +50,7 @@ settings/
 - Costing bootstrap, derived state, FX mapping CRUD, and save boundary: `costing/AGENTS.md`
 - Global vendor CRUD, catalog import/export preview transport, usage prefetch, shared-cache patching, and delete-conflict parsing: `useVendorManagementData.ts`, `vendorManagementFormState.ts`
 - Local dialog ownership for destructive actions, vendor CRUD, and audit-rule editing: `dialogs/AGENTS.md`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`, `useConfigBackupData.ts`, `useVendorManagementData.ts`
+- E2E seams for startup hash/apply behavior, vendor catalog preview/apply, reporting-currency save, config import/export, and retention flows: `../../../tests/e2e/settings-startup-tab.spec.ts`, `../../../tests/e2e/settings-vendor-catalog.spec.ts`, `../../../tests/e2e/settings-reporting-currency-save.spec.ts`, `../../../tests/e2e/settings-config-import.spec.ts`, `../../../tests/e2e/settings-config-export.spec.ts`, `../../../tests/e2e/settings-log-retention.spec.ts`
 
 ## CHILD DOCS
 

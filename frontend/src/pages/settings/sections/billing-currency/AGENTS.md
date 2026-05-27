@@ -20,6 +20,7 @@ billing-currency/
 - Add-mapping form and endpoint selection: `FxMappingForm.tsx`
 - Mapping table, inline edit state, and delete actions: `FxMappingsTable.tsx`
 - Default-mapping summary copy: `FxMappingsSummary.tsx`
+- E2E seam for reporting-currency save and failed-save preservation: `../../../../../tests/e2e/settings-reporting-currency-save.spec.ts`
 
 ## CONVENTIONS
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
