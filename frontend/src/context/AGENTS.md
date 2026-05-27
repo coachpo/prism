@@ -1,7 +1,7 @@
 # FRONTEND CONTEXT KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/context/` owns Prism's auth bootstrap, management-profile scoping, and reporting-currency provider state. Keep the selected-profile versus active-runtime split explicit here, because this layer feeds `X-Profile-Id` for management calls and gates selected-profile keyed reporting-currency state without touching proxy routing.
+`src/context/` owns Prism's auth bootstrap, management-profile scoping, and reporting-currency provider state. Keep the selected-profile versus active-runtime split explicit here, because this layer feeds `X-Profile-Id` for management calls and gates selected-profile keyed reporting-currency state without touching proxy routing. `ReportingCurrencyContext.tsx` plus `../lib/reportingCurrency.ts` are the shared reporting-currency cache, prime, and refresh seam.
 
 ## STRUCTURE
 ```
@@ -39,7 +39,7 @@ context/
 - Keep auth bootstrap async and reuse in-flight work instead of duplicating fetches.
 - Keep `selectedProfile` and `activeProfile` distinct in UI and docs. `selectedProfile` scopes management APIs; it does not switch proxy traffic.
 - Treat `ProfileContext.revision` as the shared invalidation signal when selected scope changes.
-- Keep reporting-currency readiness keyed to `selectedProfileId`, with fallback and `prime()`/`refresh()` ownership in `ReportingCurrencyContext.tsx` and cache and normalization in `../lib/reportingCurrency.ts`.
+- Keep reporting-currency readiness keyed to `selectedProfileId`, with provider state and fallback in `ReportingCurrencyContext.tsx` and cache, `prime()` or `refresh()` behavior, and normalization in `../lib/reportingCurrency.ts`.
 - Keep bootstrap and helper logic in `auth/` and `profile/`, with the provider files focused on composition and exposed state.
 - Let the child AGENTS files own helper-layer detail so this parent stays provider-focused.
 

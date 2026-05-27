@@ -4,8 +4,8 @@
 `frontend/tests/` is Prism's frontend regression surface. It splits browser flows from contract seams and keeps the tree aligned with the current route and provider structure.
 
 ## TEST SPLIT
-- `e2e/` holds Playwright route flows.
-- `lib/`, `loadbalance/`, `main/`, `model-detail/`, and `server/` hold focused contract seams.
+- `e2e/` holds Playwright browser route flows only.
+- `lib/`, `loadbalance/`, `main/`, `model-detail/`, and `server/` hold focused seam-contract suites outside Playwright's browser runner.
 - `helpers/` holds shared test-only utilities such as TypeScript module loading.
 
 ## CURRENT FACTS
@@ -16,7 +16,7 @@
 - Startup bootstrap coverage lives in `e2e/settings-startup-tab.spec.ts`.
 - Request-log/detail coverage lives in `e2e/request-log-*.spec.ts`, `e2e/request-log-detail-copy.spec.ts`, `e2e/request-log-audit-disabled-state.spec.ts`, `e2e/request-logs-token-rate.spec.ts`, `e2e/request-logs-ttft.spec.ts`, and `e2e/request-logs-optional-zero.spec.ts`.
 - Model-detail handoff and connection-probe coverage lives in `e2e/model-detail-request-logs-handoff.spec.ts`, `e2e/model-detail-connection-dialog-probe.spec.ts`, `e2e/proxy-model-detail-authoring.spec.ts`, `model-detail/*.test.mjs`, and `../tests/lib/profile_scope_header_contract.test.mjs`.
-- Contract tests for build/runtime seams stay outside `e2e/`.
+- Contract tests for API profile scoping, loadbalance helpers, main provider wiring, model-detail helpers, and `server.mjs` stay outside `e2e/`.
 
 ## WHERE TO LOOK
 - Browser flow coverage: `e2e/`, `e2e/sidecars.spec.ts`, `e2e/settings-startup-tab.spec.ts`, `e2e/model-detail-request-logs-handoff.spec.ts`, `../playwright.config.ts`

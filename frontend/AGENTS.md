@@ -41,13 +41,13 @@ frontend/
 - `src/components/AGENTS.md` owns shared shell and widget work, then points down to the layout shell cluster, feature renderers, and `ui/` primitives.
 - `src/components/{layout/app-layout,loadbalance,statistics,ui}/AGENTS.md` own shell, feature-renderer, and primitive leaves.
 - `src/components/ui/AGENTS.md` owns the shadcn/ui primitives and local wrappers checked into `src/components/ui/`.
-- `src/context/AGENTS.md` owns auth bootstrap, selected-profile management scope, and reporting-currency provider state.
-- `src/hooks/AGENTS.md` owns the shared realtime, polling, and timezone-formatting hooks.
-- `src/i18n/AGENTS.md` owns locale catalogs, static label helpers, and shared formatting.
-- `src/lib/AGENTS.md` owns the typed API boundary, websocket singleton, shared reference-data caches, and reporting-currency normalization.
+- `src/context/AGENTS.md` owns auth bootstrap, selected-profile management scope, and the reporting-currency provider over the shared cache.
+- `src/hooks/AGENTS.md` owns the shared realtime, polling, and timezone-formatting hooks, with `useRealtimeData()` as the preferred websocket consumer.
+- `src/i18n/AGENTS.md` owns locale catalogs, `staticMessages.ts` for non-hook callers, and shared formatting.
+- `src/lib/AGENTS.md` owns the typed API boundary, websocket singleton, shared reference-data caches, and reporting-currency cache and normalization helpers.
 - `src/lib/api/AGENTS.md` owns the typed client module split, shared request plumbing, and selected-profile route matcher beneath `api.ts`.
-- `src/lib/websocket/AGENTS.md` owns the helper split beneath the singleton realtime client.
-- `tests/AGENTS.md` owns the test split between Playwright flows and contract seams.
+- `src/lib/websocket/AGENTS.md` owns the helper split beneath the singleton realtime client while hook consumers go through `useRealtimeData()`.
+- `tests/AGENTS.md` owns the test split between Playwright browser flows and sibling seam-contract suites.
 
 ## WHERE TO LOOK
 - Mounted routes, auth/public split, protected shell mounts, and profile/reporting-currency provider handoff: `src/App.tsx`
@@ -55,14 +55,14 @@ frontend/
 - Shared widgets, shell-safe controls, and design-system wrappers: `src/components/AGENTS.md`, `src/components/ui/AGENTS.md`
 - shadcn registry config and Tailwind entrypoint: `components.json`, `src/index.css`
 - Provider stack and browser mount (`LocaleProvider` -> `ThemeProvider` -> `TooltipProvider` -> `App` + `Toaster`): `src/main.tsx`
-- Auth bootstrap, selected-profile `X-Profile-Id` scoping, and reporting-currency readiness: `src/context/AGENTS.md`, `src/context/auth/AGENTS.md`, `src/context/profile/AGENTS.md`, `src/context/ReportingCurrencyContext.tsx`
+- Auth bootstrap, selected-profile `X-Profile-Id` scoping, selected-profile versus active-runtime separation, and reporting-currency readiness: `src/context/AGENTS.md`, `src/context/auth/AGENTS.md`, `src/context/profile/AGENTS.md`, `src/context/ReportingCurrencyContext.tsx`
 - Typed API boundary, shared request plumbing, and reporting-currency cache and normalization: `src/lib/AGENTS.md`, `src/lib/api/AGENTS.md`, `src/lib/reportingCurrency.ts`, `src/lib/api.ts`
-- Realtime websocket ownership and consumers: `src/lib/websocket.ts`, `src/lib/websocket/AGENTS.md`, `src/hooks/useRealtimeData.ts`
+- Realtime websocket singleton, helper split, and preferred hook consumer: `src/lib/websocket.ts`, `src/lib/websocket/AGENTS.md`, `src/hooks/useRealtimeData.ts`
 - Shared vendor cache and profile-revision keyed reference-data invalidation: `src/lib/referenceData.ts`
-- Frontend locale state and shared formatting: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`
-- Vite version injection, optional same-origin proxying, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
-- Production `dist/` server and `/health`: `server.mjs`
-- Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/lib/`, `playwright.config.ts`
+- Frontend locale state, shared formatting, and static non-hook labels: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`, `src/i18n/staticMessages.ts`
+- Vite version injection, optional same-origin proxying for `/api`, `/api/realtime/ws`, `/health`, `/v1`, and `/v1beta`, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
+- Production `dist/` static server, SPA fallback, `PORT` default `3000`, and `/health`: `server.mjs`
+- Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/{lib,loadbalance,main,model-detail,server}/`, `playwright.config.ts`
 - Page hierarchy and route-domain handoff, including the global sidecars route: `src/pages/AGENTS.md`, `src/pages/sidecars/AGENTS.md`
 
 ## CONVENTIONS
@@ -75,9 +75,9 @@ frontend/
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep backend access on the typed `src/lib/api.ts` boundary and the modules it re-exports.
 - Keep startup bootstrap rendering dependent on backend-provided values. The frontend owns no canonical backend startup default table; fresh defaults are backend source of truth, including `8000`, `5173`, `15432`, `300s`, and `10s`.
-- Keep reporting-currency provider state in `src/context/ReportingCurrencyContext.tsx` and shared cache and normalization in `src/lib/reportingCurrency.ts` instead of duplicating settings-side currency bootstrap in pages.
-- Keep realtime ownership in `src/lib/websocket.ts` and consume it through hooks instead of creating ad hoc clients.
-- Keep locale state and shared formatting in `src/i18n/`, not in shell or page code.
+- Keep reporting-currency provider state in `src/context/ReportingCurrencyContext.tsx` and shared cache, `prime()` or `refresh()` behavior, and normalization in `src/lib/reportingCurrency.ts` instead of duplicating settings-side currency bootstrap in pages.
+- Keep realtime ownership in `src/lib/websocket.ts`, prefer `useRealtimeData()` for shared websocket consumers, and avoid creating ad hoc clients.
+- Keep locale state, shared formatting, and non-hook static label lookups in `src/i18n/`, not in shell or page code.
 - Keep shadcn/ui additions aligned with `components.json`: `style` `new-york`, Tailwind CSS in `src/index.css`, `lucide` icons, aliases rooted at `@/`, and generated primitives under `src/components/ui/`.
 - Use existing `ui/` primitives and local wrappers before adding one-off markup in pages or shared widgets.
 
