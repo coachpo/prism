@@ -314,8 +314,11 @@ test("legacy strategy ui and request log target labels", async ({ page }) => {
   await expect(page.getByText(/Adaptive|Auto Recovery|Routing Policy/)).toHaveCount(0);
 
   await page.goto("/request-logs");
-  await expect(page.getByText("Requested Model: Public Model")).toBeVisible();
-  await expect(page.getByText("Final Target Model: Terminal Model")).toBeVisible();
+  const requestLogsTable = page.getByTestId("request-logs-table");
+  await expect(requestLogsTable.getByText("Requested Model", { exact: true })).toBeVisible();
+  await expect(requestLogsTable.getByText("Final Target Model", { exact: true })).toBeVisible();
+  await expect(requestLogsTable.getByText("Public Model", { exact: true })).toBeVisible();
+  await expect(requestLogsTable.getByText("Terminal Model", { exact: true })).toBeVisible();
   await expect(page.getByText(/Proxy origin|Resolved target/)).toHaveCount(0);
 
   await page.getByTestId("request-logs-table").getByRole("button").first().click();

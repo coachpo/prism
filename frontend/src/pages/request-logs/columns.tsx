@@ -199,27 +199,31 @@ export function getColumns(): ColumnDef[] {
       ),
     },
     {
-      key: "model_id",
-      label: `${messages.requestedModel} / ${messages.finalTargetModel}`,
-      width: 280,
-      grow: 3,
+      key: "requested_model",
+      label: messages.requestedModel,
+      width: 170,
+      grow: 2,
       render: (row) => {
-        const finalTargetLabel = row.resolved_target_model_label ?? row.model_label;
-        const finalTargetId = row.resolved_target_model_id ?? row.model_id;
+        const requestedModelValue = row.model_label || row.model_id;
 
         return (
-          <div className="min-w-0 space-y-0.5">
-            <span className="block min-w-0 truncate text-xs font-medium">
-              {messages.requestedModel}: {row.model_label}
-            </span>
-            <span className="block truncate text-[11px] text-muted-foreground">
-              {messages.finalTargetModel}: {finalTargetLabel}
-            </span>
-            {finalTargetLabel !== finalTargetId ? (
-              <span className="block truncate font-mono text-[10px] text-muted-foreground/80">
-                {finalTargetId}
-              </span>
-            ) : null}
+          <div className="min-w-0">
+            <span className="block truncate text-xs font-medium">{requestedModelValue}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: "final_target_model",
+      label: messages.finalTargetModel,
+      width: 190,
+      grow: 2,
+      render: (row) => {
+        const finalTargetValue = row.resolved_target_model_label ?? row.resolved_target_model_id ?? row.model_label ?? row.model_id;
+
+        return (
+          <div className="min-w-0">
+            <span className="block truncate text-xs font-medium">{finalTargetValue}</span>
           </div>
         );
       },
