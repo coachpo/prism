@@ -9,13 +9,13 @@ const canonicalCurrency = {
 
 function createProfile() {
   return {
-    id: 1,
+    id: 42,
     name: "Default",
     description: null,
     is_active: true,
     is_default: true,
     is_editable: true,
-    version: 1,
+    version: 42,
     created_at: timestamp,
     deleted_at: null,
     updated_at: timestamp,
@@ -25,15 +25,15 @@ function createProfile() {
 function createModelListItem() {
   return {
     id: 1,
+    profile_id: 42,
     vendor_id: null,
     vendor: null,
     api_family: "openai" as const,
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
-    model_type: "native",
-    proxy_targets: [],
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
+    access_targets: [],
     is_enabled: true,
     connection_count: 0,
     active_connection_count: 0,
@@ -189,7 +189,7 @@ function createRequestLogDetail({
       error_detail: null,
     },
     routing: {
-      profile_id: 1,
+      profile_id: 42,
       endpoint_label: "Primary endpoint",
       endpoint_id: 1,
       connection_id: null,
@@ -406,6 +406,10 @@ async function mockCurrencyRoutes(
       return fulfillJson([]);
     }
 
+    if (pathname === "/api/connections") {
+      return fulfillJson([]);
+    }
+
     if (pathname === "/api/endpoints") {
       throw new Error(
         "Unexpected /api/endpoints request during request-logs browse mode",
@@ -492,7 +496,7 @@ test.describe("models and request logs reporting currency", () => {
 
     await page.goto("/models");
 
-    await expect(page.getByText("€1.25 EUR spend")).toBeVisible();
+    await expect(page.getByText("€1.25 spend")).toBeVisible();
     await expect(page.getByText("$1.25")).toHaveCount(0);
   });
 
@@ -502,7 +506,7 @@ test.describe("models and request logs reporting currency", () => {
     await page.goto("/models");
 
     await expect(page.getByText("Spend is shown with fallback reporting currency until billing settings load again.")).toBeVisible();
-    await expect(page.getByText("$1.25 USD spend")).toBeVisible();
+    await expect(page.getByText("$1.25 spend")).toBeVisible();
   });
 
   test("keeps browse-mode request-log spend distinct for payload symbols, canonical fallback, priced zero, and missing cost", async ({ page }) => {

@@ -98,7 +98,6 @@ const FIELD_LABELS = {
   "database.pools.background_jobs.min_idle_conns": (copy) => copy.postgresLaneMinIdle(copy.postgresLaneBackgroundJobs),
   "database.management_admission.m2_max_concurrent": (copy) => copy.m2MaxConcurrent,
   "database.management_admission.m3_max_concurrent": (copy) => copy.m3MaxConcurrent,
-  "runtime.buffering_mode": (copy) => copy.bufferingMode,
   "runtime.transport.max_idle_conns": (copy) => copy.maxIdleConns,
   "runtime.transport.max_idle_conns_per_host": (copy) => copy.maxIdlePerHost,
   "runtime.transport.max_conns_per_host": (copy) => copy.maxConnsPerHost,
@@ -154,7 +153,6 @@ export const DATABASE_FIELD_PATHS = [
   "database.management_admission.m3_max_concurrent",
 ];
 export const TRANSPORT_FIELD_PATHS = [
-  "runtime.buffering_mode",
   "runtime.transport.max_idle_conns",
   "runtime.transport.max_idle_conns_per_host",
   "runtime.transport.max_conns_per_host",
@@ -256,6 +254,10 @@ export function normalizeMailValues(mail: BootstrapConfigMailValues | null | und
 
 export function normalizeBootstrapValues(values: BootstrapConfigValues): BootstrapConfigValues {
   const nextValues = cloneValues(values);
+  nextValues.runtime = {
+    transport: nextValues.runtime.transport,
+    side_effects: nextValues.runtime.side_effects,
+  };
   nextValues.database = {
     pools: normalizePostgresPools(nextValues),
     management_admission: nextValues.database.management_admission,

@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/collapsible";
 import { formatMoneyMicros } from "@/lib/costing";
 import type { ModelConfigListItem } from "@/lib/types";
-import { getAdaptiveRoutingObjectiveLabel } from "@/lib/loadbalanceRoutingPolicy";
+import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { cn, formatApiFamily } from "@/lib/utils";
 import {
   formatLatencyForDisplay,
@@ -30,7 +30,6 @@ import {
 } from "../model-detail/modelDetailMetricsAndPaths";
 import type { ModelDerivedMetric } from "./modelTableContracts";
 
-const TYPE_ORDER: ModelConfigListItem["model_type"][] = ["native", "proxy"];
 const UNKNOWN_VENDOR_KEY = "unknown-vendor";
 const STATUS_ORDER = [
   {
@@ -60,7 +59,8 @@ type SharedRenderProps = Pick<
   | "modelSpend30dMicros"
   | "setDeleteTarget"
 > & {
-  onNavigate: (model: Pick<ModelConfigListItem, "id" | "model_type">) => void;
+  currencySymbol: string;
+  onNavigate: (model: ModelConfigListItem) => void;
 };
 
 type VendorGroup = {
@@ -92,9 +92,7 @@ function resolveVendorName(model: ModelConfigListItem, unknownVendorLabel: strin
 }
 
 function orderVendorModels(models: ModelConfigListItem[]) {
-  return TYPE_ORDER.flatMap((modelType) =>
-    STATUS_ORDER.flatMap(({ matches }) => models.filter((model) => model.model_type === modelType && matches(model)))
-  );
+  return STATUS_ORDER.flatMap(({ matches }) => models.filter((model) => matches(model)));
 }
 
 function groupModels(filtered: ModelConfigListItem[], unknownVendorLabel: string): VendorGroup[] {
@@ -188,18 +186,21 @@ function InlineMetaDivider() {
   );
 }
 
-function getProxyTargetSummary(model: ModelConfigListItem, copy: { noProxyTargets: string; targetsFirst: (count: string, first: string) => string }, formatNumber: (value: number) => string) {
-  const proxyTargets = model.proxy_targets ?? [];
-  const firstTarget = proxyTargets[0]?.target_model_id;
+function getTargetSummary(model: ModelConfigListItem, formatNumber: (value: number) => string) {
+  const firstTarget = [...model.access_targets].sort((left, right) => left.position - right.position)[0];
+  const firstLabel = firstTarget?.target_type === "model"
+    ? firstTarget.target_model?.display_name || firstTarget.target_model_id
+    : firstTarget?.connection?.name || firstTarget?.connection?.endpoint?.name || (firstTarget?.connection_id ? `Connection ${firstTarget.connection_id}` : null);
 
-  if (!firstTarget) {
-    return copy.noProxyTargets;
+  if (!firstLabel) {
+    return "No access targets";
   }
 
-  return copy.targetsFirst(formatNumber(proxyTargets.length), firstTarget);
+  return `${formatNumber(model.access_targets.length)} targets · First ${firstLabel}`;
 }
 
 function ModelRow({
+  currencySymbol,
   metricsLoading,
   model,
   modelMetrics24h,
@@ -217,27 +218,15 @@ function ModelRow({
   const p95LatencyMs = metrics24h?.p95_latency_ms ?? null;
   const spend30dMicros = modelSpend30dMicros[model.id] ?? 0;
   const title = model.display_name || model.model_id;
-  const proxyTargetSummary = getProxyTargetSummary(model, copy, formatNumber);
+  const targetSummary = getTargetSummary(model, formatNumber);
   const apiFamilyLabel = formatApiFamily(resolveApiFamily(model));
-  const typeLabel = model.model_type === "proxy" ? detailCopy.typeProxy : detailCopy.typeNative;
-  const typeIntent = model.model_type === "proxy" ? "accent" : "info";
   const statusLabel = model.is_enabled ? detailCopy.enabled : detailCopy.disabled;
   const statusIntent = model.is_enabled ? "success" : "muted";
   const showModelId = Boolean(model.display_name && model.display_name !== model.model_id);
   const strategyTypeLabel = model.loadbalance_strategy
-    ? model.loadbalance_strategy.strategy_type === "adaptive"
-      ? strategyCopy.adaptiveFamilyLabel
-      : model.loadbalance_strategy.legacy_strategy_type === "single"
-        ? strategyCopy.singleLabel
-        : model.loadbalance_strategy.legacy_strategy_type === "fill-first"
-          ? strategyCopy.fillFirstLabel
-          : strategyCopy.roundRobinLabel
+    ? getLoadbalanceStrategyTypeLabel(model.loadbalance_strategy, strategyCopy)
     : null;
-  const strategySummaryLabel = model.loadbalance_strategy
-    ? model.loadbalance_strategy.strategy_type === "adaptive"
-      ? `${strategyCopy.adaptiveFamilyLabel} • ${getAdaptiveRoutingObjectiveLabel(model.loadbalance_strategy.routing_policy.routing_objective, strategyCopy)}`
-      : strategyTypeLabel
-    : null;
+  const strategySummaryLabel = strategyTypeLabel;
   const strategySummary = model.loadbalance_strategy
     ? `${model.loadbalance_strategy.name} · ${strategySummaryLabel}`
     : copy.strategyNotConfigured;
@@ -260,7 +249,7 @@ function ModelRow({
   const spend30dText =
     metricsLoading
       ? `… ${copy.spendShort}`
-      : `${formatMoneyMicros(spend30dMicros, undefined, undefined, 2, 6, locale as "en" | "zh-CN")} ${copy.spendShort}`;
+      : `${formatMoneyMicros(spend30dMicros, currencySymbol, undefined, 2, 6, locale as "en" | "zh-CN")} ${copy.spendShort}`;
 
   return (
     <div className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-muted/25">
@@ -291,12 +280,11 @@ function ModelRow({
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-          {model.model_type === "proxy" ? <InlineMetaText>{proxyTargetSummary}</InlineMetaText> : null}
-          {model.model_type === "native" ? <InlineMetaText>{strategySummary}</InlineMetaText> : null}
+          <InlineMetaText>{strategySummary}</InlineMetaText>
+          <InlineMetaDivider />
+          <InlineMetaText>{targetSummary}</InlineMetaText>
           <InlineMetaDivider />
           <InlineMetaText>{apiFamilyLabel}</InlineMetaText>
-          <InlineMetaDivider />
-          <InlineMetaText intent={typeIntent}>{typeLabel}</InlineMetaText>
           <InlineMetaDivider />
           <InlineMetaText intent={statusIntent}>{statusLabel}</InlineMetaText>
           <InlineMetaDivider />
@@ -345,6 +333,7 @@ function ModelRow({
 }
 
 function VendorSection({
+  currencySymbol,
   group,
   isExpanded,
   metricsLoading,
@@ -408,6 +397,7 @@ function VendorSection({
             {group.models.map((model) => (
               <ModelRow
                 key={model.id}
+                currencySymbol={currencySymbol}
                 metricsLoading={metricsLoading}
                 model={model}
                 modelMetrics24h={modelMetrics24h}
@@ -473,6 +463,7 @@ export function ModelsTable({
       {vendorGroups.map((group) => (
         <VendorSection
           key={group.groupKey}
+          currencySymbol={currencyState.currency.symbol}
           group={group}
           isExpanded={search.trim().length > 0 || (expandedGroups[group.groupKey] ?? true)}
           metricsLoading={metricsLoading}

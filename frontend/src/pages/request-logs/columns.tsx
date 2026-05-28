@@ -200,24 +200,29 @@ export function getColumns(): ColumnDef[] {
     },
     {
       key: "model_id",
-      label: messages.model,
-      width: 240,
+      label: `${messages.requestedModel} / ${messages.finalTargetModel}`,
+      width: 280,
       grow: 3,
-      render: (row) => (
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="block min-w-0 truncate text-xs font-medium">{row.model_label}</span>
-            {row.is_proxy_origin ? (
-              <TypeBadge label={messages.proxyOrigin} intent="accent" className="px-2 py-0.5" />
+      render: (row) => {
+        const finalTargetLabel = row.resolved_target_model_label ?? row.model_label;
+        const finalTargetId = row.resolved_target_model_id ?? row.model_id;
+
+        return (
+          <div className="min-w-0 space-y-0.5">
+            <span className="block min-w-0 truncate text-xs font-medium">
+              {messages.requestedModel}: {row.model_label}
+            </span>
+            <span className="block truncate text-[11px] text-muted-foreground">
+              {messages.finalTargetModel}: {finalTargetLabel}
+            </span>
+            {finalTargetLabel !== finalTargetId ? (
+              <span className="block truncate font-mono text-[10px] text-muted-foreground/80">
+                {finalTargetId}
+              </span>
             ) : null}
           </div>
-          {row.resolved_target_model_label && row.resolved_target_model_id !== row.model_id ? (
-            <span className="block truncate text-[11px] text-muted-foreground">
-              {messages.resolvedTarget} → {row.resolved_target_model_label}
-            </span>
-          ) : null}
-        </div>
-      ),
+        );
+      },
     },
     {
       key: "endpoint_id",

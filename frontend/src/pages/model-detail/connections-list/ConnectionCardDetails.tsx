@@ -54,10 +54,10 @@ export function ConnectionCardDetails({
           {currentState.live_p95_latency_ms !== null ? (
             <span>{copy.liveP95Latency(`${Math.round(currentState.live_p95_latency_ms)}ms`)}</span>
           ) : null}
-          {currentState.last_live_success_at ? (
+          {currentState.last_success_at ? (
             <span>
               {copy.lastLiveSuccess(
-                formatTime(currentState.last_live_success_at, {
+                formatTime(currentState.last_success_at, {
                   hour: "numeric",
                   minute: "numeric",
                   second: "numeric",
@@ -65,10 +65,10 @@ export function ConnectionCardDetails({
               )}
             </span>
           ) : null}
-          {currentState.last_live_failure_at ? (
+          {currentState.next_retry_at ? (
             <span>
               {copy.lastLiveFailure(
-                formatTime(currentState.last_live_failure_at, {
+                formatTime(currentState.next_retry_at, {
                   hour: "numeric",
                   minute: "numeric",
                   second: "numeric",

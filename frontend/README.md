@@ -28,7 +28,7 @@ When started through the checked-in root launcher, Prism serves the frontend at 
 
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
 - `/` redirects to `/dashboard`
-- `src/App.tsx` mounts the public auth routes plus the protected shell routes for dashboard, models, model detail, `/models/:id/proxy`, endpoints, loadbalance strategies, settings, pricing templates, proxy API keys, sidecars, and request logs.
+- `src/App.tsx` mounts the public auth routes plus the protected shell routes for dashboard, models, model detail, endpoints, loadbalance strategies, settings, pricing templates, proxy API keys, sidecars, and request logs.
 - `src/pages/` owns route-domain shells and their dense local feature folders, including `src/pages/sidecars/` for the global sidecar control plane.
 - `src/main.tsx` owns browser mounting plus the locale, theme, tooltip, and toast providers.
 - `src/lib/api.ts` is the public typed API boundary.

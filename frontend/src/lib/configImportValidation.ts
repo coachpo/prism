@@ -16,7 +16,7 @@ const OpenAIProbeEndpointVariantImportSchema = z.enum([
 
 const componentPricingDecimalPattern = /^\d+(\.\d+)?$/;
 
-// Bundle v1 keeps all component prices as concrete strings.
+// Bundle v2 keeps all component prices as concrete strings.
 // Missing, null, blank, and whitespace-only inputs normalize to "0" before decimal validation.
 const ComponentPricingImportSchema = z.preprocess(
   (value) => {
@@ -63,79 +63,22 @@ const PricingTemplateImportSchema = z.strictObject({
   version: z.number().int().min(1).optional(),
 });
 
-const AutoRecoveryImportSchema = z.union([
-  z.strictObject({ mode: z.literal("disabled") }),
-  z.strictObject({
-    mode: z.literal("enabled"),
-    status_codes: z.array(z.number().int().min(100).max(599)).min(1),
-    cooldown: z.strictObject({
-      base_seconds: z.number().int().min(0),
-      failure_threshold: z.number().int().min(1).max(50),
-      backoff_multiplier: z.number().min(1).max(10),
-      max_cooldown_seconds: z.number().int().min(1).max(86_400),
-    }),
-    ban: z.union([
-      z.strictObject({
-        mode: z.literal("off"),
-        max_cooldown_strikes_before_ban: z.literal(0).optional(),
-        ban_duration_seconds: z.literal(0).optional(),
-      }),
-      z.strictObject({
-        mode: z.literal("manual"),
-        max_cooldown_strikes_before_ban: z.number().int().min(1).max(100),
-        ban_duration_seconds: z.literal(0).optional(),
-      }),
-      z.strictObject({
-        mode: z.literal("temporary"),
-        max_cooldown_strikes_before_ban: z.number().int().min(1).max(100),
-        ban_duration_seconds: z.number().int().min(1).max(86_400),
-      }),
-    ]),
-  }),
-]);
-
-const AdaptiveRoutingPolicyImportSchema = z.strictObject({
-  kind: z.literal("adaptive"),
-  routing_objective: z.enum(["maximize_availability", "minimize_latency"]),
-  hedge: z.strictObject({
-    enabled: z.boolean(),
-    delay_ms: z.number().int().min(0),
-    max_additional_attempts: z.number().int().min(1),
-  }),
-  circuit_breaker: z.strictObject({
-    failure_status_codes: z.array(z.number().int().min(100).max(599)).min(1),
-    base_open_seconds: z.number().min(0),
-    failure_threshold: z.number().int().min(1),
-    backoff_multiplier: z.number().min(1),
-    max_open_seconds: z.number().int().min(1),
-    ban_mode: z.enum(["off", "temporary", "manual"]),
-    max_open_strikes_before_ban: z.number().int().min(0),
-    ban_duration_seconds: z.number().int().min(0),
-  }),
-  admission: z.strictObject({
-    respect_qps_limit: z.boolean(),
-    respect_in_flight_limits: z.boolean(),
-  }),
+const LoadbalanceStrategyImportSchema = z.strictObject({
+  name: z.string(),
+  legacy_strategy_type: z.enum(["single", "fill-first", "round-robin"]).nullable(),
+  failure_status_codes: z.array(z.number().int().min(100).max(599)),
+  ban_mode: z.enum(["off", "temporary", "manual"]).nullable(),
+  retry_base_delay_ms: z.number().int().min(0).nullable(),
+  retry_backoff_multiplier: z.number().min(1).nullable(),
+  retry_jitter_ratio: z.number().min(0).max(1).nullable(),
+  retry_max_delay_ms: z.number().int().min(1).nullable(),
+  retry_max_attempts: z.number().int().min(1).nullable(),
+  ban_duration_seconds: z.number().int().min(0).nullable(),
 });
 
-const LoadbalanceStrategyImportSchema = z.discriminatedUnion("strategy_type", [
-  z.strictObject({
-    name: z.string(),
-    strategy_type: z.literal("legacy"),
-    legacy_strategy_type: z.enum(["single", "fill-first", "round-robin"]),
-    auto_recovery: AutoRecoveryImportSchema,
-    routing_policy: z.null().optional(),
-  }),
-  z.strictObject({
-    name: z.string(),
-    strategy_type: z.literal("adaptive"),
-    routing_policy: AdaptiveRoutingPolicyImportSchema,
-    legacy_strategy_type: z.null().optional(),
-    auto_recovery: z.null().optional(),
-  }),
-]);
-
 const ConnectionImportSchema = z.strictObject({
+  ref: z.string(),
+  api_family: z.enum(["openai", "anthropic", "gemini"]),
   endpoint_name: z.string(),
   pricing_template_name: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
@@ -149,65 +92,70 @@ const ConnectionImportSchema = z.strictObject({
   max_in_flight_stream: z.number().int().min(1).nullable().optional(),
 });
 
-const ProxyTargetImportSchema = z.strictObject({
-  target_model_id: z.string(),
+const AccessTargetImportSchema = z.strictObject({
   position: z.number().int().min(0),
-  weight: z.number().int().min(1),
-  target_priority: z.number().int().min(0),
+  is_enabled: z.boolean(),
+  target_type: z.enum(["model", "connection"]),
+  connection_ref: z.string().nullable().optional(),
+  target_model_id: z.string().nullable().optional(),
 });
 
-const NativeModelImportSchema = z.strictObject({
+const ModelImportSchema = z.strictObject({
   vendor_key: z.string().nullable().optional(),
   api_family: z.enum(["openai", "anthropic", "gemini"]),
   model_id: z.string(),
   display_name: z.string().nullable().optional(),
-  model_type: z.literal("native"),
-  proxy_selection_strategy: z.null().optional(),
-  proxy_targets: z.tuple([]),
   loadbalance_strategy_name: z.string(),
   is_enabled: z.boolean().optional(),
-  connections: z.array(ConnectionImportSchema),
-});
-
-const ProxyModelImportSchema = z.strictObject({
-  vendor_key: z.string().nullable().optional(),
-  api_family: z.enum(["openai", "anthropic", "gemini"]),
-  model_id: z.string(),
-  display_name: z.string().nullable().optional(),
-  model_type: z.literal("proxy"),
-  proxy_selection_strategy: z.enum(["ordered_fallback", "weighted_static", "priority_static"]),
-  proxy_targets: z.array(ProxyTargetImportSchema),
-  loadbalance_strategy_name: z.null(),
-  is_enabled: z.boolean().optional(),
-  connections: z.tuple([]),
+  access_targets: z.array(AccessTargetImportSchema),
 }).superRefine((model, context) => {
-  const seenTargetModelIds = new Set();
+  const seenPositions = new Set<number>();
+  const seenTargets = new Set<string>();
 
-  for (const [index, target] of model.proxy_targets.entries()) {
+  for (const [index, target] of model.access_targets.entries()) {
     if (target.position !== index) {
       context.addIssue({
         code: "custom",
-        path: ["proxy_targets", index, "position"],
-        message: "proxy_targets positions must be contiguous starting at 0",
+        path: ["access_targets", index, "position"],
+        message: "access_targets positions must be contiguous starting at 0",
       });
     }
-
-    if (seenTargetModelIds.has(target.target_model_id)) {
+    if (seenPositions.has(target.position)) {
       context.addIssue({
         code: "custom",
-        path: ["proxy_targets", index, "target_model_id"],
-        message: "proxy_targets must contain unique target_model_id values",
+        path: ["access_targets", index, "position"],
+        message: "access_targets must contain unique position values",
       });
     }
+    seenPositions.add(target.position);
 
-    seenTargetModelIds.add(target.target_model_id);
+    if (target.target_type === "connection") {
+      if (!target.connection_ref) {
+        context.addIssue({ code: "custom", path: ["access_targets", index, "connection_ref"], message: "connection_ref is required for connection targets" });
+      }
+      if (target.target_model_id) {
+        context.addIssue({ code: "custom", path: ["access_targets", index, "target_model_id"], message: "target_model_id must be omitted for connection targets" });
+      }
+    }
+    if (target.target_type === "model") {
+      if (!target.target_model_id) {
+        context.addIssue({ code: "custom", path: ["access_targets", index, "target_model_id"], message: "target_model_id is required for model targets" });
+      }
+      if (target.connection_ref) {
+        context.addIssue({ code: "custom", path: ["access_targets", index, "connection_ref"], message: "connection_ref must be omitted for model targets" });
+      }
+      if (target.target_model_id === model.model_id) {
+        context.addIssue({ code: "custom", path: ["access_targets", index, "target_model_id"], message: "access target cannot target itself" });
+      }
+    }
+
+    const targetKey = `${target.target_type}:${target.connection_ref ?? target.target_model_id ?? ""}`;
+    if (seenTargets.has(targetKey)) {
+      context.addIssue({ code: "custom", path: ["access_targets", index], message: "access_targets must contain unique target references" });
+    }
+    seenTargets.add(targetKey);
   }
 });
-
-const ModelImportSchema = z.discriminatedUnion("model_type", [
-  NativeModelImportSchema,
-  ProxyModelImportSchema,
-]);
 
 const HeaderBlocklistRuleExportSchema = z.strictObject({
   name: z.string(),
@@ -224,7 +172,7 @@ const UserAgentRuleTransportSchema = z.strictObject({
 
 const EndpointFxRateImportSchema = z.strictObject({
   model_id: z.string(),
-  endpoint_name: z.string(),
+  connection_ref: z.string(),
   fx_rate: z.string(),
 });
 
@@ -264,12 +212,13 @@ const VendorCatalogRowSchema = z.strictObject({
 });
 
 export const ConfigImportSchema = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   bundle_kind: z.literal("profile_config"),
   exported_at: z.string().optional(),
   vendor_refs: z.array(VendorRefImportSchema),
   endpoints: z.array(EndpointImportSchema),
   pricing_templates: z.array(PricingTemplateImportSchema),
+  connections: z.array(ConnectionImportSchema),
   loadbalance_strategies: z.array(LoadbalanceStrategyImportSchema),
   models: z.array(ModelImportSchema),
   profile_settings: ProfileSettingsImportSchema.nullable().optional(),

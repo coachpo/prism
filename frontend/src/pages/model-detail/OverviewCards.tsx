@@ -5,7 +5,7 @@ import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
 import { useLocale } from "@/i18n/useLocale";
 import { formatApiFamily } from "@/lib/utils";
 import { formatMoneyMicros } from "@/lib/costing";
-import { getAdaptiveRoutingObjectiveLabel } from "@/lib/loadbalanceRoutingPolicy";
+import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { useTimezone } from "@/hooks/useTimezone";
 import { Coins, FileText } from "lucide-react";
 import type { ModelConfig, SpendingSummary } from "@/lib/types";
@@ -16,9 +16,9 @@ interface OverviewCardsProps {
   spendingLoading: boolean;
   spendingCurrencySymbol: string;
   spendingCurrencyCode: string;
-  proxyTargetSummary?: {
+  accessTargetSummary?: {
     targetCount: number;
-    firstTargetId: string | null;
+    enabledTargetCount: number;
     firstTargetLabel: string | null;
     routePolicyLabel: string;
   };
@@ -31,7 +31,7 @@ export function OverviewCards({
   spendingLoading,
   spendingCurrencySymbol,
   spendingCurrencyCode,
-  proxyTargetSummary,
+  accessTargetSummary,
   onViewRequestLogs,
 }: OverviewCardsProps) {
   const { format: formatTime } = useTimezone();
@@ -41,24 +41,8 @@ export function OverviewCards({
   const fieldCopy = messages.common;
   const apiFamily = model.api_family ?? "openai";
   const vendorLabel = model.vendor?.name ?? copy.unassigned;
-  const strategyTypeLabel = model.loadbalance_strategy
-    ? model.loadbalance_strategy.strategy_type === "adaptive"
-      ? strategyCopy.adaptiveFamilyLabel
-      : model.loadbalance_strategy.legacy_strategy_type === "single"
-        ? strategyCopy.singleLabel
-        : model.loadbalance_strategy.legacy_strategy_type === "fill-first"
-          ? strategyCopy.fillFirstLabel
-          : strategyCopy.roundRobinLabel
-    : null;
   const strategyAssignmentLabel = model.loadbalance_strategy
-    ? model.loadbalance_strategy.strategy_type === "adaptive"
-      ? `${strategyCopy.adaptiveFamilyLabel} • ${getAdaptiveRoutingObjectiveLabel(model.loadbalance_strategy.routing_policy.routing_objective, strategyCopy)}`
-      : `${strategyCopy.legacyFamilyLabel} • ${strategyTypeLabel}`
-    : null;
-  const strategyRoutingObjectiveLabel = model.loadbalance_strategy
-    ? model.loadbalance_strategy.strategy_type === "adaptive"
-      ? getAdaptiveRoutingObjectiveLabel(model.loadbalance_strategy.routing_policy.routing_objective, strategyCopy)
-      : strategyTypeLabel
+    ? getLoadbalanceStrategyDetailLabel(model.loadbalance_strategy, strategyCopy)
     : null;
   const spendingTokenDetail = spending
     ? [
@@ -90,26 +74,12 @@ export function OverviewCards({
                 </div>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground mb-1">
-                  {model.model_type === "proxy" ? copy.proxyRouting : copy.loadbalanceStrategy}
-                </p>
+                <p className="text-xs text-muted-foreground mb-1">{copy.loadbalanceStrategy}</p>
                 <div className="text-sm font-medium">
-                  {model.model_type === "proxy" ? (
-                    <div className="space-y-0.5">
-                      <div>{proxyTargetSummary?.routePolicyLabel ?? copy.orderedPriorityRouting}</div>
-                      <div className="text-xs font-normal text-muted-foreground">
-                        {copy.targets(formatNumber(proxyTargetSummary?.targetCount ?? 0))}
-                        {proxyTargetSummary?.firstTargetId
-                          ? ` · ${copy.firstTarget(proxyTargetSummary.firstTargetId)}`
-                          : ""}
-                      </div>
-                    </div>
-                  ) : model.loadbalance_strategy ? (
+                  {model.loadbalance_strategy ? (
                     <div className="space-y-0.5">
                       <div>{model.loadbalance_strategy.name}</div>
-                      <div className="text-xs font-normal text-muted-foreground">
-                        {strategyAssignmentLabel}
-                      </div>
+                      <div className="text-xs font-normal text-muted-foreground">{strategyAssignmentLabel}</div>
                     </div>
                   ) : (
                     <span className="text-muted-foreground">{copy.unassigned}</span>
@@ -117,13 +87,10 @@ export function OverviewCards({
                 </div>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground mb-1">{copy.routingObjective}</p>
+                <p className="text-xs text-muted-foreground mb-1">Access targets</p>
                 <span className="text-sm font-medium">
-                  {model.model_type === "native" && strategyRoutingObjectiveLabel ? (
-                    strategyRoutingObjectiveLabel
-                  ) : (
-                    <span className="text-muted-foreground">{messages.common.notApplicable}</span>
-                  )}
+                  {copy.targets(formatNumber(accessTargetSummary?.targetCount ?? 0))}
+                  {accessTargetSummary?.firstTargetLabel ? ` · ${accessTargetSummary.firstTargetLabel}` : ""}
                 </span>
               </div>
               <div>

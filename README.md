@@ -12,9 +12,9 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 
 - **Operation-registered runtime support**: allowed routes are `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/images/generations`, `POST /v1/images/edits`, `POST /v1/messages`, `POST /v1/messages/count_tokens`, `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, and `POST /v1beta/models/{model}:countTokens`
 - **Not a full vendor API clone**: unsupported vendor routes are rejected before provider transport, telemetry, audit, or feedback side effects
-- **Proxy model routing**: public model IDs can forward to native targets while preserving their vendor metadata
-- **Dual routing strategies**: reusable native-model strategies can be `legacy` or `adaptive`, with canonical defaults available through an explicit selected-profile action on the Loadbalance Strategies page
-- **Streaming**: operation hooks handle SSE responses for supported streaming routes
+- **Unified model access**: public model IDs resolve through ordered access targets that can point to other same-family models or standalone connections
+- **Legacy routing with Ban Policy**: reusable load-balance strategies use `single`, `fill-first`, or `round-robin` routing plus retry-window and ban settings
+- **Automatic buffering**: operation hooks handle streaming and internal buffered fallbacks for supported routes
 
 ### Observability & management
 
@@ -112,7 +112,7 @@ The frontend image defaults to same-origin API calls. In production, put fronten
 - [Test Case Generation Methodology](docs/TEST_CASE_GENERATION_METHODOLOGY.md)
 - [PRD](docs/PRD.md)
 - [Smoke Test Plan](docs/SMOKE_TEST_PLAN.md)
-- [Active plans](.sisyphus/plans/)
+- [Active plans](.omo/plans/)
 
 The checked-in `docs/` tree is reserved for durable reference material and archive notes. Active working plans are kept outside `docs/`. Sidecar workflow, API, and data-model details live in the active docs rather than only in archived smoke evidence.
 
@@ -174,7 +174,7 @@ Plaintext bootstrap startup uses a single steady-state external input:
 
 The Startup tab at `/settings#startup` manages that plaintext file directly. GET returns masked metadata only, field-level apply capabilities, and pending apply state only when the file differs from the live applied baseline. PUT applies explicit preserve or replace secret actions with expected revision and etag checks, writes the file, and immediately publishes eligible hot fields. Dangerous host, port, database, JWT signing key, and bundle key changes require confirmation tokens. `runtime.secretEncryptionKey` is preserve only in v1, and redacted placeholders are not persisted.
 
-That bootstrap file owns startup values directly. Hot-eligible fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime buffering and transport settings, and M2/M3 management admission limits. Listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, JWT signing key, and bundle key changes still require restart. If an encrypted bootstrap file is still present, replace it before booting.
+That bootstrap file owns startup values directly. Hot-eligible fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, and M2/M3 management admission limits. Runtime buffering is automatic and not user-configurable. Listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, JWT signing key, and bundle key changes still require restart. If an encrypted bootstrap file is still present, replace it before booting.
 
 Plaintext bootstrap files must include `runtime.transport.requestTimeout`, seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout`, seeded as `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through the Startup tab or API. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
 
@@ -231,10 +231,11 @@ When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./star
 
 Prism uses PostgreSQL with Go-backend-managed migrations applied automatically on startup. Development contract changes are clean cut: incompatible local data should be reset and recreated, with no backfill path promised for old pricing or token semantics.
 
-Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as:
+Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as legacy Ban Policy strategies:
 
-- `Default legacy routing` (`fill-first`)
-- `Default adaptive routing`
+- `Default single routing`
+- `Default fill-first routing`
+- `Default round-robin routing`
 
 ---
 

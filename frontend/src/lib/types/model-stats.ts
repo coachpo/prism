@@ -1,12 +1,7 @@
 import type { ApiFamily, Vendor } from "./vendor";
 import type { Connection } from "./routing";
-import type {
-  LoadbalanceStrategySummary,
-} from "./loadbalance";
+import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
-
-export type ModelType = "native" | "proxy";
-export type ProxySelectionStrategy = "ordered_fallback" | "weighted_static" | "priority_static";
 
 export type StreamOutcome =
   | "not_streaming"
@@ -23,43 +18,86 @@ export type StreamErrorKind =
   | "upstream_read_failed"
   | "missing_terminal_event";
 
-export interface ProxyTarget {
-  target_model_id: string;
-  position: number;
-  weight: number;
-  target_priority: number;
+export type ModelAccessTargetType = "model" | "connection";
+
+export interface ModelAccessTargetModelSummary {
+  id: number;
+  profile_id: number;
+  vendor_id: number | null;
+  api_family: ApiFamily;
+  model_id: string;
+  display_name: string | null;
+  loadbalance_strategy_id: number | null;
+  is_enabled: boolean;
 }
+
+export interface ModelAccessTarget {
+  id: number;
+  target_type: ModelAccessTargetType;
+  target_model_id: string | null;
+  connection_id: number | null;
+  position: number;
+  is_enabled: boolean;
+  target_model: ModelAccessTargetModelSummary | null;
+  connection: Connection | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ModelAccessTargetMutation =
+  | {
+      target_type: "model";
+      target_model_id: string;
+      connection_id?: null;
+      position: number;
+      is_enabled?: boolean;
+    }
+  | {
+      target_type: "connection";
+      connection_id: number;
+      target_model_id?: null;
+      position: number;
+      is_enabled?: boolean;
+    };
+
+
+export type ModelAccessTargetCreate = ModelAccessTargetMutation;
+
+export type ModelAccessTargetUpdate = Partial<ModelAccessTargetMutation> & {
+  target_type?: ModelAccessTargetType;
+  target_model_id?: string | null;
+  connection_id?: number | null;
+  position?: number;
+  is_enabled?: boolean;
+};
 
 export interface ModelConfig {
   id: number;
+  profile_id: number;
   vendor_id: number | null;
   vendor: Vendor | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
-  model_type: ModelType;
-  proxy_selection_strategy: ProxySelectionStrategy | null;
-  proxy_targets: ProxyTarget[];
   loadbalance_strategy_id: number | null;
   loadbalance_strategy: LoadbalanceStrategySummary | null;
+  access_targets: ModelAccessTarget[];
   is_enabled: boolean;
-  connections: Connection[];
   created_at: string;
   updated_at: string;
 }
 
 export interface ModelConfigListItem {
   id: number;
+  profile_id: number;
   vendor_id: number | null;
   vendor: Vendor | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
-  model_type: ModelType;
-  proxy_selection_strategy: ProxySelectionStrategy | null;
-  proxy_targets: ProxyTarget[];
   loadbalance_strategy_id: number | null;
   loadbalance_strategy: LoadbalanceStrategySummary | null;
+  access_targets: ModelAccessTarget[];
   is_enabled: boolean;
   connection_count: number;
   active_connection_count: number;
@@ -74,46 +112,19 @@ interface ModelConfigMutationBase {
   api_family?: ApiFamily;
   model_id?: string;
   display_name?: string | null;
+  loadbalance_strategy_id?: number;
+  access_targets?: ModelAccessTargetMutation[];
   is_enabled?: boolean;
 }
 
-export type ModelConfigCreate =
-  | (ModelConfigMutationBase & {
-      api_family: ApiFamily;
-      model_id: string;
-      model_type: "native";
-      proxy_selection_strategy?: null;
-      proxy_targets?: [];
-      loadbalance_strategy_id: number | null;
-    })
-  | (ModelConfigMutationBase & {
-      api_family: ApiFamily;
-      model_id: string;
-      model_type: "proxy";
-      proxy_selection_strategy: ProxySelectionStrategy;
-      proxy_targets: ProxyTarget[];
-      loadbalance_strategy_id?: null;
-    });
+export interface ModelConfigCreate extends ModelConfigMutationBase {
+  api_family: ApiFamily;
+  model_id: string;
+  loadbalance_strategy_id: number;
+  access_targets: ModelAccessTargetMutation[];
+}
 
-export type ModelConfigUpdate =
-  | (ModelConfigMutationBase & {
-      model_type: "native";
-      proxy_selection_strategy?: null;
-      proxy_targets?: [];
-      loadbalance_strategy_id: number | null;
-    })
-  | (ModelConfigMutationBase & {
-      model_type: "proxy";
-      proxy_selection_strategy: ProxySelectionStrategy;
-      proxy_targets: ProxyTarget[];
-      loadbalance_strategy_id?: null;
-    })
-  | (ModelConfigMutationBase & {
-      model_type?: undefined;
-      proxy_selection_strategy?: ProxySelectionStrategy | null;
-      proxy_targets?: ProxyTarget[];
-      loadbalance_strategy_id?: number | null;
-    });
+export type ModelConfigUpdate = ModelConfigMutationBase;
 
 export interface RequestLogEntry {
   id: number;
@@ -121,7 +132,6 @@ export interface RequestLogEntry {
   model_label: string;
   resolved_target_model_id: string | null;
   resolved_target_model_label: string | null;
-  is_proxy_origin: boolean;
   profile_id: number;
   api_family?: ApiFamily;
   vendor_id?: number | null;
@@ -187,7 +197,6 @@ export interface RequestLogListItem {
   model_label: string;
   resolved_target_model_id: string | null;
   resolved_target_model_label: string | null;
-  is_proxy_origin: boolean;
   caller_client_display: string | null;
   upstream_client_display: string | null;
   user_agent_overridden: boolean;
@@ -221,7 +230,6 @@ export interface RequestLogDetailSummary {
   model_label: string;
   resolved_target_model_id: string | null;
   resolved_target_model_label: string | null;
-  is_proxy_origin: boolean;
   api_family: ApiFamily;
   vendor_id?: number | null;
   vendor_key?: string | null;
@@ -553,12 +561,6 @@ export interface DashboardMetricSnapshot {
   unpriced_request_count: number;
 }
 
-export interface DashboardStrategyFamilySummary {
-  adaptive_count: number;
-  legacy_count: number;
-  unassigned_count: number;
-}
-
 export interface DashboardRoutingNode {
   id: string;
   name: string;
@@ -609,7 +611,6 @@ export interface DashboardSnapshot {
   health: DashboardSnapshotHealth;
   metric_snapshot: DashboardMetricSnapshot;
   api_family_rows: StatGroup[];
-  strategy_family_summary: DashboardStrategyFamilySummary;
   recent_requests: RequestLogListItem[];
   top_spending_models: SpendingTopModel[];
   routing_health_map: DashboardRoutingHealthMap;

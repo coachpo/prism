@@ -1,7 +1,7 @@
 # FRONTEND MODEL DETAIL DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/model-detail/` owns the heavy route logic behind `../ModelDetailPage.tsx` and `../ProxyModelDetailPage.tsx`: bootstrap and redirect handling, family-aware strategy summary display, ordered proxy-target summary/editing for proxy models, connection mutation flows, manual health checks, model spending summaries, model-scoped loadbalance events, current recovery state (cooldown plus ban state), the OpenAI probe helper split in `connectionProbeBehavior.ts`, and the parent-covered `connections-list/` UI cluster.
+`pages/model-detail/` owns the heavy route logic behind `../ModelDetailPage.tsx`: bootstrap and redirect handling, family-aware strategy summary display, ordered access-target summary/editing for same-family model or standalone connection targets, connection mutation flows, manual health checks, model spending summaries, model-scoped loadbalance events, current Ban Policy retry-window state, the OpenAI probe helper split in `connectionProbeBehavior.ts`, and the parent-covered `connections-list/` UI cluster.
 
 ## STRUCTURE
 ```
@@ -21,7 +21,7 @@ model-detail/
 ├── OverviewCards.tsx
 ├── ModelDetailHeader.tsx
 ├── ModelDetailTabs.tsx
-├── ProxyTargetsCard.tsx
+├── AccessTargetsCard.tsx
 ├── ConnectionsList.tsx
 ├── LoadbalanceEventsTab.tsx
 ├── ConnectionDialog.tsx
@@ -33,16 +33,16 @@ model-detail/
 
 ## WHERE TO LOOK
 
-- Thin route shells and page-shell composition: `../ModelDetailPage.tsx`, `../ProxyModelDetailPage.tsx`, `useModelDetailPageShell.ts`, `ModelDetailHeader.tsx`, `ModelDetailTabs.tsx`
+- Thin route shell and page-shell composition: `../ModelDetailPage.tsx`, `useModelDetailPageShell.ts`, `ModelDetailHeader.tsx`, `ModelDetailTabs.tsx`
 - High-level composition and page-owned side effects: `useModelDetailData.ts`
 - Bootstrap fetches, focus handoff, and redirect handling: `useModelDetailBootstrap.ts`, `useConnectionFocus.ts`
 - Connection create, edit, delete, and reorder flows: `useModelDetailConnectionFlows.ts`, `useModelDetailConnectionMutations.ts`, `useModelDetailDialogState.ts`
 - Health checks and spending-summary loading: `useConnectionHealthChecks.ts`, `useModelDetailBootstrap.ts`, `useModelDetailData.ts`, `OverviewCards.tsx`
-- Default forms, ordered proxy-target options, strategy summary helpers, and optimistic helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`, `ModelSettingsDialog.tsx`, `ProxyTargetsCard.tsx`
+- Default forms, ordered access-target options, strategy summary helpers, and optimistic helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`, `ModelSettingsDialog.tsx`, `AccessTargetsCard.tsx`
 - OpenAI probe variant decomposition and normalization: `connectionProbeBehavior.ts`
 - Connection list shell plus local cluster: `ConnectionsList.tsx`, `connections-list/`
 - Model-scoped loadbalance event refresh, paging, and detail wiring: `LoadbalanceEventsTab.tsx`, `useModelLoadbalanceEvents.ts`, `../../components/AGENTS.md`
-- Current recovery-state fetch and reset actions: `useModelLoadbalanceCurrentState.ts`
+- Current Ban Policy retry-window state fetch and reset actions: `useModelLoadbalanceCurrentState.ts`
 - Shared latency and connection-label formatting: `modelDetailMetricsAndPaths.ts`
 - E2E seams for model-to-request-log handoff and connection probe behavior: `../../../tests/e2e/model-detail-request-logs-handoff.spec.ts`, `../../../tests/e2e/model-detail-connection-dialog-probe.spec.ts`
 
@@ -50,14 +50,14 @@ model-detail/
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Keep `ModelDetailPage.tsx` and `ProxyModelDetailPage.tsx` thin. `useModelDetailData.ts` owns bootstrap, dialog state, and the cross-hook composition layer.
+- Keep `ModelDetailPage.tsx` thin. `useModelDetailData.ts` owns bootstrap, dialog state, and the cross-hook composition layer.
 - Fetch model, endpoints, model list, and pricing templates in parallel during bootstrap.
 - Use `Promise.allSettled` for health-check batches so one failing connection does not collapse the page.
-- Keep model loadbalance current state in `useModelLoadbalanceCurrentState.ts`, including refresh and reset actions, instead of scattering cooldown/ban state inside cards or tabs.
+- Keep model loadbalance current state in `useModelLoadbalanceCurrentState.ts`, including refresh and reset actions, instead of scattering retry-window or ban state inside cards or tabs.
 - Keep optimistic priority reordering in the hook layer plus the connection-list helpers, and revert UI order if the backend PATCH fails.
-- Keep connection-card recovery copy in `connections-list/ConnectionCardSectionsShared.ts`; tone labels and reset wording in `connections-list/ConnectionCardCooldownState.tsx` should stay presentation-only.
+- Keep connection-card Ban Policy copy in `connections-list/ConnectionCardSectionsShared.ts`; tone labels and reset wording in `connections-list/ConnectionCardCooldownState.tsx` should stay presentation-only.
 - Keep loadbalance event badge/detail rendering in the shared `src/components/loadbalance/` components; `LoadbalanceEventsTab.tsx` should remain a thin page shell.
-- Keep proxy-target option building and update payload shaping in `useModelDetailDataSupport.ts` / `useModelDetailModelForm.ts`; proxy-target card/dialog rendering should stay presentation-focused.
+- Keep access-target option building and update payload shaping in `useModelDetailDataSupport.ts` / `useModelDetailModelForm.ts`; access-target card/dialog rendering should stay presentation-focused.
 - Keep OpenAI probe variant decomposition and normalization in `connectionProbeBehavior.ts` instead of scattering probe endpoint logic across dialog or form files.
 - Treat `connections-list/` as a local cluster that stays documented here. It supports the parent route and should not get its own AGENTS file.
 
@@ -71,3 +71,4 @@ model-detail/
 - Do not manage routing priority from `ConnectionDialog.tsx`. Ordering belongs to the connection-list flow.
 - Do not leave ban-aware wording trapped only in one connection-card component; shared current-state copy must stay centralized.
 - Do not split `connections-list/` into a separate AGENTS file. This parent doc owns that cluster.
+ENTS file. This parent doc owns that cluster.

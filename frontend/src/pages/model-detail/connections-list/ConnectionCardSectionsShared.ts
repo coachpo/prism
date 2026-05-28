@@ -14,11 +14,6 @@ export type ConnectionCardCurrentStateCopy = {
   ) => string;
   currentStateCounting: (failureSummary: string, failureKind: string) => string;
   currentStateManualBan: string;
-  currentStateProbeEligible: (
-    cooldown: string,
-    blockedUntil: string | null,
-    failureKind: string,
-  ) => string;
   currentStateTemporaryBan: (until: string | null) => string;
   failureKindConnectError: string;
   failureKindTimeout: string;
@@ -51,11 +46,19 @@ export function buildCurrentStateCopy(
   formatTime: FormatTime,
   copy: ConnectionCardCurrentStateCopy,
 ): string {
-  const cooldown = formatCooldownSeconds(currentState.last_cooldown_seconds, copy);
-  const failureSummary = copy.consecutiveFailures(currentState.consecutive_failures);
+  const cooldown = currentState.last_retry_delay_ms > 0
+    ? formatCooldownSeconds(currentState.last_retry_delay_ms / 1000, copy)
+    : currentState.next_retry_at
+      ? formatTime(currentState.next_retry_at, {
+          hour: "numeric",
+          minute: "numeric",
+          second: "numeric",
+        })
+      : formatCooldownSeconds(0, copy);
+  const failureSummary = copy.consecutiveFailures(currentState.cumulative_retry_attempts);
   const failureKindLabel = getFailureKindLabel(currentState.last_failure_kind, copy);
-  const blockedUntilLabel = currentState.blocked_until_at
-    ? formatTime(currentState.blocked_until_at, {
+  const blockedUntilLabel = currentState.next_retry_at
+    ? formatTime(currentState.next_retry_at, {
         hour: "numeric",
         minute: "numeric",
         second: "numeric",
@@ -77,12 +80,8 @@ export function buildCurrentStateCopy(
     return copy.currentStateManualBan;
   }
 
-  if (currentState.state === "blocked") {
+  if (currentState.state === "retry_wait") {
     return copy.currentStateBlocked(failureSummary, cooldown, failureKindLabel, blockedUntilLabel);
-  }
-
-  if (currentState.state === "probe_eligible") {
-    return copy.currentStateProbeEligible(cooldown, blockedUntilLabel, failureKindLabel);
   }
 
   return copy.currentStateCounting(failureSummary, failureKindLabel);

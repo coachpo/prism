@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/email"
 )
@@ -48,9 +49,6 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 	}
 
 	proxy := snapshot.RuntimeProxy()
-	if proxy.BufferingMode() != config.RuntimeBufferingModeStreaming {
-		t.Fatalf("unexpected buffering mode: %q", proxy.BufferingMode())
-	}
 	transportConfig := proxy.TransportConfig()
 	if transportConfig.RequestTimeout != 17*time.Second || transportConfig.MaxIdleConns != 25 || transportConfig.MaxIdleConnsPerHost != 5 || transportConfig.MaxConnsPerHost != 9 {
 		t.Fatalf("unexpected runtime transport config: %+v", transportConfig)
@@ -69,6 +67,26 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 	}
 	if snapshot.Admission().Controller() == nil {
 		t.Fatal("expected admission controller seam")
+	}
+}
+
+func TestHotBootstrapRuntimeSnapshotOmitsBufferingMode(t *testing.T) {
+	t.Parallel()
+
+	assertSnapshotOmitsRuntimeBufferingMode(t, reflect.TypeFor[HotRuntimeProxySnapshot]())
+	assertSnapshotOmitsRuntimeBufferingMode(t, reflect.TypeFor[runtimeapi.RuntimeProxyConfigSnapshot]())
+}
+
+func assertSnapshotOmitsRuntimeBufferingMode(t *testing.T, snapshotType reflect.Type) {
+	t.Helper()
+
+	for _, name := range []string{"BufferingMode", "bufferingMode"} {
+		if _, ok := snapshotType.FieldByName(name); ok {
+			t.Fatalf("%s still exposes %s", snapshotType.Name(), name)
+		}
+		if _, ok := snapshotType.MethodByName(name); ok {
+			t.Fatalf("%s still exposes %s()", snapshotType.Name(), name)
+		}
 	}
 }
 
@@ -212,7 +230,6 @@ func hotBootstrapRuntimeTestSettings() config.Settings {
 		AuthCookieName:                   " access_cookie ",
 		AuthRefreshCookieName:            " refresh_cookie ",
 		AuthCookieSecure:                 true,
-		RuntimeBufferingMode:             config.RuntimeBufferingModeStreaming,
 		RuntimeTransportConfig:           hotBootstrapRuntimeTransportConfig(17 * time.Second),
 		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 7},
 		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 3, M3MaxConcurrent: 2},
@@ -239,7 +256,6 @@ func hotBootstrapRuntimeUpdatedSettings() config.Settings {
 	settings.AuthCookieName = "new_access_cookie"
 	settings.AuthRefreshCookieName = "new_refresh_cookie"
 	settings.AuthCookieSecure = false
-	settings.RuntimeBufferingMode = config.RuntimeBufferingModeBuffered
 	settings.RuntimeTransportConfig = hotBootstrapRuntimeTransportConfig(23 * time.Second)
 	settings.ManagementDatabasePoolBudget = config.DatabasePoolBudget{MaxConns: 9}
 	settings.ManagementAdmissionControlBudget = config.ManagementAdmissionBudget{M2MaxConcurrent: 5, M3MaxConcurrent: 4}

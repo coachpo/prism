@@ -22,15 +22,11 @@ interface EventTypeBadgeProps {
 export function EventTypeBadge({ eventType, className }: EventTypeBadgeProps) {
   const { messages } = useLocale();
   const eventTypeConfig = {
-    opened: {
-      label: messages.loadbalanceEvents.eventTypeOpened,
-      intent: "danger" as const,
-    },
-    extended: {
+    retry_scheduled: {
       label: messages.loadbalanceEvents.eventTypeExtended,
       intent: "warning" as const,
     },
-    max_cooldown_strike: {
+    retry_exhausted: {
       label: messages.loadbalanceEvents.eventTypeMaxCooldownStrike,
       intent: "warning" as const,
     },
@@ -38,7 +34,7 @@ export function EventTypeBadge({ eventType, className }: EventTypeBadgeProps) {
       label: messages.loadbalanceEvents.eventTypeBanned,
       intent: "danger" as const,
     },
-    probe_eligible: {
+    unbanned: {
       label: messages.loadbalanceEvents.eventTypeProbeEligible,
       intent: "info" as const,
     },
@@ -46,7 +42,7 @@ export function EventTypeBadge({ eventType, className }: EventTypeBadgeProps) {
       label: messages.loadbalanceEvents.eventTypeRecovered,
       intent: "success" as const,
     },
-    not_opened: {
+    admission_rejected: {
       label: messages.loadbalanceEvents.eventTypeNotOpened,
       intent: "muted" as const,
     },

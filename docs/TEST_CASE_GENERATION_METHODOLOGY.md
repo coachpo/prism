@@ -24,7 +24,7 @@ Do not generate cases for behavior that is not supported by those sources.
 The agent should always inventory Prism as these surfaces:
 
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected management routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
+- Protected management routes: `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
 - Management APIs on `/api/*`, including global `/api/sidecars/*` routes
 - Runtime proxy APIs on `/v1/*` and `/v1beta/*`
 - Realtime dashboard updates on `/api/realtime/ws`
@@ -56,7 +56,7 @@ Functional cases should exercise detailed contracts and boundary conditions, inc
 - required fields, invalid body shapes, and invalid query parameters
 - auth and authorization boundaries
 - profile scoping rules and active-runtime routing rules
-- proxy/native model invariants
+- unified model access-target invariants
 - loadbalance, failover, and health-check behavior
 - request-log, audit, costing, and statistics contracts
 - sidecar credential masking, CLIProxyAPI management-path allowlist, sync behavior, auth/provider inventory, and direct auth-file mutation

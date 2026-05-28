@@ -99,7 +99,7 @@ func (r *HotBootstrapConfigRuntime) RuntimeProxySnapshot() HotRuntimeProxySnapsh
 
 func (r *HotBootstrapConfigRuntime) RuntimeProxyConfigSnapshot() runtimeapi.RuntimeProxyConfigSnapshot {
 	runtimeProxy := r.RuntimeProxySnapshot()
-	return runtimeapi.RuntimeProxyConfigSnapshot{BufferingMode: runtimeProxy.BufferingMode(), HTTPClient: runtimeProxy.HTTPClient()}
+	return runtimeapi.RuntimeProxyConfigSnapshot{HTTPClient: runtimeProxy.HTTPClient()}
 }
 
 func (r *HotBootstrapConfigRuntime) AdmissionSnapshot() HotAdmissionSnapshot {
@@ -218,7 +218,6 @@ func (s HotMailSnapshot) DeliveryEnabled() bool {
 }
 
 type HotRuntimeProxySnapshot struct {
-	bufferingMode   config.RuntimeBufferingMode
 	transportConfig config.RuntimeTransportConfig
 	transport       *http.Transport
 	roundTripper    http.RoundTripper
@@ -241,15 +240,10 @@ func buildHotRuntimeProxySnapshot(settings config.Settings) HotRuntimeProxySnaps
 		ExpectContinueTimeout: transportConfig.ExpectContinueTimeout,
 	}
 	return HotRuntimeProxySnapshot{
-		bufferingMode:   settings.ResolvedRuntimeBufferingMode(),
 		transportConfig: transportConfig,
 		transport:       transport,
 		roundTripper:    &hotRuntimeRoundTripper{transport: transport},
 	}
-}
-
-func (s HotRuntimeProxySnapshot) BufferingMode() config.RuntimeBufferingMode {
-	return s.bufferingMode
 }
 
 func (s HotRuntimeProxySnapshot) TransportConfig() config.RuntimeTransportConfig {

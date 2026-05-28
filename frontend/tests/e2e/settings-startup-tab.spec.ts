@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 const fixedTimestamp = "2026-04-28T12:00:00Z";
@@ -7,6 +9,14 @@ const maskedJwtKey = "jwt-signing-********";
 const maskedBundleKey = "bundle-key-********";
 const maskedSmtpPassword = "smtp-password-********";
 const forbiddenSecretSentinel = "should-never-render-secret-sentinel";
+const task3EvidenceDir = fileURLToPath(new URL("../../../.omo/evidence/", import.meta.url));
+const task3StartupScreenshotPath = fileURLToPath(new URL("../../../.omo/evidence/task-3-startup-ui.png", import.meta.url));
+const task3StartupErrorPath = fileURLToPath(new URL("../../../.omo/evidence/task-3-startup-ui-error.json", import.meta.url));
+
+function writeTask3ErrorArtifact(errors: string[]) {
+  mkdirSync(task3EvidenceDir, { recursive: true });
+  writeFileSync(task3StartupErrorPath, `${JSON.stringify({ errors }, null, 2)}\n`);
+}
 
 function createProfile() {
   return {
@@ -76,7 +86,6 @@ function createApplyCapabilities() {
     "mail.smtp.password",
     "mail.smtp.timeout",
     "mail.smtp.tls_server_name",
-    "runtime.buffering_mode",
     "runtime.transport.max_idle_conns",
     "runtime.transport.max_idle_conns_per_host",
     "runtime.transport.max_conns_per_host",
@@ -183,7 +192,6 @@ function createBootstrapResponse() {
         management_admission: { m2_max_concurrent: 3, m3_max_concurrent: 2 },
       },
       runtime: {
-        buffering_mode: "streaming",
         transport: {
           max_idle_conns: 100,
           max_idle_conns_per_host: 16,
@@ -373,7 +381,6 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByRole("spinbutton", { name: "Management max conns" })).toHaveValue("4");
   await expect(page.getByRole("spinbutton", { name: "M2 max concurrent" })).toHaveValue("3");
   await expect(page.getByRole("spinbutton", { name: "M3 max concurrent" })).toHaveValue("2");
-  await expect(page.getByRole("combobox", { name: "Buffering mode" })).toContainText("streaming");
   await expect(page.getByRole("spinbutton", { name: "Max idle per host" })).toHaveValue("16");
   await expect(page.getByRole("spinbutton", { name: "Max conns per host" })).toHaveValue("16");
   await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("300s");
@@ -381,6 +388,42 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).not.toBeChecked();
   await expect(page.getByRole("textbox", { name: "SMTP host" })).toBeDisabled();
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
+});
+
+test("startup runtime section omits buffering selector and payload field", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      errors.push(message.text());
+    }
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+
+  const staleResponse = createBootstrapResponse();
+  (staleResponse.values.runtime as Record<string, unknown>).buffering_mode = "streaming";
+  (staleResponse.values.runtime as Record<string, unknown>).bufferingMode = "streaming";
+  await mockSettingsStartupRoutes(page, { bootstrapResponse: staleResponse });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  await expect(page.getByRole("combobox", { name: "Buffering mode" })).toHaveCount(0);
+  await expect(page.getByText("Runtime transport and side effects")).toBeVisible();
+  await expect(page.getByText("HTTP transport limits and side-effect settings apply to future requests after save.")).toBeVisible();
+  mkdirSync(task3EvidenceDir, { recursive: true });
+  await page.screenshot({ path: task3StartupScreenshotPath, fullPage: true });
+
+  const updateRequestPromise = page.waitForRequest((request) => {
+    const pathname = new URL(request.url()).pathname;
+    return pathname === "/api/config/bootstrap" && request.method() === "PUT";
+  });
+  await page.getByRole("button", { name: "Save startup config" }).click();
+  const updateRequest = await updateRequestPromise;
+  const payload = updateRequest.postDataJSON() as BootstrapTestUpdatePayload;
+  expect(payload.values.runtime).not.toHaveProperty("buffering_mode");
+  expect(payload.values.runtime).not.toHaveProperty("bufferingMode");
+  writeTask3ErrorArtifact(errors);
+  await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
 });
 
 test("missing PostgreSQL pool lanes render empty instead of frontend-owned defaults", async ({ page }) => {

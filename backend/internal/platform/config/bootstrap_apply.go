@@ -96,7 +96,6 @@ const (
 	bootstrapFieldMailSMTPPasswordFile                  = "mail.smtp.password_file"
 	bootstrapFieldMailSMTPTimeout                       = "mail.smtp.timeout"
 	bootstrapFieldMailSMTPTLSServerName                 = "mail.smtp.tls_server_name"
-	bootstrapFieldRuntimeBufferingMode                  = "runtime.buffering_mode"
 	bootstrapFieldRuntimeTransportMaxIdleConns          = "runtime.transport.max_idle_conns"
 	bootstrapFieldRuntimeTransportMaxIdleConnsPerHost   = "runtime.transport.max_idle_conns_per_host"
 	bootstrapFieldRuntimeTransportMaxConnsPerHost       = "runtime.transport.max_conns_per_host"
@@ -153,7 +152,6 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	hotApplyBootstrapField(bootstrapFieldMailSMTPTimeout),
 	hotApplyBootstrapField(bootstrapFieldMailSMTPTLSServerName),
 	hotApplyBootstrapField(BootstrapConfigSecretMailSMTPPassword),
-	hotApplyBootstrapField(bootstrapFieldRuntimeBufferingMode),
 	hotApplyBootstrapField(bootstrapFieldRuntimeTransportMaxIdleConns),
 	hotApplyBootstrapField(bootstrapFieldRuntimeTransportMaxIdleConnsPerHost),
 	hotApplyBootstrapField(bootstrapFieldRuntimeTransportMaxConnsPerHost),
@@ -397,12 +395,10 @@ func addBootstrapDatabasePoolLaneFieldValues(fields map[string]bootstrapConfigFi
 
 func addBootstrapRuntimeFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeValues) {
 	if values == nil {
-		fields[bootstrapFieldRuntimeBufferingMode] = bootstrapStringFieldValue(nil)
 		addBootstrapRuntimeTransportFieldValues(fields, nil)
 		addBootstrapRuntimeSideEffectsFieldValues(fields, nil)
 		return
 	}
-	fields[bootstrapFieldRuntimeBufferingMode] = bootstrapStringFieldValue(values.BufferingMode)
 	addBootstrapRuntimeTransportFieldValues(fields, values.Transport)
 	addBootstrapRuntimeSideEffectsFieldValues(fields, values.SideEffects)
 }
@@ -578,7 +574,6 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 	tlsHandshakeTimeout := runtimeTransport.TLSHandshakeTimeout.String()
 	expectContinueTimeout := runtimeTransport.ExpectContinueTimeout.String()
 	runtimeSideEffectsAttemptTimeout := runtimeSideEffects.AttemptTimeout.String()
-	bufferingMode := string(settings.ResolvedRuntimeBufferingMode())
 	return BootstrapConfigValues{
 		Server: &BootstrapConfigServerValues{
 			Host: stringPointer(strings.TrimSpace(settings.Host)),
@@ -601,7 +596,6 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 			},
 		},
 		Runtime: &BootstrapConfigRuntimeValues{
-			BufferingMode: &bufferingMode,
 			Transport: &BootstrapConfigRuntimeTransportValues{
 				MaxIdleConns:          intPointer(runtimeTransport.MaxIdleConns),
 				MaxIdleConnsPerHost:   intPointer(runtimeTransport.MaxIdleConnsPerHost),

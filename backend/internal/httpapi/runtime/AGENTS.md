@@ -9,10 +9,10 @@ runtime/
 ├── operations.go                # Exact supported runtime operations, method/path matching, hook collection ids
 ├── service.go                   # Ingress rejection, shared executor wiring, transport, workers
 ├── runtime.go                   # Request planning, model binding, rewrite rules, upstream proxy flow
-├── planning_snapshot.go         # Proxy-target snapshot assembly and resolution ordering helpers
-├── proxy_selector_helpers.go    # Proxy model selection helpers used by request planning
+├── planning_snapshot.go         # Access-target snapshot assembly and resolution ordering helpers
+├── proxy_selector_helpers.go    # Access-target ordering helpers used by request planning
 ├── cache.go                     # Shared runtime cache reads and snapshots
-├── request_generation_params.go # Buffered generation-param extraction orchestration
+├── request_generation_params.go # Internal generation-param extraction orchestration
 ├── operation_request_hooks.go   # Request hook registry and streaming-intent selection
 ├── operation_response_hooks.go  # Non-stream response parsing by operation kind
 ├── operation_stream_hooks.go    # SSE terminal and usage parsing by operation
@@ -29,8 +29,8 @@ runtime/
 ## WHERE TO LOOK
 - Exact supported operations, hook collection ids, streaming flags, and model-binding sources: `operations.go`
 - Ingress rejection before body reads, wrong-method handling, shared executor wiring, and response branching: `service.go`
-- Request planning, model binding, request path rewrites, target resolution, and shared upstream execution: `runtime.go`, `generations.go`, `planning_snapshot.go`, `proxy_selector_helpers.go`
-- Buffered generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
+- Request planning, model binding, request path rewrites, unified access-target resolution, final-target attribution, and shared upstream execution: `runtime.go`, `generations.go`, `planning_snapshot.go`, `proxy_selector_helpers.go`
+- Automatic generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
 - Non-stream response parsing for text generation, token count, and media operations: `operation_response_hooks.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
 - Media-model extraction and multipart/json rewrite rules for OpenAI image operations: `operation_media_hooks.go`

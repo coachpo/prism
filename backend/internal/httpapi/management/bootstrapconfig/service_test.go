@@ -924,6 +924,40 @@ func TestBootstrapConfigRoutePutRejectsUnsafeSecretUpdates(t *testing.T) {
 	}
 }
 
+func TestBootstrapConfigRoutePutRejectsRuntimeBufferingMode(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{name: "snake_case safe value", key: "buffering_mode"},
+		{name: "camelCase raw value", key: "bufferingMode"},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newBootstrapRouteFixture(t)
+			before := mustReadFile(t, fixture.path)
+			payload := mustMarshalBootstrapRouteJSON(t, bootstrapRouteRequestForSnapshot(t, fixture.snapshot))
+			var request map[string]any
+			if err := json.Unmarshal(payload, &request); err != nil {
+				t.Fatalf("unmarshal bootstrap route request: %v", err)
+			}
+			values := request["values"].(map[string]any)
+			runtimeValues := values["runtime"].(map[string]any)
+			runtimeValues[testCase.key] = "streaming"
+
+			response := fixture.do(t, http.MethodPut, "/api/config/bootstrap", mustMarshalBootstrapRouteJSON(t, request))
+
+			requireStatus(t, response, http.StatusBadRequest)
+			assertFileUnchanged(t, fixture.path, before)
+			assertNoRouteSecrets(t, response.Body.Bytes(), fixture.settings)
+			if detail := decodeErrorDetailString(t, response); detail != "Invalid request body" {
+				t.Fatalf("expected invalid body response detail, got %q", detail)
+			}
+		})
+	}
+}
+
 func TestBootstrapConfigRoutesRejectMalformedAndUnknownBodies(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -1191,8 +1225,12 @@ func assertRouteDefaultSafeValues(t *testing.T, values config.BootstrapConfigVal
 	if values.HTTP == nil || values.HTTP.CORSAllowedOrigins == nil || !slices.Equal(*values.HTTP.CORSAllowedOrigins, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
 		t.Fatalf("expected route safe CORS origins on frontend port 5173, got %+v", values.HTTP)
 	}
-	if values.Runtime == nil || values.Runtime.BufferingMode == nil || values.Runtime.Transport == nil || values.Runtime.SideEffects == nil || *values.Runtime.BufferingMode != string(config.RuntimeBufferingModeStreaming) {
+	if values.Runtime == nil || values.Runtime.Transport == nil || values.Runtime.SideEffects == nil {
 		t.Fatalf("expected route safe runtime defaults, got %+v", values.Runtime)
+	}
+	encodedRuntime := mustMarshalBootstrapRouteJSON(t, values.Runtime)
+	if bytes.Contains(encodedRuntime, []byte("buffering_mode")) || bytes.Contains(encodedRuntime, []byte("bufferingMode")) {
+		t.Fatalf("expected route safe runtime defaults to omit buffering mode, got %s", encodedRuntime)
 	}
 	transport := values.Runtime.Transport
 	if transport.MaxIdleConns == nil || transport.MaxIdleConnsPerHost == nil || transport.MaxConnsPerHost == nil || *transport.MaxIdleConns != 100 || *transport.MaxIdleConnsPerHost != 16 || *transport.MaxConnsPerHost != 16 {

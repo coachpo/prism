@@ -9,15 +9,18 @@ import type {
   ConnectionCreate,
   Endpoint,
   EndpointCreate,
+  ModelAccessTarget,
+  ModelAccessTargetMutation,
   ModelConfig,
   ModelConfigListItem,
   PricingTemplate,
 } from "@/lib/types";
+import { accessTargetToMutation, getModelConnections } from "../models/modelFormState";
 import type { HeaderRow } from "./useModelDetailDialogState";
 import {
   buildConnectionDraftPayload,
-  patchModelListConnectionCounts,
   hydrateConnectionPricingTemplate,
+  patchModelListItemFromDetail,
   removeConnectionFromList,
   upsertConnectionInList,
   upsertEndpointInList,
@@ -26,6 +29,7 @@ import {
 interface UseModelDetailConnectionMutationsInput {
   id: string | undefined;
   revision: number;
+  model: ModelConfig | null;
   modelApiFamily: ApiFamily | null;
   createMode: "select" | "new";
   selectedEndpointId: string;
@@ -39,13 +43,15 @@ interface UseModelDetailConnectionMutationsInput {
   setIsConnectionDialogOpen: (open: boolean) => void;
   setAllModels: React.Dispatch<React.SetStateAction<ModelConfigListItem[]>>;
   setConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
-  setGlobalEndpoints: React.Dispatch<React.SetStateAction<Endpoint[]>>;
+  setAllConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
   setModel: React.Dispatch<React.SetStateAction<ModelConfig | null>>;
+  setGlobalEndpoints: React.Dispatch<React.SetStateAction<Endpoint[]>>;
 }
 
 export function useModelDetailConnectionMutations({
   id,
   revision,
+  model,
   modelApiFamily,
   createMode,
   selectedEndpointId,
@@ -59,34 +65,42 @@ export function useModelDetailConnectionMutations({
   setIsConnectionDialogOpen,
   setAllModels,
   setConnections,
-  setGlobalEndpoints,
+  setAllConnections,
   setModel,
+  setGlobalEndpoints,
 }: UseModelDetailConnectionMutationsInput) {
   const modelConfigId = id ? Number.parseInt(id, 10) : NaN;
 
-  const commitConnections = useCallback(
-    (updater: (current: Connection[]) => Connection[]) => {
-      setConnections((current) => {
-        const next = updater(current);
-        setModel((previousModel) => (
-          previousModel ? { ...previousModel, connections: next } : previousModel
-        ));
-        if (Number.isFinite(modelConfigId)) {
-          setAllModels((currentModels) => patchModelListConnectionCounts(currentModels, modelConfigId, next));
-        }
-        return next;
+  const applyTargets = useCallback(
+    (targets: ModelAccessTarget[]) => {
+      setModel((currentModel) => {
+        if (!currentModel) return currentModel;
+        const nextModel = { ...currentModel, access_targets: targets };
+        setConnections(getModelConnections(nextModel));
+        setAllModels((currentModels) => patchModelListItemFromDetail(currentModels, nextModel));
+        return nextModel;
       });
+      clearSharedReferenceData(undefined, revision);
+      void refreshCurrentState();
     },
-    [modelConfigId, setAllModels, setConnections, setModel],
+    [refreshCurrentState, revision, setAllModels, setConnections, setModel],
+  );
+
+  const commitConnection = useCallback(
+    (connection: Connection) => {
+      const committedConnection = hydrateConnectionPricingTemplate(connection, pricingTemplates);
+      setAllConnections((current) => upsertConnectionInList(current, committedConnection));
+      setConnections((current) => upsertConnectionInList(current, committedConnection));
+      setGlobalEndpoints((current) => upsertEndpointInList(current, committedConnection.endpoint));
+      return committedConnection;
+    },
+    [pricingTemplates, setAllConnections, setConnections, setGlobalEndpoints],
   );
 
   const handleConnectionSubmit = useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault();
-
-      if (!id) {
-        return;
-      }
+      if (!id || !Number.isFinite(modelConfigId)) return;
 
       const { errorMessage, payload } = buildConnectionDraftPayload({
         apiFamily: modelApiFamily,
@@ -100,50 +114,113 @@ export function useModelDetailConnectionMutations({
       });
 
       if (!payload) {
-        if (errorMessage) {
-          toast.error(errorMessage);
-        }
+        if (errorMessage) toast.error(errorMessage);
         return;
       }
 
       try {
-        const savedConnection = editingConnection
-          ? await api.connections.update(editingConnection.id, { ...payload })
-          : await api.connections.create(Number.parseInt(id, 10), payload);
-        const committedConnection = hydrateConnectionPricingTemplate(savedConnection, pricingTemplates);
-
         if (editingConnection) {
+          const updatedConnection = await api.connections.update(editingConnection.id, { ...payload });
+          commitConnection(updatedConnection);
           toast.success(getStaticMessages().modelDetailData.connectionUpdated);
         } else {
+          const createdConnection = await api.connections.create(payload);
+          commitConnection(createdConnection);
+          const targets = await api.models.targets.create(modelConfigId, {
+            target_type: "connection",
+            connection_id: createdConnection.id,
+            position: 0,
+            is_enabled: true,
+          });
+          applyTargets(targets);
           toast.success(getStaticMessages().modelDetailData.connectionCreated);
         }
-
         clearSharedReferenceData(undefined, revision);
-        setGlobalEndpoints((current) => upsertEndpointInList(current, committedConnection.endpoint));
-        commitConnections((current) => upsertConnectionInList(current, committedConnection));
         setIsConnectionDialogOpen(false);
-        void refreshCurrentState();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : getStaticMessages().modelDetailData.saveConnectionFailed);
       }
     },
     [
-      connectionForm,
+      id,
+      modelConfigId,
+      modelApiFamily,
       createMode,
+      selectedEndpointId,
+      newEndpointForm,
+      connectionForm,
+      headerRows,
       editingConnection,
       endpointSourceDefaultName,
-      headerRows,
-      id,
-      modelApiFamily,
-      newEndpointForm,
-      pricingTemplates,
-      refreshCurrentState,
+      commitConnection,
+      applyTargets,
       revision,
-      selectedEndpointId,
-      commitConnections,
-      setGlobalEndpoints,
       setIsConnectionDialogOpen,
     ],
+  );
+
+  const handleAddAccessTarget = useCallback(
+    async (target: ModelAccessTargetMutation) => {
+      if (!Number.isFinite(modelConfigId)) return;
+      try {
+        const targets = await api.models.targets.create(modelConfigId, target);
+        applyTargets(targets);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to add access target");
+        throw error;
+      }
+    },
+    [applyTargets, modelConfigId],
+  );
+
+  const handleMoveAccessTarget = useCallback(
+    async (index: number, toIndex: number) => {
+      if (!Number.isFinite(modelConfigId)) return;
+      const targetId = model?.access_targets[index]?.id ?? null;
+      if (!targetId) return;
+      try {
+        const targets = await api.models.targets.movePosition(modelConfigId, targetId, toIndex);
+        applyTargets(targets);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to reorder access target");
+        throw error;
+      }
+    },
+    [applyTargets, model, modelConfigId],
+  );
+
+  const handleToggleAccessTarget = useCallback(
+    async (index: number, enabled: boolean) => {
+      if (!Number.isFinite(modelConfigId)) return;
+      const target = model?.access_targets[index] ?? null;
+      if (!target) return;
+      const mutation = accessTargetToMutation(target);
+      if (!mutation) return;
+      try {
+        const targets = await api.models.targets.update(modelConfigId, target.id, { ...mutation, is_enabled: enabled });
+        applyTargets(targets);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to update access target");
+        throw error;
+      }
+    },
+    [applyTargets, model, modelConfigId],
+  );
+
+  const handleDeleteAccessTarget = useCallback(
+    async (index: number) => {
+      if (!Number.isFinite(modelConfigId)) return;
+      const targetId = model?.access_targets[index]?.id ?? null;
+      if (!targetId) return;
+      try {
+        const targets = await api.models.targets.delete(modelConfigId, targetId);
+        applyTargets(targets);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to remove access target");
+        throw error;
+      }
+    },
+    [applyTargets, model, modelConfigId],
   );
 
   const handleDeleteConnection = useCallback(
@@ -151,37 +228,38 @@ export function useModelDetailConnectionMutations({
       try {
         await api.connections.delete(connectionId);
         clearSharedReferenceData(undefined, revision);
-        commitConnections((current) => removeConnectionFromList(current, connectionId));
+        setAllConnections((current) => removeConnectionFromList(current, connectionId));
+        setConnections((current) => removeConnectionFromList(current, connectionId));
         void refreshCurrentState();
         toast.success(getStaticMessages().modelDetailData.connectionDeleted);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : getStaticMessages().modelDetailData.deleteConnectionFailed);
       }
     },
-    [commitConnections, refreshCurrentState, revision],
+    [refreshCurrentState, revision, setAllConnections, setConnections],
   );
 
   const handleToggleActive = useCallback(
     async (connection: Connection) => {
       try {
-        const updatedConnection = await api.connections.update(connection.id, {
-          is_active: !connection.is_active,
-        });
-        const committedConnection = hydrateConnectionPricingTemplate(updatedConnection, pricingTemplates);
+        const updatedConnection = await api.connections.update(connection.id, { is_active: !connection.is_active });
+        commitConnection(updatedConnection);
         clearSharedReferenceData(undefined, revision);
-        setGlobalEndpoints((current) => upsertEndpointInList(current, committedConnection.endpoint));
-        commitConnections((current) => upsertConnectionInList(current, committedConnection));
         void refreshCurrentState();
       } catch {
         toast.error(getStaticMessages().modelDetailData.toggleConnectionFailed);
       }
     },
-    [commitConnections, pricingTemplates, refreshCurrentState, revision, setGlobalEndpoints],
+    [commitConnection, refreshCurrentState, revision],
   );
 
   return {
     handleConnectionSubmit,
     handleDeleteConnection,
     handleToggleActive,
+    handleAddAccessTarget,
+    handleMoveAccessTarget,
+    handleToggleAccessTarget,
+    handleDeleteAccessTarget,
   };
 }

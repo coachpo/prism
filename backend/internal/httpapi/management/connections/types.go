@@ -113,6 +113,7 @@ func (value *optionalEndpointCreate) UnmarshalJSON(data []byte) error {
 }
 
 type connectionCreateRequest struct {
+	APIFamily                  string                 `json:"api_family"`
 	EndpointID                 *int                   `json:"endpoint_id"`
 	EndpointCreate             *endpointCreateRequest `json:"endpoint_create"`
 	IsActive                   *bool                  `json:"is_active"`
@@ -128,6 +129,7 @@ type connectionCreateRequest struct {
 }
 
 type connectionUpdateRequest struct {
+	APIFamily                  optionalString         `json:"api_family"`
 	EndpointID                 optionalInt            `json:"endpoint_id"`
 	EndpointCreate             optionalEndpointCreate `json:"endpoint_create"`
 	IsActive                   optionalBool           `json:"is_active"`
@@ -162,13 +164,6 @@ type healthCheckResponse struct {
 	ResponseTimeMS int       `json:"response_time_ms"`
 }
 
-type connectionHealthCheckPreviewResponse struct {
-	HealthStatus   string    `json:"health_status"`
-	CheckedAt      time.Time `json:"checked_at"`
-	Detail         string    `json:"detail"`
-	ResponseTimeMS int       `json:"response_time_ms"`
-}
-
 type endpointResponse struct {
 	ID           int       `json:"id"`
 	ProfileID    int       `json:"profile_id"`
@@ -192,7 +187,8 @@ type connectionPricingTemplateSummary struct {
 type connectionResponse struct {
 	ID                         int                               `json:"id"`
 	ProfileID                  int                               `json:"profile_id"`
-	ModelConfigID              int                               `json:"model_config_id"`
+	ModelConfigID              *int                              `json:"model_config_id,omitempty"`
+	APIFamily                  string                            `json:"api_family"`
 	EndpointID                 int                               `json:"endpoint_id"`
 	Endpoint                   *endpointResponse                 `json:"endpoint"`
 	IsActive                   bool                              `json:"is_active"`
@@ -213,14 +209,18 @@ type connectionResponse struct {
 	UpdatedAt                  time.Time                         `json:"updated_at"`
 }
 
-type connectionOwnerResponse struct {
-	ConnectionID    int     `json:"connection_id"`
-	ModelConfigID   int     `json:"model_config_id"`
-	ModelID         string  `json:"model_id"`
-	ConnectionName  *string `json:"connection_name"`
-	EndpointID      int     `json:"endpoint_id"`
-	EndpointName    string  `json:"endpoint_name"`
-	EndpointBaseURL string  `json:"endpoint_base_url"`
+type connectionReferenceResponse struct {
+	TargetID      int    `json:"target_id"`
+	ModelConfigID int    `json:"model_config_id"`
+	ModelID       string `json:"model_id"`
+	APIFamily     string `json:"api_family"`
+	Position      int    `json:"position"`
+	IsEnabled     bool   `json:"is_enabled"`
+}
+
+type connectionReferencesResponse struct {
+	ConnectionID int                           `json:"connection_id"`
+	Items        []connectionReferenceResponse `json:"items"`
 }
 
 type pricingTemplateConnectionUsageItem struct {

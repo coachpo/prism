@@ -168,8 +168,11 @@ func listValidConnectionPairs(ctx context.Context, exec queryExecutor, profileID
 		ctx,
 		`SELECT model_configs.model_id, connections.endpoint_id
 		 FROM model_configs
-		 JOIN connections ON connections.model_config_id = model_configs.id
+		 JOIN model_access_targets ON model_access_targets.source_model_config_id = model_configs.id
+		 JOIN connections ON connections.id = model_access_targets.target_connection_id
 		 WHERE model_configs.profile_id = $1
+		   AND model_access_targets.profile_id = $1
+		   AND model_access_targets.target_type = 'connection'
 		   AND connections.profile_id = $1
 		   AND connections.endpoint_id = ANY($2)
 		 ORDER BY model_configs.model_id ASC, connections.endpoint_id ASC`,

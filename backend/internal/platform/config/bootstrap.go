@@ -144,9 +144,8 @@ type BootstrapConfigManagementAdmissionValues struct {
 }
 
 type BootstrapConfigRuntimeValues struct {
-	BufferingMode *string                                  `json:"buffering_mode"`
-	Transport     *BootstrapConfigRuntimeTransportValues   `json:"transport"`
-	SideEffects   *BootstrapConfigRuntimeSideEffectsValues `json:"side_effects"`
+	Transport   *BootstrapConfigRuntimeTransportValues   `json:"transport"`
+	SideEffects *BootstrapConfigRuntimeSideEffectsValues `json:"side_effects"`
 }
 
 type BootstrapConfigRuntimeTransportValues struct {
@@ -304,7 +303,6 @@ type bootstrapManagementAdmission struct {
 }
 
 type bootstrapRuntime struct {
-	BufferingMode       *string                      `json:"bufferingMode"`
 	SecretEncryptionKey *string                      `json:"secretEncryptionKey"`
 	Transport           *bootstrapRuntimeTransport   `json:"transport"`
 	SideEffects         *bootstrapRuntimeSideEffects `json:"sideEffects"`
@@ -872,9 +870,8 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 			},
 		},
 		Runtime: &BootstrapConfigRuntimeValues{
-			BufferingMode: cloneStringPointer(document.Runtime.BufferingMode),
-			Transport:     safeBootstrapRuntimeTransportValues(document.Runtime.Transport),
-			SideEffects:   safeBootstrapRuntimeSideEffectsValues(document.Runtime.SideEffects),
+			Transport:   safeBootstrapRuntimeTransportValues(document.Runtime.Transport),
+			SideEffects: safeBootstrapRuntimeSideEffectsValues(document.Runtime.SideEffects),
 		},
 		HTTP: &BootstrapConfigHTTPValues{
 			CORSAllowedOrigins: cloneStringSlicePointer(document.HTTP.CORSAllowedOrigins),
@@ -1005,7 +1002,6 @@ func bootstrapRuntimeFromSafeValues(values *BootstrapConfigRuntimeValues, secret
 		return nil
 	}
 	return &bootstrapRuntime{
-		BufferingMode:       cloneStringPointer(values.BufferingMode),
 		SecretEncryptionKey: cloneStringPointer(secretEncryptionKey),
 		Transport:           bootstrapRuntimeTransportFromSafeValues(values.Transport),
 		SideEffects:         bootstrapRuntimeSideEffectsFromSafeValues(values.SideEffects),
@@ -1265,9 +1261,8 @@ func safeBootstrapRuntimeValues(runtimeConfig *bootstrapRuntime) *BootstrapConfi
 		return nil
 	}
 	return &BootstrapConfigRuntimeValues{
-		BufferingMode: cloneStringPointer(runtimeConfig.BufferingMode),
-		Transport:     safeBootstrapRuntimeTransportValues(runtimeConfig.Transport),
-		SideEffects:   safeBootstrapRuntimeSideEffectsValues(runtimeConfig.SideEffects),
+		Transport:   safeBootstrapRuntimeTransportValues(runtimeConfig.Transport),
+		SideEffects: safeBootstrapRuntimeSideEffectsValues(runtimeConfig.SideEffects),
 	}
 }
 
@@ -1650,9 +1645,6 @@ func (a bootstrapManagementAdmission) validate() error {
 }
 
 func (r bootstrapRuntime) validate() error {
-	if _, err := requiredEnumString("runtime.bufferingMode", r.BufferingMode, []string{string(RuntimeBufferingModeBuffered), string(RuntimeBufferingModeStreaming)}); err != nil {
-		return err
-	}
 	if _, err := requiredTrimmedString("runtime.secretEncryptionKey", r.SecretEncryptionKey, 1, 0); err != nil {
 		return err
 	}
@@ -1889,10 +1881,6 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	runtimeBufferingMode, err := requiredEnumString("runtime.bufferingMode", d.Runtime.BufferingMode, []string{string(RuntimeBufferingModeBuffered), string(RuntimeBufferingModeStreaming)})
-	if err != nil {
-		return Settings{}, err
-	}
 	runtimeSecretEncryptionKey, err := requiredTrimmedString("runtime.secretEncryptionKey", d.Runtime.SecretEncryptionKey, 1, 0)
 	if err != nil {
 		return Settings{}, err
@@ -1940,7 +1928,6 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      databaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
-		RuntimeBufferingMode:             RuntimeBufferingMode(runtimeBufferingMode),
 		RuntimeTransportConfig:           runtimeTransport,
 		RuntimeSideEffectsConfig:         runtimeSideEffects,
 		PostgresPoolsBudget:              postgresPoolsBudget,
@@ -2139,7 +2126,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 		bundleEncryptionKey = runtimeSecretEncryptionKey
 	}
 	timestamp := now.UTC().Format(time.RFC3339)
-	bufferingMode := string(settings.ResolvedRuntimeBufferingMode())
 
 	return bootstrapConfigDocument{
 		Meta: &bootstrapMeta{
@@ -2170,7 +2156,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 			},
 		},
 		Runtime: &bootstrapRuntime{
-			BufferingMode:       stringPointer(bufferingMode),
 			SecretEncryptionKey: stringPointer(runtimeSecretEncryptionKey),
 			Transport: &bootstrapRuntimeTransport{
 				MaxIdleConns:          intPointer(runtimeTransport.MaxIdleConns),

@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getAdaptiveRoutingObjectiveLabel } from "@/lib/loadbalanceRoutingPolicy";
+import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolicy";
 import type { LoadbalanceStrategy } from "@/lib/types";
 
 interface DeleteLoadbalanceStrategyDialogProps {
@@ -36,15 +36,8 @@ export function DeleteLoadbalanceStrategyDialog({
   const dialogOpen = open ?? deleteLoadbalanceStrategyConfirm !== null;
   const attachedModelCount = dialogStrategy?.attached_model_count ?? 0;
   const isInUse = attachedModelCount > 0;
-
   const strategyTypeLabel = dialogStrategy
-    ? dialogStrategy.strategy_type === "adaptive"
-      ? `${strategyCopy.adaptiveFamilyLabel} • ${getAdaptiveRoutingObjectiveLabel(dialogStrategy.routing_policy.routing_objective, strategyCopy)}`
-      : dialogStrategy.legacy_strategy_type === "single"
-        ? `${strategyCopy.legacyFamilyLabel} • ${strategyCopy.singleLabel}`
-        : dialogStrategy.legacy_strategy_type === "fill-first"
-          ? `${strategyCopy.legacyFamilyLabel} • ${strategyCopy.fillFirstLabel}`
-          : `${strategyCopy.legacyFamilyLabel} • ${strategyCopy.roundRobinLabel}`
+    ? getLoadbalanceStrategyDetailLabel(dialogStrategy, strategyCopy)
     : "";
 
   return (

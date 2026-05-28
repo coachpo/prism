@@ -61,7 +61,6 @@ GET is a read of the managed file plus the live applied baseline. Current respon
       "port": 8000
     },
     "runtime": {
-      "buffering_mode": "streaming",
       "transport": {
         "max_idle_conns": 100,
         "max_idle_conns_per_host": 16,
@@ -103,7 +102,7 @@ GET is a read of the managed file plus the live applied baseline. Current respon
 }
 ```
 
-The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
+The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied. Runtime buffering is automatic and not user-configurable.
 
 Raw runtime startup config uses camelCase JSON field names in the file:
 
@@ -153,7 +152,7 @@ Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `
 
 Safe bootstrap API values omit the plaintext password and use snake_case for API fields, such as runtime `request_timeout`, `side_effects.attempt_timeout`, mail `reply_to`, `ehlo_hostname`, `password_file`, and `tls_server_name`. `mail.smtp.password` appears only in `secrets` metadata and in `secret_updates`. To keep the current password, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password value.
 
-The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `runtime.buffering_mode`, `runtime.transport.max_idle_conns`, `runtime.transport.max_idle_conns_per_host`, `runtime.transport.max_conns_per_host`, `runtime.transport.idle_conn_timeout`, `runtime.transport.request_timeout`, `runtime.transport.response_header_timeout`, `runtime.transport.tls_handshake_timeout`, and `runtime.transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`. `runtime.side_effects.attempt_timeout` is intentionally absent from hot-apply fields.
+The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `runtime.transport.max_idle_conns`, `runtime.transport.max_idle_conns_per_host`, `runtime.transport.max_conns_per_host`, `runtime.transport.idle_conn_timeout`, `runtime.transport.request_timeout`, `runtime.transport.response_header_timeout`, `runtime.transport.tls_handshake_timeout`, and `runtime.transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`. `runtime.side_effects.attempt_timeout` is intentionally absent from hot-apply fields.
 
 Restart-required fields are listener fields `server.host` and `server.port`; `database.url`; PostgreSQL pool fields `database.pools.total_max_conns`, `database.pools.management.max_conns`, `database.pools.management.min_idle_conns`, `database.pools.runtime_execution.max_conns`, `database.pools.runtime_execution.min_idle_conns`, `database.pools.runtime_telemetry.max_conns`, `database.pools.runtime_telemetry.min_idle_conns`, `database.pools.runtime_feedback.max_conns`, `database.pools.runtime_feedback.min_idle_conns`, `database.pools.realtime.max_conns`, `database.pools.realtime.min_idle_conns`, `database.pools.cache_refresh.max_conns`, `database.pools.cache_refresh.min_idle_conns`, `database.pools.background_jobs.max_conns`, and `database.pools.background_jobs.min_idle_conns`; runtime field `runtime.side_effects.attempt_timeout`; and secret fields `runtime.secretEncryptionKey`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey`. Confirmation tokens are required for `server.host`, `server.port`, `database.url`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey` changes. There is no hot apply for listener, database URL, pool budgets, `runtime.side_effects.attempt_timeout`, JWT signing keys, state-transfer bundle keys, or the runtime secret encryption key.
 
@@ -367,7 +366,6 @@ Response `200`:
     "profile_name": "Default",
     "model_id": "gpt-4o",
     "display_name": "GPT-4o",
-    "model_type": "native",
     "api_family": "openai",
     "is_enabled": true
   }
@@ -429,7 +427,7 @@ Response `200`: Array of model objects.
 ```
 GET /api/models/{id}
 ```
-Response `200`: Full model object with nullable vendor metadata, required `api_family`, nullable `proxy_selection_strategy`, explicit `proxy_targets` metadata, and ordered connections in the effective profile scope. Native model responses carry `proxy_selection_strategy: null` and empty `proxy_targets`; proxy model responses carry one selector and their full target metadata. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`.
+Response `200`: Full model object with nullable vendor metadata, required `api_family`, optional `loadbalance_strategy_id`, ordered `access_targets`, and attached standalone connection summaries in the effective profile scope. Access targets reference either same-family models or standalone connections. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`.
 
 #### Get Models by Endpoints (Batch)
 ```
@@ -441,50 +439,39 @@ Request:
   "endpoint_ids": [1, 2, 3]
 }
 ```
-Response `200`: `items[]`, where each item contains an `endpoint_id` and the models currently attached to it.
+Response `200`: `items[]`, where each item contains an `endpoint_id` and the models that can reach that endpoint through terminal standalone connections.
 
 #### Get Models by Endpoint
 ```
 GET /api/models/by-endpoint/{endpoint_id}
 ```
-Response `200`: Array of models currently attached to the endpoint within the effective profile scope.
+Response `200`: Array of models that can reach the endpoint through terminal standalone connections within the effective profile scope.
 
 #### Create Model
 ```
 POST /api/models
 ```
-Request (native model):
+Request:
 ```json
 {
   "vendor_id": null,
   "api_family": "openai",
   "model_id": "gpt-4o",
   "display_name": "GPT-4o",
-  "model_type": "native",
   "loadbalance_strategy_id": 7,
-  "is_enabled": true
-}
-```
-Request (proxy model):
-```json
-{
-  "vendor_id": 2,
-  "api_family": "anthropic",
-  "model_id": "claude-sonnet-4-5",
-  "display_name": "Claude Sonnet 4.5",
-  "model_type": "proxy",
-  "proxy_selection_strategy": "priority_static",
-  "proxy_targets": [
+  "access_targets": [
     {
-      "target_model_id": "claude-sonnet-4-5-20250929",
+      "target_type": "connection",
+      "target_connection_id": 12,
       "position": 0,
       "weight": 1,
       "target_priority": 0
     },
     {
-      "target_model_id": "claude-sonnet-4-5-20250701",
+      "target_type": "model",
+      "target_model_id": "gpt-4o-backup",
       "position": 1,
-      "weight": 2,
+      "weight": 1,
       "target_priority": 1
     }
   ],
@@ -494,19 +481,13 @@ Request (proxy model):
 Response `201`: Created model object.
 
 Validation rules:
-- `model_id` must be unique within the effective profile scope
+- `model_id` must be unique within the effective profile scope.
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
 - `vendor_id` is optional metadata and may be `null`.
-- If `model_type = "proxy"`: `proxy_selection_strategy` is required and must be `ordered_fallback`, `weighted_static`, or `priority_static`; `proxy_targets` is required and must be a non-empty list. Every target requires `target_model_id`, `position`, `weight`, and `target_priority`; targets must reference unique native models from the same profile and same `api_family`; positions must stay contiguous starting at `0`; `weight` must be `>= 1`; `target_priority` must be `>= 0`; `loadbalance_strategy_id` must be null/omitted.
-- If `model_type = "native"`: `proxy_selection_strategy` must be null/omitted, `proxy_targets` must be empty/omitted, and `loadbalance_strategy_id` is required.
-- Proxy target self-reference is rejected.
-- Deleting a native model referenced by any proxy target returns `400` until the proxy targets are removed or updated.
-
-Selector semantics:
-- `ordered_fallback` evaluates routable targets by `position`, then target row id.
-- `priority_static` evaluates routable targets by `target_priority`, then `position`, then target row id.
-- `weighted_static` evaluates currently routable same-family native targets in `position`, then target row id order, and uses a deterministic per-proxy cursor over target `weight` values.
-- Once one target model is selected for a request, retries stay inside that target model's native connection plan.
+- `access_targets` contains ordered same-profile, same-`api_family` model or standalone connection targets.
+- Every target requires exactly one model or connection target, `position`, `weight`, and `target_priority`; positions must stay contiguous starting at `0`; `weight` must be `>= 1`; `target_priority` must be `>= 0`.
+- Model target self-reference and target cycles are rejected.
+- Deleting a model or connection referenced by any access target returns `409` until the target rows are removed or updated.
 
 #### Update Model
 ```
@@ -519,18 +500,18 @@ Request (all fields optional):
   "api_family": "anthropic",
   "model_id": "gpt-4o-updated",
   "display_name": "GPT-4o (Updated)",
-  "model_type": "native",
   "loadbalance_strategy_id": 9,
+  "access_targets": [],
   "is_enabled": true
 }
 ```
-When the resulting model is a proxy model, the update payload must include the full `proxy_selection_strategy` plus the full non-empty `proxy_targets` list using the same target metadata and validation rules as create, and must omit or null `loadbalance_strategy_id`. Native-model updates must omit or null `proxy_selection_strategy`, omit or empty `proxy_targets`, and provide `loadbalance_strategy_id`. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if selector or proxy-target validation fails.
+Update payloads use the same access-target validation rules as create. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if access-target validation fails.
 
 #### Delete Model
 ```
 DELETE /api/models/{id}
 ```
-Response `200`: `{ "deleted": true }`. Deleting a model removes its scoped connections. Returns `400` if other proxy models still target a native model through `proxy_targets`.
+Response `200`: `{ "deleted": true }`. Returns `409` if other models still reference this model through access targets.
 
 ---
 
@@ -608,15 +589,23 @@ Response `200`: `{ "deleted": true }`.
 Returns `409` if any connections still reference this endpoint.
 After a successful delete, later endpoints in the same profile are compacted so `position` remains contiguous.
 
-### 1.4 Connections (Model-Scoped Routing)
+### 1.4 Connections and Model Access Targets
 
-#### List Connections for Model
-```
-GET /api/models/{model_config_id}/connections
-```
-Response `200`: Array of connection objects ordered by `priority ASC, id ASC`.
+Connections are standalone profile-scoped endpoint bindings. A connection carries its own `api_family`, endpoint reference or inline endpoint create payload, health metadata, pricing template, and optional admission limits. Models reach connections through ordered `access_targets` rows rather than owning connection rows directly.
 
-#### List Connections for Models (Batch)
+#### List Connections
+```
+GET /api/connections
+```
+Response `200`: Array of standalone connection objects in the effective profile.
+
+#### Get Connection
+```
+GET /api/connections/{connection_id}
+```
+Response `200`: Single standalone connection object in the effective profile. Returns `404` when the connection does not exist in that profile.
+
+#### List Connections Attached to Models
 ```
 POST /api/models/connections/batch
 ```
@@ -626,22 +615,23 @@ Request:
   "model_config_ids": [1, 2, 3]
 }
 ```
-Response `200`: `items[]`, where each item contains a `model_config_id` and its ordered connections.
+Response `200`: `items[]`, where each item contains a `model_config_id` and the standalone connections attached through that model's enabled or disabled connection access targets, ordered by target position.
 
 #### Create Connection
 ```
-POST /api/models/{model_config_id}/connections
+POST /api/connections
 ```
 Request (using existing endpoint):
 ```json
 {
+  "api_family": "openai",
   "endpoint_id": 1,
   "is_active": true,
   "name": "Primary production key",
   "custom_headers": {
     "X-Custom-Org": "org-123"
   },
-    "openai_probe_endpoint_variant": "responses_minimal",
+  "openai_probe_endpoint_variant": "responses_minimal",
   "pricing_template_id": 2,
   "qps_limit": 3,
   "max_in_flight_non_stream": 6,
@@ -651,6 +641,7 @@ Request (using existing endpoint):
 Request (inline endpoint creation):
 ```json
 {
+  "api_family": "openai",
   "endpoint_create": {
     "name": "New Endpoint",
     "base_url": "https://api.openai.com",
@@ -658,44 +649,49 @@ Request (inline endpoint creation):
   },
   "is_active": true,
   "name": "Regional fallback",
-    "openai_probe_endpoint_variant": "responses_minimal",
+  "openai_probe_endpoint_variant": "responses_minimal",
   "pricing_template_id": null,
   "qps_limit": null,
   "max_in_flight_non_stream": null,
   "max_in_flight_stream": null
 }
 ```
-Response `201`: Created connection object.
-New connections always append at the end of the ordered list (`priority == current_connection_count`).
-Create payloads that include `priority` are rejected with `422`.
-Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
-`openai_probe_endpoint_variant` selects the lightweight OpenAI probe target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
+Response `201`: Created standalone connection object.
+
+Create semantics:
+- Exactly one of `endpoint_id` or `endpoint_create` is required.
+- `api_family` is required and is the runtime compatibility guard for later model target attachment.
+- `priority` is rejected with `422`; connection ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
+- Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
+- `openai_probe_endpoint_variant` selects the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
 #### Update Connection
 ```
-PUT /api/connections/{id}
+PUT /api/connections/{connection_id}
 ```
-Request: Mutable connection metadata only: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
-`endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`.
-`priority` is not accepted on update and any payload that includes it is rejected with `422`.
+Request: Mutable connection metadata: `api_family`, `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+
+`endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. Changing `api_family` is rejected while models target the connection.
+
 Response `200`: Updated connection object.
 
-#### Move Connection Priority
+#### List Connection References
 ```
-PATCH /api/models/{model_config_id}/connections/{connection_id}/priority
+GET /api/connections/{connection_id}/references
 ```
-Request:
+Response `200`: Array of model access-target references for the connection:
 ```json
-{
-  "to_index": 0
-}
+[
+  {
+    "target_id": 42,
+    "model_config_id": 7,
+    "model_id": "gpt-4o",
+    "api_family": "openai",
+    "position": 0,
+    "is_enabled": true
+  }
+]
 ```
-Response `200`: Ordered array of connection objects after the move.
-
-Behavior:
-- `to_index` must be in the range `0..(connection_count - 1)` or the API returns `422`.
-- A no-op move returns the current ordered list unchanged.
-- The backend rewrites connection priorities to contiguous `0..N-1` values after every successful move.
 
 #### Update Connection Pricing Template
 ```
@@ -716,30 +712,14 @@ Response `200`: Updated connection object.
 DELETE /api/connections/{connection_id}
 ```
 Response `200`: `{ "deleted": true }`.
-After a successful delete, later connections for the same `(profile_id, model_config_id)` are compacted so `priority` remains contiguous.
 
-#### Get Connection Owner
-```
-GET /api/connections/{connection_id}/owner
-```
-Response `200`:
-```json
-{
-  "connection_id": 1,
-  "model_config_id": 2,
-  "model_id": "gpt-4o",
-  "connection_name": "Primary production key",
-  "endpoint_id": 12,
-  "endpoint_name": "Primary OpenAI",
-  "endpoint_base_url": "https://api.openai.com"
-}
-```
+Returns `409` while any model access target still references the connection. Detach those target rows through `/api/models/{model_config_id}/targets/{target_id}` before deleting the connection.
 
 #### Health Check Connection
 ```
 POST /api/connections/{connection_id}/health-check
 ```
-Sends an api-family-specific lightweight request using the configured model ID to validate URL routing, authentication, and model availability end to end. This manual check uses the same probe builder and runner as the model-detail health-check preview flow.
+Sends an api-family-specific lightweight request using a same-family model that targets this connection, then persists the connection health result. The route validates URL routing, authentication, and model availability end to end.
 
 Response `200`:
 ```json
@@ -756,23 +736,30 @@ API-family-specific health-check probes:
 - Anthropic: `POST {base_url}/v1/messages` with a one-token user prompt.
 - Gemini: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload.
 
-#### Health Check Preview
+#### Model Target Routes
 ```
-POST /api/models/{model_config_id}/connections/health-check-preview
+GET /api/models/{model_config_id}/targets
+POST /api/models/{model_config_id}/targets
+PUT /api/models/{model_config_id}/targets/{target_id}
+PATCH /api/models/{model_config_id}/targets/{target_id}/position
+DELETE /api/models/{model_config_id}/targets/{target_id}
 ```
-Request: Same inline connection payload accepted by `POST /api/models/{model_config_id}/connections`.
 
-Response `200`:
+Model target rows define a model's ordered access graph. Each target is either a same-family model target or a standalone connection target:
 ```json
 {
-  "health_status": "healthy",
-  "checked_at": "2025-01-15T10:30:00Z",
-  "detail": "Connection successful",
-  "response_time_ms": 523
+  "target_type": "connection",
+  "connection_id": 12,
+  "position": 0,
+  "is_enabled": true
 }
 ```
 
-The preview route runs the same lightweight probe as the persisted connection health check without creating or updating a connection row.
+Target semantics:
+- `target_type="connection"` requires `connection_id` and omits `target_model_id`.
+- `target_type="model"` requires `target_model_id` and omits `connection_id`.
+- Target positions are contiguous starting at `0` and determine routing order for that source model.
+- Target validation is selected-profile scoped, same-family, enabled-target aware, and cycle-safe.
 
 #### Base URL Validation
 
@@ -839,10 +826,10 @@ Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`,
 
 ### 1.6 Config Export/Import
 
-Prism now uses a breaking `version: 1` profile config bundle contract with two explicit ownership domains:
+Prism uses a split config-bundle contract with two explicit ownership domains:
 
-- **Profile bundle**: profile-scoped config only
-- **Vendor catalog bundle**: global vendor metadata only
+- **Profile bundle**: `version: 2`, profile-scoped config only
+- **Vendor catalog bundle**: `version: 1`, global vendor metadata only
 
 #### Export Profile Configuration
 ```
@@ -851,7 +838,7 @@ GET /api/config/profile/export
 Response `200`:
 ```json
 {
-  "version": 1,
+  "version": 2,
   "bundle_kind": "profile_config",
   "exported_at": "2026-04-04T15:00:00Z",
   "vendor_refs": [
@@ -872,7 +859,40 @@ Response `200`:
   ],
   "pricing_templates": [],
   "loadbalance_strategies": [],
-  "models": [],
+  "connections": [
+    {
+      "connection_ref": "openai-primary",
+      "endpoint_name": "Primary OpenAI",
+      "api_family": "openai",
+      "is_active": true,
+      "name": "Primary production key",
+      "auth_type": null,
+      "custom_headers": {},
+      "openai_probe_endpoint_variant": "responses_minimal",
+      "pricing_template_name": null,
+      "qps_limit": null,
+      "max_in_flight_non_stream": null,
+      "max_in_flight_stream": null
+    }
+  ],
+  "models": [
+    {
+      "model_id": "gpt-4o",
+      "vendor_key": "openai",
+      "api_family": "openai",
+      "display_name": "GPT-4o",
+      "loadbalance_strategy_name": "Default fill-first routing",
+      "is_enabled": true,
+      "access_targets": [
+        {
+          "target_type": "connection",
+          "connection_ref": "openai-primary",
+          "position": 0,
+          "is_enabled": true
+        }
+      ]
+    }
+  ],
   "profile_settings": {
     "report_currency_code": "USD",
     "report_currency_symbol": "$",
@@ -889,7 +909,7 @@ Response `200`:
   }
 }
 ```
-The response includes a `Content-Disposition` header to trigger a file download: `attachment; filename="prism-profile-config-v1-YYYY-MM-DD.json"`.
+The response includes a `Content-Disposition` header to trigger a file download: `attachment; filename="prism-profile-config-v2-YYYY-MM-DD.json"`.
 
 Profile export semantics:
 - `bundle_kind` is always `profile_config`.
@@ -901,13 +921,13 @@ Profile export semantics:
 - Safe exports null reusable endpoint secret refs and do not include `secret_payload.entries[]`.
 - Dangerous exports include `secret_payload.entries[]` and reusable endpoint secret refs.
 - Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
-- Profile bundles preserve proxy selectors, explicit proxy target metadata, same-family model routing, and attached loadbalance references as part of the canonical contract.
+- Profile bundles preserve top-level standalone connections, model `access_targets`, same-family model routing, and attached loadbalance strategy references as the canonical unified-access contract.
 
 #### Preview Profile Import
 ```
 POST /api/config/profile/import/preview
 ```
-Request: Full profile bundle using `version: 1` and `bundle_kind: "profile_config"`.
+Request: Full profile bundle using `version: 2` and `bundle_kind: "profile_config"`.
 
 This preview route is profile-scoped and requires `X-Profile-Id`.
 
@@ -915,7 +935,7 @@ Response `200`:
 ```json
 {
   "ready": true,
-  "version": 1,
+  "version": 2,
   "bundle_kind": "profile_config",
   "endpoints_imported": 2,
   "pricing_templates_imported": 4,
@@ -968,7 +988,8 @@ Response `200`:
 
 Preview semantics:
 - Preview is the authoritative backend readiness check for profile import.
-- The backend validates bundle kind/version, internal references, vendor resolution, and secret decryption before returning `ready: true`.
+- The backend validates bundle kind/version, top-level standalone connection references, ordered model access targets, vendor resolution, and secret decryption before returning `ready: true`.
+- Preview rejects profile bundle versions other than `2`; older profile bundle versions return `400`.
 - Preview returns a server-issued preview token, and apply must send that token in `X-Prism-Preview-Token`.
 - Preview rejects plaintext or otherwise non-encrypted `secret_payload.entries[].ciphertext` values.
 - When bundle key validation or secret decryption fails, preview returns `ready: false` with `blocking_errors[]` and does not mutate profile state.
@@ -977,7 +998,7 @@ Preview semantics:
 ```
 POST /api/config/profile/import
 ```
-Request: Full profile bundle using `version: 1` and `bundle_kind: "profile_config"`.
+Request: Full profile bundle using `version: 2` and `bundle_kind: "profile_config"`.
 
 This import route is profile-scoped and requires `X-Profile-Id`.
 
@@ -1001,7 +1022,7 @@ Response `200`:
 Profile import semantics:
 - Import is profile-targeted and replaces configuration in the effective profile only.
 - Other profiles are not deleted or mutated.
-- The profile import lanes replace profile-scoped rows only, including endpoints, connections, model configs, profile settings, loadbalance strategies, header blocklist rules, and user-agent client rules that belong to the effective profile.
+- The profile import lanes replace profile-scoped rows only, including endpoints, standalone connections, model configs, model access targets, profile settings, loadbalance strategies, header blocklist rules, and user-agent client rules that belong to the effective profile.
 - Global vendor rows, other profiles, and request logs remain untouched.
 - `models[].vendor_key` is optional; when omitted or `null`, the imported model persists with `vendor_id = null` and `vendor = null`.
 - When `models[].vendor_key` is present, the backend resolves or creates the matching shared vendor row by that key only.
@@ -1010,16 +1031,16 @@ Profile import semantics:
 - If vendor hints differ from existing global metadata, import does not fail and does not mutate the existing global vendor row.
 - If a profile bundle would create a new vendor whose proposed name collides with an existing global vendor name, preview/import fail before profile replacement starts.
 - When endpoint `position` is present, import uses it as the ordering hint; when omitted, import falls back to endpoint file order. Persisted endpoint positions are normalized to contiguous `0..N-1` values.
-- Exported model connections are ordered by `(priority, id)`. During import, each model's connection priorities are normalized to contiguous `0..N-1` values while preserving relative order by imported `priority` and payload order.
+- Exported model access targets are ordered by `position`. During import, access-target positions are normalized to contiguous `0..N-1` values while preserving relative payload order.
 - Import decrypts bundle secrets before any destructive mutation begins, then re-encrypts them into Prism's normal at-rest secret storage.
 - Endpoints with `api_key_secret_ref: null` import as no-auth endpoints with an empty stored endpoint secret.
 - Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
-- Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references.
-- Exported/imported proxy models carry required `proxy_selection_strategy` plus `proxy_targets` entries with required `target_model_id`, `position`, `weight`, and `target_priority`; native models carry `proxy_selection_strategy: null` and no proxy targets.
-- Exported/imported connections include `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited.
-- Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle `v1` import normalizes missing/null/blank pricing inputs for any of those fields to `"0"` before validation.
-- Exported/imported loadbalance strategies use a top-level `strategy_type` discriminator. Legacy strategies carry `legacy_strategy_type` plus `auto_recovery`; adaptive strategies carry `routing_policy`.
-- Other config version numbers are unsupported.
+- Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and `target_model_id`.
+- Exported/imported models carry ordered `access_targets` entries with either model or standalone connection targets plus `position` and `is_enabled` metadata.
+- Exported/imported standalone connections live at the top level and include `api_family`, endpoint and pricing-template name references, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited.
+- Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle `v2` import normalizes missing/null/blank pricing inputs for any of those fields to `"0"` before validation.
+- Exported/imported loadbalance strategies use the legacy Ban Policy shape: `legacy_strategy_type`, failure status codes, retry-window fields, retry attempts, ban mode, and ban duration.
+- Other profile config version numbers are unsupported.
 
 #### Export Vendor Catalog
 ```
@@ -1658,8 +1679,7 @@ Response `200`:
   "api_family_rows": [
     { "key": "openai", "total_requests": 42, "success_rate": 97.62 }
   ],
-  "strategy_family_summary": {
-    "adaptive_count": 4,
+  "strategy_summary": {
     "legacy_count": 8,
     "unassigned_count": 2
   },
@@ -1745,9 +1765,8 @@ Response `200`:
       "id": 1,
       "model_id": "gpt-4o",
       "model_label": "GPT-4o",
-      "resolved_target_model_id": null,
-      "resolved_target_model_label": null,
-      "is_proxy_origin": false,
+      "resolved_target_model_id": "gpt-4o",
+      "resolved_target_model_label": "GPT-4o",
       "api_family": "openai",
       "vendor_id": 1,
       "vendor_key": "openai",
@@ -1780,9 +1799,9 @@ Response `200`:
 }
 ```
 
-The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes `model_label`, `resolved_target_model_label`, `is_proxy_origin`, `stream_outcome`, and `stream_error_kind` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This is the operator drill-in surface for investigation, not a dashboard aggregate.
+The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes requested-model labels, final-target labels, `stream_outcome`, and `stream_error_kind` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This is the operator drill-in surface for investigation, not a dashboard aggregate.
 
-`filter_options` always includes both `endpoints` and `models`. `filter_options.models` is request-log native and contains `{ model_id, model_label }` entries; when no current model options exist, the backend still returns `models: []` instead of omitting the field. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. For proxy traffic, `model_id` stays the requested proxy model and `resolved_target_model_id` captures the selected native target model for that attempt, while `resolved_target_model_label` surfaces the matching display label.
+`filter_options` always includes both `endpoints` and `models`. `filter_options.models` is request-log scoped and contains `{ model_id, model_label }` entries; when no current model options exist, the backend still returns `models: []` instead of omitting the field. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. `model_id` stays the requested model and `resolved_target_model_id` captures the final target model for that attempt, while `resolved_target_model_label` surfaces the matching display label.
 
 Exact single-request investigation now lives on `GET /api/stats/requests/{request_id}` instead of the paginated list-query surface.
 
@@ -1799,9 +1818,8 @@ Response `200`:
     "created_at": "2025-01-15T10:30:00Z",
     "model_id": "gpt-4o",
     "model_label": "GPT-4o",
-    "resolved_target_model_id": null,
-    "resolved_target_model_label": null,
-    "is_proxy_origin": false,
+    "resolved_target_model_id": "gpt-4o",
+    "resolved_target_model_label": "GPT-4o",
     "api_family": "openai",
     "vendor_id": 1,
     "vendor_key": "openai",
@@ -2318,7 +2336,7 @@ POST /api/loadbalance/strategies/defaults
 ```
 No request body.
 
-This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical defaults for that profile only. `Default legacy routing` uses `legacy_strategy_type = "fill-first"`, while `Default adaptive routing` carries the canonical adaptive policy baseline.
+This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical legacy Ban Policy defaults for that profile only: `Default single routing`, `Default fill-first routing`, and `Default round-robin routing`.
 
 Response `200`:
 ```json
@@ -2327,14 +2345,14 @@ Response `200`:
     {
       "id": 12,
       "profile_id": 3,
-      "name": "Default legacy routing",
-      "strategy_type": "legacy",
-      "legacy_strategy_type": "fill-first"
+      "name": "Default fill-first routing",
+      "legacy_strategy_type": "fill-first",
+      "ban_mode": "temporary"
     }
   ],
   "created_count": 1,
-  "created_names": ["Default legacy routing"],
-  "existing_names": ["Default adaptive routing"]
+  "created_names": ["Default fill-first routing"],
+  "existing_names": ["Default single routing"]
 }
 ```
 
@@ -2349,42 +2367,30 @@ POST /api/loadbalance/strategies
 Request:
 ```json
 {
-  "name": "legacy-primary",
-  "strategy_type": "legacy",
+  "name": "round-robin-primary",
   "legacy_strategy_type": "round-robin",
-  "auto_recovery": {
-    "mode": "enabled",
-    "status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
-    "cooldown": {
-      "base_seconds": 45,
-      "failure_threshold": 4,
-      "backoff_multiplier": 3.5,
-      "max_cooldown_seconds": 720
-    },
-    "ban": {
-      "mode": "temporary",
-      "max_cooldown_strikes_before_ban": 3,
-      "ban_duration_seconds": 1800
-    }
-  }
+  "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
+  "ban_mode": "temporary",
+  "retry_base_delay_ms": 45000,
+  "retry_backoff_multiplier": 3.5,
+  "retry_jitter_ratio": 0.2,
+  "retry_max_delay_ms": 720000,
+  "retry_max_attempts": 3,
+  "ban_duration_seconds": 1800
 }
 ```
 Response `201`: Created strategy object.
 
 Validation rules:
 - `name` must be unique within the effective profile scope.
-- `strategy_type` must be `legacy` or `adaptive`.
-- `legacy` requires `legacy_strategy_type` and `auto_recovery`, and must not include `routing_policy`.
-- `adaptive` requires `routing_policy`, must not include legacy-only fields, and `routing_policy.kind` is fixed to `adaptive`.
+- `legacy_strategy_type` must be `single`, `fill-first`, or `round-robin`.
+- `failure_status_codes` must be a unique, sorted list of valid HTTP status integers (`100..599`).
+- Retry-window delay, backoff, jitter, max delay, and max attempts must stay within backend bounds.
+- `ban_mode` is `off`, `temporary`, or `manual`.
+- `ban_mode = "off"` requires zero ban duration.
+- `ban_mode = "temporary"` requires `ban_duration_seconds >= 1`.
+- `ban_mode = "manual"` requires zero ban duration.
 - Upstream request timing is controlled by the shared backend timeout settings rather than per-strategy fields.
-- `hedge.delay_ms` must be within `0..300000`, and `hedge.max_additional_attempts` within `1..10`.
-- `circuit_breaker.failure_status_codes` must be a unique, sorted list of valid HTTP status integers (`100..599`).
-- `circuit_breaker.base_open_seconds`, `failure_threshold`, `max_open_seconds`, and `backoff_multiplier` use the same bounds as the backend defaults.
-- Old clients and imported bundles that still contain `jitter_ratio` are rejected in this release.
-- `circuit_breaker.ban_mode` is `off`, `temporary`, or `manual`.
-- `circuit_breaker.ban_mode = "off"` requires zero strike and duration values.
-- `circuit_breaker.ban_mode = "temporary"` requires both `max_open_strikes_before_ban >= 1` and `ban_duration_seconds >= 1`.
-- `circuit_breaker.ban_mode = "manual"` requires `max_open_strikes_before_ban >= 1` and a zero duration value.
 
 ### 6.4 Update Loadbalance Strategy
 ```
@@ -2393,53 +2399,34 @@ PUT /api/loadbalance/strategies/{strategy_id}
 Request: Full replacement of mutable strategy fields using the same shape as create.
 Response `200`: Updated strategy object.
 
-Strategy responses include the persisted/effective family-specific strategy document:
+Strategy responses include the persisted legacy Ban Policy strategy document:
 
 ```json
 {
   "id": 12,
   "profile_id": 3,
-  "name": "adaptive-primary",
-  "strategy_type": "adaptive",
-  "legacy_strategy_type": null,
-  "auto_recovery": null,
-  "routing_policy": {
-    "kind": "adaptive",
-    "routing_objective": "minimize_latency",
-    "hedge": {
-      "enabled": true,
-      "delay_ms": 1500,
-      "max_additional_attempts": 1
-    },
-    "circuit_breaker": {
-      "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
-      "base_open_seconds": 45,
-      "failure_threshold": 4,
-      "backoff_multiplier": 3.5,
-      "max_open_seconds": 720,
-      "ban_mode": "temporary",
-      "max_open_strikes_before_ban": 3,
-      "ban_duration_seconds": 1800
-    },
-    "admission": {
-      "respect_qps_limit": true,
-      "respect_in_flight_limits": true
-    }
-  },
+  "name": "round-robin-primary",
+  "legacy_strategy_type": "round-robin",
+  "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
+  "ban_mode": "temporary",
+  "retry_base_delay_ms": 45000,
+  "retry_backoff_multiplier": 3.5,
+  "retry_jitter_ratio": 0.2,
+  "retry_max_delay_ms": 720000,
+  "retry_max_attempts": 3,
+  "ban_duration_seconds": 1800,
   "attached_model_count": 2,
   "created_at": "2026-03-25T08:00:00Z",
   "updated_at": "2026-03-25T08:05:00Z"
 }
 ```
 
-Legacy strategy responses use the same envelope but replace `routing_policy` with `legacy_strategy_type` plus `auto_recovery`.
-
 ### 6.5 Delete Loadbalance Strategy
 ```
 DELETE /api/loadbalance/strategies/{strategy_id}
 ```
 Response `200`: `{ "deleted": true }`.
-Returns `409` when the strategy is still attached to one or more native models; the response detail includes `attached_model_count`.
+Returns `409` when the strategy is still attached to one or more models; the response detail includes `attached_model_count`.
 
 ### 6.6 List Current Loadbalance State for a Model
 ```
@@ -2456,28 +2443,22 @@ Response `200`:
   "items": [
     {
       "connection_id": 12,
-      "circuit_state": "open",
-      "probe_available_at": "2026-03-30T08:02:00Z",
       "window_started_at": "2026-03-30T08:00:00Z",
       "window_request_count": 4,
       "in_flight_non_stream": 1,
       "in_flight_stream": 0,
-      "consecutive_failures": 2,
+      "cycle_retry_attempts": 2,
+      "cumulative_retry_attempts": 5,
+      "next_retry_at": "2026-03-30T08:02:00Z",
+      "last_retry_delay_ms": 60000,
+      "ban_mode": "temporary",
+      "banned_until_at": "2026-03-30T08:30:00Z",
       "last_failure_kind": "transient_http",
-      "last_cooldown_seconds": 60.0,
-      "max_cooldown_strikes": 1,
-      "ban_mode": "off",
-      "banned_until_at": null,
-      "blocked_until_at": "2025-01-15T10:31:00Z",
-      "probe_eligible_logged": false,
+      "last_success_at": null,
       "live_p95_latency_ms": 540,
-      "last_probe_status": "degraded",
-      "last_probe_at": "2026-03-30T08:00:30Z",
-      "endpoint_ping_ewma_ms": 190.0,
-      "conversation_delay_ewma_ms": 420.0,
-      "state": "blocked",
-      "created_at": "2025-01-15T10:30:00Z",
-      "updated_at": "2025-01-15T10:30:00Z"
+      "state": "banned",
+      "created_at": "2026-03-30T08:00:00Z",
+      "updated_at": "2026-03-30T08:01:00Z"
     }
   ]
 }
@@ -2485,7 +2466,7 @@ Response `200`:
 
 Returns `404` when the model config does not exist in the effective profile.
 
-`state` is one of `counting`, `blocked`, `probe_eligible`, or `banned`. `banned` is derived from `ban_mode` plus `banned_until_at`, while the additional fields expose the current circuit state, admission counters, and recent probe-derived health signals.
+`state` is derived from the Ban Mode retry-cycle fields and is one of `available`, `retry_wait`, or `banned`. `manual` bans are always `banned`; temporary bans stay `banned` until `banned_until_at`; retry windows stay `retry_wait` until `next_retry_at`; otherwise the connection is `available`. The remaining fields expose QPS and in-flight admission counters plus the current retry-cycle counters for each standalone connection directly targeted by the model.
 
 ### 6.7 Reset Current Loadbalance State for a Connection
 ```
@@ -2500,7 +2481,7 @@ Response `200`:
 ```
 
 `cleared=false` is returned when no persisted current-state row existed for that `(profile_id, connection_id)` pair.
-Reset clears cooldown, strike, and ban state together.
+Reset clears retry-window counters, next retry timing, ban state, and the related round-robin cursor for an attached model when one exists.
 
 ### 6.8 List Loadbalance Events
 ```
@@ -2523,16 +2504,23 @@ Response `200`:
       "connection_id": 1,
       "event_type": "banned",
       "failure_kind": "transient_http",
-      "consecutive_failures": 2,
-      "cooldown_seconds": 60.0,
-      "blocked_until_mono": 123456.789,
+      "cycle_retry_attempts": 2,
+      "cumulative_retry_attempts": 5,
+      "next_retry_at": "2026-03-30T08:02:00Z",
+      "last_retry_delay_ms": 60000,
       "model_id": "gpt-4o",
       "endpoint_id": 12,
-   "vendor_id": 1,
-      "max_cooldown_strikes": 3,
+      "vendor_id": 1,
       "ban_mode": "temporary",
-      "banned_until_at": "2025-01-15T11:00:00Z",
-      "created_at": "2025-01-15T10:30:00Z"
+      "banned_until_at": "2026-03-30T08:30:00Z",
+      "last_success_at": null,
+      "summary": {
+        "event": "Connection was banned",
+        "reason": "The retryable HTTP failure pushed cumulative retry attempts to 5, exceeding the Ban Mode threshold.",
+        "operation": "Prism removed this connection globally until the ban expires or an operator resets it.",
+        "cooldown": "1m"
+      },
+      "created_at": "2026-03-30T08:01:00Z"
     }
   ],
   "total": 15,
@@ -2541,11 +2529,13 @@ Response `200`:
 }
 ```
 
+Loadbalance event types are `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, and `admission_rejected`. They record retry-cycle attempts, cumulative attempts, next retry timing, last retry delay, optional ban metadata, optional success time, and the model, endpoint, and vendor snapshots for operator review.
+
 ### 6.8 Get Loadbalance Event Detail
 ```
 GET /api/loadbalance/events/{id}
 ```
-Response `200`: Single event object with full metadata, including `failure_threshold`, `backoff_multiplier`, `max_cooldown_seconds`, and ban-related fields (`max_cooldown_strikes`, `ban_mode`, `banned_until_at`) when present.
+Response `200`: Single event object with the same Ban Mode retry-window metadata and summary fields as the list item.
 
 ### 6.9 Loadbalance Event Retention
 
@@ -2683,7 +2673,7 @@ Example `dashboard.update` payload:
     "health": { "lag_seconds": 0, "stale": false, "stale_after_seconds": 120 },
     "metric_snapshot": { "total_requests": 42, "success_rate": 97.62 },
     "api_family_rows": [],
-    "strategy_family_summary": { "adaptive_count": 4, "legacy_count": 8, "unassigned_count": 2 },
+    "strategy_summary": { "legacy_count": 8, "unassigned_count": 2 },
     "recent_requests": [],
     "top_spending_models": [],
     "routing_health_map": { "nodes": [], "links": [], "endpointCount": 0, "modelCount": 0 }

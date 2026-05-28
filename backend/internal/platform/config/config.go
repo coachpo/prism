@@ -11,8 +11,6 @@ type Environment string
 
 type RuntimeTelemetryMode string
 
-type RuntimeBufferingMode string
-
 type MailSMTPMode string
 
 type MailSMTPAuth string
@@ -26,11 +24,6 @@ const (
 const (
 	RuntimeTelemetryModeSynchronous   RuntimeTelemetryMode = "synchronous"
 	RuntimeTelemetryModeDurableOutbox RuntimeTelemetryMode = "durable_outbox"
-)
-
-const (
-	RuntimeBufferingModeBuffered  RuntimeBufferingMode = "buffered"
-	RuntimeBufferingModeStreaming RuntimeBufferingMode = "streaming"
 )
 
 const (
@@ -163,7 +156,6 @@ type Settings struct {
 	AppEnv                           Environment
 	DatabaseURL                      string
 	RuntimeTelemetryMode             RuntimeTelemetryMode
-	RuntimeBufferingMode             RuntimeBufferingMode
 	RuntimeTransportConfig           RuntimeTransportConfig
 	RuntimeSideEffectsConfig         RuntimeSideEffectsConfig
 	PostgresPoolsBudget              PostgresPoolsBudget
@@ -199,7 +191,6 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      resolvedDatabaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
-		RuntimeBufferingMode:             RuntimeBufferingModeStreaming,
 		RuntimeTransportConfig:           defaultRuntimeTransportConfig(),
 		RuntimeSideEffectsConfig:         defaultRuntimeSideEffectsConfig(),
 		PostgresPoolsBudget:              DefaultPostgresPoolsBudget(),
@@ -255,10 +246,6 @@ func resolveDatabaseURLFromEnv() string {
 
 func (s Settings) ResolvedRuntimeTelemetryMode() RuntimeTelemetryMode {
 	return normalizeRuntimeTelemetryMode(s.RuntimeTelemetryMode)
-}
-
-func (s Settings) ResolvedRuntimeBufferingMode() RuntimeBufferingMode {
-	return normalizeRuntimeBufferingMode(s.RuntimeBufferingMode)
 }
 
 func (s Settings) RuntimeTransport() RuntimeTransportConfig {
@@ -467,16 +454,5 @@ func normalizeRuntimeTelemetryMode(candidate RuntimeTelemetryMode) RuntimeTeleme
 		return RuntimeTelemetryModeDurableOutbox
 	default:
 		return RuntimeTelemetryModeDurableOutbox
-	}
-}
-
-func normalizeRuntimeBufferingMode(candidate RuntimeBufferingMode) RuntimeBufferingMode {
-	switch RuntimeBufferingMode(strings.ToLower(strings.TrimSpace(string(candidate)))) {
-	case RuntimeBufferingModeStreaming:
-		return RuntimeBufferingModeStreaming
-	case RuntimeBufferingModeBuffered:
-		fallthrough
-	default:
-		return RuntimeBufferingModeBuffered
 	}
 }

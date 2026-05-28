@@ -10,12 +10,10 @@ import (
 )
 
 type dashboardSnapshotModel struct {
-	ID           int
-	ModelID      string
-	DisplayName  *string
-	ModelType    string
-	IsEnabled    bool
-	StrategyType *string
+	ID          int
+	ModelID     string
+	DisplayName *string
+	IsEnabled   bool
 }
 
 type dashboardSnapshotConnection struct {
@@ -64,11 +62,10 @@ func BuildDashboardSnapshot(ctx context.Context, exec queryExecutor, profileID i
 }
 
 func loadDashboardSnapshotModels(ctx context.Context, exec queryExecutor, profileID int) ([]dashboardSnapshotModel, error) {
-	rows, err := exec.Query(ctx, `SELECT model_configs.id, model_configs.model_id, model_configs.display_name, model_configs.model_type, model_configs.is_enabled, loadbalance_strategies.strategy_type
+	rows, err := exec.Query(ctx, `SELECT id, model_id, display_name, is_enabled
 		FROM model_configs
-		LEFT JOIN loadbalance_strategies ON loadbalance_strategies.id = model_configs.loadbalance_strategy_id AND loadbalance_strategies.profile_id = model_configs.profile_id
-		WHERE model_configs.profile_id = $1
-		ORDER BY model_configs.id ASC`, profileID)
+		WHERE profile_id = $1
+		ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query dashboard models for profile %d: %w", profileID, err)
 	}
@@ -77,19 +74,12 @@ func loadDashboardSnapshotModels(ctx context.Context, exec queryExecutor, profil
 	models := make([]dashboardSnapshotModel, 0)
 	for rows.Next() {
 		var displayName sql.NullString
-		var strategyType sql.NullString
 		model := dashboardSnapshotModel{}
-		if err := rows.Scan(&model.ID, &model.ModelID, &displayName, &model.ModelType, &model.IsEnabled, &strategyType); err != nil {
+		if err := rows.Scan(&model.ID, &model.ModelID, &displayName, &model.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan dashboard model: %w", err)
 		}
 		model.ModelID = strings.TrimSpace(model.ModelID)
-		model.ModelType = strings.TrimSpace(strings.ToLower(model.ModelType))
 		model.DisplayName = normalizeOptionalString(nullableString(displayName))
-		model.StrategyType = normalizeOptionalString(nullableString(strategyType))
-		if model.StrategyType != nil {
-			normalized := strings.TrimSpace(strings.ToLower(*model.StrategyType))
-			model.StrategyType = &normalized
-		}
 		if model.ModelID == "" {
 			continue
 		}
@@ -99,22 +89,6 @@ func loadDashboardSnapshotModels(ctx context.Context, exec queryExecutor, profil
 		return nil, fmt.Errorf("iterate dashboard models for profile %d: %w", profileID, err)
 	}
 	return models, nil
-}
-
-func buildDashboardStrategyFamilySummary(models []dashboardSnapshotModel) DashboardStrategyFamilySummary {
-	summary := DashboardStrategyFamilySummary{}
-	for _, model := range models {
-		if model.StrategyType == nil {
-			summary.UnassignedCount++
-			continue
-		}
-		if *model.StrategyType == "adaptive" {
-			summary.AdaptiveCount++
-			continue
-		}
-		summary.LegacyCount++
-	}
-	return summary
 }
 
 func countDashboardActiveModels(models []dashboardSnapshotModel) int {
@@ -138,15 +112,12 @@ func buildDashboardRoutingHealthMap(ctx context.Context, exec queryExecutor, pro
 	}
 
 	edgeMap := map[string]*dashboardRoutingEdgeAccumulator{}
-	connectionToEdgeKey := map[int]string{}
+	connectionToEdgeKeys := map[int]map[string]struct{}{}
 	for _, model := range models {
 		if !model.IsEnabled {
 			continue
 		}
 		modelConnections := connectionsByModel[model.ID]
-		if model.ModelType == "proxy" && len(modelConnections) == 0 {
-			continue
-		}
 		for _, connection := range modelConnections {
 			edgeKey := dashboardRoutingEdgeKey(model.ModelID, connection.EndpointID)
 			edge := edgeMap[edgeKey]
@@ -166,28 +137,44 @@ func buildDashboardRoutingHealthMap(ctx context.Context, exec queryExecutor, pro
 				if connection.IsActive {
 					edge.ActiveConnectionCount++
 				}
+				if connectionToEdgeKeys[connection.ID] == nil {
+					connectionToEdgeKeys[connection.ID] = map[string]struct{}{}
+				}
+				connectionToEdgeKeys[connection.ID][edgeKey] = struct{}{}
 			}
-			connectionToEdgeKey[connection.ID] = edgeKey
 		}
 	}
 	if len(edgeMap) == 0 {
 		return emptyDashboardRoutingHealthMap(), nil
 	}
-	if err := applyDashboardRoutingTraffic(ctx, exec, profileID, fromTime, toTime, edgeMap, connectionToEdgeKey); err != nil {
+	if err := applyDashboardRoutingTraffic(ctx, exec, profileID, fromTime, toTime, edgeMap, connectionToEdgeKeys); err != nil {
 		return DashboardRoutingHealthMap{}, err
 	}
-	if err := applyDashboardRoutingSuccessRates(ctx, exec, profileID, fromTime, toTime, edgeMap, connectionToEdgeKey); err != nil {
+	if err := applyDashboardRoutingSuccessRates(ctx, exec, profileID, fromTime, toTime, edgeMap, connectionToEdgeKeys); err != nil {
 		return DashboardRoutingHealthMap{}, err
 	}
 	return buildDashboardRoutingDiagramData(edgeMap), nil
 }
 
 func loadDashboardSnapshotConnections(ctx context.Context, exec queryExecutor, profileID int) ([]dashboardSnapshotConnection, error) {
-	rows, err := exec.Query(ctx, `SELECT connections.id, connections.model_config_id, connections.endpoint_id, endpoints.name, endpoints.base_url, connections.is_active
-		FROM connections
+	rows, err := exec.Query(ctx, `WITH RECURSIVE reachable_targets AS (
+		SELECT model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.target_connection_id, ARRAY[model_access_targets.source_model_config_id] AS path
+		FROM model_access_targets
+		JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id AND model_configs.profile_id = model_access_targets.profile_id
+		WHERE model_access_targets.profile_id = $1 AND model_access_targets.is_enabled = TRUE AND model_configs.is_enabled = TRUE
+		UNION ALL
+		SELECT reachable_targets.source_model_config_id, child_targets.target_model_config_id, child_targets.target_connection_id, reachable_targets.path || child_targets.source_model_config_id
+		FROM reachable_targets
+		JOIN model_access_targets child_targets ON child_targets.profile_id = $1 AND child_targets.source_model_config_id = reachable_targets.target_model_config_id AND child_targets.is_enabled = TRUE
+		JOIN model_configs child_models ON child_models.id = child_targets.source_model_config_id AND child_models.profile_id = child_targets.profile_id AND child_models.is_enabled = TRUE
+		WHERE reachable_targets.target_model_config_id IS NOT NULL AND NOT child_targets.source_model_config_id = ANY(reachable_targets.path)
+	)
+		SELECT DISTINCT connections.id, reachable_targets.source_model_config_id, connections.endpoint_id, endpoints.name, endpoints.base_url, connections.is_active
+		FROM reachable_targets
+		JOIN connections ON connections.id = reachable_targets.target_connection_id AND connections.profile_id = $1
 		LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id AND endpoints.profile_id = connections.profile_id
-		WHERE connections.profile_id = $1
-		ORDER BY connections.model_config_id ASC, connections.priority ASC, connections.id ASC`, profileID)
+		WHERE reachable_targets.target_connection_id IS NOT NULL
+		ORDER BY reachable_targets.source_model_config_id ASC, connections.id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query dashboard connections for profile %d: %w", profileID, err)
 	}
@@ -211,7 +198,7 @@ func loadDashboardSnapshotConnections(ctx context.Context, exec queryExecutor, p
 	return connections, nil
 }
 
-func applyDashboardRoutingTraffic(ctx context.Context, exec queryExecutor, profileID int, fromTime time.Time, toTime time.Time, edgeMap map[string]*dashboardRoutingEdgeAccumulator, connectionToEdgeKey map[int]string) error {
+func applyDashboardRoutingTraffic(ctx context.Context, exec queryExecutor, profileID int, fromTime time.Time, toTime time.Time, edgeMap map[string]*dashboardRoutingEdgeAccumulator, connectionToEdgeKeys map[int]map[string]struct{}) error {
 	rows, err := exec.Query(ctx, `SELECT connection_id, model_id, endpoint_id, COUNT(*)
 		FROM usage_request_events
 		WHERE profile_id = $1 AND endpoint_id IS NOT NULL AND success_flag = TRUE AND created_at >= $2 AND created_at <= $3
@@ -228,7 +215,7 @@ func applyDashboardRoutingTraffic(ctx context.Context, exec queryExecutor, profi
 		if err := rows.Scan(&connectionID, &modelID, &endpointID, &requestCount); err != nil {
 			return fmt.Errorf("scan dashboard routing traffic: %w", err)
 		}
-		edge := dashboardRoutingEdgeForTraffic(edgeMap, connectionToEdgeKey, connectionID, modelID, endpointID)
+		edge := dashboardRoutingEdgeForTraffic(edgeMap, connectionToEdgeKeys, connectionID, modelID, endpointID)
 		if edge == nil {
 			continue
 		}
@@ -242,34 +229,35 @@ func applyDashboardRoutingTraffic(ctx context.Context, exec queryExecutor, profi
 	return nil
 }
 
-func dashboardRoutingEdgeForTraffic(edgeMap map[string]*dashboardRoutingEdgeAccumulator, connectionToEdgeKey map[int]string, connectionID sql.NullInt32, modelID string, endpointID int) *dashboardRoutingEdgeAccumulator {
+func dashboardRoutingEdgeForTraffic(edgeMap map[string]*dashboardRoutingEdgeAccumulator, connectionToEdgeKeys map[int]map[string]struct{}, connectionID sql.NullInt32, modelID string, endpointID int) *dashboardRoutingEdgeAccumulator {
+	if edge := edgeMap[dashboardRoutingEdgeKey(modelID, endpointID)]; edge != nil {
+		return edge
+	}
 	if connectionID.Valid {
-		if edgeKey, ok := connectionToEdgeKey[int(connectionID.Int32)]; ok {
+		for edgeKey := range connectionToEdgeKeys[int(connectionID.Int32)] {
 			if edge := edgeMap[edgeKey]; edge != nil {
 				return edge
 			}
 		}
 	}
-	return edgeMap[dashboardRoutingEdgeKey(modelID, endpointID)]
+	return nil
 }
 
-func applyDashboardRoutingSuccessRates(ctx context.Context, exec queryExecutor, profileID int, fromTime time.Time, toTime time.Time, edgeMap map[string]*dashboardRoutingEdgeAccumulator, connectionToEdgeKey map[int]string) error {
+func applyDashboardRoutingSuccessRates(ctx context.Context, exec queryExecutor, profileID int, fromTime time.Time, toTime time.Time, edgeMap map[string]*dashboardRoutingEdgeAccumulator, connectionToEdgeKeys map[int]map[string]struct{}) error {
 	rates, err := GetConnectionSuccessRates(ctx, exec, ConnectionSuccessRateParams{ProfileID: profileID, FromTime: &fromTime, ToTime: &toTime})
 	if err != nil {
 		return err
 	}
 	for _, rate := range rates {
-		edgeKey, ok := connectionToEdgeKey[rate.ConnectionID]
-		if !ok {
-			continue
+		for edgeKey := range connectionToEdgeKeys[rate.ConnectionID] {
+			edge := edgeMap[edgeKey]
+			if edge == nil {
+				continue
+			}
+			edge.RequestCount24H += rate.TotalRequests
+			edge.SuccessCount24H += rate.SuccessCount
+			edge.ErrorCount24H += rate.ErrorCount
 		}
-		edge := edgeMap[edgeKey]
-		if edge == nil {
-			continue
-		}
-		edge.RequestCount24H += rate.TotalRequests
-		edge.SuccessCount24H += rate.SuccessCount
-		edge.ErrorCount24H += rate.ErrorCount
 	}
 	return nil
 }

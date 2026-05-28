@@ -22,18 +22,39 @@ type queryExecutor interface {
 }
 
 type modelRecord struct {
-	ID                     int
-	ProfileID              int
-	VendorID               *int
-	APIFamily              string
-	ModelID                string
-	DisplayName            *string
-	ModelType              string
-	ProxySelectionStrategy *string
-	LoadbalanceStrategyID  *int
-	IsEnabled              bool
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID                    int
+	ProfileID             int
+	VendorID              *int
+	APIFamily             string
+	ModelID               string
+	DisplayName           *string
+	LoadbalanceStrategyID *int
+	IsEnabled             bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+type accessTargetRecord struct {
+	ID                  int
+	ProfileID           int
+	SourceModelConfigID int
+	TargetType          string
+	TargetModelConfigID *int
+	TargetConnectionID  *int
+	Position            int
+	IsEnabled           bool
+	TargetModel         *modelRecord
+	Connection          *connectionTargetSummary
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type resolvedAccessTarget struct {
+	TargetType string
+	Position   int
+	IsEnabled  bool
+	Model      *modelRecord
+	Connection *connectionTargetSummary
 }
 
 type vendorRecord struct {
@@ -49,12 +70,17 @@ type vendorRecord struct {
 }
 
 type strategyRecord struct {
-	ID                 int
-	Name               string
-	StrategyType       string
-	LegacyStrategyType *string
-	AutoRecovery       any
-	RoutingPolicy      any
+	ID                     int
+	Name                   string
+	LegacyStrategyType     string
+	FailureStatusCodes     []int
+	BanMode                string
+	RetryBaseDelayMS       int
+	RetryBackoffMultiplier float64
+	RetryJitterRatio       float64
+	RetryMaxDelayMS        int
+	RetryMaxAttempts       int
+	BanDurationSeconds     int
 }
 
 type modelConnectionCounts struct {
@@ -68,14 +94,17 @@ type modelHealthStats struct {
 }
 
 type endpointModelConnectionRow struct {
-	EndpointID          int
-	ConnectionIsActive  bool
-	ConnectionModelID   int
-	ConnectionModelData modelRecord
+	EndpointID           int
+	TerminalConnectionID int
+	ConnectionIsActive   bool
+	ReachableModelID     int
+	ReachableModelData   modelRecord
 }
 
+const modelRecordSelectColumns = `model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.loadbalance_strategy_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at`
+
 func listModelRecords(ctx context.Context, exec queryExecutor, profileID int) ([]modelRecord, error) {
-	rows, err := exec.Query(ctx, `SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT `+modelRecordSelectColumns+` FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query models for profile %d: %w", profileID, err)
 	}
@@ -96,7 +125,7 @@ func listModelRecords(ctx context.Context, exec queryExecutor, profileID int) ([
 }
 
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, forUpdate bool) (modelRecord, bool, error) {
-	query := `SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 AND id = $2`
+	query := `SELECT ` + modelRecordSelectColumns + ` FROM model_configs WHERE profile_id = $1 AND id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -112,9 +141,38 @@ func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, mod
 }
 
 func listConnectionCountsByModel(ctx context.Context, exec queryExecutor, profileID int) (map[int]modelConnectionCounts, error) {
-	rows, err := exec.Query(ctx, `SELECT model_config_id, COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN is_active THEN 1 ELSE 0 END), 0) AS active_count FROM connections WHERE profile_id = $1 GROUP BY model_config_id`, profileID)
+	rows, err := exec.Query(ctx, `WITH RECURSIVE terminal_reachability AS (
+		SELECT model_access_targets.source_model_config_id AS root_model_config_id,
+			model_access_targets.target_model_config_id AS next_model_config_id,
+			model_access_targets.target_connection_id AS terminal_connection_id,
+			connections.is_active AS terminal_connection_is_active,
+			ARRAY[model_access_targets.source_model_config_id] || CASE WHEN model_access_targets.target_model_config_id IS NULL THEN ARRAY[]::integer[] ELSE ARRAY[model_access_targets.target_model_config_id] END AS path
+		FROM model_access_targets
+		LEFT JOIN connections ON connections.id = model_access_targets.target_connection_id AND connections.profile_id = model_access_targets.profile_id
+		WHERE model_access_targets.profile_id = $1
+			AND model_access_targets.is_enabled = TRUE
+			AND (model_access_targets.target_model_config_id IS NOT NULL OR model_access_targets.target_connection_id IS NOT NULL)
+		UNION ALL
+		SELECT terminal_reachability.root_model_config_id,
+			model_access_targets.target_model_config_id AS next_model_config_id,
+			model_access_targets.target_connection_id AS terminal_connection_id,
+			connections.is_active AS terminal_connection_is_active,
+			terminal_reachability.path || CASE WHEN model_access_targets.target_model_config_id IS NULL THEN ARRAY[]::integer[] ELSE ARRAY[model_access_targets.target_model_config_id] END AS path
+		FROM terminal_reachability
+		JOIN model_access_targets ON model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = terminal_reachability.next_model_config_id
+		LEFT JOIN connections ON connections.id = model_access_targets.target_connection_id AND connections.profile_id = model_access_targets.profile_id
+		WHERE terminal_reachability.next_model_config_id IS NOT NULL
+			AND model_access_targets.is_enabled = TRUE
+			AND (model_access_targets.target_connection_id IS NOT NULL OR (model_access_targets.target_model_config_id IS NOT NULL AND NOT model_access_targets.target_model_config_id = ANY(terminal_reachability.path)))
+	)
+	SELECT root_model_config_id,
+		COUNT(DISTINCT terminal_connection_id) AS total_count,
+		COUNT(DISTINCT terminal_connection_id) FILTER (WHERE terminal_connection_is_active) AS active_count
+	FROM terminal_reachability
+	WHERE terminal_connection_id IS NOT NULL
+	GROUP BY root_model_config_id`, profileID)
 	if err != nil {
-		return nil, fmt.Errorf("query model connection counts for profile %d: %w", profileID, err)
+		return nil, fmt.Errorf("query reachable model connection counts for profile %d: %w", profileID, err)
 	}
 	defer rows.Close()
 
@@ -124,12 +182,12 @@ func listConnectionCountsByModel(ctx context.Context, exec queryExecutor, profil
 		var totalCount int
 		var activeCount int
 		if err := rows.Scan(&modelID, &totalCount, &activeCount); err != nil {
-			return nil, fmt.Errorf("scan model connection counts: %w", err)
+			return nil, fmt.Errorf("scan reachable model connection counts: %w", err)
 		}
 		counts[modelID] = modelConnectionCounts{Total: totalCount, Active: activeCount}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate model connection counts: %w", err)
+		return nil, fmt.Errorf("iterate reachable model connection counts: %w", err)
 	}
 	return counts, nil
 }
@@ -200,7 +258,7 @@ func loadStrategyRecordsByIDs(ctx context.Context, exec queryExecutor, profileID
 	for _, strategyID := range strategyIDs {
 		args = append(args, strategyID)
 	}
-	query := fmt.Sprintf(`SELECT id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy FROM loadbalance_strategies WHERE profile_id = $1 AND id IN (%s) ORDER BY id ASC`, placeholders(2, len(strategyIDs)))
+	query := fmt.Sprintf(`SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts, ban_duration_seconds FROM loadbalance_strategies WHERE profile_id = $1 AND id IN (%s) ORDER BY id ASC`, placeholders(2, len(strategyIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query strategies by id for profile %d: %w", profileID, err)
@@ -221,60 +279,6 @@ func loadStrategyRecordsByIDs(ctx context.Context, exec queryExecutor, profileID
 	return items, nil
 }
 
-func loadProxyTargetsForModels(ctx context.Context, exec queryExecutor, modelIDs []int) (map[int][]proxyTargetReference, error) {
-	if len(modelIDs) == 0 {
-		return map[int][]proxyTargetReference{}, nil
-	}
-	args := make([]any, 0, len(modelIDs))
-	for _, modelID := range modelIDs {
-		args = append(args, modelID)
-	}
-	query := fmt.Sprintf(`SELECT model_proxy_targets.source_model_config_id, model_proxy_targets.position, target_models.model_id, model_proxy_targets.weight, model_proxy_targets.target_priority FROM model_proxy_targets JOIN model_configs AS target_models ON target_models.id = model_proxy_targets.target_model_config_id WHERE model_proxy_targets.source_model_config_id IN (%s) ORDER BY model_proxy_targets.source_model_config_id ASC, model_proxy_targets.position ASC, model_proxy_targets.id ASC`, placeholders(1, len(modelIDs)))
-	rows, err := exec.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query proxy targets by source model: %w", err)
-	}
-	defer rows.Close()
-
-	items := map[int][]proxyTargetReference{}
-	for rows.Next() {
-		var sourceModelID int
-		var position int
-		var targetModelID string
-		var weight int
-		var targetPriority int
-		if err := rows.Scan(&sourceModelID, &position, &targetModelID, &weight, &targetPriority); err != nil {
-			return nil, fmt.Errorf("scan proxy target: %w", err)
-		}
-		items[sourceModelID] = append(items[sourceModelID], proxyTargetReference{TargetModelID: targetModelID, Position: position, Weight: weight, TargetPriority: targetPriority, weightSet: true, targetPrioritySet: true})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate proxy targets: %w", err)
-	}
-	return items, nil
-}
-
-func loadConnectionsForModel(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) ([]connectionResponse, error) {
-	rows, err := exec.Query(ctx, `SELECT connections.id, connections.profile_id, connections.model_config_id, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.model_config_id = $2 ORDER BY connections.priority ASC, connections.id ASC`, profileID, modelConfigID)
-	if err != nil {
-		return nil, fmt.Errorf("query connections for model %d: %w", modelConfigID, err)
-	}
-	defer rows.Close()
-
-	items := make([]connectionResponse, 0)
-	for rows.Next() {
-		item, scanErr := scanConnectionResponse(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate connections for model %d: %w", modelConfigID, err)
-	}
-	return items, nil
-}
-
 func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID int, endpointIDs []int) ([]endpointModelConnectionRow, error) {
 	if len(endpointIDs) == 0 {
 		return []endpointModelConnectionRow{}, nil
@@ -283,26 +287,52 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 	for _, endpointID := range endpointIDs {
 		args = append(args, endpointID)
 	}
-	query := fmt.Sprintf(`SELECT connections.endpoint_id, connections.is_active, model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.model_type, model_configs.proxy_selection_strategy, model_configs.loadbalance_strategy_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at FROM connections JOIN model_configs ON model_configs.id = connections.model_config_id WHERE connections.profile_id = $1 AND connections.endpoint_id IN (%s) ORDER BY connections.endpoint_id ASC, model_configs.id ASC, connections.priority ASC, connections.id ASC`, placeholders(2, len(endpointIDs)))
+	query := fmt.Sprintf(`WITH RECURSIVE terminal_reachability AS (
+		SELECT model_access_targets.source_model_config_id AS root_model_config_id,
+			model_access_targets.target_model_config_id AS next_model_config_id,
+			model_access_targets.target_connection_id AS terminal_connection_id,
+			ARRAY[model_access_targets.source_model_config_id] || CASE WHEN model_access_targets.target_model_config_id IS NULL THEN ARRAY[]::integer[] ELSE ARRAY[model_access_targets.target_model_config_id] END AS path
+		FROM model_access_targets
+		WHERE model_access_targets.profile_id = $1
+			AND model_access_targets.is_enabled = TRUE
+			AND (model_access_targets.target_model_config_id IS NOT NULL OR model_access_targets.target_connection_id IS NOT NULL)
+		UNION ALL
+		SELECT terminal_reachability.root_model_config_id,
+			model_access_targets.target_model_config_id AS next_model_config_id,
+			model_access_targets.target_connection_id AS terminal_connection_id,
+			terminal_reachability.path || CASE WHEN model_access_targets.target_model_config_id IS NULL THEN ARRAY[]::integer[] ELSE ARRAY[model_access_targets.target_model_config_id] END AS path
+		FROM terminal_reachability
+		JOIN model_access_targets ON model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = terminal_reachability.next_model_config_id
+		WHERE terminal_reachability.next_model_config_id IS NOT NULL
+			AND model_access_targets.is_enabled = TRUE
+			AND (model_access_targets.target_connection_id IS NOT NULL OR (model_access_targets.target_model_config_id IS NOT NULL AND NOT model_access_targets.target_model_config_id = ANY(terminal_reachability.path)))
+	)
+	SELECT DISTINCT connections.endpoint_id, connections.id, connections.is_active,
+		source_models.id, source_models.profile_id, source_models.vendor_id, source_models.api_family, source_models.model_id, source_models.display_name, source_models.loadbalance_strategy_id, source_models.is_enabled, source_models.created_at, source_models.updated_at
+	FROM terminal_reachability
+	JOIN connections ON connections.id = terminal_reachability.terminal_connection_id AND connections.profile_id = $1
+	JOIN model_configs AS source_models ON source_models.id = terminal_reachability.root_model_config_id AND source_models.profile_id = $1
+	WHERE terminal_reachability.terminal_connection_id IS NOT NULL
+		AND connections.endpoint_id IN (%s)
+		AND source_models.is_enabled = TRUE
+	ORDER BY connections.endpoint_id ASC, source_models.model_id ASC, source_models.id ASC, connections.id ASC`, placeholders(2, len(endpointIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query endpoint model rows for profile %d: %w", profileID, err)
+		return nil, fmt.Errorf("query reachable endpoint model rows for profile %d: %w", profileID, err)
 	}
 	defer rows.Close()
 
 	items := make([]endpointModelConnectionRow, 0)
 	for rows.Next() {
 		var row endpointModelConnectionRow
-		var proxySelectionStrategy sql.NullString
-		if err := rows.Scan(&row.EndpointID, &row.ConnectionIsActive, &row.ConnectionModelData.ID, &row.ConnectionModelData.ProfileID, &row.ConnectionModelData.VendorID, &row.ConnectionModelData.APIFamily, &row.ConnectionModelData.ModelID, &row.ConnectionModelData.DisplayName, &row.ConnectionModelData.ModelType, &proxySelectionStrategy, &row.ConnectionModelData.LoadbalanceStrategyID, &row.ConnectionModelData.IsEnabled, &row.ConnectionModelData.CreatedAt, &row.ConnectionModelData.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan endpoint model row: %w", err)
+		if err := rows.Scan(&row.EndpointID, &row.TerminalConnectionID, &row.ConnectionIsActive, &row.ReachableModelData.ID, &row.ReachableModelData.ProfileID, &row.ReachableModelData.VendorID, &row.ReachableModelData.APIFamily, &row.ReachableModelData.ModelID, &row.ReachableModelData.DisplayName, &row.ReachableModelData.LoadbalanceStrategyID, &row.ReachableModelData.IsEnabled, &row.ReachableModelData.CreatedAt, &row.ReachableModelData.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan reachable endpoint model row: %w", err)
 		}
-		row.ConnectionModelID = row.ConnectionModelData.ID
-		row.ConnectionModelData.ProxySelectionStrategy = nullableStringValue(proxySelectionStrategy)
+		row.ReachableModelID = row.ReachableModelData.ID
 		items = append(items, row)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate endpoint model rows: %w", err)
+		return nil, fmt.Errorf("iterate reachable endpoint model rows: %w", err)
 	}
 	return items, nil
 }
@@ -350,10 +380,278 @@ func ensureModelIDAvailable(ctx context.Context, exec queryExecutor, profileID i
 	return fmt.Errorf("query model id availability for %q: %w", modelID, err)
 }
 
-func listProxyReferrers(ctx context.Context, exec queryExecutor, profileID int, modelID string, excludeID *int) ([]modelRecord, error) {
-	targetIDQuery := `SELECT id FROM model_configs WHERE profile_id = $1 AND model_id = $2`
-	args := []any{profileID, modelID}
-	query := `SELECT DISTINCT model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.model_type, model_configs.proxy_selection_strategy, model_configs.loadbalance_strategy_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at FROM model_configs JOIN model_proxy_targets ON model_proxy_targets.source_model_config_id = model_configs.id WHERE model_configs.profile_id = $1 AND model_proxy_targets.target_model_config_id = (` + targetIDQuery + `)`
+func loadAccessTargetsForModels(ctx context.Context, exec queryExecutor, profileID int, modelIDs []int) (map[int][]accessTargetRecord, error) {
+	if len(modelIDs) == 0 {
+		return map[int][]accessTargetRecord{}, nil
+	}
+	modelTargets, err := loadModelAccessTargetsForModels(ctx, exec, profileID, modelIDs)
+	if err != nil {
+		return nil, err
+	}
+	connectionTargets, err := loadConnectionAccessTargetsForModels(ctx, exec, profileID, modelIDs)
+	if err != nil {
+		return nil, err
+	}
+	items := map[int][]accessTargetRecord{}
+	for sourceID, targets := range modelTargets {
+		items[sourceID] = append(items[sourceID], targets...)
+	}
+	for sourceID, targets := range connectionTargets {
+		items[sourceID] = append(items[sourceID], targets...)
+	}
+	for sourceID, targets := range items {
+		sortAccessTargetRecords(targets)
+		items[sourceID] = targets
+	}
+	return items, nil
+}
+
+func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, profileID int, modelIDs []int) (map[int][]accessTargetRecord, error) {
+	args := []any{profileID}
+	for _, modelID := range modelIDs {
+		args = append(args, modelID)
+	}
+	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.vendor_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	rows, err := exec.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query model access targets for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+
+	items := map[int][]accessTargetRecord{}
+	for rows.Next() {
+		var targetModelID int
+		record := accessTargetRecord{TargetType: "model"}
+		target := modelRecord{}
+		var vendorID sql.NullInt32
+		var displayName sql.NullString
+		var loadbalanceStrategyID sql.NullInt32
+		if err := rows.Scan(&record.ID, &record.ProfileID, &record.SourceModelConfigID, &targetModelID, &record.Position, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt, &target.ID, &target.ProfileID, &vendorID, &target.APIFamily, &target.ModelID, &displayName, &loadbalanceStrategyID, &target.IsEnabled, &target.CreatedAt, &target.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan model access target: %w", err)
+		}
+		target.VendorID = nullableInt32(vendorID)
+		target.DisplayName = nullableStringValue(displayName)
+		target.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
+		record.TargetModelConfigID = intPtr(targetModelID)
+		record.TargetModel = &target
+		items[record.SourceModelConfigID] = append(items[record.SourceModelConfigID], record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model access targets: %w", err)
+	}
+	return items, nil
+}
+
+func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecutor, profileID int, modelIDs []int) (map[int][]accessTargetRecord, error) {
+	args := []any{profileID}
+	for _, modelID := range modelIDs {
+		args = append(args, modelID)
+	}
+	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	rows, err := exec.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query connection access targets for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+
+	items := map[int][]accessTargetRecord{}
+	for rows.Next() {
+		record, scanErr := scanConnectionAccessTargetRecord(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items[record.SourceModelConfigID] = append(items[record.SourceModelConfigID], record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate connection access targets: %w", err)
+	}
+	return items, nil
+}
+
+func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int, sourceModelConfigID *int, sourceModelID string, apiFamily string, accessTargets []modelAccessTargetRequest) ([]resolvedAccessTarget, error) {
+	orderedTargets := sortAccessTargetRequestsByPosition(accessTargets)
+	if err := validateAccessTargets(orderedTargets); err != nil {
+		return nil, err
+	}
+	modelIDs := make([]string, 0)
+	connectionIDs := make([]int, 0)
+	for _, target := range orderedTargets {
+		switch target.TargetType {
+		case "model":
+			modelIDs = append(modelIDs, strings.TrimSpace(*target.TargetModelID))
+		case "connection":
+			connectionIDs = append(connectionIDs, *target.ConnectionID)
+		}
+	}
+	modelsByID, err := loadTargetModelRecordsByModelIDs(ctx, exec, profileID, modelIDs)
+	if err != nil {
+		return nil, err
+	}
+	connectionsByID, err := loadConnectionSummariesByIDs(ctx, exec, profileID, connectionIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	resolved := make([]resolvedAccessTarget, 0, len(orderedTargets))
+	for _, target := range orderedTargets {
+		enabled := true
+		if target.IsEnabled != nil {
+			enabled = *target.IsEnabled
+		}
+		switch target.TargetType {
+		case "model":
+			targetModelID := strings.TrimSpace(*target.TargetModelID)
+			model, ok := modelsByID[targetModelID]
+			if !ok {
+				return nil, &domainError{StatusCode: 400, Detail: fmt.Sprintf("Target model '%s' not found", targetModelID)}
+			}
+			if model.ModelID == sourceModelID || (sourceModelConfigID != nil && model.ID == *sourceModelConfigID) {
+				return nil, &domainError{StatusCode: 400, Detail: "Model access target cannot target itself"}
+			}
+			if model.APIFamily != apiFamily {
+				return nil, &domainError{StatusCode: 400, Detail: "Model access targets must use the same api_family as the source model"}
+			}
+			modelCopy := model
+			resolved = append(resolved, resolvedAccessTarget{TargetType: "model", Position: target.Position, IsEnabled: enabled, Model: &modelCopy})
+		case "connection":
+			connectionID := *target.ConnectionID
+			connection, ok := connectionsByID[connectionID]
+			if !ok {
+				return nil, &domainError{StatusCode: 400, Detail: fmt.Sprintf("Target connection %d not found", connectionID)}
+			}
+			if connection.APIFamily != apiFamily {
+				return nil, &domainError{StatusCode: 400, Detail: "Connection access targets must use the same api_family as the source model"}
+			}
+			connectionCopy := connection
+			resolved = append(resolved, resolvedAccessTarget{TargetType: "connection", Position: target.Position, IsEnabled: enabled, Connection: &connectionCopy})
+		}
+	}
+	return resolved, nil
+}
+
+func loadTargetModelRecordsByModelIDs(ctx context.Context, exec queryExecutor, profileID int, modelIDs []string) (map[string]modelRecord, error) {
+	if len(modelIDs) == 0 {
+		return map[string]modelRecord{}, nil
+	}
+	args := []any{profileID}
+	for _, modelID := range modelIDs {
+		args = append(args, modelID)
+	}
+	query := fmt.Sprintf(`SELECT `+modelRecordSelectColumns+` FROM model_configs WHERE profile_id = $1 AND model_id IN (%s) ORDER BY id ASC`, placeholders(2, len(modelIDs)))
+	rows, err := exec.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query target models for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	items := map[string]modelRecord{}
+	for rows.Next() {
+		record, scanErr := scanModelRecord(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items[record.ModelID] = record
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate target models: %w", err)
+	}
+	return items, nil
+}
+
+func loadConnectionSummariesByIDs(ctx context.Context, exec queryExecutor, profileID int, connectionIDs []int) (map[int]connectionTargetSummary, error) {
+	if len(connectionIDs) == 0 {
+		return map[int]connectionTargetSummary{}, nil
+	}
+	args := []any{profileID}
+	for _, connectionID := range connectionIDs {
+		args = append(args, connectionID)
+	}
+	query := fmt.Sprintf(`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.id IN (%s) ORDER BY connections.id ASC`, placeholders(2, len(connectionIDs)))
+	rows, err := exec.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query target connections for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	items := map[int]connectionTargetSummary{}
+	for rows.Next() {
+		connection, scanErr := scanConnectionTargetSummary(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items[connection.ID] = connection
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate target connections: %w", err)
+	}
+	return items, nil
+}
+
+func replaceAccessTargets(ctx context.Context, tx pgx.Tx, sourceProfileID int, sourceModelConfigID int, targets []resolvedAccessTarget, currentTime time.Time) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM model_access_targets WHERE source_model_config_id = $1`, sourceModelConfigID); err != nil {
+		return fmt.Errorf("delete access targets for model %d: %w", sourceModelConfigID, err)
+	}
+	for _, target := range sortResolvedAccessTargetsByPosition(targets) {
+		if target.TargetType == "model" {
+			if target.Model == nil {
+				return fmt.Errorf("replace access targets for model %d: missing model target", sourceModelConfigID)
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, 1, $4, $5, $6, $6)`, sourceProfileID, sourceModelConfigID, target.Model.ID, target.Position, target.IsEnabled, currentTime); err != nil {
+				return mapAccessTargetWriteError(err, sourceModelConfigID)
+			}
+			continue
+		}
+		if target.Connection == nil {
+			return fmt.Errorf("replace access targets for model %d: missing connection target", sourceModelConfigID)
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, $4, $5, $6, $6)`, sourceProfileID, sourceModelConfigID, target.Connection.ID, target.Position, target.IsEnabled, currentTime); err != nil {
+			return mapAccessTargetWriteError(err, sourceModelConfigID)
+		}
+	}
+	return nil
+}
+
+func mapAccessTargetWriteError(err error, sourceModelConfigID int) error {
+	if isUniqueViolation(err, "uq_model_access_targets_source_target_model") || isUniqueViolation(err, "uq_model_access_targets_source_target_connection") {
+		return &domainError{StatusCode: 400, Detail: "access_targets must contain unique target references"}
+	}
+	if isUniqueViolation(err, "uq_model_access_targets_source_position") {
+		return &domainError{StatusCode: 400, Detail: "access_targets must contain unique position values"}
+	}
+	return fmt.Errorf("insert access target for model %d: %w", sourceModelConfigID, err)
+}
+
+func lockProfileAccessTargetRows(ctx context.Context, tx pgx.Tx, profileID int) error {
+	rows, err := tx.Query(ctx, `SELECT id FROM model_access_targets WHERE profile_id = $1 FOR UPDATE`, profileID)
+	if err != nil {
+		return fmt.Errorf("lock access targets for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate access target locks: %w", err)
+	}
+	return nil
+}
+
+func ensureAccessTargetGraphAcyclic(ctx context.Context, exec queryExecutor, profileID int, sourceModelConfigID int, targets []resolvedAccessTarget) error {
+	targetIDs := modelTargetIDsFromResolved(targets)
+	if len(targetIDs) == 0 {
+		return nil
+	}
+	var hasCycle bool
+	err := exec.QueryRow(ctx, `WITH RECURSIVE graph AS (SELECT source_model_config_id, target_model_config_id FROM model_access_targets WHERE profile_id = $1 AND target_model_config_id IS NOT NULL AND source_model_config_id <> $2 UNION ALL SELECT $2::integer AS source_model_config_id, proposed.target_model_config_id FROM unnest($3::integer[]) AS proposed(target_model_config_id)), walk(node_id, path) AS (SELECT graph.target_model_config_id, ARRAY[$2::integer, graph.target_model_config_id] FROM graph WHERE graph.source_model_config_id = $2 UNION ALL SELECT graph.target_model_config_id, walk.path || graph.target_model_config_id FROM walk JOIN graph ON graph.source_model_config_id = walk.node_id WHERE graph.target_model_config_id = $2 OR NOT graph.target_model_config_id = ANY(walk.path)) SELECT EXISTS(SELECT 1 FROM walk WHERE node_id = $2)`, profileID, sourceModelConfigID, int32ArrayArg(targetIDs)).Scan(&hasCycle)
+	if err != nil {
+		return fmt.Errorf("check access target cycles for model %d: %w", sourceModelConfigID, err)
+	}
+	if hasCycle {
+		return &domainError{StatusCode: 400, Detail: "access_targets cannot introduce a model target cycle"}
+	}
+	return nil
+}
+
+func listAccessTargetReferrers(ctx context.Context, exec queryExecutor, profileID int, targetModelConfigID int, excludeID *int) ([]modelRecord, error) {
+	query := `SELECT DISTINCT ` + modelRecordSelectColumns + ` FROM model_configs JOIN model_access_targets ON model_access_targets.source_model_config_id = model_configs.id WHERE model_configs.profile_id = $1 AND model_access_targets.target_model_config_id = $2`
+	args := []any{profileID, targetModelConfigID}
 	if excludeID != nil {
 		query += ` AND model_configs.id <> $3`
 		args = append(args, *excludeID)
@@ -361,10 +659,9 @@ func listProxyReferrers(ctx context.Context, exec queryExecutor, profileID int, 
 	query += ` ORDER BY model_configs.model_id ASC, model_configs.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query proxy referrers for %q: %w", modelID, err)
+		return nil, fmt.Errorf("query access target referrers for model %d: %w", targetModelConfigID, err)
 	}
 	defer rows.Close()
-
 	items := make([]modelRecord, 0)
 	for rows.Next() {
 		record, scanErr := scanModelRecord(rows)
@@ -374,113 +671,38 @@ func listProxyReferrers(ctx context.Context, exec queryExecutor, profileID int, 
 		items = append(items, record)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate proxy referrers for %q: %w", modelID, err)
+		return nil, fmt.Errorf("iterate access target referrers for model %d: %w", targetModelConfigID, err)
 	}
 	return items, nil
 }
 
-func resolveProxyTargets(ctx context.Context, exec queryExecutor, profileID int, modelType string, proxyTargets []proxyTargetReference, apiFamily string, excludeModelID *string) ([]modelRecord, error) {
-	orderedProxyTargets := sortProxyTargetsByPosition(proxyTargets)
-	if err := validateProxyTargetContract(modelType, orderedProxyTargets); err != nil {
-		return nil, err
-	}
-	if modelType == "native" {
-		return []modelRecord{}, nil
-	}
-	if excludeModelID != nil {
-		for _, proxyTarget := range orderedProxyTargets {
-			if proxyTarget.TargetModelID == *excludeModelID {
-				return nil, &domainError{StatusCode: 400, Detail: "Proxy model cannot target itself"}
-			}
-		}
-	}
-	args := []any{profileID}
-	targetModelIDs := make([]string, 0, len(orderedProxyTargets))
-	for _, proxyTarget := range orderedProxyTargets {
-		targetModelIDs = append(targetModelIDs, proxyTarget.TargetModelID)
-		args = append(args, proxyTarget.TargetModelID)
-	}
-	query := fmt.Sprintf(`SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 AND model_id IN (%s) ORDER BY id ASC`, placeholders(2, len(targetModelIDs)))
-	rows, err := exec.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query proxy targets for profile %d: %w", profileID, err)
-	}
-	defer rows.Close()
-
-	targetsByModelID := map[string]modelRecord{}
-	for rows.Next() {
-		record, scanErr := scanModelRecord(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		targetsByModelID[record.ModelID] = record
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate proxy targets: %w", err)
-	}
-
-	orderedTargets := make([]modelRecord, 0, len(orderedProxyTargets))
-	for _, proxyTarget := range orderedProxyTargets {
-		target, ok := targetsByModelID[proxyTarget.TargetModelID]
-		if !ok {
-			return nil, &domainError{StatusCode: 400, Detail: fmt.Sprintf("Target model '%s' not found", proxyTarget.TargetModelID)}
-		}
-		if target.ModelType != "native" {
-			return nil, &domainError{StatusCode: 400, Detail: fmt.Sprintf("Target model '%s' is not a native model (chained proxies not allowed)", proxyTarget.TargetModelID)}
-		}
-		if target.APIFamily != apiFamily {
-			return nil, &domainError{StatusCode: 400, Detail: "Proxy targets must use the same api_family as the proxy model"}
-		}
-		orderedTargets = append(orderedTargets, target)
-	}
-	return orderedTargets, nil
-}
-
-func replaceProxyTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int, modelType string, targetModels []modelRecord, proxyTargets []proxyTargetReference) error {
-	orderedProxyTargets := sortProxyTargetsByPosition(proxyTargets)
-	if err := validateProxyTargetContract(modelType, orderedProxyTargets); err != nil {
-		return err
-	}
-	if len(targetModels) != len(orderedProxyTargets) {
-		return fmt.Errorf("replace proxy targets for model %d: resolved target count mismatch", sourceModelConfigID)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM model_proxy_targets WHERE source_model_config_id = $1`, sourceModelConfigID); err != nil {
-		return fmt.Errorf("delete proxy targets for model %d: %w", sourceModelConfigID, err)
-	}
-	for index, proxyTarget := range orderedProxyTargets {
-		if _, err := tx.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, $3, $4, $5)`, sourceModelConfigID, targetModels[index].ID, proxyTarget.Position, proxyTarget.Weight, proxyTarget.TargetPriority); err != nil {
-			if isUniqueViolation(err, "uq_model_proxy_targets_source_target") {
-				return &domainError{StatusCode: 400, Detail: "proxy_targets must contain unique target_model_id values"}
-			}
-			if isUniqueViolation(err, "uq_model_proxy_targets_source_position") {
-				return &domainError{StatusCode: 400, Detail: "proxy_targets must contain unique position values"}
-			}
-			return fmt.Errorf("insert proxy target for model %d: %w", sourceModelConfigID, err)
-		}
+func deleteSourceAccessTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM model_access_targets WHERE source_model_config_id = $1`, sourceModelConfigID); err != nil {
+		return fmt.Errorf("delete source access targets for model %d: %w", sourceModelConfigID, err)
 	}
 	return nil
 }
 
 func insertModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
-	created, err := scanModelRecord(tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at`, record.ProfileID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), record.ModelType, nullableString(record.ProxySelectionStrategy), nullableInt(record.LoadbalanceStrategyID), record.IsEnabled, record.CreatedAt, record.UpdatedAt))
-	if err != nil {
+	var createdID int
+	if err := tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`, record.ProfileID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), record.IsEnabled, record.CreatedAt, record.UpdatedAt).Scan(&createdID); err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
 		}
 		return modelRecord{}, fmt.Errorf("insert model %q: %w", record.ModelID, err)
 	}
-	return created, nil
+	record.ID = createdID
+	return record, nil
 }
 
 func updateModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
-	updated, err := scanModelRecord(tx.QueryRow(ctx, `UPDATE model_configs SET vendor_id = $2, api_family = $3, model_id = $4, display_name = $5, model_type = $6, proxy_selection_strategy = $7, loadbalance_strategy_id = $8, is_enabled = $9, updated_at = $10 WHERE id = $1 RETURNING id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at`, record.ID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), record.ModelType, nullableString(record.ProxySelectionStrategy), nullableInt(record.LoadbalanceStrategyID), record.IsEnabled, record.UpdatedAt))
-	if err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE model_configs SET vendor_id = $2, api_family = $3, model_id = $4, display_name = $5, loadbalance_strategy_id = $6, is_enabled = $7, updated_at = $8 WHERE id = $1`, record.ID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), record.IsEnabled, record.UpdatedAt); err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
 		}
 		return modelRecord{}, fmt.Errorf("update model %d: %w", record.ID, err)
 	}
-	return updated, nil
+	return record, nil
 }
 
 func deleteModel(ctx context.Context, tx pgx.Tx, modelConfigID int) error {
@@ -500,15 +722,13 @@ func syncRenamedModelReferences(ctx context.Context, tx pgx.Tx, profileID int, o
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
 	var vendorID sql.NullInt32
 	var displayName sql.NullString
-	var proxySelectionStrategy sql.NullString
 	var loadbalanceStrategyID sql.NullInt32
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &vendorID, &record.APIFamily, &record.ModelID, &displayName, &record.ModelType, &proxySelectionStrategy, &loadbalanceStrategyID, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &vendorID, &record.APIFamily, &record.ModelID, &displayName, &loadbalanceStrategyID, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return modelRecord{}, err
 	}
 	record.VendorID = nullableInt32(vendorID)
 	record.DisplayName = nullableStringValue(displayName)
-	record.ProxySelectionStrategy = nullableStringValue(proxySelectionStrategy)
 	record.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
 	return record, nil
 }
@@ -526,28 +746,44 @@ func scanVendorRecord(scanner interface{ Scan(...any) error }) (vendorRecord, er
 }
 
 func scanStrategyRecord(scanner interface{ Scan(...any) error }) (strategyRecord, error) {
-	var legacyStrategyType sql.NullString
-	var autoRecoveryRaw []byte
-	var routingPolicyRaw []byte
+	var failureStatusCodes []int32
 	record := strategyRecord{}
-	if err := scanner.Scan(&record.ID, &record.Name, &record.StrategyType, &legacyStrategyType, &autoRecoveryRaw, &routingPolicyRaw); err != nil {
+	if err := scanner.Scan(
+		&record.ID,
+		&record.Name,
+		&record.LegacyStrategyType,
+		&failureStatusCodes,
+		&record.BanMode,
+		&record.RetryBaseDelayMS,
+		&record.RetryBackoffMultiplier,
+		&record.RetryJitterRatio,
+		&record.RetryMaxDelayMS,
+		&record.RetryMaxAttempts,
+		&record.BanDurationSeconds,
+	); err != nil {
 		return strategyRecord{}, err
 	}
-	record.LegacyStrategyType = nullableStringValue(legacyStrategyType)
-	if len(autoRecoveryRaw) > 0 {
-		if err := json.Unmarshal(autoRecoveryRaw, &record.AutoRecovery); err != nil {
-			return strategyRecord{}, fmt.Errorf("decode strategy auto_recovery: %w", err)
-		}
-	}
-	if len(routingPolicyRaw) > 0 {
-		if err := json.Unmarshal(routingPolicyRaw, &record.RoutingPolicy); err != nil {
-			return strategyRecord{}, fmt.Errorf("decode strategy routing_policy: %w", err)
-		}
-	}
+	record.FailureStatusCodes = intSliceFromInt32(failureStatusCodes)
 	return record, nil
 }
 
-func scanConnectionResponse(scanner interface{ Scan(...any) error }) (connectionResponse, error) {
+func scanConnectionAccessTargetRecord(scanner interface{ Scan(...any) error }) (accessTargetRecord, error) {
+	var connectionID int
+	record := accessTargetRecord{TargetType: "connection"}
+	connection, err := scanConnectionTargetSummaryWithPrefix(scanner, []any{&record.ID, &record.ProfileID, &record.SourceModelConfigID, &connectionID, &record.Position, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt})
+	if err != nil {
+		return accessTargetRecord{}, fmt.Errorf("scan connection access target: %w", err)
+	}
+	record.TargetConnectionID = intPtr(connectionID)
+	record.Connection = &connection
+	return record, nil
+}
+
+func scanConnectionTargetSummary(scanner interface{ Scan(...any) error }) (connectionTargetSummary, error) {
+	return scanConnectionTargetSummaryWithPrefix(scanner, nil)
+}
+
+func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error }, prefix []any) (connectionTargetSummary, error) {
 	var endpointAPIKey sql.NullString
 	var connectionName sql.NullString
 	var authType sql.NullString
@@ -564,10 +800,43 @@ func scanConnectionResponse(scanner interface{ Scan(...any) error }) (connection
 	var templateVersion sql.NullInt32
 	var healthDetail sql.NullString
 	var lastHealthCheck sql.NullTime
-	item := connectionResponse{}
+	item := connectionTargetSummary{}
 	endpoint := endpointResponse{}
-	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.ModelConfigID, &item.EndpointID, &endpoint.ProfileID, &endpoint.Name, &endpoint.BaseURL, &endpointAPIKey, &endpoint.Position, &endpoint.CreatedAt, &endpoint.UpdatedAt, &item.IsActive, &item.Priority, &connectionName, &authType, &customHeaders, &openAIProbeEndpointVariant, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &item.HealthStatus, &healthDetail, &lastHealthCheck, &item.CreatedAt, &item.UpdatedAt); err != nil {
-		return connectionResponse{}, err
+	dest := append(prefix,
+		&item.ID,
+		&item.ProfileID,
+		&item.APIFamily,
+		&item.EndpointID,
+		&endpoint.ProfileID,
+		&endpoint.Name,
+		&endpoint.BaseURL,
+		&endpointAPIKey,
+		&endpoint.Position,
+		&endpoint.CreatedAt,
+		&endpoint.UpdatedAt,
+		&item.IsActive,
+		&item.Priority,
+		&connectionName,
+		&authType,
+		&customHeaders,
+		&openAIProbeEndpointVariant,
+		&pricingTemplateID,
+		&qpsLimit,
+		&maxInFlightNonStream,
+		&maxInFlightStream,
+		&templateID,
+		&templateName,
+		&templatePricingUnit,
+		&templatePricingCurrencyCode,
+		&templateVersion,
+		&item.HealthStatus,
+		&healthDetail,
+		&lastHealthCheck,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	)
+	if err := scanner.Scan(dest...); err != nil {
+		return connectionTargetSummary{}, err
 	}
 	endpoint.ID = item.EndpointID
 	endpoint.HasAPIKey = strings.TrimSpace(endpointAPIKey.String) != ""
@@ -589,8 +858,8 @@ func scanConnectionResponse(scanner interface{ Scan(...any) error }) (connection
 	return item, nil
 }
 
-func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, proxyTargets map[int][]proxyTargetReference, counts map[int]modelConnectionCounts, health map[string]modelHealthStats) modelConfigListResponse {
-	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, ModelType: record.ModelType, ProxySelectionStrategy: record.ProxySelectionStrategy, ProxyTargets: cloneProxyTargets(proxyTargets[record.ID]), LoadbalanceStrategyID: record.LoadbalanceStrategyID, IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, counts map[int]modelConnectionCounts, health map[string]modelHealthStats) modelConfigListResponse {
+	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.VendorID != nil {
 		if vendor, ok := vendors[*record.VendorID]; ok {
 			response.Vendor = vendorResponseFromRecord(vendor)
@@ -612,11 +881,8 @@ func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, st
 	return response
 }
 
-func buildModelDetailResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, proxyTargets map[int][]proxyTargetReference, connections []connectionResponse) modelConfigResponse {
-	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, ModelType: record.ModelType, ProxySelectionStrategy: record.ProxySelectionStrategy, ProxyTargets: cloneProxyTargets(proxyTargets[record.ID]), LoadbalanceStrategyID: record.LoadbalanceStrategyID, IsEnabled: record.IsEnabled, Connections: connections, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
-	if response.Connections == nil {
-		response.Connections = []connectionResponse{}
-	}
+func buildModelDetailResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord) modelConfigResponse {
+	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.VendorID != nil {
 		if vendor, ok := vendors[*record.VendorID]; ok {
 			response.Vendor = vendorResponseFromRecord(vendor)
@@ -635,30 +901,171 @@ func vendorResponseFromRecord(record vendorRecord) *vendorResponse {
 }
 
 func strategySummaryFromRecord(record strategyRecord) *loadbalanceStrategySummary {
-	return &loadbalanceStrategySummary{ID: record.ID, Name: record.Name, StrategyType: record.StrategyType, LegacyStrategyType: record.LegacyStrategyType, AutoRecovery: record.AutoRecovery, RoutingPolicy: record.RoutingPolicy}
+	return &loadbalanceStrategySummary{ID: record.ID, Name: record.Name, LegacyStrategyType: record.LegacyStrategyType, FailureStatusCodes: cloneIntSlice(record.FailureStatusCodes), BanMode: record.BanMode, RetryBaseDelayMS: record.RetryBaseDelayMS, RetryBackoffMultiplier: record.RetryBackoffMultiplier, RetryJitterRatio: record.RetryJitterRatio, RetryMaxDelayMS: record.RetryMaxDelayMS, RetryMaxAttempts: record.RetryMaxAttempts, BanDurationSeconds: record.BanDurationSeconds}
 }
 
-func cloneProxyTargets(values []proxyTargetReference) []proxyTargetReference {
-	if len(values) == 0 {
-		return []proxyTargetReference{}
+func accessTargetResponsesFromRecords(records []accessTargetRecord) []modelAccessTargetResponse {
+	if len(records) == 0 {
+		return []modelAccessTargetResponse{}
 	}
-	cloned := make([]proxyTargetReference, len(values))
+	ordered := cloneAccessTargetRecords(records)
+	sortAccessTargetRecords(ordered)
+	items := make([]modelAccessTargetResponse, 0, len(ordered))
+	for _, record := range ordered {
+		response := modelAccessTargetResponse{ID: record.ID, TargetType: record.TargetType, TargetModelID: stringPtrFromModelRecord(record.TargetModel), ConnectionID: copyIntPtr(record.TargetConnectionID), Position: record.Position, IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+		if record.TargetModel != nil {
+			response.TargetModel = modelTargetSummaryFromRecord(*record.TargetModel)
+		}
+		if record.Connection != nil {
+			connection := *record.Connection
+			response.Connection = &connection
+		}
+		items = append(items, response)
+	}
+	return items
+}
+
+func modelTargetSummaryFromRecord(record modelRecord) *modelTargetSummary {
+	return &modelTargetSummary{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, IsEnabled: record.IsEnabled}
+}
+
+func accessTargetRequestsFromRecords(records []accessTargetRecord) []modelAccessTargetRequest {
+	if len(records) == 0 {
+		return []modelAccessTargetRequest{}
+	}
+	ordered := cloneAccessTargetRecords(records)
+	sortAccessTargetRecords(ordered)
+	items := make([]modelAccessTargetRequest, 0, len(ordered))
+	for _, record := range ordered {
+		enabled := record.IsEnabled
+		request := modelAccessTargetRequest{TargetType: record.TargetType, Position: record.Position, IsEnabled: &enabled}
+		if record.TargetType == "model" && record.TargetModel != nil {
+			modelID := record.TargetModel.ModelID
+			request.TargetModelID = &modelID
+		}
+		if record.TargetType == "connection" && record.TargetConnectionID != nil {
+			connectionID := *record.TargetConnectionID
+			request.ConnectionID = &connectionID
+		}
+		items = append(items, request)
+	}
+	return items
+}
+
+func hasEnabledResolvedAccessTarget(targets []resolvedAccessTarget) bool {
+	for _, target := range targets {
+		if target.IsEnabled {
+			return true
+		}
+	}
+	return false
+}
+
+func modelTargetIDsFromResolved(targets []resolvedAccessTarget) []int {
+	seen := map[int]struct{}{}
+	items := make([]int, 0)
+	for _, target := range targets {
+		if target.TargetType != "model" || target.Model == nil {
+			continue
+		}
+		if _, ok := seen[target.Model.ID]; ok {
+			continue
+		}
+		seen[target.Model.ID] = struct{}{}
+		items = append(items, target.Model.ID)
+	}
+	sort.Ints(items)
+	return items
+}
+
+func cloneAccessTargetRecords(values []accessTargetRecord) []accessTargetRecord {
+	cloned := make([]accessTargetRecord, len(values))
 	copy(cloned, values)
 	return cloned
 }
 
-func sortProxyTargetsByPosition(values []proxyTargetReference) []proxyTargetReference {
-	ordered := cloneProxyTargets(values)
-	if len(ordered) < 2 {
-		return ordered
-	}
+func sortAccessTargetRecords(values []accessTargetRecord) {
+	sort.Slice(values, func(left int, right int) bool {
+		if values[left].Position == values[right].Position {
+			return values[left].ID < values[right].ID
+		}
+		return values[left].Position < values[right].Position
+	})
+}
+
+func sortAccessTargetRequestsByPosition(values []modelAccessTargetRequest) []modelAccessTargetRequest {
+	ordered := make([]modelAccessTargetRequest, len(values))
+	copy(ordered, values)
 	sort.Slice(ordered, func(left int, right int) bool {
 		if ordered[left].Position == ordered[right].Position {
-			return ordered[left].TargetModelID < ordered[right].TargetModelID
+			return accessTargetInputKey(ordered[left]) < accessTargetInputKey(ordered[right])
 		}
 		return ordered[left].Position < ordered[right].Position
 	})
 	return ordered
+}
+
+func sortResolvedAccessTargetsByPosition(values []resolvedAccessTarget) []resolvedAccessTarget {
+	ordered := make([]resolvedAccessTarget, len(values))
+	copy(ordered, values)
+	sort.Slice(ordered, func(left int, right int) bool {
+		return ordered[left].Position < ordered[right].Position
+	})
+	return ordered
+}
+
+func accessTargetInputKey(value modelAccessTargetRequest) string {
+	if value.TargetType == "model" && value.TargetModelID != nil {
+		return "model:" + strings.TrimSpace(*value.TargetModelID)
+	}
+	if value.TargetType == "connection" && value.ConnectionID != nil {
+		return fmt.Sprintf("connection:%d", *value.ConnectionID)
+	}
+	return value.TargetType
+}
+
+func stringPtrFromModelRecord(record *modelRecord) *string {
+	if record == nil {
+		return nil
+	}
+	return stringPtr(record.ModelID)
+}
+
+func copyIntPtr(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	return intPtr(*value)
+}
+
+func intPtr(value int) *int {
+	resolved := value
+	return &resolved
+}
+
+func cloneIntSlice(values []int) []int {
+	if len(values) == 0 {
+		return []int{}
+	}
+	cloned := make([]int, len(values))
+	copy(cloned, values)
+	return cloned
+}
+
+func int32ArrayArg(values []int) []int32 {
+	items := make([]int32, 0, len(values))
+	for _, value := range values {
+		items = append(items, int32(value))
+	}
+	return items
+}
+
+func intSliceFromInt32(values []int32) []int {
+	items := make([]int, 0, len(values))
+	for _, value := range values {
+		items = append(items, int(value))
+	}
+	return items
 }
 
 func placeholders(start int, count int) string {

@@ -48,8 +48,6 @@ export function DeleteVendorDialog({
   const { messages } = useLocale();
   const dialogVendor = displayedDeleteVendorConfirm ?? deleteVendorConfirm;
   const dialogOpen = open ?? deleteVendorConfirm !== null;
-  const modelTypeLabel = (modelType: string) =>
-    modelType === "proxy" ? messages.modelDetail.typeProxy : messages.modelDetail.typeNative;
   const referencedRows = vendorUsageRows.length > 0 ? vendorUsageRows : (deleteVendorConflict ?? []);
   const hasReferences = referencedRows.length > 0;
   const isReadonlyVendor = dialogVendor?.is_readonly === true;
@@ -106,7 +104,6 @@ export function DeleteVendorDialog({
                           <TableHead>{messages.vendorManagement.dependencyProfile}</TableHead>
                           <TableHead>{messages.vendorManagement.dependencyModelId}</TableHead>
                           <TableHead>{messages.vendorManagement.dependencyApiFamily}</TableHead>
-                          <TableHead>{messages.vendorManagement.dependencyModelType}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -115,7 +112,6 @@ export function DeleteVendorDialog({
                             <TableCell>{row.profile_name}</TableCell>
                             <TableCell className="font-medium">{row.model_id}</TableCell>
                             <TableCell>{formatApiFamily(row.api_family)}</TableCell>
-                            <TableCell>{modelTypeLabel(row.model_type)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>

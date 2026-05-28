@@ -49,7 +49,7 @@ Supported runtime routes are:
 - `POST /v1beta/models/{model}:streamGenerateContent`
 - `POST /v1beta/models/{model}:countTokens`
 
-After registry resolution, all supported operations share the same execution core for active-profile routing, proxy-model target selection, load-balance planning, upstream forwarding, and runtime telemetry. Operation hooks own request extraction, non-stream response parsing, stream terminal classification, and media or multipart handling around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
+After registry resolution, all supported operations share the same execution core for active-profile model access resolution, load-balance planning, upstream forwarding, and runtime telemetry. Ordered access targets resolve to final standalone connections or same-family model targets before execution, and operation hooks own request extraction, non-stream response parsing, stream terminal classification, and media or multipart handling around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
 
 ## Verification
 
@@ -63,7 +63,7 @@ go build ./cmd/prism-backend
 
 ## Configuration
 - Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`.
-- Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, CORS for `http://localhost:5173`, PostgreSQL pool total `24` with split `4/8/4/2/2/2/2`, runtime buffering `streaming`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and management admission `3/2`.
+- Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, CORS for `http://localhost:5173`, PostgreSQL pool total `24` with split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and management admission `3/2`.
 - When the bootstrap file already exists and is valid, Prism loads startup settings from it without rewriting it, even if it contains older values.
 - When the bootstrap file is missing, Prism seeds it from backend-owned defaults plus the optional `DATABASE_URL` input only.
 - The startup bootstrap contract is not DB-backed, and profile backup/restore, vendor catalog export/import, global log retention, and other settings-page state flows remain PostgreSQL-backed state transport.
@@ -73,7 +73,7 @@ go build ./cmd/prism-backend
 - The backend container image runs as `prism:prism`, UID/GID `1000:1000`. If `PRISM_CONFIG_PATH` points inside `/app/config`, bind mount the containing host directory, such as `/absolute/secure/path/prism-config:/app/config:rw`, and make that directory writable by UID/GID `1000:1000`.
 - Prepare new host config directories with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`. Use the same one-time remediation for existing root-owned bind mounts before starting the non-root backend image.
 - Bootstrap writes are file-durable. Eligible hot fields apply immediately when written through the Startup tab or `PUT /api/config/bootstrap`; structural fields remain pending until restart.
-- Hot fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime buffering and transport settings, and M2/M3 management admission limits.
+- Hot fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, and M2/M3 management admission limits. Runtime buffering is internal and not exposed through bootstrap config.
 - Restart-required fields include listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and state-transfer bundle key.
 - External edits to the bootstrap file are not watched automatically. Use the Startup tab or `PUT /api/config/bootstrap` to publish hot-eligible file edits into the running process.
 - The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.

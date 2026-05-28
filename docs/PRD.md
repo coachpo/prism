@@ -27,34 +27,29 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.2 Model Configuration
 - Map each model to optional `vendor_id` metadata plus a fixed runtime `api_family`
-- Two model types:
-  - **Native**: A real model with its own routing and costing configurations (connections)
-  - **Proxy**: A selector-driven routing model that selects one native target per request (no own connections, no own loadbalance strategy)
-- Assign one or more connections per native model
-- Select which connections are actively used for each model
-- CRUD operations for all configurations via REST API
+- Models expose one ordered `access_targets` list whose entries point to same-family models or standalone connections
+- Standalone connections carry endpoint, costing, health, admission-limit, and auth metadata and can be attached as terminal access targets
+- Select which access targets are enabled for each model; enabled models require at least one enabled target
+- CRUD operations for all configurations are available via REST API
 
-### 4.3 Proxy Model Routing
-- Proxy models own `proxy_selection_strategy` plus a `proxy_targets` list instead of a singular redirect target
-- Supported selectors are `ordered_fallback`, `weighted_static`, and `priority_static`
-- Each proxy target carries `target_model_id`, contiguous zero-based `position`, `weight >= 1`, and `target_priority >= 0`
-- Only same-`api_family` proxying is allowed
-- Proxy models cannot have their own connections; they use the chosen native target model's connections
-- A proxy model cannot target another proxy model (must target a native model)
-- Proxy models do not have their own load balancing strategy; they always use the chosen native target model's load balancing configuration
+### 4.3 Unified Model Access Routing
+- Ordered access targets resolve recursively to final standalone connections before runtime execution
+- Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
+- Connection-target entries are terminal; model-target entries can compose chains while preserving deterministic order
+- Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
 - Model IDs are unique within a profile; the same model ID can exist in different profiles without collision
-- Gateway resolves the selector before native connection planning: incoming request for proxy model -> selected native target -> chosen native model's connections handle the request
-- For Gemini native API paths (e.g., `/v1beta/models/{model}:generateContent`), the proxy rewrites the model ID segment in the URL path to the resolved native target model ID when proxy routing selects a different upstream model ID
+- Gateway resolves the access graph before connection planning: incoming request for a public model -> final target model and connection -> upstream request
+- For Gemini API paths (e.g., `/v1beta/models/{model}:generateContent`), the proxy rewrites the model ID segment in the URL path to the resolved final target model ID when needed
 - Gemini streaming is path-native: `/v1beta/models/{model}:streamGenerateContent` is treated as streaming even when the request body omits `stream: true`
-- Once one target is selected, retries stay inside that target model's native connection plan and do not jump to another proxy target in the same request.
+- Once one final target path is selected for an attempt, retries stay inside that target path's connection plan for that attempt.
 
 ### 4.4 Load Balancing & Failover
-- For models with multiple connections:
+- For models with multiple reachable connections:
   - **Automatic failover** when an attempt returns a failover-triggering status (`403`, `429`, `500`, `502`, `503`, `529`) or raises connection/timeout errors
-  - Native models attach one reusable loadbalance strategy chosen from two first-class families: `legacy` or `adaptive`
-  - Upstream request timing uses shared backend timeout settings; legacy strategies use `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`) plus `auto_recovery`, while adaptive strategies use `routing_policy`
-- Failover-worthy HTTP responses are governed by the attached strategy's configured recovery policy: legacy strategies use `auto_recovery.status_codes`, while adaptive strategies use `routing_policy.circuit_breaker.failure_status_codes`
-  - Non-failover client errors (for example `400`, `404`, `422`) do not force-clear existing recovery state
+  - Models attach one reusable legacy Ban Policy strategy using `single`, `fill-first`, or `round-robin` routing
+  - Upstream request timing uses shared backend timeout settings, while Ban Policy owns retry windows, retry attempts, temporary/manual bans, and failover status codes
+- Failover-worthy HTTP responses are governed by the attached strategy's configured failure status codes and retry-window settings
+  - Non-failover client errors (for example `400`, `404`, `422`) do not force-clear existing Ban Policy state
   - Each connection can optionally define `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited
   - Limiter state is persisted in PostgreSQL `UNLOGGED` tables and is intentionally ephemeral after crash or unclean shutdown
 - Proxy request forwarding may apply compatibility normalizations while preserving API-family-native response formats
@@ -108,14 +103,14 @@ Single operator (developer/power user) running the application locally or on a l
   - **Models** page → Model list table → "Success Rate" column
 
 ### 4.7 Web UI (Management Dashboard)
-- View all configured models and their connections
-- Add/edit/delete model configurations (native and proxy types)
+- View all configured models and their reachable connections
+- Add/edit/delete model configurations with ordered access targets
 - Add/edit/delete profile-scoped endpoints
-- Add/edit/delete model connections
-- Toggle active/inactive connections per model
-- Select either a legacy or adaptive routing strategy per native model
+- Add/edit/delete standalone connections
+- Toggle enabled/disabled access targets per model
+- Select a legacy Ban Policy routing strategy per model
 - Manual health check for connections with visual status indicators
-- Dedicated model-detail routes (`/models/:id` and `/models/:id/proxy`) with manual health checks, connection KPIs, current loadbalance state, and loadbalance event history
+- Dedicated model-detail route (`/models/:id`) with manual health checks, connection KPIs, current loadbalance state, and loadbalance event history
 - Dedicated request-log browsing and investigation at `/request-logs`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
 - Dedicated `/sidecars` route for global CLIProxyAPI sidecar registration, sync, auth/provider inventory, and direct auth-file mutation
@@ -130,13 +125,13 @@ Single operator (developer/power user) running the application locally or on a l
 - Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
 - Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file and managed through `/settings#startup`
 - The default profile exists from the first startup and remains editable after initialization
-- Config export/import uses the Go-era split-bundle contract: profile bundles are `version: 1` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 1` with `bundle_kind: vendor_catalog`
-- Profile bundles carry `vendor_refs`, `profile_settings`, nullable `api_key_secret_ref`, encrypted `secret_payload`, top-level `loadbalance_strategies`, proxy `proxy_selection_strategy`, explicit `proxy_targets`, nullable `vendor_key`, and `api_family`
+- Config export/import uses the split-bundle contract: profile bundles are `version: 2` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 1` with `bundle_kind: vendor_catalog`
+- Profile bundles carry `vendor_refs`, `profile_settings`, encrypted `secret_payload`, top-level `loadbalance_strategies`, top-level standalone `connections`, model `access_targets`, nullable `vendor_key`, and `api_family`
 - Profile import preview validates bundle kind, version, secret decryption, and vendor resolution before replace-mode import; unsupported versions are rejected
 - Database setup is managed by the Go backend runtime and applies the checked-in fresh-install baseline on startup
 ### 4.9 Request Statistics & Analytics
 - Automatic logging of all proxy requests with telemetry data
-- Each request log captures: profile ID attribution, requested `model_id`, `resolved_target_model_id` (when proxy routing selected a native target), `api_family`, connection used (ID, endpoint base URL, description), Prism `ingress_request_id`, per-request `attempt_number`, best-effort `provider_correlation_id`, HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
+- Each request log captures: profile ID attribution, requested `model_id`, final `resolved_target_model_id` when an access-target path is selected, `api_family`, connection used (ID, endpoint base URL, description), Prism `ingress_request_id`, per-request `attempt_number`, best-effort `provider_correlation_id`, HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
 - Request logs remain one row per upstream attempt; `ingress_request_id` groups all attempts from one incoming runtime request
 
 #### 4.9.1 Token Usage Extraction

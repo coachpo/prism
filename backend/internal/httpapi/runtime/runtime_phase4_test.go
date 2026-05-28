@@ -99,7 +99,7 @@ func TestRuntimeFeedbackTryEnqueueDropsInvalidFullAndClosedEvents(t *testing.T) 
 	if got := pipeline.TryEnqueue(runtimeFeedbackEvent{}); got.Status != RuntimeFeedbackDroppedInvalid {
 		t.Fatalf("expected invalid feedback drop, got %+v", got)
 	}
-	valid := runtimeFeedbackEvent{Kind: runtimeFeedbackProbeEligible, ProfileID: 1, ConnectionID: 2, ObservedAt: time.Now()}
+	valid := runtimeFeedbackEvent{Kind: runtimeFeedbackAdmissionRejected, ProfileID: 1, ConnectionID: 2, ObservedAt: time.Now()}
 	if got := pipeline.TryEnqueue(valid); got.Status != RuntimeFeedbackAccepted {
 		t.Fatalf("expected first feedback event accepted, got %+v", got)
 	}
@@ -125,7 +125,7 @@ func TestRuntimeFeedbackWorkerAccountsStoreFailure(t *testing.T) {
 		t.Fatalf("start scheduler: %v", err)
 	}
 	defer func() { _ = scheduler.Stop(context.Background(), time.Now().Add(time.Second)) }()
-	valid := runtimeFeedbackEvent{Kind: runtimeFeedbackProbeEligible, ProfileID: 1, ConnectionID: 2, ObservedAt: time.Now()}
+	valid := runtimeFeedbackEvent{Kind: runtimeFeedbackAdmissionRejected, ProfileID: 1, ConnectionID: 2, ObservedAt: time.Now()}
 	if got := pipeline.TryEnqueue(valid); got.Status != RuntimeFeedbackAccepted {
 		t.Fatalf("expected feedback event accepted, got %+v", got)
 	}

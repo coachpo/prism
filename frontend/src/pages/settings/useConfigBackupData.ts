@@ -16,8 +16,8 @@ interface UseConfigBackupDataInput {
 function buildProfileConfigExportFilename(mode: ConfigExportMode, now: Date = new Date()) {
   const date = now.toISOString().split("T")[0];
   return mode === "dangerous"
-    ? `prism-profile-config-with-secrets-v1-${date}.json`
-    : `prism-profile-config-v1-${date}.json`;
+    ? `prism-profile-config-with-secrets-v2-${date}.json`
+    : `prism-profile-config-v2-${date}.json`;
 }
 
 export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConfigBackupDataInput) {
@@ -75,10 +75,7 @@ export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConf
     const strategiesCount =
       previewResult?.strategies_imported ?? parsedConfig?.loadbalance_strategies?.length ?? 0;
     const modelsCount = previewResult?.models_imported ?? parsedConfig?.models?.length ?? 0;
-    const connectionsCount =
-      previewResult?.connections_imported ??
-      parsedConfig?.models?.reduce((total, model) => total + (model.connections?.length ?? 0), 0) ??
-      0;
+    const connectionsCount = previewResult?.connections_imported ?? parsedConfig?.connections?.length ?? 0;
 
     return {
       endpointsCount,

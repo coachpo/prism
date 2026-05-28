@@ -166,29 +166,34 @@ export function LoadbalanceEventDetailSheet({
                   <DetailRow fallback={messages.common.notApplicable} label={copy.endpointId} value={event.endpoint_id} />
                   <DetailRow fallback={messages.common.notApplicable} label={copy.vendorId} value={event.vendor_id} />
                   <DetailRow fallback={messages.common.notApplicable} label={copy.profileId} value={event.profile_id} />
-                  <DetailRow fallback={messages.common.notApplicable} label={copy.consecutiveFailures} value={event.consecutive_failures} />
+                  <DetailRow fallback={messages.common.notApplicable} label={copy.consecutiveFailures} value={event.cumulative_retry_attempts} />
                 </div>
               </section>
 
               <section className="space-y-3 rounded-2xl border bg-card p-4">
                 <h3 className="text-sm font-semibold">{copy.failoverConfiguration}</h3>
                 <div className="space-y-1">
-                  <DetailRow fallback={messages.common.notApplicable} label={copy.failureThreshold} value={event.failure_threshold} />
+                  <DetailRow fallback={messages.common.notApplicable} label={copy.failureThreshold} value={event.cumulative_retry_attempts} />
                   <DetailRow
                     fallback={messages.common.notApplicable}
                     label={copy.backoffMultiplier}
-                    value={
-                      event.backoff_multiplier !== null
-                        ? formatNumber(event.backoff_multiplier, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })
-                        : null
-                    }
+                    value={event.last_retry_delay_ms !== null ? formatNumber(event.last_retry_delay_ms) : null}
                   />
-                  <DetailRow fallback={messages.common.notApplicable} label={copy.maxCooldownSeconds} value={event.max_cooldown_seconds} />
-                  {event.max_cooldown_strikes !== null ? (
-                    <DetailRow fallback={messages.common.notApplicable} label={copy.maxCooldownStrikes} value={event.max_cooldown_strikes} />
+                  <DetailRow fallback={messages.common.notApplicable} label={copy.maxCooldownSeconds} value={event.cycle_retry_attempts} />
+                  <DetailRow fallback={messages.common.notApplicable} label={copy.maxCooldownStrikes} value={event.cumulative_retry_attempts} />
+                  {event.next_retry_at ? (
+                    <DetailRow
+                      fallback={messages.common.notApplicable}
+                      label={copy.cooldown}
+                      value={formatTime(event.next_retry_at, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    />
                   ) : null}
                   {event.ban_mode !== null ? (
                     <DetailRow fallback={messages.common.notApplicable} label={copy.banMode} value={banModeLabel} />

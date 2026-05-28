@@ -36,7 +36,6 @@ export interface VendorModelUsageItem {
   profile_name: string;
   model_id: string;
   display_name: string | null;
-  model_type: "native" | "proxy";
   api_family: ApiFamily;
   is_enabled: boolean;
 }

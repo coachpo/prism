@@ -27,10 +27,7 @@ export type ShellSidebarItemId =
   | "pricing-templates"
   | "request-logs";
 
-export type ShellRouteId =
-  | ShellSidebarItemId
-  | "model-detail"
-  | "proxy-model-detail";
+export type ShellRouteId = ShellSidebarItemId | "model-detail";
 
 export interface ShellSidebarItemDefinition {
   groupId: ShellSidebarGroupId;
@@ -76,13 +73,6 @@ export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
       labelKey: "models",
       to: "/models",
     },
-    sidebarItemId: "models",
-  },
-  {
-    canonicalPath: "/models/:id/proxy",
-    id: "proxy-model-detail",
-    pathPattern: "/models/:id/proxy",
-    profileScoped: true,
     sidebarItemId: "models",
   },
   {

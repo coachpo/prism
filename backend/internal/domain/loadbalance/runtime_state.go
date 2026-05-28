@@ -1,9 +1,11 @@
 package loadbalance
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"math"
-	"strings"
+	"math/big"
+	"sync"
 	"time"
 )
 
@@ -13,25 +15,20 @@ const (
 )
 
 type RuntimeConnectionState struct {
-	ConnectionID        int
-	CircuitState        string
-	BanMode             string
-	BannedUntilAt       *time.Time
-	OpenUntilAt         *time.Time
-	ProbeAvailableAt    *time.Time
-	WindowStartedAt     *time.Time
-	WindowRequestCount  int
-	InFlightNonStream   int
-	InFlightStream      int
-	ConsecutiveFailures int
-	LastFailureKind     *string
-	LastCooldownSeconds float64
-	MaxCooldownStrikes  int
-	ProbeEligibleLogged bool
-	LiveP95LatencyMS    *int
-	LastLiveFailureKind *string
-	LastLiveFailureAt   *time.Time
-	LastLiveSuccessAt   *time.Time
+	ConnectionID              int
+	WindowStartedAt           *time.Time
+	WindowRequestCount        int
+	InFlightNonStream         int
+	InFlightStream            int
+	CycleRetryAttempts        int
+	CumulativeRetryAttempts   int
+	NextRetryAt               *time.Time
+	LastRetryDelayMS          int
+	BanMode                   string
+	BannedUntilAt             *time.Time
+	LastFailureKind           *string
+	LastSuccessAt             *time.Time
+	LiveP95LatencyMS          *int
 }
 
 type RuntimeConnectionAdmission struct {
@@ -39,6 +36,11 @@ type RuntimeConnectionAdmission struct {
 	MaxInFlightNonStream *int
 	MaxInFlightStream    *int
 }
+
+var runtimeRetryJitter = struct {
+	mu     sync.RWMutex
+	offset func(maxOffsetMS int) int
+}{offset: randomRuntimeRetryJitterOffset}
 
 func FilterEligibleConnectionIDs(candidates []ConnectionOrderCandidate, states map[int]RuntimeConnectionState, referenceNow time.Time) []int {
 	eligible := make([]int, 0, len(candidates))
@@ -75,50 +77,79 @@ func AdmissionRejectionReason(state RuntimeConnectionState, admission RuntimeCon
 	return ""
 }
 
-func RequiresHalfOpenProbeLease(state RuntimeConnectionState, referenceNow time.Time) bool {
-	nowAt := referenceNow.UTC()
-	if state.ProbeAvailableAt == nil || state.ProbeAvailableAt.After(nowAt) {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(state.CircuitState)) {
-	case "open", "half_open":
-		return true
-	default:
-		return false
-	}
-}
-
 func (state RuntimeConnectionState) IsEligible(referenceNow time.Time) bool {
-	nowAt := referenceNow.UTC()
-	status := deriveCurrentState(state.BanMode, state.BannedUntilAt, state.OpenUntilAt, nowAt)
-	if status == "banned" || status == "blocked" {
-		return false
-	}
-
-	if state.ProbeAvailableAt == nil || !state.ProbeAvailableAt.After(nowAt) {
-		return true
-	}
-	switch strings.ToLower(strings.TrimSpace(state.CircuitState)) {
-	case "open", "half_open":
-		return false
-	default:
-		return true
-	}
+	return deriveCurrentState(state.BanMode, state.BannedUntilAt, state.NextRetryAt, referenceNow.UTC()) == "available"
 }
 
-func feedbackOpenSeconds(policy runtimeFeedbackPolicy, strikeCount int) float64 {
-	if !policy.Enabled || policy.BaseOpenSeconds <= 0 {
+func retryDelayMilliseconds(policy runtimeFeedbackPolicy, cycleAttempt int) int {
+	if !policy.Enabled || policy.BaseDelayMS <= 0 {
 		return 0
 	}
-	multiplier := math.Pow(maxFloat(policy.BackoffMultiplier, 1), float64(maxInt(strikeCount, 1)-1))
-	cooldownSeconds := float64(policy.BaseOpenSeconds) * multiplier
-	if policy.MaxOpenSeconds > 0 && cooldownSeconds > float64(policy.MaxOpenSeconds) {
-		cooldownSeconds = float64(policy.MaxOpenSeconds)
+	attempt := maxInt(cycleAttempt, 1)
+	multiplier := math.Pow(maxFloat(policy.BackoffMultiplier, 1), float64(attempt-1))
+	delayMS := int(math.Ceil(float64(policy.BaseDelayMS) * multiplier))
+	if policy.MaxDelayMS > 0 && delayMS > policy.MaxDelayMS {
+		delayMS = policy.MaxDelayMS
 	}
-	if cooldownSeconds < 0 {
+	if delayMS < 0 {
+		delayMS = 0
+	}
+	if policy.JitterRatio <= 0 || delayMS == 0 {
+		return delayMS
+	}
+	maxOffsetMS := int(math.Round(float64(delayMS) * policy.JitterRatio))
+	if maxOffsetMS <= 0 {
+		return delayMS
+	}
+	delayMS += runtimeRetryJitterOffset(maxOffsetMS)
+	if delayMS < 0 {
 		return 0
 	}
-	return cooldownSeconds
+	if policy.MaxDelayMS > 0 && delayMS > policy.MaxDelayMS {
+		return policy.MaxDelayMS
+	}
+	return delayMS
+}
+
+func runtimeRetryJitterOffset(maxOffsetMS int) int {
+	if maxOffsetMS <= 0 {
+		return 0
+	}
+	runtimeRetryJitter.mu.RLock()
+	hook := runtimeRetryJitter.offset
+	runtimeRetryJitter.mu.RUnlock()
+	if hook == nil {
+		return 0
+	}
+	return hook(maxOffsetMS)
+}
+
+func randomRuntimeRetryJitterOffset(maxOffsetMS int) int {
+	span := int64(maxOffsetMS*2 + 1)
+	if span <= 1 {
+		return 0
+	}
+	value, err := rand.Int(rand.Reader, big.NewInt(span))
+	if err != nil {
+		return 0
+	}
+	return int(value.Int64()) - maxOffsetMS
+}
+
+func setRuntimeRetryJitterOffsetForTest(hook func(maxOffsetMS int) int) func() {
+	runtimeRetryJitter.mu.Lock()
+	previous := runtimeRetryJitter.offset
+	if hook == nil {
+		runtimeRetryJitter.offset = randomRuntimeRetryJitterOffset
+	} else {
+		runtimeRetryJitter.offset = hook
+	}
+	runtimeRetryJitter.mu.Unlock()
+	return func() {
+		runtimeRetryJitter.mu.Lock()
+		runtimeRetryJitter.offset = previous
+		runtimeRetryJitter.mu.Unlock()
+	}
 }
 
 func nullableInt(value sql.NullInt32) *int {

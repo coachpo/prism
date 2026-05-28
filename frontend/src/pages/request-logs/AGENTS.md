@@ -1,7 +1,7 @@
 # FRONTEND REQUEST LOGS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/request-logs/` owns the investigation flow for proxy traffic: retained browse filtering, exact-request focus mode, request-time audit provenance, profile-aware spend rendering, stream telemetry, and detailed payload inspection. This parent also covers the local `detail/` cluster, while URL-state, exact-request behavior, and sheet-scoped clipboard fallback stay local here.
+`pages/request-logs/` owns the investigation flow for runtime traffic: retained browse filtering, exact-request focus mode, requested-model and final-target observability, request-time audit provenance, profile-aware spend rendering, stream telemetry, and detailed payload inspection. This parent also covers the local `detail/` cluster, while URL-state, exact-request behavior, and sheet-scoped clipboard fallback stay local here.
 
 ## STRUCTURE
 ```

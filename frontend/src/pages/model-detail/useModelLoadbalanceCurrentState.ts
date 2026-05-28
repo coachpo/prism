@@ -56,7 +56,7 @@ export function useModelLoadbalanceCurrentState({
       }
 
       toast.error(
-        error instanceof Error ? error.message : getStaticMessages().modelDetailData.loadRecoveryStateFailed
+        error instanceof Error ? error.message : getStaticMessages().modelDetailData.loadBanPolicyStateFailed
       );
       console.error("Failed to load model loadbalance current state", error);
     }
@@ -83,7 +83,7 @@ export function useModelLoadbalanceCurrentState({
       });
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : getStaticMessages().modelDetailData.resetRecoveryStateFailed
+        error instanceof Error ? error.message : getStaticMessages().modelDetailData.resetBanPolicyStateFailed
       );
     } finally {
       setResettingConnectionIds((current) => {

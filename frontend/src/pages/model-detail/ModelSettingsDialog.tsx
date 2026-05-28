@@ -21,9 +21,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
-import { getAdaptiveRoutingObjectiveLabel } from "@/lib/loadbalanceRoutingPolicy";
-import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem, Vendor } from "@/lib/types";
-import { ProxyTargetsEditor } from "../models/ProxyTargetsEditor";
+import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolicy";
+import type { Connection, LoadbalanceStrategy, ModelConfig, ModelConfigListItem, Vendor } from "@/lib/types";
+import { AccessTargetsEditor } from "../models/AccessTargetsEditor";
 import {
   setApiFamilyOnForm,
   setDisplayNameOnForm,
@@ -38,7 +38,9 @@ interface ModelSettingsDialogProps {
   isOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
   model: ModelConfig | null;
-  nativeModelsForApiFamily: ModelConfigListItem[];
+  targetConnectionsForApiFamily: Connection[];
+  targetEditorError: string | null;
+  targetModelsForApiFamily: ModelConfigListItem[];
   onOpenChange: (open: boolean) => void;
   setFormData: Dispatch<SetStateAction<ModelFormData>>;
   setLoadbalanceStrategyId: (value: number | null) => void;
@@ -51,7 +53,9 @@ export function ModelSettingsDialog({
   isOpen,
   loadbalanceStrategies,
   model,
-  nativeModelsForApiFamily,
+  targetConnectionsForApiFamily,
+  targetEditorError,
+  targetModelsForApiFamily,
   onOpenChange,
   setFormData,
   setLoadbalanceStrategyId,
@@ -63,13 +67,7 @@ export function ModelSettingsDialog({
   const fieldCopy = messages.common;
 
   const getStrategyDetailLabel = (strategy: LoadbalanceStrategy) =>
-    strategy.strategy_type === "adaptive"
-      ? `${strategyCopy.adaptiveFamilyLabel} • ${getAdaptiveRoutingObjectiveLabel(strategy.routing_policy.routing_objective, strategyCopy)}`
-      : strategy.legacy_strategy_type === "single"
-        ? `${strategyCopy.legacyFamilyLabel} • ${strategyCopy.singleLabel}`
-        : strategy.legacy_strategy_type === "fill-first"
-          ? `${strategyCopy.legacyFamilyLabel} • ${strategyCopy.fillFirstLabel}`
-          : `${strategyCopy.legacyFamilyLabel} • ${strategyCopy.roundRobinLabel}`;
+    getLoadbalanceStrategyDetailLabel(strategy, strategyCopy);
 
   const getStrategyOptionText = (strategy: LoadbalanceStrategy) => {
     return `${strategy.name} (${getStrategyDetailLabel(strategy)})`;
@@ -164,60 +162,41 @@ export function ModelSettingsDialog({
               data-testid="model-settings-routing-section"
             >
               <div className="flex flex-col gap-1">
-                <h2 className="text-sm font-semibold tracking-tight text-foreground">
-                  {formData.model_type === "proxy" ? copy.proxyTargets : copy.loadbalanceStrategy}
-                </h2>
-                {formData.model_type === "proxy" ? (
-                  <p className="text-sm text-muted-foreground">{copy.proxyTargetsHint}</p>
-                ) : null}
+                <h2 className="text-sm font-semibold tracking-tight text-foreground">{copy.loadbalanceStrategy}</h2>
+                <p className="text-sm text-muted-foreground">{copy.modelConfigurationAndConnectionRouting}</p>
               </div>
 
-              {formData.model_type === "proxy" ? (
-                <ProxyTargetsEditor
-                  apiFamilyLabel={formData.api_family || fieldCopy.apiFamily}
-                  availableTargets={nativeModelsForApiFamily.map((candidate) => ({
-                    modelId: candidate.model_id,
-                    label: candidate.display_name || candidate.model_id,
-                  }))}
-                  proxyTargets={formData.proxy_targets}
-                  onChange={(proxyTargets) =>
-                    setFormData((current) => ({ ...current, proxy_targets: proxyTargets }))
-                  }
-                />
-              ) : (
-                <div className="flex min-w-0 flex-col gap-4">
-                  <div className="flex min-w-0 flex-col gap-2">
-                    {loadbalanceStrategies.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">{copy.noLoadbalanceStrategiesAvailable}</p>
-                    ) : (
-                      <Select
-                        value={loadbalanceStrategyValue}
-                        onValueChange={(value) => setLoadbalanceStrategyId(Number.parseInt(value, 10))}
-                      >
-                        <SelectTrigger id="edit-loadbalance-strategy" className="w-full min-w-0 max-w-full">
-                          <SelectValue placeholder={copy.selectStrategy}>
-                            {selectedLoadbalanceStrategy ? (
-                              <span className="block min-w-0 max-w-full truncate">
-                                {getStrategyOptionText(selectedLoadbalanceStrategy)}
-                              </span>
-                            ) : null}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent
-                          position="popper"
-                          className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]"
-                        >
-                          {loadbalanceStrategies.map((strategy) => (
-                            <SelectItem key={strategy.id} value={String(strategy.id)}>
-                              {getStrategyOptionText(strategy)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
+              <div className="flex min-w-0 flex-col gap-4">
+                <div className="flex min-w-0 flex-col gap-2">
+                  {loadbalanceStrategies.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{copy.noLoadbalanceStrategiesAvailable}</p>
+                  ) : (
+                    <Select value={loadbalanceStrategyValue} onValueChange={(value) => setLoadbalanceStrategyId(Number.parseInt(value, 10))}>
+                      <SelectTrigger id="edit-loadbalance-strategy" className="w-full min-w-0 max-w-full">
+                        <SelectValue placeholder={copy.selectStrategy}>
+                          {selectedLoadbalanceStrategy ? (
+                            <span className="block min-w-0 max-w-full truncate">{getStrategyOptionText(selectedLoadbalanceStrategy)}</span>
+                          ) : null}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent position="popper" className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
+                        {loadbalanceStrategies.map((strategy) => (
+                          <SelectItem key={strategy.id} value={String(strategy.id)}>{getStrategyOptionText(strategy)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
-              )}
+
+                <AccessTargetsEditor
+                  apiFamilyLabel={formData.api_family}
+                  accessTargets={formData.access_targets}
+                  modelOptions={targetModelsForApiFamily}
+                  connectionOptions={targetConnectionsForApiFamily}
+                  error={targetEditorError}
+                  onChange={(accessTargets) => setFormData((current) => ({ ...current, access_targets: accessTargets }))}
+                />
+              </div>
             </section>
           </DialogBody>
 

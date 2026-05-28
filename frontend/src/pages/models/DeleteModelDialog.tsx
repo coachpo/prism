@@ -21,7 +21,6 @@ export function DeleteModelDialog({ deleteTarget, onDelete, setDeleteTarget }: P
   const { messages } = useLocale();
   const copy = messages.modelsUi;
   const fieldCopy = messages.common;
-  const typeLabel = deleteTarget?.model_type === "proxy" ? messages.modelDetail.typeProxy : messages.modelDetail.typeNative;
   const displayName = deleteTarget?.display_name?.trim() || deleteTarget?.model_id || "";
 
   return (
@@ -55,8 +54,8 @@ export function DeleteModelDialog({ deleteTarget, onDelete, setDeleteTarget }: P
                   <p className="truncate text-sm text-foreground">{deleteTarget.api_family}</p>
                 </div>
                 <div className="flex min-w-0 flex-col gap-1">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{messages.settingsDialogs.type}</p>
-                  <p className="truncate text-sm text-foreground">{typeLabel}</p>
+                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Access targets</p>
+                  <p className="truncate text-sm text-foreground">{deleteTarget.access_targets.length}</p>
                 </div>
               </div>
             </div>

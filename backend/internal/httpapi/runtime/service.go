@@ -50,8 +50,7 @@ type Options struct {
 }
 
 type RuntimeProxyConfigSnapshot struct {
-	BufferingMode config.RuntimeBufferingMode
-	HTTPClient    *http.Client
+	HTTPClient *http.Client
 }
 
 type RuntimeProxyConfigProvider interface {
@@ -126,7 +125,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		httpClient:                 client,
 		ownsHTTPClient:             ownsHTTPClient,
 		runtimeProxyConfigProvider: options.RuntimeProxyConfigProvider,
-		staticRuntimeProxyConfig:   RuntimeProxyConfigSnapshot{BufferingMode: settings.ResolvedRuntimeBufferingMode(), HTTPClient: client},
+		staticRuntimeProxyConfig:   RuntimeProxyConfigSnapshot{HTTPClient: client},
 		now:                        now,
 		secretEncryptionKey:        settings.SecretEncryptionKey,
 		dashboardUpdates:           options.DashboardUpdates,
@@ -404,7 +403,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 
 	var responseCapture runtimeResponseCapture
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
-	captureAuditBody := plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest
+	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
 	if strings.Contains(contentType, "text/event-stream") {
 		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
 			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponse(plan.RuntimeOperation, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)

@@ -20,6 +20,7 @@ bootstrapconfig/
 - Keep bootstrap config file-backed and separate from `management/settings/`, profile/vendor bundle import/export, and sidecar control-plane state.
 - Keep GET/validate/PUT behavior centered on loaded snapshot plus live settings comparison, planned changes, and apply results; do not reframe this package as a generic settings CRUD layer.
 - Keep hot-eligible changes and restart-required changes classified explicitly, including `failed_hot_apply_fields`.
+- Keep runtime buffering out of the bootstrap API. Buffering is automatic runtime behavior, not a file-backed setting.
 - Keep the writable-path guardrails and revision/etag semantics intact.
 
 ## LLM UPSTREAM MATRIX

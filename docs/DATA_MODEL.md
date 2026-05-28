@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, UNLOGGED routing hot state, global sidecar control-plane tables, and the current split-bundle configuration format (`version: 1` profile bundle, `version: 1` vendor catalog bundle).
+Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped legacy Ban Policy routing, UNLOGGED routing hot state, global sidecar control-plane tables, and the current split-bundle configuration format (`version: 2` profile bundle, `version: 1` vendor catalog bundle).
 
 ## 1. Entity Relationship Diagram
 
@@ -22,49 +22,49 @@ model_configs (profile-scoped)
   api_family (fixed enum)
   model_id
   display_name
-  model_type (native|proxy)
-  loadbalance_strategy_id FK -> loadbalance_strategies.id (native only)
-  proxy_selection_strategy (proxy only: ordered_fallback|weighted_static|priority_static)
+  loadbalance_strategy_id FK -> loadbalance_strategies.id
   is_enabled
   created_at, updated_at
   UNIQUE(profile_id, model_id)
       |
       v
-model_proxy_targets (profile-scoped proxy metadata)
+model_access_targets (profile-scoped access metadata)
   id PK
-  source_model_config_id FK -> model_configs.id (proxy only)
-  target_model_config_id FK -> model_configs.id (native only)
+  source_model_config_id FK -> model_configs.id
+  target_model_config_id FK -> model_configs.id NULLABLE
+  target_connection_id FK -> connections.id NULLABLE
   position
   weight
   target_priority
   UNIQUE(source_model_config_id, position)
-  UNIQUE(source_model_config_id, target_model_config_id)
       |
       v
 loadbalance_strategies (profile-scoped)
   id PK
   profile_id FK -> profiles.id
   name
-  routing_policy JSONB
+  legacy Ban Policy fields
   created_at, updated_at
   UNIQUE(profile_id, name)
       | 1:N
       v
-connections (profile-scoped)
+connections (profile-scoped standalone targets)
   id PK
   profile_id FK -> profiles.id
-  model_config_id FK -> model_configs.id
+  api_family
   endpoint_id FK -> endpoints.id
-  is_active, priority
-  qps_limit, max_in_flight_non_stream, max_in_flight_stream
-  name, custom_headers, openai_probe_endpoint_variant
-  health_status, health_detail, last_health_check
   pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
+  qps_limit, max_in_flight_non_stream, max_in_flight_stream
+  is_active, priority
+  name, auth_type, custom_headers, openai_probe_endpoint_variant
+  health_status, health_detail, last_health_check
+  monitoring_probe_interval_seconds
   created_at, updated_at
-  INDEX(profile_id, model_config_id, is_active, priority)
+  INDEX(profile_id, api_family, is_active, priority)
+  INDEX(endpoint_id)
   INDEX(pricing_template_id)
 
-routing_connection_runtime_state (profile-scoped runtime state, UNLOGGED)
+routing_connection_runtime_state (profile-scoped Ban Mode runtime state, UNLOGGED)
   id PK
   profile_id FK -> profiles.id
   connection_id FK -> connections.id
@@ -72,9 +72,13 @@ routing_connection_runtime_state (profile-scoped runtime state, UNLOGGED)
   window_request_count
   in_flight_non_stream
   in_flight_stream
-  circuit_state, open_until_at, probe_available_at
-  live_p95_latency_ms, last_probe_status, last_probe_at
-  endpoint_ping_ewma_ms, conversation_delay_ewma_ms
+  cycle_retry_attempts
+  cumulative_retry_attempts
+  next_retry_at
+  last_retry_delay_ms
+  ban_mode, banned_until_at
+  last_failure_kind, last_success_at
+  live_p95_latency_ms
   created_at, updated_at
   UNIQUE(profile_id, connection_id)
 
@@ -82,7 +86,7 @@ routing_connection_runtime_leases (profile-scoped runtime repair table, UNLOGGED
   lease_token PK
   profile_id FK -> profiles.id
   connection_id FK -> connections.id
-  lease_kind (stream|non_stream|half_open_probe)
+  lease_kind (stream|non_stream)
   expires_at, heartbeat_at
   created_at, updated_at
   INDEX(profile_id, connection_id)
@@ -194,12 +198,11 @@ loadbalance_events (partitioned immutable attribution)
   PK (created_at, id)
   profile_id FK -> profiles.id
   connection_id
-  event_type (opened|extended|max_cooldown_strike|banned|probe_eligible|recovered|not_opened)
+  event_type (retry_scheduled|retry_exhausted|banned|unbanned|recovered|admission_rejected)
   failure_kind (transient_http|connect_error|timeout)
-  consecutive_failures
-  cooldown_seconds, failure_threshold, backoff_multiplier, max_cooldown_seconds
-  max_cooldown_strikes, ban_mode, banned_until_at
-  blocked_until_mono
+  cycle_retry_attempts, cumulative_retry_attempts
+  next_retry_at, last_retry_delay_ms
+  ban_mode, banned_until_at, last_success_at
   model_id, endpoint_id, vendor_id
   created_at
 
@@ -329,63 +332,64 @@ Maps a model ID to optional vendor metadata, fixed api family, and routing behav
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | model_id | VARCHAR(200) | NOT NULL | Model identifier (scoped by profile) |
 | display_name | VARCHAR(200) | NULLABLE | Human-readable name |
-| model_type | VARCHAR(20) | NOT NULL, DEFAULT 'native' | `native` or `proxy` |
-| loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Required for native models; null for proxy models |
-| proxy_selection_strategy | VARCHAR(50) | NULLABLE, CHECK IN (`ordered_fallback`, `weighted_static`, `priority_static`) | Required selector for proxy models; null for native models |
+| loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Strategy used while planning this model's targets |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Constraints:
 - `UNIQUE(profile_id, model_id)`.
-- Native models must attach one profile-scoped loadbalance strategy and must keep `proxy_selection_strategy` null.
-- Proxy models must not attach a loadbalance strategy and must set `proxy_selection_strategy` to `ordered_fallback`, `weighted_static`, or `priority_static`.
-- Proxy models route through rows in `model_proxy_targets` instead of a singular redirect field.
-- Proxy targets must resolve to native models in the same profile and same `api_family`.
+- Models use ordered rows in `model_access_targets` to reach same-family models or standalone connections.
+- Runtime compatibility is checked against `api_family`.
 
-### 2.3A `model_proxy_targets` (profile-scoped proxy routing metadata)
+### 2.3A `model_access_targets` (profile-scoped model access metadata)
 
-Proxy-model targets. One proxy model can point to multiple native targets with explicit position, weight, and static-priority metadata.
+Ordered access targets. A model can point to same-family model targets or standalone connection targets. Connection targets are terminal, while model targets may chain until a terminal connection is reached.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| source_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Proxy model owning the target list |
-| target_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE RESTRICT | Native model target |
-| position | INTEGER | NOT NULL, CHECK >= 0 | Zero-based contiguous authoring order; used by `ordered_fallback` and as a tie-breaker |
-| weight | INTEGER | NOT NULL, CHECK >= 1 | `weighted_static` target weight |
-| target_priority | INTEGER | NOT NULL, CHECK >= 0 | `priority_static` target priority |
+| source_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Model owning the target list |
+| target_model_config_id | INTEGER | FK -> model_configs.id, NULLABLE, ON DELETE RESTRICT | Optional model target |
+| target_connection_id | INTEGER | FK -> connections.id, NULLABLE, ON DELETE RESTRICT | Optional standalone connection target |
+| position | INTEGER | NOT NULL, CHECK >= 0 | Zero-based contiguous authoring order |
+| weight | INTEGER | NOT NULL, CHECK >= 1 | Reserved weighting metadata |
+| target_priority | INTEGER | NOT NULL, CHECK >= 0 | Reserved priority metadata |
 
 Constraints:
 - `UNIQUE(source_model_config_id, position)`.
-- `UNIQUE(source_model_config_id, target_model_config_id)`.
+- Each row references exactly one target model or target connection.
+- Source and target rows must stay in the same profile and same `api_family`.
 - Positions are normalized and validated as contiguous `0..N-1` in management contracts.
-- Database checks enforce `weight >= 1` and `target_priority >= 0`.
-- Go management and config-bundle import validation rejects self-reference, cross-profile targets, cross-api-family targets, and proxy-to-proxy chains; these relationship semantics are not enforced by database triggers.
+- Go management and config-bundle import validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
 
 ### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
 
-Reusable routing strategy objects attached by native models within one profile.
+Reusable legacy Ban Policy strategy objects attached by models within one profile.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | name | VARCHAR(200) | NOT NULL | Strategy name (profile-unique) |
-| strategy_type | VARCHAR(20) | NOT NULL, CHECK IN (`legacy`, `adaptive`) | Strategy family discriminator |
-| legacy_strategy_type | VARCHAR(20) | NULLABLE, CHECK IN (`single`, `fill-first`, `round-robin`) | Legacy-only routing subtype |
-| auto_recovery | JSONB | NULLABLE | Legacy-only retry/cooldown/ban document |
-| routing_policy | JSONB | NULLABLE | Adaptive-only routing document with `routing_objective`, `hedge`, `circuit_breaker`, and `admission` branches |
+| legacy_strategy_type | VARCHAR(20) | NOT NULL, CHECK IN (`single`, `fill-first`, `round-robin`) | Routing subtype |
+| failure_status_codes | INTEGER[] | NOT NULL | Status codes that count as retry-window failures |
+| ban_mode | VARCHAR(20) | NOT NULL | `off`, `temporary`, or `manual` |
+| retry_base_delay_ms | INTEGER | NOT NULL | First retry-window delay in milliseconds |
+| retry_backoff_multiplier | NUMERIC | NOT NULL | Backoff multiplier |
+| retry_jitter_ratio | NUMERIC | NOT NULL | Retry-window jitter ratio |
+| retry_max_delay_ms | INTEGER | NOT NULL | Maximum retry-window delay in milliseconds |
+| retry_max_attempts | INTEGER | NOT NULL | Max attempts per request |
+| ban_duration_seconds | INTEGER | NOT NULL | Temporary ban duration, or zero when mode requires no duration |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Constraints and lifecycle rules:
 - `UNIQUE(profile_id, name)`.
-- Strategy rows are shape-checked: `legacy` rows require `legacy_strategy_type` and `auto_recovery` with no `routing_policy`, while `adaptive` rows require `routing_policy` with no legacy-only fields.
 - Effective runtime policy resolves once per request from the attached strategy row.
-- The adaptive `circuit_breaker` branch carries failure status codes, threshold/backoff/jitter tuning, and optional ban escalation.
-- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default legacy routing` (`fill-first`) and `Default adaptive routing` for that profile.
-- Strategies cannot be deleted while attached to one or more native models.
+- Ban Policy fields carry failure status codes, retry-window delay/backoff/jitter tuning, retry attempt limits, and ban duration semantics.
+- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for that profile.
+- Strategies cannot be deleted while attached to one or more models.
 
 ### 2.5 `endpoints` (profile-scoped credentials)
 
@@ -405,40 +409,43 @@ Reusable credential objects scoped to one profile.
 Constraints and indexes:
 - `UNIQUE(profile_id, name)`.
 - `INDEX(profile_id, position)` for ordered reads.
-- Profile config export never emits plaintext `api_key`; the `version: 1` profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
+- Profile config export never emits plaintext `api_key`; the `version: 2` profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
 - Endpoints with no upstream credential export `api_key_secret_ref = null` and do not emit a bundle secret entry.
 
-### 2.5 `connections` (profile-scoped routing)
+### 2.5 `connections` (profile-scoped standalone routing targets)
 
-Model-to-endpoint routing objects within one profile.
+Standalone endpoint bindings within one profile. Models reference them through `model_access_targets.target_connection_id` rather than owning connection rows directly.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Parent model config |
+| api_family | VARCHAR(50) | NOT NULL | Runtime compatibility family used for same-family target validation |
 | endpoint_id | INTEGER | FK -> endpoints.id, NOT NULL | Referenced endpoint |
-| is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Active routing candidate |
-| priority | INTEGER | NOT NULL, DEFAULT 0 | Zero-based contiguous ordering index within `(profile_id, model_config_id)`; lower value = higher failover priority |
-| name | TEXT | NULLABLE | Optional connection label |
-| custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
-| health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `unknown`, `healthy`, `unhealthy` |
-| health_detail | TEXT | NULLABLE | Last health-check detail |
-| last_health_check | DATETIME | NULLABLE | Last probe timestamp |
 | pricing_template_id | INTEGER | FK -> pricing_templates.id, NULLABLE, ON DELETE RESTRICT | Assigned pricing template |
 | qps_limit | INTEGER | NULLABLE | Per-connection QPS cap; `NULL` means unlimited |
 | max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
 | max_in_flight_stream | INTEGER | NULLABLE | Concurrent stream request cap; `NULL` means unlimited |
+| is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Active routing candidate |
+| priority | INTEGER | NOT NULL, DEFAULT 0 | Standalone fallback ordering hint for family-level reads; model routing order comes from access-target `position` |
+| name | TEXT | NULLABLE | Optional connection label |
+| auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
+| custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
+| health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `unknown`, `healthy`, `unhealthy` |
+| health_detail | TEXT | NULLABLE | Last health-check detail |
+| last_health_check | DATETIME | NULLABLE | Last health-check timestamp |
 | openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | OpenAI-family probe target and payload variant; `responses_minimal` is the default for OpenAI connections, while non-OpenAI connections persist `NULL` |
+| monitoring_probe_interval_seconds | INTEGER | NOT NULL, DEFAULT 300 | Reserved monitoring cadence field |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-Indexes include `idx_connections_profile_model_active_priority` for routing lookups by `(profile_id, model_config_id, is_active, priority)` and `idx_connections_pricing_template_id` for template dependency checks.
+Indexes include `idx_connections_profile_family_active_priority` for family-scoped active candidate reads, `idx_connections_endpoint_id` for endpoint dependency checks, and `idx_connections_pricing_template_id` for template dependency checks.
 
-Connection ordering invariants:
-- Priorities are normalized to contiguous `0..N-1` per `(profile_id, model_config_id)`.
-- Deterministic reads use `(priority, id)` ordering for both management responses and runtime connection selection.
-- Connection create/update contracts do not allow client-written `priority`; ordering changes flow through the dedicated move API.
+Connection invariants:
+- `api_family` is the compatibility source for access-target validation and runtime planning.
+- A connection can be referenced by zero or more model access targets in the same profile.
+- Deleting a connection is rejected while any `model_access_targets.target_connection_id` row points at it.
+- Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
 
 ### 2.6 `pricing_templates` (profile-scoped reusable token pricing)
 
@@ -463,7 +470,7 @@ Reusable token pricing definitions that can be attached to many connections with
 
 Constraint: `UNIQUE(profile_id, name)`.
 
-Pricing templates use five concrete pricing strings in steady state. Management API writes and profile bundle v1 import normalize missing/null/blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
+Pricing templates use five concrete pricing strings in steady state. Management API writes and profile bundle v2 import normalize missing/null/blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
 
 Token costing consumes canonical disjoint token components: base input, cache-read input, cache-creation input, base output, reasoning output, and provider or derived total. `cached_tokens` is derived-only for aggregate and presentation surfaces from cache-read plus cache-creation input tokens.
 
@@ -528,7 +535,7 @@ Telemetry rows for every proxy attempt with immutable profile attribution captur
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | model_id | VARCHAR(200) | NOT NULL | Model ID used for attempt |
-| resolved_target_model_id | VARCHAR(200) | NULLABLE | Native target model chosen for a proxy-model request |
+| resolved_target_model_id | VARCHAR(200) | NULLABLE | Final target model selected for the attempt |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | ingress_request_id | VARCHAR(36) | NULLABLE | Prism-generated incoming request grouping ID |
 | attempt_number | INTEGER | NULLABLE | Per-ingress attempt order, starting at 1 |
@@ -553,7 +560,7 @@ Request-log semantics:
 - One row is written per upstream attempt, not per incoming runtime request.
 - `ingress_request_id` groups the rows created by one incoming runtime request.
 - `attempt_number` preserves retry/failover ordering within that group.
-- For proxy traffic, `model_id` stays the requested proxy identifier while `resolved_target_model_id` records the chosen native target for that attempt.
+- `model_id` records the requested model ID while `resolved_target_model_id` records the final target model ID selected for that attempt.
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 - Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
@@ -569,7 +576,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | ingress_request_id | VARCHAR(36) | NOT NULL, UNIQUE per profile | Incoming request grouping ID preserved for aggregate attribution and cross-table correlation |
 | model_id | VARCHAR(200) | NOT NULL | Requested model ID |
-| resolved_target_model_id | VARCHAR(200) | NULLABLE | Native target selected for the request |
+| resolved_target_model_id | VARCHAR(200) | NULLABLE | Final target model selected for the request |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
 | connection_id | INTEGER | NULLABLE | Connection snapshot |
@@ -624,27 +631,25 @@ Audit-link semantics:
 
 ### 2.13 `loadbalance_events` (partitioned immutable profile attribution)
 
-Persistent record of failover, recovery, and health transitions. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
+Persistent record of retry-window, ban, recovery, and admission transitions. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | BIGINT | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
-| connection_id | INTEGER | NOT NULL | Connection ID |
-| event_type | VARCHAR(20) | NOT NULL | `opened`, `extended`, `max_cooldown_strike`, `banned`, `probe_eligible`, `recovered`, `not_opened` |
+| connection_id | INTEGER | NOT NULL | Standalone connection ID |
+| event_type | VARCHAR(32) | NOT NULL | `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, `admission_rejected` |
 | failure_kind | VARCHAR(20) | NULLABLE | `transient_http`, `connect_error`, `timeout` |
-| consecutive_failures | INTEGER | NOT NULL | Failure count |
-| cooldown_seconds | NUMERIC | NOT NULL | Applied cooldown |
-| failure_threshold | INTEGER | NULLABLE | Threshold snapshot used for the event |
-| backoff_multiplier | NUMERIC | NULLABLE | Backoff multiplier snapshot |
-| max_cooldown_seconds | INTEGER | NULLABLE | Maximum cooldown snapshot |
-| max_cooldown_strikes | INTEGER | NULLABLE | Strike counter snapshot when relevant |
-| ban_mode | VARCHAR(20) | NULLABLE | `off`, `temporary`, or `manual` when relevant |
-| banned_until_at | DATETIME | NULLABLE | Temporary-ban expiry when relevant |
-| blocked_until_mono | NUMERIC | NULLABLE | Monotonic block timestamp |
+| cycle_retry_attempts | INTEGER | NOT NULL | Retry attempts in the current retry cycle |
+| cumulative_retry_attempts | INTEGER | NOT NULL | Retry attempts accumulated for Ban Mode thresholding |
+| next_retry_at | DATETIME | NULLABLE | Wall-clock time when the next retry cycle can run |
+| last_retry_delay_ms | INTEGER | NOT NULL | Last resolved retry-window delay in milliseconds |
 | model_id | VARCHAR(200) | NULLABLE | Model ID snapshot |
 | endpoint_id | INTEGER | NULLABLE | Endpoint ID snapshot |
 | vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor snapshot |
+| ban_mode | VARCHAR(20) | NULLABLE | `off`, `temporary`, or `manual` when relevant |
+| banned_until_at | DATETIME | NULLABLE | Temporary-ban expiry when relevant |
+| last_success_at | DATETIME | NULLABLE | Successful response time that cleared retry state when relevant |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp and partition key |
 
 ### 2.14 `log_retention_settings` (global singleton)
@@ -728,52 +733,60 @@ Ownership notes:
 - Provider inventory is sourced from CLIProxyAPI and may be persisted as normalized observations for operator display.
 - Sync work is scheduler-owned low-priority background work; request handlers enqueue or trigger bounded service methods rather than owning recurring timers.
 
-### 2.15 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)
+### 2.15 `routing_connection_runtime_state` (profile-scoped Ban Mode runtime state, `UNLOGGED`)
 
-Ephemeral hot-state row for per-connection admission, circuit state, and probe-aware runtime signals. This table is intentionally `UNLOGGED`, so it resets after crash or unclean shutdown.
+Ephemeral hot-state row for per-connection admission counters and Ban Mode retry-cycle state. This table is intentionally `UNLOGGED`, so it resets after crash or unclean shutdown.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| connection_id | INTEGER | FK -> connections.id, NOT NULL | Connection under adaptive-routing tracking |
+| connection_id | INTEGER | FK -> connections.id, NOT NULL | Standalone connection under Ban Policy tracking |
 | window_started_at | DATETIME | NULLABLE | Current QPS window start |
 | window_request_count | INTEGER | NOT NULL, DEFAULT 0 | Requests admitted in current one-second window |
 | in_flight_non_stream | INTEGER | NOT NULL, DEFAULT 0 | Current non-stream reservations |
 | in_flight_stream | INTEGER | NOT NULL, DEFAULT 0 | Current stream reservations |
-| circuit_state | VARCHAR(20) | NOT NULL, DEFAULT `closed` | `closed`, `open`, or `half_open` |
-| probe_available_at | DATETIME | NULLABLE | Next synthetic probe eligibility time |
-| open_until_at | DATETIME | NULLABLE | Wall-clock circuit-open expiry |
+| cycle_retry_attempts | INTEGER | NOT NULL | Retry attempts in the current retry cycle |
+| cumulative_retry_attempts | INTEGER | NOT NULL | Retry attempts accumulated for Ban Mode thresholding |
+| next_retry_at | DATETIME | NULLABLE | Wall-clock time when the next retry cycle can run |
+| last_retry_delay_ms | INTEGER | NOT NULL | Last resolved retry-window delay in milliseconds |
+| ban_mode | VARCHAR(20) | NOT NULL | `off`, `temporary`, or `manual` |
+| banned_until_at | DATETIME | NULLABLE | Temporary-ban expiry when relevant |
+| last_failure_kind | VARCHAR(20) | NULLABLE | Latest retryable failure kind: `transient_http`, `connect_error`, or `timeout` |
+| last_success_at | DATETIME | NULLABLE | Successful response time that cleared retry state when relevant |
 | live_p95_latency_ms | INTEGER | NULLABLE | Passive-request latency signal |
-| last_probe_status | VARCHAR(20) | NULLABLE | Latest fused probe status |
-| last_probe_at | DATETIME | NULLABLE | Latest probe timestamp |
-| endpoint_ping_ewma_ms | NUMERIC | NULLABLE | EWMA endpoint ping signal |
-| conversation_delay_ewma_ms | NUMERIC | NULLABLE | EWMA conversation delay signal |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Row creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last mutation timestamp |
 
 Constraints:
 - `UNIQUE(profile_id, connection_id)`.
-- Counter and strike fields are non-negative.
-- `circuit_state` is restricted to `closed`, `open`, or `half_open`.
+- Admission and retry counters are non-negative.
+- `ban_mode` is restricted to `off`, `temporary`, or `manual`.
+- `last_failure_kind` is restricted to `transient_http`, `connect_error`, or `timeout` when present.
+
+Ban Mode semantics:
+- `next_retry_at` represents the retry-window boundary. Until it passes, runtime planning treats the connection as `retry_wait` and can try other eligible final targets.
+- `cycle_retry_attempts` resets when the next retry window opens; `cumulative_retry_attempts` is the Ban Mode threshold counter for the shared connection.
+- `ban_mode="manual"` keeps the connection banned until reset. `ban_mode="temporary"` keeps it banned until `banned_until_at`; expired temporary bans are cleared on the next runtime attempt.
+- Successful upstream responses clear retry-window and ban state for the standalone connection.
 
 ### 2.16 `routing_connection_runtime_leases` (profile-scoped runtime lease table, `UNLOGGED`)
 
-Ephemeral lease rows used for non-stream attempts, streaming heartbeats, and half-open probes.
+Ephemeral lease rows used for non-stream attempts and streaming heartbeats.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | lease_token | VARCHAR(64) | PK | Lease identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| connection_id | INTEGER | FK -> connections.id, NOT NULL | Connection under adaptive-routing tracking |
-| lease_kind | VARCHAR(20) | NOT NULL | `stream`, `non_stream`, or `half_open_probe` |
+| connection_id | INTEGER | FK -> connections.id, NOT NULL | Standalone connection under Ban Policy tracking |
+| lease_kind | VARCHAR(20) | NOT NULL | `stream` or `non_stream` |
 | expires_at | DATETIME | NOT NULL | Lease expiry for repair/reconciliation |
-| heartbeat_at | DATETIME | NULLABLE | Latest stream or probe heartbeat |
+| heartbeat_at | DATETIME | NULLABLE | Latest stream heartbeat when relevant |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Row creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last mutation timestamp |
 
 Constraints:
-- `lease_kind` is restricted to `stream`, `non_stream`, or `half_open_probe`.
+- `lease_kind` is restricted to `stream` or `non_stream`.
 
 ### 2.17 `app_auth_settings` (singleton)
 
@@ -899,17 +912,20 @@ CREATE INDEX idx_profiles_not_deleted ON profiles(deleted_at);
 
 -- Scoped uniqueness
 CREATE UNIQUE INDEX idx_model_configs_profile_model_id ON model_configs(profile_id, model_id);
-CREATE UNIQUE INDEX idx_model_proxy_targets_source_position ON model_proxy_targets(source_model_config_id, position);
-CREATE UNIQUE INDEX idx_model_proxy_targets_source_target ON model_proxy_targets(source_model_config_id, target_model_config_id);
+CREATE UNIQUE INDEX idx_model_access_targets_source_position ON model_access_targets(source_model_config_id, position);
+CREATE UNIQUE INDEX idx_model_access_targets_source_target_model ON model_access_targets(source_model_config_id, target_model_config_id) WHERE target_model_config_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_model_access_targets_source_target_connection ON model_access_targets(source_model_config_id, target_connection_id) WHERE target_connection_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_endpoints_profile_name ON endpoints(profile_id, name);
 CREATE UNIQUE INDEX idx_endpoint_fx_profile_model_endpoint ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
 CREATE UNIQUE INDEX idx_user_settings_profile_id ON user_settings(profile_id);
 
 -- Performance indexes
 CREATE INDEX idx_model_configs_profile_model_enabled ON model_configs(profile_id, model_id, is_enabled);
-CREATE INDEX idx_model_proxy_targets_target_model ON model_proxy_targets(target_model_config_id);
+CREATE INDEX idx_model_access_targets_target_model ON model_access_targets(target_model_config_id);
+CREATE INDEX idx_model_access_targets_target_connection ON model_access_targets(target_connection_id);
 CREATE INDEX idx_endpoints_profile_position ON endpoints(profile_id, position);
-CREATE INDEX idx_connections_profile_model_active_priority ON connections(profile_id, model_config_id, is_active, priority);
+CREATE INDEX idx_connections_profile_family_active_priority ON connections(profile_id, api_family, is_active, priority);
+CREATE INDEX idx_connections_endpoint_id ON connections(endpoint_id);
 CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);
 CREATE INDEX idx_request_logs_profile_created_at ON request_logs(profile_id, created_at);
 CREATE INDEX idx_request_logs_ingress_request_id ON request_logs(ingress_request_id);
@@ -917,9 +933,9 @@ CREATE INDEX idx_audit_logs_profile_created_at ON audit_logs(profile_id, created
 CREATE INDEX idx_loadbalance_events_profile_created ON loadbalance_events(profile_id, created_at);
 CREATE INDEX idx_loadbalance_events_connection ON loadbalance_events(connection_id, created_at);
 CREATE INDEX idx_loadbalance_events_event_type ON loadbalance_events(event_type);
-CREATE INDEX idx_connection_limiter_state_profile_connection ON connection_limiter_state(profile_id, connection_id);
-CREATE INDEX idx_connection_limiter_leases_profile_connection ON connection_limiter_leases(profile_id, connection_id);
-CREATE INDEX idx_connection_limiter_leases_expires_at ON connection_limiter_leases(expires_at);
+CREATE INDEX idx_routing_connection_runtime_state_profile_connection ON routing_connection_runtime_state(profile_id, connection_id);
+CREATE INDEX idx_routing_connection_runtime_leases_profile_connection ON routing_connection_runtime_leases(profile_id, connection_id);
+CREATE INDEX idx_routing_connection_runtime_leases_expires_at ON routing_connection_runtime_leases(expires_at);
 CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
 
 -- Auth and retained passkey-era tables
@@ -945,9 +961,9 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 - `sidecar_instances` is a global control-plane root for sidecar snapshots; it is not owned by a profile.
 - `request_logs`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
-- `connection_limiter_state` and `connection_limiter_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
+- `routing_connection_runtime_state` and `routing_connection_runtime_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
 - Cross-profile resource lookups are treated as not found (`404`) under effective profile scope.
-- Connection create/update must enforce profile consistency between model and endpoint references.
+- Connection create/update must enforce profile consistency between standalone connection and endpoint references; model attachment is enforced through `model_access_targets`.
 
 ## 5. Deletion and Retention Semantics
 
@@ -960,30 +976,30 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 ## 6. Runtime Isolation Notes
 
 - Proxy routing always resolves against the active profile snapshot.
-- Runtime routing state is persisted in profile-scoped hot tables and namespaced by `(profile_id, connection_id)` so current state, cooldown, and ban decisions do not leak across profiles.
-- Ban escalation state stays with the same per-connection runtime row and tracks the resolved cooldown and ban fields together.
-- Connection limiter state is persisted in profile-scoped `UNLOGGED` hot tables plus lease rows and remains namespaced by `(profile_id, connection_id)` to avoid cross-profile admission leakage.
-- Runtime current-state rows track `consecutive_failures`, `blocked_until_at`, `last_cooldown_seconds`, `last_failure_kind`, `max_cooldown_strikes`, `ban_mode`, `banned_until_at`, and `probe_eligible_logged` for each `(profile_id, connection_id)` entry.
-- Runtime connection limiter rows reset after crash or unclean shutdown because the limiter tables are `UNLOGGED`; startup reconciliation recreates or compacts state from fresh traffic and surviving leases.
-- Failures are classified as `transient_http`, `connect_error`, or `timeout`; failover-worthy HTTP responses use the same threshold/backoff/jitter policy path as transport failures.
-- Ban escalation counts only failure transitions that newly hit the resolved max-cooldown cap under the explicit strategy policy.
-- Non-failover client errors do not force-clear existing persisted current state; successful responses (`2xx`/`3xx`) clear persisted current state for the connection.
-- Resetting current state deletes the row and therefore clears cooldown, strike, and ban state together.
+- Runtime routing state is persisted in profile-scoped hot tables and namespaced by `(profile_id, connection_id)` so retry-window, admission, and ban decisions do not leak across profiles.
+- Ban Mode state stays with the same per-connection runtime row and tracks retry-cycle attempts, cumulative attempts, next retry timing, ban mode, and temporary-ban expiry together.
+- Admission state is persisted in profile-scoped `UNLOGGED` hot tables plus lease rows and remains namespaced by `(profile_id, connection_id)` to avoid cross-profile leakage.
+- Runtime current-state rows track `cycle_retry_attempts`, `cumulative_retry_attempts`, `next_retry_at`, `last_retry_delay_ms`, `ban_mode`, `banned_until_at`, `last_failure_kind`, `last_success_at`, QPS window counters, in-flight counters, and optional latency for each `(profile_id, connection_id)` entry.
+- Runtime state and lease rows reset after crash or unclean shutdown because the tables are `UNLOGGED`; startup reconciliation recreates or compacts state from fresh traffic and surviving leases.
+- Failures are classified as `transient_http`, `connect_error`, or `timeout`; retryable HTTP responses use the same retry-window delay/backoff/jitter policy path as transport failures.
+- Ban Mode thresholding uses cumulative retry attempts for the shared standalone connection, so a ban created through one model path applies to other models that target the same connection.
+- Non-retryable client errors do not force-clear existing persisted current state; successful responses (`2xx`/`3xx`) clear persisted retry and ban state for the connection.
+- Resetting current state deletes the row and therefore clears retry-window counters, next retry timing, and ban state together.
 - Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for active profile.
 
 ## 7. Config Import/Export Versioning
 
-- Canonical profile export format is Go-era config version `1` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, proxy `proxy_selection_strategy`, explicit `proxy_targets`, nullable model `vendor_key`, and model `api_family`.
+- Canonical profile export format is Go-era config version `2` with `bundle_kind = profile_config`, top-level standalone `connections`, `models[].access_targets[]`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable model `vendor_key`, and model `api_family`.
 - Canonical global vendor export format is Go-era config version `1` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts `v1` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, `proxy_selection_strategy` plus `proxy_targets` with target metadata for proxy models, connection limiter fields, five concrete pricing fields, and encrypted `secret_payload` entries. Bundle v1 import normalizes missing/null/blank pricing inputs to `"0"` before validation.
+- Profile import accepts `v2` profile bundles only and validates top-level standalone connections, ordered model access targets, legacy Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, five concrete pricing fields, and encrypted `secret_payload` entries. Bundle v2 import normalizes missing/null/blank pricing inputs to `"0"` before validation.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
-- Persisted rows created by import always receive fresh database IDs; the v1 profile bundle contract omits internal IDs entirely and relies on name-based references.
+- Persisted rows created by import always receive fresh database IDs; the v2 profile bundle contract omits internal IDs entirely and relies on name-based references.
 - Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
 - Profile import reuses exact global vendor keys when provided, creates missing vendors when the proposed name is unique, and rejects duplicate bundle keys or vendor-name collisions before destructive profile-scoped replacement begins.
 
 
 ## 8. Invariant Notes
 
-- The canonical split-bundle contract version is `1` for both profile bundles and vendor catalog bundles.
+- The canonical split-bundle contract version is `2` for profile bundles and `1` for vendor catalog bundles.
 - Runtime hot state remains profile-scoped and reset-on-crash by design.

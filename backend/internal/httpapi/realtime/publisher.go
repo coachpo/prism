@@ -162,7 +162,6 @@ func requestLogEntryFromDetail(detail statsdomain.RequestLogDetailResponse) Requ
 		ModelLabel:                        detail.Summary.ModelLabel,
 		ResolvedTargetModelID:             detail.Summary.ResolvedTargetModelID,
 		ResolvedTargetModelLabel:          detail.Summary.ResolvedTargetModelLabel,
-		IsProxyOrigin:                     detail.Summary.IsProxyOrigin,
 		APIFamily:                         detail.Summary.APIFamily,
 		VendorID:                          detail.Summary.VendorID,
 		VendorKey:                         detail.Summary.VendorKey,

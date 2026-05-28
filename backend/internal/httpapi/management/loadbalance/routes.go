@@ -217,8 +217,8 @@ func (s *Service) handleCreateStrategyDefaults(w http.ResponseWriter, r *http.Re
 			}
 			existingByName[response.Name] = response
 		}
-		createdNames := make([]string, 0, 2)
-		existingNames := make([]string, 0, 2)
+		createdNames := make([]string, 0, 3)
+		existingNames := make([]string, 0, 3)
 		conflictingNames := make([]string, 0)
 		for _, spec := range canonicalDefaultStrategySpecs() {
 			current, ok := existingByName[spec.Name]
@@ -239,20 +239,7 @@ func (s *Service) handleCreateStrategyDefaults(w http.ResponseWriter, r *http.Re
 			if _, ok := existingByName[spec.Name]; ok {
 				continue
 			}
-			payload := strategyPersistedPayload{Name: spec.Name, StrategyType: spec.StrategyType, LegacyStrategyType: spec.LegacyStrategyType, AutoRecovery: spec.AutoRecovery, RoutingPolicy: spec.RoutingPolicy}
-			if spec.AutoRecovery != nil {
-				payload.AutoRecoveryJSON, err = json.Marshal(spec.AutoRecovery)
-				if err != nil {
-					return loadbalanceStrategyDefaultsResponse{}, fmt.Errorf("marshal default auto_recovery: %w", err)
-				}
-			}
-			if spec.RoutingPolicy != nil {
-				payload.RoutingPolicyJSON, err = json.Marshal(spec.RoutingPolicy)
-				if err != nil {
-					return loadbalanceStrategyDefaultsResponse{}, fmt.Errorf("marshal default routing_policy: %w", err)
-				}
-			}
-			if _, err := insertStrategy(r.Context(), tx, profile.ID, payload, now); err != nil {
+			if _, err := insertStrategy(r.Context(), tx, profile.ID, defaultStrategyPayload(spec), now); err != nil {
 				return loadbalanceStrategyDefaultsResponse{}, err
 			}
 			createdNames = append(createdNames, spec.Name)

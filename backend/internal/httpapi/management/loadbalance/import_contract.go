@@ -1,58 +1,61 @@
 package loadbalance
 
-import (
-	"bytes"
-	"encoding/json"
-)
-
 type ImportedStrategyDocument struct {
-	Name               string
-	StrategyType       string
-	LegacyStrategyType *string
-	AutoRecovery       json.RawMessage
-	RoutingPolicy      json.RawMessage
+	Name                   string
+	LegacyStrategyType     *string
+	FailureStatusCodes     []int
+	BanMode                *string
+	RetryBaseDelayMS       *int
+	RetryBackoffMultiplier *float64
+	RetryJitterRatio       *float64
+	RetryMaxDelayMS        *int
+	RetryMaxAttempts       *int
+	BanDurationSeconds     *int
 }
 
 type CanonicalImportedStrategy struct {
-	Name               string
-	StrategyType       string
-	LegacyStrategyType *string
-	AutoRecoveryJSON   []byte
-	RoutingPolicyJSON  []byte
+	Name                   string
+	LegacyStrategyType     *string
+	FailureStatusCodes     []int
+	BanMode                string
+	RetryBaseDelayMS       int
+	RetryBackoffMultiplier float64
+	RetryJitterRatio       float64
+	RetryMaxDelayMS        int
+	RetryMaxAttempts       int
+	BanDurationSeconds     int
+	LegacyStrategyPtr      *string
 }
 
 func CanonicalizeImportedStrategyDocument(document ImportedStrategyDocument) (CanonicalImportedStrategy, error) {
-	request := loadbalanceStrategyRequest{
-		Name:               document.Name,
-		StrategyType:       document.StrategyType,
-		LegacyStrategyType: document.LegacyStrategyType,
-	}
-
-	if payload := bytes.TrimSpace(document.AutoRecovery); len(payload) > 0 && !bytes.Equal(payload, []byte("null")) {
-		var input autoRecoveryInput
-		if err := json.Unmarshal(payload, &input); err != nil {
-			return CanonicalImportedStrategy{}, err
-		}
-		request.AutoRecovery = &input
-	}
-	if payload := bytes.TrimSpace(document.RoutingPolicy); len(payload) > 0 && !bytes.Equal(payload, []byte("null")) {
-		var input routingPolicyInput
-		if err := json.Unmarshal(payload, &input); err != nil {
-			return CanonicalImportedStrategy{}, err
-		}
-		request.RoutingPolicy = &input
-	}
-
-	payload, err := canonicalizeStrategyRequest(request)
+	payload, err := canonicalizeStrategyRequest(loadbalanceStrategyRequest{
+		Name:                   document.Name,
+		LegacyStrategyType:     document.LegacyStrategyType,
+		FailureStatusCodes:     document.FailureStatusCodes,
+		BanMode:                document.BanMode,
+		RetryBaseDelayMS:       document.RetryBaseDelayMS,
+		RetryBackoffMultiplier: document.RetryBackoffMultiplier,
+		RetryJitterRatio:       document.RetryJitterRatio,
+		RetryMaxDelayMS:        document.RetryMaxDelayMS,
+		RetryMaxAttempts:       document.RetryMaxAttempts,
+		BanDurationSeconds:     document.BanDurationSeconds,
+	})
 	if err != nil {
 		return CanonicalImportedStrategy{}, err
 	}
 
+	legacyStrategyType := payload.LegacyStrategyType
 	return CanonicalImportedStrategy{
-		Name:               payload.Name,
-		StrategyType:       payload.StrategyType,
-		LegacyStrategyType: payload.LegacyStrategyType,
-		AutoRecoveryJSON:   cloneBytes(payload.AutoRecoveryJSON),
-		RoutingPolicyJSON:  cloneBytes(payload.RoutingPolicyJSON),
+		Name:                   payload.Name,
+		LegacyStrategyType:     &legacyStrategyType,
+		FailureStatusCodes:     append([]int(nil), payload.FailureStatusCodes...),
+		BanMode:                payload.BanMode,
+		RetryBaseDelayMS:       payload.RetryBaseDelayMS,
+		RetryBackoffMultiplier: payload.RetryBackoffMultiplier,
+		RetryJitterRatio:       payload.RetryJitterRatio,
+		RetryMaxDelayMS:        payload.RetryMaxDelayMS,
+		RetryMaxAttempts:       payload.RetryMaxAttempts,
+		BanDurationSeconds:     payload.BanDurationSeconds,
+		LegacyStrategyPtr:      &legacyStrategyType,
 	}, nil
 }

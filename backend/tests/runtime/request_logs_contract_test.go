@@ -2111,20 +2111,26 @@ func TestRequestLogCurrentModelEnrichmentContract(t *testing.T) {
 
 	itemsByID := requestLogItemsByID(t, payload["items"].([]any))
 	fixtureItem := itemsByID[101]
-	if fixtureItem["model_label"] != "GPT-4o Proxy" || fixtureItem["resolved_target_model_label"] != "GPT-4o Native" || fixtureItem["is_proxy_origin"] != true {
+	if fixtureItem["model_label"] != "GPT-4o Proxy" || fixtureItem["resolved_target_model_label"] != "GPT-4o Native" {
 		t.Fatalf("expected fixture request log to use current model display-name enrichment, got %+v", fixtureItem)
 	}
-	proxyOnlyItem := itemsByID[103]
-	if proxyOnlyItem["model_label"] != "GPT-4o Proxy" || proxyOnlyItem["resolved_target_model_label"] != nil || proxyOnlyItem["is_proxy_origin"] != true {
-		t.Fatalf("expected current proxy model row to remain proxy-origin without resolved-target divergence, got %+v", proxyOnlyItem)
+	if _, ok := fixtureItem["is_proxy_origin"]; ok {
+		t.Fatalf("did not expect proxy-origin field in fixture request log payload, got %+v", fixtureItem)
+	}
+	directItem := itemsByID[103]
+	if directItem["model_label"] != "GPT-4o Proxy" || directItem["resolved_target_model_label"] != "GPT-4o Proxy" {
+		t.Fatalf("expected current direct row to expose requested and final-target labels, got %+v", directItem)
 	}
 
 	detailResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/101", nil, runtimeModelHeader(profileID))
 	assertStatus(t, detailResponse, http.StatusOK)
 	decodeJSONResponse(t, detailResponse, &payload)
 	summary := asMapRuntime(t, payload["summary"])
-	if summary["model_label"] != "GPT-4o Proxy" || summary["resolved_target_model_label"] != "GPT-4o Native" || summary["is_proxy_origin"] != true {
+	if summary["model_label"] != "GPT-4o Proxy" || summary["resolved_target_model_label"] != "GPT-4o Native" {
 		t.Fatalf("expected detail summary to use current model enrichment, got %+v", summary)
+	}
+	if _, ok := summary["is_proxy_origin"]; ok {
+		t.Fatalf("did not expect proxy-origin field in detail summary, got %+v", summary)
 	}
 	routing := asMapRuntime(t, payload["routing"])
 	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family", "vendor_id", "vendor_key", "vendor_name"} {
@@ -2257,7 +2263,7 @@ func seedSimpleRequestLog(t *testing.T, harness *requestLogContractHarness, prof
 	if endpointBaseURL != nil {
 		historicalBaseURL = *endpointBaseURL
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, TRUE, '/v1/chat/completions', $6, $7, FALSE)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, TRUE, '/v1/chat/completions', $6, $7, FALSE)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
 		t.Fatalf("seed simple request log %d: %v", id, err)
 	}
 }
@@ -2274,21 +2280,20 @@ func seedRequestLogModels(t *testing.T, harness *requestLogContractHarness, prof
 	t.Helper()
 	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
 	openAIVendorID := loadRequestLogVendorIDByKey(t, harness, "openai")
-	autoRecovery := `{"enabled":true,"check_interval_seconds":300,"max_retries":3}`
 	var strategyID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at) VALUES ($1, $2, 'legacy', 'round-robin', $3::jsonb, NULL, $4, $4) RETURNING id`, profileID, "request-log-current-models", autoRecovery, now).Scan(&strategyID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, created_at, updated_at) VALUES ($1, $2, 'round-robin', $3, $3) RETURNING id`, profileID, "request-log-current-models", now).Scan(&strategyID); err != nil {
 		t.Fatalf("insert current request-log strategy: %v", err)
 	}
 	var nativeModelID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, 'native', $5, TRUE, $6, $6) RETURNING id`, profileID, openAIVendorID, "gpt-4o-native", "GPT-4o Native", strategyID, now).Scan(&nativeModelID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, $5, TRUE, $6, $6) RETURNING id`, profileID, openAIVendorID, "gpt-4o-native", "GPT-4o Native", strategyID, now).Scan(&nativeModelID); err != nil {
 		t.Fatalf("insert current native request-log model: %v", err)
 	}
 	var proxyModelID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, proxy_selection_strategy, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, 'proxy', NULL, 'ordered_fallback', TRUE, $5, $5) RETURNING id`, profileID, openAIVendorID, "gpt-4o", "GPT-4o Proxy", now).Scan(&proxyModelID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, $5, TRUE, $6, $6) RETURNING id`, profileID, openAIVendorID, "gpt-4o", "GPT-4o Proxy", strategyID, now).Scan(&proxyModelID); err != nil {
 		t.Fatalf("insert current proxy request-log model: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, 0, 1, 0)`, proxyModelID, nativeModelID); err != nil {
-		t.Fatalf("insert request-log proxy target: %v", err)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, 1, 0, TRUE, $4, $4)`, profileID, proxyModelID, nativeModelID, now); err != nil {
+		t.Fatalf("insert request-log access target: %v", err)
 	}
 }
 

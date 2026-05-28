@@ -127,42 +127,6 @@ func (s *Service) runPersistedConnectionHealthCheck(ctx context.Context, r *http
 	}, nil
 }
 
-func (s *Service) handlePreviewConnectionHealthCheck(w http.ResponseWriter, r *http.Request) {
-	modelConfigID, err := routeInt(r, "model_config_id")
-	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
-		return
-	}
-	var requestBody connectionCreateRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	if requestBody.Priority.Set {
-		writeError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "priority is not allowed on create")
-		return
-	}
-	probeInput, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionHealthProbeInput, error) {
-		return s.loadPreviewConnectionHealthProbeInput(r.Context(), tx, r, modelConfigID, requestBody)
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	result, err := s.probeConnectionHealth(r.Context(), probeInput)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	writeJSON(w, http.StatusOK, connectionHealthCheckPreviewResponse{
-		HealthStatus:   result.HealthStatus,
-		CheckedAt:      s.nowUTC(),
-		Detail:         result.Detail,
-		ResponseTimeMS: result.ResponseTimeMS,
-	})
-}
-
 func (s *Service) loadPersistedConnectionHealthProbeInput(ctx context.Context, tx pgx.Tx, r *http.Request, connectionID int) (connectionHealthProbeInput, error) {
 	profile, err := resolveEffectiveProfile(ctx, tx, r)
 	if err != nil {
@@ -182,12 +146,9 @@ func (s *Service) loadPersistedConnectionHealthProbeInput(ctx context.Context, t
 	if !found {
 		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Connection endpoint is missing"}
 	}
-	model, found, err := loadModelRecord(ctx, tx, profile.ID, current.ModelConfigID)
+	reference, err := loadConnectionHealthReference(ctx, tx, profile.ID, current.ID, current.APIFamily)
 	if err != nil {
 		return connectionHealthProbeInput{}, err
-	}
-	if !found {
-		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Connection model is missing"}
 	}
 	updatedAt := current.UpdatedAt
 	return s.buildConnectionHealthProbeInput(ctx, tx, profile.ID, connectionHealthProbeReadModel{
@@ -195,60 +156,27 @@ func (s *Service) loadPersistedConnectionHealthProbeInput(ctx context.Context, t
 		AuthType:                   current.AuthType,
 		CustomHeaders:              current.CustomHeaders,
 		Endpoint:                   endpoint,
-		APIFamily:                  model.APIFamily,
-		ModelID:                    model.ModelID,
+		APIFamily:                  current.APIFamily,
+		ModelID:                    reference.ModelID,
 		OpenAIProbeEndpointVariant: current.OpenAIProbeEndpointVariant,
 		WritebackExpectedUpdatedAt: &updatedAt,
 	})
 }
 
-func (s *Service) loadPreviewConnectionHealthProbeInput(ctx context.Context, tx pgx.Tx, r *http.Request, modelConfigID int, requestBody connectionCreateRequest) (connectionHealthProbeInput, error) {
-	profile, err := resolveEffectiveProfile(ctx, tx, r)
+func loadConnectionHealthReference(ctx context.Context, exec queryExecutor, profileID int, connectionID int, apiFamily string) (connectionReferenceRecord, error) {
+	references, err := listConnectionReferenceRows(ctx, exec, profileID, connectionID)
 	if err != nil {
-		return connectionHealthProbeInput{}, err
+		return connectionReferenceRecord{}, err
 	}
-	model, found, err := loadModelRecord(ctx, tx, profile.ID, modelConfigID)
-	if err != nil {
-		return connectionHealthProbeInput{}, err
+	for _, reference := range references {
+		if reference.APIFamily == apiFamily {
+			return reference, nil
+		}
 	}
-	if !found {
-		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
+	if len(references) > 0 {
+		return connectionReferenceRecord{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection references do not match api_family"}
 	}
-	if requestBody.EndpointID != nil && requestBody.EndpointCreate != nil {
-		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "Exactly one of endpoint_id or endpoint_create is required"}
-	}
-	if requestBody.EndpointID == nil && requestBody.EndpointCreate == nil {
-		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "Exactly one of endpoint_id or endpoint_create is required"}
-	}
-	authType, err := validateAuthType(requestBody.AuthType)
-	if err != nil {
-		return connectionHealthProbeInput{}, err
-	}
-	if err := validateLimiter("qps_limit", requestBody.QPSLimit); err != nil {
-		return connectionHealthProbeInput{}, err
-	}
-	if err := validateLimiter("max_in_flight_non_stream", requestBody.MaxInFlightNonStream); err != nil {
-		return connectionHealthProbeInput{}, err
-	}
-	if err := validateLimiter("max_in_flight_stream", requestBody.MaxInFlightStream); err != nil {
-		return connectionHealthProbeInput{}, err
-	}
-	openAIProbeVariant, err := resolveOpenAIProbeEndpointVariant(model.APIFamily, requestBody.OpenAIProbeEndpointVariant)
-	if err != nil {
-		return connectionHealthProbeInput{}, err
-	}
-	endpoint, err := s.resolvePreviewEndpoint(ctx, tx, profile.ID, requestBody.EndpointID, requestBody.EndpointCreate)
-	if err != nil {
-		return connectionHealthProbeInput{}, err
-	}
-	return s.buildConnectionHealthProbeInput(ctx, tx, profile.ID, connectionHealthProbeReadModel{
-		AuthType:                   authType,
-		CustomHeaders:              requestBody.CustomHeaders,
-		Endpoint:                   endpoint,
-		APIFamily:                  model.APIFamily,
-		ModelID:                    model.ModelID,
-		OpenAIProbeEndpointVariant: openAIProbeVariant,
-	})
+	return connectionReferenceRecord{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection must be attached to a model target before health check"}
 }
 
 func (s *Service) buildConnectionHealthProbeInput(ctx context.Context, tx pgx.Tx, profileID int, readModel connectionHealthProbeReadModel) (connectionHealthProbeInput, error) {
@@ -267,43 +195,6 @@ func (s *Service) buildConnectionHealthProbeInput(ctx context.Context, tx pgx.Tx
 		HeaderBlocklistRules:       rules,
 		WritebackExpectedUpdatedAt: readModel.WritebackExpectedUpdatedAt,
 	}, nil
-}
-
-func (s *Service) resolvePreviewEndpoint(ctx context.Context, tx pgx.Tx, profileID int, endpointID *int, inline *endpointCreateRequest) (endpointRecord, error) {
-	if endpointID != nil {
-		endpoint, found, err := loadProfileEndpointRecord(ctx, tx, profileID, *endpointID)
-		if err != nil {
-			return endpointRecord{}, err
-		}
-		if !found {
-			return endpointRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
-		}
-		return endpoint, nil
-	}
-	if inline != nil {
-		endpointName := strings.TrimSpace(inline.Name)
-		if endpointName == "" {
-			return endpointRecord{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "endpoint_create.name must not be empty"}
-		}
-		normalizedURL := endpointdomain.NormalizeBaseURL(inline.BaseURL)
-		if warnings := endpointdomain.ValidateBaseURL(normalizedURL); len(warnings) > 0 {
-			return endpointRecord{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: strings.Join(warnings, "; ")}
-		}
-
-		encryptedAPIKey, err := endpointdomain.EncryptSecret(inline.APIKey, s.secretEncryptionKey, s.now)
-		if err != nil {
-			return endpointRecord{}, err
-		}
-		return endpointRecord{
-			ID:        0,
-			ProfileID: profileID,
-			Name:      endpointName,
-			BaseURL:   normalizedURL,
-			APIKey:    encryptedAPIKey,
-			Position:  0,
-		}, nil
-	}
-	return endpointRecord{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "Exactly one of endpoint_id or endpoint_create is required"}
 }
 
 func (s *Service) probeConnectionHealth(ctx context.Context, input connectionHealthProbeInput) (healthCheckProbeResult, error) {

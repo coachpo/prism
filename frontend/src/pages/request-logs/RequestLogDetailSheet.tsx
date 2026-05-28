@@ -39,10 +39,7 @@ export function RequestLogDetailSheet({
     auditCaptureBodiesAtRequest: request?.routing.audit_capture_bodies_at_request ?? false,
     enabled: open && activeTab === "audit",
   });
-  const hasResolvedTargetContext = Boolean(
-    request?.summary.resolved_target_model_id
-      && request.summary.resolved_target_model_id !== request.summary.model_id,
-  );
+  const hasRequestContext = Boolean(request);
 
   return (
     <Sheet open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
@@ -62,7 +59,7 @@ export function RequestLogDetailSheet({
             </SheetTitle>
             <SheetDescription className="text-sm text-muted-foreground">
               {messages.requestLogs.detailDescription}
-              {hasResolvedTargetContext ? ` ${messages.requestLogs.requestedModel} / ${messages.requestLogs.resolvedTarget}.` : ""}
+              {hasRequestContext ? ` ${messages.requestLogs.requestedModel} / ${messages.requestLogs.finalTargetModel}.` : ""}
             </SheetDescription>
           </SheetHeader>
 

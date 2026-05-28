@@ -13,8 +13,8 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 	if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:5173" || got[1] != "http://127.0.0.1:5173" {
 		t.Fatalf("unexpected canonical CORS defaults: %+v", got)
 	}
-	if settings.RuntimeTelemetryMode != RuntimeTelemetryModeDurableOutbox || settings.RuntimeBufferingMode != RuntimeBufferingModeStreaming {
-		t.Fatalf("unexpected canonical runtime modes: telemetry=%q buffering=%q", settings.RuntimeTelemetryMode, settings.RuntimeBufferingMode)
+	if settings.RuntimeTelemetryMode != RuntimeTelemetryModeDurableOutbox {
+		t.Fatalf("unexpected canonical runtime telemetry mode: %q", settings.RuntimeTelemetryMode)
 	}
 	assertRuntimeTransportConfig(t, settings.RuntimeTransport(), RuntimeTransportConfig{
 		MaxIdleConns:          100,

@@ -93,16 +93,15 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Post("/models/connections/batch", s.handleListConnectionsBatch)
-	api.Get("/models/{model_config_id}/connections", s.handleListConnections)
-	api.Post("/models/{model_config_id}/connections/health-check-preview", s.handlePreviewConnectionHealthCheck)
 
-	api.Post("/models/{model_config_id}/connections", s.handleCreateConnection)
-	api.Patch("/models/{model_config_id}/connections/{connection_id}/priority", s.handleMoveConnectionPriority)
+	api.Get("/connections", s.handleListConnections)
+	api.Post("/connections", s.handleCreateConnection)
+	api.Get("/connections/{connection_id}", s.handleGetConnection)
 	api.Put("/connections/{connection_id}", s.handleUpdateConnection)
 	api.Put("/connections/{connection_id}/pricing-template", s.handleSetConnectionPricingTemplate)
 	api.Delete("/connections/{connection_id}", s.handleDeleteConnection)
 	api.Post("/connections/{connection_id}/health-check", s.handleConnectionHealthCheck)
-	api.Get("/connections/{connection_id}/owner", s.handleGetConnectionOwner)
+	api.Get("/connections/{connection_id}/references", s.handleListConnectionReferences)
 	api.Route("/pricing-templates", func(router chi.Router) {
 		router.Get("/", s.handleListPricingTemplates)
 		router.Post("/", s.handleCreatePricingTemplate)

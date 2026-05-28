@@ -27,27 +27,23 @@ type queryExecutor interface {
 }
 
 type CurrentStateItem struct {
-	ConnectionID        int        `json:"connection_id"`
-	CircuitState        *string    `json:"circuit_state"`
-	ProbeAvailableAt    *time.Time `json:"probe_available_at"`
-	WindowStartedAt     *time.Time `json:"window_started_at"`
-	WindowRequestCount  int        `json:"window_request_count"`
-	InFlightNonStream   int        `json:"in_flight_non_stream"`
-	InFlightStream      int        `json:"in_flight_stream"`
-	ConsecutiveFailures int        `json:"consecutive_failures"`
-	LastFailureKind     *string    `json:"last_failure_kind"`
-	LastCooldownSeconds float64    `json:"last_cooldown_seconds"`
-	MaxCooldownStrikes  int        `json:"max_cooldown_strikes"`
-	BanMode             string     `json:"ban_mode"`
-	BannedUntilAt       *time.Time `json:"banned_until_at"`
-	BlockedUntilAt      *time.Time `json:"blocked_until_at"`
-	ProbeEligibleLogged bool       `json:"probe_eligible_logged"`
-	LiveP95LatencyMS    *int       `json:"live_p95_latency_ms"`
-	LastLiveFailureAt   *time.Time `json:"last_live_failure_at"`
-	LastLiveSuccessAt   *time.Time `json:"last_live_success_at"`
-	State               string     `json:"state"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	ConnectionID              int        `json:"connection_id"`
+	WindowStartedAt           *time.Time `json:"window_started_at"`
+	WindowRequestCount        int        `json:"window_request_count"`
+	InFlightNonStream         int        `json:"in_flight_non_stream"`
+	InFlightStream            int        `json:"in_flight_stream"`
+	CycleRetryAttempts        int        `json:"cycle_retry_attempts"`
+	CumulativeRetryAttempts   int        `json:"cumulative_retry_attempts"`
+	NextRetryAt               *time.Time `json:"next_retry_at"`
+	LastRetryDelayMS          int        `json:"last_retry_delay_ms"`
+	BanMode                   string     `json:"ban_mode"`
+	BannedUntilAt             *time.Time `json:"banned_until_at"`
+	LastFailureKind           *string    `json:"last_failure_kind"`
+	LastSuccessAt             *time.Time `json:"last_success_at"`
+	LiveP95LatencyMS          *int       `json:"live_p95_latency_ms"`
+	State                     string     `json:"state"`
+	CreatedAt                 time.Time  `json:"created_at"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
 }
 
 type CurrentStateListResponse struct {
@@ -67,29 +63,27 @@ type EventSummary struct {
 }
 
 type Event struct {
-	ID                  int64        `json:"id"`
-	ProfileID           int          `json:"profile_id"`
-	ConnectionID        int          `json:"connection_id"`
-	EventType           string       `json:"event_type"`
-	FailureKind         *string      `json:"failure_kind"`
-	ConsecutiveFailures int          `json:"consecutive_failures"`
-	CooldownSeconds     float64      `json:"cooldown_seconds"`
-	BlockedUntilMono    *float64     `json:"blocked_until_mono"`
-	ModelID             *string      `json:"model_id"`
-	EndpointID          *int         `json:"endpoint_id"`
-	VendorID            *int         `json:"vendor_id"`
-	MaxCooldownStrikes  *int         `json:"max_cooldown_strikes"`
-	BanMode             *string      `json:"ban_mode"`
-	BannedUntilAt       *time.Time   `json:"banned_until_at"`
-	Summary             EventSummary `json:"summary"`
-	CreatedAt           time.Time    `json:"created_at"`
+	ID                        int64        `json:"id"`
+	ProfileID                 int          `json:"profile_id"`
+	ConnectionID              int          `json:"connection_id"`
+	EventType                 string       `json:"event_type"`
+	FailureKind               *string      `json:"failure_kind"`
+	CycleRetryAttempts        int          `json:"cycle_retry_attempts"`
+	CumulativeRetryAttempts   int          `json:"cumulative_retry_attempts"`
+	NextRetryAt               *time.Time   `json:"next_retry_at"`
+	LastRetryDelayMS          int          `json:"last_retry_delay_ms"`
+	ModelID                   *string      `json:"model_id"`
+	EndpointID                *int         `json:"endpoint_id"`
+	VendorID                  *int         `json:"vendor_id"`
+	BanMode                   *string      `json:"ban_mode"`
+	BannedUntilAt             *time.Time   `json:"banned_until_at"`
+	LastSuccessAt             *time.Time   `json:"last_success_at"`
+	Summary                   EventSummary `json:"summary"`
+	CreatedAt                 time.Time    `json:"created_at"`
 }
 
 type EventDetail struct {
 	Event
-	FailureThreshold   *int     `json:"failure_threshold"`
-	BackoffMultiplier  *float64 `json:"backoff_multiplier"`
-	MaxCooldownSeconds *int     `json:"max_cooldown_seconds"`
 }
 
 type EventListResponse struct {
@@ -134,7 +128,7 @@ func ListCurrentState(ctx context.Context, exec queryExecutor, provider RuntimeC
 
 func ResetCurrentState(ctx context.Context, exec queryExecutor, provider RuntimeCurrentStateProvider, profileID int, connectionID int) (CurrentStateResetResponse, error) {
 	var modelConfigID sql.NullInt32
-	err := exec.QueryRow(ctx, `SELECT model_config_id FROM connections WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, connectionID).Scan(&modelConfigID)
+	err := exec.QueryRow(ctx, `SELECT source_model_config_id FROM model_access_targets WHERE profile_id = $1 AND target_connection_id = $2 ORDER BY position ASC, id ASC LIMIT 1`, profileID, connectionID).Scan(&modelConfigID)
 	if err != nil && err != pgx.ErrNoRows {
 		return CurrentStateResetResponse{}, fmt.Errorf("load connection %d for profile %d: %w", connectionID, profileID, err)
 	}
@@ -149,7 +143,7 @@ func ResetCurrentState(ctx context.Context, exec queryExecutor, provider Runtime
 }
 
 func listCurrentStateConnectionIDs(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) ([]int, error) {
-	rows, err := exec.Query(ctx, `SELECT id FROM connections WHERE profile_id = $1 AND model_config_id = $2 ORDER BY priority ASC, id ASC`, profileID, modelConfigID)
+	rows, err := exec.Query(ctx, `SELECT connections.id FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = $2 ORDER BY model_access_targets.position ASC, connections.id ASC`, profileID, modelConfigID)
 	if err != nil {
 		return nil, fmt.Errorf("query current-state connection ids for model %d: %w", modelConfigID, err)
 	}
@@ -179,7 +173,7 @@ func ListEvents(ctx context.Context, exec queryExecutor, profileID int, modelID 
 	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM loadbalance_events WHERE profile_id = $1 AND model_id = $2`, profileID, modelID).Scan(&total); err != nil {
 		return EventListResponse{}, fmt.Errorf("count loadbalance events for profile %d model %q: %w", profileID, modelID, err)
 	}
-	rows, err := exec.Query(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, consecutive_failures, cooldown_seconds::float8, blocked_until_mono::float8, model_id, endpoint_id, vendor_id, failure_threshold, backoff_multiplier::float8, max_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, profileID, modelID, limit, offset)
+	rows, err := exec.Query(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, profileID, modelID, limit, offset)
 	if err != nil {
 		return EventListResponse{}, fmt.Errorf("query loadbalance events for profile %d model %q: %w", profileID, modelID, err)
 	}
@@ -199,7 +193,7 @@ func ListEvents(ctx context.Context, exec queryExecutor, profileID int, modelID 
 }
 
 func GetEvent(ctx context.Context, exec queryExecutor, profileID int, eventID int64) (*EventDetail, error) {
-	row := exec.QueryRow(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, consecutive_failures, cooldown_seconds::float8, blocked_until_mono::float8, model_id, endpoint_id, vendor_id, failure_threshold, backoff_multiplier::float8, max_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, eventID)
+	row := exec.QueryRow(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, eventID)
 	item, err := scanEvent(row)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -212,99 +206,92 @@ func GetEvent(ctx context.Context, exec queryExecutor, profileID int, eventID in
 
 func scanEvent(scanner interface{ Scan(...any) error }) (EventDetail, error) {
 	var failureKind sql.NullString
-	var blockedUntilMono sql.NullFloat64
+	var nextRetryAt sql.NullTime
 	var modelID sql.NullString
 	var endpointID sql.NullInt32
 	var vendorID sql.NullInt32
-	var failureThreshold sql.NullInt32
-	var backoffMultiplier sql.NullFloat64
-	var maxCooldownSeconds sql.NullInt32
-	var maxCooldownStrikes sql.NullInt32
 	var banMode sql.NullString
 	var bannedUntilAt sql.NullTime
+	var lastSuccessAt sql.NullTime
 	item := EventDetail{}
-	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.ConnectionID, &item.EventType, &failureKind, &item.ConsecutiveFailures, &item.CooldownSeconds, &blockedUntilMono, &modelID, &endpointID, &vendorID, &failureThreshold, &backoffMultiplier, &maxCooldownSeconds, &maxCooldownStrikes, &banMode, &bannedUntilAt, &item.CreatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.ConnectionID, &item.EventType, &failureKind, &item.CycleRetryAttempts, &item.CumulativeRetryAttempts, &nextRetryAt, &item.LastRetryDelayMS, &modelID, &endpointID, &vendorID, &banMode, &bannedUntilAt, &lastSuccessAt, &item.CreatedAt); err != nil {
 		return EventDetail{}, err
 	}
 	item.FailureKind = nullableString(failureKind)
-	item.BlockedUntilMono = nullableFloat64(blockedUntilMono)
+	item.NextRetryAt = nullableTime(nextRetryAt)
 	item.ModelID = nullableString(modelID)
 	item.EndpointID = nullableInt32(endpointID)
 	item.VendorID = nullableInt32(vendorID)
-	item.FailureThreshold = nullableInt32(failureThreshold)
-	item.BackoffMultiplier = nullableFloat64(backoffMultiplier)
-	item.MaxCooldownSeconds = nullableInt32(maxCooldownSeconds)
-	item.MaxCooldownStrikes = nullableInt32(maxCooldownStrikes)
 	item.BanMode = nullableString(banMode)
 	item.BannedUntilAt = nullableTime(bannedUntilAt)
+	item.LastSuccessAt = nullableTime(lastSuccessAt)
 	item.CreatedAt = item.CreatedAt.UTC()
-	item.Summary = describeEvent(item.EventType, item.FailureKind, item.ConsecutiveFailures, item.CooldownSeconds, item.FailureThreshold)
+	item.Summary = describeEvent(item.EventType, item.FailureKind, item.CycleRetryAttempts, item.CumulativeRetryAttempts, item.LastRetryDelayMS)
 	return item, nil
 }
 
-func deriveCurrentState(banMode string, bannedUntilAt *time.Time, blockedUntilAt *time.Time, nowAt time.Time) string {
+func deriveCurrentState(banMode string, bannedUntilAt *time.Time, nextRetryAt *time.Time, nowAt time.Time) string {
 	if strings.EqualFold(strings.TrimSpace(banMode), "manual") {
 		return "banned"
 	}
-	if bannedUntilAt != nil && bannedUntilAt.After(nowAt) {
+	if bannedUntilAt != nil && bannedUntilAt.After(nowAt.UTC()) {
 		return "banned"
 	}
-	if blockedUntilAt == nil {
-		return "counting"
+	if nextRetryAt != nil && nextRetryAt.After(nowAt.UTC()) {
+		return "retry_wait"
 	}
-	if blockedUntilAt.After(nowAt) {
-		return "blocked"
-	}
-	return "probe_eligible"
+	return "available"
 }
 
-func describeEvent(eventType string, failureKind *string, consecutiveFailures int, cooldownSeconds float64, failureThreshold *int) EventSummary {
+func describeEvent(eventType string, failureKind *string, cycleRetryAttempts int, cumulativeRetryAttempts int, lastRetryDelayMS int) EventSummary {
 	failureLabel := "failure"
 	if failureKind != nil {
 		switch *failureKind {
 		case "transient_http":
-			failureLabel = "transient HTTP failure"
+			failureLabel = "retryable HTTP failure"
 		case "connect_error":
-			failureLabel = "connection error"
+			failureLabel = "transport failure"
 		case "timeout":
 			failureLabel = "timeout"
 		}
 	}
-	thresholdLabel := "the failover threshold"
-	if failureThreshold != nil {
-		thresholdLabel = fmt.Sprintf("the failover threshold of %d", *failureThreshold)
-	}
-	cooldownLabel := formatDuration(cooldownSeconds)
+	delayLabel := formatDurationMS(lastRetryDelayMS)
 	switch eventType {
-	case "max_cooldown_strike":
-		return EventSummary{Event: "Connection hit max open interval", Reason: fmt.Sprintf("The %s pushed the connection to the configured maximum open interval after %d consecutive failures.", failureLabel, consecutiveFailures), Operation: "Prism recorded a max-open strike so operators can track whether the connection should escalate into a ban.", Cooldown: cooldownLabel}
+	case "retry_scheduled":
+		return EventSummary{Event: "Retry was scheduled", Reason: fmt.Sprintf("The %s raised this retry cycle to %d attempts and the cumulative budget to %d attempts.", failureLabel, cycleRetryAttempts, cumulativeRetryAttempts), Operation: fmt.Sprintf("Prism paused this connection until the next retry window in %s.", delayLabel), Cooldown: delayLabel}
+	case "retry_exhausted":
+		return EventSummary{Event: "Retry cycle was exhausted", Reason: fmt.Sprintf("The %s exhausted the current retry cycle after %d attempts.", failureLabel, cycleRetryAttempts), Operation: fmt.Sprintf("Prism will wait %s before opening a new retry cycle for this connection.", delayLabel), Cooldown: delayLabel}
 	case "banned":
-		return EventSummary{Event: "Connection was banned", Reason: fmt.Sprintf("The %s reached the ban escalation threshold after %d consecutive failures.", failureLabel, consecutiveFailures), Operation: "Prism removed the connection from normal adaptive routing until the ban clears or an operator resets it.", Cooldown: cooldownLabel}
-	case "opened":
-		return EventSummary{Event: "Connection opened its circuit", Reason: fmt.Sprintf("The %s raised the streak to %d consecutive failures, meeting %s.", failureLabel, consecutiveFailures, thresholdLabel), Operation: fmt.Sprintf("Prism opened the circuit for %s before the connection becomes eligible for another probe attempt.", cooldownLabel), Cooldown: cooldownLabel}
-	case "extended":
-		return EventSummary{Event: "Circuit open interval was extended", Reason: fmt.Sprintf("Another %s happened before the active cooldown finished, and the streak is now %d consecutive failures.", failureLabel, consecutiveFailures), Operation: fmt.Sprintf("Prism kept the circuit open and restarted the recovery timer for %s.", cooldownLabel), Cooldown: cooldownLabel}
-	case "probe_eligible":
-		return EventSummary{Event: "Connection became probe eligible", Reason: fmt.Sprintf("The open interval after the last %s completed, so the connection can be checked again.", failureLabel), Operation: "Prism can let this connection receive another probe or traffic attempt to confirm whether it recovered.", Cooldown: cooldownLabel + " open interval completed"}
+		return EventSummary{Event: "Connection was banned", Reason: fmt.Sprintf("The %s pushed cumulative retry attempts to %d, exceeding the Ban Mode threshold.", failureLabel, cumulativeRetryAttempts), Operation: "Prism removed this connection globally until the ban expires or an operator resets it.", Cooldown: delayLabel}
+	case "unbanned":
+		return EventSummary{Event: "Connection was unbanned", Reason: "The temporary ban expired before the next runtime attempt.", Operation: "Prism returned the connection to global availability for models that share it.", Cooldown: "Ban expired"}
 	case "recovered":
-		return EventSummary{Event: "Connection recovered", Reason: fmt.Sprintf("The connection was marked healthy again after the last %s.", failureLabel), Operation: "Prism closed the circuit and returned the connection to normal adaptive routing.", Cooldown: "Recovered after a " + cooldownLabel + " open interval"}
+		return EventSummary{Event: "Connection recovered", Reason: fmt.Sprintf("A successful response cleared the last %s retry state.", failureLabel), Operation: "Prism reset retry counters and cleared any retry wait or ban for the shared connection.", Cooldown: "Recovered"}
+	case "admission_rejected":
+		return EventSummary{Event: "Admission was rejected", Reason: "The connection was rejected by QPS or in-flight admission limits.", Operation: "Prism skipped this attempt without advancing Ban Mode retry counters.", Cooldown: "Retry counters unchanged"}
 	default:
-		return EventSummary{Event: "Failure was recorded", Reason: fmt.Sprintf("The %s raised the streak to %d consecutive failures, which is still below %s.", failureLabel, consecutiveFailures, thresholdLabel), Operation: "Prism kept the connection available and only updated the runtime failure streak, so no circuit-open interval started.", Cooldown: "No open interval started"}
+		return EventSummary{Event: "Retry event was recorded", Reason: fmt.Sprintf("The connection has %d cycle retry attempts and %d cumulative retry attempts.", cycleRetryAttempts, cumulativeRetryAttempts), Operation: "Prism updated connection-global retry state.", Cooldown: delayLabel}
 	}
 }
 
-func formatDuration(seconds float64) string {
-	normalized := seconds
-	if normalized < 0 {
-		normalized = 0
+func formatDurationMS(milliseconds int) string {
+	if milliseconds <= 0 {
+		return "0 milliseconds"
 	}
-	if normalized == 1 {
+	if milliseconds == 1 {
+		return "1 millisecond"
+	}
+	if milliseconds < 1000 {
+		return fmt.Sprintf("%d milliseconds", milliseconds)
+	}
+	seconds := float64(milliseconds) / 1000
+	if seconds == 1 {
 		return "1 second"
 	}
-	if normalized == float64(int64(normalized)) {
-		return fmt.Sprintf("%d seconds", int64(normalized))
+	if seconds == float64(int64(seconds)) {
+		return fmt.Sprintf("%d seconds", int64(seconds))
 	}
-	return fmt.Sprintf("%.2f seconds", normalized)
+	return fmt.Sprintf("%.2f seconds", seconds)
 }
 
 func nullableString(value sql.NullString) *string {

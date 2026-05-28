@@ -23,15 +23,15 @@ function createProfile() {
 function createModelListItem(id: number, model_id: string, display_name: string) {
   return {
     id,
+    profile_id: 1,
     vendor_id: null,
     vendor: null,
     api_family: "openai",
     model_id,
     display_name,
-    model_type: "native",
-    proxy_targets: [],
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
+    access_targets: [],
     is_enabled: true,
     connection_count: 1,
     active_connection_count: 1,
@@ -42,38 +42,55 @@ function createModelListItem(id: number, model_id: string, display_name: string)
   };
 }
 
+function createConnection() {
+  return {
+    id: 501,
+    model_config_id: modelConfigId,
+    endpoint_id: 201,
+    endpoint: {
+      id: 201,
+      name: "Endpoint A",
+      base_url: "https://endpoint-a.example",
+      has_api_key: true,
+      masked_api_key: "••••",
+      position: 0,
+      created_at: timestamp,
+      updated_at: timestamp,
+    },
+    is_active: true,
+    priority: 0,
+    name: null,
+    auth_type: null,
+    custom_headers: null,
+    openai_probe_endpoint_variant: null,
+    pricing_template_id: null,
+    qps_limit: null,
+    max_in_flight_non_stream: null,
+    max_in_flight_stream: null,
+    pricing_template: null,
+    health_status: "healthy",
+    health_detail: null,
+    last_health_check: timestamp,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
 function createModelDetail() {
+  const connection = createConnection();
+
   return {
     ...createModelListItem(modelConfigId, modelId, "Model A"),
-    connections: [
+    access_targets: [
       {
-        id: 501,
-        model_config_id: modelConfigId,
-        endpoint_id: 201,
-        endpoint: {
-          id: 201,
-          name: "Endpoint A",
-          base_url: "https://endpoint-a.example",
-          has_api_key: true,
-          masked_api_key: "••••",
-          position: 0,
-          created_at: timestamp,
-          updated_at: timestamp,
-        },
-        is_active: true,
-        priority: 0,
-        name: null,
-        auth_type: null,
-        custom_headers: null,
-        openai_probe_endpoint_variant: null,
-        pricing_template_id: null,
-        qps_limit: null,
-        max_in_flight_non_stream: null,
-        max_in_flight_stream: null,
-        pricing_template: null,
-        health_status: "healthy",
-        health_detail: null,
-        last_health_check: timestamp,
+        id: 701,
+        target_type: "connection",
+        target_model_id: null,
+        connection_id: connection.id,
+        position: 0,
+        is_enabled: true,
+        target_model: null,
+        connection,
         created_at: timestamp,
         updated_at: timestamp,
       },
@@ -195,6 +212,7 @@ async function mockModelDetailRequestLogRoutes(page: Page) {
     }
     if (pathname === `/api/models/${modelConfigId}`) return fulfillJson(createModelDetail());
     if (pathname === "/api/endpoints") return fulfillJson([]);
+    if (pathname === "/api/connections") return fulfillJson([createConnection()]);
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([]);
     if (pathname === "/api/pricing-templates") return fulfillJson([]);
     if (pathname === "/api/vendors") return fulfillJson([]);

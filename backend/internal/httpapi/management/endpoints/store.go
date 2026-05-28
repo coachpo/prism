@@ -164,7 +164,12 @@ func listConnectionDropdownItems(ctx context.Context, exec queryExecutor, profil
 }
 
 func listEndpointUsageRows(ctx context.Context, exec queryExecutor, profileID int, endpointID int) ([]endpointUsageConnection, error) {
-	rows, err := exec.Query(ctx, `SELECT connections.id, connections.model_config_id, model_configs.model_id, connections.name FROM connections LEFT JOIN model_configs ON model_configs.id = connections.model_config_id WHERE connections.profile_id = $1 AND connections.endpoint_id = $2 ORDER BY connections.id ASC`, profileID, endpointID)
+	rows, err := exec.Query(ctx, `SELECT connections.id, model_access_targets.source_model_config_id, model_configs.model_id, connections.name
+		FROM connections
+		LEFT JOIN model_access_targets ON model_access_targets.profile_id = connections.profile_id AND model_access_targets.target_connection_id = connections.id
+		LEFT JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id AND model_configs.profile_id = connections.profile_id
+		WHERE connections.profile_id = $1 AND connections.endpoint_id = $2
+		ORDER BY connections.id ASC, model_access_targets.source_model_config_id ASC`, profileID, endpointID)
 	if err != nil {
 		return nil, fmt.Errorf("query endpoint usage rows for endpoint %d: %w", endpointID, err)
 	}
@@ -173,11 +178,13 @@ func listEndpointUsageRows(ctx context.Context, exec queryExecutor, profileID in
 	items := make([]endpointUsageConnection, 0)
 	for rows.Next() {
 		var item endpointUsageConnection
+		var modelConfigID sql.NullInt32
 		var modelID sql.NullString
 		var name sql.NullString
-		if err := rows.Scan(&item.ConnectionID, &item.ModelConfigID, &modelID, &name); err != nil {
+		if err := rows.Scan(&item.ConnectionID, &modelConfigID, &modelID, &name); err != nil {
 			return nil, fmt.Errorf("scan endpoint usage row: %w", err)
 		}
+		item.ModelConfigID = nullableInt32(modelConfigID)
 		item.ModelID = nullableStringValue(modelID)
 		item.Name = nullableStringValue(name)
 		items = append(items, item)
@@ -232,6 +239,14 @@ func nullableStringValue(value sql.NullString) *string {
 		return nil
 	}
 	resolved := value.String
+	return &resolved
+}
+
+func nullableInt32(value sql.NullInt32) *int {
+	if !value.Valid {
+		return nil
+	}
+	resolved := int(value.Int32)
 	return &resolved
 }
 

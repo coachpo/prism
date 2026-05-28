@@ -70,7 +70,7 @@ type deletedResponse struct {
 
 type endpointUsageConnection struct {
 	ConnectionID  int
-	ModelConfigID int
+	ModelConfigID *int
 	ModelID       *string
 	Name          *string
 }

@@ -210,11 +210,11 @@ func (s *Service) handleImportVendorCatalog(w http.ResponseWriter, r *http.Reque
 }
 
 func profileExportFilename(exportTime time.Time) string {
-	return fmt.Sprintf("prism-profile-config-v%d-%s.json", canonicalBundleVersion, exportTime.UTC().Format("2006-01-02"))
+	return fmt.Sprintf("prism-profile-config-v%d-%s.json", canonicalProfileBundleVersion, exportTime.UTC().Format("2006-01-02"))
 }
 
 func vendorExportFilename(exportTime time.Time) string {
-	return fmt.Sprintf("prism-vendor-catalog-v%d-%s.json", canonicalBundleVersion, exportTime.UTC().Format("2006-01-02"))
+	return fmt.Sprintf("prism-vendor-catalog-v%d-%s.json", canonicalVendorCatalogVersion, exportTime.UTC().Format("2006-01-02"))
 }
 
 func buildProfilePreviewErrorResponse(data profileImportRequest, detail string) profileImportPreviewResponse {
@@ -238,7 +238,9 @@ func decodeJSONBody(request *http.Request, target any) error {
 	defer func() {
 		_ = request.Body.Close()
 	}()
-	return json.NewDecoder(request.Body).Decode(target)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(target)
 }
 
 func writeDownloadJSON(w http.ResponseWriter, statusCode int, payload any, filename string) {

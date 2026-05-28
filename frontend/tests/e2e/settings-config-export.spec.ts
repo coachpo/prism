@@ -56,15 +56,15 @@ function createRetentionSettings() {
 function createModelListItem() {
   return {
     id: 1,
+    profile_id: 1,
     vendor_id: null,
     vendor: null,
     api_family: "openai",
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
-    model_type: "native",
-    proxy_targets: [],
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
+    access_targets: [],
     is_enabled: true,
     connection_count: 0,
     active_connection_count: 0,
@@ -77,7 +77,7 @@ function createModelListItem() {
 
 function createSafeExportBundle() {
   return {
-    version: 1 as const,
+    version: 2 as const,
     bundle_kind: "profile_config" as const,
     exported_at: `${fixedDate}T12:00:00Z`,
     vendor_refs: [],
@@ -90,6 +90,7 @@ function createSafeExportBundle() {
       },
     ],
     pricing_templates: [],
+    connections: [],
     loadbalance_strategies: [],
     models: [],
     profile_settings: {
@@ -111,7 +112,7 @@ function createSafeExportBundle() {
 
 function createDangerousExportBundle() {
   return {
-    version: 1 as const,
+    version: 2 as const,
     bundle_kind: "profile_config" as const,
     exported_at: `${fixedDate}T12:00:00Z`,
     vendor_refs: [],
@@ -124,6 +125,7 @@ function createDangerousExportBundle() {
       },
     ],
     pricing_templates: [],
+    connections: [],
     loadbalance_strategies: [],
     models: [],
     profile_settings: {
@@ -277,7 +279,7 @@ test("profile safe export uses the redacted route and synthesizes the filename l
   );
 
   expect(capture).not.toBeNull();
-  expect(capture?.download).toBe(`prism-profile-config-v1-${fixedDate}.json`);
+  expect(capture?.download).toBe(`prism-profile-config-v2-${fixedDate}.json`);
   expect(capture?.download).not.toBe("server-safe-name.json");
   expect(capture?.href.startsWith("blob:")).toBe(true);
 });
@@ -308,7 +310,7 @@ test("profile dangerous export stays disabled until acknowledged and uses the da
   );
 
   expect(capture).not.toBeNull();
-  expect(capture?.download).toBe(`prism-profile-config-with-secrets-v1-${fixedDate}.json`);
+  expect(capture?.download).toBe(`prism-profile-config-with-secrets-v2-${fixedDate}.json`);
   expect(capture?.download).not.toBe("server-dangerous-name.json");
   expect(capture?.href.startsWith("blob:")).toBe(true);
 });

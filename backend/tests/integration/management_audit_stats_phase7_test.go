@@ -333,7 +333,7 @@ func TestManagementDashboardStatsRouteReturnsAggregateSnapshot(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode dashboard aggregate response: %v", err)
 	}
-	for _, key := range []string{"generated_at", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "strategy_family_summary", "recent_requests", "top_spending_models", "routing_health_map"} {
+	for _, key := range []string{"generated_at", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "recent_requests", "top_spending_models", "routing_health_map"} {
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("expected aggregate dashboard field %q, got %+v", key, payload)
 		}

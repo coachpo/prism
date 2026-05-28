@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -48,7 +49,7 @@ func TestModelResolutionAndRewriteHelpers(t *testing.T) {
 
 func TestBuildRequestPlanCarriesOperation(t *testing.T) {
 	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-public", ModelType: "native"})
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-public"})
 	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-public:generateContent", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
@@ -71,7 +72,7 @@ func TestBuildRequestPlanCarriesOperation(t *testing.T) {
 
 func TestBuildRequestPlanClassifiesGeminiStreamingByOperation(t *testing.T) {
 	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-public", ModelType: "native"})
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-public"})
 
 	tests := []struct {
 		name       string
@@ -113,8 +114,8 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 	t.Run("path-bound operation rewrites only path model", func(t *testing.T) {
 		service := newRequestPlanUnitService()
 		snapshot := newRequestPlanSnapshot(
-			runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "public-gemini", ModelType: "proxy", ProxySelectionStrategy: proxySelectionStrategyOrderedFallback},
-			runtimeModelRecord{ID: 2, APIFamily: "gemini", ModelID: "target-gemini", ModelType: "native"},
+			runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "public-gemini"},
+			runtimeModelRecord{ID: 2, APIFamily: "gemini", ModelID: "target-gemini"},
 		)
 		addRequestPlanProxyTarget(snapshot, "public-gemini", "target-gemini")
 		rawBody := []byte(`{"model":"body-should-not-change","contents":[]}`)
@@ -137,33 +138,70 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 		}
 	})
 
-	t.Run("body-bound operation rewrites only body model", func(t *testing.T) {
-		service := newRequestPlanUnitService()
-		snapshot := newRequestPlanSnapshot(
-			runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai", ModelType: "proxy", ProxySelectionStrategy: proxySelectionStrategyOrderedFallback},
-			runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "target-openai", ModelType: "native"},
-		)
-		addRequestPlanProxyTarget(snapshot, "public-openai", "target-openai")
-		rawBody := []byte(`{"model":"public-openai","messages":[]}`)
-		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-		if err != nil {
-			t.Fatalf("build request plan: %v", err)
+	t.Run("body-bound operations rewrite deepest final target", func(t *testing.T) {
+		tests := []struct {
+			name        string
+			apiFamily   string
+			path        string
+			rawBody     []byte
+			publicModel string
+			targetModel string
+		}{
+			{
+				name:        "OpenAI Chat Completions",
+				apiFamily:   "openai",
+				path:        "/v1/chat/completions",
+				rawBody:     []byte(`{"model":"public-openai-chat","messages":[]}`),
+				publicModel: "public-openai-chat",
+				targetModel: "target-openai-chat",
+			},
+			{
+				name:        "OpenAI Responses",
+				apiFamily:   "openai",
+				path:        "/v1/responses",
+				rawBody:     []byte(`{"model":"public-openai-responses","input":"hello"}`),
+				publicModel: "public-openai-responses",
+				targetModel: "target-openai-responses",
+			},
+			{
+				name:        "Anthropic Messages",
+				apiFamily:   "anthropic",
+				path:        "/v1/messages",
+				rawBody:     []byte(`{"model":"public-anthropic","messages":[],"max_tokens":16}`),
+				publicModel: "public-anthropic",
+				targetModel: "target-anthropic",
+			},
 		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				service := newRequestPlanUnitService()
+				snapshot := newRequestPlanSnapshot(
+					runtimeModelRecord{ID: 1, APIFamily: test.apiFamily, ModelID: test.publicModel},
+					runtimeModelRecord{ID: 2, APIFamily: test.apiFamily, ModelID: "mid-" + test.publicModel},
+					runtimeModelRecord{ID: 3, APIFamily: test.apiFamily, ModelID: test.targetModel},
+				)
+				addRequestPlanProxyTarget(snapshot, test.publicModel, "mid-"+test.publicModel)
+				addRequestPlanProxyTarget(snapshot, "mid-"+test.publicModel, test.targetModel)
+				request := httptest.NewRequest(http.MethodPost, test.path, nil)
+				operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
-		if plan.EffectiveRequestPath != "/v1/chat/completions" {
-			t.Fatalf("expected body-bound operation to leave path unchanged, got %q", plan.EffectiveRequestPath)
-		}
-		if got := extractModelFromBody(plan.UpstreamBody); got != "target-openai" {
-			t.Fatalf("expected rewritten body model target-openai, got %q in %s", got, string(plan.UpstreamBody))
+				plan, err := service.buildRequestPlanFromSnapshot(request, test.rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+				if err != nil {
+					t.Fatalf("build request plan: %v", err)
+				}
+				if plan.EffectiveRequestPath != test.path {
+					t.Fatalf("expected body-bound operation to leave path unchanged, got %q", plan.EffectiveRequestPath)
+				}
+				if got := extractModelFromBody(plan.UpstreamBody); got != test.targetModel {
+					t.Fatalf("expected rewritten body model %q, got %q in %s", test.targetModel, got, string(plan.UpstreamBody))
+				}
+			})
 		}
 	})
 
 	t.Run("operation api family must match resolved target", func(t *testing.T) {
 		service := newRequestPlanUnitService()
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-native", ModelType: "native"})
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-native"})
 		rawBody := []byte(`{"model":"gemini-native","messages":[]}`)
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
@@ -174,7 +212,7 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 
 	t.Run("unsupported model-binding source fails before model fallback", func(t *testing.T) {
 		service := newRequestPlanUnitService()
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o", ModelType: "native"})
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
 		rawBody := []byte(`{"model":"gpt-4o","messages":[]}`)
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		operationMatch := RuntimeOperationMatch{Operation: RuntimeOperation{
@@ -192,7 +230,7 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 
 	t.Run("generic OpenAI v1 path is not a planning fallback", func(t *testing.T) {
 		service := newRequestPlanUnitService()
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o", ModelType: "native"})
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
 		rawBody := []byte(`{"model":"gpt-4o"}`)
 		request := httptest.NewRequest(http.MethodPost, "/v1/models", nil)
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
@@ -200,6 +238,140 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 		_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 		assertPlanDomainError(t, err, http.StatusNotFound, runtimeOperationNotFoundDetail)
 	})
+}
+
+func TestUnifiedModelRoutingResolvesDirectOneHopAndMultiHop(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "mid-openai"},
+		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "target-openai"},
+	)
+	addRequestPlanProxyTarget(snapshot, "public-openai", "mid-openai")
+	addRequestPlanProxyTarget(snapshot, "mid-openai", "target-openai")
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"public-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build multi-hop request plan: %v", err)
+	}
+	if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "target-openai" {
+		t.Fatalf("expected multi-hop final target target-openai, got %+v", plan.ResolvedTargetModelID)
+	}
+	if got := extractModelFromBody(plan.UpstreamBody); got != "target-openai" {
+		t.Fatalf("expected upstream body to target deepest model, got %q", got)
+	}
+
+	directSnapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 4, APIFamily: "openai", ModelID: "direct-openai"})
+	directPlan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"direct-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, directSnapshot)
+	if err != nil {
+		t.Fatalf("build direct request plan: %v", err)
+	}
+	if directPlan.ResolvedTargetModelID == nil || *directPlan.ResolvedTargetModelID != "direct-openai" || len(directPlan.Connections) != 1 {
+		t.Fatalf("expected direct model to resolve to its own connection, got target=%+v connections=%d", directPlan.ResolvedTargetModelID, len(directPlan.Connections))
+	}
+}
+
+func TestRuntimePlanningEmitsOrderedTerminalAttemptsAcrossModelTargets(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-terminal-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "first-terminal-openai"},
+		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "second-terminal-openai"},
+	)
+	snapshot.AccessTargetsBySourceModelID[1] = nil
+	addRequestPlanModelTargetAtPosition(snapshot, "public-terminal-openai", "first-terminal-openai", 0)
+	addRequestPlanModelTargetAtPosition(snapshot, "public-terminal-openai", "second-terminal-openai", 1)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"public-terminal-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build terminal-attempt plan: %v", err)
+	}
+	if len(plan.TerminalAttempts) != 2 || len(plan.Connections) != 2 {
+		t.Fatalf("expected two ordered terminal attempts and connections, got attempts=%d connections=%d", len(plan.TerminalAttempts), len(plan.Connections))
+	}
+	if got := plan.TerminalAttempts[0].TargetModel.ModelID; got != "first-terminal-openai" {
+		t.Fatalf("expected first terminal attempt to target first-terminal-openai, got %q", got)
+	}
+	if got := plan.TerminalAttempts[1].TargetModel.ModelID; got != "second-terminal-openai" {
+		t.Fatalf("expected second terminal attempt to target second-terminal-openai, got %q", got)
+	}
+	if got := extractModelFromBody(plan.TerminalAttempts[1].UpstreamBody); got != "second-terminal-openai" {
+		t.Fatalf("expected second terminal attempt body rewrite to second-terminal-openai, got %q", got)
+	}
+}
+
+func TestRuntimePlanningRoundRobinCursorScopesToImmediateEnabledTargetSet(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "rr-openai"})
+	model := snapshot.ModelsByID["rr-openai"]
+	roundRobin := "round-robin"
+	strategy := snapshot.StrategiesByModelID[model.ID]
+	strategy.LegacyStrategyType = &roundRobin
+	snapshot.StrategiesByModelID[model.ID] = strategy
+	addRequestPlanConnectionTarget(snapshot, model, 2_001, 2, 1)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	first, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"rr-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build first round-robin plan: %v", err)
+	}
+	second, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"rr-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build second round-robin plan: %v", err)
+	}
+	if first.Connections[0].ID == second.Connections[0].ID {
+		t.Fatalf("expected round-robin to rotate immediate targets, got %d twice", first.Connections[0].ID)
+	}
+
+	addRequestPlanConnectionTarget(snapshot, model, 3_001, 3, 2)
+	reset, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"rr-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build reset round-robin plan: %v", err)
+	}
+	if reset.Connections[0].ID != first.Connections[0].ID {
+		t.Fatalf("expected changed enabled target set hash to reset cursor to %d, got %d", first.Connections[0].ID, reset.Connections[0].ID)
+	}
+}
+
+func TestRuntimePlanningCycleAndNoEligibleTargetsFailDeterministically(t *testing.T) {
+	service := newRequestPlanUnitService()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	noTargets := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "empty-openai"})
+	noTargets.AccessTargetsBySourceModelID[1] = nil
+	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"empty-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, noTargets)
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'empty-openai'.")
+
+	cycle := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "cycle-a"},
+		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "cycle-b"},
+	)
+	addRequestPlanProxyTarget(cycle, "cycle-a", "cycle-b")
+	addRequestPlanProxyTarget(cycle, "cycle-b", "cycle-a")
+	_, err = service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"cycle-a","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, cycle)
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "cycle detected")
+}
+
+func TestRuntimePlanningDepthOverflowFailsDeterministically(t *testing.T) {
+	service := newRequestPlanUnitService()
+	models := make([]runtimeModelRecord, 0, runtimeAccessResolverMaxDepth+3)
+	for i := 0; i < runtimeAccessResolverMaxDepth+3; i++ {
+		models = append(models, runtimeModelRecord{ID: i + 1, APIFamily: "openai", ModelID: fmt.Sprintf("depth-%02d", i)})
+	}
+	snapshot := newRequestPlanSnapshot(models...)
+	for i := 0; i < len(models)-1; i++ {
+		addRequestPlanProxyTarget(snapshot, models[i].ModelID, models[i+1].ModelID)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"depth-00","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "exceeded maximum depth of 32")
 }
 
 func TestHeaderHelpers(t *testing.T) {
@@ -762,12 +934,12 @@ func TestNewRuntimeHTTPClientUsesTransportDefaultsAndOverrides(t *testing.T) {
 func TestRuntimeProxyConfigProviderUpdatesNewPlansAndKeepsExistingPlanClient(t *testing.T) {
 	oldClient := &http.Client{Timeout: 17 * time.Second}
 	newClient := &http.Client{Timeout: 23 * time.Second}
-	provider := &mutableRuntimeProxyConfigProvider{snapshot: RuntimeProxyConfigSnapshot{BufferingMode: config.RuntimeBufferingModeBuffered, HTTPClient: oldClient}}
+	provider := &mutableRuntimeProxyConfigProvider{snapshot: RuntimeProxyConfigSnapshot{HTTPClient: oldClient}}
 	service := &Service{runtimeProxyConfigProvider: provider}
 
 	oldSnapshot := service.runtimeProxyConfigSnapshot()
 	oldPlan := requestPlan{HTTPClient: oldSnapshot.HTTPClient}
-	provider.snapshot = RuntimeProxyConfigSnapshot{BufferingMode: config.RuntimeBufferingModeBuffered, HTTPClient: newClient}
+	provider.snapshot = RuntimeProxyConfigSnapshot{HTTPClient: newClient}
 	newSnapshot := service.runtimeProxyConfigSnapshot()
 	newPlan := requestPlan{HTTPClient: newSnapshot.HTTPClient}
 
@@ -776,6 +948,27 @@ func TestRuntimeProxyConfigProviderUpdatesNewPlansAndKeepsExistingPlanClient(t *
 	}
 	if newPlan.HTTPClient != newClient || newPlan.HTTPClient.Timeout != 23*time.Second {
 		t.Fatalf("expected new plan to use updated client snapshot, got %+v", newPlan.HTTPClient)
+	}
+}
+
+func TestRuntimeProxyConfigProviderDoesNotRequireBufferingMode(t *testing.T) {
+	client := &http.Client{Timeout: 19 * time.Second}
+	provider := &mutableRuntimeProxyConfigProvider{snapshot: RuntimeProxyConfigSnapshot{HTTPClient: client}}
+	service := &Service{runtimeProxyConfigProvider: provider}
+
+	snapshot := service.runtimeProxyConfigSnapshot()
+	if snapshot.HTTPClient != client {
+		t.Fatalf("expected runtime proxy snapshot to carry HTTP client only, got %+v", snapshot.HTTPClient)
+	}
+
+	snapshotType := reflect.TypeOf(snapshot)
+	for _, name := range []string{"BufferingMode", "bufferingMode"} {
+		if _, ok := snapshotType.FieldByName(name); ok {
+			t.Fatalf("%s still exposes %s", snapshotType.Name(), name)
+		}
+		if _, ok := snapshotType.MethodByName(name); ok {
+			t.Fatalf("%s still exposes %s()", snapshotType.Name(), name)
+		}
 	}
 }
 
@@ -1109,12 +1302,13 @@ func newRequestPlanUnitService() *Service {
 func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 	strategyID := requestPlanTestStrategyID
 	legacyStrategyType := "fill-first"
-	strategy := loadbalance.RuntimeStrategy{ID: strategyID, Name: "test legacy", StrategyType: "legacy", LegacyStrategyType: &legacyStrategyType}
+	strategy := loadbalance.RuntimeStrategy{ID: strategyID, Name: "test legacy", LegacyStrategyType: &legacyStrategyType}
 	snapshot := &planningSnapshot{
-		ModelsByID:             map[string]runtimeModelRecord{},
-		ProxyTargetsBySourceID: map[int][]runtimeProxyTargetRecord{},
-		NativeTargetsByModelID: map[string]nativePlanningSnapshot{},
-		ReportCurrency:         runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		ModelsByID:                   map[string]runtimeModelRecord{},
+		AccessTargetsBySourceModelID: map[int][]runtimeAccessTargetRecord{},
+		ConnectionsByID:              map[int]runtimeConnection{},
+		StrategiesByModelID:          map[int]loadbalance.RuntimeStrategy{},
+		ReportCurrency:               runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
 	}
 	for index, model := range models {
 		if model.ID == 0 {
@@ -1123,42 +1317,81 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 		if model.ProfileID == 0 {
 			model.ProfileID = requestPlanTestProfileID
 		}
-		if strings.TrimSpace(model.ModelType) == "" {
-			model.ModelType = "native"
-		}
-		if model.ModelType == "native" && model.LoadbalanceStrategyID == nil {
+		if model.LoadbalanceStrategyID == nil {
 			model.LoadbalanceStrategyID = &strategyID
 		}
 		snapshot.ModelsByID[model.ModelID] = model
-		if model.ModelType != "native" {
-			continue
+		snapshot.StrategiesByModelID[model.ID] = strategy
+		connectionID := 1_000 + model.ID
+		snapshot.ConnectionsByID[connectionID] = runtimeConnection{
+			ID:            connectionID,
+			ProfileID:     model.ProfileID,
+			APIFamily:     model.APIFamily,
+			ModelConfigID: model.ID,
+			EndpointID:    1,
+			Priority:      1,
+			Endpoint:      runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
 		}
-		snapshot.NativeTargetsByModelID[model.ModelID] = nativePlanningSnapshot{
-			Model:    model,
-			Strategy: &strategy,
-			Connections: []runtimeConnection{{
-				ID:            1_000 + model.ID,
-				ProfileID:     model.ProfileID,
-				ModelConfigID: model.ID,
-				EndpointID:    1,
-				Priority:      1,
-				Endpoint:      runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
-			}},
-		}
+		snapshot.AccessTargetsBySourceModelID[model.ID] = []runtimeAccessTargetRecord{{
+			ID:                        connectionID,
+			ProfileID:                 model.ProfileID,
+			SourceModelConfigID:       model.ID,
+			TargetType:                runtimeAccessTargetTypeConnection,
+			TargetConnectionID:        intPtr(connectionID),
+			TargetConnectionProfileID: model.ProfileID,
+			TargetConnectionAPIFamily: model.APIFamily,
+			Position:                  0,
+			IsEnabled:                 true,
+		}}
 	}
 	return snapshot
 }
 
 func addRequestPlanProxyTarget(snapshot *planningSnapshot, proxyModelID string, targetModelID string) {
 	proxyModel := snapshot.ModelsByID[proxyModelID]
-	snapshot.ProxyTargetsBySourceID[proxyModel.ID] = []runtimeProxyTargetRecord{{
-		SourceModelConfigID: proxyModel.ID,
-		TargetModelID:       targetModelID,
-		ID:                  1,
-		Position:            1,
-		Weight:              1,
-		TargetPriority:      1,
-	}}
+	snapshot.AccessTargetsBySourceModelID[proxyModel.ID] = nil
+	addRequestPlanModelTargetAtPosition(snapshot, proxyModelID, targetModelID, 0)
+}
+
+func addRequestPlanModelTargetAtPosition(snapshot *planningSnapshot, proxyModelID string, targetModelID string, position int) {
+	proxyModel := snapshot.ModelsByID[proxyModelID]
+	targetModel := snapshot.ModelsByID[targetModelID]
+	snapshot.AccessTargetsBySourceModelID[proxyModel.ID] = append(snapshot.AccessTargetsBySourceModelID[proxyModel.ID], runtimeAccessTargetRecord{
+		ID:                   10_000 + targetModel.ID,
+		ProfileID:            proxyModel.ProfileID,
+		SourceModelConfigID:  proxyModel.ID,
+		TargetType:           runtimeAccessTargetTypeModel,
+		TargetModelConfigID:  intPtr(targetModel.ID),
+		TargetModelID:        targetModel.ModelID,
+		TargetModelProfileID: targetModel.ProfileID,
+		TargetModelAPIFamily: targetModel.APIFamily,
+		TargetModelEnabled:   true,
+		Position:             position,
+		IsEnabled:            true,
+	})
+}
+
+func addRequestPlanConnectionTarget(snapshot *planningSnapshot, model runtimeModelRecord, connectionID int, targetID int, position int) {
+	snapshot.ConnectionsByID[connectionID] = runtimeConnection{
+		ID:            connectionID,
+		ProfileID:     model.ProfileID,
+		APIFamily:     model.APIFamily,
+		ModelConfigID: model.ID,
+		EndpointID:    1,
+		Priority:      position,
+		Endpoint:      runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
+	}
+	snapshot.AccessTargetsBySourceModelID[model.ID] = append(snapshot.AccessTargetsBySourceModelID[model.ID], runtimeAccessTargetRecord{
+		ID:                        targetID,
+		ProfileID:                 model.ProfileID,
+		SourceModelConfigID:       model.ID,
+		TargetType:                runtimeAccessTargetTypeConnection,
+		TargetConnectionID:        intPtr(connectionID),
+		TargetConnectionProfileID: model.ProfileID,
+		TargetConnectionAPIFamily: model.APIFamily,
+		Position:                  position,
+		IsEnabled:                 true,
+	})
 }
 
 func mustResolveRuntimeOperation(t *testing.T, method string, requestPath string) RuntimeOperationMatch {

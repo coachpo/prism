@@ -25,7 +25,6 @@
     }
   },
   "runtime": {
-    "bufferingMode": "buffered",
     "transport": {
       "maxIdleConns": 100,
       "maxIdleConnsPerHost": 8,

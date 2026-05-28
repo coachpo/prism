@@ -1,7 +1,7 @@
 # FRONTEND LIB KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, frontend-side import validation, dual-family loadbalance mirror, selected-profile keyed reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
+`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, frontend-side import validation, legacy Ban Policy loadbalance mirror, selected-profile keyed reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
 
 ## STRUCTURE
 ```
@@ -62,8 +62,8 @@ lib/
 - `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
 - Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
 - `referenceData.ts` and `referenceDataRegistry.ts` own shared cache reuse, request dedupe, and revision-keyed lookup invalidation.
-- `configImportValidation.ts` owns frontend-side mirrored validation of config import contracts, including family-specific legacy/adaptive strategy data, inactive-side `null` fields from backend export, and vendor `icon_key` presence, instead of leaving that logic in page components.
-- `loadbalanceRoutingPolicy.ts` owns dual-family defaults, adaptive objective labels, full-policy preservation helpers, and normalized failure-status or ban-policy handling.
+- `configImportValidation.ts` owns frontend-side mirrored validation of config import contracts, including config-bundle v2 top-level connections, ordered model access targets, legacy Ban Policy strategy data, and vendor `icon_key` presence, instead of leaving that logic in page components.
+- `loadbalanceRoutingPolicy.ts` owns legacy Ban Policy defaults, retry-window labels, and normalized failure-status or ban-policy handling.
 - `appVersion.ts` owns the browser-facing frontend version contract so shell chrome reads the synced `frontend/package.json` version through Vite instead of hard-coded literals.
 - `reportingCurrency.ts` owns selected-profile keyed cache reuse, active-currency sync, `prime()` or `refresh()` support, fail-open defaults, and normalization of `report_currency_code` or `report_currency_symbol` used by `ReportingCurrencyContext.tsx`, settings, and costing.
 - `websocket.ts` owns the singleton client; `websocket/AGENTS.md` owns protocol parsing, subscription bookkeeping, and reconnect transport helpers, while shared React consumers should prefer `useRealtimeData()`.

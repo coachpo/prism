@@ -48,11 +48,11 @@ prism/
 - `backend/internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and maintenance-job creation seams.
 - `backend/internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
 - `backend/internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registration, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
-- `backend/internal/httpapi/management/connections/AGENTS.md`: selected-profile model connection management, inline endpoint creation, health checks, and pricing templates.
+- `backend/internal/httpapi/management/connections/AGENTS.md`: selected-profile standalone connection management, target-route attachment seams, health checks, and pricing templates.
 - `backend/internal/httpapi/management/configrules/AGENTS.md`: selected-profile header-blocklist and user-agent/client mapping rules under `/api/config/*`.
 - `backend/internal/httpapi/management/endpoints/AGENTS.md`: selected-profile endpoint CRUD, encrypted API keys, ordering, and connection dropdown support.
 - `backend/internal/httpapi/management/loadbalance/AGENTS.md`: selected-profile load-balance strategy CRUD, canonical defaults, current state, and event reads.
-- `backend/internal/httpapi/management/models/AGENTS.md`: selected-profile native and proxy model CRUD plus endpoint model lookups.
+- `backend/internal/httpapi/management/models/AGENTS.md`: selected-profile model CRUD, ordered access targets, standalone connection references, and endpoint model lookups.
 - `backend/internal/httpapi/management/profiles/AGENTS.md`: profile lifecycle, active/bootstrap state, activation checks, and soft deletion.
 - `backend/internal/httpapi/management/stats/AGENTS.md`: selected-profile observability reads, request logs, dashboard snapshots, metrics, and invalidation.
 - `backend/internal/httpapi/management/vendors/AGENTS.md`: global vendor catalog CRUD, presentation metadata, audit preferences, and model usage lookup.
@@ -78,7 +78,7 @@ prism/
 - The runtime contract is operation-registered. Supported routes are allowlisted in `backend/internal/httpapi/runtime/operations.go`, and unsupported or wrong-method requests reject before provider transport, telemetry, audit, feedback, or durable runtime side effects.
 - Runtime request extraction, non-stream parsing, stream terminal classification, media multipart handling, and token-count behavior are split across `operation_request_hooks.go`, `operation_response_hooks.go`, `operation_stream_hooks.go`, and `operation_media_hooks.go` beside the shared runtime executor.
 - `operation_name` is persisted in `request_logs` and `usage_request_events`, and the route matrix plus hook residency are regression-backed in backend runtime tests.
-- Plaintext bootstrap startup is file-backed. Backend-owned canonical defaults are the source of truth for fresh seeds: `0.0.0.0:8000`, CORS `5173`, pool total `24`, split `4/8/4/2/2/2/2`, buffering `streaming`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`. Existing valid files are preserved until manual reset by stop, remove or relocate, and restart.
+- Plaintext bootstrap startup is file-backed. Backend-owned canonical defaults are the source of truth for fresh seeds: `0.0.0.0:8000`, CORS `5173`, pool total `24`, split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`. Runtime buffering is automatic and internal. Existing valid files are preserved until manual reset by stop, remove or relocate, and restart.
 - Mail delivery is bootstrap-managed and disabled by default. Enabled SMTP validates at startup; invalid enabled mail config must fail rather than falling back to no-op delivery.
 - Backend database capacity is split into named lanes for runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs. Background or management work must not borrow protected proxy capacity.
 - Partitioned log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; runtime writers ensure daily partitions, and the low-priority platform worker maintains a 15-day horizon.

@@ -8,41 +8,48 @@ import (
 	"time"
 )
 
-func TestConnectionOwners(t *testing.T) {
+func TestConnectionStandaloneCRUD(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
-	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Connection Strategy")
-	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-connection-model", nil, "native", &strategyID, true)
 	endpointAID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Endpoint A", 0)
 	endpointBID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Endpoint B", 1)
 	pricingTemplateID := insertContractPricingTemplate(t, harness, defaultProfileID, "S9 Connection Pricing")
 
-	priorityOnCreate := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointAID, "priority": 0}, modelHeader(defaultProfileID))
+	priorityOnCreate := harness.requestJSON(t, harness.client, http.MethodPost, "/api/connections", map[string]any{"api_family": "openai", "endpoint_id": endpointAID, "priority": 0}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, priorityOnCreate, http.StatusUnprocessableEntity, "priority is not allowed on create")
+	missingFamily := harness.requestJSON(t, harness.client, http.MethodPost, "/api/connections", map[string]any{"endpoint_id": endpointAID}, modelHeader(defaultProfileID))
+	assertErrorResponse(t, missingFamily, http.StatusBadRequest, "api_family is required")
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointAID, "is_active": true, "name": "Primary Connection", "auth_type": "openai", "custom_headers": map[string]string{"x-test": "1"}, "qps_limit": 3}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/connections", map[string]any{"api_family": "openai", "endpoint_id": endpointAID, "is_active": true, "name": "Primary Connection", "auth_type": "openai", "custom_headers": map[string]string{"x-test": "1"}, "qps_limit": 3}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
 	connectionID := jsonInt(t, created["id"])
-	if jsonInt(t, created["endpoint_id"]) != endpointAID || jsonInt(t, created["priority"]) != 0 || created["health_status"] != "unknown" {
-		t.Fatalf("expected created connection payload with appended priority, got %+v", created)
+	if _, ok := created["model_config_id"]; ok {
+		t.Fatalf("standalone connection payload must not expose model ownership, got %+v", created)
+	}
+	if created["api_family"] != "openai" || jsonInt(t, created["endpoint_id"]) != endpointAID || jsonInt(t, created["priority"]) != 0 || created["health_status"] != "unknown" {
+		t.Fatalf("expected created standalone connection payload, got %+v", created)
 	}
 	if asMap(t, created["custom_headers"])["x-test"] != "1" || created["openai_probe_endpoint_variant"] != "responses_minimal" {
 		t.Fatalf("expected created connection to preserve headers and default OpenAI probe variant, got %+v", created)
 	}
 
-	inlineCreate := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_create": map[string]any{"name": "Inline Endpoint", "base_url": "https://inline.invalid/", "api_key": "sk-inline"}, "is_active": true, "name": "Inline Connection", "openai_probe_endpoint_variant": "chat_completions_minimal"}, modelHeader(defaultProfileID))
+	inlineCreate := harness.requestJSON(t, harness.client, http.MethodPost, "/api/connections", map[string]any{"api_family": "openai", "endpoint_create": map[string]any{"name": "Inline Endpoint", "base_url": "https://inline.invalid/", "api_key": "sk-inline"}, "is_active": true, "name": "Inline Connection", "openai_probe_endpoint_variant": "chat_completions_minimal"}, modelHeader(defaultProfileID))
 	assertStatus(t, inlineCreate, http.StatusCreated)
 	var inlineCreated map[string]any
 	decodeJSONResponse(t, inlineCreate, &inlineCreated)
 	inlineConnectionID := jsonInt(t, inlineCreated["id"])
-	if jsonInt(t, inlineCreated["priority"]) != 1 || created["id"] == inlineCreated["id"] {
-		t.Fatalf("expected inline connection create to append after the first connection, got %+v", inlineCreated)
+	if created["id"] == inlineCreated["id"] || asMap(t, inlineCreated["endpoint"])["name"] != "Inline Endpoint" || inlineCreated["openai_probe_endpoint_variant"] != "chat_completions_minimal" {
+		t.Fatalf("expected inline standalone connection creation payload, got %+v", inlineCreated)
 	}
-	if asMap(t, inlineCreated["endpoint"])["name"] != "Inline Endpoint" || inlineCreated["openai_probe_endpoint_variant"] != "chat_completions_minimal" {
-		t.Fatalf("expected inline endpoint creation payload, got %+v", inlineCreated)
+
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/connections", nil, modelHeader(defaultProfileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listed []map[string]any
+	decodeJSONResponse(t, listResponse, &listed)
+	if len(listed) != 2 || jsonInt(t, listed[0]["id"]) != connectionID || jsonInt(t, listed[1]["id"]) != inlineConnectionID {
+		t.Fatalf("expected standalone connection list ordered by id, got %+v", listed)
 	}
 
 	pricingResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/connections/%d/pricing-template", connectionID), map[string]any{"pricing_template_id": pricingTemplateID}, modelHeader(defaultProfileID))
@@ -55,7 +62,6 @@ func TestConnectionOwners(t *testing.T) {
 
 	priorityOnUpdate := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/connections/%d", connectionID), map[string]any{"priority": 0}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, priorityOnUpdate, http.StatusUnprocessableEntity, "priority is not allowed on update")
-
 	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/connections/%d", connectionID), map[string]any{"endpoint_id": endpointBID, "is_active": false, "custom_headers": map[string]string{}, "openai_probe_endpoint_variant": "responses_reasoning_none"}, modelHeader(defaultProfileID))
 	assertStatus(t, updateResponse, http.StatusOK)
 	var updated map[string]any
@@ -64,38 +70,117 @@ func TestConnectionOwners(t *testing.T) {
 		t.Fatalf("expected connection update to move endpoints and clear empty headers, got %+v", updated)
 	}
 
-	reorderResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d/priority", modelConfigID, inlineConnectionID), map[string]any{"to_index": 0}, modelHeader(defaultProfileID))
-	assertStatus(t, reorderResponse, http.StatusOK)
-	var reordered []map[string]any
-	decodeJSONResponse(t, reorderResponse, &reordered)
-	if jsonInt(t, reordered[0]["id"]) != inlineConnectionID || jsonInt(t, reordered[0]["priority"]) != 0 || jsonInt(t, reordered[1]["id"]) != connectionID || jsonInt(t, reordered[1]["priority"]) != 1 {
-		t.Fatalf("expected connection reorder to rewrite contiguous priorities, got %+v", reordered)
-	}
-
 	deleteInline := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/connections/%d", inlineConnectionID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, deleteInline, http.StatusOK)
-	listAfterDelete := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d/connections", modelConfigID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, listAfterDelete, http.StatusOK)
-	var listed []map[string]any
-	decodeJSONResponse(t, listAfterDelete, &listed)
-	if len(listed) != 1 || jsonInt(t, listed[0]["id"]) != connectionID || jsonInt(t, listed[0]["priority"]) != 0 {
-		t.Fatalf("expected delete to compact remaining connection priorities, got %+v", listed)
+}
+
+func TestTargetRouteCRUD(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Target Route Strategy")
+	sourceModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-target-route-source", nil, "native", &strategyID, true)
+	targetModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-target-route-model", nil, "native", &strategyID, true)
+	endpointAID := modelInsertEndpoint(t, harness, defaultProfileID, "Target Route Endpoint A", 0)
+	endpointBID := modelInsertEndpoint(t, harness, defaultProfileID, "Target Route Endpoint B", 1)
+	connectionAID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", endpointAID, 0, true, nil)
+	connectionBID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", endpointBID, 0, true, nil)
+
+	createConnectionTarget := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", sourceModelID), map[string]any{"target_type": "connection", "connection_id": connectionAID, "position": 0, "is_enabled": true}, modelHeader(defaultProfileID))
+	assertStatus(t, createConnectionTarget, http.StatusCreated)
+	var targets []map[string]any
+	decodeJSONResponse(t, createConnectionTarget, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "connection", ConnectionID: connectionAID, Position: 0, IsEnabled: true}})
+	connectionTargetID := jsonInt(t, targets[0]["id"])
+
+	createModelTarget := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", sourceModelID), map[string]any{"target_type": "model", "target_model_id": "s9-target-route-model", "position": 1, "is_enabled": false}, modelHeader(defaultProfileID))
+	assertStatus(t, createModelTarget, http.StatusCreated)
+	decodeJSONResponse(t, createModelTarget, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "connection", ConnectionID: connectionAID, Position: 0, IsEnabled: true}, {TargetType: "model", TargetModelID: "s9-target-route-model", Position: 1, IsEnabled: false}})
+	connectionTargetID = jsonInt(t, targets[0]["id"])
+	modelTargetID := jsonInt(t, targets[1]["id"])
+
+	updateConnectionTarget := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, connectionTargetID), map[string]any{"connection_id": connectionBID, "is_enabled": true}, modelHeader(defaultProfileID))
+	assertStatus(t, updateConnectionTarget, http.StatusOK)
+	decodeJSONResponse(t, updateConnectionTarget, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "connection", ConnectionID: connectionBID, Position: 0, IsEnabled: true}, {TargetType: "model", TargetModelID: "s9-target-route-model", Position: 1, IsEnabled: false}})
+	connectionTargetID = jsonInt(t, targets[0]["id"])
+	modelTargetID = jsonInt(t, targets[1]["id"])
+
+	reorderResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d/position", sourceModelID, modelTargetID), map[string]any{"to_index": 0}, modelHeader(defaultProfileID))
+	assertStatus(t, reorderResponse, http.StatusOK)
+	decodeJSONResponse(t, reorderResponse, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 0, IsEnabled: false}, {TargetType: "connection", ConnectionID: connectionBID, Position: 1, IsEnabled: true}})
+	connectionTargetID = jsonInt(t, targets[1]["id"])
+
+	deleteModelTarget := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, jsonInt(t, targets[0]["id"])), nil, modelHeader(defaultProfileID))
+	assertStatus(t, deleteModelTarget, http.StatusOK)
+	decodeJSONResponse(t, deleteModelTarget, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "connection", ConnectionID: connectionBID, Position: 0, IsEnabled: true}})
+	connectionTargetID = jsonInt(t, targets[0]["id"])
+
+	deleteLastEnabled := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, connectionTargetID), nil, modelHeader(defaultProfileID))
+	assertErrorResponse(t, deleteLastEnabled, http.StatusBadRequest, "enabled models must include at least one enabled access target")
+	_ = targetModelID
+}
+
+func TestDeleteReferencedConnection(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Delete Referenced Connection Strategy")
+	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-delete-referenced-connection", nil, "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Delete Referenced Endpoint", 0)
+	connectionID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", endpointID, 0, true, nil)
+
+	attachResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", modelConfigID), map[string]any{"target_type": "connection", "connection_id": connectionID, "position": 0, "is_enabled": true}, modelHeader(defaultProfileID))
+	assertStatus(t, attachResponse, http.StatusCreated)
+	var targets []map[string]any
+	decodeJSONResponse(t, attachResponse, &targets)
+	targetID := jsonInt(t, targets[0]["id"])
+
+	referencesResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/connections/%d/references", connectionID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, referencesResponse, http.StatusOK)
+	var references map[string]any
+	decodeJSONResponse(t, referencesResponse, &references)
+	items := references["items"].([]any)
+	if len(items) != 1 || jsonInt(t, asMap(t, items[0])["model_config_id"]) != modelConfigID || asMap(t, items[0])["model_id"] != "s9-delete-referenced-connection" {
+		t.Fatalf("expected connection references to expose attached model target, got %+v", references)
 	}
 
-	ownerResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/connections/%d/owner", connectionID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, ownerResponse, http.StatusOK)
-	var owner map[string]any
-	decodeJSONResponse(t, ownerResponse, &owner)
-	if jsonInt(t, owner["connection_id"]) != connectionID || jsonInt(t, owner["model_config_id"]) != modelConfigID || owner["model_id"] != "s9-connection-model" || jsonInt(t, owner["endpoint_id"]) != endpointBID || owner["endpoint_name"] != "Connection Endpoint B" || owner["endpoint_base_url"] != "https://connection-endpoint-b.invalid" {
-		t.Fatalf("expected owner lookup payload shape, got %+v", owner)
-	}
+	deleteReferenced := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/connections/%d", connectionID), nil, modelHeader(defaultProfileID))
+	assertErrorResponse(t, deleteReferenced, http.StatusConflict, "Cannot delete: models [s9-delete-referenced-connection] target this connection")
 
-	dropConnectionEndpointConstraint(t, harness)
-	if _, err := harness.conn.Exec(context.Background(), `DELETE FROM endpoints WHERE id = $1`, endpointBID); err != nil {
-		t.Fatalf("delete endpoint after dropping connection fk: %v", err)
-	}
-	missingOwner := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/connections/%d/owner", connectionID), nil, modelHeader(defaultProfileID))
-	assertErrorResponse(t, missingOwner, http.StatusBadRequest, "Connection endpoint is missing")
+	detachResponse := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", modelConfigID, targetID), nil, modelHeader(defaultProfileID))
+	assertErrorResponse(t, detachResponse, http.StatusBadRequest, "enabled models must include at least one enabled access target")
+	disableModel := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{"is_enabled": false}, modelHeader(defaultProfileID))
+	assertStatus(t, disableModel, http.StatusOK)
+	targetID = modelLoadConnectionTargetID(t, harness, modelConfigID, connectionID)
+	detachResponse = harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", modelConfigID, targetID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, detachResponse, http.StatusOK)
+	deleteDetached := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/connections/%d", connectionID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, deleteDetached, http.StatusOK)
+}
+
+func TestLegacyModelOwnedConnectionRoute(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Legacy Route Strategy")
+	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-legacy-route-model", nil, "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Legacy Route Endpoint", 0)
+	connectionID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", endpointID, 0, true, nil)
+
+	legacyList := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d/connections", modelConfigID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, legacyList, http.StatusNotFound)
+	legacyCreate := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID}, modelHeader(defaultProfileID))
+	assertStatus(t, legacyCreate, http.StatusNotFound)
+	legacyReorder := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d/priority", modelConfigID, connectionID), map[string]any{"to_index": 0}, modelHeader(defaultProfileID))
+	assertStatus(t, legacyReorder, http.StatusNotFound)
+	legacyPreview := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections/health-check-preview", modelConfigID), map[string]any{"endpoint_id": endpointID}, modelHeader(defaultProfileID))
+	assertStatus(t, legacyPreview, http.StatusNotFound)
+	legacyOwner := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/connections/%d/owner", connectionID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, legacyOwner, http.StatusNotFound)
 }
 
 func TestModelConnectionsBatch(t *testing.T) {
@@ -142,6 +227,28 @@ func TestModelConnectionsBatch(t *testing.T) {
 	}
 }
 
+func assertTargetRouteOrder(t *testing.T, targets []map[string]any, want []expectedAccessTarget) {
+	t.Helper()
+	if len(targets) != len(want) {
+		t.Fatalf("expected targets %v, got %+v", want, targets)
+	}
+	for index, target := range targets {
+		expected := want[index]
+		if target["target_type"] != expected.TargetType || jsonInt(t, target["position"]) != expected.Position || target["is_enabled"] != expected.IsEnabled {
+			t.Fatalf("unexpected target at %d: got %+v want %+v", index, target, expected)
+		}
+		if expected.TargetType == "model" {
+			if target["target_model_id"] != expected.TargetModelID || asMap(t, target["target_model"])["model_id"] != expected.TargetModelID {
+				t.Fatalf("expected model target %q at %d, got %+v", expected.TargetModelID, index, target)
+			}
+			continue
+		}
+		if jsonInt(t, target["connection_id"]) != expected.ConnectionID || jsonInt(t, asMap(t, target["connection"])["id"]) != expected.ConnectionID {
+			t.Fatalf("expected connection target %d at %d, got %+v", expected.ConnectionID, index, target)
+		}
+	}
+}
+
 func insertContractPricingTemplate(t *testing.T, harness *contractHarness, profileID int, name string) int {
 	t.Helper()
 	now := time.Now().UTC()
@@ -174,9 +281,3 @@ func assertPricingTemplateStoredPrices(t *testing.T, harness *contractHarness, p
 	}
 }
 
-func dropConnectionEndpointConstraint(t *testing.T, harness *contractHarness) {
-	t.Helper()
-	if _, err := harness.conn.Exec(context.Background(), `ALTER TABLE connections DROP CONSTRAINT connections_endpoint_id_fkey`); err != nil {
-		t.Fatalf("drop connections_endpoint_id_fkey: %v", err)
-	}
-}

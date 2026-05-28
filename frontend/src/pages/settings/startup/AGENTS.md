@@ -8,7 +8,7 @@
 startup/
 ├── StartupServerSection.tsx      # server/CORS, capability badges, and shared input helpers
 ├── StartupDatabaseSection.tsx    # database URL, named pool lanes, and management-admission fields
-├── StartupRuntimeSection.tsx     # runtime transport, buffering, and side-effects timeout fields
+├── StartupRuntimeSection.tsx     # runtime transport and side-effects timeout fields
 ├── StartupMailSecretsSection.tsx # auth/cookies, mail/SMTP, secrets, dangerous confirmations, validate/save
 └── startupFieldMetadata.ts       # field labels, secret keys, effect helpers, validation mapping
 ```

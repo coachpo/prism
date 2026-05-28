@@ -11,7 +11,7 @@ import type {
   PricingTemplate,
 } from "@/lib/types";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { normalizeProxyTargets } from "../models/modelFormState";
+import { getModelConnections } from "../models/modelFormState";
 import type { HeaderRow } from "./useModelDetailDialogState";
 import { normalizeOpenAIProbeEndpointVariant } from "./connectionProbeBehavior";
 
@@ -34,6 +34,7 @@ export const createDefaultEndpointForm = (): EndpointCreate => ({
 });
 
 export const createDefaultConnectionForm = (apiFamily: ApiFamily | null = null): ConnectionCreate => ({
+  api_family: apiFamily ?? "openai",
   name: "",
   is_active: true,
   custom_headers: null,
@@ -91,6 +92,7 @@ export function buildConnectionDraftPayload({
 
   const payload: ConnectionCreate = {
     ...connectionForm,
+    api_family: apiFamily ?? connectionForm.api_family,
     name: resolvedConnectionName,
     custom_headers: customHeaders,
     pricing_template_id: connectionForm.pricing_template_id,
@@ -296,6 +298,8 @@ export function patchModelListItemFromDetail(
   models: ModelConfigListItem[],
   model: ModelConfig,
 ): ModelConfigListItem[] {
+  const connections = getModelConnections(model);
+
   return models.map((item) => {
     if (item.id !== model.id) {
       return item;
@@ -303,62 +307,41 @@ export function patchModelListItemFromDetail(
 
     return {
       ...item,
+      profile_id: model.profile_id,
       vendor_id: resolveVendorId(model),
       vendor: model.vendor,
       api_family: resolveApiFamily(model),
       model_id: model.model_id,
       display_name: model.display_name,
-      model_type: model.model_type,
-      proxy_selection_strategy: model.proxy_selection_strategy,
-      proxy_targets: normalizeProxyTargets(model.proxy_targets),
       loadbalance_strategy_id: model.loadbalance_strategy_id,
       loadbalance_strategy: model.loadbalance_strategy,
+      access_targets: model.access_targets,
       is_enabled: model.is_enabled,
-      connection_count: model.connections.length,
-      active_connection_count: model.connections.filter((connection) => connection.is_active).length,
+      connection_count: connections.length,
+      active_connection_count: connections.filter((connection) => connection.is_active).length,
       updated_at: model.updated_at,
     };
   });
 }
 
-function formatTargetLabel(candidate: ModelConfigListItem) {
-  return candidate.display_name
-    ? `${candidate.display_name} (${candidate.model_id})`
-    : candidate.model_id;
+export function getSameFamilyConnections(connections: Connection[], apiFamily: ApiFamily): Connection[] {
+  return connections.filter((connection) => connection.api_family === apiFamily);
 }
 
-export function buildProxyTargetOptions(
-  model: ModelConfig | null,
-  allModels: ModelConfigListItem[]
-): { modelId: string; label: string }[] {
-  if (!model || model.model_type !== "proxy") return [];
+export function buildAccessTargetSummary(model: ModelConfig | null) {
+  const targets = model?.access_targets ?? [];
+  const enabledTargets = targets.filter((target) => target.is_enabled);
+  const firstTarget = targets[0] ?? null;
+  const firstTargetLabel = firstTarget?.target_type === "model"
+    ? firstTarget.target_model?.display_name || firstTarget.target_model_id
+    : firstTarget?.connection?.name || firstTarget?.connection?.endpoint?.name || (firstTarget?.connection_id ? getStaticMessages().modelDetail.connectionFallback(firstTarget.connection_id) : null);
 
-  const nativeTargets = allModels
-    .filter((candidate) => (
-      resolveApiFamily(candidate) === resolveApiFamily(model) &&
-      candidate.model_type === "native" &&
-      candidate.id !== model.id
-    ))
-    .map((candidate) => ({
-      modelId: candidate.model_id,
-      label: formatTargetLabel(candidate),
-    }));
-
-  const currentTargets = normalizeProxyTargets(model.proxy_targets)
-    .filter((target) => !nativeTargets.some((candidate) => candidate.modelId === target.target_model_id))
-    .map((target) => ({
-      modelId: target.target_model_id,
-      label: getStaticMessages().modelDetail.currentTargetLabel(target.target_model_id),
-    }));
-
-  return [...currentTargets, ...nativeTargets];
-}
-
-export function resolveProxyTargetLabel(
-  targetModelId: string,
-  targetOptions: { modelId: string; label: string }[],
-) {
-  return targetOptions.find((target) => target.modelId === targetModelId)?.label ?? targetModelId;
+  return {
+    targetCount: targets.length,
+    enabledTargetCount: enabledTargets.length,
+    firstTargetLabel,
+    routePolicyLabel: getStaticMessages().modelDetail.orderedPriorityRouting,
+  };
 }
 
 function buildConnectionPricingTemplateSummary(
@@ -373,18 +356,3 @@ function buildConnectionPricingTemplateSummary(
   };
 }
 
-export function buildProxyTargetSummary(
-  model: ModelConfig | null,
-  allModels: ModelConfigListItem[],
-) {
-  const proxyTargets = normalizeProxyTargets(model?.proxy_targets);
-  const targetOptions = buildProxyTargetOptions(model, allModels);
-  const firstTargetId = proxyTargets[0]?.target_model_id ?? null;
-
-  return {
-    targetCount: proxyTargets.length,
-    firstTargetId,
-    firstTargetLabel: firstTargetId ? resolveProxyTargetLabel(firstTargetId, targetOptions) : null,
-    routePolicyLabel: getStaticMessages().modelDetail.orderedPriorityRouting,
-  };
-}

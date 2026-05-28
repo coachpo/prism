@@ -28,12 +28,12 @@ export function ConnectionCardCooldownState({
     return null;
   }
 
-  if (currentState.state === "counting" && currentState.consecutive_failures <= 0) {
+  if (currentState.state === "available" && currentState.cumulative_retry_attempts <= 0) {
     return null;
   }
 
   const tone = getCurrentStateTone(currentState.state, copy);
-  const failureCountLabel = copy.failureCount(currentState.consecutive_failures);
+  const failureCountLabel = copy.failureCount(currentState.cumulative_retry_attempts);
 
   return (
     <div className={cn("rounded-lg border px-3 py-2 text-xs", tone.panelClassName)}>
@@ -52,7 +52,6 @@ export function ConnectionCardCooldownState({
               currentStateBlocked: copy.currentStateBlocked,
               currentStateCounting: copy.currentStateCounting,
               currentStateManualBan: copy.currentStateManualBan,
-              currentStateProbeEligible: copy.currentStateProbeEligible,
               currentStateTemporaryBan: copy.currentStateTemporaryBan,
               failureKindConnectError: copy.failureKindConnectError,
               failureKindTimeout: copy.failureKindTimeout,
@@ -74,7 +73,7 @@ export function ConnectionCardCooldownState({
           ) : (
             <RotateCcw className="h-3 w-3" />
           )}
-          {copy.resetRecoveryState}
+          {copy.resetBanPolicyState}
         </Button>
       </div>
     </div>
@@ -85,18 +84,17 @@ function getCurrentStateTone(
   state: LoadbalanceCurrentStateValue,
   copy: {
     banned: string;
-    recoveryBlocked: string;
-    recoveryCounting: string;
-    recoveryProbeEligible: string;
+    retryWindowBlocked: string;
+    retryWindowCounting: string;
   },
 ): {
   label: string;
   intent: "warning" | "danger" | "info";
   panelClassName: string;
 } {
-  if (state === "blocked") {
+  if (state === "retry_wait") {
     return {
-      label: copy.recoveryBlocked,
+      label: copy.retryWindowBlocked,
       intent: "danger",
       panelClassName: "border-red-500/20 bg-red-500/5",
     };
@@ -110,16 +108,8 @@ function getCurrentStateTone(
     };
   }
 
-  if (state === "probe_eligible") {
-    return {
-      label: copy.recoveryProbeEligible,
-      intent: "info",
-      panelClassName: "border-sky-500/20 bg-sky-500/5",
-    };
-  }
-
   return {
-    label: copy.recoveryCounting,
+    label: copy.retryWindowCounting,
     intent: "warning",
     panelClassName: "border-amber-500/20 bg-amber-500/5",
   };

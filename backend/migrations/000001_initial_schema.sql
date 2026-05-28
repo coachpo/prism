@@ -119,7 +119,7 @@ ALTER SEQUENCE public.audit_logs_id_seq OWNED BY public.audit_logs.id;
 CREATE TABLE public.connections (
     id integer NOT NULL,
     profile_id integer NOT NULL,
-    model_config_id integer NOT NULL,
+    api_family character varying(50) NOT NULL,
     endpoint_id integer NOT NULL,
     pricing_template_id integer,
     qps_limit integer,
@@ -306,24 +306,25 @@ CREATE TABLE public.loadbalance_events (
     id bigint NOT NULL,
     profile_id integer NOT NULL,
     connection_id integer NOT NULL,
-    event_type character varying(20) NOT NULL,
+    event_type character varying(32) NOT NULL,
     failure_kind character varying(20),
-    consecutive_failures integer NOT NULL,
-    cooldown_seconds numeric(10,2) NOT NULL,
-    blocked_until_mono numeric(20,6),
+    cycle_retry_attempts integer NOT NULL,
+    cumulative_retry_attempts integer NOT NULL,
+    next_retry_at timestamp with time zone,
+    last_retry_delay_ms integer NOT NULL,
     model_id character varying(200),
     endpoint_id integer,
     vendor_id integer,
-    failure_threshold integer,
-    backoff_multiplier numeric(5,2),
-    max_cooldown_seconds integer,
-    max_cooldown_strikes integer,
     ban_mode character varying(20),
     banned_until_at timestamp with time zone,
+    last_success_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL,
-    CONSTRAINT chk_event_type CHECK (((event_type)::text = ANY ((ARRAY['opened'::character varying, 'extended'::character varying, 'max_cooldown_strike'::character varying, 'banned'::character varying, 'probe_eligible'::character varying, 'recovered'::character varying, 'not_opened'::character varying])::text[]))),
+    CONSTRAINT chk_event_type CHECK (((event_type)::text = ANY ((ARRAY['retry_scheduled'::character varying, 'retry_exhausted'::character varying, 'banned'::character varying, 'unbanned'::character varying, 'recovered'::character varying, 'admission_rejected'::character varying])::text[]))),
     CONSTRAINT chk_failure_kind CHECK ((((failure_kind)::text = ANY ((ARRAY['transient_http'::character varying, 'connect_error'::character varying, 'timeout'::character varying])::text[])) OR (failure_kind IS NULL))),
-    CONSTRAINT chk_loadbalance_events_ban_mode CHECK ((((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'temporary'::character varying, 'manual'::character varying])::text[])) OR (ban_mode IS NULL)))
+    CONSTRAINT chk_loadbalance_events_ban_mode CHECK ((((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'temporary'::character varying, 'manual'::character varying])::text[])) OR (ban_mode IS NULL))),
+    CONSTRAINT chk_loadbalance_events_cycle_attempts_nonneg CHECK ((cycle_retry_attempts >= 0)),
+    CONSTRAINT chk_loadbalance_events_cumulative_attempts_nonneg CHECK ((cumulative_retry_attempts >= 0)),
+    CONSTRAINT chk_loadbalance_events_retry_delay_nonneg CHECK ((last_retry_delay_ms >= 0))
 )
 PARTITION BY RANGE (created_at);
 
@@ -392,13 +393,23 @@ CREATE TABLE public.loadbalance_strategies (
     name character varying(200) NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
-    routing_policy jsonb,
-    strategy_type character varying(20) NOT NULL,
-    legacy_strategy_type character varying(20),
-    auto_recovery jsonb,
-    CONSTRAINT chk_loadbalance_strategies_legacy_strategy_type CHECK ((((legacy_strategy_type)::text = ANY ((ARRAY['single'::character varying, 'fill-first'::character varying, 'round-robin'::character varying])::text[])) OR (legacy_strategy_type IS NULL))),
-    CONSTRAINT chk_loadbalance_strategies_shape CHECK (((((strategy_type)::text = 'legacy'::text) AND (legacy_strategy_type IS NOT NULL) AND (auto_recovery IS NOT NULL) AND (routing_policy IS NULL)) OR (((strategy_type)::text = 'adaptive'::text) AND (legacy_strategy_type IS NULL) AND (auto_recovery IS NULL) AND (routing_policy IS NOT NULL)))),
-    CONSTRAINT chk_loadbalance_strategies_type CHECK (((strategy_type)::text = ANY ((ARRAY['legacy'::character varying, 'adaptive'::character varying])::text[])))
+    legacy_strategy_type character varying(20) NOT NULL,
+    failure_status_codes integer[] DEFAULT ARRAY[403, 422, 429, 500, 502, 503, 504, 529]::integer[] NOT NULL,
+    ban_mode character varying(20) DEFAULT 'off'::character varying NOT NULL,
+    retry_base_delay_ms integer DEFAULT 60000 NOT NULL,
+    retry_backoff_multiplier double precision DEFAULT 2.0 NOT NULL,
+    retry_jitter_ratio double precision DEFAULT 0.2 NOT NULL,
+    retry_max_delay_ms integer DEFAULT 900000 NOT NULL,
+    retry_max_attempts integer DEFAULT 3 NOT NULL,
+    ban_duration_seconds integer DEFAULT 0 NOT NULL,
+    CONSTRAINT chk_loadbalance_strategies_ban_duration CHECK ((((ban_mode)::text = 'temporary'::text) AND (ban_duration_seconds >= 1) OR (((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'manual'::character varying])::text[])) AND (ban_duration_seconds = 0)))),
+    CONSTRAINT chk_loadbalance_strategies_ban_mode CHECK (((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'temporary'::character varying, 'manual'::character varying])::text[]))),
+    CONSTRAINT chk_loadbalance_strategies_legacy_strategy_type CHECK (((legacy_strategy_type)::text = ANY ((ARRAY['single'::character varying, 'fill-first'::character varying, 'round-robin'::character varying])::text[]))),
+    CONSTRAINT chk_loadbalance_strategies_retry_backoff_multiplier CHECK (((retry_backoff_multiplier >= (1.0)::double precision) AND (retry_backoff_multiplier <= (10.0)::double precision))),
+    CONSTRAINT chk_loadbalance_strategies_retry_base_delay_ms CHECK (((retry_base_delay_ms >= 0) AND (retry_base_delay_ms <= 86400000))),
+    CONSTRAINT chk_loadbalance_strategies_retry_jitter_ratio CHECK (((retry_jitter_ratio >= (0.0)::double precision) AND (retry_jitter_ratio <= (1.0)::double precision))),
+    CONSTRAINT chk_loadbalance_strategies_retry_max_attempts CHECK (((retry_max_attempts >= 1) AND (retry_max_attempts <= 50))),
+    CONSTRAINT chk_loadbalance_strategies_retry_max_delay_ms CHECK (((retry_max_delay_ms >= 1) AND (retry_max_delay_ms <= 86400000)))
 );
 
 
@@ -599,14 +610,10 @@ CREATE TABLE public.model_configs (
     api_family character varying(50) NOT NULL,
     model_id character varying(200) NOT NULL,
     display_name character varying(200),
-    model_type character varying(20) NOT NULL,
     loadbalance_strategy_id integer,
     is_enabled boolean NOT NULL,
     created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    proxy_selection_strategy character varying(50),
-    CONSTRAINT chk_model_configs_proxy_selection_strategy_enum CHECK (((proxy_selection_strategy IS NULL) OR ((proxy_selection_strategy)::text = ANY ((ARRAY['ordered_fallback'::character varying, 'weighted_static'::character varying, 'priority_static'::character varying])::text[])))),
-    CONSTRAINT chk_model_configs_strategy_attachment CHECK (((((model_type)::text = 'native'::text) AND (loadbalance_strategy_id IS NOT NULL) AND (proxy_selection_strategy IS NULL)) OR (((model_type)::text = 'proxy'::text) AND (loadbalance_strategy_id IS NULL) AND (proxy_selection_strategy IS NOT NULL))))
+    updated_at timestamp with time zone NOT NULL
 );
 
 
@@ -631,26 +638,34 @@ ALTER SEQUENCE public.model_configs_id_seq OWNED BY public.model_configs.id;
 
 
 --
--- Name: model_proxy_targets; Type: TABLE; Schema: public; Owner: -
+-- Name: model_access_targets; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.model_proxy_targets (
+CREATE TABLE public.model_access_targets (
     id integer NOT NULL,
+    profile_id integer NOT NULL,
     source_model_config_id integer NOT NULL,
-    target_model_config_id integer NOT NULL,
+    target_type character varying(20) NOT NULL,
+    target_model_config_id integer,
+    target_connection_id integer,
     "position" integer NOT NULL,
-    weight integer NOT NULL,
-    target_priority integer NOT NULL,
-    CONSTRAINT chk_model_proxy_targets_target_priority_min CHECK ((target_priority >= 0)),
-    CONSTRAINT chk_model_proxy_targets_weight_min CHECK ((weight >= 1))
+    weight integer,
+    target_priority integer,
+    is_enabled boolean NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT chk_model_access_targets_position_nonnegative CHECK (("position" >= 0)),
+    CONSTRAINT chk_model_access_targets_target_metadata CHECK (((((target_type)::text = 'model'::text) AND (weight IS NOT NULL) AND (weight >= 1) AND (target_priority IS NOT NULL) AND (target_priority >= 0)) OR (((target_type)::text = 'connection'::text) AND (weight IS NULL) AND (target_priority IS NULL)))),
+    CONSTRAINT chk_model_access_targets_target_type CHECK (((target_type)::text = ANY ((ARRAY['model'::character varying, 'connection'::character varying])::text[]))),
+    CONSTRAINT chk_model_access_targets_one_target CHECK (((((target_type)::text = 'model'::text) AND (target_model_config_id IS NOT NULL) AND (target_connection_id IS NULL)) OR (((target_type)::text = 'connection'::text) AND (target_model_config_id IS NULL) AND (target_connection_id IS NOT NULL))))
 );
 
 
 --
--- Name: model_proxy_targets_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: model_access_targets_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE public.model_proxy_targets_id_seq
+CREATE SEQUENCE public.model_access_targets_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -660,10 +675,10 @@ CREATE SEQUENCE public.model_proxy_targets_id_seq
 
 
 --
--- Name: model_proxy_targets_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: model_access_targets_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.model_proxy_targets_id_seq OWNED BY public.model_proxy_targets.id;
+ALTER SEQUENCE public.model_access_targets_id_seq OWNED BY public.model_access_targets.id;
 
 
 --
@@ -968,7 +983,7 @@ CREATE UNLOGGED TABLE public.routing_connection_runtime_leases (
     heartbeat_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT ck_routing_connection_runtime_leases_kind CHECK (((lease_kind)::text = ANY ((ARRAY['stream'::character varying, 'non_stream'::character varying, 'half_open_probe'::character varying])::text[])))
+    CONSTRAINT ck_routing_connection_runtime_leases_kind CHECK (((lease_kind)::text = ANY ((ARRAY['stream'::character varying, 'non_stream'::character varying])::text[])))
 );
 
 
@@ -984,26 +999,22 @@ CREATE UNLOGGED TABLE public.routing_connection_runtime_state (
     window_request_count integer NOT NULL,
     in_flight_non_stream integer NOT NULL,
     in_flight_stream integer NOT NULL,
-    consecutive_failures integer NOT NULL,
-    last_failure_kind character varying(20),
-    last_cooldown_seconds numeric(10,2) NOT NULL,
-    max_cooldown_strikes integer NOT NULL,
+    cycle_retry_attempts integer NOT NULL,
+    cumulative_retry_attempts integer NOT NULL,
+    next_retry_at timestamp with time zone,
+    last_retry_delay_ms integer NOT NULL,
     ban_mode character varying(20) NOT NULL,
     banned_until_at timestamp with time zone,
-    open_until_at timestamp with time zone,
-    probe_eligible_logged boolean NOT NULL,
-    circuit_state character varying(20) NOT NULL,
-    probe_available_at timestamp with time zone,
+    last_failure_kind character varying(20),
+    last_success_at timestamp with time zone,
     live_p95_latency_ms integer,
-    last_live_failure_kind character varying(50),
-    last_live_failure_at timestamp with time zone,
-    last_live_success_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     CONSTRAINT ck_rt_state_ban_mode CHECK (((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'temporary'::character varying, 'manual'::character varying])::text[]))),
-    CONSTRAINT ck_rt_state_circuit_state CHECK (((circuit_state)::text = ANY ((ARRAY['closed'::character varying, 'open'::character varying, 'half_open'::character varying])::text[]))),
     CONSTRAINT ck_rt_state_last_failure_kind CHECK ((((last_failure_kind)::text = ANY ((ARRAY['transient_http'::character varying, 'connect_error'::character varying, 'timeout'::character varying])::text[])) OR (last_failure_kind IS NULL))),
-    CONSTRAINT ck_rt_state_max_strikes_nonneg CHECK ((max_cooldown_strikes >= 0)),
+    CONSTRAINT ck_rt_state_cycle_attempts_nonneg CHECK ((cycle_retry_attempts >= 0)),
+    CONSTRAINT ck_rt_state_cumulative_attempts_nonneg CHECK ((cumulative_retry_attempts >= 0)),
+    CONSTRAINT ck_rt_state_retry_delay_nonneg CHECK ((last_retry_delay_ms >= 0)),
     CONSTRAINT ck_rt_state_non_stream_nonneg CHECK ((in_flight_non_stream >= 0)),
     CONSTRAINT ck_rt_state_stream_nonneg CHECK ((in_flight_stream >= 0)),
     CONSTRAINT ck_rt_state_window_count_nonneg CHECK ((window_request_count >= 0))
@@ -1523,10 +1534,10 @@ ALTER TABLE ONLY public.model_configs ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
--- Name: model_proxy_targets id; Type: DEFAULT; Schema: public; Owner: -
+-- Name: model_access_targets id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.model_proxy_targets ALTER COLUMN id SET DEFAULT nextval('public.model_proxy_targets_id_seq'::regclass);
+ALTER TABLE ONLY public.model_access_targets ALTER COLUMN id SET DEFAULT nextval('public.model_access_targets_id_seq'::regclass);
 
 
 --
@@ -1666,6 +1677,14 @@ ALTER TABLE ONLY public.connections
 
 
 --
+-- Name: connections uq_connections_id_profile; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.connections
+    ADD CONSTRAINT uq_connections_id_profile UNIQUE (id, profile_id);
+
+
+--
 -- Name: email_outbox email_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1778,11 +1797,11 @@ ALTER TABLE ONLY public.model_configs
 
 
 --
--- Name: model_proxy_targets model_proxy_targets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: model_access_targets model_access_targets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.model_proxy_targets
-    ADD CONSTRAINT model_proxy_targets_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.model_access_targets
+    ADD CONSTRAINT model_access_targets_pkey PRIMARY KEY (id);
 
 
 --
@@ -1970,19 +1989,19 @@ ALTER TABLE ONLY public.model_configs
 
 
 --
--- Name: model_proxy_targets uq_model_proxy_targets_source_position; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: model_configs uq_model_configs_id_profile; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.model_proxy_targets
-    ADD CONSTRAINT uq_model_proxy_targets_source_position UNIQUE (source_model_config_id, "position");
+ALTER TABLE ONLY public.model_configs
+    ADD CONSTRAINT uq_model_configs_id_profile UNIQUE (id, profile_id);
 
 
 --
--- Name: model_proxy_targets uq_model_proxy_targets_source_target; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: model_access_targets uq_model_access_targets_source_position; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.model_proxy_targets
-    ADD CONSTRAINT uq_model_proxy_targets_source_target UNIQUE (source_model_config_id, target_model_config_id);
+ALTER TABLE ONLY public.model_access_targets
+    ADD CONSTRAINT uq_model_access_targets_source_position UNIQUE (source_model_config_id, "position") DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -2160,17 +2179,17 @@ CREATE INDEX idx_connections_endpoint_id ON public.connections USING btree (endp
 
 
 --
+-- Name: idx_connections_api_family; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_connections_api_family ON public.connections USING btree (api_family);
+
+
+--
 -- Name: idx_connections_is_active; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_connections_is_active ON public.connections USING btree (is_active);
-
-
---
--- Name: idx_connections_model_config_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_connections_model_config_id ON public.connections USING btree (model_config_id);
 
 
 --
@@ -2195,10 +2214,10 @@ CREATE INDEX idx_connections_profile_id ON public.connections USING btree (profi
 
 
 --
--- Name: idx_connections_profile_model_active_priority; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_connections_profile_family_active_priority; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_connections_profile_model_active_priority ON public.connections USING btree (profile_id, model_config_id, is_active, priority);
+CREATE INDEX idx_connections_profile_family_active_priority ON public.connections USING btree (profile_id, api_family, is_active, priority);
 
 
 --
@@ -2377,17 +2396,38 @@ CREATE INDEX idx_model_configs_profile_model_enabled ON public.model_configs USI
 
 
 --
--- Name: idx_model_proxy_targets_source_position; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_model_access_targets_connection; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_model_proxy_targets_source_position ON public.model_proxy_targets USING btree (source_model_config_id, "position");
+CREATE INDEX idx_model_access_targets_connection ON public.model_access_targets USING btree (target_connection_id) WHERE (target_connection_id IS NOT NULL);
 
 
 --
--- Name: idx_model_proxy_targets_target_model; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_model_access_targets_profile_source_position; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_model_proxy_targets_target_model ON public.model_proxy_targets USING btree (target_model_config_id);
+CREATE INDEX idx_model_access_targets_profile_source_position ON public.model_access_targets USING btree (profile_id, source_model_config_id, "position");
+
+
+--
+-- Name: idx_model_access_targets_target_model; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_model_access_targets_target_model ON public.model_access_targets USING btree (target_model_config_id) WHERE (target_model_config_id IS NOT NULL);
+
+
+--
+-- Name: uq_model_access_targets_source_target_connection; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_model_access_targets_source_target_connection ON public.model_access_targets USING btree (source_model_config_id, target_connection_id) WHERE (target_connection_id IS NOT NULL);
+
+
+--
+-- Name: uq_model_access_targets_source_target_model; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_model_access_targets_source_target_model ON public.model_access_targets USING btree (source_model_config_id, target_model_config_id) WHERE (target_model_config_id IS NOT NULL);
 
 
 --
@@ -2925,14 +2965,6 @@ ALTER TABLE ONLY public.connections
 
 
 --
--- Name: connections connections_model_config_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.connections
-    ADD CONSTRAINT connections_model_config_id_fkey FOREIGN KEY (model_config_id) REFERENCES public.model_configs(id) ON DELETE CASCADE;
-
-
---
 -- Name: connections connections_pricing_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3053,19 +3085,35 @@ ALTER TABLE ONLY public.model_configs
 
 
 --
--- Name: model_proxy_targets model_proxy_targets_source_model_config_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: model_access_targets model_access_targets_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.model_proxy_targets
-    ADD CONSTRAINT model_proxy_targets_source_model_config_id_fkey FOREIGN KEY (source_model_config_id) REFERENCES public.model_configs(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.model_access_targets
+    ADD CONSTRAINT model_access_targets_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
 
 --
--- Name: model_proxy_targets model_proxy_targets_target_model_config_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: model_access_targets model_access_targets_source_model_profile_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.model_proxy_targets
-    ADD CONSTRAINT model_proxy_targets_target_model_config_id_fkey FOREIGN KEY (target_model_config_id) REFERENCES public.model_configs(id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.model_access_targets
+    ADD CONSTRAINT model_access_targets_source_model_profile_fkey FOREIGN KEY (source_model_config_id, profile_id) REFERENCES public.model_configs(id, profile_id) ON DELETE CASCADE;
+
+
+--
+-- Name: model_access_targets model_access_targets_target_connection_profile_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.model_access_targets
+    ADD CONSTRAINT model_access_targets_target_connection_profile_fkey FOREIGN KEY (target_connection_id, profile_id) REFERENCES public.connections(id, profile_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: model_access_targets model_access_targets_target_model_profile_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.model_access_targets
+    ADD CONSTRAINT model_access_targets_target_model_profile_fkey FOREIGN KEY (target_model_config_id, profile_id) REFERENCES public.model_configs(id, profile_id) ON DELETE RESTRICT;
 
 
 --

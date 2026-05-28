@@ -1,13 +1,11 @@
 import { Network } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Field,
   FieldDescription,
   FieldGroup,
   FieldLegend,
   FieldSet,
 } from "@/components/ui/field";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import type { BootstrapConfigValues } from "@/lib/types";
 import {
@@ -18,7 +16,6 @@ import {
   type SettingsStartupCopy,
 } from "./startupFieldMetadata";
 import {
-  FieldLabelWithEffect,
   StartupInputField,
   type FieldEffectRenderer,
   type SectionEffectRenderer,
@@ -59,20 +56,6 @@ export function StartupRuntimeSection({
         <FieldSet disabled={controlsDisabled}>
           <FieldLegend>{copy.transport}</FieldLegend>
           <FieldGroup>
-            <Field>
-              <FieldLabelWithEffect htmlFor="startup-buffering-mode" label={copy.bufferingMode} effect={fieldEffect("runtime.buffering_mode")} />
-              <Select value={values.runtime.buffering_mode ?? "buffered"} disabled={controlsDisabled} onValueChange={(value) => setStringField("runtime.buffering_mode", value)}>
-                <SelectTrigger id="startup-buffering-mode">
-                  <SelectValue placeholder={copy.selectMode} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="buffered">{copy.buffered}</SelectItem>
-                    <SelectItem value="streaming">{copy.streaming}</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
             <div className="grid gap-4 md:grid-cols-2">
               <StartupInputField
                 id="startup-max-idle-conns"

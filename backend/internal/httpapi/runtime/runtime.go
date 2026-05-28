@@ -75,18 +75,16 @@ type apiFamilyAuthConfig struct {
 }
 
 type runtimeModelRecord struct {
-	ID                     int
-	ProfileID              int
-	APIFamily              string
-	ModelID                string
-	ModelType              string
-	ProxySelectionStrategy string
-	VendorID               *int
-	VendorKey              *string
-	VendorName             *string
-	AuditEnabled           bool
-	AuditCaptureBodies     bool
-	LoadbalanceStrategyID  *int
+	ID                    int
+	ProfileID             int
+	APIFamily             string
+	ModelID               string
+	VendorID              *int
+	VendorKey             *string
+	VendorName            *string
+	AuditEnabled          bool
+	AuditCaptureBodies    bool
+	LoadbalanceStrategyID *int
 }
 
 type runtimeEndpoint struct {
@@ -128,6 +126,7 @@ type runtimeConnectionUpstreamAuthSnapshot struct {
 type runtimeConnection struct {
 	ID                      int
 	ProfileID               int
+	APIFamily               string
 	ModelConfigID           int
 	EndpointID              int
 	Priority                int
@@ -168,6 +167,7 @@ type requestPlan struct {
 	RawRequestBody              []byte
 	UpstreamBody                []byte
 	IsStreamingRequest          bool
+	TerminalAttempts            []runtimeTerminalAttempt
 	Connections                 []runtimeConnection
 	RuntimeStates               map[int]loadbalance.RuntimeConnectionState
 	BlocklistRules              []headerBlocklistRule
@@ -180,7 +180,26 @@ type requestPlan struct {
 }
 
 func (plan requestPlan) requiresReplayableRequestBody() bool {
-	return len(plan.Connections) > 1
+	return len(plan.orderedTerminalAttempts()) > 1
+}
+
+func (plan requestPlan) orderedTerminalAttempts() []runtimeTerminalAttempt {
+	if len(plan.TerminalAttempts) > 0 {
+		return plan.TerminalAttempts
+	}
+	attempts := make([]runtimeTerminalAttempt, 0, len(plan.Connections))
+	for _, connection := range plan.Connections {
+		attempts = append(attempts, runtimeTerminalAttempt{
+			TargetModel:               runtimeModelRecord{ModelID: dereferenceString(plan.ResolvedTargetModelID), APIFamily: plan.APIFamily, AuditEnabled: plan.AuditEnabledAtRequest, AuditCaptureBodies: plan.AuditCaptureBodiesAtRequest},
+			Connection:                connection,
+			Strategy:                  plan.Strategy,
+			EffectiveRequestPath:      plan.EffectiveRequestPath,
+			UpstreamBody:              plan.UpstreamBody,
+			AuditEnabledAtRequest:     plan.AuditEnabledAtRequest,
+			AuditCaptureBodiesRequest: plan.AuditCaptureBodiesAtRequest,
+		})
+	}
+	return attempts
 }
 
 func (plan requestPlan) RequestGenerationParamsSnapshot() requestGenerationParamsSnapshot {
@@ -206,11 +225,12 @@ type resolvedRequestOperation struct {
 }
 
 type resolvedExecutionTarget struct {
-	RequestedModel runtimeModelRecord
-	TargetModel    runtimeModelRecord
-	Connections    []runtimeConnection
-	RuntimeStates  map[int]loadbalance.RuntimeConnectionState
-	Strategy       loadbalance.RuntimeStrategy
+	RequestedModel   runtimeModelRecord
+	TargetModel      runtimeModelRecord
+	Connections      []runtimeConnection
+	TerminalAttempts []runtimeTerminalAttempt
+	RuntimeStates    map[int]loadbalance.RuntimeConnectionState
+	Strategy         loadbalance.RuntimeStrategy
 }
 
 type plannedUpstreamRequest struct {
@@ -220,6 +240,16 @@ type plannedUpstreamRequest struct {
 	IsStreamingRequest      bool
 	ClientHeaders           map[string]string
 	RequestGenerationParams requestGenerationParamsSnapshot
+}
+
+type runtimeTerminalAttempt struct {
+	TargetModel               runtimeModelRecord
+	Connection                runtimeConnection
+	Strategy                  loadbalance.RuntimeStrategy
+	EffectiveRequestPath      string
+	UpstreamBody              []byte
+	AuditEnabledAtRequest     bool
+	AuditCaptureBodiesRequest bool
 }
 
 type runtimeRequestBodySource struct {
@@ -275,24 +305,32 @@ func (source *runtimeRequestBodySource) Open() (io.ReadCloser, int64, error) {
 }
 
 type executionAttempt struct {
-	Connection      runtimeConnection
-	RequestURL      string
-	RequestHeaders  map[string]string
-	ResponseHeaders http.Header
-	StatusCode      int
-	ResponseTimeMS  int
-	CompletedAt     time.Time
+	Connection                  runtimeConnection
+	ResolvedTargetModelID       string
+	RequestURL                  string
+	RequestHeaders              map[string]string
+	RequestBody                 []byte
+	ResponseHeaders             http.Header
+	StatusCode                  int
+	ResponseTimeMS              int
+	CompletedAt                 time.Time
+	AuditEnabledAtRequest       bool
+	AuditCaptureBodiesAtRequest bool
 }
 
 type executionResult struct {
-	Response       *http.Response
-	Connection     runtimeConnection
-	RequestHeaders map[string]string
-	AttemptCount   int
-	Attempts       []executionAttempt
+	Response                    *http.Response
+	Connection                  runtimeConnection
+	RequestHeaders              map[string]string
+	ResolvedTargetModelID       *string
+	AuditEnabledAtRequest       bool
+	AuditCaptureBodiesAtRequest bool
+	AttemptCount                int
+	Attempts                    []executionAttempt
 }
 
 type executionOutcome struct {
+	TerminalAttempt           runtimeTerminalAttempt
 	Connection                runtimeConnection
 	RequestHeaders            map[string]string
 	Response                  *http.Response
@@ -301,7 +339,8 @@ type executionOutcome struct {
 	Skipped                   bool
 	Err                       error
 	AdmissionReason           string
-	ProbeEligibleRecord       *loadbalance.RuntimeConnectionState
+	AdmissionState            *loadbalance.RuntimeConnectionState
+	UnbannedRecord            *loadbalance.RuntimeConnectionState
 	FailoverEligible          bool
 	Definitive                bool
 	SuppressTransportFeedback bool
@@ -373,11 +412,7 @@ func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []
 	if err != nil {
 		return requestPlan{}, err
 	}
-	upstreamRequest, err := buildPlannedUpstreamRequest(input, operation, target.TargetModel)
-	if err != nil {
-		return requestPlan{}, err
-	}
-	return assembleRequestPlan(input, operation, target, upstreamRequest), nil
+	return assembleRequestPlan(input, operation, target)
 }
 
 func resolveRequestOperation(input requestPlanningInput) (resolvedRequestOperation, error) {
@@ -399,29 +434,27 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 		return resolvedExecutionTarget{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", operation.RequestedModelID)}
 	}
 
-	targetModel, connections, runtimeStates, strategy, err := s.resolveExecutionTargetFromSnapshot(input.ActiveProfileID, input.Snapshot, requestedModel, s.nowUTC())
+	if err := validateOperationAPIFamily(operation.Match.Operation, requestedModel); err != nil {
+		return resolvedExecutionTarget{}, err
+	}
+	resolved, err := s.resolveExecutionTargetFromSnapshot(input.ActiveProfileID, input.Snapshot, requestedModel, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
-	if err := validateOperationAPIFamily(operation.Match.Operation, targetModel); err != nil {
+	if err := validateOperationAPIFamily(operation.Match.Operation, resolved.TargetModel); err != nil {
 		return resolvedExecutionTarget{}, err
 	}
-
-	orderedConnectionIDs, err := loadbalance.OrderConnectionIDs(input.ActiveProfileID, targetModel.ID, strategy, toConnectionOrderCandidates(connections), runtimeStates, s.runtimeState, s.nowUTC())
-	if err != nil {
-		return resolvedExecutionTarget{}, err
-	}
-	orderedConnections := orderConnectionsByID(connections, orderedConnectionIDs)
-	if len(orderedConnections) == 0 {
-		return resolvedExecutionTarget{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", operation.RequestedModelID)}
+	if len(resolved.TerminalAttempts) == 0 {
+		return resolvedExecutionTarget{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No eligible targets available for model '%s'.", operation.RequestedModelID)}
 	}
 
 	return resolvedExecutionTarget{
-		RequestedModel: requestedModel,
-		TargetModel:    targetModel,
-		Connections:    orderedConnections,
-		RuntimeStates:  runtimeStates,
-		Strategy:       strategy,
+		RequestedModel:   requestedModel,
+		TargetModel:      resolved.TargetModel,
+		Connections:      resolved.Connections,
+		TerminalAttempts: resolved.TerminalAttempts,
+		RuntimeStates:    resolved.RuntimeStates,
+		Strategy:         resolved.Strategy,
 	}, nil
 }
 
@@ -452,34 +485,73 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 	}, nil
 }
 
-func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOperation, target resolvedExecutionTarget, upstreamRequest plannedUpstreamRequest) requestPlan {
+func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOperation, target resolvedExecutionTarget) (requestPlan, error) {
+	terminalAttempts, upstreamRequest, err := buildPlannedTerminalAttempts(input, operation, target.TerminalAttempts)
+	if err != nil {
+		return requestPlan{}, err
+	}
+	firstAttempt := terminalAttempts[0]
+	connections := connectionsFromTerminalAttempts(terminalAttempts)
 	return requestPlan{
 		RequestedModelID:            operation.RequestedModelID,
-		ResolvedTargetModelID:       stringPointerIfNotEmpty(target.TargetModel.ModelID),
-		ResolvedPricingModelID:      strings.TrimSpace(target.TargetModel.ModelID),
+		ResolvedTargetModelID:       stringPointerIfNotEmpty(firstAttempt.TargetModel.ModelID),
+		ResolvedPricingModelID:      strings.TrimSpace(firstAttempt.TargetModel.ModelID),
 		RequestedVendorID:           target.RequestedModel.VendorID,
 		RequestedVendorKey:          target.RequestedModel.VendorKey,
 		RequestedVendorName:         target.RequestedModel.VendorName,
 		ProfileID:                   input.ActiveProfileID,
-		APIFamily:                   target.TargetModel.APIFamily,
+		APIFamily:                   firstAttempt.TargetModel.APIFamily,
 		RuntimeOperation:            operation.Match.Operation,
 		RuntimeOperationPathParams:  cloneStringMap(operation.Match.PathParams),
-		AuditEnabledAtRequest:       target.TargetModel.AuditEnabled,
-		AuditCaptureBodiesAtRequest: target.TargetModel.AuditEnabled && target.TargetModel.AuditCaptureBodies,
+		AuditEnabledAtRequest:       firstAttempt.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest: firstAttempt.AuditCaptureBodiesRequest,
 		ReportCurrencySnapshot:      input.Snapshot.ReportCurrency,
 		EffectiveRequestPath:        upstreamRequest.EffectiveRequestPath,
 		RawRequestBody:              upstreamRequest.RawRequestBody,
 		UpstreamBody:                upstreamRequest.UpstreamBody,
 		IsStreamingRequest:          upstreamRequest.IsStreamingRequest,
-		Connections:                 target.Connections,
+		TerminalAttempts:            terminalAttempts,
+		Connections:                 connections,
 		RuntimeStates:               target.RuntimeStates,
 		BlocklistRules:              input.Snapshot.BlocklistRules,
 		ClientHeaders:               upstreamRequest.ClientHeaders,
-		FailoverStatusCodes:         target.Strategy.FailoverStatusCodes(),
-		Strategy:                    target.Strategy,
+		FailoverStatusCodes:         firstAttempt.Strategy.FailoverStatusCodes(),
+		Strategy:                    firstAttempt.Strategy,
 		RequestGenerationParams:     upstreamRequest.RequestGenerationParams,
 		HTTPClient:                  input.RuntimeConfig.HTTPClient,
+	}, nil
+}
+
+func buildPlannedTerminalAttempts(input requestPlanningInput, operation resolvedRequestOperation, attempts []runtimeTerminalAttempt) ([]runtimeTerminalAttempt, plannedUpstreamRequest, error) {
+	if len(attempts) == 0 {
+		return nil, plannedUpstreamRequest{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No eligible targets available for model '%s'.", operation.RequestedModelID)}
 	}
+	plannedAttempts := make([]runtimeTerminalAttempt, 0, len(attempts))
+	var firstUpstream plannedUpstreamRequest
+	for index, attempt := range attempts {
+		upstreamRequest, err := buildPlannedUpstreamRequest(input, operation, attempt.TargetModel)
+		if err != nil {
+			return nil, plannedUpstreamRequest{}, err
+		}
+		planned := attempt
+		planned.EffectiveRequestPath = upstreamRequest.EffectiveRequestPath
+		planned.UpstreamBody = upstreamRequest.UpstreamBody
+		planned.AuditEnabledAtRequest = attempt.TargetModel.AuditEnabled
+		planned.AuditCaptureBodiesRequest = attempt.TargetModel.AuditEnabled && attempt.TargetModel.AuditCaptureBodies
+		plannedAttempts = append(plannedAttempts, planned)
+		if index == 0 {
+			firstUpstream = upstreamRequest
+		}
+	}
+	return plannedAttempts, firstUpstream, nil
+}
+
+func connectionsFromTerminalAttempts(attempts []runtimeTerminalAttempt) []runtimeConnection {
+	connections := make([]runtimeConnection, 0, len(attempts))
+	for _, attempt := range attempts {
+		connections = append(connections, attempt.Connection)
+	}
+	return connections
 }
 
 func runtimeSnapshotDomainError(err error) error {
@@ -573,8 +645,9 @@ func orderConnectionsByID(connections []runtimeConnection, orderedIDs []int) []r
 func (s *Service) executeRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, bodySource *runtimeRequestBodySource) (executionResult, error) {
 	state := newRequestExecutionState(plan)
 	limits := requestExecutionLimitsForPlan(plan)
+	terminalAttempts := plan.orderedTerminalAttempts()
 
-	for index := 0; index < len(plan.Connections); index++ {
+	for index := 0; index < len(terminalAttempts); index++ {
 		if limits.remainingLaunchCapacity(state) <= 0 {
 			break
 		}
@@ -591,7 +664,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 			continue
 		}
 
-		outcome := s.executeSingleAttempt(ctx, method, plan, requestQuery, plan.Connections[index], bodySource)
+		outcome := s.executeSingleAttempt(ctx, method, plan, requestQuery, terminalAttempts[index], bodySource)
 		result, done, err := s.handleSingleExecutionOutcome(plan, &state, outcome, index, limits.MaxAttempts)
 		if err != nil {
 			return executionResult{}, err
@@ -604,15 +677,12 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 }
 
 func newRequestExecutionState(plan requestPlan) requestExecutionState {
-	return requestExecutionState{attempts: make([]executionAttempt, 0, len(plan.Connections))}
+	return requestExecutionState{attempts: make([]executionAttempt, 0, len(plan.orderedTerminalAttempts()))}
 }
 
 func requestExecutionLimitsForPlan(plan requestPlan) requestExecutionLimits {
 	hedgePolicy := plan.Strategy.HedgePolicy()
-	maxAttempts := len(plan.Connections)
-	if strings.EqualFold(strings.TrimSpace(plan.Strategy.StrategyType), "adaptive") {
-		maxAttempts = max(minInt(maxAttempts, hedgePolicy.MaxAdditionalAttempts+1), 1)
-	}
+	maxAttempts := len(plan.orderedTerminalAttempts())
 	return requestExecutionLimits{HedgePolicy: hedgePolicy, MaxAttempts: maxAttempts}
 }
 
@@ -621,7 +691,7 @@ func (limits requestExecutionLimits) remainingLaunchCapacity(state requestExecut
 }
 
 func (limits requestExecutionLimits) shouldHedge(plan requestPlan, state requestExecutionState, index int) bool {
-	return !state.hedgeUsed && limits.HedgePolicy.Enabled && limits.remainingLaunchCapacity(state) >= 2 && len(plan.Connections)-index >= 2
+	return !state.hedgeUsed && limits.HedgePolicy.Enabled && limits.remainingLaunchCapacity(state) >= 2 && len(plan.orderedTerminalAttempts())-index >= 2
 }
 
 func (state *requestExecutionState) recordHedgedResult(hedged hedgedExecutionResult) {
@@ -647,12 +717,21 @@ func (state *requestExecutionState) recordLaunchedAttempt(outcome executionOutco
 	state.attempts = append(state.attempts, outcome.Attempt)
 }
 
-func (state *requestExecutionState) result(response *http.Response, connection runtimeConnection, headers map[string]string) executionResult {
-	return executionResult{Response: response, Connection: connection, RequestHeaders: headers, AttemptCount: state.launchedAttempts, Attempts: state.attempts}
+func (state *requestExecutionState) result(outcome executionOutcome) executionResult {
+	return executionResult{
+		Response:                    outcome.Response,
+		Connection:                  outcome.Connection,
+		RequestHeaders:              outcome.RequestHeaders,
+		ResolvedTargetModelID:       stringPointerIfNotEmpty(outcome.TerminalAttempt.TargetModel.ModelID),
+		AuditEnabledAtRequest:       outcome.TerminalAttempt.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest: outcome.TerminalAttempt.AuditCaptureBodiesRequest,
+		AttemptCount:                state.launchedAttempts,
+		Attempts:                    state.attempts,
+	}
 }
 
 func (state *requestExecutionState) failureResult(plan requestPlan) (executionResult, error) {
-	if len(plan.Connections) == 0 {
+	if len(plan.orderedTerminalAttempts()) == 0 {
 		return executionResult{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", plan.RequestedModelID)}
 	}
 	if state.launchedAttempts == 0 && state.admissionRejections > 0 {
@@ -671,23 +750,26 @@ func (state *requestExecutionState) failureResult(plan requestPlan) (executionRe
 
 func (s *Service) executionResultForHedgedWinner(plan requestPlan, state requestExecutionState, winner *executionOutcome) executionResult {
 	if winner.Response.StatusCode >= 200 && winner.Response.StatusCode <= 299 && winner.Launched {
-		s.recordRuntimeSuccess(plan.ProfileID, winner.Connection, plan.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt)
+		s.recordRuntimeSuccess(plan.ProfileID, winner.Connection, winner.TerminalAttempt.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt)
 	}
-	return state.result(winner.Response, winner.Connection, winner.RequestHeaders)
+	return state.result(*winner)
 }
 
 func (s *Service) handleSingleExecutionOutcome(plan requestPlan, state *requestExecutionState, outcome executionOutcome, index int, maxAttempts int) (executionResult, bool, error) {
 	if outcome.FatalError != nil {
 		return executionResult{}, false, outcome.FatalError
 	}
-	if outcome.ProbeEligibleRecord != nil {
-		s.recordRuntimeProbeEligible(plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC())
+	if outcome.UnbannedRecord != nil {
+		s.recordRuntimeUnbanned(plan.ProfileID, outcome.Connection, *outcome.UnbannedRecord, s.nowUTC())
 	}
 	if outcome.Skipped {
 		return executionResult{}, false, nil
 	}
 	if outcome.AdmissionReason != "" {
 		state.recordAdmissionRejection(outcome.AdmissionReason)
+		if outcome.AdmissionState != nil {
+			s.recordRuntimeAdmissionRejected(plan.ProfileID, outcome.Connection, *outcome.AdmissionState, s.nowUTC())
+		}
 		return executionResult{}, false, nil
 	}
 	if outcome.Launched {
@@ -696,27 +778,28 @@ func (s *Service) handleSingleExecutionOutcome(plan requestPlan, state *requestE
 	if outcome.Err != nil {
 		state.lastError = outcome.Err.Error()
 		if outcome.Launched && !outcome.SuppressTransportFeedback {
-			s.recordRuntimeTransportFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
+			s.recordRuntimeTransportFailure(plan.ProfileID, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.CompletedAt)
 		}
 		return executionResult{}, false, nil
 	}
 	if outcome.FailoverEligible && outcome.Launched {
-		s.recordRuntimeFailoverHTTPFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
+		s.recordRuntimeFailoverHTTPFailure(plan.ProfileID, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.CompletedAt)
 	}
-	if outcome.FailoverEligible && index < len(plan.Connections)-1 && state.launchedAttempts < maxAttempts {
+	if outcome.FailoverEligible && index < len(plan.orderedTerminalAttempts())-1 && state.launchedAttempts < maxAttempts {
 		state.lastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
 		_ = outcome.Response.Body.Close()
 		return executionResult{}, false, nil
 	}
 	if outcome.Response.StatusCode >= 200 && outcome.Response.StatusCode <= 299 && outcome.Launched {
-		s.recordRuntimeSuccess(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt)
+		s.recordRuntimeSuccess(plan.ProfileID, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt)
 	}
-	return state.result(outcome.Response, outcome.Connection, outcome.RequestHeaders), true, nil
+	return state.result(outcome), true, nil
 }
 
 func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, startIndex int, hedgePolicy loadbalance.RuntimeHedgePolicy, bodySource *runtimeRequestBodySource) (hedgedExecutionResult, error) {
+	terminalAttempts := plan.orderedTerminalAttempts()
 	totalCandidates := hedgePolicy.MaxAdditionalAttempts + 1
-	remainingConnections := len(plan.Connections) - startIndex
+	remainingConnections := len(terminalAttempts) - startIndex
 	if totalCandidates > remainingConnections {
 		totalCandidates = remainingConnections
 	}
@@ -732,11 +815,11 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 	launchAttempt := func(order int) {
 		attemptCtx, cancel := context.WithCancelCause(ctx)
 		cancelFuncs = append(cancelFuncs, cancel)
-		connection := plan.Connections[startIndex+order]
+		terminalAttempt := terminalAttempts[startIndex+order]
 		inFlight++
 		launchedCandidates++
 		go func() {
-			results <- hedgedAttemptResult{Order: order, Outcome: s.executeSingleAttempt(attemptCtx, method, plan, requestQuery, connection, bodySource)}
+			results <- hedgedAttemptResult{Order: order, Outcome: s.executeSingleAttempt(attemptCtx, method, plan, requestQuery, terminalAttempt, bodySource)}
 		}()
 	}
 	launchAttempt(0)
@@ -778,8 +861,8 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 				}
 				return hedgedExecutionResult{}, outcome.FatalError
 			}
-			if outcome.ProbeEligibleRecord != nil {
-				s.recordRuntimeProbeEligible(plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC())
+			if outcome.UnbannedRecord != nil {
+				s.recordRuntimeUnbanned(plan.ProfileID, outcome.Connection, *outcome.UnbannedRecord, s.nowUTC())
 			}
 			if outcome.Skipped {
 				continue
@@ -787,6 +870,9 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 			if outcome.AdmissionReason != "" {
 				result.AdmissionRejections++
 				result.LastAdmissionReason = outcome.AdmissionReason
+				if outcome.AdmissionState != nil {
+					s.recordRuntimeAdmissionRejected(plan.ProfileID, outcome.Connection, *outcome.AdmissionState, s.nowUTC())
+				}
 				continue
 			}
 			if outcome.Launched {
@@ -807,7 +893,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 				}
 				if !outcome.SuppressTransportFeedback {
 					result.LastError = outcome.Err.Error()
-					s.recordRuntimeTransportFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
+					s.recordRuntimeTransportFailure(plan.ProfileID, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.CompletedAt)
 				}
 				continue
 			}
@@ -816,7 +902,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 					nonWinningAttempts = append(nonWinningAttempts, outcome.Attempt)
 				}
 				result.LastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
-				s.recordRuntimeFailoverHTTPFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
+				s.recordRuntimeFailoverHTTPFailure(plan.ProfileID, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.CompletedAt)
 				_ = outcome.Response.Body.Close()
 				continue
 			}
@@ -839,14 +925,15 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 	return result, nil
 }
 
-func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, connection runtimeConnection, bodySource *runtimeRequestBodySource) executionOutcome {
+func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, terminalAttempt runtimeTerminalAttempt, bodySource *runtimeRequestBodySource) executionOutcome {
+	connection := terminalAttempt.Connection
 	headers, err := s.buildUpstreamHeaders(connection, plan.APIFamily, plan.ClientHeaders, plan.BlocklistRules)
 	if err != nil {
-		return executionOutcome{FatalError: err}
+		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, FatalError: err}
 	}
-	upstreamURL, err := buildUpstreamURL(connection.Endpoint.BaseURL, plan.EffectiveRequestPath, requestQuery)
+	upstreamURL, err := buildUpstreamURL(connection.Endpoint.BaseURL, terminalAttempt.EffectiveRequestPath, requestQuery)
 	if err != nil {
-		return executionOutcome{FatalError: err}
+		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, FatalError: err}
 	}
 
 	decision := s.runtimeState.TryBeginConnectionAttempt(loadbalance.RuntimeConnectionAttemptInput{
@@ -858,32 +945,37 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 			MaxInFlightNonStream: connection.MaxInFlightNonStream,
 			MaxInFlightStream:    connection.MaxInFlightStream,
 		},
-		Policy:      plan.Strategy.AdmissionPolicy(),
+		Policy:      terminalAttempt.Strategy.AdmissionPolicy(),
 		IsStreaming: plan.IsStreamingRequest,
 		ObservedAt:  s.nowUTC(),
 	})
 	if decision.Skipped {
-		return executionOutcome{Connection: connection, Skipped: true, ProbeEligibleRecord: decision.ProbeEligibleRecord}
+		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, Skipped: true, UnbannedRecord: decision.UnbannedRecord}
 	}
 	if decision.AdmissionReason != "" {
-		return executionOutcome{Connection: connection, AdmissionReason: decision.AdmissionReason, ProbeEligibleRecord: decision.ProbeEligibleRecord}
+		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, AdmissionReason: decision.AdmissionReason, AdmissionState: decision.AdmissionState, UnbannedRecord: decision.UnbannedRecord}
 	}
 	defer func() {
 		s.runtimeState.FinishConnectionAttempt(decision.Handle, s.nowUTC())
 	}()
 
 	attemptStartedAt := s.nowUTC()
-	response, launched, requestErr := s.doUpstreamRequest(ctx, plan.HTTPClient, method, upstreamURL, headers, bodySource)
-	outcome := executionOutcome{Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr, ProbeEligibleRecord: decision.ProbeEligibleRecord}
+	attemptBodySource := bodySourceForTerminalAttempt(bodySource, terminalAttempt)
+	response, launched, requestErr := s.doUpstreamRequest(ctx, plan.HTTPClient, method, upstreamURL, headers, attemptBodySource)
+	outcome := executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr, UnbannedRecord: decision.UnbannedRecord}
 	if launched {
 		attemptCompletedAt := s.nowUTC()
 		outcome.Attempt = executionAttempt{
-			Connection:     connection,
-			RequestURL:     upstreamURL,
-			RequestHeaders: cloneStringMap(headers),
-			StatusCode:     http.StatusBadGateway,
-			ResponseTimeMS: durationMilliseconds(attemptCompletedAt.Sub(attemptStartedAt)),
-			CompletedAt:    attemptCompletedAt,
+			Connection:                  connection,
+			ResolvedTargetModelID:       strings.TrimSpace(terminalAttempt.TargetModel.ModelID),
+			RequestURL:                  upstreamURL,
+			RequestHeaders:              cloneStringMap(headers),
+			RequestBody:                 append([]byte(nil), terminalAttempt.UpstreamBody...),
+			StatusCode:                  http.StatusBadGateway,
+			ResponseTimeMS:              durationMilliseconds(attemptCompletedAt.Sub(attemptStartedAt)),
+			CompletedAt:                 attemptCompletedAt,
+			AuditEnabledAtRequest:       terminalAttempt.AuditEnabledAtRequest,
+			AuditCaptureBodiesAtRequest: terminalAttempt.AuditCaptureBodiesRequest,
 		}
 		if response != nil {
 			outcome.Attempt.StatusCode = response.StatusCode
@@ -897,20 +989,34 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 	if requestErr != nil {
 		return outcome
 	}
-	outcome.FailoverEligible = shouldFailover(response.StatusCode, plan.FailoverStatusCodes)
+	outcome.FailoverEligible = shouldFailover(response.StatusCode, terminalAttempt.Strategy.FailoverStatusCodes())
 	outcome.Definitive = !outcome.FailoverEligible
 	return outcome
+}
+
+func bodySourceForTerminalAttempt(bodySource *runtimeRequestBodySource, terminalAttempt runtimeTerminalAttempt) *runtimeRequestBodySource {
+	if bodySource != nil && bodySource.useStreamingBody {
+		return bodySource
+	}
+	return newBufferedRuntimeRequestBodySource(terminalAttempt.UpstreamBody)
 }
 
 func (s *Service) isHedgeLoserCancellation(ctx context.Context, err error) bool {
 	return err != nil && errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), errHedgeLoserCanceled)
 }
 
-func (s *Service) recordRuntimeProbeEligible(profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, state loadbalance.RuntimeConnectionState, observedAt time.Time) {
+func (s *Service) recordRuntimeUnbanned(profileID int, connection runtimeConnection, state loadbalance.RuntimeConnectionState, observedAt time.Time) {
 	if s == nil || s.feedbackPipeline == nil {
 		return
 	}
-	s.feedbackPipeline.TryEnqueue(runtimeFeedbackEvent{Kind: runtimeFeedbackProbeEligible, ProfileID: profileID, ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID, Strategy: strategy, State: state, ObservedAt: observedAt})
+	s.feedbackPipeline.TryEnqueue(runtimeFeedbackEvent{Kind: runtimeFeedbackUnbanned, ProfileID: profileID, ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID, State: state, ObservedAt: observedAt})
+}
+
+func (s *Service) recordRuntimeAdmissionRejected(profileID int, connection runtimeConnection, state loadbalance.RuntimeConnectionState, observedAt time.Time) {
+	if s == nil || s.feedbackPipeline == nil {
+		return
+	}
+	s.feedbackPipeline.TryEnqueue(runtimeFeedbackEvent{Kind: runtimeFeedbackAdmissionRejected, ProfileID: profileID, ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID, State: state, ObservedAt: observedAt})
 }
 
 func (s *Service) recordRuntimeSuccess(profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, responseTimeMS int, completedAt time.Time) {
@@ -1257,6 +1363,13 @@ func stringPointerIfNotEmpty(value string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+func dereferenceString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }
 
 func nullableInt32(value sql.NullInt32) *int {

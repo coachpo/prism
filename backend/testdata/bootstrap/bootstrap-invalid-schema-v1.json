@@ -48,7 +48,6 @@
     }
   },
   "runtime": {
-    "bufferingMode": "buffered",
     "secretEncryptionKey": "prism-dev-runtime-secret-change-me",
     "transport": {
       "maxIdleConns": 100,

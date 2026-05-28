@@ -269,7 +269,7 @@ func task9InsertManagedLogRow(t *testing.T, ctx context.Context, exec task9Exec,
 			t.Fatalf("insert usage_request_events row %s: %v", marker, err)
 		}
 	case "loadbalance_events":
-		_, err := exec.Exec(ctx, `INSERT INTO loadbalance_events (profile_id, connection_id, event_type, consecutive_failures, cooldown_seconds, created_at) VALUES ($1, $2, 'opened', $3, 1.50, $4)`, profileID, 9000+rowIndex, rowIndex+1, createdAt.UTC())
+		_, err := exec.Exec(ctx, `INSERT INTO loadbalance_events (profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, ban_mode, created_at) VALUES ($1, $2, 'retry_scheduled', 'transient_http', $3, $3, $4, 60000, 'off', $5)`, profileID, 9000+rowIndex, rowIndex+1, createdAt.UTC().Add(time.Minute), createdAt.UTC())
 		if err != nil {
 			t.Fatalf("insert loadbalance_events row %s: %v", marker, err)
 		}
@@ -768,7 +768,7 @@ func task9SeedRuntimeRoute(t *testing.T, ctx context.Context, exec interface {
 	publicModelID := "task9-runtime-public-" + suffix
 	targetModelID := "task9-runtime-target-" + suffix
 	targetModelConfigID := task9InsertRuntimeModel(t, ctx, exec, profileID, vendorID, "openai", targetModelID, "native", &strategyID, now)
-	publicModelConfigID := task9InsertRuntimeModel(t, ctx, exec, profileID, vendorID, "openai", publicModelID, "proxy", nil, now)
+	publicModelConfigID := task9InsertRuntimeModel(t, ctx, exec, profileID, vendorID, "openai", publicModelID, "proxy", &strategyID, now)
 	task9InsertRuntimeProxyTarget(t, ctx, exec, publicModelConfigID, targetModelConfigID)
 	endpointID := task9InsertRuntimeEndpoint(t, ctx, exec, profileID, "task9-runtime-endpoint-"+suffix, upstreamURL, "task9-runtime-key", now)
 	task9InsertRuntimeConnection(t, ctx, exec, profileID, targetModelConfigID, endpointID, "task9-runtime-connection-"+suffix, now)
@@ -778,20 +778,16 @@ func task9SeedRuntimeRoute(t *testing.T, ctx context.Context, exec interface {
 func task9InsertRuntimeStrategy(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, name string, now time.Time) int {
 	t.Helper()
 	var strategyID int
-	if err := exec.QueryRow(ctx, `INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at) VALUES ($1, $2, 'legacy', 'round-robin', $3::jsonb, NULL, $4, $4) RETURNING id`, profileID, name, `{"mode":"disabled"}`, now).Scan(&strategyID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts, ban_duration_seconds, created_at, updated_at) VALUES ($1, $2, 'round-robin', ARRAY[403,422,429,500,502,503,504,529], 'off', 60000, 2.0, 0.2, 900000, 3, 0, $3, $3) RETURNING id`, profileID, name, now).Scan(&strategyID); err != nil {
 		t.Fatalf("insert task9 runtime strategy: %v", err)
 	}
 	return strategyID
 }
 
-func task9InsertRuntimeModel(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, vendorID int, apiFamily string, modelID string, modelType string, strategyID *int, now time.Time) int {
+func task9InsertRuntimeModel(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, vendorID int, apiFamily string, modelID string, _ string, strategyID *int, now time.Time) int {
 	t.Helper()
-	selectionStrategy := any(nil)
-	if modelType == "proxy" {
-		selectionStrategy = "ordered_fallback"
-	}
 	var modelConfigID int
-	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, proxy_selection_strategy, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, TRUE, $8, $8) RETURNING id`, profileID, vendorID, apiFamily, modelID, modelType, nullableTask9Int(strategyID), selectionStrategy, now).Scan(&modelConfigID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, NULL, $5, TRUE, $6, $6) RETURNING id`, profileID, vendorID, apiFamily, modelID, nullableTask9Int(strategyID), now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert task9 runtime model %s: %v", modelID, err)
 	}
 	return modelConfigID
@@ -799,8 +795,12 @@ func task9InsertRuntimeModel(t *testing.T, ctx context.Context, exec task9QueryR
 
 func task9InsertRuntimeProxyTarget(t *testing.T, ctx context.Context, exec task9Exec, publicModelConfigID int, targetModelConfigID int) {
 	t.Helper()
-	if _, err := exec.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, 0, 1, 0)`, publicModelConfigID, targetModelConfigID); err != nil {
-		t.Fatalf("insert task9 runtime proxy target: %v", err)
+	var profileID int
+	if err := exec.QueryRow(ctx, `SELECT profile_id FROM model_configs WHERE id = $1`, publicModelConfigID).Scan(&profileID); err != nil {
+		t.Fatalf("load task9 runtime source model profile: %v", err)
+	}
+	if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, 1, 0, TRUE, now(), now())`, profileID, publicModelConfigID, targetModelConfigID); err != nil {
+		t.Fatalf("insert task9 runtime model target: %v", err)
 	}
 }
 
@@ -815,9 +815,16 @@ func task9InsertRuntimeEndpoint(t *testing.T, ctx context.Context, exec task9Que
 
 func task9InsertRuntimeConnection(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, modelConfigID int, endpointID int, name string, now time.Time) int {
 	t.Helper()
+	var apiFamily string
+	if err := exec.QueryRow(ctx, `SELECT api_family FROM model_configs WHERE id = $1`, modelConfigID).Scan(&apiFamily); err != nil {
+		t.Fatalf("load task9 runtime model api family: %v", err)
+	}
 	var connectionID int
-	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, model_config_id, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, modelConfigID, endpointID, name, now).Scan(&connectionID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now).Scan(&connectionID); err != nil {
 		t.Fatalf("insert task9 runtime connection: %v", err)
+	}
+	if err := exec.QueryRow(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4) RETURNING id`, profileID, modelConfigID, connectionID, now).Scan(new(int)); err != nil {
+		t.Fatalf("insert task9 runtime connection target: %v", err)
 	}
 	return connectionID
 }

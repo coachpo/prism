@@ -57,10 +57,11 @@ type RuntimeFeedbackWriteResult struct {
 type runtimeFeedbackKind string
 
 const (
-	runtimeFeedbackProbeEligible    runtimeFeedbackKind = "probe_eligible"
-	runtimeFeedbackSuccessRecovery  runtimeFeedbackKind = "success_recovery"
-	runtimeFeedbackFailoverHTTP     runtimeFeedbackKind = "failover_http"
-	runtimeFeedbackTransportFailure runtimeFeedbackKind = "transport_failure"
+	runtimeFeedbackAdmissionRejected runtimeFeedbackKind = "admission_rejected"
+	runtimeFeedbackUnbanned          runtimeFeedbackKind = "unbanned"
+	runtimeFeedbackSuccessRecovery   runtimeFeedbackKind = "success_recovery"
+	runtimeFeedbackFailoverHTTP      runtimeFeedbackKind = "failover_http"
+	runtimeFeedbackTransportFailure  runtimeFeedbackKind = "transport_failure"
 )
 
 type runtimeFeedbackEvent struct {
@@ -165,12 +166,14 @@ func (p *runtimeFeedbackPipeline) persist(ctx context.Context, event runtimeFeed
 	}
 	_, err := pgxutil.InTxValue(ctx, p.store.pool, "runtime_feedback", func(tx pgx.Tx) (bool, error) {
 		switch event.Kind {
-		case runtimeFeedbackProbeEligible:
-			return true, loadbalance.InsertRuntimeProbeEligibleEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ConnectionID, event.State, event.Strategy, event.ObservedAt)
+		case runtimeFeedbackAdmissionRejected:
+			return true, loadbalance.InsertRuntimeAdmissionRejectedEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.State, event.ObservedAt)
+		case runtimeFeedbackUnbanned:
+			return true, loadbalance.InsertRuntimeUnbannedEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.State, event.ObservedAt)
 		case runtimeFeedbackSuccessRecovery:
-			return true, loadbalance.InsertRuntimeRecoveryEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ConnectionID, event.Transition, event.Strategy, event.CompletedAt)
+			return true, loadbalance.InsertRuntimeRecoveryEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.CompletedAt)
 		case runtimeFeedbackFailoverHTTP, runtimeFeedbackTransportFailure:
-			return true, loadbalance.InsertRuntimeFailureEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ConnectionID, event.Transition, event.Strategy, event.FailureKind, event.CompletedAt)
+			return true, loadbalance.InsertRuntimeFailureEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.FailureKind, event.CompletedAt)
 		default:
 			return false, fmt.Errorf("unsupported runtime feedback kind %q", event.Kind)
 		}
@@ -189,7 +192,7 @@ func (event runtimeFeedbackEvent) validate() error {
 		return fmt.Errorf("connection_id_required")
 	}
 	switch event.Kind {
-	case runtimeFeedbackProbeEligible:
+	case runtimeFeedbackAdmissionRejected, runtimeFeedbackUnbanned:
 		if event.ObservedAt.IsZero() {
 			return fmt.Errorf("observed_at_required")
 		}

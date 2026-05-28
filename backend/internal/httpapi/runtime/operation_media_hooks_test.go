@@ -101,7 +101,7 @@ func TestOpenAIImageEditsMultipartModelBinding(t *testing.T) {
 		}
 
 		service := newRequestPlanUnitService()
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-image-1", ModelType: "native"})
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-image-1"})
 		request := httptest.NewRequest(http.MethodPost, "/v1/images/edits", nil)
 		request.Header.Set("Content-Type", contentType)
 		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
@@ -126,8 +126,8 @@ func TestOpenAIImageEditsMultipartModelBinding(t *testing.T) {
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/images/edits")
 		service := newRequestPlanUnitService()
 		snapshot := newRequestPlanSnapshot(
-			runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-image", ModelType: "proxy", ProxySelectionStrategy: proxySelectionStrategyOrderedFallback},
-			runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "target-image", ModelType: "native"},
+			runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-image"},
+			runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "target-image"},
 		)
 		addRequestPlanProxyTarget(snapshot, "public-image", "target-image")
 		request := httptest.NewRequest(http.MethodPost, "/v1/images/edits", nil)

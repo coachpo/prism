@@ -63,6 +63,9 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 	if !bytes.Contains(encoded, []byte(`"attempt_timeout":"10s"`)) {
 		t.Fatal("expected safe management snapshot to include attempt_timeout")
 	}
+	if bytes.Contains(encoded, []byte("buffering_mode")) || bytes.Contains(encoded, []byte("bufferingMode")) {
+		t.Fatalf("expected safe management snapshot to omit runtime buffering mode, got %s", encoded)
+	}
 	databaseSecret := snapshot.Secrets[BootstrapConfigSecretDatabaseURL]
 	if !databaseSecret.Configured || !databaseSecret.Editable {
 		t.Fatal("expected editable configured database secret metadata")
@@ -132,8 +135,12 @@ func TestSafeBootstrapProjectionReturnsCompletePoolValues(t *testing.T) {
 	if values.HTTP == nil || values.HTTP.CORSAllowedOrigins == nil || !slices.Equal(*values.HTTP.CORSAllowedOrigins, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
 		t.Fatalf("expected safe projection CORS origins on frontend port 5173, got %+v", values.HTTP)
 	}
-	if values.Runtime == nil || values.Runtime.BufferingMode == nil || *values.Runtime.BufferingMode != string(RuntimeBufferingModeStreaming) {
-		t.Fatalf("expected safe projection runtime buffering=streaming, got %+v", values.Runtime)
+	if values.Runtime == nil {
+		t.Fatal("expected safe projection to include runtime values")
+	}
+	encodedRuntime := mustMarshalJSON(t, values.Runtime)
+	if bytes.Contains(encodedRuntime, []byte("buffering_mode")) || bytes.Contains(encodedRuntime, []byte("bufferingMode")) {
+		t.Fatalf("expected safe projection to omit runtime buffering mode, got %s", encodedRuntime)
 	}
 	if values.Database == nil || values.Database.Pools == nil {
 		t.Fatalf("expected safe projection to include database pools, got %+v", values.Database)

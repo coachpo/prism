@@ -7,10 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { StatGroup } from "@/lib/types";
-import type {
-  DashboardMetricSnapshot,
-  DashboardStrategyFamilySummary,
-} from "./useDashboardPageData";
+import type { DashboardMetricSnapshot } from "./useDashboardPageData";
 
 interface DashboardHighlightsGridProps {
   highlighted: boolean;
@@ -19,7 +16,6 @@ interface DashboardHighlightsGridProps {
   onReviewRequests: () => void;
   apiFamilyRows: StatGroup[];
   snapshot: DashboardMetricSnapshot;
-  strategyFamilySummary: DashboardStrategyFamilySummary;
 }
 
 export function DashboardHighlightsGrid({
@@ -29,10 +25,8 @@ export function DashboardHighlightsGrid({
   onReviewRequests,
   apiFamilyRows,
   snapshot,
-  strategyFamilySummary,
 }: DashboardHighlightsGridProps) {
   const { formatNumber, messages } = useLocale();
-  const strategyCopy = messages.loadbalanceStrategyCopy;
   const performanceTiles = [
     { label: messages.dashboard.avgLatency, value: `${formatNumber(snapshot.avgLatency)}ms` },
     { label: messages.dashboard.p95Latency, value: `${formatNumber(snapshot.p95Latency)}ms` },
@@ -115,34 +109,6 @@ export function DashboardHighlightsGrid({
               })}
             </div>
           )}
-
-          <div className="mt-4 border-t pt-4">
-            <p className="text-xs font-medium text-muted-foreground">
-              {messages.dashboard.routingStrategyMix}
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.strategyFamilyCount(
-                  strategyCopy.legacyFamilyLabel,
-                  formatNumber(strategyFamilySummary.legacyCount),
-                )}
-              </span>
-              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.strategyFamilyCount(
-                  strategyCopy.adaptiveFamilyLabel,
-                  formatNumber(strategyFamilySummary.adaptiveCount),
-                )}
-              </span>
-              {strategyFamilySummary.unassignedCount > 0 ? (
-                <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                  {messages.dashboard.strategyFamilyCount(
-                    messages.modelsUi.strategyNotConfigured,
-                    formatNumber(strategyFamilySummary.unassignedCount),
-                  )}
-                </span>
-              ) : null}
-            </div>
-          </div>
         </CardContent>
       </Card>
 

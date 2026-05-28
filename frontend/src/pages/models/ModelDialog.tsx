@@ -15,45 +15,39 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type {
-  LoadbalanceStrategy,
-  ModelConfigListItem,
-  Vendor,
-} from "@/lib/types";
-import { getAdaptiveRoutingObjectiveLabel } from "@/lib/loadbalanceRoutingPolicy";
-import { ProxyTargetsEditor } from "./ProxyTargetsEditor";
+import type { Connection, LoadbalanceStrategy, ModelConfigListItem, Vendor } from "@/lib/types";
+import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
+import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
-import {
-  setApiFamilyOnForm,
-  setDisplayNameOnForm,
-  setModelIdOnForm,
-} from "./modelFormState";
+import { setApiFamilyOnForm, setDisplayNameOnForm, setModelIdOnForm } from "./modelFormState";
 
 type Props = {
   editingModel: ModelConfigListItem | null;
   formData: ModelFormData;
+  formError: string | null;
   isDialogOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
-  nativeModelsForApiFamily: ModelConfigListItem[];
+  targetConnectionsForApiFamily: Connection[];
+  targetModelsForApiFamily: ModelConfigListItem[];
   vendors: Vendor[];
   setFormData: (value: ModelFormData | ((prev: ModelFormData) => ModelFormData)) => void;
   setIsDialogOpen: (open: boolean) => void;
   setLoadbalanceStrategyId: (value: number | null) => void;
-  setModelType: (value: "native" | "proxy") => void;
   onSubmit: (event: SubmitEventLike) => void;
 };
 
 export function ModelDialog({
   editingModel,
   formData,
+  formError,
   isDialogOpen,
   loadbalanceStrategies,
-  nativeModelsForApiFamily,
+  targetConnectionsForApiFamily,
+  targetModelsForApiFamily,
   vendors,
   setFormData,
   setIsDialogOpen,
   setLoadbalanceStrategyId,
-  setModelType,
   onSubmit,
 }: Props) {
   const { messages } = useLocale();
@@ -62,19 +56,8 @@ export function ModelDialog({
   const copy = messages.modelsUi;
   const detailCopy = messages.modelDetail;
 
-  const getStrategyTypeLabel = (strategy: LoadbalanceStrategy) =>
-    strategy.strategy_type === "adaptive"
-      ? `${strategyCopy.adaptiveFamilyLabel} • ${getAdaptiveRoutingObjectiveLabel(strategy.routing_policy.routing_objective, strategyCopy)}`
-      : strategy.legacy_strategy_type === "single"
-        ? strategyCopy.singleLabel
-        : strategy.legacy_strategy_type === "fill-first"
-          ? strategyCopy.fillFirstLabel
-          : strategyCopy.roundRobinLabel;
-
-  const getStrategyOptionText = (strategy: LoadbalanceStrategy) => {
-    return `${strategy.name} (${getStrategyTypeLabel(strategy)})`;
-  };
-
+  const getStrategyTypeLabel = (strategy: LoadbalanceStrategy) => getLoadbalanceStrategyTypeLabel(strategy, strategyCopy);
+  const getStrategyOptionText = (strategy: LoadbalanceStrategy) => `${strategy.name} (${getStrategyTypeLabel(strategy)})`;
   const loadbalanceStrategyValue = String(formData.loadbalance_strategy_id ?? "");
   const selectedLoadbalanceStrategy = [...loadbalanceStrategies]
     .reverse()
@@ -82,7 +65,7 @@ export function ModelDialog({
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-      <DialogContent className="max-h-[90vh] sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{editingModel ? copy.editModel : messages.modelsPage.newModel}</DialogTitle>
           <DialogDescription>{detailCopy.modelSettingsDescription}</DialogDescription>
@@ -90,12 +73,7 @@ export function ModelDialog({
         <form onSubmit={onSubmit} className="flex min-h-0 flex-col gap-5" autoComplete="off">
           <input type="hidden" name="vendor_id" value={String(formData.vendor_id ?? "")} />
           <input type="hidden" name="api_family" value={formData.api_family ?? ""} />
-          <input type="hidden" name="model_type" value={formData.model_type} />
-          <input
-            type="hidden"
-            name="loadbalance_strategy_id"
-            value={loadbalanceStrategyValue}
-          />
+          <input type="hidden" name="loadbalance_strategy_id" value={loadbalanceStrategyValue} />
           <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
           <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
             <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
@@ -104,13 +82,7 @@ export function ModelDialog({
                   <Label>{fieldCopy.vendor}</Label>
                   <VendorSelect
                     value={String(formData.vendor_id ?? "")}
-                    onValueChange={(value) => {
-                      const nextVendorId = value ? Number.parseInt(value, 10) : null;
-                      setFormData((prev) => ({
-                        ...prev,
-                        vendor_id: nextVendorId,
-                      }));
-                    }}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, vendor_id: value ? Number.parseInt(value, 10) : null }))}
                     allowEmpty={true}
                     valueType="vendor_id"
                     vendors={vendors}
@@ -124,9 +96,7 @@ export function ModelDialog({
                   <Label>{fieldCopy.apiFamily}</Label>
                   <ApiFamilySelect
                     value={formData.api_family ?? ""}
-                    onValueChange={(value) =>
-                      setFormData((prev) => setApiFamilyOnForm(prev, value as typeof prev.api_family))
-                    }
+                    onValueChange={(value) => setFormData((prev) => setApiFamilyOnForm(prev, value as typeof prev.api_family))}
                     showAll={false}
                     className="w-full"
                     placeholder={detailCopy.selectApiFamily}
@@ -163,94 +133,50 @@ export function ModelDialog({
             </div>
 
             <div className="flex flex-col gap-4 rounded-lg border p-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="model-type">{messages.settingsDialogs.type}</Label>
-                <Select value={formData.model_type} onValueChange={(v) => setModelType(v as "native" | "proxy")}>
-                  <SelectTrigger id="model-type" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="native">{detailCopy.typeNative}</SelectItem>
-                    <SelectItem value="proxy">{detailCopy.typeProxy}</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="flex flex-col gap-3 rounded-lg border bg-muted/15 p-4">
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium text-foreground">{detailCopy.loadbalanceStrategy}</p>
+                  <p className="text-sm text-muted-foreground">{copy.routingTypeDescription}</p>
+                </div>
+                {loadbalanceStrategies.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{detailCopy.noLoadbalanceStrategiesAvailable}</p>
+                ) : (
+                  <Select value={loadbalanceStrategyValue} onValueChange={(value) => setLoadbalanceStrategyId(Number.parseInt(value, 10))}>
+                    <SelectTrigger id="model-loadbalance-strategy" className="h-auto w-full min-w-0 max-w-full items-start py-2 text-left whitespace-normal">
+                      <SelectValue placeholder={detailCopy.selectStrategy}>
+                        {selectedLoadbalanceStrategy ? <span className="min-w-0 whitespace-normal break-words leading-5">{getStrategyOptionText(selectedLoadbalanceStrategy)}</span> : null}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
+                      {loadbalanceStrategies.map((strategy) => (
+                        <SelectItem key={strategy.id} value={String(strategy.id)}>
+                          <span className="block whitespace-normal break-words pr-4 leading-5">{getStrategyOptionText(strategy)}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
-              {formData.model_type === "proxy" ? (
-                <ProxyTargetsEditor
-                  apiFamilyLabel={formData.api_family || messages.common.apiFamily}
-                  availableTargets={nativeModelsForApiFamily.map((model) => ({
-                    modelId: model.model_id,
-                    label: model.display_name || model.model_id,
-                  }))}
-                  proxyTargets={formData.proxy_targets}
-                  onChange={(proxyTargets) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      proxy_targets: proxyTargets,
-                    }))
-                  }
-                />
-              ) : null}
-
-              {formData.model_type === "native" ? (
-                <div className="flex flex-col gap-3 rounded-lg border bg-muted/15 p-4">
-                  <div className="flex flex-col gap-1">
-                    <p className="text-sm font-medium text-foreground">{detailCopy.loadbalanceStrategy}</p>
-                    <p className="text-sm text-muted-foreground">{copy.routingTypeDescription}</p>
-                  </div>
-                  {loadbalanceStrategies.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {detailCopy.noLoadbalanceStrategiesAvailable}
-                    </p>
-                  ) : (
-                    <Select
-                      value={loadbalanceStrategyValue}
-                      onValueChange={(value) => setLoadbalanceStrategyId(Number.parseInt(value, 10))}
-                    >
-                      <SelectTrigger
-                        id="model-loadbalance-strategy"
-                        className="h-auto w-full min-w-0 max-w-full items-start py-2 text-left whitespace-normal [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:line-clamp-none [&_[data-slot=select-value]]:whitespace-normal [&_[data-slot=select-value]]:break-words [&_[data-slot=select-value]]:leading-5"
-                      >
-                        <SelectValue placeholder={detailCopy.selectStrategy}>
-                          {selectedLoadbalanceStrategy ? (
-                            <span className="min-w-0 whitespace-normal break-words leading-5">
-                              {getStrategyOptionText(selectedLoadbalanceStrategy)}
-                            </span>
-                          ) : null}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
-                        {loadbalanceStrategies.map((strategy) => (
-                          <SelectItem key={strategy.id} value={String(strategy.id)}>
-                            <span className="block whitespace-normal break-words pr-4 leading-5">
-                              {getStrategyOptionText(strategy)}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-              ) : null}
+              <AccessTargetsEditor
+                apiFamilyLabel={formData.api_family}
+                accessTargets={formData.access_targets}
+                modelOptions={targetModelsForApiFamily}
+                connectionOptions={targetConnectionsForApiFamily}
+                error={formError}
+                onChange={(accessTargets) => setFormData((prev) => ({ ...prev, access_targets: accessTargets }))}
+              />
 
               <SwitchController
                 label={detailCopy.enabled}
                 checked={formData.is_enabled}
-                onCheckedChange={(checked) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    is_enabled: checked,
-                  }))
-                }
+                onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, is_enabled: checked }))}
               />
             </div>
           </DialogBody>
 
           <DialogFooter className="sm:justify-between">
-            <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-              {messages.settingsDialogs.cancel}
-            </Button>
+            <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>{messages.settingsDialogs.cancel}</Button>
             <Button type="submit">{copy.save}</Button>
           </DialogFooter>
         </form>

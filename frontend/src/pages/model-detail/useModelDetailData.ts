@@ -11,7 +11,8 @@ import type {
   SpendingSummary,
   PricingTemplate,
 } from "@/lib/types";
-import { buildProxyTargetSummary } from "./useModelDetailDataSupport";
+import { getAccessTargetModelsForApiFamily } from "../models/modelFormState";
+import { buildAccessTargetSummary, getSameFamilyConnections } from "./useModelDetailDataSupport";
 import { useConnectionFocus } from "./useConnectionFocus";
 import { useModelDetailBootstrap } from "./useModelDetailBootstrap";
 import { useModelDetailConnectionFlows } from "./useModelDetailConnectionFlows";
@@ -38,6 +39,7 @@ export function useModelDetailData(id: string | undefined) {
   const [spendingCurrencyCode, setSpendingCurrencyCode] = useState("USD");
 
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [allConnections, setAllConnections] = useState<Connection[]>([]);
   const [connectionSearch, setConnectionSearch] = useState("");
   const [focusedConnectionId, setFocusedConnectionId] = useState<number | null>(null);
   const [connectionCardRefs] = useState<Map<number, HTMLDivElement>>(new Map());
@@ -77,6 +79,7 @@ export function useModelDetailData(id: string | undefined) {
     navigate,
     setModel,
     setConnections,
+    setAllConnections,
     setGlobalEndpoints,
     setLoadbalanceStrategies,
     setAllModels,
@@ -97,7 +100,7 @@ export function useModelDetailData(id: string | undefined) {
   } = useModelLoadbalanceCurrentState({
     modelConfigId,
     revision,
-    enabled: model?.model_type === "native",
+    enabled: Boolean(model),
   });
 
   const {
@@ -109,16 +112,7 @@ export function useModelDetailData(id: string | undefined) {
   } = useModelDetailConnectionFlows({
     connections,
     setConnections,
-    model,
-    modelConfigId,
-    setModel,
-    createMode,
-    selectedEndpointId,
-    newEndpointForm,
-    connectionForm,
-    headerRows,
     editingConnection,
-    endpointSourceDefaultName,
     refreshCurrentState,
     setDialogTestingConnection,
     setDialogTestResult,
@@ -128,9 +122,14 @@ export function useModelDetailData(id: string | undefined) {
     handleConnectionSubmit,
     handleDeleteConnection,
     handleToggleActive,
+    handleAddAccessTarget,
+    handleMoveAccessTarget,
+    handleToggleAccessTarget,
+    handleDeleteAccessTarget,
   } = useModelDetailConnectionMutations({
     id,
     revision,
+    model,
     modelApiFamily: model?.api_family ?? null,
     createMode,
     selectedEndpointId,
@@ -144,31 +143,36 @@ export function useModelDetailData(id: string | undefined) {
     setIsConnectionDialogOpen,
     setAllModels,
     setConnections,
-    setGlobalEndpoints,
+    setAllConnections,
     setModel,
+    setGlobalEndpoints,
   });
 
   const {
     formData,
-    nativeModelsForApiFamily,
-    proxyTargetOptions,
+    targetEditorError,
+    setTargetEditorError,
     setFormData,
     setIsEditModelDialogOpen,
     setLoadbalanceStrategyId,
     handleEditModelSubmit,
   } = useModelDetailModelForm({
     model,
-    allModels,
     revision,
     setIsEditModelDialogOpenState,
     setAllModels,
     setModel,
   });
 
-  const proxyTargetSummary = useMemo(
-    () => buildProxyTargetSummary(model, allModels),
-    [allModels, model],
+  const targetModelsForApiFamily = useMemo(
+    () => getAccessTargetModelsForApiFamily(allModels, formData.api_family, model?.model_id),
+    [allModels, formData.api_family, model?.model_id],
   );
+  const targetConnectionsForApiFamily = useMemo(
+    () => getSameFamilyConnections(allConnections, formData.api_family),
+    [allConnections, formData.api_family],
+  );
+  const accessTargetSummary = useMemo(() => buildAccessTargetSummary(model), [model]);
 
   useConnectionFocus({
     model,
@@ -188,7 +192,10 @@ export function useModelDetailData(id: string | undefined) {
     formData,
     setFormData,
     setLoadbalanceStrategyId,
-    nativeModelsForApiFamily,
+    targetConnectionsForApiFamily,
+    targetModelsForApiFamily,
+    targetEditorError,
+    setTargetEditorError,
     spending,
     spendingLoading,
     spendingCurrencySymbol,
@@ -218,8 +225,7 @@ export function useModelDetailData(id: string | undefined) {
     setConnectionForm,
     headerRows,
     setHeaderRows,
-    proxyTargetOptions,
-    proxyTargetSummary,
+    accessTargetSummary,
     endpointSourceDefaultName,
     openConnectionDialog,
     handleConnectionSubmit,
@@ -227,6 +233,10 @@ export function useModelDetailData(id: string | undefined) {
     handleHealthCheck,
     handleDialogTestConnection,
     handleToggleActive,
+    handleAddAccessTarget,
+    handleMoveAccessTarget,
+    handleToggleAccessTarget,
+    handleDeleteAccessTarget,
     handleEditModelSubmit,
     pricingTemplates,
     reorderInFlight,

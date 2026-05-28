@@ -5,13 +5,13 @@
 
 ## ROUTE SURFACE
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
+- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
 - Root redirect: `/` -> `/dashboard`
 
 ## DOMAINS
 - Auth entry and recovery: `LoginPage.tsx`, `ForgotPasswordPage.tsx`, `ResetPasswordPage.tsx`
 - Observability: `DashboardPage.tsx`, dashboard analytics content from `statistics/`, and `RequestLogsPage.tsx`
-- Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `ProxyModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is also where dual-family strategy selection and assignment surfaces live
+- Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is where unified access targets, standalone connections, and legacy Ban Policy strategy assignment surfaces live
 - Access control and runtime credentials: `ProxyApiKeysPage.tsx`
 - Global sidecar control plane: `SidecarsPage.tsx`, `sidecars/AGENTS.md`
 - Settings shell: `SettingsPage.tsx` with Profile, Global, and Startup tabs, plus `settings/sections/`, `settings/dialogs/`, `settings/startup/`, and `settings/costing/`

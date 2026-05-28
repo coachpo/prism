@@ -26,6 +26,7 @@ configbundle/
 
 ## CONVENTIONS
 - Keep profile bundle and vendor catalog flows separate from startup bootstrap config and from log-retention or sidecar ownership.
+- Keep profile bundles on the v2 contract with top-level standalone connections and ordered model access targets.
 - Keep preview-before-import semantics explicit; validated imports should require the preview token path that the backend issued for that exact bundle fingerprint.
 - Keep bundle-secret handling explicit and transactional; do not bury encryption/decryption in page code or shared settings helpers.
 - Keep effective-profile resolution and after-import hooks inside this package.

@@ -70,7 +70,6 @@ function isVendorModelUsageItem(value: unknown): value is VendorModelUsageItem {
     typeof row.profile_name === "string" &&
     typeof row.model_id === "string" &&
     (typeof row.display_name === "string" || row.display_name === null || row.display_name === undefined) &&
-    (row.model_type === "native" || row.model_type === "proxy") &&
     (row.api_family === "openai" || row.api_family === "anthropic" || row.api_family === "gemini") &&
     typeof row.is_enabled === "boolean"
   );

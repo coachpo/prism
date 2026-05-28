@@ -1,7 +1,7 @@
 # FRONTEND ENDPOINTS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/endpoints/` owns endpoint CRUD, review search/filter state, reorder behavior, and card-level presentation behind `../EndpointsPage.tsx`. This page stays profile-scoped because endpoints are reusable credentials attached to the selected profile.
+`pages/endpoints/` owns endpoint CRUD, review search/filter state, reorder behavior, reachable-model display, and card-level presentation behind `../EndpointsPage.tsx`. This page stays profile-scoped because endpoints are reusable credentials attached to the selected profile.
 
 ## STRUCTURE
 ```
@@ -10,7 +10,7 @@ endpoints/
 ├── DeleteEndpointDialog.tsx    # Delete confirmation flow
 ├── EndpointCard.tsx            # Sortable endpoint card + overlay presentation
 ├── endpointCardHelpers.ts      # Card display helpers
-├── useEndpointBootstrapData.ts # Shared-cache bootstrap for endpoints and attached models
+├── useEndpointBootstrapData.ts # Shared-cache bootstrap for endpoints and reachable models
 ├── useEndpointReorder.ts       # Drag sensors, optimistic reorder, rollback, and review-mode reorder guards
 └── useEndpointsPageData.ts     # Page-level orchestration for review filters, CRUD, duplication, delete flow, and reorder wiring
 ```
@@ -21,7 +21,7 @@ endpoints/
 - Bootstrap and shared endpoint cache updates: `useEndpointBootstrapData.ts`
 - Drag sensors, reorder guards, and optimistic order updates: `useEndpointReorder.ts`
 - Form fields and endpoint payload shaping: `EndpointDialog.tsx`
-- Sortable card rendering and model attachment display: `EndpointCard.tsx`, `endpointCardHelpers.ts`
+- Sortable card rendering and reachable-model display: `EndpointCard.tsx`, `endpointCardHelpers.ts`
 
 ## CONVENTIONS
 

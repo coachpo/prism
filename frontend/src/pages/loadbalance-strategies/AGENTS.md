@@ -1,7 +1,7 @@
 # FRONTEND LOADBALANCE STRATEGIES DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/loadbalance-strategies/` owns the dedicated strategy-management route behind `../LoadbalanceStrategiesPage.tsx`. It covers the profile-scoped strategy list, create or edit dialog flows, delete confirmation, and the form normalization that mirrors the merged backend strategy contract for native-model routing. The route must treat both `legacy` and `adaptive` strategy families as first-class UI choices.
+`pages/loadbalance-strategies/` owns the dedicated strategy-management route behind `../LoadbalanceStrategiesPage.tsx`. It covers the profile-scoped strategy list, create or edit dialog flows, delete confirmation, and the form normalization that mirrors the backend legacy Ban Policy contract for model access routing.
 
 ## STRUCTURE
 ```
@@ -17,7 +17,7 @@ loadbalance-strategies/
 
 - Route shell and page composition: `../LoadbalanceStrategiesPage.tsx`
 - Strategy bootstrap, mutation orchestration, and optimistic patching: `useLoadbalanceStrategiesPageData.ts`
-- Form defaults, validation, and request payload shaping for the dual-family contract: top-level `strategy_type` is `legacy` or `adaptive`; legacy strategies carry `legacy_strategy_type` plus `auto_recovery`, while adaptive strategies carry the full `routing_policy` document and must preserve untouched adaptive fields through edit/save round-trips: `loadbalanceStrategyFormState.ts`
+- Form defaults, validation, and request payload shaping for the legacy Ban Policy contract: strategies carry `legacy_strategy_type`, failure status codes, retry-window settings, retry attempt limits, and ban mode fields through `loadbalanceStrategyFormState.ts`
 - Table rendering and destructive flow entrypoints: `LoadbalanceStrategiesTable.tsx`, `DeleteLoadbalanceStrategyDialog.tsx`
 
 ## CONVENTIONS
@@ -27,11 +27,11 @@ loadbalance-strategies/
 - Keep backend access on the shared `api.*` boundary; this page should not create a parallel fetch layer.
 - Keep strategy form normalization and request shaping in `loadbalanceStrategyFormState.ts` rather than scattering the rules across dialogs.
 - Match the CRUD/page shell pattern used by other profile-scoped management pages such as pricing templates.
-- Keep both strategy families on the existing strategy dialog; users must be able to intentionally choose `legacy` or `adaptive` when creating a strategy, while edits preserve the stored family.
-- Keep family-specific fields explicit in the form state: legacy strategies own legacy routing choice, cooldown thresholds, status-code policy, and ban escalation; adaptive strategies own `routing_policy` inputs. Do not hide the family behind inferred defaults.
-- Keep failure-status editing, adaptive-routing defaults, full adaptive policy preservation, and payload normalization inside `loadbalanceStrategyFormState.ts`; do not scatter contract shaping across dialog components.
-- Keep kind-aware summary wording in `LoadbalanceStrategiesTable.tsx` and shared page data helpers; do not duplicate family label, objective label, or summary formatting elsewhere.
-- Keep the merged contract forward-only. Do not add compatibility shims, silent coercion, or a fallback path that collapses both families back into one generic strategy type.
+- Keep legacy routing and Ban Policy fields on the existing strategy dialog.
+- Keep retry-window fields explicit in form state: failure status codes, base retry delay, backoff, jitter, maximum retry delay, retry attempts, ban mode, and ban duration.
+- Keep failure-status editing and Ban Policy payload normalization inside `loadbalanceStrategyFormState.ts`; do not scatter contract shaping across dialog components.
+- Keep summary wording in `LoadbalanceStrategiesTable.tsx` and shared page data helpers; do not duplicate retry-window or ban labels elsewhere.
+- Keep the contract forward-only. Do not add compatibility shims, silent coercion, or a fallback path that reintroduces removed strategy families.
 
 ## LLM UPSTREAM MATRIX
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
@@ -39,7 +39,7 @@ loadbalance-strategies/
 ## ANTI-PATTERNS
 
 - Do not let table components own API calls directly when `useLoadbalanceStrategiesPageData.ts` already centralizes CRUD orchestration.
-- Do not reintroduce model-level cooldown, legacy failover-policy, or adaptive routing-policy fields outside this strategy UI.
+- Do not reintroduce model-level cooldown, removed failover-policy, or removed routing-policy fields outside this strategy UI.
 - Do not split ban controls into a second dialog or page; they belong to the existing strategy dialog.
 - Do not create a second policy-management page or move strategy assignment out of the existing model dialogs.
-- Do not collapse `legacy` and `adaptive` into the same label, selector option, or summary copy.
+- Do not add extra strategy family labels, selector options, or summary copy.

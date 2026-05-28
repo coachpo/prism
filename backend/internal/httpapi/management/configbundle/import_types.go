@@ -11,6 +11,7 @@ type profileImportRequest struct {
 	VendorRefs            []vendorRefExport           `json:"vendor_refs"`
 	Endpoints             []endpointExport            `json:"endpoints"`
 	PricingTemplates      []pricingTemplateExport     `json:"pricing_templates"`
+	Connections           []connectionExport          `json:"connections"`
 	LoadbalanceStrategies []loadbalanceStrategyExport `json:"loadbalance_strategies"`
 	Models                []modelExport               `json:"models"`
 	ProfileSettings       *profileSettingsExport      `json:"profile_settings"`
@@ -82,11 +83,16 @@ type vendorCatalogImportResponse struct {
 }
 
 type importedStrategyPayload struct {
-	Name               string
-	StrategyType       string
-	LegacyStrategyType *string
-	AutoRecoveryJSON   []byte
-	RoutingPolicyJSON  []byte
+	Name                   string
+	LegacyStrategyType     string
+	FailureStatusCodes     []int
+	BanMode                string
+	RetryBaseDelayMS       int
+	RetryBackoffMultiplier float64
+	RetryJitterRatio       float64
+	RetryMaxDelayMS        int
+	RetryMaxAttempts       int
+	BanDurationSeconds     int
 }
 
 type secretPayloadEntryMap map[string]string

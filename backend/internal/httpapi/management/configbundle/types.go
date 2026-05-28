@@ -1,10 +1,6 @@
 package configbundle
 
-import (
-	"bytes"
-	"encoding/json"
-	"time"
-)
+import "time"
 
 type profileBundleResponse struct {
 	Version               int                         `json:"version"`
@@ -13,6 +9,7 @@ type profileBundleResponse struct {
 	VendorRefs            []vendorRefExport           `json:"vendor_refs"`
 	Endpoints             []endpointExport            `json:"endpoints"`
 	PricingTemplates      []pricingTemplateExport     `json:"pricing_templates"`
+	Connections           []connectionExport          `json:"connections"`
 	LoadbalanceStrategies []loadbalanceStrategyExport `json:"loadbalance_strategies"`
 	Models                []modelExport               `json:"models"`
 	ProfileSettings       profileSettingsExport       `json:"profile_settings"`
@@ -56,84 +53,39 @@ type pricingTemplateExport struct {
 }
 
 type loadbalanceStrategyExport struct {
-	Name               string          `json:"name"`
-	StrategyType       string          `json:"strategy_type"`
-	LegacyStrategyType *string         `json:"legacy_strategy_type"`
-	AutoRecovery       json.RawMessage `json:"auto_recovery"`
-	RoutingPolicy      json.RawMessage `json:"routing_policy"`
+	Name                   string   `json:"name"`
+	LegacyStrategyType     *string  `json:"legacy_strategy_type"`
+	FailureStatusCodes     []int    `json:"failure_status_codes"`
+	BanMode                *string  `json:"ban_mode"`
+	RetryBaseDelayMS       *int     `json:"retry_base_delay_ms"`
+	RetryBackoffMultiplier *float64 `json:"retry_backoff_multiplier"`
+	RetryJitterRatio       *float64 `json:"retry_jitter_ratio"`
+	RetryMaxDelayMS        *int     `json:"retry_max_delay_ms"`
+	RetryMaxAttempts       *int     `json:"retry_max_attempts"`
+	BanDurationSeconds     *int     `json:"ban_duration_seconds"`
 }
 
 type modelExport struct {
-	VendorKey               *string             `json:"vendor_key"`
-	APIFamily               string              `json:"api_family"`
-	ModelID                 string              `json:"model_id"`
-	DisplayName             *string             `json:"display_name"`
-	ModelType               string              `json:"model_type"`
-	ProxySelectionStrategy  *string             `json:"proxy_selection_strategy"`
-	ProxyTargets            []proxyTargetExport `json:"proxy_targets"`
-	LoadbalanceStrategyName *string             `json:"loadbalance_strategy_name"`
-	IsEnabled               bool                `json:"is_enabled"`
-	Connections             []connectionExport  `json:"connections"`
+	VendorKey               *string              `json:"vendor_key"`
+	APIFamily               string               `json:"api_family"`
+	ModelID                 string               `json:"model_id"`
+	DisplayName             *string              `json:"display_name"`
+	LoadbalanceStrategyName *string              `json:"loadbalance_strategy_name"`
+	IsEnabled               bool                 `json:"is_enabled"`
+	AccessTargets           []accessTargetExport `json:"access_targets"`
 }
 
-type proxyTargetExport struct {
-	TargetModelID  string `json:"target_model_id"`
-	Position       int    `json:"position"`
-	Weight         int    `json:"weight"`
-	TargetPriority int    `json:"target_priority"`
-
-	weightSet          bool
-	weightNull         bool
-	targetPrioritySet  bool
-	targetPriorityNull bool
-}
-
-func (value *proxyTargetExport) UnmarshalJSON(data []byte) error {
-	var parsed struct {
-		TargetModelID  string            `json:"target_model_id"`
-		Position       int               `json:"position"`
-		Weight         importOptionalInt `json:"weight"`
-		TargetPriority importOptionalInt `json:"target_priority"`
-	}
-	if err := json.Unmarshal(bytes.TrimSpace(data), &parsed); err != nil {
-		return err
-	}
-	value.TargetModelID = parsed.TargetModelID
-	value.Position = parsed.Position
-	value.weightSet = parsed.Weight.Set
-	value.weightNull = parsed.Weight.Set && parsed.Weight.Value == nil
-	if parsed.Weight.Value != nil {
-		value.Weight = *parsed.Weight.Value
-	}
-	value.targetPrioritySet = parsed.TargetPriority.Set
-	value.targetPriorityNull = parsed.TargetPriority.Set && parsed.TargetPriority.Value == nil
-	if parsed.TargetPriority.Value != nil {
-		value.TargetPriority = *parsed.TargetPriority.Value
-	}
-	return nil
-}
-
-type importOptionalInt struct {
-	Set   bool
-	Value *int
-}
-
-func (value *importOptionalInt) UnmarshalJSON(data []byte) error {
-	value.Set = true
-	trimmed := bytes.TrimSpace(data)
-	if bytes.Equal(trimmed, []byte("null")) {
-		value.Value = nil
-		return nil
-	}
-	var parsed int
-	if err := json.Unmarshal(trimmed, &parsed); err != nil {
-		return err
-	}
-	value.Value = &parsed
-	return nil
+type accessTargetExport struct {
+	Position      int     `json:"position"`
+	IsEnabled     bool    `json:"is_enabled"`
+	TargetType    string  `json:"target_type"`
+	ConnectionRef *string `json:"connection_ref"`
+	TargetModelID *string `json:"target_model_id"`
 }
 
 type connectionExport struct {
+	Ref                        string            `json:"ref"`
+	APIFamily                  string            `json:"api_family"`
 	EndpointName               string            `json:"endpoint_name"`
 	PricingTemplateName        *string           `json:"pricing_template_name"`
 	IsActive                   bool              `json:"is_active"`
@@ -155,9 +107,9 @@ type profileSettingsExport struct {
 }
 
 type endpointFXMappingExport struct {
-	ModelID      string `json:"model_id"`
-	EndpointName string `json:"endpoint_name"`
-	FXRate       string `json:"fx_rate"`
+	ModelID       string `json:"model_id"`
+	ConnectionRef string `json:"connection_ref"`
+	FXRate        string `json:"fx_rate"`
 }
 
 type headerBlocklistRuleExport struct {

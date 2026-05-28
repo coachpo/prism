@@ -223,7 +223,6 @@ func (s *Service) hotApplySettings(liveSettings config.Settings, requested confi
 	projected.AuthRefreshCookieName = requested.AuthRefreshCookieName
 	projected.AuthCookieSecure = requested.AuthCookieSecure
 	projected.Mail = requested.Mail
-	projected.RuntimeBufferingMode = requested.RuntimeBufferingMode
 	projected.RuntimeTransportConfig = requested.RuntimeTransportConfig
 	projected.ManagementAdmissionControlBudget = requested.ManagementAdmissionControlBudget
 	return projected

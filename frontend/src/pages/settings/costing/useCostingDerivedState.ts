@@ -58,10 +58,7 @@ export function useCostingDerivedState({
   const timezonePreviewText = formatTimezonePreview(timezonePreviewZone);
 
   const nativeModels = useMemo(
-    () =>
-      models
-        .filter((model) => model.model_type === "native")
-        .sort((a, b) => a.model_id.localeCompare(b.model_id)),
+    () => [...models].sort((a, b) => a.model_id.localeCompare(b.model_id)),
     [models],
   );
 

@@ -35,11 +35,11 @@ backend/
 - `internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and retention-job endpoints.
 - `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
 - `internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registrations, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
-- `internal/httpapi/management/connections/AGENTS.md`: selected-profile model connection management, inline endpoint creation, health checks, and pricing templates.
+- `internal/httpapi/management/connections/AGENTS.md`: selected-profile standalone connection CRUD, model access-target attachment routes, health checks, and pricing templates.
 - `internal/httpapi/management/configrules/AGENTS.md`: selected-profile header-blocklist and user-agent/client mapping rules under `/api/config/*`.
 - `internal/httpapi/management/endpoints/AGENTS.md`: selected-profile endpoint CRUD, encrypted API keys, ordering, and connection dropdown support.
 - `internal/httpapi/management/loadbalance/AGENTS.md`: selected-profile load-balance strategy CRUD, canonical defaults, current state, and event reads.
-- `internal/httpapi/management/models/AGENTS.md`: selected-profile native and proxy model CRUD plus endpoint model lookups.
+- `internal/httpapi/management/models/AGENTS.md`: selected-profile unified model CRUD, ordered access targets, standalone connection references, and endpoint model lookups.
 - `internal/httpapi/management/profiles/AGENTS.md`: profile lifecycle, active/bootstrap state, activation checks, and soft deletion.
 - `internal/httpapi/management/stats/AGENTS.md`: selected-profile observability reads, request logs, dashboard snapshots, metrics, and invalidation.
 - `internal/httpapi/management/vendors/AGENTS.md`: global vendor catalog CRUD, presentation metadata, audit preferences, and model usage lookup.
@@ -63,7 +63,7 @@ backend/
 - Management and runtime API behavior is documented in the markdown docs, with runtime proxy routes documented as an explicit allowlist rather than broad vendor path families.
 - `Dockerfile` builds from the monorepo root, copies migrations, runs as `prism:prism` (`1000:1000`), and defaults `PRISM_CONFIG_PATH` to `/app/config/config.json`.
 - `tests/contract/`, `tests/integration/`, `tests/runtime/`, and `tests/priority/` are the checked-in Go regression packages.
-- Bootstrap config v1 is plaintext and file-backed. Backend-owned canonical defaults are the source of truth for fresh seeds: `0.0.0.0:8000`, CORS `5173`, pool total `24`, split `4/8/4/2/2/2/2`, buffering `streaming`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`. Existing valid files are preserved until manual reset by stop, remove or relocate, and restart.
+- Bootstrap config v1 is plaintext and file-backed. Backend-owned canonical defaults are the source of truth for fresh seeds: `0.0.0.0:8000`, CORS `5173`, pool total `24`, split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`. Runtime buffering is automatic and internal. Existing valid files are preserved until manual reset by stop, remove or relocate, and restart.
 - Mail is controlled by bootstrap config. Missing or disabled mail means no-op delivery; enabled SMTP must validate at startup and must not silently fall back.
 
 ## WHERE TO LOOK

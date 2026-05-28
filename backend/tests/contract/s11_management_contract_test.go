@@ -8,6 +8,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -247,31 +248,16 @@ func TestLoadbalanceStrategyGet(t *testing.T) {
 		http.MethodPost,
 		"/api/loadbalance/strategies",
 		map[string]any{
-			"name":          "S11 Adaptive Detail",
-			"strategy_type": "adaptive",
-			"routing_policy": map[string]any{
-				"kind":              "adaptive",
-				"routing_objective": "maximize_availability",
-				"hedge": map[string]any{
-					"enabled":                 true,
-					"delay_ms":                1500,
-					"max_additional_attempts": 1,
-				},
-				"circuit_breaker": map[string]any{
-					"failure_status_codes":        []int{403, 422, 429, 500, 502, 503, 504, 529},
-					"base_open_seconds":           60,
-					"failure_threshold":           2,
-					"backoff_multiplier":          2,
-					"max_open_seconds":            900,
-					"ban_mode":                    "off",
-					"max_open_strikes_before_ban": 0,
-					"ban_duration_seconds":        0,
-				},
-				"admission": map[string]any{
-					"respect_qps_limit":        true,
-					"respect_in_flight_limits": true,
-				},
-			},
+			"name":                     "S11 Legacy Detail",
+			"legacy_strategy_type":     "round-robin",
+			"failure_status_codes":     []int{503, 429, 500},
+			"ban_mode":                 "temporary",
+			"retry_base_delay_ms":      1234,
+			"retry_backoff_multiplier": 3.5,
+			"retry_jitter_ratio":       0.35,
+			"retry_max_delay_ms":       456789,
+			"retry_max_attempts":       7,
+			"ban_duration_seconds":     1800,
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -284,69 +270,64 @@ func TestLoadbalanceStrategyGet(t *testing.T) {
 	assertStatus(t, detailResponse, http.StatusOK)
 	var detail map[string]any
 	decodeJSONResponse(t, detailResponse, &detail)
-	if detail["name"] != "S11 Adaptive Detail" || detail["strategy_type"] != "adaptive" || jsonInt(t, detail["attached_model_count"]) != 0 {
-		t.Fatalf("expected adaptive detail payload for edit flow, got %+v", detail)
+	if detail["name"] != "S11 Legacy Detail" || detail["legacy_strategy_type"] != "round-robin" || jsonInt(t, detail["attached_model_count"]) != 0 {
+		t.Fatalf("expected legacy-only detail payload for edit flow, got %+v", detail)
 	}
-	routingPolicy := asMap(t, detail["routing_policy"])
-	if routingPolicy["kind"] != "adaptive" || routingPolicy["routing_objective"] != "maximize_availability" {
-		t.Fatalf("expected routing_policy detail payload, got %+v", detail)
+	assertIntList(t, detail["failure_status_codes"], []int{429, 500, 503})
+	if detail["ban_mode"] != "temporary" || jsonInt(t, detail["retry_base_delay_ms"]) != 1234 || jsonFloat(t, detail["retry_backoff_multiplier"]) != 3.5 || jsonFloat(t, detail["retry_jitter_ratio"]) != 0.35 || jsonInt(t, detail["retry_max_delay_ms"]) != 456789 || jsonInt(t, detail["retry_max_attempts"]) != 7 || jsonInt(t, detail["ban_duration_seconds"]) != 1800 {
+		t.Fatalf("expected explicit Ban Policy fields, got %+v", detail)
 	}
+	assertNoLegacyRemovedStrategyFields(t, detail)
 }
 
-func TestManagementLoadbalanceAdaptiveStrategyAllowsConfiguredAdditionalAttemptBudget(t *testing.T) {
+func TestLoadbalanceAdaptiveRejected(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-	createResponse := harness.requestJSON(
+	response := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPost,
 		"/api/loadbalance/strategies",
 		map[string]any{
-			"name":          "S11 Adaptive Hedge Budget",
+			"name":          "S11 Adaptive Rejected",
 			"strategy_type": "adaptive",
 			"routing_policy": map[string]any{
-				"kind":              "adaptive",
-				"routing_objective": "minimize_latency",
-				"hedge": map[string]any{
-					"enabled":                 true,
-					"delay_ms":                900,
-					"max_additional_attempts": 3,
-				},
-				"circuit_breaker": map[string]any{
-					"failure_status_codes":        []int{403, 422, 429, 500, 502, 503, 504, 529},
-					"base_open_seconds":           60,
-					"failure_threshold":           2,
-					"backoff_multiplier":          2,
-					"max_open_seconds":            900,
-					"ban_mode":                    "off",
-					"max_open_strikes_before_ban": 0,
-					"ban_duration_seconds":        0,
-				},
-				"admission": map[string]any{
-					"respect_qps_limit":        true,
-					"respect_in_flight_limits": true,
-				},
+				"kind": "adaptive",
 			},
 		},
 		modelHeader(defaultProfileID),
 	)
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
-	hedge := asMap(t, asMap(t, created["routing_policy"])["hedge"])
-	if jsonInt(t, hedge["max_additional_attempts"]) != 3 {
-		t.Fatalf("expected create payload to preserve max_additional_attempts=3, got %+v", created)
+	assertStatus(t, response, http.StatusBadRequest)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	detail := fmt.Sprint(payload["detail"])
+	if !strings.Contains(detail, "unknown field") || (!strings.Contains(detail, "strategy_type") && !strings.Contains(detail, "routing_policy")) {
+		t.Fatalf("expected adaptive payload field rejection, got %+v", payload)
 	}
-	strategyID := jsonInt(t, created["id"])
+}
 
-	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, detailResponse, http.StatusOK)
-	var detail map[string]any
-	decodeJSONResponse(t, detailResponse, &detail)
-	hedge = asMap(t, asMap(t, detail["routing_policy"])["hedge"])
-	if jsonInt(t, hedge["max_additional_attempts"]) != 3 {
-		t.Fatalf("expected detail payload to preserve max_additional_attempts=3, got %+v", detail)
+func TestLoadbalanceAutoRecoveryRejected(t *testing.T) {
+	harness := newS11ContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+
+	response := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/loadbalance/strategies",
+		map[string]any{
+			"name":                 "S11 Auto Recovery Rejected",
+			"legacy_strategy_type": "single",
+			"auto_recovery":        map[string]any{"mode": "disabled"},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, response, http.StatusBadRequest)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	if detail := fmt.Sprint(payload["detail"]); !strings.Contains(detail, `unknown field "auto_recovery"`) {
+		t.Fatalf("expected auto_recovery rejection detail, got %+v", payload)
 	}
 }
 
@@ -369,9 +350,7 @@ func TestLoadbalanceStrategies(t *testing.T) {
 		"/api/loadbalance/strategies",
 		map[string]any{
 			"name":                 "S11 Timeout Legacy",
-			"strategy_type":        "legacy",
 			"legacy_strategy_type": "round-robin",
-			"auto_recovery":        map[string]any{"mode": "disabled"},
 			"timeout_policy":       map[string]any{"attempt_open_timeout_ms": 2000},
 		},
 		modelHeader(defaultProfileID),
@@ -389,24 +368,16 @@ func TestLoadbalanceStrategies(t *testing.T) {
 		http.MethodPost,
 		"/api/loadbalance/strategies",
 		map[string]any{
-			"name":                 "S11 Legacy Primary",
-			"strategy_type":        "legacy",
-			"legacy_strategy_type": "round-robin",
-			"auto_recovery": map[string]any{
-				"mode":         "enabled",
-				"status_codes": []int{403, 422, 429, 500, 502, 503, 504, 529},
-				"cooldown": map[string]any{
-					"base_seconds":         45,
-					"failure_threshold":    4,
-					"backoff_multiplier":   3.5,
-					"max_cooldown_seconds": 720,
-				},
-				"ban": map[string]any{
-					"mode":                            "temporary",
-					"max_cooldown_strikes_before_ban": 3,
-					"ban_duration_seconds":            1800,
-				},
-			},
+			"name":                     "S11 Legacy Primary",
+			"legacy_strategy_type":     "round-robin",
+			"failure_status_codes":     []int{504, 500, 429},
+			"ban_mode":                 "temporary",
+			"retry_base_delay_ms":      45000,
+			"retry_backoff_multiplier": 3.5,
+			"retry_jitter_ratio":       0.4,
+			"retry_max_delay_ms":       720000,
+			"retry_max_attempts":       4,
+			"ban_duration_seconds":     1800,
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -414,12 +385,11 @@ func TestLoadbalanceStrategies(t *testing.T) {
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
 	strategyID := jsonInt(t, created["id"])
-	if created["strategy_type"] != "legacy" || created["legacy_strategy_type"] != "round-robin" {
-		t.Fatalf("expected created legacy strategy payload, got %+v", created)
+	if created["legacy_strategy_type"] != "round-robin" || created["ban_mode"] != "temporary" || jsonInt(t, created["retry_max_attempts"]) != 4 {
+		t.Fatalf("expected created legacy-only strategy payload, got %+v", created)
 	}
-	if created["routing_policy"] != nil {
-		t.Fatalf("expected legacy strategy response to omit routing_policy, got %+v", created)
-	}
+	assertIntList(t, created["failure_status_codes"], []int{429, 500, 504})
+	assertNoLegacyRemovedStrategyFields(t, created)
 
 	duplicateName := harness.requestJSON(
 		t,
@@ -427,11 +397,8 @@ func TestLoadbalanceStrategies(t *testing.T) {
 		http.MethodPost,
 		"/api/loadbalance/strategies",
 		map[string]any{
-			"name":          "S11 Legacy Primary",
-			"strategy_type": "adaptive",
-			"routing_policy": map[string]any{
-				"kind": "adaptive",
-			},
+			"name":                 "S11 Legacy Primary",
+			"legacy_strategy_type": "single",
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -443,45 +410,27 @@ func TestLoadbalanceStrategies(t *testing.T) {
 		http.MethodPut,
 		fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID),
 		map[string]any{
-			"name":          "S11 Adaptive Primary",
-			"strategy_type": "adaptive",
-			"routing_policy": map[string]any{
-				"kind":              "adaptive",
-				"routing_objective": "maximize_availability",
-				"hedge": map[string]any{
-					"enabled":                 true,
-					"delay_ms":                1200,
-					"max_additional_attempts": 2,
-				},
-				"circuit_breaker": map[string]any{
-					"failure_status_codes":        []int{403, 422, 429, 500, 502, 503, 504, 529},
-					"base_open_seconds":           90,
-					"failure_threshold":           3,
-					"backoff_multiplier":          2.5,
-					"max_open_seconds":            1200,
-					"ban_mode":                    "manual",
-					"max_open_strikes_before_ban": 2,
-					"ban_duration_seconds":        0,
-				},
-				"admission": map[string]any{
-					"respect_qps_limit":        false,
-					"respect_in_flight_limits": true,
-				},
-			},
+			"name":                     "S11 Legacy Updated",
+			"legacy_strategy_type":     "single",
+			"failure_status_codes":     []int{503, 403},
+			"ban_mode":                 "manual",
+			"retry_base_delay_ms":      0,
+			"retry_backoff_multiplier": 2.5,
+			"retry_jitter_ratio":       0.1,
+			"retry_max_delay_ms":       120000,
+			"retry_max_attempts":       2,
+			"ban_duration_seconds":     0,
 		},
 		modelHeader(defaultProfileID),
 	)
 	assertStatus(t, updated, http.StatusOK)
 	var updatedPayload map[string]any
 	decodeJSONResponse(t, updated, &updatedPayload)
-	if updatedPayload["name"] != "S11 Adaptive Primary" || updatedPayload["strategy_type"] != "adaptive" || updatedPayload["legacy_strategy_type"] != nil || updatedPayload["auto_recovery"] != nil {
-		t.Fatalf("expected adaptive update payload, got %+v", updatedPayload)
+	if updatedPayload["name"] != "S11 Legacy Updated" || updatedPayload["legacy_strategy_type"] != "single" || updatedPayload["ban_mode"] != "manual" || jsonInt(t, updatedPayload["retry_base_delay_ms"]) != 0 || jsonInt(t, updatedPayload["retry_max_attempts"]) != 2 {
+		t.Fatalf("expected updated legacy-only Ban Policy payload, got %+v", updatedPayload)
 	}
-	updatedRoutingPolicy := asMap(t, updatedPayload["routing_policy"])
-	updatedHedge := asMap(t, updatedRoutingPolicy["hedge"])
-	if jsonInt(t, updatedHedge["max_additional_attempts"]) != 2 || jsonInt(t, updatedHedge["delay_ms"]) != 1200 {
-		t.Fatalf("expected adaptive update payload to preserve configured hedge budget, got %+v", updatedPayload)
-	}
+	assertIntList(t, updatedPayload["failure_status_codes"], []int{403, 503})
+	assertNoLegacyRemovedStrategyFields(t, updatedPayload)
 
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	modelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s11-attached-model", nil, "native", &strategyID, true)
@@ -513,7 +462,7 @@ func TestLoadbalanceStrategies(t *testing.T) {
 	}
 }
 
-func TestLoadbalanceStrategyDefaults(t *testing.T) {
+func TestLoadbalanceLegacyDefaults(t *testing.T) {
 	t.Run("creates defaults and stays idempotent", func(t *testing.T) {
 		harness := newS11ContractHarness(t)
 		defaultProfileID := modelLoadDefaultProfileID(t, harness)
@@ -522,25 +471,20 @@ func TestLoadbalanceStrategyDefaults(t *testing.T) {
 		assertStatus(t, first, http.StatusOK)
 		var firstPayload map[string]any
 		decodeJSONResponse(t, first, &firstPayload)
-		assertStringList(t, firstPayload["created_names"], []string{"Default legacy routing", "Default adaptive routing"})
+		wantNames := []string{"Default single routing", "Default fill-first routing", "Default round-robin routing"}
+		assertStringList(t, firstPayload["created_names"], wantNames)
 		assertStringList(t, firstPayload["existing_names"], []string{})
-		if jsonInt(t, firstPayload["created_count"]) != 2 {
-			t.Fatalf("expected two created defaults, got %+v", firstPayload)
+		if jsonInt(t, firstPayload["created_count"]) != 3 {
+			t.Fatalf("expected three created defaults, got %+v", firstPayload)
 		}
 		items := asSliceOfMaps(t, firstPayload["items"])
-		assertStrategyNames(t, items, []string{"Default adaptive routing", "Default legacy routing"})
-		legacyDefaultFound := false
+		assertStrategyNames(t, items, wantNames)
 		for _, item := range items {
-			if item["name"] != "Default legacy routing" {
-				continue
+			assertNoLegacyRemovedStrategyFields(t, item)
+			assertIntList(t, item["failure_status_codes"], []int{403, 422, 429, 500, 502, 503, 504, 529})
+			if item["ban_mode"] != "off" || jsonInt(t, item["retry_base_delay_ms"]) != 60000 || jsonFloat(t, item["retry_backoff_multiplier"]) != 2.0 || jsonFloat(t, item["retry_jitter_ratio"]) != 0.2 || jsonInt(t, item["retry_max_delay_ms"]) != 900000 || jsonInt(t, item["retry_max_attempts"]) != 3 || jsonInt(t, item["ban_duration_seconds"]) != 0 {
+				t.Fatalf("expected canonical Ban Policy defaults, got %+v", item)
 			}
-			legacyDefaultFound = true
-			if item["legacy_strategy_type"] != "fill-first" {
-				t.Fatalf("expected Default legacy routing to use fill-first, got %+v", item)
-			}
-		}
-		if !legacyDefaultFound {
-			t.Fatalf("expected Default legacy routing item in %+v", items)
 		}
 
 		second := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
@@ -551,39 +495,29 @@ func TestLoadbalanceStrategyDefaults(t *testing.T) {
 			t.Fatalf("expected idempotent defaults call to create nothing, got %+v", secondPayload)
 		}
 		assertStringList(t, secondPayload["created_names"], []string{})
-		assertStringList(t, secondPayload["existing_names"], []string{"Default legacy routing", "Default adaptive routing"})
+		assertStringList(t, secondPayload["existing_names"], wantNames)
 	})
 
-	t.Run("creates only missing default", func(t *testing.T) {
+	t.Run("creates only missing defaults", func(t *testing.T) {
 		harness := newS11ContractHarness(t)
 		defaultProfileID := modelLoadDefaultProfileID(t, harness)
-		s11InsertStrategy(t, harness, defaultProfileID, "Default legacy routing", "legacy", stringPtr("fill-first"), map[string]any{
-			"mode":         "enabled",
-			"status_codes": []int{403, 422, 429, 500, 502, 503, 504, 529},
-			"cooldown":     map[string]any{"base_seconds": 60, "failure_threshold": 2, "backoff_multiplier": 2.0, "max_cooldown_seconds": 900},
-			"ban":          map[string]any{"mode": "off", "max_cooldown_strikes_before_ban": 0, "ban_duration_seconds": 0},
-		}, nil)
+		s11InsertStrategy(t, harness, defaultProfileID, "Default single routing", "single", "off", 0)
 
 		response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
 		assertStatus(t, response, http.StatusOK)
 		var payload map[string]any
 		decodeJSONResponse(t, response, &payload)
-		if jsonInt(t, payload["created_count"]) != 1 {
-			t.Fatalf("expected one missing default to be created, got %+v", payload)
+		if jsonInt(t, payload["created_count"]) != 2 {
+			t.Fatalf("expected two missing defaults to be created, got %+v", payload)
 		}
-		assertStringList(t, payload["created_names"], []string{"Default adaptive routing"})
-		assertStringList(t, payload["existing_names"], []string{"Default legacy routing"})
+		assertStringList(t, payload["created_names"], []string{"Default fill-first routing", "Default round-robin routing"})
+		assertStringList(t, payload["existing_names"], []string{"Default single routing"})
 	})
 
-	t.Run("rejects legacy round-robin row under canonical default name", func(t *testing.T) {
+	t.Run("rejects conflicting canonical default payload", func(t *testing.T) {
 		harness := newS11ContractHarness(t)
 		defaultProfileID := modelLoadDefaultProfileID(t, harness)
-		s11InsertStrategy(t, harness, defaultProfileID, "Default legacy routing", "legacy", stringPtr("round-robin"), map[string]any{
-			"mode":         "enabled",
-			"status_codes": []int{403, 422, 429, 500, 502, 503, 504, 529},
-			"cooldown":     map[string]any{"base_seconds": 60, "failure_threshold": 2, "backoff_multiplier": 2.0, "max_cooldown_seconds": 900},
-			"ban":          map[string]any{"mode": "off", "max_cooldown_strikes_before_ban": 0, "ban_duration_seconds": 0},
-		}, nil)
+		s11InsertStrategy(t, harness, defaultProfileID, "Default fill-first routing", "round-robin", "off", 0)
 
 		response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
 		assertStatus(t, response, http.StatusConflict)
@@ -593,23 +527,7 @@ func TestLoadbalanceStrategyDefaults(t *testing.T) {
 		if detail["message"] != "Canonical loadbalance strategy default name conflict" {
 			t.Fatalf("expected canonical conflict message, got %+v", payload)
 		}
-		assertStringList(t, detail["conflicting_names"], []string{"Default legacy routing"})
-	})
-
-	t.Run("rejects canonical name conflicts", func(t *testing.T) {
-		harness := newS11ContractHarness(t)
-		defaultProfileID := modelLoadDefaultProfileID(t, harness)
-		s11InsertStrategy(t, harness, defaultProfileID, "Default adaptive routing", "legacy", stringPtr("single"), map[string]any{"mode": "disabled"}, nil)
-
-		response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
-		assertStatus(t, response, http.StatusConflict)
-		var payload map[string]any
-		decodeJSONResponse(t, response, &payload)
-		detail := asMap(t, payload["detail"])
-		if detail["message"] != "Canonical loadbalance strategy default name conflict" {
-			t.Fatalf("expected canonical conflict message, got %+v", payload)
-		}
-		assertStringList(t, detail["conflicting_names"], []string{"Default adaptive routing"})
+		assertStringList(t, detail["conflicting_names"], []string{"Default fill-first routing"})
 	})
 }
 
@@ -858,30 +776,23 @@ func modelLoadModelConfigID(t *testing.T, harness *contractHarness, profileID in
 	return modelConfigID
 }
 
-func s11InsertStrategy(t *testing.T, harness *contractHarness, profileID int, name string, strategyType string, legacyStrategyType *string, autoRecovery any, routingPolicy any) int {
+func s11InsertStrategy(t *testing.T, harness *contractHarness, profileID int, name string, legacyStrategyType string, banMode string, banDurationSeconds int) int {
 	t.Helper()
 	now := time.Now().UTC()
 	var strategyID int
-	var autoRecoveryValue any
-	var routingPolicyValue any
-	if autoRecovery != nil {
-		autoRecoveryValue = mustModelJSON(t, autoRecovery)
-	}
-	if routingPolicy != nil {
-		routingPolicyValue = mustModelJSON(t, routingPolicy)
-	}
 	if err := harness.conn.QueryRow(
 		context.Background(),
-		`INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8)
+		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode,
+			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts,
+			ban_duration_seconds, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4::integer[], $5, 60000, 2.0, 0.2, 900000, 3, $6, $7, $7)
 		 RETURNING id`,
 		profileID,
 		name,
-		strategyType,
-		nullableTestString(legacyStrategyType),
-		autoRecoveryValue,
-		routingPolicyValue,
-		now,
+		legacyStrategyType,
+		[]int32{403, 422, 429, 500, 502, 503, 504, 529},
+		banMode,
+		banDurationSeconds,
 		now,
 	).Scan(&strategyID); err != nil {
 		t.Fatalf("insert loadbalance strategy %q: %v", name, err)
@@ -915,12 +826,49 @@ func assertStrategyNames(t *testing.T, items []map[string]any, want []string) {
 	for _, item := range items {
 		actual = append(actual, item["name"].(string))
 	}
-	if len(actual) != len(want) {
-		t.Fatalf("expected strategy names %v, got %v", want, actual)
+	sort.Strings(actual)
+	sortedWant := append([]string(nil), want...)
+	sort.Strings(sortedWant)
+	if len(actual) != len(sortedWant) {
+		t.Fatalf("expected strategy names %v, got %v", sortedWant, actual)
+	}
+	for index := range sortedWant {
+		if actual[index] != sortedWant[index] {
+			t.Fatalf("expected strategy names %v, got %v", sortedWant, actual)
+		}
+	}
+}
+
+func assertIntList(t *testing.T, raw any, want []int) {
+	t.Helper()
+	items, ok := raw.([]any)
+	if !ok {
+		t.Fatalf("expected int list payload, got %T %+v", raw, raw)
+	}
+	if len(items) != len(want) {
+		t.Fatalf("expected int list %v, got %+v", want, raw)
 	}
 	for index := range want {
-		if actual[index] != want[index] {
-			t.Fatalf("expected strategy names %v, got %v", want, actual)
+		if jsonInt(t, items[index]) != want[index] {
+			t.Fatalf("expected int list %v, got %+v", want, raw)
+		}
+	}
+}
+
+func jsonFloat(t *testing.T, raw any) float64 {
+	t.Helper()
+	value, ok := raw.(float64)
+	if !ok {
+		t.Fatalf("expected numeric payload, got %T %+v", raw, raw)
+	}
+	return value
+}
+
+func assertNoLegacyRemovedStrategyFields(t *testing.T, payload map[string]any) {
+	t.Helper()
+	for _, key := range []string{"strategy_type", "routing_policy", "auto_recovery"} {
+		if _, ok := payload[key]; ok {
+			t.Fatalf("expected strategy payload to omit %s, got %+v", key, payload)
 		}
 	}
 }

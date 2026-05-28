@@ -63,7 +63,6 @@ export interface BootstrapConfigRuntimeSideEffectsValues {
 }
 
 export interface BootstrapConfigRuntimeValues {
-  buffering_mode: string | null;
   transport: BootstrapConfigRuntimeTransportValues;
   side_effects: BootstrapConfigRuntimeSideEffectsValues;
 }

@@ -34,7 +34,7 @@ settings/
 ## SHELL CONTRACT
 
 - `SettingsPage.tsx` renders three tabs: `Profile`, `Global`, and `Startup`.
-- The Profile tab owns selected-profile section navigation and mounts backup, billing and currency, timezone, and audit and privacy.
+- The Profile tab owns selected-profile section navigation and mounts config-bundle v2 backup/import, billing and currency, timezone, and audit and privacy.
 - The Global tab mounts instance-wide authentication, retention and deletion, plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the instance bootstrap config surface through `SettingsStartupTab.tsx`, while the dense field registry and section cluster live under `startup/AGENTS.md`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
 - `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
@@ -49,7 +49,7 @@ settings/
 - Section implementation boundary: `sections/AGENTS.md`
 - Costing bootstrap, derived state, FX mapping CRUD, and save boundary: `costing/AGENTS.md`
 - Global vendor CRUD, catalog import/export preview transport, usage prefetch, shared-cache patching, and delete-conflict parsing: `useVendorManagementData.ts`, `vendorManagementFormState.ts`
-- Local dialog ownership for destructive actions, vendor CRUD, and audit-rule editing: `dialogs/AGENTS.md`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`, `useConfigBackupData.ts`, `useVendorManagementData.ts`
+- Local dialog ownership for destructive actions, vendor CRUD, audit-rule editing, and config-bundle v2 import/export summaries: `dialogs/AGENTS.md`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`, `useConfigBackupData.ts`, `useVendorManagementData.ts`
 - E2E seams for startup hash/apply behavior, vendor catalog preview/apply, reporting-currency save, config import/export, and retention flows: `../../../tests/e2e/settings-startup-tab.spec.ts`, `../../../tests/e2e/settings-vendor-catalog.spec.ts`, `../../../tests/e2e/settings-reporting-currency-save.spec.ts`, `../../../tests/e2e/settings-config-import.spec.ts`, `../../../tests/e2e/settings-config-export.spec.ts`, `../../../tests/e2e/settings-log-retention.spec.ts`
 
 ## CHILD DOCS
@@ -69,7 +69,7 @@ settings/
 - Keep startup bootstrap field metadata and field-effect rendering in `startup/AGENTS.md` and its children.
 - Hash navigation is part of the settings UX contract. New profile-tab sections need stable ids and must participate in jump and active-section logic.
 - Save-state feedback belongs in `sectionSaveState.tsx` and related helper types, not in ad hoc spinners or toast-only status.
-- Keep the scope split clear in copy and behavior: authentication and retention are global, while backup, billing and currency, timezone, and audit and privacy stay profile-scoped.
+- Keep the scope split clear in copy and behavior: authentication and retention are global, while config-bundle v2 backup, billing and currency, timezone, and audit and privacy stay profile-scoped.
 - Keep shared vendor catalog CRUD and import/export preview transport on the Global tab, and continue to let the Profile-tab audit defaults consume that same shared vendor catalog.
 - Keep vendor icon metadata on the shared vendor catalog and preserve it through global CRUD flows.
 - `SettingsProfileTab.tsx` and `SettingsGlobalTab.tsx` own the tab bodies, while the shell hook keeps their section state synchronized.

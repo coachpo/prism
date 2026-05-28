@@ -24,6 +24,7 @@ settings/
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep costing and timezone settings profile-scoped through effective-profile resolution and `X-Profile-Id`.
+- Keep costing model choices aligned with unified model access; don't filter choices by retired model families.
 - Keep log-retention settings global and trigger cleanup through low-priority management jobs instead of request-path deletes.
 - Keep startup bootstrap config ownership separate; this package does not own `/api/config/bootstrap`.
 

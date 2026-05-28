@@ -9,31 +9,29 @@ import (
 )
 
 type DashboardAggregateSnapshot struct {
-	ProfileID             int
-	GeneratedAt           time.Time
-	StatsSummary24H       StatsSummaryResponse
-	APIFamilySummary24H   StatsSummaryResponse
-	SpendingSummary30D    SpendingReportResponse
-	Throughput24H         ThroughputStatsResponse
-	UsageSnapshotPreset1  UsageSnapshotResponse
-	RecentRequests        []RequestLogListItem
-	StrategyFamilySummary DashboardStrategyFamilySummary
-	RoutingHealthMap      DashboardRoutingHealthMap
-	TotalModelCount       int
-	ActiveModelCount      int
+	ProfileID            int
+	GeneratedAt          time.Time
+	StatsSummary24H      StatsSummaryResponse
+	APIFamilySummary24H  StatsSummaryResponse
+	SpendingSummary30D   SpendingReportResponse
+	Throughput24H        ThroughputStatsResponse
+	UsageSnapshotPreset1 UsageSnapshotResponse
+	RecentRequests       []RequestLogListItem
+	RoutingHealthMap     DashboardRoutingHealthMap
+	TotalModelCount      int
+	ActiveModelCount     int
 }
 
 type DashboardSnapshot struct {
-	GeneratedAt           time.Time                      `json:"generated_at"`
-	Coverage24H           DashboardSnapshotCoverage      `json:"coverage_24h"`
-	Coverage30D           DashboardSnapshotCoverage      `json:"coverage_30d"`
-	Health                DashboardSnapshotHealth        `json:"health"`
-	MetricSnapshot        DashboardMetricSnapshot        `json:"metric_snapshot"`
-	APIFamilyRows         []StatGroup                    `json:"api_family_rows"`
-	StrategyFamilySummary DashboardStrategyFamilySummary `json:"strategy_family_summary"`
-	RecentRequests        []RequestLogListItem           `json:"recent_requests"`
-	TopSpendingModels     []SpendingTopModel             `json:"top_spending_models"`
-	RoutingHealthMap      DashboardRoutingHealthMap      `json:"routing_health_map"`
+	GeneratedAt       time.Time                 `json:"generated_at"`
+	Coverage24H       DashboardSnapshotCoverage `json:"coverage_24h"`
+	Coverage30D       DashboardSnapshotCoverage `json:"coverage_30d"`
+	Health            DashboardSnapshotHealth   `json:"health"`
+	MetricSnapshot    DashboardMetricSnapshot   `json:"metric_snapshot"`
+	APIFamilyRows     []StatGroup               `json:"api_family_rows"`
+	RecentRequests    []RequestLogListItem      `json:"recent_requests"`
+	TopSpendingModels []SpendingTopModel        `json:"top_spending_models"`
+	RoutingHealthMap  DashboardRoutingHealthMap `json:"routing_health_map"`
 }
 
 type DashboardMetricSnapshot struct {
@@ -50,12 +48,6 @@ type DashboardMetricSnapshot struct {
 	TotalModels            int     `json:"total_models"`
 	TotalRequests          int     `json:"total_requests"`
 	UnpricedRequestCount   int     `json:"unpriced_request_count"`
-}
-
-type DashboardStrategyFamilySummary struct {
-	AdaptiveCount   int `json:"adaptive_count"`
-	LegacyCount     int `json:"legacy_count"`
-	UnassignedCount int `json:"unassigned_count"`
 }
 
 type DashboardRoutingHealthMap struct {
@@ -110,16 +102,15 @@ func NewDashboardSnapshot(aggregate DashboardAggregateSnapshot, referenceNow tim
 	apiFamilyRows := append([]StatGroup{}, aggregate.APIFamilySummary24H.Groups...)
 	topSpendingModels := append([]SpendingTopModel{}, aggregate.SpendingSummary30D.TopSpendingModels...)
 	return DashboardSnapshot{
-		GeneratedAt:           generatedAt,
-		Coverage24H:           DashboardSnapshotCoverage{From: generatedAt.Add(-24 * time.Hour), To: generatedAt},
-		Coverage30D:           DashboardSnapshotCoverage{From: generatedAt.Add(-30 * 24 * time.Hour), To: generatedAt},
-		Health:                NewDashboardSnapshotHealth(generatedAt, referenceNow),
-		MetricSnapshot:        newDashboardMetricSnapshot(aggregate, recentRequests),
-		APIFamilyRows:         apiFamilyRows,
-		StrategyFamilySummary: aggregate.StrategyFamilySummary,
-		RecentRequests:        recentRequests,
-		TopSpendingModels:     topSpendingModels,
-		RoutingHealthMap:      cloneDashboardRoutingHealthMap(aggregate.RoutingHealthMap),
+		GeneratedAt:       generatedAt,
+		Coverage24H:       DashboardSnapshotCoverage{From: generatedAt.Add(-24 * time.Hour), To: generatedAt},
+		Coverage30D:       DashboardSnapshotCoverage{From: generatedAt.Add(-30 * 24 * time.Hour), To: generatedAt},
+		Health:            NewDashboardSnapshotHealth(generatedAt, referenceNow),
+		MetricSnapshot:    newDashboardMetricSnapshot(aggregate, recentRequests),
+		APIFamilyRows:     apiFamilyRows,
+		RecentRequests:    recentRequests,
+		TopSpendingModels: topSpendingModels,
+		RoutingHealthMap:  cloneDashboardRoutingHealthMap(aggregate.RoutingHealthMap),
 	}
 }
 
@@ -238,18 +229,17 @@ func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, pr
 		return DashboardAggregateSnapshot{}, err
 	}
 	return DashboardAggregateSnapshot{
-		ProfileID:             profileID,
-		GeneratedAt:           generatedAt,
-		StatsSummary24H:       statsSummary,
-		APIFamilySummary24H:   apiFamilySummary,
-		SpendingSummary30D:    spendingSummary,
-		Throughput24H:         throughput,
-		UsageSnapshotPreset1:  usageSnapshot,
-		RecentRequests:        recentRequests.Items,
-		StrategyFamilySummary: buildDashboardStrategyFamilySummary(models),
-		RoutingHealthMap:      routingHealthMap,
-		TotalModelCount:       len(models),
-		ActiveModelCount:      countDashboardActiveModels(models),
+		ProfileID:            profileID,
+		GeneratedAt:          generatedAt,
+		StatsSummary24H:      statsSummary,
+		APIFamilySummary24H:  apiFamilySummary,
+		SpendingSummary30D:   spendingSummary,
+		Throughput24H:        throughput,
+		UsageSnapshotPreset1: usageSnapshot,
+		RecentRequests:       recentRequests.Items,
+		RoutingHealthMap:     routingHealthMap,
+		TotalModelCount:      len(models),
+		ActiveModelCount:     countDashboardActiveModels(models),
 	}, nil
 }
 

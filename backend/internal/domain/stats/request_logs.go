@@ -110,7 +110,6 @@ type requestLogDetailRow struct {
 type requestLogModelRecord struct {
 	ModelID     string
 	DisplayName *string
-	ModelType   string
 }
 
 func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogListParams) (RequestLogListResponse, error) {
@@ -167,7 +166,6 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			ModelLabel:                  resolveRequestLogModelLabel(currentModelsByID, item.ModelID),
 			ResolvedTargetModelID:       item.ResolvedTargetModelID,
 			ResolvedTargetModelLabel:    resolveRequestLogResolvedTargetModelLabel(currentModelsByID, item.ResolvedTargetModelID),
-			IsProxyOrigin:               resolveRequestLogIsProxyOrigin(currentModelsByID, item.ModelID, item.ResolvedTargetModelID),
 			APIFamily:                   item.APIFamily,
 			VendorID:                    item.VendorID,
 			VendorKey:                   item.VendorKey,
@@ -240,7 +238,6 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 			ModelLabel:               resolveRequestLogModelLabel(currentModelsByID, row.ModelID),
 			ResolvedTargetModelID:    row.ResolvedTargetModelID,
 			ResolvedTargetModelLabel: resolveRequestLogResolvedTargetModelLabel(currentModelsByID, row.ResolvedTargetModelID),
-			IsProxyOrigin:            resolveRequestLogIsProxyOrigin(currentModelsByID, row.ModelID, row.ResolvedTargetModelID),
 			APIFamily:                row.APIFamily,
 			VendorID:                 row.VendorID,
 			VendorKey:                row.VendorKey,
@@ -381,7 +378,7 @@ func buildRequestLogEndpointOptions(currentEndpoints []endpointRecord, selectedE
 }
 
 func loadRequestLogModels(ctx context.Context, exec queryExecutor, profileID int) ([]requestLogModelRecord, map[string]requestLogModelRecord, error) {
-	rows, err := exec.Query(ctx, `SELECT model_id, display_name, model_type FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT model_id, display_name FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("query request-log models for profile %d: %w", profileID, err)
 	}
@@ -391,8 +388,7 @@ func loadRequestLogModels(ctx context.Context, exec queryExecutor, profileID int
 	for rows.Next() {
 		var modelID string
 		var displayName sql.NullString
-		var modelType string
-		if err := rows.Scan(&modelID, &displayName, &modelType); err != nil {
+		if err := rows.Scan(&modelID, &displayName); err != nil {
 			return nil, nil, fmt.Errorf("scan request-log model record: %w", err)
 		}
 		trimmedModelID := strings.TrimSpace(modelID)
@@ -402,7 +398,6 @@ func loadRequestLogModels(ctx context.Context, exec queryExecutor, profileID int
 		item := requestLogModelRecord{
 			ModelID:     trimmedModelID,
 			DisplayName: normalizeOptionalString(nullableString(displayName)),
-			ModelType:   strings.TrimSpace(strings.ToLower(modelType)),
 		}
 		items = append(items, item)
 		if _, exists := itemsByID[item.ModelID]; !exists {
@@ -460,16 +455,6 @@ func resolveRequestLogResolvedTargetModelLabel(currentModelsByID map[string]requ
 	}
 	label := resolveRequestLogModelLabel(currentModelsByID, *resolvedTarget)
 	return &label
-}
-
-func resolveRequestLogIsProxyOrigin(currentModelsByID map[string]requestLogModelRecord, modelID string, resolvedTargetModelID *string) bool {
-	trimmedModelID := strings.TrimSpace(modelID)
-	resolvedTarget := normalizeOptionalString(resolvedTargetModelID)
-	if resolvedTarget != nil && *resolvedTarget != trimmedModelID {
-		return true
-	}
-	currentModel, ok := currentModelsByID[trimmedModelID]
-	return ok && currentModel.ModelType == "proxy"
 }
 
 func endpointFromMap(items map[int]endpointRecord, endpointID *int) (endpointRecord, bool) {

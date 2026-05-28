@@ -1,58 +1,65 @@
 package runtime
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 )
 
 const (
-	proxySelectionStrategyOrderedFallback = "ordered_fallback"
-	proxySelectionStrategyWeightedStatic  = "weighted_static"
-	proxySelectionStrategyPriorityStatic  = "priority_static"
+	runtimeAccessTargetTypeConnection = "connection"
+	runtimeAccessTargetTypeModel      = "model"
 )
 
-func normalizedRuntimeProxySelectionStrategy(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
+type runtimeRoundRobinTargetCursor interface {
+	ClaimRoundRobinTargetCursor(profileID int, sourceModelConfigID int, strategyID int, targetSetHash string, targetCount int) int
 }
 
-func isSupportedRuntimeProxySelectionStrategy(value string) bool {
-	switch normalizedRuntimeProxySelectionStrategy(value) {
-	case proxySelectionStrategyOrderedFallback, proxySelectionStrategyWeightedStatic, proxySelectionStrategyPriorityStatic:
-		return true
-	default:
-		return false
+func orderRuntimeAccessTargets(profileID int, sourceModelConfigID int, strategy loadbalance.RuntimeStrategy, targets []runtimeAccessTargetRecord, cursor runtimeRoundRobinTargetCursor) []runtimeAccessTargetRecord {
+	ordered := enabledRuntimeAccessTargets(targets)
+	if len(ordered) == 0 {
+		return nil
 	}
-}
-
-func orderRuntimeProxyTargetCandidates(strategy string, candidates []runtimeProxyTargetRecord) []runtimeProxyTargetRecord {
-	ordered := append([]runtimeProxyTargetRecord(nil), candidates...)
-	strategy = normalizedRuntimeProxySelectionStrategy(strategy)
-	if !isSupportedRuntimeProxySelectionStrategy(strategy) {
-		strategy = proxySelectionStrategyOrderedFallback
+	sortRuntimeAccessTargets(ordered)
+	switch normalizedRuntimeLegacyStrategyType(strategy) {
+	case "single":
+		return ordered[:1]
+	case "round-robin":
+		if len(ordered) >= 2 && cursor != nil {
+			setHash := runtimeAccessTargetSetHash(ordered)
+			offset := cursor.ClaimRoundRobinTargetCursor(profileID, sourceModelConfigID, strategy.ID, setHash, len(ordered))
+			if offset != 0 {
+				ordered = append(ordered[offset:], ordered[:offset]...)
+			}
+		}
 	}
-	if strategy == proxySelectionStrategyPriorityStatic {
-		sort.Slice(ordered, func(left int, right int) bool {
-			return compareRuntimeProxyTargetPriority(ordered[left], ordered[right]) < 0
-		})
-		return ordered
-	}
-	sort.Slice(ordered, func(left int, right int) bool {
-		return compareRuntimeProxyTargetPosition(ordered[left], ordered[right]) < 0
-	})
 	return ordered
 }
 
-func compareRuntimeProxyTargetPriority(left runtimeProxyTargetRecord, right runtimeProxyTargetRecord) int {
-	if left.TargetPriority != right.TargetPriority {
-		if left.TargetPriority < right.TargetPriority {
-			return -1
-		}
-		return 1
+func enabledRuntimeAccessTargets(targets []runtimeAccessTargetRecord) []runtimeAccessTargetRecord {
+	if len(targets) == 0 {
+		return nil
 	}
-	return compareRuntimeProxyTargetPosition(left, right)
+	filtered := make([]runtimeAccessTargetRecord, 0, len(targets))
+	for _, target := range targets {
+		if target.IsEnabled {
+			filtered = append(filtered, target)
+		}
+	}
+	return filtered
 }
 
-func compareRuntimeProxyTargetPosition(left runtimeProxyTargetRecord, right runtimeProxyTargetRecord) int {
+func sortRuntimeAccessTargets(targets []runtimeAccessTargetRecord) {
+	sort.Slice(targets, func(left int, right int) bool {
+		return compareRuntimeAccessTargets(targets[left], targets[right]) < 0
+	})
+}
+
+func compareRuntimeAccessTargets(left runtimeAccessTargetRecord, right runtimeAccessTargetRecord) int {
 	if left.Position != right.Position {
 		if left.Position < right.Position {
 			return -1
@@ -66,4 +73,27 @@ func compareRuntimeProxyTargetPosition(left runtimeProxyTargetRecord, right runt
 		return 1
 	}
 	return 0
+}
+
+func runtimeAccessTargetSetHash(targets []runtimeAccessTargetRecord) string {
+	hasher := sha256.New()
+	for _, target := range targets {
+		modelID := 0
+		if target.TargetModelConfigID != nil {
+			modelID = *target.TargetModelConfigID
+		}
+		connectionID := 0
+		if target.TargetConnectionID != nil {
+			connectionID = *target.TargetConnectionID
+		}
+		_, _ = fmt.Fprintf(hasher, "%d:%d:%s:%d:%d|", target.ID, target.Position, target.TargetType, modelID, connectionID)
+	}
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func normalizedRuntimeLegacyStrategyType(strategy loadbalance.RuntimeStrategy) string {
+	if strategy.LegacyStrategyType == nil {
+		return "fill-first"
+	}
+	return strings.ToLower(strings.TrimSpace(*strategy.LegacyStrategyType))
 }

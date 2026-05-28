@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	canonicalBundleVersion     = 1
-	canonicalProfileBundleKind = "profile_config"
-	canonicalVendorCatalogKind = "vendor_catalog"
+	canonicalProfileBundleVersion = 2
+	canonicalVendorCatalogVersion = 1
+	canonicalProfileBundleKind    = "profile_config"
+	canonicalVendorCatalogKind    = "vendor_catalog"
 )
 
 var validImportAPIFamilies = map[string]struct{}{
@@ -35,25 +36,15 @@ var validConnectionAuthTypes = map[string]struct{}{
 	"gemini":    {},
 }
 
-var validProxySelectionStrategies = map[string]struct{}{
-	"ordered_fallback": {},
-	"weighted_static":  {},
-	"priority_static":  {},
-}
-
 var importedPricingTemplateDecimalPattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
 
-func importedConnectionCount(models []modelExport) int {
-	total := 0
-	for _, model := range models {
-		total += len(model.Connections)
-	}
-	return total
+func importedConnectionCount(connections []connectionExport) int {
+	return len(connections)
 }
 
 func validateProfileBundleEnvelope(data profileImportRequest) error {
-	if data.Version != canonicalBundleVersion {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported profile config bundle version '%d'; expected %d", data.Version, canonicalBundleVersion)}
+	if data.Version != canonicalProfileBundleVersion {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported profile config bundle version '%d'; expected %d", data.Version, canonicalProfileBundleVersion)}
 	}
 	if data.BundleKind != canonicalProfileBundleKind {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported profile config bundle kind '%s'; expected '%s'", data.BundleKind, canonicalProfileBundleKind)}
@@ -62,8 +53,8 @@ func validateProfileBundleEnvelope(data profileImportRequest) error {
 }
 
 func validateVendorCatalogBundleEnvelope(data vendorCatalogImportRequest) error {
-	if data.Version != canonicalBundleVersion {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported vendor catalog bundle version '%d'; expected %d", data.Version, canonicalBundleVersion)}
+	if data.Version != canonicalVendorCatalogVersion {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported vendor catalog bundle version '%d'; expected %d", data.Version, canonicalVendorCatalogVersion)}
 	}
 	if data.BundleKind != canonicalVendorCatalogKind {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported vendor catalog bundle kind '%s'; expected '%s'", data.BundleKind, canonicalVendorCatalogKind)}
@@ -98,7 +89,7 @@ func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, 
 func buildProfilePreviewResponse(data profileImportRequest, vendorResolutions []profileImportVendorResolution, decryptableSecretRefs []string, blockingErrors []string, warnings []string) profileImportPreviewResponse {
 	return profileImportPreviewResponse{
 		Ready:                    len(blockingErrors) == 0,
-		Version:                  canonicalBundleVersion,
+		Version:                  canonicalProfileBundleVersion,
 		BundleKind:               canonicalProfileBundleKind,
 		ReplacementScope:         buildProfileImportReplacementScope(data),
 		UntouchedScope:           buildProfileImportUntouchedScope(),
@@ -108,7 +99,7 @@ func buildProfilePreviewResponse(data profileImportRequest, vendorResolutions []
 		PricingTemplatesImported: len(data.PricingTemplates),
 		StrategiesImported:       len(data.LoadbalanceStrategies),
 		ModelsImported:           len(data.Models),
-		ConnectionsImported:      importedConnectionCount(data.Models),
+		ConnectionsImported:      importedConnectionCount(data.Connections),
 		VendorResolutions:        vendorResolutions,
 		SecretKeyID:              data.SecretPayload.KeyID,
 		DecryptableSecretRefs:    decryptableSecretRefs,
@@ -124,7 +115,7 @@ func buildProfileImportReplacementScope(data profileImportRequest) profileImport
 		PricingTemplates:      len(data.PricingTemplates),
 		LoadbalanceStrategies: len(data.LoadbalanceStrategies),
 		Models:                len(data.Models),
-		Connections:           importedConnectionCount(data.Models),
+		Connections:           importedConnectionCount(data.Connections),
 		HeaderBlocklistRules:  len(data.HeaderBlocklistRules),
 		UserAgentClientRules:  len(data.UserAgentClientRules),
 		ProfileSettings:       data.ProfileSettings != nil,
@@ -208,12 +199,12 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 		return profileImportResponse{}, err
 	}
 
-	_, importedPairs, connectionsImported, err := insertImportedModelsAndConnections(ctx, exec, profileID, data.Models, vendorIDsByKey, endpointIDsByName, pricingIDsByName, strategyIDsByName, currentTime)
+	connectionIDsByRef, importedPairs, connectionsImported, err := insertImportedModelsAndConnections(ctx, exec, profileID, data.Models, data.Connections, vendorIDsByKey, endpointIDsByName, pricingIDsByName, strategyIDsByName, currentTime)
 	if err != nil {
 		return profileImportResponse{}, err
 	}
 
-	if err := upsertImportedProfileSettings(ctx, exec, profileID, data.ProfileSettings, endpointIDsByName, importedPairs, currentTime); err != nil {
+	if err := upsertImportedProfileSettings(ctx, exec, profileID, data.ProfileSettings, connectionIDsByRef, importedPairs, currentTime); err != nil {
 		return profileImportResponse{}, err
 	}
 	if err := insertImportedHeaderBlocklistRules(ctx, exec, profileID, data.HeaderBlocklistRules, currentTime); err != nil {
@@ -253,7 +244,7 @@ func (s *Service) previewVendorCatalogImport(ctx context.Context, exec queryExec
 func buildVendorCatalogPreviewResponse(createCount int, updateCount int, unchangedCount int, blockingErrors []string) vendorCatalogImportPreviewResponse {
 	return vendorCatalogImportPreviewResponse{
 		Ready:          len(blockingErrors) == 0,
-		Version:        canonicalBundleVersion,
+		Version:        canonicalVendorCatalogVersion,
 		BundleKind:     canonicalVendorCatalogKind,
 		MutationScope:  buildVendorCatalogImportMutationScope(createCount, updateCount, unchangedCount),
 		UntouchedScope: buildVendorCatalogImportUntouchedScope(),
@@ -339,14 +330,18 @@ func validateProfileImportRequest(data profileImportRequest) error {
 		pricingTemplateNames: pricingTemplateNames,
 		strategyNames:        strategyNames,
 	}
-	nativeModelFamilies, importedConnectionPairs, err := validateImportedModels(data.Models, modelRefs)
+	connectionRefs, err := validateImportedConnections(data.Connections, modelRefs)
 	if err != nil {
 		return err
 	}
-	if err := validateImportedProxyTargetReferences(data.Models, nativeModelFamilies); err != nil {
+	modelFamilies, importedConnectionPairs, err := validateImportedModels(data.Models, modelRefs, connectionRefs)
+	if err != nil {
 		return err
 	}
-	if err := validateImportedProfileSettings(data.ProfileSettings, endpointNames, importedConnectionPairs); err != nil {
+	if err := validateImportedAccessTargetReferences(data.Models, modelFamilies); err != nil {
+		return err
+	}
+	if err := validateImportedProfileSettings(data.ProfileSettings, connectionRefs, importedConnectionPairs); err != nil {
 		return err
 	}
 	if err := validateImportedHeaderBlocklistRules(data.HeaderBlocklistRules); err != nil {
@@ -478,8 +473,8 @@ type profileImportModelValidationRefs struct {
 	strategyNames        map[string]struct{}
 }
 
-func validateImportedModels(models []modelExport, refs profileImportModelValidationRefs) (map[string]string, map[string]struct{}, error) {
-	nativeModelFamilies := map[string]string{}
+func validateImportedModels(models []modelExport, refs profileImportModelValidationRefs, connectionRefs map[string]importedConnectionValidationRef) (map[string]string, map[string]struct{}, error) {
+	modelFamilies := map[string]string{}
 	seenModelIDs := map[string]struct{}{}
 	importedConnectionPairs := map[string]struct{}{}
 	for _, model := range models {
@@ -499,26 +494,15 @@ func validateImportedModels(models []modelExport, refs profileImportModelValidat
 		if err := validateImportedModelVendorRef(model, refs.vendorKeys); err != nil {
 			return nil, nil, err
 		}
-
-		modelType := strings.ToLower(strings.TrimSpace(model.ModelType))
-		if modelType != "native" && modelType != "proxy" {
-			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported model_type '%s' for model '%s'", model.ModelType, modelID)}
-		}
-
-		if modelType == "native" {
-			if err := validateImportedNativeModel(model, modelID, refs.strategyNames); err != nil {
-				return nil, nil, err
-			}
-			nativeModelFamilies[modelID] = apiFamily
-		} else if err := validateImportedProxyModel(model, modelID); err != nil {
+		if err := validateImportedModelStrategy(model, modelID, refs.strategyNames); err != nil {
 			return nil, nil, err
 		}
-
-		if err := validateImportedConnections(modelID, apiFamily, model.Connections, refs, importedConnectionPairs); err != nil {
+		if err := validateImportedAccessTargets(modelID, apiFamily, model.AccessTargets, connectionRefs, importedConnectionPairs); err != nil {
 			return nil, nil, err
 		}
+		modelFamilies[modelID] = apiFamily
 	}
-	return nativeModelFamilies, importedConnectionPairs, nil
+	return modelFamilies, importedConnectionPairs, nil
 }
 
 func validateImportedModelVendorRef(model modelExport, vendorKeys map[string]struct{}) error {
@@ -532,144 +516,170 @@ func validateImportedModelVendorRef(model modelExport, vendorKeys map[string]str
 	return nil
 }
 
-func validateImportedNativeModel(model modelExport, modelID string, strategyNames map[string]struct{}) error {
-	if model.ProxySelectionStrategy != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must not include proxy_selection_strategy", modelID)}
-	}
-	if len(model.ProxyTargets) > 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must not have proxy_targets", modelID)}
-	}
+func validateImportedModelStrategy(model modelExport, modelID string, strategyNames map[string]struct{}) error {
 	strategyName := trimmedOptionalString(model.LoadbalanceStrategyName)
 	if strategyName == nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must include loadbalance_strategy_name", modelID)}
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' must include loadbalance_strategy_name", modelID)}
 	}
 	if _, ok := strategyNames[*strategyName]; !ok {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' references unknown loadbalance strategy '%s'", modelID, *strategyName)}
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown loadbalance strategy '%s'", modelID, *strategyName)}
 	}
 	return nil
 }
 
-func validateImportedProxyModel(model modelExport, modelID string) error {
-	selector := normalizedImportedProxySelectionStrategy(model.ProxySelectionStrategy)
-	if selector == nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must include proxy_selection_strategy", modelID)}
-	}
-	if !isValidImportedProxySelectionStrategy(*selector) {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has unknown proxy_selection_strategy '%s'", modelID, *selector)}
-	}
-	if trimmedOptionalString(model.LoadbalanceStrategyName) != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must not include loadbalance_strategy_name", modelID)}
-	}
-	if len(model.Connections) > 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must not have connections", modelID)}
-	}
-	if len(model.ProxyTargets) == 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must include proxy_targets", modelID)}
-	}
-	return validateImportedProxyTargets(modelID, model.ProxyTargets)
+type importedConnectionValidationRef struct {
+	EndpointName string
+	APIFamily    string
 }
 
-func validateImportedProxyTargets(modelID string, targets []proxyTargetExport) error {
-	for index, target := range targets {
-		targetModelID := strings.TrimSpace(target.TargetModelID)
-		if targetModelID == "" {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has proxy target with empty target_model_id", modelID)}
-		}
-		if target.Position != index {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must use contiguous proxy_targets positions starting at 0", modelID)}
-		}
-		if !target.weightSet || target.weightNull {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' must include weight", modelID, targetModelID)}
-		}
-		if target.Weight < 1 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' has invalid weight '%d'", modelID, targetModelID, target.Weight)}
-		}
-		if !target.targetPrioritySet || target.targetPriorityNull {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' must include target_priority", modelID, targetModelID)}
-		}
-		if target.TargetPriority < 0 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' has invalid target_priority '%d'", modelID, targetModelID, target.TargetPriority)}
-		}
-	}
+func validateImportedAccessTargets(modelID string, apiFamily string, targets []accessTargetExport, connectionRefs map[string]importedConnectionValidationRef, importedConnectionPairs map[string]struct{}) error {
+	seenPositions := map[int]struct{}{}
 	seenTargets := map[string]struct{}{}
 	for _, target := range targets {
-		targetModelID := strings.TrimSpace(target.TargetModelID)
-		if _, ok := seenTargets[targetModelID]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has duplicate proxy target '%s'", modelID, targetModelID)}
+		if target.Position < 0 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access target position must be greater than or equal to 0", modelID)}
 		}
-		seenTargets[targetModelID] = struct{}{}
+		if _, ok := seenPositions[target.Position]; ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access_targets must contain unique position values", modelID)}
+		}
+		seenPositions[target.Position] = struct{}{}
+
+		targetType := strings.ToLower(strings.TrimSpace(target.TargetType))
+		switch targetType {
+		case "connection":
+			connectionRef := trimmedOptionalString(target.ConnectionRef)
+			if connectionRef == nil {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' connection access target must include connection_ref", modelID)}
+			}
+			if trimmedOptionalString(target.TargetModelID) != nil {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' connection access target must not include target_model_id", modelID)}
+			}
+			connection, ok := connectionRefs[*connectionRef]
+			if !ok {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown connection_ref '%s'", modelID, *connectionRef)}
+			}
+			if connection.APIFamily != apiFamily {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family connection_ref '%s'", modelID, *connectionRef)}
+			}
+			seenKey := "connection:" + *connectionRef
+			if _, ok := seenTargets[seenKey]; ok {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' has duplicate connection_ref access target '%s'", modelID, *connectionRef)}
+			}
+			seenTargets[seenKey] = struct{}{}
+			importedConnectionPairs[connectionPairKey(modelID, *connectionRef)] = struct{}{}
+		case "model":
+			targetModelID := trimmedOptionalString(target.TargetModelID)
+			if targetModelID == nil {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' model access target must include target_model_id", modelID)}
+			}
+			if trimmedOptionalString(target.ConnectionRef) != nil {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' model access target must not include connection_ref", modelID)}
+			}
+			if *targetModelID == modelID {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access target cannot target itself", modelID)}
+			}
+			seenKey := "model:" + *targetModelID
+			if _, ok := seenTargets[seenKey]; ok {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' has duplicate model access target '%s'", modelID, *targetModelID)}
+			}
+			seenTargets[seenKey] = struct{}{}
+		default:
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access target_type must be 'model' or 'connection'", modelID)}
+		}
+	}
+	for expectedPosition := 0; expectedPosition < len(targets); expectedPosition++ {
+		if _, ok := seenPositions[expectedPosition]; !ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access_targets positions must be contiguous starting at 0", modelID)}
+		}
 	}
 	return nil
 }
 
-func validateImportedConnections(modelID string, apiFamily string, connections []connectionExport, refs profileImportModelValidationRefs, importedConnectionPairs map[string]struct{}) error {
+func validateImportedConnections(connections []connectionExport, refs profileImportModelValidationRefs) (map[string]importedConnectionValidationRef, error) {
+	connectionRefs := map[string]importedConnectionValidationRef{}
 	for _, connection := range connections {
+		connectionRef := strings.TrimSpace(connection.Ref)
+		if connectionRef == "" {
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "Connection ref must not be empty"}
+		}
+		if _, ok := connectionRefs[connectionRef]; ok {
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate connection ref: '%s'", connectionRef)}
+		}
+		apiFamily := strings.ToLower(strings.TrimSpace(connection.APIFamily))
+		if _, ok := validImportAPIFamilies[apiFamily]; !ok {
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' has unknown api family: '%s'", connectionRef, connection.APIFamily)}
+		}
 		if connection.QPSLimit != nil && *connection.QPSLimit < 1 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' has invalid qps_limit '%d'", modelID, *connection.QPSLimit)}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' has invalid qps_limit '%d'", connectionRef, *connection.QPSLimit)}
 		}
 		if connection.MaxInFlightNonStream != nil && *connection.MaxInFlightNonStream < 1 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' has invalid max_in_flight_non_stream '%d'", modelID, *connection.MaxInFlightNonStream)}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' has invalid max_in_flight_non_stream '%d'", connectionRef, *connection.MaxInFlightNonStream)}
 		}
-
 		if connection.MaxInFlightStream != nil && *connection.MaxInFlightStream < 1 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' has invalid max_in_flight_stream '%d'", modelID, *connection.MaxInFlightStream)}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' has invalid max_in_flight_stream '%d'", connectionRef, *connection.MaxInFlightStream)}
 		}
 		if err := validateConnectionAuthType(connection.AuthType); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := normalizeOpenAIProbeEndpointVariant(apiFamily, connection.OpenAIProbeEndpointVariant); err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' %s", modelID, err.Error())}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' %s", connectionRef, err.Error())}
 		}
 		endpointName, err := resolveImportedEndpointName(connection.EndpointName, refs.endpointNames)
 		if err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' %s", modelID, err.Error())}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' %s", connectionRef, err.Error())}
 		}
 		if _, err := resolveImportedPricingTemplateName(connection.PricingTemplateName, refs.pricingTemplateNames); err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection for model '%s' %s", modelID, err.Error())}
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' %s", connectionRef, err.Error())}
 		}
-		importedConnectionPairs[connectionPairKey(modelID, endpointName)] = struct{}{}
+		connectionRefs[connectionRef] = importedConnectionValidationRef{EndpointName: endpointName, APIFamily: apiFamily}
 	}
-	return nil
+	return connectionRefs, nil
 }
 
-func validateImportedProxyTargetReferences(models []modelExport, nativeModelFamilies map[string]string) error {
+func validateImportedAccessTargetReferences(models []modelExport, modelFamilies map[string]string) error {
 	for _, model := range models {
-		if strings.ToLower(strings.TrimSpace(model.ModelType)) != "proxy" {
-			continue
-		}
 		apiFamily := strings.ToLower(strings.TrimSpace(model.APIFamily))
 		modelID := strings.TrimSpace(model.ModelID)
-		for _, target := range model.ProxyTargets {
-			targetModelID := strings.TrimSpace(target.TargetModelID)
-			targetFamily, ok := nativeModelFamilies[targetModelID]
+		for _, target := range model.AccessTargets {
+			if strings.ToLower(strings.TrimSpace(target.TargetType)) != "model" {
+				continue
+			}
+			targetModelID := trimmedOptionalString(target.TargetModelID)
+			if targetModelID == nil {
+				continue
+			}
+			targetFamily, ok := modelFamilies[*targetModelID]
 			if !ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown proxy target '%s'", modelID, targetModelID)}
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown model access target '%s'", modelID, *targetModelID)}
 			}
 			if targetFamily != apiFamily {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", modelID, targetModelID)}
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", modelID, *targetModelID)}
 			}
 		}
 	}
 	return nil
 }
 
-func validateImportedProfileSettings(profileSettings *profileSettingsExport, endpointNames map[string]struct{}, importedConnectionPairs map[string]struct{}) error {
+func validateImportedProfileSettings(profileSettings *profileSettingsExport, connectionRefs map[string]importedConnectionValidationRef, importedConnectionPairs map[string]struct{}) error {
 	if profileSettings == nil {
 		return nil
 	}
 	seenFXMappings := map[string]struct{}{}
 	for _, mapping := range profileSettings.EndpointFXMappings {
-		endpointName, err := resolveImportedEndpointName(mapping.EndpointName, endpointNames)
-		if err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("FX mapping %s", err.Error())}
+		connectionRef := strings.TrimSpace(mapping.ConnectionRef)
+		if connectionRef == "" {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "FX mapping must include connection_ref"}
 		}
-		key := connectionPairKey(mapping.ModelID, endpointName)
+		if _, ok := connectionRefs[connectionRef]; !ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("FX mapping references unknown connection_ref '%s'", connectionRef)}
+		}
+		key := connectionPairKey(mapping.ModelID, connectionRef)
 		if _, ok := seenFXMappings[key]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate FX mapping in import for model_id='%s', endpoint_name='%s'", mapping.ModelID, endpointName)}
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate FX mapping in import for model_id='%s', connection_ref='%s'", mapping.ModelID, connectionRef)}
 		}
 		seenFXMappings[key] = struct{}{}
 		if _, ok := importedConnectionPairs[key]; !ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("FX mapping must reference an imported model/endpoint connection pair: model_id='%s', endpoint_name='%s'", mapping.ModelID, endpointName)}
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("FX mapping must reference an imported model/connection access target pair: model_id='%s', connection_ref='%s'", mapping.ModelID, connectionRef)}
 		}
 	}
 	return nil
@@ -877,12 +887,33 @@ func previewImportVendors(ctx context.Context, exec queryExecutor, vendorRefs []
 func canonicalizeImportedStrategies(strategies []loadbalanceStrategyExport) ([]importedStrategyPayload, error) {
 	items := make([]importedStrategyPayload, 0, len(strategies))
 	for _, strategy := range strategies {
-
-		canonical, err := managementloadbalance.CanonicalizeImportedStrategyDocument(managementloadbalance.ImportedStrategyDocument{Name: strategy.Name, StrategyType: strategy.StrategyType, LegacyStrategyType: strategy.LegacyStrategyType, AutoRecovery: strategy.AutoRecovery, RoutingPolicy: strategy.RoutingPolicy})
+		canonical, err := managementloadbalance.CanonicalizeImportedStrategyDocument(managementloadbalance.ImportedStrategyDocument{
+			Name:                   strategy.Name,
+			LegacyStrategyType:     strategy.LegacyStrategyType,
+			FailureStatusCodes:     strategy.FailureStatusCodes,
+			BanMode:                strategy.BanMode,
+			RetryBaseDelayMS:       strategy.RetryBaseDelayMS,
+			RetryBackoffMultiplier: strategy.RetryBackoffMultiplier,
+			RetryJitterRatio:       strategy.RetryJitterRatio,
+			RetryMaxDelayMS:        strategy.RetryMaxDelayMS,
+			RetryMaxAttempts:       strategy.RetryMaxAttempts,
+			BanDurationSeconds:     strategy.BanDurationSeconds,
+		})
 		if err != nil {
 			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: err.Error()}
 		}
-		items = append(items, importedStrategyPayload{Name: canonical.Name, StrategyType: canonical.StrategyType, LegacyStrategyType: canonical.LegacyStrategyType, AutoRecoveryJSON: canonical.AutoRecoveryJSON, RoutingPolicyJSON: canonical.RoutingPolicyJSON})
+		items = append(items, importedStrategyPayload{
+			Name:                   canonical.Name,
+			LegacyStrategyType:     *canonical.LegacyStrategyType,
+			FailureStatusCodes:     canonical.FailureStatusCodes,
+			BanMode:                canonical.BanMode,
+			RetryBaseDelayMS:       canonical.RetryBaseDelayMS,
+			RetryBackoffMultiplier: canonical.RetryBackoffMultiplier,
+			RetryJitterRatio:       canonical.RetryJitterRatio,
+			RetryMaxDelayMS:        canonical.RetryMaxDelayMS,
+			RetryMaxAttempts:       canonical.RetryMaxAttempts,
+			BanDurationSeconds:     canonical.BanDurationSeconds,
+		})
 	}
 	return items, nil
 }
@@ -921,7 +952,7 @@ func lockProfileRow(ctx context.Context, exec queryExecutor, profileID int) erro
 }
 
 func lockImportTargetTables(ctx context.Context, exec queryExecutor) error {
-	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_proxy_targets, pricing_templates, vendors, user_settings, header_blocklist_rules, user_agent_client_rules IN SHARE ROW EXCLUSIVE MODE`)
+	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_access_targets, pricing_templates, vendors, user_settings, header_blocklist_rules, user_agent_client_rules IN SHARE ROW EXCLUSIVE MODE`)
 	if err != nil {
 		return fmt.Errorf("lock config bundle import tables: %w", err)
 	}
@@ -930,7 +961,7 @@ func lockImportTargetTables(ctx context.Context, exec queryExecutor) error {
 
 func clearProfileImportState(ctx context.Context, exec queryExecutor, profileID int) error {
 	queries := []string{
-		`DELETE FROM model_proxy_targets WHERE source_model_config_id IN (SELECT id FROM model_configs WHERE profile_id = $1) OR target_model_config_id IN (SELECT id FROM model_configs WHERE profile_id = $1)`,
+		`DELETE FROM model_access_targets WHERE profile_id = $1`,
 		`DELETE FROM endpoint_fx_rate_settings WHERE profile_id = $1`,
 		`DELETE FROM connections WHERE profile_id = $1`,
 		`DELETE FROM endpoints WHERE profile_id = $1`,
@@ -1027,7 +1058,7 @@ func insertImportedStrategies(ctx context.Context, exec queryExecutor, profileID
 	strategyIDsByName := map[string]int{}
 	for _, strategy := range strategies {
 		var strategyID int
-		if err := exec.QueryRow(ctx, `INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $7) RETURNING id`, profileID, strategy.Name, strategy.StrategyType, nullableString(strategy.LegacyStrategyType), nullableJSONString(strategy.AutoRecoveryJSON), nullableJSONString(strategy.RoutingPolicyJSON), currentTime).Scan(&strategyID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts, ban_duration_seconds, created_at, updated_at) VALUES ($1, $2, $3, $4::integer[], $5, $6, $7, $8, $9, $10, $11, $12, $12) RETURNING id`, profileID, strategy.Name, strategy.LegacyStrategyType, toInt32Slice(strategy.FailureStatusCodes), strategy.BanMode, strategy.RetryBaseDelayMS, strategy.RetryBackoffMultiplier, strategy.RetryJitterRatio, strategy.RetryMaxDelayMS, strategy.RetryMaxAttempts, strategy.BanDurationSeconds, currentTime).Scan(&strategyID); err != nil {
 			return nil, 0, fmt.Errorf("insert imported loadbalance strategy %q: %w", strategy.Name, err)
 		}
 
@@ -1036,85 +1067,90 @@ func insertImportedStrategies(ctx context.Context, exec queryExecutor, profileID
 	return strategyIDsByName, len(strategies), nil
 }
 
-func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, vendorIDsByKey map[string]int, endpointIDsByName map[string]int, pricingIDsByName map[string]int, strategyIDsByName map[string]int, currentTime time.Time) (map[string]int, map[string]struct{}, int, error) {
+func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, connections []connectionExport, vendorIDsByKey map[string]int, endpointIDsByName map[string]int, pricingIDsByName map[string]int, strategyIDsByName map[string]int, currentTime time.Time) (map[string]int, map[string]struct{}, int, error) {
 	modelIDsByModelID := map[string]int{}
+	connectionIDsByRef := map[string]int{}
 	importedPairs := map[string]struct{}{}
-	proxyTargetSpecs := make([]struct {
-		SourceModelID string
-		Targets       []proxyTargetExport
-	}, 0)
-	connectionsImported := 0
 
 	for _, model := range models {
 		modelID := strings.TrimSpace(model.ModelID)
 		apiFamily := strings.ToLower(strings.TrimSpace(model.APIFamily))
-		modelType := strings.ToLower(strings.TrimSpace(model.ModelType))
 		var vendorID any
 		if model.VendorKey != nil {
 			vendorID = vendorIDsByKey[strings.TrimSpace(*model.VendorKey)]
 		}
-		var strategyID any
-		var proxySelectionStrategy any
-		if modelType == "native" {
-			strategyID = strategyIDsByName[*trimmedOptionalString(model.LoadbalanceStrategyName)]
-		} else {
-			proxySelectionStrategy = *normalizedImportedProxySelectionStrategy(model.ProxySelectionStrategy)
-		}
+		strategyID := strategyIDsByName[*trimmedOptionalString(model.LoadbalanceStrategyName)]
 		var modelConfigID int
-		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10) RETURNING id`, profileID, vendorID, apiFamily, modelID, nullableString(trimmedOptionalString(model.DisplayName)), modelType, proxySelectionStrategy, strategyID, model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING id`, profileID, vendorID, apiFamily, modelID, nullableString(trimmedOptionalString(model.DisplayName)), strategyID, model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
 			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", modelID, err)
 		}
 		modelIDsByModelID[modelID] = modelConfigID
-		if modelType == "proxy" {
-			proxyTargetSpecs = append(proxyTargetSpecs, struct {
-				SourceModelID string
-				Targets       []proxyTargetExport
-			}{SourceModelID: modelID, Targets: model.ProxyTargets})
-			continue
-		}
-
-		sortedConnections := make([]connectionExport, len(model.Connections))
-		copy(sortedConnections, model.Connections)
-		sort.SliceStable(sortedConnections, func(left int, right int) bool {
-			return sortedConnections[left].Priority < sortedConnections[right].Priority
-		})
-		for priority, connection := range sortedConnections {
-			endpointName := strings.TrimSpace(connection.EndpointName)
-			pricingTemplateName := trimmedOptionalString(connection.PricingTemplateName)
-			probeVariant, err := normalizeOpenAIProbeEndpointVariant(apiFamily, connection.OpenAIProbeEndpointVariant)
-			if err != nil {
-				return nil, nil, 0, err
-			}
-			var customHeaders any
-			if len(connection.CustomHeaders) > 0 {
-				rawHeaders, marshalErr := json.Marshal(connection.CustomHeaders)
-				if marshalErr != nil {
-					return nil, nil, 0, fmt.Errorf("marshal custom headers for model %q: %w", modelID, marshalErr)
-				}
-				customHeaders = string(rawHeaders)
-			}
-			if _, err := exec.Exec(ctx, `INSERT INTO connections (profile_id, model_config_id, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $17)`, profileID, modelConfigID, endpointIDsByName[endpointName], nullableInt(pricingIDsByName, pricingTemplateName), connection.QPSLimit, connection.MaxInFlightNonStream, connection.MaxInFlightStream, nullableString(probeVariant), connection.IsActive, priority, nullableString(trimmedOptionalString(connection.Name)), nullableString(normalizedOptionalAuthType(connection.AuthType)), customHeaders, "unknown", nil, nil, currentTime); err != nil {
-				return nil, nil, 0, fmt.Errorf("insert imported connection for model %q: %w", modelID, err)
-			}
-			importedPairs[connectionPairKey(modelID, endpointName)] = struct{}{}
-			connectionsImported++
-		}
 	}
 
-	for _, proxyTargets := range proxyTargetSpecs {
-		sourceModelID := modelIDsByModelID[proxyTargets.SourceModelID]
-		for _, target := range proxyTargets.Targets {
-			targetModelID := strings.TrimSpace(target.TargetModelID)
-			if _, err := exec.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, $3, $4, $5)`, sourceModelID, modelIDsByModelID[targetModelID], target.Position, target.Weight, target.TargetPriority); err != nil {
-				return nil, nil, 0, fmt.Errorf("insert proxy target for model %q: %w", proxyTargets.SourceModelID, err)
-			}
-		}
+	connectionsImported, err := insertImportedConnections(ctx, exec, profileID, connections, endpointIDsByName, pricingIDsByName, connectionIDsByRef, currentTime)
+	if err != nil {
+		return nil, nil, 0, err
 	}
-
-	return modelIDsByModelID, importedPairs, connectionsImported, nil
+	if err := insertImportedAccessTargets(ctx, exec, profileID, models, modelIDsByModelID, connectionIDsByRef, importedPairs, currentTime); err != nil {
+		return nil, nil, 0, err
+	}
+	return connectionIDsByRef, importedPairs, connectionsImported, nil
 }
 
-func upsertImportedProfileSettings(ctx context.Context, exec queryExecutor, profileID int, profileSettings *profileSettingsExport, endpointIDsByName map[string]int, importedPairs map[string]struct{}, currentTime time.Time) error {
+func insertImportedConnections(ctx context.Context, exec queryExecutor, profileID int, connections []connectionExport, endpointIDsByName map[string]int, pricingIDsByName map[string]int, connectionIDsByRef map[string]int, currentTime time.Time) (int, error) {
+	for _, connection := range connections {
+		connectionRef := strings.TrimSpace(connection.Ref)
+		apiFamily := strings.ToLower(strings.TrimSpace(connection.APIFamily))
+		endpointName := strings.TrimSpace(connection.EndpointName)
+		pricingTemplateName := trimmedOptionalString(connection.PricingTemplateName)
+		probeVariant, err := normalizeOpenAIProbeEndpointVariant(apiFamily, connection.OpenAIProbeEndpointVariant)
+		if err != nil {
+			return 0, err
+		}
+		var customHeaders any
+		if len(connection.CustomHeaders) > 0 {
+			rawHeaders, marshalErr := json.Marshal(connection.CustomHeaders)
+			if marshalErr != nil {
+				return 0, fmt.Errorf("marshal custom headers for connection %q: %w", connectionRef, marshalErr)
+			}
+			customHeaders = string(rawHeaders)
+		}
+		var connectionID int
+		if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $17) RETURNING id`, profileID, apiFamily, endpointIDsByName[endpointName], nullableInt(pricingIDsByName, pricingTemplateName), connection.QPSLimit, connection.MaxInFlightNonStream, connection.MaxInFlightStream, nullableString(probeVariant), connection.IsActive, connection.Priority, nullableString(trimmedOptionalString(connection.Name)), nullableString(normalizedOptionalAuthType(connection.AuthType)), customHeaders, "unknown", nil, nil, currentTime).Scan(&connectionID); err != nil {
+			return 0, fmt.Errorf("insert imported connection %q: %w", connectionRef, err)
+		}
+		connectionIDsByRef[connectionRef] = connectionID
+	}
+	return len(connections), nil
+}
+
+func insertImportedAccessTargets(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, modelIDsByModelID map[string]int, connectionIDsByRef map[string]int, importedPairs map[string]struct{}, currentTime time.Time) error {
+	for _, model := range models {
+		modelID := strings.TrimSpace(model.ModelID)
+		sourceModelID := modelIDsByModelID[modelID]
+		sortedTargets := make([]accessTargetExport, len(model.AccessTargets))
+		copy(sortedTargets, model.AccessTargets)
+		sort.SliceStable(sortedTargets, func(left int, right int) bool { return sortedTargets[left].Position < sortedTargets[right].Position })
+		for _, target := range sortedTargets {
+			switch strings.ToLower(strings.TrimSpace(target.TargetType)) {
+			case "connection":
+				connectionRef := *trimmedOptionalString(target.ConnectionRef)
+				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, $4, $5, $6, $6)`, profileID, sourceModelID, connectionIDsByRef[connectionRef], target.Position, target.IsEnabled, currentTime); err != nil {
+					return fmt.Errorf("insert connection access target for model %q: %w", modelID, err)
+				}
+				importedPairs[connectionPairKey(modelID, connectionRef)] = struct{}{}
+			case "model":
+				targetModelID := *trimmedOptionalString(target.TargetModelID)
+				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, 1, $4, $5, $6, $6)`, profileID, sourceModelID, modelIDsByModelID[targetModelID], target.Position, target.IsEnabled, currentTime); err != nil {
+					return fmt.Errorf("insert model access target for model %q: %w", modelID, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func upsertImportedProfileSettings(ctx context.Context, exec queryExecutor, profileID int, profileSettings *profileSettingsExport, connectionIDsByRef map[string]int, importedPairs map[string]struct{}, currentTime time.Time) error {
 	reportCurrencyCode := "USD"
 	reportCurrencySymbol := "$"
 	var timezonePreference *string
@@ -1130,11 +1166,11 @@ func upsertImportedProfileSettings(ctx context.Context, exec queryExecutor, prof
 		return nil
 	}
 	for _, mapping := range profileSettings.EndpointFXMappings {
-		endpointName := strings.TrimSpace(mapping.EndpointName)
-		if _, ok := importedPairs[connectionPairKey(mapping.ModelID, endpointName)]; !ok {
+		connectionRef := strings.TrimSpace(mapping.ConnectionRef)
+		if _, ok := importedPairs[connectionPairKey(mapping.ModelID, connectionRef)]; !ok {
 			continue
 		}
-		if _, err := exec.Exec(ctx, `INSERT INTO endpoint_fx_rate_settings (profile_id, model_id, endpoint_id, fx_rate, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)`, profileID, mapping.ModelID, endpointIDsByName[endpointName], mapping.FXRate, currentTime); err != nil {
+		if _, err := exec.Exec(ctx, `INSERT INTO endpoint_fx_rate_settings (profile_id, model_id, endpoint_id, fx_rate, created_at, updated_at) SELECT $1, $2, connections.endpoint_id, $4, $5, $5 FROM connections WHERE connections.id = $3`, profileID, mapping.ModelID, connectionIDsByRef[connectionRef], mapping.FXRate, currentTime); err != nil {
 			return fmt.Errorf("insert imported endpoint fx mapping for model %q: %w", mapping.ModelID, err)
 		}
 	}
@@ -1314,22 +1350,6 @@ func normalizedOptionalAuthType(value *string) *string {
 		return nil
 	}
 	return &normalized
-}
-
-func normalizedImportedProxySelectionStrategy(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	normalized := strings.ToLower(strings.TrimSpace(*value))
-	if normalized == "" {
-		return nil
-	}
-	return &normalized
-}
-
-func isValidImportedProxySelectionStrategy(value string) bool {
-	_, ok := validProxySelectionStrategies[value]
-	return ok
 }
 
 func trimmedOptionalString(value *string) *string {

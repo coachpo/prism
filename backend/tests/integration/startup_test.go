@@ -432,7 +432,6 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 		ProfileID:             defaultProfile.ID,
 		APIFamily:             "openai",
 		ModelID:               "startup-runtime-open-model",
-		ModelType:             "native",
 		LoadbalanceStrategyID: sql.NullInt64{Int64: int64(strategyID), Valid: true},
 		IsEnabled:             true,
 		CreatedAt:             now,
@@ -442,7 +441,6 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 		ProfileID:             defaultProfile.ID,
 		APIFamily:             "openai",
 		ModelID:               "startup-runtime-closed-model",
-		ModelType:             "native",
 		LoadbalanceStrategyID: sql.NullInt64{Int64: int64(strategyID), Valid: true},
 		IsEnabled:             true,
 		CreatedAt:             now,
@@ -485,35 +483,30 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 		UpdatedAt:     now,
 	})
 	failureKind := "transient_http"
-	openUntil := now.Add(5 * time.Minute)
-	failureObservedAt := now.Add(-1 * time.Minute)
+	nextRetryAt := now.Add(5 * time.Minute)
 	successObservedAt := now.Add(-30 * time.Second)
 	latencyMS := int32(125)
 	insertRuntimeState(t, testContext, conn, runtimeStateSeed{
-		ProfileID:           defaultProfile.ID,
-		ConnectionID:        openConnectionID,
-		ConsecutiveFailures: 2,
-		LastFailureKind:     &failureKind,
-		LastCooldownSeconds: 120,
-		MaxCooldownStrikes:  2,
-		BanMode:             "off",
-		OpenUntilAt:         &openUntil,
-		ProbeAvailableAt:    &openUntil,
-		CircuitState:        "open",
-		LastLiveFailureKind: &failureKind,
-		LastLiveFailureAt:   &failureObservedAt,
-		CreatedAt:           now,
-		UpdatedAt:           now,
+		ProfileID:               defaultProfile.ID,
+		ConnectionID:            openConnectionID,
+		CycleRetryAttempts:      2,
+		CumulativeRetryAttempts: 4,
+		NextRetryAt:             &nextRetryAt,
+		LastRetryDelayMS:        120000,
+		BanMode:                 "temporary",
+		BannedUntilAt:           &nextRetryAt,
+		LastFailureKind:         &failureKind,
+		CreatedAt:               now,
+		UpdatedAt:               now,
 	})
 	insertRuntimeState(t, testContext, conn, runtimeStateSeed{
-		ProfileID:         defaultProfile.ID,
-		ConnectionID:      closedConnectionID,
-		BanMode:           "off",
-		CircuitState:      "closed",
-		LiveP95LatencyMS:  &latencyMS,
-		LastLiveSuccessAt: &successObservedAt,
-		CreatedAt:         now,
-		UpdatedAt:         now,
+		ProfileID:        defaultProfile.ID,
+		ConnectionID:     closedConnectionID,
+		BanMode:          "off",
+		LiveP95LatencyMS: &latencyMS,
+		LastSuccessAt:    &successObservedAt,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	})
 
 	beforeRestartSnapshot := snapshotRuntimeStateRows(t, testContext, conn)
@@ -551,16 +544,14 @@ type vendorSeed struct {
 }
 
 type modelConfigSeed struct {
-	ProfileID              int
-	VendorID               sql.NullInt64
-	APIFamily              string
-	ModelID                string
-	ModelType              string
-	LoadbalanceStrategyID  sql.NullInt64
-	ProxySelectionStrategy sql.NullString
-	IsEnabled              bool
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ProfileID             int
+	VendorID              sql.NullInt64
+	APIFamily             string
+	ModelID               string
+	LoadbalanceStrategyID sql.NullInt64
+	IsEnabled             bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type systemUserAgentRuleSeed struct {
@@ -601,24 +592,19 @@ type connectionSeed struct {
 }
 
 type runtimeStateSeed struct {
-	ProfileID           int
-	ConnectionID        int
-	ConsecutiveFailures int
-	LastFailureKind     *string
-	LastCooldownSeconds float64
-	MaxCooldownStrikes  int
-	BanMode             string
-	BannedUntilAt       *time.Time
-	OpenUntilAt         *time.Time
-	ProbeEligibleLogged bool
-	CircuitState        string
-	ProbeAvailableAt    *time.Time
-	LiveP95LatencyMS    *int32
-	LastLiveFailureKind *string
-	LastLiveFailureAt   *time.Time
-	LastLiveSuccessAt   *time.Time
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ProfileID               int
+	ConnectionID            int
+	CycleRetryAttempts      int
+	CumulativeRetryAttempts int
+	NextRetryAt             *time.Time
+	LastRetryDelayMS        int
+	BanMode                 string
+	BannedUntilAt           *time.Time
+	LastFailureKind         *string
+	LastSuccessAt           *time.Time
+	LiveP95LatencyMS        *int32
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 type vendorSnapshot struct {
@@ -692,24 +678,19 @@ type endpointSnapshot struct {
 }
 
 type runtimeStateSnapshot struct {
-	ProfileID           int     `json:"profile_id"`
-	ConnectionID        int     `json:"connection_id"`
-	ConsecutiveFailures int     `json:"consecutive_failures"`
-	LastFailureKind     *string `json:"last_failure_kind"`
-	LastCooldownSeconds float64 `json:"last_cooldown_seconds"`
-	MaxCooldownStrikes  int     `json:"max_cooldown_strikes"`
-	BanMode             string  `json:"ban_mode"`
-	BannedUntilAt       *string `json:"banned_until_at"`
-	OpenUntilAt         *string `json:"open_until_at"`
-	ProbeEligibleLogged bool    `json:"probe_eligible_logged"`
-	CircuitState        string  `json:"circuit_state"`
-	ProbeAvailableAt    *string `json:"probe_available_at"`
-	LiveP95LatencyMS    *int32  `json:"live_p95_latency_ms"`
-	LastLiveFailureKind *string `json:"last_live_failure_kind"`
-	LastLiveFailureAt   *string `json:"last_live_failure_at"`
-	LastLiveSuccessAt   *string `json:"last_live_success_at"`
-	CreatedAt           string  `json:"created_at"`
-	UpdatedAt           string  `json:"updated_at"`
+	ProfileID               int     `json:"profile_id"`
+	ConnectionID            int     `json:"connection_id"`
+	CycleRetryAttempts      int     `json:"cycle_retry_attempts"`
+	CumulativeRetryAttempts int     `json:"cumulative_retry_attempts"`
+	NextRetryAt             *string `json:"next_retry_at"`
+	LastRetryDelayMS        int     `json:"last_retry_delay_ms"`
+	BanMode                 string  `json:"ban_mode"`
+	BannedUntilAt           *string `json:"banned_until_at"`
+	LastFailureKind         *string `json:"last_failure_kind"`
+	LastSuccessAt           *string `json:"last_success_at"`
+	LiveP95LatencyMS        *int32  `json:"live_p95_latency_ms"`
+	CreatedAt               string  `json:"created_at"`
+	UpdatedAt               string  `json:"updated_at"`
 }
 
 type startupStateSnapshot struct {
@@ -1001,22 +982,18 @@ func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed m
 			api_family,
 			model_id,
 			display_name,
-			model_type,
 			loadbalance_strategy_id,
-			proxy_selection_strategy,
 			is_enabled,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
 		seed.ProfileID,
 		nullInt64(seed.VendorID),
 		seed.APIFamily,
 		seed.ModelID,
 		nil,
-		seed.ModelType,
 		nullInt64(seed.LoadbalanceStrategyID),
-		nullString(seed.ProxySelectionStrategy),
 		seed.IsEnabled,
 		seed.CreatedAt,
 		seed.UpdatedAt,
@@ -1031,8 +1008,8 @@ func insertLegacyLoadbalanceStrategy(t *testing.T, ctx context.Context, conn *pg
 	var strategyID int
 	if err := conn.QueryRow(
 		ctx,
-		`INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at)
-		 VALUES ($1, $2, 'legacy', 'round-robin', '{"mode":"disabled"}'::jsonb, NULL, $3, $3)
+		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts, ban_duration_seconds, created_at, updated_at)
+		 VALUES ($1, $2, 'round-robin', ARRAY[403,422,429,500,502,503,504,529], 'off', 60000, 2.0, 0.2, 900000, 3, 0, $3, $3)
 		 RETURNING id`,
 		profileID,
 		name,
@@ -1125,12 +1102,16 @@ func insertEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, seed endp
 
 func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed connectionSeed) int {
 	t.Helper()
+	var apiFamily string
+	if err := conn.QueryRow(ctx, `SELECT api_family FROM model_configs WHERE id = $1`, seed.ModelConfigID).Scan(&apiFamily); err != nil {
+		t.Fatalf("load model api family for connection %q: %v", seed.Name, err)
+	}
 	var connectionID int
 	if err := conn.QueryRow(
 		ctx,
 		`INSERT INTO connections (
 			profile_id,
-			model_config_id,
+			api_family,
 			endpoint_id,
 			pricing_template_id,
 			qps_limit,
@@ -1150,7 +1131,7 @@ func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed co
 		) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, TRUE, $4, $5, NULL, NULL, 'healthy', NULL, NULL, $6, $7)
 		RETURNING id`,
 		seed.ProfileID,
-		seed.ModelConfigID,
+		apiFamily,
 		seed.EndpointID,
 		seed.Priority,
 		seed.Name,
@@ -1173,39 +1154,29 @@ func insertRuntimeState(t *testing.T, ctx context.Context, conn *pgx.Conn, seed 
 			window_request_count,
 			in_flight_non_stream,
 			in_flight_stream,
-			consecutive_failures,
-			last_failure_kind,
-			last_cooldown_seconds,
-			max_cooldown_strikes,
+			cycle_retry_attempts,
+			cumulative_retry_attempts,
+			next_retry_at,
+			last_retry_delay_ms,
 			ban_mode,
 			banned_until_at,
-			open_until_at,
-			probe_eligible_logged,
-			circuit_state,
-			probe_available_at,
+			last_failure_kind,
+			last_success_at,
 			live_p95_latency_ms,
-			last_live_failure_kind,
-			last_live_failure_at,
-			last_live_success_at,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, NULL, 0, 0, 0, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+		) VALUES ($1, $2, NULL, 0, 0, 0, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		seed.ProfileID,
 		seed.ConnectionID,
-		seed.ConsecutiveFailures,
-		nullableSeedString(seed.LastFailureKind),
-		seed.LastCooldownSeconds,
-		seed.MaxCooldownStrikes,
+		seed.CycleRetryAttempts,
+		seed.CumulativeRetryAttempts,
+		nullableSeedTime(seed.NextRetryAt),
+		seed.LastRetryDelayMS,
 		normalizeSeedBanMode(seed.BanMode),
 		nullableSeedTime(seed.BannedUntilAt),
-		nullableSeedTime(seed.OpenUntilAt),
-		seed.ProbeEligibleLogged,
-		normalizeSeedCircuitState(seed.CircuitState),
-		nullableSeedTime(seed.ProbeAvailableAt),
+		nullableSeedString(seed.LastFailureKind),
+		nullableSeedTime(seed.LastSuccessAt),
 		nullableSeedInt32(seed.LiveP95LatencyMS),
-		nullableSeedString(seed.LastLiveFailureKind),
-		nullableSeedTime(seed.LastLiveFailureAt),
-		nullableSeedTime(seed.LastLiveSuccessAt),
 		seed.CreatedAt,
 		seed.UpdatedAt,
 	); err != nil {
@@ -1489,9 +1460,8 @@ func snapshotRuntimeStateRows(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	t.Helper()
 	rows, err := conn.Query(
 		ctx,
-		`SELECT profile_id, connection_id, consecutive_failures, last_failure_kind, last_cooldown_seconds::float8,
-			max_cooldown_strikes, ban_mode, banned_until_at, open_until_at, probe_eligible_logged, circuit_state,
-			probe_available_at, live_p95_latency_ms, last_live_failure_kind, last_live_failure_at, last_live_success_at,
+		`SELECT profile_id, connection_id, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at,
+			last_retry_delay_ms, ban_mode, banned_until_at, last_failure_kind, last_success_at, live_p95_latency_ms,
 			created_at, updated_at
 		FROM routing_connection_runtime_state
 		ORDER BY profile_id ASC, connection_id ASC`,
@@ -1504,48 +1474,37 @@ func snapshotRuntimeStateRows(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	items := []runtimeStateSnapshot{}
 	for rows.Next() {
 		var (
-			item                runtimeStateSnapshot
-			lastFailureKind     sql.NullString
-			bannedUntilAt       sql.NullTime
-			openUntilAt         sql.NullTime
-			probeAvailableAt    sql.NullTime
-			liveP95LatencyMS    sql.NullInt32
-			lastLiveFailureKind sql.NullString
-			lastLiveFailureAt   sql.NullTime
-			lastLiveSuccessAt   sql.NullTime
-			createdAt           time.Time
-			updatedAt           time.Time
+			item             runtimeStateSnapshot
+			nextRetryAt      sql.NullTime
+			bannedUntilAt    sql.NullTime
+			lastFailureKind  sql.NullString
+			lastSuccessAt    sql.NullTime
+			liveP95LatencyMS sql.NullInt32
+			createdAt        time.Time
+			updatedAt        time.Time
 		)
 		if err := rows.Scan(
 			&item.ProfileID,
 			&item.ConnectionID,
-			&item.ConsecutiveFailures,
-			&lastFailureKind,
-			&item.LastCooldownSeconds,
-			&item.MaxCooldownStrikes,
+			&item.CycleRetryAttempts,
+			&item.CumulativeRetryAttempts,
+			&nextRetryAt,
+			&item.LastRetryDelayMS,
 			&item.BanMode,
 			&bannedUntilAt,
-			&openUntilAt,
-			&item.ProbeEligibleLogged,
-			&item.CircuitState,
-			&probeAvailableAt,
+			&lastFailureKind,
+			&lastSuccessAt,
 			&liveP95LatencyMS,
-			&lastLiveFailureKind,
-			&lastLiveFailureAt,
-			&lastLiveSuccessAt,
 			&createdAt,
 			&updatedAt,
 		); err != nil {
 			t.Fatalf("scan runtime-state snapshot: %v", err)
 		}
-		item.LastFailureKind = formatNullableString(lastFailureKind)
+		item.NextRetryAt = formatNullableTime(nextRetryAt)
 		item.BannedUntilAt = formatNullableTime(bannedUntilAt)
-		item.OpenUntilAt = formatNullableTime(openUntilAt)
-		item.ProbeAvailableAt = formatNullableTime(probeAvailableAt)
+		item.LastFailureKind = formatNullableString(lastFailureKind)
+		item.LastSuccessAt = formatNullableTime(lastSuccessAt)
 		item.LiveP95LatencyMS = formatNullableInt32(liveP95LatencyMS)
-		item.LastLiveFailureKind = formatNullableString(lastLiveFailureKind)
-		item.LastLiveFailureAt = formatNullableTime(lastLiveFailureAt)
-		item.LastLiveSuccessAt = formatNullableTime(lastLiveSuccessAt)
 		item.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
 		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
 		items = append(items, item)
@@ -1566,13 +1525,6 @@ func nullInt64(value sql.NullInt64) any {
 		return nil
 	}
 	return value.Int64
-}
-
-func nullString(value sql.NullString) any {
-	if !value.Valid {
-		return nil
-	}
-	return value.String
 }
 
 func formatNullableTime(value sql.NullTime) *string {
@@ -1623,13 +1575,6 @@ func nullableSeedInt32(value *int32) any {
 func normalizeSeedBanMode(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return "off"
-	}
-	return value
-}
-
-func normalizeSeedCircuitState(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "closed"
 	}
 	return value
 }

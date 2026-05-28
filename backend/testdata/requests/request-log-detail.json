@@ -6,7 +6,6 @@
     "model_label": "gpt-4o",
     "resolved_target_model_id": "gpt-4o-native",
     "resolved_target_model_label": "gpt-4o-native",
-    "is_proxy_origin": true,
     "api_family": "openai",
     "vendor_id": 1,
     "vendor_key": "openai",

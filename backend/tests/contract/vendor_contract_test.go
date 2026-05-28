@@ -131,7 +131,6 @@ func TestVendorCRUD(t *testing.T) {
 		"profile_name":    defaultProfileName,
 		"model_id":        "vendor-delete-check",
 		"display_name":    nil,
-		"model_type":      "proxy",
 		"api_family":      "openai",
 		"is_enabled":      true,
 	})
@@ -190,7 +189,6 @@ func TestVendorModelsHelper(t *testing.T) {
 		"profile_name":    defaultProfileName,
 		"model_id":        "helper-default-model",
 		"display_name":    nil,
-		"model_type":      "proxy",
 		"api_family":      "openai",
 		"is_enabled":      true,
 	})
@@ -200,7 +198,6 @@ func TestVendorModelsHelper(t *testing.T) {
 		"profile_name":    "Vendor Usage Secondary",
 		"model_id":        "helper-secondary-model",
 		"display_name":    "Secondary Helper Model",
-		"model_type":      "proxy",
 		"api_family":      "anthropic",
 		"is_enabled":      false,
 	})
@@ -284,8 +281,15 @@ func vendorInsertProxyModel(t *testing.T, harness *contractHarness, profileID in
 	t.Helper()
 	now := time.Now().UTC()
 	var modelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`, profileID, vendorID, apiFamily, modelID, displayName, "proxy", "ordered_fallback", nil, isEnabled, now, now).Scan(&modelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8) RETURNING id`, profileID, vendorID, apiFamily, modelID, displayName, isEnabled, now, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert proxy model %q for vendor %d: %v", modelID, vendorID, err)
+	}
+	var targetModelConfigID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, $2, $3, NULL, NULL, TRUE, $4, $4) RETURNING id`, profileID, apiFamily, modelID+"-target", now).Scan(&targetModelConfigID); err != nil {
+		t.Fatalf("insert proxy target model for %q: %v", modelID, err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, 1, 0, TRUE, $4, $4)`, profileID, modelConfigID, targetModelConfigID, now); err != nil {
+		t.Fatalf("insert proxy target for vendor model %q: %v", modelID, err)
 	}
 	return modelConfigID
 }
@@ -305,10 +309,10 @@ func vendorLoadModelVendorID(t *testing.T, harness *contractHarness, modelConfig
 
 func assertVendorUsageRow(t *testing.T, row map[string]any, want map[string]any) {
 	t.Helper()
-	if len(row) != 8 {
-		t.Fatalf("expected helper row to expose 8 stable fields, got %+v", row)
+	if len(row) != 7 {
+		t.Fatalf("expected helper row to expose 7 stable fields, got %+v", row)
 	}
-	if jsonInt(t, row["model_config_id"]) != want["model_config_id"].(int) || jsonInt(t, row["profile_id"]) != want["profile_id"].(int) || row["profile_name"] != want["profile_name"] || row["model_id"] != want["model_id"] || row["display_name"] != want["display_name"] || row["model_type"] != want["model_type"] || row["api_family"] != want["api_family"] || row["is_enabled"] != want["is_enabled"] {
+	if jsonInt(t, row["model_config_id"]) != want["model_config_id"].(int) || jsonInt(t, row["profile_id"]) != want["profile_id"].(int) || row["profile_name"] != want["profile_name"] || row["model_id"] != want["model_id"] || row["display_name"] != want["display_name"] || row["api_family"] != want["api_family"] || row["is_enabled"] != want["is_enabled"] {
 		t.Fatalf("expected helper row %+v, got %+v", want, row)
 	}
 }

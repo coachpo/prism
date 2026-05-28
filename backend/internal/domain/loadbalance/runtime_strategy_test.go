@@ -18,54 +18,26 @@ func mustLoadbalanceJSON(t *testing.T, value any) []byte {
 }
 
 func TestRuntimeStrategyFailoverStatusCodes(t *testing.T) {
-	adaptive := RuntimeStrategy{
-		StrategyType:     "adaptive",
-		RoutingPolicyRaw: mustLoadbalanceJSON(t, map[string]any{"circuit_breaker": map[string]any{"failure_status_codes": []int{408, 429}}}),
-	}
-	if got := adaptive.FailoverStatusCodes(); !reflect.DeepEqual(got, []int{408, 429}) {
-		t.Fatalf("expected adaptive failover codes, got %v", got)
+	custom := RuntimeStrategy{FailureStatusCodes: []int{408, 429}}
+	if got := custom.FailoverStatusCodes(); !reflect.DeepEqual(got, []int{408, 429}) {
+		t.Fatalf("expected configured failover codes, got %v", got)
 	}
 
-	legacy := RuntimeStrategy{
-		StrategyType:    "legacy",
-		AutoRecoveryRaw: mustLoadbalanceJSON(t, map[string]any{"status_codes": []int{500, 503}}),
-	}
-	if got := legacy.FailoverStatusCodes(); !reflect.DeepEqual(got, []int{500, 503}) {
-		t.Fatalf("expected legacy failover codes, got %v", got)
-	}
-
-	invalid := RuntimeStrategy{StrategyType: "adaptive", RoutingPolicyRaw: []byte("{")}
-	if got := invalid.FailoverStatusCodes(); !reflect.DeepEqual(got, defaultRuntimeFailoverStatusCodes) {
-		t.Fatalf("expected default failover codes on invalid payload, got %v", got)
+	defaulted := RuntimeStrategy{}
+	if got := defaulted.FailoverStatusCodes(); !reflect.DeepEqual(got, defaultRuntimeFailoverStatusCodes) {
+		t.Fatalf("expected default failover codes, got %v", got)
 	}
 }
 
-func TestRuntimeStrategyHedgePolicyHonorsConfiguredAdditionalAttemptBudget(t *testing.T) {
-	strategy := RuntimeStrategy{
-		StrategyType: "adaptive",
-		RoutingPolicyRaw: mustLoadbalanceJSON(t, map[string]any{
-			"hedge": map[string]any{
-				"enabled":                 true,
-				"delay_ms":                250,
-				"max_additional_attempts": 3,
-			},
-		}),
-	}
-
-	policy := strategy.HedgePolicy()
-	if !policy.Enabled {
-		t.Fatal("expected adaptive hedge policy to stay enabled")
-	}
-	if policy.Delay != 250*time.Millisecond {
-		t.Fatalf("expected 250ms hedge delay, got %s", policy.Delay)
-	}
-	if policy.MaxAdditionalAttempts != 3 {
-		t.Fatalf("expected max_additional_attempts=3, got %d", policy.MaxAdditionalAttempts)
+func TestRuntimeStrategyHedgePolicyDefaultsDisabled(t *testing.T) {
+	policy := RuntimeStrategy{}.HedgePolicy()
+	if policy.Enabled || policy.Delay != 0 || policy.MaxAdditionalAttempts != 0 {
+		t.Fatalf("expected hedge policy to stay disabled for Ban Policy strategies, got %+v", policy)
 	}
 }
 
 func TestOrderConnectionIDsSingleReturnsOnlyFirstEligibleConnection(t *testing.T) {
-	strategy := RuntimeStrategy{StrategyType: "legacy", LegacyStrategyType: stringPointer("single")}
+	strategy := RuntimeStrategy{LegacyStrategyType: stringPointer("single")}
 	connections := []ConnectionOrderCandidate{{ID: 4, Priority: 2}, {ID: 3, Priority: 1}, {ID: 2, Priority: 1}}
 
 	got, err := OrderConnectionIDs(7, 11, strategy, connections, nil, nil, time.Now().UTC())
@@ -79,7 +51,7 @@ func TestOrderConnectionIDsSingleReturnsOnlyFirstEligibleConnection(t *testing.T
 }
 
 func TestOrderConnectionIDsFillFirstPreservesStableFailoverOrder(t *testing.T) {
-	strategy := RuntimeStrategy{StrategyType: "legacy", LegacyStrategyType: stringPointer("fill-first")}
+	strategy := RuntimeStrategy{LegacyStrategyType: stringPointer("fill-first")}
 	connections := []ConnectionOrderCandidate{{ID: 4, Priority: 2}, {ID: 3, Priority: 1}, {ID: 2, Priority: 1}}
 
 	got, err := OrderConnectionIDs(7, 11, strategy, connections, nil, nil, time.Now().UTC())
@@ -92,33 +64,25 @@ func TestOrderConnectionIDsFillFirstPreservesStableFailoverOrder(t *testing.T) {
 	}
 }
 
-func TestOrderConnectionIDsAdaptiveRanksHealthierCandidateFirst(t *testing.T) {
+func TestOrderConnectionIDsDefaultPreservesStableOrder(t *testing.T) {
 	nowAt := time.Date(2026, time.April, 20, 18, 0, 0, 0, time.UTC)
-	strategy := RuntimeStrategy{StrategyType: "adaptive"}
-	connections := []ConnectionOrderCandidate{{ID: 10, Priority: 0}, {ID: 20, Priority: 1}}
-	freshFailureAt := nowAt.Add(-30 * time.Second)
-	healthySuccessAt := nowAt.Add(-10 * time.Second)
-	highLatency := 900
-	lowLatency := 120
-	states := map[int]RuntimeConnectionState{
-		10: {ConnectionID: 10, CircuitState: "open", LiveP95LatencyMS: &highLatency, LastLiveFailureAt: &freshFailureAt},
-		20: {ConnectionID: 20, CircuitState: "closed", LiveP95LatencyMS: &lowLatency, LastLiveSuccessAt: &healthySuccessAt},
-	}
+	strategy := RuntimeStrategy{}
+	connections := []ConnectionOrderCandidate{{ID: 20, Priority: 1}, {ID: 10, Priority: 0}}
 
-	got, err := OrderConnectionIDs(7, 11, strategy, connections, states, nil, nowAt)
+	got, err := OrderConnectionIDs(7, 11, strategy, connections, nil, nil, nowAt)
 	if err != nil {
 		t.Fatalf("order connection ids: %v", err)
 	}
-	want := []int{20, 10}
+	want := []int{10, 20}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("expected adaptive ordering %v, got %v", want, got)
+		t.Fatalf("expected default ordering %v, got %v", want, got)
 	}
 }
 
 func TestOrderConnectionIDsRoundRobinRotatesPrimary(t *testing.T) {
 	store := NewLocalRuntimeStateStore()
 	store.ClaimRoundRobinCursor(7, 11, 3)
-	strategy := RuntimeStrategy{StrategyType: "legacy", LegacyStrategyType: stringPointer("round-robin")}
+	strategy := RuntimeStrategy{LegacyStrategyType: stringPointer("round-robin")}
 	connections := []ConnectionOrderCandidate{{ID: 4, Priority: 2}, {ID: 3, Priority: 1}, {ID: 2, Priority: 1}}
 
 	got, err := OrderConnectionIDs(7, 11, strategy, connections, nil, store, time.Date(2026, time.April, 20, 18, 0, 0, 0, time.UTC))

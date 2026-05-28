@@ -107,76 +107,134 @@ func TestRuntimeLocalAdmissionRespectsQPSAndInflight(t *testing.T) {
 	})
 }
 
-func TestRuntimeLocalCircuitTransitions(t *testing.T) {
+func TestRuntimeLocalRetryCycleAndBanTransitions(t *testing.T) {
 	store := NewLocalRuntimeStateStore()
 	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)
-	strategy := RuntimeStrategy{StrategyType: "adaptive", RoutingPolicyRaw: mustLoadbalanceJSON(t, map[string]any{
-		"circuit_breaker": map[string]any{"failure_threshold": 1, "base_open_seconds": 60, "backoff_multiplier": 2.0, "max_open_seconds": 900, "ban_mode": "off", "max_open_strikes_before_ban": 0, "ban_duration_seconds": 0},
-	})}
+	strategy := RuntimeStrategy{RetryBaseDelayMS: 1000, RetryBackoffMultiplier: 2, RetryMaxDelayMS: 10_000, RetryMaxAttempts: 2, BanMode: "temporary", BanDurationSeconds: 300}
+
 	first := store.RecordRuntimeFailoverHTTPFailure(1, 20, 200, strategy, nowAt)
-	if first.CurrentState.CircuitState != "open" || first.CurrentState.ConsecutiveFailures != 1 || first.CurrentState.LastCooldownSeconds != 60 {
-		t.Fatalf("expected first failure to open the circuit, got %+v", first.CurrentState)
+	if first.CurrentState.CycleRetryAttempts != 1 || first.CurrentState.CumulativeRetryAttempts != 1 || first.CurrentState.LastRetryDelayMS != 1000 || first.CurrentState.NextRetryAt == nil {
+		t.Fatalf("expected first failure to schedule retry state, got %+v", first.CurrentState)
 	}
-	second := store.RecordRuntimeTransportFailure(1, 20, 200, strategy, nowAt.Add(time.Second))
-	if second.CurrentState.CircuitState != "open" || second.CurrentState.ConsecutiveFailures != 2 || second.CurrentState.LastCooldownSeconds != 120 {
-		t.Fatalf("expected second failure to extend the open interval, got %+v", second.CurrentState)
+	second := store.RecordRuntimeTransportFailure(1, 20, 200, strategy, nowAt.Add(500*time.Millisecond))
+	if second.CurrentState.CycleRetryAttempts != 2 || second.CurrentState.CumulativeRetryAttempts != 2 || second.CurrentState.LastRetryDelayMS != 2000 {
+		t.Fatalf("expected second same-cycle failure to exhaust retry cycle, got %+v", second.CurrentState)
 	}
 	if second.CurrentState.LastFailureKind == nil || *second.CurrentState.LastFailureKind != runtimeFailureKindConnectError {
 		t.Fatalf("expected transport failure marker, got %+v", second.CurrentState)
 	}
-	third := store.RecordRuntimeSuccess(1, 20, 200, strategy, 321, nowAt.Add(2*time.Second))
-	if !third.RecoveryEventEligible || third.CurrentState.CircuitState != "closed" || third.CurrentState.ConsecutiveFailures != 0 {
-		t.Fatalf("expected success to recover and close the circuit, got %+v", third)
+	var bannedTransition RuntimeStateTransition
+	for attempt := 0; attempt < 3; attempt++ {
+		bannedTransition = store.RecordRuntimeTransportFailure(1, 20, 200, strategy, nowAt.Add(time.Duration(attempt+2)*time.Second))
 	}
-	if third.CurrentState.LiveP95LatencyMS == nil || *third.CurrentState.LiveP95LatencyMS != 321 {
-		t.Fatalf("expected success to retain latency memory, got %+v", third.CurrentState)
+	banned := bannedTransition.CurrentState
+	if banned.BanMode != "temporary" || banned.BannedUntilAt == nil || banned.CumulativeRetryAttempts != 5 {
+		t.Fatalf("expected cumulative failures over twice retry_max_attempts to ban temporarily, got %+v", banned)
 	}
-
-	banStrategy := RuntimeStrategy{StrategyType: "adaptive", RoutingPolicyRaw: mustLoadbalanceJSON(t, map[string]any{
-		"circuit_breaker": map[string]any{"failure_threshold": 1, "base_open_seconds": 60, "backoff_multiplier": 2.0, "max_open_seconds": 900, "ban_mode": "temporary", "max_open_strikes_before_ban": 1, "ban_duration_seconds": 300},
-	})}
-	banned := store.RecordRuntimeFailoverHTTPFailure(1, 21, 201, banStrategy, nowAt)
-	if banned.CurrentState.BanMode != "temporary" || banned.CurrentState.BannedUntilAt == nil {
-		t.Fatalf("expected temporary ban escalation, got %+v", banned.CurrentState)
+	third := store.RecordRuntimeSuccess(1, 20, 200, strategy, 321, nowAt.Add(10*time.Second))
+	if !third.RecoveryEventEligible || third.CurrentState.CycleRetryAttempts != 0 || third.CurrentState.CumulativeRetryAttempts != 0 || third.CurrentState.BanMode != "off" || third.CurrentState.NextRetryAt != nil {
+		t.Fatalf("expected success to clear retry and ban state, got %+v", third)
+	}
+	if third.CurrentState.LiveP95LatencyMS == nil || *third.CurrentState.LiveP95LatencyMS != 321 || third.CurrentState.LastSuccessAt == nil {
+		t.Fatalf("expected success to retain latency and timestamp, got %+v", third.CurrentState)
 	}
 }
 
-func TestRuntimeLocalHalfOpenProbeExclusivity(t *testing.T) {
+func TestRuntimeLocalRetryWindowResetsCycleOnly(t *testing.T) {
 	store := NewLocalRuntimeStateStore()
 	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)
-	probeEligibleAt := nowAt.Add(-1 * time.Minute)
-	store.SeedConnectionState(1, 30, 300, RuntimeConnectionState{
-		ConnectionID:        300,
-		CircuitState:        "open",
-		BanMode:             "off",
-		OpenUntilAt:         &probeEligibleAt,
-		ProbeAvailableAt:    &probeEligibleAt,
-		ConsecutiveFailures: 1,
-		LastCooldownSeconds: 60,
-	}, probeEligibleAt, nowAt)
+	strategy := RuntimeStrategy{RetryBaseDelayMS: 1000, RetryBackoffMultiplier: 2, RetryMaxAttempts: 3, BanMode: "off"}
+	first := store.RecordRuntimeTransportFailure(1, 30, 300, strategy, nowAt)
+	if first.CurrentState.NextRetryAt == nil {
+		t.Fatalf("expected retry window, got %+v", first.CurrentState)
+	}
+	decision := store.TryBeginConnectionAttempt(RuntimeConnectionAttemptInput{ProfileID: 1, ModelConfigID: 30, ConnectionID: 300, Policy: runtimeAdmissionPolicy{RespectQPSLimit: true, RespectInFlightLimits: true}, ObservedAt: first.CurrentState.NextRetryAt.Add(time.Millisecond)})
+	if decision.Skipped || decision.AdmissionReason != "" {
+		t.Fatalf("expected retry window expiry to allow the next attempt, got %+v", decision)
+	}
+	state, ok := store.SnapshotConnectionState(1, 300)
+	if !ok || state.CycleRetryAttempts != 0 || state.CumulativeRetryAttempts != 1 || state.NextRetryAt != nil {
+		t.Fatalf("expected cycle reset with cumulative attempts preserved, got %+v ok=%t", state, ok)
+	}
+}
 
-	first := store.TryBeginConnectionAttempt(RuntimeConnectionAttemptInput{ProfileID: 1, ModelConfigID: 30, ConnectionID: 300, Policy: runtimeAdmissionPolicy{RespectQPSLimit: true, RespectInFlightLimits: true}, ObservedAt: nowAt})
+func TestRuntimeLocalCurrentStateUsesConnectionGlobalRetryState(t *testing.T) {
+	store := NewLocalRuntimeStateStore()
+	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)
+	strategy := RuntimeStrategy{RetryBaseDelayMS: 500, RetryMaxAttempts: 3, BanMode: "off"}
+	store.RecordRuntimeTransportFailure(1, 40, 400, strategy, nowAt)
+
+	items := store.SnapshotCurrentState(1, 41, []int{400}, nowAt.Add(100*time.Millisecond))
+	if len(items) != 1 {
+		t.Fatalf("expected shared connection retry state to be visible to another model, got %+v", items)
+	}
+	if items[0].State != "retry_wait" || items[0].CycleRetryAttempts != 1 || items[0].CumulativeRetryAttempts != 1 || items[0].NextRetryAt == nil {
+		t.Fatalf("expected retry_wait current state for shared connection, got %+v", items[0])
+	}
+}
+
+func TestRuntimeLocalSharedConnectionGlobalBan(t *testing.T) {
+	store := NewLocalRuntimeStateStore()
+	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)
+	banStrategy := RuntimeStrategy{RetryBaseDelayMS: 1000, RetryMaxAttempts: 1, BanMode: "temporary", BanDurationSeconds: 300}
+	offStrategy := RuntimeStrategy{RetryBaseDelayMS: 1000, RetryMaxAttempts: 1, BanMode: "off"}
+
+	store.RecordRuntimeTransportFailure(1, 40, 400, banStrategy, nowAt)
+	store.RecordRuntimeTransportFailure(1, 40, 400, banStrategy, nowAt.Add(100*time.Millisecond))
+	bannedTransition := store.RecordRuntimeTransportFailure(1, 40, 400, banStrategy, nowAt.Add(200*time.Millisecond))
+	if bannedTransition.CurrentState.BanMode != "temporary" || bannedTransition.CurrentState.BannedUntilAt == nil {
+		t.Fatalf("expected first model to temporarily ban shared connection, got %+v", bannedTransition.CurrentState)
+	}
+
+	offTransition := store.RecordRuntimeTransportFailure(1, 41, 400, offStrategy, nowAt.Add(300*time.Millisecond))
+	if offTransition.CurrentState.BanMode != "temporary" || offTransition.CurrentState.BannedUntilAt == nil {
+		t.Fatalf("expected ban_mode off model to preserve shared temporary ban, got %+v", offTransition.CurrentState)
+	}
+
+	items := store.SnapshotCurrentState(1, 41, []int{400}, nowAt.Add(400*time.Millisecond))
+	if len(items) != 1 || items[0].State != "banned" || items[0].BanMode != "temporary" || items[0].BannedUntilAt == nil {
+		t.Fatalf("expected shared temporary ban to make connection unavailable to another model, got %+v", items)
+	}
+}
+
+func TestRuntimeRetryDelayUsesDeterministicJitterHook(t *testing.T) {
+	restore := setRuntimeRetryJitterOffsetForTest(func(maxOffsetMS int) int {
+		if maxOffsetMS != 100 {
+			t.Fatalf("expected max jitter offset 100ms, got %d", maxOffsetMS)
+		}
+		return -25
+	})
+	defer restore()
+
+	policy := RuntimeStrategy{RetryBaseDelayMS: 1000, RetryJitterRatio: 0.1, RetryMaxAttempts: 3}.FeedbackPolicy()
+	if got := retryDelayMilliseconds(policy, 1); got != 975 {
+		t.Fatalf("expected deterministic jittered retry delay 975ms, got %d", got)
+	}
+}
+
+func TestRuntimeLocalAdmissionRejectionDoesNotIncrementRetries(t *testing.T) {
+	store := NewLocalRuntimeStateStore()
+	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)
+	qpsLimit := 1
+	policy := runtimeAdmissionPolicy{RespectQPSLimit: true, RespectInFlightLimits: true}
+	first := store.TryBeginConnectionAttempt(RuntimeConnectionAttemptInput{ProfileID: 1, ModelConfigID: 50, ConnectionID: 500, Admission: RuntimeConnectionAdmission{QPSLimit: &qpsLimit}, Policy: policy, ObservedAt: nowAt})
 	if first.AdmissionReason != "" || first.Skipped {
-		t.Fatalf("expected first probe attempt to acquire, got %+v", first)
+		t.Fatalf("expected first qps attempt to acquire, got %+v", first)
 	}
-	stateWhileHeld, ok := store.SnapshotConnectionState(1, 300)
-	if !ok || stateWhileHeld.CircuitState != "half_open" {
-		t.Fatalf("expected half_open snapshot while probe is held, got %+v ok=%t", stateWhileHeld, ok)
+	store.FinishConnectionAttempt(first.Handle, nowAt.Add(time.Millisecond))
+	second := store.TryBeginConnectionAttempt(RuntimeConnectionAttemptInput{ProfileID: 1, ModelConfigID: 50, ConnectionID: 500, Admission: RuntimeConnectionAdmission{QPSLimit: &qpsLimit}, Policy: policy, ObservedAt: nowAt.Add(100 * time.Millisecond)})
+	if second.AdmissionReason != "qps_limit" {
+		t.Fatalf("expected qps rejection, got %+v", second)
 	}
-	second := store.TryBeginConnectionAttempt(RuntimeConnectionAttemptInput{ProfileID: 1, ModelConfigID: 30, ConnectionID: 300, Policy: runtimeAdmissionPolicy{RespectQPSLimit: true, RespectInFlightLimits: true}, ObservedAt: nowAt.Add(10 * time.Millisecond)})
-	if !second.Skipped || second.AdmissionReason != "" {
-		t.Fatalf("expected second probe attempt to skip while the first holds exclusivity, got %+v", second)
-	}
-	store.FinishConnectionAttempt(first.Handle, nowAt.Add(20*time.Millisecond))
-	third := store.TryBeginConnectionAttempt(RuntimeConnectionAttemptInput{ProfileID: 1, ModelConfigID: 30, ConnectionID: 300, Policy: runtimeAdmissionPolicy{RespectQPSLimit: true, RespectInFlightLimits: true}, ObservedAt: nowAt.Add(30 * time.Millisecond)})
-	if third.AdmissionReason != "" || third.Skipped {
-		t.Fatalf("expected probe exclusivity to release after completion, got %+v", third)
+	state, ok := store.SnapshotConnectionState(1, 500)
+	if !ok || state.CycleRetryAttempts != 0 || state.CumulativeRetryAttempts != 0 {
+		t.Fatalf("expected admission rejection to leave retry counters unchanged, got %+v ok=%t", state, ok)
 	}
 }
 
 func TestRuntimeLocalRoundRobinCursorAdvancesOncePerLaunch(t *testing.T) {
 	store := NewLocalRuntimeStateStore()
-	strategy := RuntimeStrategy{StrategyType: "legacy", LegacyStrategyType: stringPointer("round-robin")}
+	strategy := RuntimeStrategy{LegacyStrategyType: stringPointer("round-robin")}
 	connections := []ConnectionOrderCandidate{{ID: 1, Priority: 0}, {ID: 2, Priority: 1}}
 	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)
 
@@ -228,9 +286,7 @@ func TestRuntimeLocalProxyWeightedCursorUsesSeparateWeightedKeys(t *testing.T) {
 func TestRuntimeRestartResetsEphemeralRuntimeStateSafely(t *testing.T) {
 	beforeRestart := NewLocalRuntimeStateStore()
 	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)
-	strategy := RuntimeStrategy{StrategyType: "adaptive", RoutingPolicyRaw: mustLoadbalanceJSON(t, map[string]any{
-		"circuit_breaker": map[string]any{"failure_threshold": 1, "base_open_seconds": 60, "backoff_multiplier": 2.0, "max_open_seconds": 900, "ban_mode": "off", "max_open_strikes_before_ban": 0, "ban_duration_seconds": 0},
-	})}
+	strategy := RuntimeStrategy{RetryBaseDelayMS: 1000, RetryBackoffMultiplier: 2, RetryMaxAttempts: 3, BanMode: "off"}
 	beforeRestart.RecordRuntimeFailoverHTTPFailure(1, 50, 500, strategy, nowAt)
 	maxInFlight := 1
 	handle := beforeRestart.TryBeginConnectionAttempt(RuntimeConnectionAttemptInput{ProfileID: 1, ModelConfigID: 50, ConnectionID: 501, Admission: RuntimeConnectionAdmission{MaxInFlightNonStream: &maxInFlight}, Policy: runtimeAdmissionPolicy{RespectQPSLimit: true, RespectInFlightLimits: true}, ObservedAt: nowAt.Add(time.Second)})
@@ -239,9 +295,9 @@ func TestRuntimeRestartResetsEphemeralRuntimeStateSafely(t *testing.T) {
 	}
 	beforeRestart.ClaimRoundRobinCursor(1, 50, 2)
 
-	openedState, ok := beforeRestart.SnapshotConnectionState(1, 500)
-	if !ok || openedState.CircuitState == "closed" {
-		t.Fatalf("expected pre-restart open-circuit state to be populated, got %+v ok=%t", openedState, ok)
+	retryState, ok := beforeRestart.SnapshotConnectionState(1, 500)
+	if !ok || retryState.CumulativeRetryAttempts == 0 {
+		t.Fatalf("expected pre-restart retry state to be populated, got %+v ok=%t", retryState, ok)
 	}
 	inFlightState, ok := beforeRestart.SnapshotConnectionState(1, 501)
 	if !ok || inFlightState.InFlightNonStream != 1 {
@@ -250,7 +306,7 @@ func TestRuntimeRestartResetsEphemeralRuntimeStateSafely(t *testing.T) {
 
 	afterRestart := NewLocalRuntimeStateStore()
 	if _, ok := afterRestart.SnapshotConnectionState(1, 500); ok {
-		t.Fatal("expected restart to drop prior open-circuit runtime state")
+		t.Fatal("expected restart to drop prior retry runtime state")
 	}
 	if _, ok := afterRestart.SnapshotConnectionState(1, 501); ok {
 		t.Fatal("expected restart to drop prior in-flight ownership")

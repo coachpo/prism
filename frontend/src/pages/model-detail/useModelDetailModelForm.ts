@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
@@ -7,21 +7,16 @@ import type { ModelConfig, ModelConfigListItem } from "@/lib/types";
 import {
   createEditModelFormData,
   DEFAULT_MODEL_FORM_DATA,
-  getNativeModelsForApiFamily,
   setLoadbalanceStrategyIdOnForm,
   toModelUpdatePayload,
   type ModelFormData,
   type SubmitEventLike,
   validateModelFormData,
 } from "../models/modelFormState";
-import {
-  buildProxyTargetOptions,
-  patchModelListItemFromDetail,
-} from "./useModelDetailDataSupport";
+import { patchModelListItemFromDetail } from "./useModelDetailDataSupport";
 
 interface UseModelDetailModelFormInput {
   model: ModelConfig | null;
-  allModels: ModelConfigListItem[];
   revision: number;
   setIsEditModelDialogOpenState: (open: boolean) => void;
   setAllModels: React.Dispatch<React.SetStateAction<ModelConfigListItem[]>>;
@@ -30,19 +25,13 @@ interface UseModelDetailModelFormInput {
 
 export function useModelDetailModelForm({
   model,
-  allModels,
   revision,
   setIsEditModelDialogOpenState,
   setAllModels,
   setModel,
 }: UseModelDetailModelFormInput) {
   const [formData, setFormData] = useState<ModelFormData>(DEFAULT_MODEL_FORM_DATA);
-
-  const proxyTargetOptions = useMemo(() => buildProxyTargetOptions(model, allModels), [allModels, model]);
-  const nativeModelsForApiFamily = useMemo(
-    () => getNativeModelsForApiFamily(allModels, formData.api_family, model?.model_id),
-    [allModels, formData.api_family, model?.model_id],
-  );
+  const [targetEditorError, setTargetEditorError] = useState<string | null>(null);
 
   const applyUpdatedModel = useCallback(
     (updatedModel: ModelConfig) => {
@@ -61,6 +50,7 @@ export function useModelDetailModelForm({
     (open: boolean) => {
       if (open) {
         setFormData(model ? createEditModelFormData(model) : DEFAULT_MODEL_FORM_DATA);
+        setTargetEditorError(null);
       }
 
       setIsEditModelDialogOpenState(open);
@@ -76,10 +66,8 @@ export function useModelDetailModelForm({
       }
 
       const messages = getStaticMessages();
-      const validationError = validateModelFormData(
-        formData,
-        nativeModelsForApiFamily.map((candidate) => candidate.model_id),
-      );
+      setTargetEditorError(null);
+      const validationError = validateModelFormData(formData);
 
       if (validationError === "api_family_required") {
         toast.error(messages.modelDetailData.selectApiFamily);
@@ -91,8 +79,10 @@ export function useModelDetailModelForm({
         return;
       }
 
-      if (validationError === "proxy_target_required") {
-        toast.error(messages.modelsData.proxyTargetRequired);
+      if (validationError === "access_target_required") {
+        const message = "Add at least one valid same-family access target before saving.";
+        setTargetEditorError(message);
+        toast.error(message);
         return;
       }
 
@@ -102,16 +92,18 @@ export function useModelDetailModelForm({
         toast.success(messages.modelDetailData.modelUpdated);
         setIsEditModelDialogOpen(false);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : messages.modelDetailData.updateModelFailed);
+        const message = error instanceof Error ? error.message : messages.modelDetailData.updateModelFailed;
+        setTargetEditorError(message);
+        toast.error(message);
       }
     },
-    [applyUpdatedModel, formData, model, nativeModelsForApiFamily, setIsEditModelDialogOpen],
+    [applyUpdatedModel, formData, model, setIsEditModelDialogOpen],
   );
 
   return {
     formData,
-    nativeModelsForApiFamily,
-    proxyTargetOptions,
+    targetEditorError,
+    setTargetEditorError,
     setFormData,
     setIsEditModelDialogOpen,
     setLoadbalanceStrategyId,

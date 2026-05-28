@@ -1,3 +1,5 @@
+import type { ApiFamily } from "./vendor";
+
 export type PricingComponentPrice = string;
 
 export interface Endpoint {
@@ -111,7 +113,9 @@ export type OpenAIProbeEndpointVariant =
 
 export interface Connection {
   id: number;
-  model_config_id: number;
+  profile_id: number;
+  model_config_id?: number | null;
+  api_family: ApiFamily;
   endpoint_id: number;
   endpoint?: Endpoint;
   is_active: boolean;
@@ -133,6 +137,7 @@ export interface Connection {
 }
 
 export interface ConnectionCreate {
+  api_family: ApiFamily;
   endpoint_id?: number;
   endpoint_create?: EndpointCreate;
   is_active?: boolean;
@@ -147,6 +152,7 @@ export interface ConnectionCreate {
 }
 
 export interface ConnectionUpdate {
+  api_family?: ApiFamily;
   endpoint_id?: number;
   endpoint_create?: EndpointCreate;
   is_active?: boolean;

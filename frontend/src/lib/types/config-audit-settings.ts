@@ -1,9 +1,3 @@
-import type {
-  ModelType,
-  ProxySelectionStrategy,
-  ProxyTarget,
-} from "./model-stats";
-import type { LoadbalanceStrategyCreate } from "./loadbalance";
 import type { ApiFamily } from "./vendor";
 import type { OpenAIProbeEndpointVariant, PricingComponentPrice } from "./routing";
 
@@ -47,11 +41,24 @@ export interface ConfigPricingTemplateImport {
   version?: number;
 }
 
-export type ConfigLoadbalanceStrategyExport = LoadbalanceStrategyCreate;
+export interface ConfigLoadbalanceStrategyExport {
+  name: string;
+  legacy_strategy_type: "single" | "fill-first" | "round-robin" | null;
+  failure_status_codes: number[];
+  ban_mode: "off" | "temporary" | "manual" | null;
+  retry_base_delay_ms: number | null;
+  retry_backoff_multiplier: number | null;
+  retry_jitter_ratio: number | null;
+  retry_max_delay_ms: number | null;
+  retry_max_attempts: number | null;
+  ban_duration_seconds: number | null;
+}
 
-export type ConfigLoadbalanceStrategyImport = LoadbalanceStrategyCreate;
+export type ConfigLoadbalanceStrategyImport = ConfigLoadbalanceStrategyExport;
 
 export interface ConfigConnectionExport {
+  ref: string;
+  api_family: ApiFamily;
   endpoint_name: string;
   pricing_template_name: string | null;
   is_active: boolean;
@@ -66,6 +73,8 @@ export interface ConfigConnectionExport {
 }
 
 export interface ConfigConnectionImport {
+  ref: string;
+  api_family: ApiFamily;
   endpoint_name: string;
   pricing_template_name?: string | null;
   is_active?: boolean;
@@ -79,53 +88,43 @@ export interface ConfigConnectionImport {
   max_in_flight_stream?: number | null;
 }
 
+export interface ConfigAccessTargetExport {
+  position: number;
+  is_enabled: boolean;
+  target_type: "model" | "connection";
+  connection_ref: string | null;
+  target_model_id: string | null;
+}
+
 export interface ConfigModelExport {
   vendor_key: string | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
-  model_type: ModelType;
-  proxy_selection_strategy: ProxySelectionStrategy | null;
-  proxy_targets: ProxyTarget[];
   loadbalance_strategy_name: string | null;
   is_enabled: boolean;
-  connections: ConfigConnectionExport[];
+  access_targets: ConfigAccessTargetExport[];
 }
 
-export type ConfigModelImport =
-  | {
-      vendor_key?: string | null;
-      api_family: ApiFamily;
-      model_id: string;
-      display_name?: string | null;
-      model_type: "native";
-      proxy_targets: [];
-      loadbalance_strategy_name: string;
-      is_enabled?: boolean;
-      connections: ConfigConnectionImport[];
-    }
-  | {
-      vendor_key?: string | null;
-      api_family: ApiFamily;
-      model_id: string;
-      display_name?: string | null;
-      model_type: "proxy";
-      proxy_selection_strategy: ProxySelectionStrategy;
-      proxy_targets: ProxyTarget[];
-      loadbalance_strategy_name: null;
-      is_enabled?: boolean;
-      connections: [];
-    };
+export interface ConfigModelImport {
+  vendor_key?: string | null;
+  api_family: ApiFamily;
+  model_id: string;
+  display_name?: string | null;
+  loadbalance_strategy_name: string;
+  is_enabled?: boolean;
+  access_targets: ConfigAccessTargetExport[];
+}
 
 export interface ConfigEndpointFxRateExport {
   model_id: string;
-  endpoint_name: string;
+  connection_ref: string;
   fx_rate: string;
 }
 
 export interface ConfigEndpointFxRateImport {
   model_id: string;
-  endpoint_name: string;
+  connection_ref: string;
   fx_rate: string;
 }
 
@@ -174,12 +173,13 @@ export interface ConfigVendorExport {
 export type ConfigVendorImport = ConfigVendorExport;
 
 export interface ConfigExportResponse {
-  version: 1;
+  version: 2;
   bundle_kind: "profile_config";
   exported_at: string;
   vendor_refs: ConfigVendorRef[];
   endpoints: ConfigEndpointExport[];
   pricing_templates: ConfigPricingTemplateExport[];
+  connections: ConfigConnectionExport[];
   loadbalance_strategies: ConfigLoadbalanceStrategyExport[];
   models: ConfigModelExport[];
   profile_settings?: ConfigUserSettingsExport | null;
@@ -189,12 +189,13 @@ export interface ConfigExportResponse {
 }
 
 export interface ConfigImportRequest {
-  version: 1;
+  version: 2;
   bundle_kind: "profile_config";
   exported_at?: string;
   vendor_refs: ConfigVendorRef[];
   endpoints: ConfigEndpointImport[];
   pricing_templates: ConfigPricingTemplateImport[];
+  connections: ConfigConnectionImport[];
   loadbalance_strategies: ConfigLoadbalanceStrategyImport[];
   models: ConfigModelImport[];
   profile_settings?: ConfigUserSettingsImport | null;
@@ -249,7 +250,7 @@ export interface ConfigImportSecretSummary {
 
 export interface ConfigImportPreviewResponse {
   ready: boolean;
-  version: 1;
+  version: 2;
   bundle_kind: "profile_config";
   preview_token: string;
   bundle_fingerprint: string;

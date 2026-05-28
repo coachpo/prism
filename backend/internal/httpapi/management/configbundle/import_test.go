@@ -1,8 +1,11 @@
 package configbundle
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -74,5 +77,206 @@ func TestValidateConnectionAuthTypeAndNormalization(t *testing.T) {
 	}
 	if got := trimmedOptionalString(stringPtr("  value  ")); got == nil || *got != "value" {
 		t.Fatalf("expected trimmed optional string, got %#v", got)
+	}
+}
+
+func TestProfileBundleV2RoundTrip(t *testing.T) {
+	request := validProfileBundleV2Request()
+	if request.ProfileSettings == nil {
+		t.Fatal("test bundle must include profile settings")
+	}
+
+	exported := profileBundleResponse{
+		Version:               request.Version,
+		BundleKind:            request.BundleKind,
+		VendorRefs:            request.VendorRefs,
+		Endpoints:             request.Endpoints,
+		PricingTemplates:      request.PricingTemplates,
+		Connections:           request.Connections,
+		LoadbalanceStrategies: request.LoadbalanceStrategies,
+		Models:                request.Models,
+		ProfileSettings:       *request.ProfileSettings,
+		HeaderBlocklistRules:  request.HeaderBlocklistRules,
+		UserAgentClientRules:  request.UserAgentClientRules,
+		SecretPayload:         request.SecretPayload,
+	}
+	raw, err := json.Marshal(exported)
+	if err != nil {
+		t.Fatalf("marshal v2 bundle: %v", err)
+	}
+
+	var imported profileImportRequest
+	if err := json.Unmarshal(raw, &imported); err != nil {
+		t.Fatalf("unmarshal v2 bundle: %v", err)
+	}
+	if err := validateProfileImportRequest(imported); err != nil {
+		t.Fatalf("validate v2 bundle: %v", err)
+	}
+	if imported.Version != canonicalProfileBundleVersion || len(imported.Connections) != 1 || len(imported.Models[0].AccessTargets) != 1 {
+		t.Fatalf("expected v2 unified-access shape, got version=%d connections=%d targets=%d", imported.Version, len(imported.Connections), len(imported.Models[0].AccessTargets))
+	}
+}
+
+func TestProfileBundleImportRejectsV1(t *testing.T) {
+	request := validProfileBundleV2Request()
+	request.Version = 1
+	raw, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal v1 bundle: %v", err)
+	}
+
+	service := &Service{}
+	response := httptest.NewRecorder()
+	service.handlePreviewProfileImport(response, httptest.NewRequest(http.MethodPost, "/api/config/profile/import/preview", bytes.NewReader(raw)))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected v1 preview to reject with 400, got status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if body["detail"] != "Unsupported profile config bundle version '1'; expected 2" {
+		t.Fatalf("unexpected v1 rejection detail: %q", body["detail"])
+	}
+}
+
+func TestProfileBundleImportValidatesAccessTargets(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*profileImportRequest)
+		detail string
+	}{
+		{
+			name: "missing connection ref",
+			mutate: func(request *profileImportRequest) {
+				request.Models[0].AccessTargets[0].ConnectionRef = nil
+			},
+			detail: "Model 'gpt-4o-mini' connection access target must include connection_ref",
+		},
+		{
+			name: "unknown connection ref",
+			mutate: func(request *profileImportRequest) {
+				request.Models[0].AccessTargets[0].ConnectionRef = stringPtr("missing-connection")
+			},
+			detail: "Model 'gpt-4o-mini' references unknown connection_ref 'missing-connection'",
+		},
+		{
+			name: "cross api family connection ref",
+			mutate: func(request *profileImportRequest) {
+				request.Connections[0].APIFamily = "anthropic"
+			},
+			detail: "Model 'gpt-4o-mini' cannot target cross-api-family connection_ref 'openai-primary'",
+		},
+		{
+			name: "unknown model target",
+			mutate: func(request *profileImportRequest) {
+				request.Models[0].AccessTargets[0] = accessTargetExport{Position: 0, IsEnabled: true, TargetType: "model", TargetModelID: stringPtr("missing-model")}
+			},
+			detail: "Model 'gpt-4o-mini' references unknown model access target 'missing-model'",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := validProfileBundleV2Request()
+			test.mutate(&request)
+
+			err := validateProfileImportRequest(request)
+			requireConfigBundleDomainError(t, err, http.StatusBadRequest, test.detail)
+		})
+	}
+}
+
+func TestProfileBundleImportCountsTopLevelConnections(t *testing.T) {
+	request := validProfileBundleV2Request()
+	request.Connections = append(request.Connections, connectionExport{
+		Ref:                 "openai-secondary",
+		APIFamily:           "openai",
+		EndpointName:        "OpenAI",
+		PricingTemplateName: stringPtr("Default pricing"),
+		IsActive:            true,
+		Priority:            1,
+	})
+	if err := validateProfileImportRequest(request); err != nil {
+		t.Fatalf("validate top-level connections: %v", err)
+	}
+
+	preview := buildProfilePreviewResponse(request, nil, nil, nil, nil)
+	if preview.ConnectionsImported != 2 || preview.ReplacementScope.Connections != 2 {
+		t.Fatalf("expected two top-level connections in preview, got imported=%d scope=%d", preview.ConnectionsImported, preview.ReplacementScope.Connections)
+	}
+}
+
+func validProfileBundleV2Request() profileImportRequest {
+	return profileImportRequest{
+		Version:    canonicalProfileBundleVersion,
+		BundleKind: canonicalProfileBundleKind,
+		VendorRefs: []vendorRefExport{{
+			Key:      "openai",
+			NameHint: "OpenAI",
+		}},
+		Endpoints: []endpointExport{{
+			Name:     "OpenAI",
+			BaseURL:  "https://api.openai.com/v1",
+			Position: 0,
+		}},
+		PricingTemplates: []pricingTemplateExport{{
+			Name:                "Default pricing",
+			PricingUnit:         "PER_1M",
+			PricingCurrencyCode: "USD",
+			InputPrice:          "0",
+			OutputPrice:         "0",
+			CachedInputPrice:    "0",
+			CacheCreationPrice:  "0",
+			ReasoningPrice:      "0",
+			Version:             1,
+		}},
+		Connections: []connectionExport{{
+			Ref:                 "openai-primary",
+			APIFamily:           "openai",
+			EndpointName:        "OpenAI",
+			PricingTemplateName: stringPtr("Default pricing"),
+			IsActive:            true,
+			Priority:            0,
+		}},
+		LoadbalanceStrategies: []loadbalanceStrategyExport{{
+			Name:                   "Default single",
+			LegacyStrategyType:     stringPtr("single"),
+			FailureStatusCodes:     []int{429, 500},
+			BanMode:                stringPtr("off"),
+			RetryBaseDelayMS:       intPtr(60000),
+			RetryBackoffMultiplier: float64Ptr(2),
+			RetryJitterRatio:       float64Ptr(0.2),
+			RetryMaxDelayMS:        intPtr(900000),
+			RetryMaxAttempts:       intPtr(3),
+			BanDurationSeconds:     intPtr(0),
+		}},
+		Models: []modelExport{{
+			VendorKey:               stringPtr("openai"),
+			APIFamily:               "openai",
+			ModelID:                 "gpt-4o-mini",
+			DisplayName:             stringPtr("GPT 4o Mini"),
+			LoadbalanceStrategyName: stringPtr("Default single"),
+			IsEnabled:               true,
+			AccessTargets: []accessTargetExport{{
+				Position:      0,
+				IsEnabled:     true,
+				TargetType:    "connection",
+				ConnectionRef: stringPtr("openai-primary"),
+			}},
+		}},
+		ProfileSettings: &profileSettingsExport{
+			ReportCurrencyCode:   "USD",
+			ReportCurrencySymbol: "$",
+			EndpointFXMappings: []endpointFXMappingExport{{
+				ModelID:       "gpt-4o-mini",
+				ConnectionRef: "openai-primary",
+				FXRate:        "1",
+			}},
+		},
+		HeaderBlocklistRules: []headerBlocklistRuleExport{},
+		UserAgentClientRules: []userAgentClientRuleExport{},
+		SecretPayload:        secretPayloadExport{Kind: "encrypted", Cipher: bundleSecretCipher, KeyID: "kid", Entries: []secretPayloadEntry{}},
 	}
 }

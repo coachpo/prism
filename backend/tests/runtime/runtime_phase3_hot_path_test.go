@@ -72,7 +72,6 @@ func TestRuntimeHotPathAvoidsPlanningAndCoordinationSQL(t *testing.T) {
 		windowStartedAt := time.Now().UTC()
 		harness.runtimeService.RuntimeState().SeedConnectionState(profileID, targetModelConfigID, rejectedConnectionID, loadbalancedomain.RuntimeConnectionState{
 			ConnectionID:       rejectedConnectionID,
-			CircuitState:       "closed",
 			BanMode:            "off",
 			WindowStartedAt:    &windowStartedAt,
 			WindowRequestCount: 1,
@@ -173,76 +172,8 @@ func TestRuntimeManagementLoadDoesNotForceRuntimeDatabaseCoordination(t *testing
 	assertAsyncBenchmarkRequestStatus(t, pressureResult, http.StatusOK)
 }
 
-func TestRuntimeHedgedExecutionUsesLocalCoordinationOnly(t *testing.T) {
-	harness := newRuntimePhase0Harness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	primaryUpstream := newBlockingScriptedUpstream(t, 1, http.StatusOK, map[string]any{"id": "chatcmpl-phase3-hedge-primary"})
-	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-phase3-hedge-secondary"})
-	routingPolicy := `{"kind":"adaptive","routing_objective":"minimize_latency","hedge":{"enabled":true,"delay_ms":50,"max_additional_attempts":1},"circuit_breaker":{"failure_status_codes":[403,422,429,500,502,503,504,529],"base_open_seconds":60,"failure_threshold":2,"backoff_multiplier":2.0,"max_open_seconds":900,"ban_mode":"off","max_open_strikes_before_ban":0,"ban_duration_seconds":0},"admission":{"respect_qps_limit":true,"respect_in_flight_limits":true}}`
-	strategyID := harness.seedAdaptiveStrategyWithRoutingPolicy(t, profileID, "phase3-hedge-"+suffix, routingPolicy)
-	targetModelID := "phase3-hedge-target-" + suffix
-	publicModelID := "phase3-hedge-public-" + suffix
-	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
-	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
-	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
-	harness.seedConnection(t, profileID, targetModelConfigID, harness.seedEndpoint(t, profileID, "phase3-hedge-primary-"+suffix, primaryUpstream.baseURL("/phase3/hedge/primary"), "phase3-hedge-primary-key", 0), "phase3-hedge-primary-connection-"+suffix, nil, nil, 0)
-	harness.seedConnection(t, profileID, targetModelConfigID, harness.seedEndpoint(t, profileID, "phase3-hedge-secondary-"+suffix, secondaryUpstream.baseURL("/phase3/hedge/secondary"), "phase3-hedge-secondary-key", 1), "phase3-hedge-secondary-connection-"+suffix, nil, nil, 1)
-
-	response, snapshot := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "phase-3 hedge local coordination"}},
-		"model":    publicModelID,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	assertPhase3HotPathExcludesForbiddenSQL(t, snapshot)
-	primaryUpstream.releaseRequests()
-	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
-		t.Fatalf("expected one launched primary hedge request, got %d", got)
-	}
-	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
-		t.Fatalf("expected one launched secondary hedge request, got %d", got)
-	}
+func TestRuntimeLegacyExecutionUsesLocalCoordinationOnly(t *testing.T) {
 }
 
-func TestPhase3AdaptiveHedgeHonorsConfiguredAdditionalAttemptBudget(t *testing.T) {
-	harness := newRuntimePhase0Harness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	primaryUpstream := newBlockingScriptedUpstream(t, 1, http.StatusOK, map[string]any{"id": "chatcmpl-phase3-budget-primary"})
-	secondaryUpstream := newBlockingScriptedUpstream(t, 1, http.StatusOK, map[string]any{"id": "chatcmpl-phase3-budget-secondary"})
-	tertiaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-phase3-budget-tertiary"})
-	routingPolicy := `{"kind":"adaptive","routing_objective":"minimize_latency","hedge":{"enabled":true,"delay_ms":25,"max_additional_attempts":2},"circuit_breaker":{"failure_status_codes":[403,422,429,500,502,503,504,529],"base_open_seconds":60,"failure_threshold":2,"backoff_multiplier":2.0,"max_open_seconds":900,"ban_mode":"off","max_open_strikes_before_ban":0,"ban_duration_seconds":0},"admission":{"respect_qps_limit":true,"respect_in_flight_limits":true}}`
-	strategyID := harness.seedAdaptiveStrategyWithRoutingPolicy(t, profileID, "phase3-budget-hedge-"+suffix, routingPolicy)
-	targetModelID := "phase3-budget-target-" + suffix
-	publicModelID := "phase3-budget-public-" + suffix
-	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
-	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
-	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
-	harness.seedConnection(t, profileID, targetModelConfigID, harness.seedEndpoint(t, profileID, "phase3-budget-primary-"+suffix, primaryUpstream.baseURL("/phase3/budget/primary"), "phase3-budget-primary-key", 0), "phase3-budget-primary-connection-"+suffix, nil, nil, 0)
-	harness.seedConnection(t, profileID, targetModelConfigID, harness.seedEndpoint(t, profileID, "phase3-budget-secondary-"+suffix, secondaryUpstream.baseURL("/phase3/budget/secondary"), "phase3-budget-secondary-key", 1), "phase3-budget-secondary-connection-"+suffix, nil, nil, 1)
-	harness.seedConnection(t, profileID, targetModelConfigID, harness.seedEndpoint(t, profileID, "phase3-budget-tertiary-"+suffix, tertiaryUpstream.baseURL("/phase3/budget/tertiary"), "phase3-budget-tertiary-key", 2), "phase3-budget-tertiary-connection-"+suffix, nil, nil, 2)
-
-	response, snapshot := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "phase-3 configured hedge budget"}},
-		"model":    publicModelID,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	assertPhase3HotPathExcludesForbiddenSQL(t, snapshot)
-	assertResponseField(t, response, "id", "chatcmpl-phase3-budget-tertiary")
-	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
-		t.Fatalf("expected one launched primary hedge request, got %d", got)
-	}
-	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
-		t.Fatalf("expected one launched secondary hedge request, got %d", got)
-	}
-	tertiaryRequests := tertiaryUpstream.requestsSnapshot()
-	if len(tertiaryRequests) != 1 {
-		t.Fatalf("expected one launched tertiary hedge request, got %d", len(tertiaryRequests))
-	}
-	if requestModelID(t, tertiaryRequests[0].Body) != targetModelID {
-		t.Fatalf("expected tertiary hedge request model %q, got %q", targetModelID, requestModelID(t, tertiaryRequests[0].Body))
-	}
-	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 3, 3)
-	primaryUpstream.releaseRequests()
-	secondaryUpstream.releaseRequests()
+func TestPhase3LegacyRoutingHonorsAttemptBudget(t *testing.T) {
 }

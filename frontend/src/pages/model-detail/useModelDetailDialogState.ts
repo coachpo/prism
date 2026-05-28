@@ -71,6 +71,7 @@ export function useModelDetailDialogState({ apiFamily, globalEndpoints }: UseMod
         : [];
       setHeaderRows(headers);
       setConnectionForm({
+        api_family: apiFamily ?? connection.api_family,
         endpoint_id: connection.endpoint_id,
         name: connection.name ?? "",
         is_active: connection.is_active,

@@ -64,14 +64,15 @@ export function ModelsPage() {
       <ModelDialog
         editingModel={data.editingModel}
         formData={data.formData}
+        formError={data.formError}
         isDialogOpen={data.isDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
-        nativeModelsForApiFamily={data.nativeModelsForApiFamily}
+        targetConnectionsForApiFamily={data.targetConnectionsForApiFamily}
+        targetModelsForApiFamily={data.targetModelsForApiFamily}
         vendors={data.vendors}
         setFormData={data.setFormData}
         setIsDialogOpen={data.setIsDialogOpen}
         setLoadbalanceStrategyId={data.setLoadbalanceStrategyId}
-        setModelType={data.setModelType}
         onSubmit={data.handleSubmit}
       />
 

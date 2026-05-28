@@ -30,12 +30,6 @@ export interface DashboardMetricSnapshot {
   unpricedRequestCount: number;
 }
 
-export interface DashboardStrategyFamilySummary {
-  adaptiveCount: number;
-  legacyCount: number;
-  unassignedCount: number;
-}
-
 export interface DashboardOverviewData {
   apiFamilyRows: StatGroup[];
   metricSnapshot: DashboardMetricSnapshot;
@@ -44,7 +38,6 @@ export interface DashboardOverviewData {
   routingDiagramData: RoutingDiagramData | null;
   routingDiagramError: string | null;
   routingDiagramLoading: boolean;
-  strategyFamilySummary: DashboardStrategyFamilySummary;
   topSpendingModels: SpendingTopModel[];
 }
 
@@ -84,22 +77,6 @@ function toDashboardMetricSnapshot(snapshot: DashboardSnapshot | null): Dashboar
     totalModels: metric.total_models,
     totalRequests: metric.total_requests,
     unpricedRequestCount: metric.unpriced_request_count,
-  };
-}
-
-function toDashboardStrategyFamilySummary(snapshot: DashboardSnapshot | null): DashboardStrategyFamilySummary {
-  if (!snapshot) {
-    return {
-      adaptiveCount: 0,
-      legacyCount: 0,
-      unassignedCount: 0,
-    };
-  }
-
-  return {
-    adaptiveCount: snapshot.strategy_family_summary.adaptive_count,
-    legacyCount: snapshot.strategy_family_summary.legacy_count,
-    unassignedCount: snapshot.strategy_family_summary.unassigned_count,
   };
 }
 
@@ -144,7 +121,6 @@ function toDashboardOverviewData(
     routingDiagramData: snapshot?.routing_health_map ?? null,
     routingDiagramError,
     routingDiagramLoading,
-    strategyFamilySummary: toDashboardStrategyFamilySummary(snapshot),
     topSpendingModels: snapshot?.top_spending_models ?? [],
   };
 }

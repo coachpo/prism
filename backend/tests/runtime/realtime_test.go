@@ -213,8 +213,16 @@ func TestDashboardUpdatePayload(t *testing.T) {
 	if message.RequestLog.ResolvedTargetModelLabel == nil || *message.RequestLog.ResolvedTargetModelLabel != route.TargetModelLabel {
 		t.Fatalf("expected realtime request_log.resolved_target_model_label=%q, got %+v", route.TargetModelLabel, message.RequestLog)
 	}
-	if !message.RequestLog.IsProxyOrigin {
-		t.Fatalf("expected realtime request_log.is_proxy_origin=true, got %+v", message.RequestLog)
+	var snapshotPayload map[string]any
+	rawSnapshotPayload, err := json.Marshal(message.Snapshot)
+	if err != nil {
+		t.Fatalf("marshal realtime dashboard snapshot payload: %v", err)
+	}
+	if err := json.Unmarshal(rawSnapshotPayload, &snapshotPayload); err != nil {
+		t.Fatalf("decode realtime dashboard snapshot payload: %v", err)
+	}
+	if _, ok := snapshotPayload["strategy_family_summary"]; ok {
+		t.Fatalf("did not expect realtime snapshot to expose removed strategy_family_summary, got %+v", snapshotPayload)
 	}
 	assertRealtimeRequestLogTokenPointers(t, message.RequestLog, 11, 7, 25, 4, 2, 1)
 	var requestLogPayload map[string]any
@@ -224,6 +232,9 @@ func TestDashboardUpdatePayload(t *testing.T) {
 	}
 	if err := json.Unmarshal(rawRequestLogPayload, &requestLogPayload); err != nil {
 		t.Fatalf("decode realtime request_log payload: %v", err)
+	}
+	if _, ok := requestLogPayload["is_proxy_origin"]; ok {
+		t.Fatalf("did not expect realtime request_log to expose removed is_proxy_origin, got %+v", requestLogPayload)
 	}
 	if _, ok := requestLogPayload["stream_error_detail"]; ok {
 		t.Fatalf("did not expect realtime request_log to expose stream_error_detail, got %+v", requestLogPayload)
@@ -514,8 +525,8 @@ func TestDashboardUpdateDelivery(t *testing.T) {
 	if requestLog["resolved_target_model_label"] != route.TargetModelLabel {
 		t.Fatalf("expected delivered request_log.resolved_target_model_label=%q, got %+v", route.TargetModelLabel, requestLog)
 	}
-	if requestLog["is_proxy_origin"] != true {
-		t.Fatalf("expected delivered request_log.is_proxy_origin=true, got %+v", requestLog)
+	if _, ok := requestLog["is_proxy_origin"]; ok {
+		t.Fatalf("did not expect delivered request_log.is_proxy_origin field, got %+v", requestLog)
 	}
 	if _, ok := message["stats_summary_24h"]; ok {
 		t.Fatalf("did not expect legacy stats_summary_24h field in dashboard.update, got %+v", message)
@@ -663,12 +674,26 @@ func TestDashboardSnapshotInvalidatesAfterModelMutation(t *testing.T) {
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "invalidation")
 	harness.insertDashboardActivity(t, route, profileID, 8351, 9351, harness.fixedNow)
 
+	linkForModelID := func(links []statsdomain.DashboardRoutingLink, modelID string) *statsdomain.DashboardRoutingLink {
+		for index := range links {
+			if links[index].ModelID == modelID {
+				return &links[index]
+			}
+		}
+		return nil
+	}
+
 	baselineResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/dashboard", nil, runtimeModelHeader(profileID))
 	assertStatus(t, baselineResponse, http.StatusOK)
 	var baseline statsdomain.DashboardSnapshot
 	decodeJSONResponse(t, baselineResponse, &baseline)
-	if len(baseline.RoutingHealthMap.Links) == 0 || baseline.RoutingHealthMap.Links[0].ModelLabel != route.TargetModelLabel {
-		t.Fatalf("expected warmed dashboard snapshot to use target model label %q, got %+v", route.TargetModelLabel, baseline.RoutingHealthMap.Links)
+	baselinePublicLink := linkForModelID(baseline.RoutingHealthMap.Links, route.PublicModelID)
+	if baselinePublicLink == nil || baselinePublicLink.ModelLabel != route.PublicModelLabel {
+		t.Fatalf("expected warmed dashboard snapshot to include requested model label %q, got %+v", route.PublicModelLabel, baseline.RoutingHealthMap.Links)
+	}
+	baselineTargetLink := linkForModelID(baseline.RoutingHealthMap.Links, route.TargetModelID)
+	if baselineTargetLink == nil || baselineTargetLink.ModelLabel != route.TargetModelLabel {
+		t.Fatalf("expected warmed dashboard snapshot to include final target model label %q, got %+v", route.TargetModelLabel, baseline.RoutingHealthMap.Links)
 	}
 
 	var targetModelConfigID int
@@ -683,8 +708,13 @@ func TestDashboardSnapshotInvalidatesAfterModelMutation(t *testing.T) {
 	assertStatus(t, freshResponse, http.StatusOK)
 	var fresh statsdomain.DashboardSnapshot
 	decodeJSONResponse(t, freshResponse, &fresh)
-	if len(fresh.RoutingHealthMap.Links) == 0 || fresh.RoutingHealthMap.Links[0].ModelLabel != updatedLabel {
-		t.Fatalf("expected dashboard snapshot cache to invalidate after model mutation, got %+v", fresh.RoutingHealthMap.Links)
+	freshTargetLink := linkForModelID(fresh.RoutingHealthMap.Links, route.TargetModelID)
+	if freshTargetLink == nil || freshTargetLink.ModelLabel != updatedLabel {
+		t.Fatalf("expected dashboard snapshot cache to invalidate final target label to %q, got %+v", updatedLabel, fresh.RoutingHealthMap.Links)
+	}
+	freshPublicLink := linkForModelID(fresh.RoutingHealthMap.Links, route.PublicModelID)
+	if freshPublicLink == nil || freshPublicLink.ModelLabel != route.PublicModelLabel {
+		t.Fatalf("expected requested model link to remain labeled %q after target mutation, got %+v", route.PublicModelLabel, fresh.RoutingHealthMap.Links)
 	}
 }
 
@@ -1098,7 +1128,6 @@ func assertRealtimeRequestLogMatchesRESTDetail(t *testing.T, requestLog map[stri
 		{"model_label", summary, "model_label"},
 		{"resolved_target_model_id", summary, "resolved_target_model_id"},
 		{"resolved_target_model_label", summary, "resolved_target_model_label"},
-		{"is_proxy_origin", summary, "is_proxy_origin"},
 		{"api_family", summary, "api_family"},
 		{"vendor_id", summary, "vendor_id"},
 		{"vendor_key", summary, "vendor_key"},

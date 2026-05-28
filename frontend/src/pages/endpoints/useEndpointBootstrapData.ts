@@ -23,12 +23,14 @@ async function fetchEndpointBootstrapData(
   }
 
   try {
-    const response = await api.models.byEndpoints({
-      endpoint_ids: endpoints.map((endpoint) => endpoint.id),
-    });
     const endpointModels = Object.fromEntries(
-      response.items.map((item) => [item.endpoint_id, item.models]),
+      endpoints.map((endpoint) => [endpoint.id, [] as ModelConfigListItem[]]),
     ) as EndpointModelsMap;
+    const endpointIds = Array.from(new Set(endpoints.map((endpoint) => endpoint.id)));
+    const response = await api.models.byEndpoints({ endpoint_ids: endpointIds });
+    for (const item of response.items) {
+      endpointModels[item.endpoint_id] = item.models;
+    }
 
     return { endpointModels, endpoints };
   } catch (error) {

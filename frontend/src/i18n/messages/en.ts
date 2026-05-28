@@ -331,9 +331,6 @@ export interface Messages {
   loadbalanceStrategyDialog: {
     addTitle: string;
     addStatusCode: string;
-    autoRecoveryDisabledOption: string;
-    autoRecoveryEnabledOption: string;
-    autoRecoveryLabel: string;
     basicsSectionTitle: string;
     banDurationDescription: string;
     banDurationLabel: string;
@@ -344,53 +341,33 @@ export interface Messages {
     banModeTemporaryOption: string;
     backoffMultiplierDescription: string;
     backoffMultiplierLabel: string;
-    baseCooldownDescription: string;
-    baseCooldownLabel: string;
     cancel: string;
     description: string;
     editTitle: string;
     explainField: (label: string) => string;
-    failureThresholdDescription: string;
-    failureThresholdLabel: string;
     failureStatusCodesDescription: string;
     failureStatusCodesLabel: string;
-    hedgeAttemptsDescription: string;
-    hedgeAttemptsLabel: string;
-    hedgeDelayDescription: string;
-    hedgeDelayLabel: string;
-    hedgeDescription: string;
-    hedgeDisabledOption: string;
-    hedgeEnabledOption: string;
-    hedgeLabel: string;
-    inFlightAdmissionDescription: string;
-    inFlightAdmissionLabel: string;
-    maxCooldownStrikesBeforeBanDescription: string;
-    maxCooldownStrikesBeforeBanLabel: string;
-    maxCooldownDescription: string;
-    maxCooldownLabel: string;
     legacyStrategyTypeLabel: string;
     nameLabel: string;
     namePlaceholder: string;
     removeStatusCode: (code: number) => string;
-    qpsAdmissionDescription: string;
-    qpsAdmissionLabel: string;
+    retryBaseDelayDescription: string;
+    retryBaseDelayLabel: string;
+    retryJitterRatioDescription: string;
+    retryJitterRatioLabel: string;
+    retryMaxAttemptsDescription: string;
+    retryMaxAttemptsLabel: string;
+    retryMaxDelayDescription: string;
+    retryMaxDelayLabel: string;
     reliabilityControlsSectionTitle: string;
-    routingPolicyLabel: string;
     save: string;
     saving: string;
-    strategyFamilyLabel: string;
     strategyBehaviorSectionTitle: string;
-    strategyTypeLabel: string;
   };
   loadbalanceStrategyCopy: {
-    adaptiveFamilyLabel: string;
     fillFirstLabel: string;
     fillFirstSummary: string;
     legacyFamilyLabel: string;
-    maximizeAvailabilityLabel: string;
-    maximizeAvailabilitySummary: string;
-    minimizeLatencyLabel: string;
-    minimizeLatencySummary: string;
     roundRobinLabel: string;
     roundRobinSummary: string;
     singleLabel: string;
@@ -461,23 +438,14 @@ export interface Messages {
     emptyTitle: string;
   };
   loadbalanceStrategiesTable: {
-    adaptiveAdmissionSummary: (qps: string, inFlight: string) => string;
-    adaptiveHedgeDisabled: string;
-    adaptiveHedgeSummary: (delayMs: string, attempts: string) => string;
-    adaptiveRoutingSummary: (label: string) => string;
-    adaptiveOpenWindowSummary: (baseSeconds: string, maxSeconds: string) => string;
-    adaptiveBanManualDismiss: (strikes: string) => string;
-    adaptiveBanTemporary: (strikes: string, durationSeconds: string) => string;
     actions: string;
     addStrategy: string;
     createDefaults: string;
     attachedModels: string;
-    autoRecoveryDisabled: string;
-    autoRecoveryEnabled: string;
-    banManualDismiss: (strikes: string) => string;
+    banManualDismissPolicy: string;
     banOff: string;
-    banTemporary: (strikes: string, durationSeconds: string) => string;
-    cooldownSummary: (baseSeconds: string, maxSeconds: string) => string;
+    banPolicy: string;
+    banTemporaryPolicy: (durationSeconds: string) => string;
     description: string;
     disabled: string;
     edit: string;
@@ -487,7 +455,13 @@ export interface Messages {
     deleteStrategyInUse: (count: string) => string;
     name: string;
     noStrategiesConfigured: string;
-    recovery: string;
+    retryPolicySummary: (
+      baseDelayMs: string,
+      maxDelayMs: string,
+      maxAttempts: string,
+      multiplier: string,
+      jitterRatio: string,
+    ) => string;
     statusCodes: (codes: string) => string;
     title: string;
     type: string;
@@ -519,6 +493,13 @@ export interface Messages {
     maxCooldownStrikesInteger: string;
     maxCooldownStrikesMin: string;
     nameRequired: string;
+    retryBaseDelayIntegerMs: string;
+    retryBaseDelayRange: string;
+    retryJitterRatioRange: string;
+    retryMaxAttemptsInteger: string;
+    retryMaxAttemptsRange: string;
+    retryMaxDelayIntegerMs: string;
+    retryMaxDelayRange: string;
     statusCodeExists: string;
     statusCodeIntegerRange: string;
     statusCodesUnique: string;
@@ -668,8 +649,6 @@ export interface Messages {
     backendValidationFailed: string;
     backendValidationPassed: string;
     bootstrapConfigValidated: string;
-    bufferingMode: string;
-    buffered: string;
     bundleEncryptionKey: string;
     bundleEncryptionKeyChangeLabel: string;
     clear: string;
@@ -824,7 +803,6 @@ export interface Messages {
     status: string;
     startupBootstrapConfigTitle: string;
     startupBootstrapConfigDescription: string;
-    streaming: string;
     smtp: string;
     smtpAuth: string;
     smtpAuthNone: string;
@@ -1177,16 +1155,11 @@ export interface Messages {
   };
   settingsBackupValidation: {
     duplicateFxMapping: (modelId: string, endpointName: string) => string;
-    duplicateProxyTarget: (targetModelId: string, modelId: string) => string;
     duplicateReferenceName: (referenceLabel: string, normalizedName: string) => string;
     fxMappingMustReferenceImportedPair: (modelId: string, endpointName: string) => string;
     missingEndpointName: string;
     missingReferenceName: string;
     modelMustIncludeVendorKey: (modelId: string) => string;
-    nativeModelMustIncludeStrategy: (modelId: string) => string;
-    nativeModelMustNotIncludeProxyTargets: (modelId: string) => string;
-    proxyModelMustNotIncludeStrategy: (modelId: string) => string;
-    proxyTargetsContiguous: (modelId: string) => string;
     referenceLabelEndpoint: string;
     referenceLabelLoadbalanceStrategy: string;
     referenceLabelPricingTemplate: string;
@@ -1411,11 +1384,6 @@ export interface Messages {
     ) => string;
     currentStateCounting: (failureSummary: string, failureKind: string) => string;
     currentStateManualBan: string;
-    currentStateProbeEligible: (
-      cooldown: string,
-      blockedUntil: string | null,
-      failureKind: string,
-    ) => string;
     currentStateTemporaryBan: (until: string | null) => string;
     lastLiveFailure: (time: string) => string;
     lastLiveSuccess: (time: string) => string;
@@ -1494,21 +1462,17 @@ export interface Messages {
     probeBehavior: string;
     probeBehaviorDescription: string;
     probeBehaviorSummaryLabel: string;
-    proxyRouting: string;
-    proxyTargets: string;
-    proxyTargetsHint: string;
     qpsLimit: string;
     removeHeader: string;
-    recoveryBlocked: string;
-    recoveryCounting: string;
-    recoveryProbeEligible: string;
+    retryWindowBlocked: string;
+    retryWindowCounting: string;
     reasoningHandling: string;
     reasoningHandlingDefault: string;
     reasoningHandlingDefaultHint: string;
     reasoningHandlingDisabled: string;
     reasoningHandlingDisabledHint: string;
     resolvedProbeVariant: string;
-    resetRecoveryState: string;
+    resetBanPolicyState: string;
     requests24h: string;
     requestsLabel: string;
     routingPriorityHint: string;
@@ -1539,8 +1503,6 @@ export interface Messages {
     totalCost: (currencyCode: string) => string;
     totalTokens: (count: string) => string;
     tryDifferentSearchTerm: string;
-    typeNative: string;
-    typeProxy: string;
     unknownEndpoint: string;
     unassigned: string;
     unpricedNoCostTracking: string;
@@ -1559,20 +1521,14 @@ export interface Messages {
   };
   modelsUi: {
     addTarget: string;
-    allNativeModelsIncluded: string;
     deleteModel: string;
     deleteModelDescription: (name: string) => string;
     displayNameOptional: string;
     editModel: string;
     modelId: string;
     modelIdPlaceholder: string;
-    noNativeModelsForFamily: (apiFamily: string) => string;
-    noProxyTargetsSelected: string;
     optionalFriendlyName: string;
     priority: (value: string) => string;
-    proxyTargetsDescriptionPrimary: string;
-    proxyTargetsDescriptionSecondary: string;
-    remainingNativeTargets: (count: string) => string;
     routingTypeDescription: string;
     save: string;
     strategyNotConfigured: string;
@@ -1589,7 +1545,6 @@ export interface Messages {
     requestsShort: string;
     spendShort: string;
     unknownVendor: string;
-    noProxyTargets: string;
     targetsFirst: (count: string, first: string) => string;
     modelCount: (count: string) => string;
   };
@@ -1598,7 +1553,6 @@ export interface Messages {
     deleted: string;
     deleteFailed: string;
     fetchFailed: string;
-    proxyTargetRequired: string;
     saveFailed: string;
     selectApiFamily: string;
     selectLoadbalanceStrategy: string;
@@ -1744,11 +1698,10 @@ export interface Messages {
     fillEndpointFields: string;
     healthCheckResult: (status: string, latencyMs: string) => string;
     healthCheckFailed: string;
-    loadRecoveryStateFailed: string;
+    loadBanPolicyStateFailed: string;
     modelUpdated: string;
-    proxyTargetsUpdated: string;
     reorderPriorityReverted: string;
-    resetRecoveryStateFailed: string;
+    resetBanPolicyStateFailed: string;
     saveConnectionFailed: string;
     selectApiFamily: string;
     selectEndpoint: string;
@@ -1756,7 +1709,6 @@ export interface Messages {
     selectVendor: string;
     toggleConnectionFailed: string;
     updateModelFailed: string;
-    updateProxyTargetsFailed: string;
   };
   requestLogs: {
     allColumns: string;
@@ -1841,8 +1793,7 @@ export interface Messages {
     tokens: string;
     requestDetails: string;
     requestedModel: string;
-    proxyOrigin: string;
-    resolvedTarget: string;
+    finalTargetModel: string;
     time: string;
     totalCost: string;
     totalTokens: string;
@@ -2462,79 +2413,51 @@ export const enMessages: Messages = {
   loadbalanceStrategyDialog: {
     addTitle: "Add Loadbalance Strategy",
     addStatusCode: "Add Status Code",
-    autoRecoveryDisabledOption: "Disabled",
-    autoRecoveryEnabledOption: "Enabled",
-    autoRecoveryLabel: "Auto Recovery",
     basicsSectionTitle: "Basics",
     banDurationDescription:
-      "How long a temporary ban lasts before the connection becomes probe-eligible again.",
+      "How long a temporary ban lasts before the connection can be routed again.",
     banDurationLabel: "Ban Duration (seconds)",
     banModeDescription:
-      "Choose whether repeated max-open strikes stay off, expire automatically, or wait for a manual dismiss.",
+      "Choose whether retry exhaustion leaves routing unbanned, applies a temporary ban, or waits for manual dismiss.",
     banModeLabel: "Ban Mode",
     banModeManualOption: "Manual dismiss",
     banModeOffOption: "Off",
     banModeTemporaryOption: "Temporary",
     backoffMultiplierDescription:
-      "Multiplier applied to the open window after each failure beyond the threshold.",
+      "Multiplier applied to each retry-window delay after a failure is recorded.",
     backoffMultiplierLabel: "Backoff Multiplier",
-    baseCooldownDescription:
-      "Starting open window applied after transient failures once the threshold is reached.",
-    baseCooldownLabel: "Base Open Window (seconds)",
     cancel: "Cancel",
-    description: "Configure reusable load-balance strategies for native models in this profile.",
+    description: "Configure reusable legacy-routing Ban Policy strategies for this profile.",
     editTitle: "Edit Loadbalance Strategy",
     explainField: (label) => `Explain ${label}`,
-    failureThresholdDescription:
-      "Number of consecutive failures required before the circuit breaker opens.",
-    failureThresholdLabel: "Failure Threshold",
     failureStatusCodesDescription:
-      "HTTP status codes that should count toward automatic recovery.",
+      "HTTP status codes that start retry-window and Ban Policy tracking.",
     failureStatusCodesLabel: "Failure Status Codes",
-    hedgeAttemptsDescription:
-      "How many extra adaptive attempts Prism may launch beyond the first routed connection.",
-    hedgeAttemptsLabel: "Max Additional Attempts",
-    hedgeDelayDescription:
-      "Delay before the next adaptive hedge attempt is allowed to launch.",
-    hedgeDelayLabel: "Hedge Delay (ms)",
-    hedgeDescription:
-      "Configure whether adaptive routing may retry with additional hedged attempts before giving up.",
-    hedgeDisabledOption: "Disabled",
-    hedgeEnabledOption: "Enabled",
-    hedgeLabel: "Adaptive Hedge",
-    inFlightAdmissionDescription:
-      "When enabled, adaptive routing respects configured in-flight limits before selecting a connection.",
-    inFlightAdmissionLabel: "Respect In-Flight Limits",
-    maxCooldownStrikesBeforeBanDescription:
-      "Number of max-open strike events required before this connection is marked as banned.",
-    maxCooldownStrikesBeforeBanLabel: "Max Open Strikes Before Ban",
-    maxCooldownDescription:
-      "Upper limit for the computed open window, even after repeated failures.",
-    maxCooldownLabel: "Max Open Window (seconds)",
-    legacyStrategyTypeLabel: "Legacy Strategy Type",
+    legacyStrategyTypeLabel: "Legacy Routing",
     nameLabel: "Name",
     namePlaceholder: "e.g. round-robin-primary",
     removeStatusCode: (code) => `Remove status code ${code}`,
-    qpsAdmissionDescription:
-      "When enabled, adaptive routing respects configured QPS ceilings before selecting a connection.",
-    qpsAdmissionLabel: "Respect QPS Limits",
-    reliabilityControlsSectionTitle: "Reliability Controls",
-    routingPolicyLabel: "Routing Policy",
+    retryBaseDelayDescription:
+      "Initial retry-window delay after a failure status is recorded.",
+    retryBaseDelayLabel: "Retry Base Delay (ms)",
+    retryJitterRatioDescription:
+      "Randomized delay ratio applied to retry backoff; use 0 for no jitter and 1 for full jitter.",
+    retryJitterRatioLabel: "Retry Jitter Ratio",
+    retryMaxAttemptsDescription:
+      "Maximum retry attempts before the failure remains blocked or triggers the selected ban mode.",
+    retryMaxAttemptsLabel: "Retry Max Attempts",
+    retryMaxDelayDescription:
+      "Upper limit for computed retry-window delays after backoff is applied.",
+    retryMaxDelayLabel: "Retry Max Delay (ms)",
+    reliabilityControlsSectionTitle: "Ban Policy",
     save: "Save Strategy",
     saving: "Saving...",
-    strategyFamilyLabel: "Strategy Family",
-    strategyBehaviorSectionTitle: "Strategy Behavior",
-    strategyTypeLabel: "Strategy Type",
+    strategyBehaviorSectionTitle: "Legacy Routing",
   },
   loadbalanceStrategyCopy: {
-    adaptiveFamilyLabel: "Adaptive strategy",
     fillFirstLabel: "Fill first",
-    fillFirstSummary: "Keep using the first eligible connection until it becomes unavailable.",
-    legacyFamilyLabel: "Legacy strategy",
-    maximizeAvailabilityLabel: "Maximize availability",
-    maximizeAvailabilitySummary: "Adaptive routing that prioritizes the healthiest available path.",
-    minimizeLatencyLabel: "Minimize latency",
-    minimizeLatencySummary: "Adaptive routing that prefers the fastest healthy path.",
+    fillFirstSummary: "Keep using the first eligible connection until it is unavailable.",
+    legacyFamilyLabel: "Legacy routing",
     roundRobinLabel: "Round robin",
     roundRobinSummary: "Rotate the starting connection across eligible connections.",
     singleLabel: "Single",
@@ -2542,13 +2465,13 @@ export const enMessages: Messages = {
   },
   loadbalanceStrategiesPage: {
     description:
-      "Manage reusable legacy and adaptive native-model strategies for this profile",
+      "Manage reusable legacy-routing Ban Policy strategies for this profile",
     selectedProfileFallback: "the selected profile",
     scopeCallout: (profileLabel) =>
-      `Changes here affect ${profileLabel} and native models attached to these strategies.`,
+      `Changes here affect ${profileLabel} and models attached to these strategies.`,
   },
   loadbalanceEvents: {
-    backoffMultiplier: "Backoff Multiplier",
+    backoffMultiplier: "Retry Delay (ms)",
     banModeManual: "Manual dismiss",
     banModeOff: "Off",
     banModeTemporary: "Temporary",
@@ -2556,9 +2479,9 @@ export const enMessages: Messages = {
     bannedUntil: "Banned Until",
     connection: "Connection",
     connectionId: "Connection ID",
-    consecutiveFailures: "Consecutive Failures",
+    consecutiveFailures: "Retry Attempts",
     context: "Context",
-    cooldown: "Cooldown",
+    cooldown: "Retry Window",
     cooldownValue: (seconds) => `${seconds}s`,
     created: "Created",
     detailsTitle: "Loadbalance Event Details",
@@ -2567,22 +2490,22 @@ export const enMessages: Messages = {
     eventId: (id) => `Event ID: ${id ?? "-"}`,
     eventType: "Event Type",
     eventTypeBanned: "Banned",
-    eventTypeExtended: "Extended",
-    eventTypeMaxCooldownStrike: "Max Cooldown Strike",
-    eventTypeNotOpened: "Not Opened",
-    eventTypeOpened: "Opened",
-    eventTypeProbeEligible: "Probe Eligible",
-    eventTypeRecovered: "Recovered",
+    eventTypeExtended: "Retry Window Scheduled",
+    eventTypeMaxCooldownStrike: "Retry Attempts Exhausted",
+    eventTypeNotOpened: "Retry Skipped",
+    eventTypeOpened: "Retry Window Opened",
+    eventTypeProbeEligible: "Ban Expired",
+    eventTypeRecovered: "Succeeded",
     failedToLoadEventDetails: "Failed to load event details",
     failureKind: "Failure Kind",
     failureKindConnectError: "Connection Error",
     failureKindTimeout: "Timeout",
     failureKindTransientHttp: "Transient HTTP",
-    failureThreshold: "Failure Threshold",
-    failoverConfiguration: "Failover Configuration",
+    failureThreshold: "Retry Attempt",
+    failoverConfiguration: "Ban Policy",
     loadingEvents: "Loading loadbalance events...",
-    maxCooldownSeconds: "Max Cooldown (seconds)",
-    maxCooldownStrikes: "Max Cooldown Strikes",
+    maxCooldownSeconds: "Last Retry Delay (ms)",
+    maxCooldownStrikes: "Cycle Retry Attempts",
     modelId: "Model ID",
     next: "Next",
     noEventsRecorded: "No loadbalance events recorded for this model yet.",
@@ -2593,50 +2516,40 @@ export const enMessages: Messages = {
     reason: "Reason",
     showingEvents: (start, end, total) => `Showing ${start} to ${end} of ${total} events`,
     summary: "Summary",
-    tabDescription: "Recent failover, recovery, and ban activity for this model.",
+    tabDescription: "Recent retry-window, retry-exhaustion, and ban activity for this model.",
     tabTitle: "Loadbalance Events",
     tableConnection: "Connection",
-    tableCooldown: "Cooldown",
+    tableCooldown: "Next Retry",
     tableCreated: "Created",
     tableEvent: "Event",
     tableFailure: "Failure",
-    tableFailures: "Failures",
+    tableFailures: "Retry Attempts",
     tableId: "ID",
     vendorId: "Vendor ID",
-    emptyDescription: "This model has not recorded any failover or recovery activity.",
+    emptyDescription: "This model has not recorded any retry-window or ban activity.",
     emptyTitle: "No loadbalance events yet",
   },
   loadbalanceStrategiesTable: {
-    adaptiveAdmissionSummary: (qps, inFlight) => `Admission QPS ${qps} • In-flight ${inFlight}`,
-    adaptiveHedgeDisabled: "Adaptive hedge disabled",
-    adaptiveHedgeSummary: (delayMs, attempts) => `Adaptive hedge ${delayMs}ms • ${attempts} extra attempts`,
-    adaptiveRoutingSummary: (label) => `Routing policy ${label}`,
-    adaptiveOpenWindowSummary: (baseSeconds, maxSeconds) => `Open window ${baseSeconds}s base • ${maxSeconds}s max`,
-    adaptiveBanManualDismiss: (strikes) => `Manual dismiss after ${strikes} max-open strikes`,
-    adaptiveBanTemporary: (strikes, durationSeconds) => `Temporary ban after ${strikes} max-open strikes • ${durationSeconds}s`,
     actions: "Actions",
     addStrategy: "Add Strategy",
     createDefaults: "Create Defaults",
     attachedModels: "Attached Models",
-    autoRecoveryDisabled: "Auto recovery disabled",
-    autoRecoveryEnabled: "Auto recovery enabled",
-    banManualDismiss: (strikes) => `Ban manual dismiss after ${strikes} max-cooldown strikes`,
+    banManualDismissPolicy: "Manual dismiss ban",
     banOff: "Ban off",
-    banTemporary: (strikes, durationSeconds) =>
-      `Temporary ban after ${strikes} max-cooldown strikes • ${durationSeconds}s`,
-    cooldownSummary: (baseSeconds, maxSeconds) =>
-      `Cooldown ${baseSeconds}s base • ${maxSeconds}s max`,
+    banPolicy: "Ban Policy",
+    banTemporaryPolicy: (durationSeconds) => `Temporary ban ${durationSeconds}s`,
     description:
-      "Reuse legacy and adaptive load-balance strategies across native models instead of redefining routing behavior per model.",
+      "Reuse legacy-routing Ban Policy strategies across models instead of redefining retry and ban behavior per model.",
     disabled: "Disabled",
     edit: "Edit",
     enabled: "Enabled",
     deleteStrategy: "Delete Loadbalance Strategy",
     deleteStrategyDescription: (name) => `Are you sure you want to delete the strategy "${name}"?`,
-    deleteStrategyInUse: (count) => `This strategy is attached to ${count} native model${count === "1" ? "" : "s"} and cannot be deleted yet.`,
+    deleteStrategyInUse: (count) => `This strategy is attached to ${count} model${count === "1" ? "" : "s"} and cannot be deleted yet.`,
     name: "Name",
     noStrategiesConfigured: "No loadbalance strategies configured.",
-    recovery: "Recovery",
+    retryPolicySummary: (baseDelayMs, maxDelayMs, maxAttempts, multiplier, jitterRatio) =>
+      `Retry window ${baseDelayMs}ms base • ${maxDelayMs}ms max • ${maxAttempts} attempts • ${multiplier}x • jitter ${jitterRatio}`,
     statusCodes: (codes) => `Status codes ${codes}`,
     title: "Loadbalance Strategies",
     type: "Type",
@@ -2668,6 +2581,13 @@ export const enMessages: Messages = {
     maxCooldownStrikesInteger: "Max open strikes before ban must be a whole number",
     maxCooldownStrikesMin: "Max open strikes before ban must be at least 1 when ban escalation is enabled",
     nameRequired: "Name is required",
+    retryBaseDelayIntegerMs: "Retry base delay must be a whole number of milliseconds",
+    retryBaseDelayRange: "Retry base delay must be between 0 and 86400000 milliseconds",
+    retryJitterRatioRange: "Retry jitter ratio must be between 0 and 1",
+    retryMaxAttemptsInteger: "Retry max attempts must be a whole number",
+    retryMaxAttemptsRange: "Retry max attempts must be between 1 and 50",
+    retryMaxDelayIntegerMs: "Retry max delay must be a whole number of milliseconds",
+    retryMaxDelayRange: "Retry max delay must be between 1 and 86400000 milliseconds",
     statusCodeExists: "That status code is already included",
     statusCodeIntegerRange: "Status code must be a whole number between 100 and 599",
     statusCodesUnique: "Failure status codes must be unique",
@@ -2822,8 +2742,6 @@ export const enMessages: Messages = {
     backendValidationFailed: "Backend validation failed",
     backendValidationPassed: "Backend validation passed. No file was written.",
     bootstrapConfigValidated: "Startup bootstrap config validated",
-    bufferingMode: "Buffering mode",
-    buffered: "buffered",
     bundleEncryptionKey: "Bundle encryption key",
     bundleEncryptionKeyChangeLabel: "State transfer encryption-key replacement affects future config bundles",
     clear: "Clear",
@@ -2978,7 +2896,6 @@ export const enMessages: Messages = {
     status: "Status",
     startupBootstrapConfigTitle: "Startup bootstrap config",
     startupBootstrapConfigDescription: "Immediate settings apply on save; structural settings require restart.",
-    streaming: "streaming",
     smtp: "SMTP",
     smtpAuth: "SMTP auth",
     smtpAuthNone: "No SMTP auth",
@@ -3014,8 +2931,8 @@ export const enMessages: Messages = {
     smtpUsernamePlaceholder: "smtp-user",
     smtpUsernameRequired: "Plain SMTP auth requires a username.",
     transport: "Transport",
-    transportDescription: "Proxy buffering and HTTP transport limits apply to future requests after hot publish succeeds.",
-    transportTitle: "Runtime transport",
+    transportDescription: "HTTP transport limits and side-effect settings apply to future requests after save.",
+    transportTitle: "Runtime transport and side effects",
     tlsHandshakeTimeout: "TLS handshake timeout",
     unchangedFieldsMessage: (count) => `${count} unchanged ${count === 1 ? "field" : "fields"} omitted from effect changes.`,
     updated: "Updated",
@@ -3285,10 +3202,10 @@ export const enMessages: Messages = {
     exportWithoutSecrets: "Export without secrets",
     exportWithoutSecretsDescription: "Returns the safe redacted bundle, which stays import-compatible for preview and apply.",
     import: "Profile import",
-    importDescription: "Upload a version 1 profile bundle, preview the exact replacement scope for this selected profile, and apply only with the current preview token.",
+    importDescription: "Upload a version 2 profile bundle with top-level connections, preview the exact replacement scope for this selected profile, and apply only with the current preview token.",
     importInProgress: "Applying import...",
     loadedSummary: (fileName, endpoints, strategies, models, connections) =>
-      `Loaded ${fileName}: ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} connections.`,
+      `Loaded ${fileName}: ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} top-level connections.`,
     previewAction: "Preview import impact",
     previewBlockingErrors: "Blocking errors",
     previewDescription: "Preview is required before apply so you can inspect replacement scope, untouched scope, vendor handling, and secret readiness.",
@@ -3304,7 +3221,7 @@ export const enMessages: Messages = {
     previewVendorSummary: "Vendor summary",
     previewWarnings: "Warnings",
     safeDefault: "Safe default",
-    scopeConnections: "Connections",
+    scopeConnections: "Top-level Connections",
     scopeDecryptableSecretRefs: "Decryptable secret refs",
     scopeEndpointSecretRefs: "Endpoint secret refs",
     scopeEndpoints: "Endpoints",
@@ -3334,7 +3251,7 @@ export const enMessages: Messages = {
     exportFailed: "Export failed",
     exportSucceeded: "Configuration exported successfully",
     importFailed: "Import failed",
-    importSucceeded: (endpoints, strategies, models, connections) => `Imported ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} connections`,
+    importSucceeded: (endpoints, strategies, models, connections) => `Imported ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} top-level connections`,
     invalidConfigPayload: (errors) => `Invalid configuration payload: ${errors}`,
     invalidJsonFile: "Invalid JSON file",
     previewFailed: "Preview failed",
@@ -3343,8 +3260,6 @@ export const enMessages: Messages = {
   settingsBackupValidation: {
     duplicateFxMapping: (modelId, endpointName) =>
       `Duplicate FX mapping for model_id='${modelId}', endpoint_name='${endpointName}'`,
-    duplicateProxyTarget: (targetModelId, modelId) =>
-      `Duplicate proxy target '${targetModelId}' for model '${modelId}'`,
     duplicateReferenceName: (referenceLabel, normalizedName) =>
       `Duplicate ${referenceLabel} name '${normalizedName}'`,
     fxMappingMustReferenceImportedPair: (modelId, endpointName) =>
@@ -3352,14 +3267,6 @@ export const enMessages: Messages = {
     missingEndpointName: "Must include endpoint_name",
     missingReferenceName: "Must include a reference name",
     modelMustIncludeVendorKey: (modelId) => `Model '${modelId}' must include vendor_key`,
-    nativeModelMustIncludeStrategy: (modelId) =>
-      `Native model '${modelId}' must include loadbalance_strategy_name`,
-    nativeModelMustNotIncludeProxyTargets: (modelId) =>
-      `Native model '${modelId}' must not include proxy_targets`,
-    proxyModelMustNotIncludeStrategy: (modelId) =>
-      `Proxy model '${modelId}' must not include loadbalance_strategy_name`,
-    proxyTargetsContiguous: (modelId) =>
-      `Proxy targets for '${modelId}' must use contiguous positions starting at 0`,
     referenceLabelEndpoint: "endpoint",
     referenceLabelLoadbalanceStrategy: "loadbalance strategy",
     referenceLabelPricingTemplate: "pricing template",
@@ -3538,12 +3445,10 @@ export const enMessages: Messages = {
     createNew: "Create New",
     created: "Created",
     currentStateBlocked: (failureSummary, cooldown, failureKind, blockedUntil) =>
-      `${failureSummary} triggered a ${cooldown} cooldown after ${failureKind}. Routing stays paused until ${blockedUntil ?? "the cooldown expires"}.`,
+      `${failureSummary} opened a ${cooldown} retry window after ${failureKind}. Routing stays paused until ${blockedUntil ?? "the retry window closes"}.`,
     currentStateCounting: (failureSummary, failureKind) =>
-      `Tracking ${failureSummary} after ${failureKind}. No cooldown is currently open, but failover recovery is still counting these signals.`,
+      `Tracking ${failureSummary} after ${failureKind}. No retry window is currently open, but Ban Policy is still counting these signals.`,
     currentStateManualBan: "This connection is banned until the operator dismisses it.",
-    currentStateProbeEligible: (cooldown, blockedUntil, failureKind) =>
-      `The last ${cooldown} cooldown expired${blockedUntil ? ` at ${blockedUntil}` : ""}. This connection is now eligible for the next routed probe after ${failureKind}.`,
     currentStateTemporaryBan: (until) =>
       `This connection is banned until ${until ?? "the temporary ban expires"}.`,
     lastLiveFailure: (time) => `Last live failure ${time}`,
@@ -3625,16 +3530,11 @@ export const enMessages: Messages = {
     probeBehavior: "Probe Behavior",
     probeBehaviorDescription: "Used for health checks only. Routed model traffic is unchanged.",
     probeBehaviorSummaryLabel: "Probe Behavior",
-    proxyRouting: "Proxy Routing",
-    proxyTargets: "Proxy Targets",
-    proxyTargetsHint:
-      "Manage ordered proxy targets in model settings. Proxy targets must stay on the same API family even when the vendor metadata changes.",
     qpsLimit: "QPS Limit",
     removeHeader: "Remove header",
-    recoveryBlocked: "Recovery Blocked",
-    recoveryCounting: "Recovery Counting",
-    recoveryProbeEligible: "Probe Eligible",
-    resetRecoveryState: "Reset Recovery State",
+    retryWindowBlocked: "Retry Window Open",
+    retryWindowCounting: "Ban Policy Counting",
+    resetBanPolicyState: "Reset Ban Policy State",
     requests24h: "Requests (24h)",
     requestsLabel: "Requests",
     routingPriorityHint:
@@ -3674,8 +3574,6 @@ export const enMessages: Messages = {
     totalCost: (currencyCode) => `Total Cost (${currencyCode})`,
     totalTokens: (count) => `${count} tokens`,
     tryDifferentSearchTerm: "Try a different search term",
-    typeNative: "Native",
-    typeProxy: "Proxy",
     unknownEndpoint: "Unknown endpoint",
     unassigned: "Unassigned",
     unpricedNoCostTracking: "Unpriced (No cost tracking)",
@@ -3694,19 +3592,17 @@ export const enMessages: Messages = {
     fillEndpointFields: "Please fill in all endpoint fields",
     healthCheckResult: (status, latencyMs) => `Health: ${status} (${latencyMs}ms)`,
     healthCheckFailed: "Health check failed",
-    loadRecoveryStateFailed: "Failed to load recovery state",
+    loadBanPolicyStateFailed: "Failed to load Ban Policy state",
     modelUpdated: "Model updated",
-    proxyTargetsUpdated: "Proxy targets updated",
     reorderPriorityReverted: "Order reverted.",
-    resetRecoveryStateFailed: "Failed to reset recovery state",
+    resetBanPolicyStateFailed: "Failed to reset Ban Policy state",
     saveConnectionFailed: "Failed to save connection",
     selectApiFamily: "Please select an API family",
     selectEndpoint: "Please select an endpoint",
-    selectLoadbalanceStrategy: "Please select a loadbalance strategy for this native model",
+    selectLoadbalanceStrategy: "Please select a loadbalance strategy for this model",
     selectVendor: "Please select a vendor",
     toggleConnectionFailed: "Failed to toggle connection",
     updateModelFailed: "Failed to update model",
-    updateProxyTargetsFailed: "Failed to update proxy targets",
   },
   modelDetailTabs: {
     connections: "Connections",
@@ -3741,7 +3637,7 @@ export const enMessages: Messages = {
     duplicateEndpoint: (name) => `Duplicate endpoint ${name}`,
     editEndpoint: (name) => `Edit endpoint ${name}`,
     keepStoredKey: "Leave blank to keep the existing stored key.",
-    models: "Models",
+    models: "Reachable Models",
     name: "Name",
     nameRequired: "Name is required",
     namePlaceholder: "e.g. OpenAI Production",
@@ -3767,20 +3663,14 @@ export const enMessages: Messages = {
   },
   modelsUi: {
     addTarget: "Add Target",
-    allNativeModelsIncluded: "All native models for this API family are already included.",
     deleteModel: "Delete Model",
     deleteModelDescription: (name) => `Are you sure you want to delete "${name}"? This will also delete all associated endpoints.`,
     displayNameOptional: "Display Name",
     editModel: "Edit Model",
     modelId: "Model ID",
     modelIdPlaceholder: "e.g. gpt-4o",
-    noNativeModelsForFamily: (apiFamily) => `No native models are available for the ${apiFamily} API family yet. Create at least one native model before saving this proxy.`,
-    noProxyTargetsSelected: "Add at least one proxy target before saving this model.",
     optionalFriendlyName: "Optional friendly name",
     priority: (value) => `Priority ${value}`,
-    proxyTargetsDescriptionPrimary: "Requests try these native targets in order and stop at the first available target.",
-    proxyTargetsDescriptionSecondary: "Proxy models must include an ordered target list here before you can save, and you can keep refining that order later on /models/:id/proxy.",
-    remainingNativeTargets: (count) => `${count} more native targets available.`,
     routingTypeDescription: "Turn this model on or off",
     save: "Save",
     strategyNotConfigured: "Strategy not configured",
@@ -3797,7 +3687,6 @@ export const enMessages: Messages = {
     requestsShort: "req",
     spendShort: "spend",
     unknownVendor: "Unknown vendor",
-    noProxyTargets: "No proxy targets",
     targetsFirst: (count, first) => `${count} targets · ${first} first`,
     modelCount: (count) => `${count} ${count === "1" ? "model" : "models"}`,
   },
@@ -3806,10 +3695,9 @@ export const enMessages: Messages = {
     deleted: "Model deleted",
     deleteFailed: "Failed to delete model",
     fetchFailed: "Failed to fetch data",
-    proxyTargetRequired: "Please add at least one ordered proxy target for proxy models",
     saveFailed: "Failed to save model",
     selectApiFamily: "Please select an API family",
-    selectLoadbalanceStrategy: "Please select a loadbalance strategy for native models",
+    selectLoadbalanceStrategy: "Please select a loadbalance strategy for enabled models",
     selectVendor: "Please select a vendor",
     updated: "Model updated",
   },
@@ -4024,9 +3912,8 @@ export const enMessages: Messages = {
     streamUsageUnavailable: "Usage unavailable",
     technicalInspection: "Technical inspection",
     requestDetails: "Request details",
-    requestedModel: "Requested model",
-    proxyOrigin: "Proxy origin",
-    resolvedTarget: "Resolved target",
+    requestedModel: "Requested Model",
+    finalTargetModel: "Final Target Model",
     time: "Time",
     totalCost: "Total cost",
     totalTokens: "Total tokens",

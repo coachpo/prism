@@ -6,53 +6,42 @@ import (
 	"time"
 )
 
-type proxyTargetReference struct {
-	TargetModelID  string `json:"target_model_id"`
-	Position       int    `json:"position"`
-	Weight         int    `json:"weight"`
-	TargetPriority int    `json:"target_priority"`
-
-	weightSet          bool
-	weightNull         bool
-	targetPrioritySet  bool
-	targetPriorityNull bool
+type modelAccessTargetRequest struct {
+	TargetType    string  `json:"target_type"`
+	TargetModelID *string `json:"target_model_id"`
+	ConnectionID  *int    `json:"connection_id"`
+	Position      int     `json:"position"`
+	IsEnabled     *bool   `json:"is_enabled"`
 }
 
-func (value *proxyTargetReference) UnmarshalJSON(data []byte) error {
-	var parsed struct {
-		TargetModelID  string      `json:"target_model_id"`
-		Position       int         `json:"position"`
-		Weight         optionalInt `json:"weight"`
-		TargetPriority optionalInt `json:"target_priority"`
-	}
-	if err := json.Unmarshal(bytes.TrimSpace(data), &parsed); err != nil {
-		return err
-	}
-	value.TargetModelID = parsed.TargetModelID
-	value.Position = parsed.Position
-	value.weightSet = parsed.Weight.Set
-	value.weightNull = parsed.Weight.Set && parsed.Weight.Value == nil
-	if parsed.Weight.Value != nil {
-		value.Weight = *parsed.Weight.Value
-	}
-	value.targetPrioritySet = parsed.TargetPriority.Set
-	value.targetPriorityNull = parsed.TargetPriority.Set && parsed.TargetPriority.Value == nil
-	if parsed.TargetPriority.Value != nil {
-		value.TargetPriority = *parsed.TargetPriority.Value
-	}
-	return nil
+type modelAccessTargetCreateRequest struct {
+	TargetType    string  `json:"target_type"`
+	TargetModelID *string `json:"target_model_id"`
+	ConnectionID  *int    `json:"connection_id"`
+	Position      *int    `json:"position"`
+	IsEnabled     *bool   `json:"is_enabled"`
+}
+
+type modelAccessTargetUpdateRequest struct {
+	TargetType    optionalString `json:"target_type"`
+	TargetModelID optionalString `json:"target_model_id"`
+	ConnectionID  optionalInt    `json:"connection_id"`
+	Position      optionalInt    `json:"position"`
+	IsEnabled     optionalBool   `json:"is_enabled"`
+}
+
+type modelAccessTargetMoveRequest struct {
+	ToIndex int `json:"to_index"`
 }
 
 type modelCreateRequest struct {
-	VendorID               *int                   `json:"vendor_id"`
-	APIFamily              string                 `json:"api_family"`
-	ModelID                string                 `json:"model_id"`
-	DisplayName            *string                `json:"display_name"`
-	ModelType              string                 `json:"model_type"`
-	ProxySelectionStrategy *string                `json:"proxy_selection_strategy"`
-	ProxyTargets           []proxyTargetReference `json:"proxy_targets"`
-	LoadbalanceStrategyID  *int                   `json:"loadbalance_strategy_id"`
-	IsEnabled              *bool                  `json:"is_enabled"`
+	VendorID              *int                       `json:"vendor_id"`
+	APIFamily             string                     `json:"api_family"`
+	ModelID               string                     `json:"model_id"`
+	DisplayName           *string                    `json:"display_name"`
+	LoadbalanceStrategyID *int                       `json:"loadbalance_strategy_id"`
+	AccessTargets         []modelAccessTargetRequest `json:"access_targets"`
+	IsEnabled             *bool                      `json:"is_enabled"`
 }
 
 type optionalString struct {
@@ -105,19 +94,19 @@ func (value *optionalBool) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(bytes.TrimSpace(data), &value.Value)
 }
 
-type optionalProxyTargets struct {
+type optionalAccessTargets struct {
 	Set   bool
-	Value []proxyTargetReference
+	Value []modelAccessTargetRequest
 }
 
-func (value *optionalProxyTargets) UnmarshalJSON(data []byte) error {
+func (value *optionalAccessTargets) UnmarshalJSON(data []byte) error {
 	value.Set = true
 	trimmed := bytes.TrimSpace(data)
 	if bytes.Equal(trimmed, []byte("null")) {
 		value.Value = nil
 		return nil
 	}
-	var parsed []proxyTargetReference
+	var parsed []modelAccessTargetRequest
 	if err := json.Unmarshal(trimmed, &parsed); err != nil {
 		return err
 	}
@@ -126,15 +115,13 @@ func (value *optionalProxyTargets) UnmarshalJSON(data []byte) error {
 }
 
 type modelUpdateRequest struct {
-	VendorID               optionalInt          `json:"vendor_id"`
-	APIFamily              optionalString       `json:"api_family"`
-	ModelID                optionalString       `json:"model_id"`
-	DisplayName            optionalString       `json:"display_name"`
-	ModelType              optionalString       `json:"model_type"`
-	ProxySelectionStrategy optionalString       `json:"proxy_selection_strategy"`
-	ProxyTargets           optionalProxyTargets `json:"proxy_targets"`
-	LoadbalanceStrategyID  optionalInt          `json:"loadbalance_strategy_id"`
-	IsEnabled              optionalBool         `json:"is_enabled"`
+	VendorID              optionalInt           `json:"vendor_id"`
+	APIFamily             optionalString        `json:"api_family"`
+	ModelID               optionalString        `json:"model_id"`
+	DisplayName           optionalString        `json:"display_name"`
+	LoadbalanceStrategyID optionalInt           `json:"loadbalance_strategy_id"`
+	AccessTargets         optionalAccessTargets `json:"access_targets"`
+	IsEnabled             optionalBool          `json:"is_enabled"`
 }
 
 type vendorResponse struct {
@@ -151,12 +138,17 @@ type vendorResponse struct {
 }
 
 type loadbalanceStrategySummary struct {
-	ID                 int    `json:"id"`
-	Name               string `json:"name"`
-	StrategyType       string `json:"strategy_type"`
-	LegacyStrategyType any    `json:"legacy_strategy_type,omitempty"`
-	AutoRecovery       any    `json:"auto_recovery,omitempty"`
-	RoutingPolicy      any    `json:"routing_policy,omitempty"`
+	ID                     int     `json:"id"`
+	Name                   string  `json:"name"`
+	LegacyStrategyType     string  `json:"legacy_strategy_type"`
+	FailureStatusCodes     []int   `json:"failure_status_codes"`
+	BanMode                string  `json:"ban_mode"`
+	RetryBaseDelayMS       int     `json:"retry_base_delay_ms"`
+	RetryBackoffMultiplier float64 `json:"retry_backoff_multiplier"`
+	RetryJitterRatio       float64 `json:"retry_jitter_ratio"`
+	RetryMaxDelayMS        int     `json:"retry_max_delay_ms"`
+	RetryMaxAttempts       int     `json:"retry_max_attempts"`
+	BanDurationSeconds     int     `json:"ban_duration_seconds"`
 }
 
 type endpointResponse struct {
@@ -179,10 +171,11 @@ type connectionPricingTemplateSummary struct {
 	Version             int    `json:"version"`
 }
 
-type connectionResponse struct {
+type connectionTargetSummary struct {
 	ID                         int                               `json:"id"`
+	ModelConfigID              int                               `json:"-"`
 	ProfileID                  int                               `json:"profile_id"`
-	ModelConfigID              int                               `json:"model_config_id"`
+	APIFamily                  string                            `json:"api_family"`
 	EndpointID                 int                               `json:"endpoint_id"`
 	Endpoint                   *endpointResponse                 `json:"endpoint"`
 	IsActive                   bool                              `json:"is_active"`
@@ -203,45 +196,64 @@ type connectionResponse struct {
 	UpdatedAt                  time.Time                         `json:"updated_at"`
 }
 
+type modelTargetSummary struct {
+	ID                    int     `json:"id"`
+	ProfileID             int     `json:"profile_id"`
+	VendorID              *int    `json:"vendor_id"`
+	APIFamily             string  `json:"api_family"`
+	ModelID               string  `json:"model_id"`
+	DisplayName           *string `json:"display_name"`
+	LoadbalanceStrategyID *int    `json:"loadbalance_strategy_id"`
+	IsEnabled             bool    `json:"is_enabled"`
+}
+
+type modelAccessTargetResponse struct {
+	ID            int                      `json:"id"`
+	TargetType    string                   `json:"target_type"`
+	TargetModelID *string                  `json:"target_model_id"`
+	ConnectionID  *int                     `json:"connection_id"`
+	Position      int                      `json:"position"`
+	IsEnabled     bool                     `json:"is_enabled"`
+	TargetModel   *modelTargetSummary      `json:"target_model"`
+	Connection    *connectionTargetSummary `json:"connection"`
+	CreatedAt     time.Time                `json:"created_at"`
+	UpdatedAt     time.Time                `json:"updated_at"`
+}
+
 type modelConfigListResponse struct {
-	ID                     int                         `json:"id"`
-	ProfileID              int                         `json:"profile_id"`
-	VendorID               *int                        `json:"vendor_id"`
-	Vendor                 *vendorResponse             `json:"vendor"`
-	APIFamily              string                      `json:"api_family"`
-	ModelID                string                      `json:"model_id"`
-	DisplayName            *string                     `json:"display_name"`
-	ModelType              string                      `json:"model_type"`
-	ProxySelectionStrategy *string                     `json:"proxy_selection_strategy"`
-	ProxyTargets           []proxyTargetReference      `json:"proxy_targets"`
-	LoadbalanceStrategyID  *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy    *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	IsEnabled              bool                        `json:"is_enabled"`
-	ConnectionCount        int                         `json:"connection_count"`
-	ActiveConnectionCount  int                         `json:"active_connection_count"`
-	HealthSuccessRate      *float64                    `json:"health_success_rate"`
-	HealthTotalRequests    int                         `json:"health_total_requests"`
-	CreatedAt              time.Time                   `json:"created_at"`
-	UpdatedAt              time.Time                   `json:"updated_at"`
+	ID                    int                         `json:"id"`
+	ProfileID             int                         `json:"profile_id"`
+	VendorID              *int                        `json:"vendor_id"`
+	Vendor                *vendorResponse             `json:"vendor"`
+	APIFamily             string                      `json:"api_family"`
+	ModelID               string                      `json:"model_id"`
+	DisplayName           *string                     `json:"display_name"`
+	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	AccessTargets         []modelAccessTargetResponse `json:"access_targets"`
+	IsEnabled             bool                        `json:"is_enabled"`
+	ConnectionCount       int                         `json:"connection_count"`
+	ActiveConnectionCount int                         `json:"active_connection_count"`
+	HealthSuccessRate     *float64                    `json:"health_success_rate"`
+	HealthTotalRequests   int                         `json:"health_total_requests"`
+	CreatedAt             time.Time                   `json:"created_at"`
+	UpdatedAt             time.Time                   `json:"updated_at"`
 }
 
 type modelConfigResponse struct {
-	ID                     int                         `json:"id"`
-	ProfileID              int                         `json:"profile_id"`
-	VendorID               *int                        `json:"vendor_id"`
-	Vendor                 *vendorResponse             `json:"vendor"`
-	APIFamily              string                      `json:"api_family"`
-	ModelID                string                      `json:"model_id"`
-	DisplayName            *string                     `json:"display_name"`
-	ModelType              string                      `json:"model_type"`
-	ProxySelectionStrategy *string                     `json:"proxy_selection_strategy"`
-	ProxyTargets           []proxyTargetReference      `json:"proxy_targets"`
-	LoadbalanceStrategyID  *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy    *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	IsEnabled              bool                        `json:"is_enabled"`
-	Connections            []connectionResponse        `json:"connections"`
-	CreatedAt              time.Time                   `json:"created_at"`
-	UpdatedAt              time.Time                   `json:"updated_at"`
+	ID                    int                         `json:"id"`
+	ProfileID             int                         `json:"profile_id"`
+	VendorID              *int                        `json:"vendor_id"`
+	Vendor                *vendorResponse             `json:"vendor"`
+	APIFamily             string                      `json:"api_family"`
+	ModelID               string                      `json:"model_id"`
+	DisplayName           *string                     `json:"display_name"`
+	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	AccessTargets         []modelAccessTargetResponse `json:"access_targets"`
+	IsEnabled             bool                        `json:"is_enabled"`
+	CreatedAt             time.Time                   `json:"created_at"`
+	UpdatedAt             time.Time                   `json:"updated_at"`
 }
 
 type endpointModelsBatchItem struct {

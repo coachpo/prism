@@ -16,9 +16,6 @@ const ModelsPage = lazy(() =>
 const ModelDetailPage = lazy(() =>
   import("@/pages/ModelDetailPage").then((module) => ({ default: module.ModelDetailPage }))
 );
-const ProxyModelDetailPage = lazy(() =>
-  import("@/pages/ProxyModelDetailPage").then((module) => ({ default: module.ProxyModelDetailPage }))
-);
 const EndpointsPage = lazy(() =>
   import("@/pages/EndpointsPage").then((module) => ({ default: module.EndpointsPage }))
 );
@@ -120,7 +117,6 @@ function App() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={withRouteSuspense(<DashboardPage />)} />
             <Route path="/models" element={withRouteSuspense(<ModelsPage />)} />
-            <Route path="/models/:id/proxy" element={withRouteSuspense(<ProxyModelDetailPage />)} />
             <Route path="/models/:id" element={withRouteSuspense(<ModelDetailPage />)} />
             <Route path="/endpoints" element={withRouteSuspense(<EndpointsPage />)} />
             <Route path="/loadbalance-strategies" element={withRouteSuspense(<LoadbalanceStrategiesPage />)} />

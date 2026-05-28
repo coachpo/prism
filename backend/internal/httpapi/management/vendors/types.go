@@ -73,7 +73,6 @@ type vendorModelUsageItem struct {
 	ProfileName   string  `json:"profile_name"`
 	ModelID       string  `json:"model_id"`
 	DisplayName   *string `json:"display_name"`
-	ModelType     string  `json:"model_type"`
 	APIFamily     string  `json:"api_family"`
 	IsEnabled     bool    `json:"is_enabled"`
 }

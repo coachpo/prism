@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type { Connection, CostingSettingsUpdate, EndpointFxMapping } from "@/lib/types";
+import { getModelConnections } from "../../models/modelFormState";
 import { toast } from "sonner";
 import {
   getMappingKey,
@@ -43,7 +44,7 @@ export function useCostingMappingCrud({
 
     try {
       const model = await api.models.get(modelConfigId);
-      setMappingConnections(model.connections ?? []);
+      setMappingConnections(getModelConnections(model));
     } catch {
       setMappingConnections([]);
       toast.error(getMessages().settingsCostingData.loadConnectionsFailed);

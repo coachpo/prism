@@ -14,97 +14,30 @@ function createCostingSettings() {
 function createStrategyRow({
   id,
   name,
-  strategyType,
-  recovery,
+  banMode,
+  banDurationSeconds = 0,
 }: {
   id: number;
   name: string;
-} &
-  (
-    | {
-        strategyType: "adaptive";
-        recovery: {
-          routing_policy: {
-            routing_objective: "maximize_availability" | "minimize_latency";
-            ban_mode: "off" | "manual" | "temporary";
-            max_open_strikes_before_ban: number;
-            ban_duration_seconds: number;
-            failure_status_codes: number[];
-            base_open_seconds: number;
-            max_open_seconds: number;
-          };
-        };
-      }
-    | {
-        strategyType: "legacy";
-        recovery: {
-          auto_recovery: {
-            mode: "enabled";
-            status_codes: number[];
-            cooldown: {
-              base_seconds: number;
-              max_cooldown_seconds: number;
-            };
-            ban:
-              | { mode: "off" }
-              | { mode: "manual"; max_cooldown_strikes_before_ban: number }
-              | {
-                  mode: "temporary";
-                  max_cooldown_strikes_before_ban: number;
-                  ban_duration_seconds: number;
-                };
-          };
-        };
-      }
-  )) {
+  banMode: "off" | "manual" | "temporary";
+  banDurationSeconds?: number;
+}) {
   return {
     id,
     profile_id: 1,
     name,
-    strategy_type: strategyType,
+    legacy_strategy_type: "single",
+    failure_status_codes: [403, 422, 429, 500, 502, 503, 504, 529],
+    ban_mode: banMode,
+    retry_base_delay_ms: 60000,
+    retry_backoff_multiplier: 2,
+    retry_jitter_ratio: 0.2,
+    retry_max_delay_ms: 900000,
+    retry_max_attempts: 2,
+    ban_duration_seconds: banDurationSeconds,
     attached_model_count: 0,
     created_at: timestamp,
     updated_at: timestamp,
-    ...(strategyType === "adaptive"
-      ? {
-          routing_policy: {
-            kind: "adaptive",
-            routing_objective: recovery.routing_policy.routing_objective,
-            hedge: {
-              enabled: false,
-              delay_ms: 1500,
-              max_additional_attempts: 1,
-            },
-            circuit_breaker: {
-              failure_status_codes: recovery.routing_policy.failure_status_codes,
-              base_open_seconds: recovery.routing_policy.base_open_seconds,
-              failure_threshold: 2,
-              backoff_multiplier: 2,
-              max_open_seconds: recovery.routing_policy.max_open_seconds,
-              ban_mode: recovery.routing_policy.ban_mode,
-              max_open_strikes_before_ban: recovery.routing_policy.max_open_strikes_before_ban,
-              ban_duration_seconds: recovery.routing_policy.ban_duration_seconds,
-            },
-            admission: {
-              respect_qps_limit: true,
-              respect_in_flight_limits: true,
-            },
-          },
-        }
-      : {
-          legacy_strategy_type: "single",
-          auto_recovery: {
-            mode: "enabled",
-            status_codes: recovery.auto_recovery.status_codes,
-            cooldown: {
-              base_seconds: recovery.auto_recovery.cooldown.base_seconds,
-              failure_threshold: 2,
-              backoff_multiplier: 2,
-              max_cooldown_seconds: recovery.auto_recovery.cooldown.max_cooldown_seconds,
-            },
-            ban: recovery.auto_recovery.ban,
-          },
-        }),
   };
 }
 
@@ -114,93 +47,23 @@ async function expectRecoveryLines(row: Locator, lines: string[]) {
   await expect(recoveryLines).toHaveText(lines);
 }
 
-test("shows adaptive and legacy recovery rows by name", async ({ page }) => {
-  const statusCodes = [403, 422, 429, 500, 502, 503, 504, 529];
-
+test("shows legacy Ban Policy rows by name", async ({ page }) => {
   const strategies = [
     createStrategyRow({
       id: 1,
-      name: "Adaptive Off",
-      strategyType: "adaptive",
-      recovery: {
-        routing_policy: {
-          routing_objective: "minimize_latency",
-          failure_status_codes: statusCodes,
-          base_open_seconds: 60,
-          max_open_seconds: 900,
-          ban_mode: "off",
-          max_open_strikes_before_ban: 0,
-          ban_duration_seconds: 0,
-        },
-      },
+      name: "Legacy Off",
+      banMode: "off",
     }),
     createStrategyRow({
       id: 2,
-      name: "Adaptive Manual",
-      strategyType: "adaptive",
-      recovery: {
-        routing_policy: {
-          routing_objective: "maximize_availability",
-          failure_status_codes: statusCodes,
-          base_open_seconds: 60,
-          max_open_seconds: 900,
-          ban_mode: "manual",
-          max_open_strikes_before_ban: 1,
-          ban_duration_seconds: 0,
-        },
-      },
+      name: "Legacy Manual",
+      banMode: "manual",
     }),
     createStrategyRow({
       id: 3,
-      name: "Adaptive Temporary",
-      strategyType: "adaptive",
-      recovery: {
-        routing_policy: {
-          routing_objective: "minimize_latency",
-          failure_status_codes: statusCodes,
-          base_open_seconds: 60,
-          max_open_seconds: 900,
-          ban_mode: "temporary",
-          max_open_strikes_before_ban: 1,
-          ban_duration_seconds: 28800,
-        },
-      },
-    }),
-    createStrategyRow({
-      id: 4,
-      name: "Legacy Manual",
-      strategyType: "legacy",
-      recovery: {
-        auto_recovery: {
-          mode: "enabled",
-          status_codes: statusCodes,
-          cooldown: {
-            base_seconds: 60,
-            max_cooldown_seconds: 900,
-          },
-          ban: { mode: "manual", max_cooldown_strikes_before_ban: 1 },
-        },
-      },
-    }),
-    createStrategyRow({
-      id: 5,
       name: "Legacy Temporary",
-      strategyType: "legacy",
-      recovery: {
-        auto_recovery: {
-          mode: "enabled",
-          status_codes: statusCodes,
-          cooldown: {
-            base_seconds: 60,
-            max_cooldown_seconds: 900,
-          },
-          ban: {
-            mode: "temporary",
-            max_cooldown_strikes_before_ban: 1,
-            ban_duration_seconds: 28800,
-          },
-        },
-      },
+      banMode: "temporary",
+      banDurationSeconds: 28800,
     }),
   ];
 
@@ -280,50 +143,25 @@ test("shows adaptive and legacy recovery rows by name", async ({ page }) => {
 
   await page.goto("/loadbalance-strategies");
 
-  await expect(page.getByRole("table")).toContainText("Adaptive Off");
-  await expect(page.getByRole("table")).toContainText("Adaptive Manual");
-  await expect(page.getByRole("table")).toContainText("Adaptive Temporary");
+  await expect(page.getByRole("table")).toContainText("Legacy Off");
   await expect(page.getByRole("table")).toContainText("Legacy Manual");
   await expect(page.getByRole("table")).toContainText("Legacy Temporary");
 
-  await expectRecoveryLines(page.getByRole("row", { name: /Adaptive Off/ }), [
-    "Routing policy Minimize latency",
+  await expectRecoveryLines(page.getByRole("row", { name: /Legacy Off/ }), [
     "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Adaptive hedge disabled",
-    "Admission QPS Enabled • In-flight Enabled",
-    "Open window 60s base • 900s max",
+    "Retry window 60,000ms base • 900,000ms max • 2 attempts • 2x • jitter 0.2",
     "Ban off",
   ]);
 
-  await expectRecoveryLines(page.getByRole("row", { name: /Adaptive Manual/ }), [
-    "Routing policy Maximize availability",
-    "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Adaptive hedge disabled",
-    "Admission QPS Enabled • In-flight Enabled",
-    "Open window 60s base • 900s max",
-    "Manual dismiss after 1 max-open strikes",
-  ]);
-
-  await expectRecoveryLines(page.getByRole("row", { name: /Adaptive Temporary/ }), [
-    "Routing policy Minimize latency",
-    "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Adaptive hedge disabled",
-    "Admission QPS Enabled • In-flight Enabled",
-    "Open window 60s base • 900s max",
-    "Temporary ban after 1 max-open strikes • 28,800s",
-  ]);
-
   await expectRecoveryLines(page.getByRole("row", { name: /Legacy Manual/ }), [
-    "Auto recovery enabled",
     "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Cooldown 60s base • 900s max",
-    "Ban manual dismiss after 1 max-cooldown strikes",
+    "Retry window 60,000ms base • 900,000ms max • 2 attempts • 2x • jitter 0.2",
+    "Manual dismiss ban",
   ]);
 
   await expectRecoveryLines(page.getByRole("row", { name: /Legacy Temporary/ }), [
-    "Auto recovery enabled",
     "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Cooldown 60s base • 900s max",
-    "Temporary ban after 1 max-cooldown strikes • 28,800s",
+    "Retry window 60,000ms base • 900,000ms max • 2 attempts • 2x • jitter 0.2",
+    "Temporary ban 28,800s",
   ]);
 });

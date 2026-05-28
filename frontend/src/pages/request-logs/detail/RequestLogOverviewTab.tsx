@@ -124,7 +124,8 @@ export function RequestLogOverviewTab({
   );
   const tone = getStatusTone(summary.status_code);
   const requestedModelLabel = summary.model_label;
-  const resolvedTargetLabel = summary.resolved_target_model_label;
+  const finalTargetModelId = summary.resolved_target_model_id ?? summary.model_id;
+  const finalTargetLabel = summary.resolved_target_model_label ?? requestedModelLabel;
   const formattedErrorDetail = requestInfo.error_detail ? formatErrorDetail(requestInfo.error_detail) : null;
   const hasFormattedErrorDetail = formattedErrorDetail !== null && formattedErrorDetail !== requestInfo.error_detail;
   const requestReasoningEffort = requestInfo.request_generation_params?.reasoning?.effort ?? null;
@@ -183,9 +184,6 @@ export function RequestLogOverviewTab({
                     preserveLabel
                   />
                 ) : null}
-                {summary.is_proxy_origin ? (
-                  <TypeBadge label={messages.requestLogs.proxyOrigin} intent="accent" className="px-2 py-0.5" />
-                ) : null}
                 <ApiFamilyPill apiFamily={apiFamily} />
               </div>
 
@@ -201,11 +199,9 @@ export function RequestLogOverviewTab({
                     {summary.model_id}
                   </p>
                 ) : null}
-                {resolvedTargetLabel && summary.resolved_target_model_id !== summary.model_id ? (
-                  <p className="text-xs text-muted-foreground">
-                    {messages.requestLogs.resolvedTarget}: {resolvedTargetLabel}
-                  </p>
-                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  {messages.requestLogs.finalTargetModel}: {finalTargetLabel}
+                </p>
                 <p className="font-mono text-xs text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                   {requestInfo.request_path}
                 </p>
@@ -329,18 +325,16 @@ export function RequestLogOverviewTab({
                   ) : null}
                 </div>
               </DetailRow>
-              {resolvedTargetLabel && summary.resolved_target_model_id !== summary.model_id ? (
-                <DetailRow label={messages.requestLogs.resolvedTarget}>
-                  <div className="space-y-1">
-                    <p>{resolvedTargetLabel}</p>
-                    {resolvedTargetLabel !== summary.resolved_target_model_id ? (
-                      <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                        {summary.resolved_target_model_id}
-                      </p>
-                    ) : null}
-                  </div>
-                </DetailRow>
-              ) : null}
+              <DetailRow label={messages.requestLogs.finalTargetModel}>
+                <div className="space-y-1">
+                  <p>{finalTargetLabel}</p>
+                  {finalTargetLabel !== finalTargetModelId ? (
+                    <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      {finalTargetModelId}
+                    </p>
+                  ) : null}
+                </div>
+              </DetailRow>
               {showCallerClient ? (
                 <DetailRow label={messages.requestLogs.callerClient}>
                   {renderClientDetailValue(

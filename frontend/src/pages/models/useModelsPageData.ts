@@ -8,6 +8,7 @@ import {
   setSharedModels,
 } from "@/lib/referenceData";
 import type {
+  Connection,
   LoadbalanceStrategy,
   ModelConfigListItem,
   Vendor,
@@ -17,10 +18,10 @@ import {
   createEditModelFormData,
   createNewModelFormData,
   DEFAULT_MODEL_FORM_DATA,
-  getNativeModelsForApiFamily,
+  getAccessTargetModelsForApiFamily,
+  getAccessTargetOptionKeys,
   type ModelFormData,
   setLoadbalanceStrategyIdOnForm,
-  setModelTypeOnForm,
   toModelCreatePayload,
   toModelListItem,
   toModelUpdatePayload,
@@ -33,22 +34,26 @@ export function useModelsPageData(revision: number) {
   const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([]);
   const [models, setModels] = useState<ModelConfigListItem[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<ModelConfigListItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ModelConfigListItem | null>(null);
   const [search, setSearch] = useState("");
   const [formData, setFormData] = useState<ModelFormData>(DEFAULT_MODEL_FORM_DATA);
+  const [formError, setFormError] = useState<string | null>(null);
   const { metricsLoading, modelMetrics24h, modelSpend30dMicros } = useModelMetrics24h(models);
 
   const applyBootstrapData = useCallback((data: {
     loadbalanceStrategiesData: LoadbalanceStrategy[];
     modelsData: ModelConfigListItem[];
     vendorsData: Vendor[];
+    connectionsData: Connection[];
   }) => {
     setLoadbalanceStrategies(data.loadbalanceStrategiesData);
     setModels(data.modelsData);
     setVendors(data.vendorsData);
+    setConnections(data.connectionsData);
   }, []);
 
   const fetchData = useCallback(async (currentRevision: number) => {
@@ -56,11 +61,13 @@ export function useModelsPageData(revision: number) {
       getSharedLoadbalanceStrategies(currentRevision),
       getSharedModels(currentRevision),
       getSharedVendors(currentRevision),
+      api.connections.list(),
     ]).then(
-      ([loadbalanceStrategiesData, modelsData, vendorsData]) => ({
+      ([loadbalanceStrategiesData, modelsData, vendorsData, connectionsData]) => ({
         loadbalanceStrategiesData,
         modelsData,
         vendorsData,
+        connectionsData,
       })
     );
   }, []);
@@ -103,6 +110,7 @@ export function useModelsPageData(revision: number) {
     if (model) {
       setEditingModel(model);
       setFormData(createEditModelFormData(model));
+      setFormError(null);
       setIsDialogOpen(true);
       return;
     }
@@ -117,15 +125,17 @@ export function useModelsPageData(revision: number) {
 
     setEditingModel(null);
     setFormData(createNewModelFormData(nextVendors, loadbalanceStrategies[0]?.id ?? null));
+    setFormError(null);
     setIsDialogOpen(true);
   };
 
   const handleSubmit = async (event: SubmitEventLike) => {
     const messages = getStaticMessages();
     event.preventDefault();
+    setFormError(null);
     const validationError = validateModelFormData(
       formData,
-      nativeModelsForApiFamily.map((model) => model.model_id),
+      getAccessTargetOptionKeys(targetModelsForApiFamily, targetConnectionsForApiFamily),
     );
 
     if (validationError === "api_family_required") {
@@ -138,8 +148,10 @@ export function useModelsPageData(revision: number) {
       return;
     }
 
-    if (validationError === "proxy_target_required") {
-      toast.error(messages.modelsData.proxyTargetRequired);
+    if (validationError === "access_target_required") {
+      const message = "Add at least one valid same-family access target before saving.";
+      setFormError(message);
+      toast.error(message);
       return;
     }
     try {
@@ -158,7 +170,9 @@ export function useModelsPageData(revision: number) {
       }
       setIsDialogOpen(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.modelsData.saveFailed);
+      const message = error instanceof Error ? error.message : messages.modelsData.saveFailed;
+      setFormError(message);
+      toast.error(message);
     }
   };
 
@@ -176,11 +190,12 @@ export function useModelsPageData(revision: number) {
   };
 
   const selectedVendor = vendors.find((vendor) => vendor.id === formData.vendor_id);
-  const nativeModelsForApiFamily = getNativeModelsForApiFamily(
+  const targetModelsForApiFamily = getAccessTargetModelsForApiFamily(
     models,
     formData.api_family ?? "openai",
     editingModel ? formData.model_id : undefined,
   );
+  const targetConnectionsForApiFamily = connections.filter((connection) => connection.api_family === formData.api_family);
 
   const filtered = useMemo(
     () =>
@@ -198,12 +213,6 @@ export function useModelsPageData(revision: number) {
     [models, search]
   );
 
-  const setModelType = (value: "native" | "proxy") => {
-    setFormData((current) =>
-      setModelTypeOnForm(current, value, loadbalanceStrategies[0]?.id ?? null),
-    );
-  };
-
   const setLoadbalanceStrategyId = (value: number | null) => {
     setFormData((current) => setLoadbalanceStrategyIdOnForm(current, value));
   };
@@ -213,6 +222,7 @@ export function useModelsPageData(revision: number) {
     editingModel,
     filtered,
     formData,
+    formError,
     handleDelete,
     handleOpenDialog,
     handleSubmit,
@@ -223,7 +233,8 @@ export function useModelsPageData(revision: number) {
     modelMetrics24h,
     modelSpend30dMicros,
     models,
-    nativeModelsForApiFamily,
+    targetConnectionsForApiFamily,
+    targetModelsForApiFamily,
     vendors,
     search,
     selectedVendor,
@@ -231,7 +242,6 @@ export function useModelsPageData(revision: number) {
     setFormData,
     setIsDialogOpen,
     setLoadbalanceStrategyId,
-    setModelType,
     setSearch,
   };
 }

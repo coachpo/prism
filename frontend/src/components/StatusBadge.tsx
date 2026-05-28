@@ -32,7 +32,7 @@ export function StatusBadge({ label, intent = "default", className }: BaseBadgeP
   );
 }
 
-/** Category/classification labels: Proxy/Native, Exact/Prefix, Stream */
+/** Category/classification labels: Model/Connection, Exact/Prefix, Stream */
 export function TypeBadge({ label, intent = "default", className, preserveLabel = false }: BaseBadgeProps) {
   return (
     <Badge

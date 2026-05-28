@@ -5,10 +5,8 @@ import { TypeBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  getAdaptiveRoutingObjectiveLabel,
-  getAdaptiveRoutingObjectiveSummary,
-  isAdaptiveLoadbalanceStrategy,
-  isLegacyLoadbalanceStrategy,
+  getLegacyLoadbalanceStrategySummary,
+  getLoadbalanceStrategyTypeLabel,
 } from "@/lib/loadbalanceRoutingPolicy";
 import {
   Table,
@@ -45,86 +43,32 @@ export function LoadbalanceStrategiesTable({
   const tableCopy = messages.loadbalanceStrategiesTable;
   const strategyCopy = messages.loadbalanceStrategyCopy;
 
-  const getStrategyTypeLabel = (strategy: LoadbalanceStrategy) =>
-    isLegacyLoadbalanceStrategy(strategy)
-      ? strategyCopy.legacyFamilyLabel
-      : strategyCopy.adaptiveFamilyLabel;
-
   const getStrategySummary = (strategy: LoadbalanceStrategy) => {
-    if (isAdaptiveLoadbalanceStrategy(strategy)) {
-      return getAdaptiveRoutingObjectiveSummary(strategy.routing_policy.routing_objective, strategyCopy);
-    }
-
-    return strategy.legacy_strategy_type === "single"
-      ? `${strategyCopy.singleLabel} • ${strategyCopy.singleSummary}`
-      : strategy.legacy_strategy_type === "fill-first"
-        ? `${strategyCopy.fillFirstLabel} • ${strategyCopy.fillFirstSummary}`
-        : `${strategyCopy.roundRobinLabel} • ${strategyCopy.roundRobinSummary}`;
+    const typeLabel = getLoadbalanceStrategyTypeLabel(strategy, strategyCopy);
+    const typeSummary = getLegacyLoadbalanceStrategySummary(strategy.legacy_strategy_type, strategyCopy);
+    return `${typeLabel} • ${typeSummary}`;
   };
 
-  const getRecoverySummary = (strategy: LoadbalanceStrategy) => {
-    if (isAdaptiveLoadbalanceStrategy(strategy)) {
-      const circuitBreaker = strategy.routing_policy.circuit_breaker;
-      const failureStatusCodes =
-        circuitBreaker.failure_status_codes.length > 0
-          ? circuitBreaker.failure_status_codes.join(", ")
-          : messages.common.unavailable;
-
-      return [
-        tableCopy.adaptiveRoutingSummary(
-          getAdaptiveRoutingObjectiveLabel(strategy.routing_policy.routing_objective, strategyCopy),
-        ),
-        tableCopy.statusCodes(failureStatusCodes),
-        strategy.routing_policy.hedge.enabled
-          ? tableCopy.adaptiveHedgeSummary(
-              formatNumber(strategy.routing_policy.hedge.delay_ms),
-              formatNumber(strategy.routing_policy.hedge.max_additional_attempts),
-            )
-          : tableCopy.adaptiveHedgeDisabled,
-        tableCopy.adaptiveAdmissionSummary(
-          strategy.routing_policy.admission.respect_qps_limit ? tableCopy.enabled : tableCopy.disabled,
-          strategy.routing_policy.admission.respect_in_flight_limits ? tableCopy.enabled : tableCopy.disabled,
-        ),
-        tableCopy.adaptiveOpenWindowSummary(
-          formatNumber(circuitBreaker.base_open_seconds),
-          formatNumber(circuitBreaker.max_open_seconds),
-        ),
-        circuitBreaker.ban_mode === "off"
-          ? tableCopy.banOff
-          : circuitBreaker.ban_mode === "manual"
-            ? tableCopy.adaptiveBanManualDismiss(
-                formatNumber(circuitBreaker.max_open_strikes_before_ban),
-              )
-            : tableCopy.adaptiveBanTemporary(
-                formatNumber(circuitBreaker.max_open_strikes_before_ban),
-                formatNumber(circuitBreaker.ban_duration_seconds),
-              ),
-      ];
-    }
-
-    if (strategy.auto_recovery.mode === "disabled") {
-      return [tableCopy.autoRecoveryDisabled];
-    }
-
-    const ban = strategy.auto_recovery.ban;
+  const getBanPolicySummary = (strategy: LoadbalanceStrategy) => {
+    const failureStatusCodes =
+      strategy.failure_status_codes.length > 0
+        ? strategy.failure_status_codes.join(", ")
+        : messages.common.unavailable;
 
     return [
-      tableCopy.autoRecoveryEnabled,
-      tableCopy.statusCodes(strategy.auto_recovery.status_codes.join(", ")),
-      tableCopy.cooldownSummary(
-        formatNumber(strategy.auto_recovery.cooldown.base_seconds),
-        formatNumber(strategy.auto_recovery.cooldown.max_cooldown_seconds),
+      tableCopy.statusCodes(failureStatusCodes),
+      tableCopy.retryPolicySummary(
+        formatNumber(strategy.retry_base_delay_ms),
+        formatNumber(strategy.retry_max_delay_ms),
+        formatNumber(strategy.retry_max_attempts),
+        formatNumber(strategy.retry_backoff_multiplier, { maximumFractionDigits: 2 }),
+        formatNumber(strategy.retry_jitter_ratio, { maximumFractionDigits: 2 }),
       ),
-      ban.mode === "off"
+      strategy.ban_mode === "off"
         ? tableCopy.banOff
-        : ban.mode === "manual"
-          ? tableCopy.banManualDismiss(
-              formatNumber(ban.max_cooldown_strikes_before_ban),
-            )
-          : tableCopy.banTemporary(
-              formatNumber(ban.max_cooldown_strikes_before_ban),
-              formatNumber(ban.ban_duration_seconds),
-            ),
+        : strategy.ban_mode === "manual"
+          ? tableCopy.banManualDismissPolicy
+          : tableCopy.banTemporaryPolicy(formatNumber(strategy.ban_duration_seconds)),
     ];
   };
 
@@ -205,7 +149,7 @@ export function LoadbalanceStrategiesTable({
                 <TableRow>
                   <TableHead>{tableCopy.name}</TableHead>
                   <TableHead>{tableCopy.type}</TableHead>
-                  <TableHead>{tableCopy.recovery}</TableHead>
+                  <TableHead>{tableCopy.banPolicy}</TableHead>
                   <TableHead>{tableCopy.attachedModels}</TableHead>
                   <TableHead className="text-right">{tableCopy.actions}</TableHead>
                 </TableRow>
@@ -213,6 +157,7 @@ export function LoadbalanceStrategiesTable({
               <TableBody>
                 {loadbalanceStrategies.map((strategy) => {
                   const isPreparingEdit = loadbalanceStrategyPreparingEditId === strategy.id;
+                  const strategyTypeLabel = getLoadbalanceStrategyTypeLabel(strategy, strategyCopy);
 
                   return (
                     <TableRow key={strategy.id}>
@@ -225,11 +170,11 @@ export function LoadbalanceStrategiesTable({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <TypeBadge label={getStrategyTypeLabel(strategy)} intent="info" />
+                        <TypeBadge label={strategyTypeLabel} intent="info" />
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          {getRecoverySummary(strategy).map((summaryLine) => (
+                          {getBanPolicySummary(strategy).map((summaryLine) => (
                             <span key={summaryLine}>{summaryLine}</span>
                           ))}
                         </div>

@@ -330,30 +330,26 @@ func runtimeModelProxySelectionStrategy(modelType string) any {
 
 func (h *runtimeHarness) setProxySelectionStrategy(tb testing.TB, modelConfigID int, strategy string) {
 	tb.Helper()
-	now := time.Now().UTC()
-	if _, err := h.conn.Exec(
-		context.Background(),
-		`UPDATE model_configs SET proxy_selection_strategy = $2, updated_at = $3 WHERE id = $1`,
-		modelConfigID,
-		strategy,
-		now,
-	); err != nil {
-		tb.Fatalf("update proxy selection strategy for model config %d: %v", modelConfigID, err)
-	}
-	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{h.profileIDForModelConfig(tb, modelConfigID)}})
+	_ = h
+	_ = modelConfigID
+	_ = strategy
+	tb.Skip("legacy proxy selection strategies were removed; unified access targets use each model's legacy strategy")
 }
 
 func (h *runtimeHarness) seedProxyTargetWithMetadata(tb testing.TB, sourceModelConfigID int, targetModelConfigID int, position int, weight int, targetPriority int) {
 	tb.Helper()
+	now := time.Now().UTC()
 	if _, err := h.conn.Exec(
 		context.Background(),
-		`INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, $3, $4, $5)`,
+		`INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at)
+		 SELECT profile_id, id, 'model', $2, $3, $4, $5, TRUE, $6, $6 FROM model_configs WHERE id = $1`,
 		sourceModelConfigID,
 		targetModelConfigID,
 		position,
 		weight,
 		targetPriority,
+		now,
 	); err != nil {
-		tb.Fatalf("insert runtime proxy target: %v", err)
+		tb.Fatalf("insert runtime model access target: %v", err)
 	}
 }

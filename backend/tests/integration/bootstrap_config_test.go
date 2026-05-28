@@ -51,7 +51,6 @@ type bootstrapSeededFile struct {
 		} `json:"managementAdmission"`
 	} `json:"database"`
 	Runtime struct {
-		BufferingMode       string `json:"bufferingMode"`
 		SecretEncryptionKey string `json:"secretEncryptionKey"`
 		Transport           struct {
 			MaxIdleConns          int    `json:"maxIdleConns"`
@@ -274,8 +273,8 @@ func TestBootstrapConfigFileWinsWhenPresent(t *testing.T) {
 		t.Fatalf("expected existing bootstrap config database URL %q, got %q", bootstrapFixtureDatabaseURL, settings.DatabaseURL)
 	}
 	transport := settings.RuntimeTransport()
-	if settings.Port != 18000 || settings.RuntimeBufferingMode != config.RuntimeBufferingModeBuffered || transport.RequestTimeout != time.Minute || transport.MaxConnsPerHost != 0 {
-		t.Fatalf("expected existing bootstrap fixture values to load without auto-reset, got port=%d buffering=%q timeout=%s maxConnsPerHost=%d", settings.Port, settings.RuntimeBufferingMode, transport.RequestTimeout, transport.MaxConnsPerHost)
+	if settings.Port != 18000 || transport.RequestTimeout != time.Minute || transport.MaxConnsPerHost != 0 {
+		t.Fatalf("expected existing bootstrap fixture values to load without auto-reset, got port=%d timeout=%s maxConnsPerHost=%d", settings.Port, transport.RequestTimeout, transport.MaxConnsPerHost)
 	}
 
 	rawAfter, err := os.ReadFile(configPath)
@@ -315,6 +314,43 @@ func TestExistingBootstrapConfigMissingRequestTimeoutFails(t *testing.T) {
 	}
 }
 
+func TestExistingBootstrapConfigWithRuntimeBufferingModeFails(t *testing.T) {
+	assertExistingBootstrapConfigWithRuntimeBufferingFieldFails(t, "buffering_mode")
+}
+
+func TestExistingBootstrapConfigWithCamelCaseRuntimeBufferingModeFails(t *testing.T) {
+	assertExistingBootstrapConfigWithRuntimeBufferingFieldFails(t, "bufferingMode")
+}
+
+func assertExistingBootstrapConfigWithRuntimeBufferingFieldFails(t *testing.T, key string) {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
+	var payload map[string]any
+	if err := json.Unmarshal(loadIntegrationBootstrapFixtureBytes(t, "bootstrap-valid-v1.json"), &payload); err != nil {
+		t.Fatalf("decode valid bootstrap fixture: %v", err)
+	}
+	payload["runtime"].(map[string]any)[key] = "streaming"
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal bootstrap fixture with stale runtime.%s: %v", key, err)
+	}
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatalf("write bootstrap fixture with stale runtime.%s: %v", key, err)
+	}
+	setBootstrapSeedEnv(t, map[string]string{
+		config.BootstrapConfigPathEnv: configPath,
+	})
+
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	_, err = manager.LoadOrSeedFromEnv()
+	if err == nil {
+		t.Fatalf("expected existing config with stale runtime.%s to fail", key)
+	}
+	if !strings.Contains(err.Error(), `unknown field "`+key+`"`) {
+		t.Fatalf("expected unknown-field error for runtime.%s, got %v", key, err)
+	}
+}
+
 func TestEncryptedBootstrapConfigFileFailsFast(t *testing.T) {
 	setBootstrapSeedEnv(t, map[string]string{
 		config.BootstrapConfigPathEnv: integrationBootstrapFixturePath(t, "bootstrap-unsupported-encrypted-v1.json"),
@@ -350,8 +386,8 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 	if settings.AuthJWTSecret != bootstrapFixtureJWTSecret {
 		t.Fatalf("unexpected seeded auth JWT secret: %q", settings.AuthJWTSecret)
 	}
-	if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox || settings.RuntimeBufferingMode != config.RuntimeBufferingModeStreaming {
-		t.Fatalf("unexpected seeded runtime modes: telemetry=%q buffering=%q", settings.RuntimeTelemetryMode, settings.RuntimeBufferingMode)
+	if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox {
+		t.Fatalf("unexpected seeded runtime telemetry mode: %q", settings.RuntimeTelemetryMode)
 	}
 	transport := settings.RuntimeTransport()
 	if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 16 || transport.MaxConnsPerHost != 16 {
@@ -417,8 +453,8 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	if seeded.Database.ManagementAdmission.M2MaxConcurrent != 3 || seeded.Database.ManagementAdmission.M3MaxConcurrent != 2 {
 		t.Fatalf("unexpected seeded admission payload: %+v", seeded.Database.ManagementAdmission)
 	}
-	if seeded.Runtime.BufferingMode != "streaming" || seeded.Runtime.SecretEncryptionKey != bootstrapFixtureSecretKey {
-		t.Fatalf("unexpected seeded runtime payload: %+v", seeded.Runtime)
+	if seeded.Runtime.SecretEncryptionKey != bootstrapFixtureSecretKey {
+		t.Fatalf("unexpected seeded runtime secret payload: %+v", seeded.Runtime)
 	}
 	if seeded.Runtime.Transport.MaxIdleConns != 100 || seeded.Runtime.Transport.MaxIdleConnsPerHost != 16 || seeded.Runtime.Transport.MaxConnsPerHost != 16 {
 		t.Fatalf("unexpected seeded runtime transport payload: %+v", seeded.Runtime.Transport)

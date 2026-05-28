@@ -40,7 +40,7 @@ platform/
 - Keep `lifecycle/` as the production composition boundary. Feature services are wired there, while handlers and domain packages stay outside platform.
 - Keep hot-eligible bootstrap state behind `http.HotBootstrapConfigRuntime`; it publishes CORS, auth, mail, runtime proxy transport, and admission snapshots without restarting the process. `runtime.transport.requestTimeout` is part of the hot-applicable runtime transport snapshot.
 - Keep listener, database URL, pool budgets, runtime side-effect attempt timeout, runtime secret encryption key, JWT signing key, and state-transfer bundle key restart-required. `runtime.sideEffects.attemptTimeout` stays restart-required and is not hot-applied.
-- Keep backend canonical defaults as the source of truth for fresh bootstrap seeds: server `0.0.0.0:8000`, CORS `5173`, PostgreSQL pool total `24`, split `4/8/4/2/2/2/2`, runtime buffering `streaming`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`.
+- Keep backend canonical defaults as the source of truth for fresh bootstrap seeds: server `0.0.0.0:8000`, CORS `5173`, PostgreSQL pool total `24`, split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`. Runtime buffering is automatic and internal.
 - Preserve existing valid bootstrap files during startup. To reset defaults, stop Prism, remove or relocate the bootstrap file, then restart so the missing-file seed path runs.
 - Keep database capacity lane-specific. Runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs must not borrow each other's protected budgets.
 - Keep request-path side effects on scheduler workers, durable outboxes, or after-commit wakeups.

@@ -58,15 +58,15 @@ function createRetentionSettings() {
 function createModelListItem() {
   return {
     id: 1,
+    profile_id: 1,
     vendor_id: null,
     vendor: null,
     api_family: "openai",
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
-    model_type: "native",
-    proxy_targets: [],
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
+    access_targets: [],
     is_enabled: true,
     connection_count: 0,
     active_connection_count: 0,
@@ -80,7 +80,7 @@ function createModelListItem() {
 function buildProfileImportBundle(variant: "alpha" | "beta") {
   if (variant === "alpha") {
     return {
-      version: 1 as const,
+      version: 2 as const,
       bundle_kind: "profile_config" as const,
       vendor_refs: [
         {
@@ -99,12 +99,34 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
         },
       ],
       pricing_templates: [],
+      connections: [
+        {
+          ref: "alpha-connection",
+          endpoint_name: "Alpha endpoint",
+          api_family: "openai" as const,
+          pricing_template_name: null,
+          is_active: true,
+          name: "Alpha connection",
+          auth_type: "openai" as const,
+          custom_headers: null,
+          openai_probe_endpoint_variant: null,
+          qps_limit: null,
+          max_in_flight_non_stream: null,
+          max_in_flight_stream: null,
+        },
+      ],
       loadbalance_strategies: [
         {
           name: "Alpha legacy routing",
-          strategy_type: "legacy" as const,
           legacy_strategy_type: "round-robin" as const,
-          auto_recovery: { mode: "disabled" as const },
+          failure_status_codes: [429, 500],
+          ban_mode: "off" as const,
+          retry_base_delay_ms: 1000,
+          retry_backoff_multiplier: 2,
+          retry_jitter_ratio: 0.2,
+          retry_max_delay_ms: 8000,
+          retry_max_attempts: 3,
+          ban_duration_seconds: 0,
         },
       ],
       models: [
@@ -113,24 +135,10 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
           api_family: "openai" as const,
           model_id: "alpha-model",
           display_name: "Alpha model",
-          model_type: "native" as const,
-          proxy_targets: [],
           loadbalance_strategy_name: "Alpha legacy routing",
           is_enabled: true,
-          connections: [
-            {
-              endpoint_name: "Alpha endpoint",
-              pricing_template_name: null,
-              is_active: true,
-              priority: 0,
-              name: "Alpha connection",
-              auth_type: "openai" as const,
-              custom_headers: null,
-              openai_probe_endpoint_variant: null,
-              qps_limit: null,
-              max_in_flight_non_stream: null,
-              max_in_flight_stream: null,
-            },
+          access_targets: [
+            { position: 0, is_enabled: true, target_type: "connection" as const, connection_ref: "alpha-connection" },
           ],
         },
       ],
@@ -165,7 +173,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
   }
 
   return {
-    version: 1 as const,
+    version: 2 as const,
     bundle_kind: "profile_config" as const,
     vendor_refs: [
       {
@@ -190,12 +198,48 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
       },
     ],
     pricing_templates: [],
+    connections: [
+      {
+        ref: "beta-connection-a",
+        endpoint_name: "Beta endpoint A",
+        api_family: "anthropic" as const,
+        pricing_template_name: null,
+        is_active: true,
+        name: "Beta connection A",
+        auth_type: "anthropic" as const,
+        custom_headers: null,
+        openai_probe_endpoint_variant: null,
+        qps_limit: null,
+        max_in_flight_non_stream: null,
+        max_in_flight_stream: null,
+      },
+      {
+        ref: "beta-connection-b",
+        endpoint_name: "Beta endpoint B",
+        api_family: "anthropic" as const,
+        pricing_template_name: null,
+        is_active: true,
+        name: "Beta connection B",
+        auth_type: "anthropic" as const,
+        custom_headers: null,
+        openai_probe_endpoint_variant: null,
+        qps_limit: null,
+        max_in_flight_non_stream: null,
+        max_in_flight_stream: null,
+      },
+    ],
     loadbalance_strategies: [
       {
         name: "Beta legacy routing",
-        strategy_type: "legacy" as const,
         legacy_strategy_type: "fill-first" as const,
-        auto_recovery: { mode: "disabled" as const },
+        failure_status_codes: [429, 500],
+        ban_mode: "off" as const,
+        retry_base_delay_ms: 1000,
+        retry_backoff_multiplier: 2,
+        retry_jitter_ratio: 0.2,
+        retry_max_delay_ms: 8000,
+        retry_max_attempts: 3,
+        ban_duration_seconds: 0,
       },
     ],
     models: [
@@ -204,37 +248,11 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
         api_family: "anthropic" as const,
         model_id: "beta-model",
         display_name: "Beta model",
-        model_type: "native" as const,
-        proxy_targets: [],
         loadbalance_strategy_name: "Beta legacy routing",
         is_enabled: true,
-        connections: [
-          {
-            endpoint_name: "Beta endpoint A",
-            pricing_template_name: null,
-            is_active: true,
-            priority: 0,
-            name: "Beta connection A",
-            auth_type: "anthropic" as const,
-            custom_headers: null,
-            openai_probe_endpoint_variant: null,
-            qps_limit: null,
-            max_in_flight_non_stream: null,
-            max_in_flight_stream: null,
-          },
-          {
-            endpoint_name: "Beta endpoint B",
-            pricing_template_name: null,
-            is_active: true,
-            priority: 1,
-            name: "Beta connection B",
-            auth_type: "anthropic" as const,
-            custom_headers: null,
-            openai_probe_endpoint_variant: null,
-            qps_limit: null,
-            max_in_flight_non_stream: null,
-            max_in_flight_stream: null,
-          },
+        access_targets: [
+          { position: 0, is_enabled: true, target_type: "connection" as const, connection_ref: "beta-connection-a" },
+          { position: 1, is_enabled: true, target_type: "connection" as const, connection_ref: "beta-connection-b" },
         ],
       },
     ],
@@ -272,13 +290,13 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
 }
 
 function countConnections(bundle: ProfileImportBundle) {
-  return bundle.models.reduce((total, model) => total + model.connections.length, 0);
+  return bundle.connections.length;
 }
 
 function buildPreviewResponse(bundle: ProfileImportBundle, previewToken: string) {
   return {
     ready: true,
-    version: 1 as const,
+    version: 2 as const,
     bundle_kind: "profile_config" as const,
     preview_token: previewToken,
     bundle_fingerprint: `profile-fingerprint-${previewToken}`,
@@ -442,7 +460,7 @@ test("profile import requires an explicit preview before apply", async ({ page }
     buffer: Buffer.from(JSON.stringify(importBundle)),
   });
 
-  await expect(backupSection.getByText("Loaded profile-import-alpha.json: 1 endpoints, 1 strategies, 1 models, 1 connections.")).toBeVisible();
+  await expect(backupSection.getByText("Loaded profile-import-alpha.json: 1 endpoints, 1 strategies, 1 models, 1 top-level connections.")).toBeVisible();
   await expect(backupSection.getByText("Run preview to bind a fresh token for the currently loaded bundle before applying it.")).toBeVisible();
   await expect(applyButton).toBeDisabled();
   expect(routes.getPreviewRequests()).toEqual([]);
@@ -463,7 +481,7 @@ test("profile import requires an explicit preview before apply", async ({ page }
 
   await applyButton.click();
 
-  await expect(page.getByText("Imported 1 endpoints, 1 strategies, 1 models, 1 connections")).toBeVisible();
+  await expect(page.getByText("Imported 1 endpoints, 1 strategies, 1 models, 1 top-level connections")).toBeVisible();
   const previewRequests = routes.getPreviewRequests();
   expect(previewRequests).toHaveLength(1);
   expect(previewRequests[0]).toEqual({
@@ -500,7 +518,7 @@ test("profile import invalidates a stale preview when the bundle changes", async
     buffer: Buffer.from(JSON.stringify(secondBundle)),
   });
 
-  await expect(backupSection.getByText("Loaded profile-import-beta.json: 2 endpoints, 1 strategies, 1 models, 2 connections.")).toBeVisible();
+  await expect(backupSection.getByText("Loaded profile-import-beta.json: 2 endpoints, 1 strategies, 1 models, 2 top-level connections.")).toBeVisible();
   await expect(backupSection.getByText("Run preview to bind a fresh token for the currently loaded bundle before applying it.")).toBeVisible();
   await expect(applyButton).toBeDisabled();
   expect(routes.getImportedPayloads()).toEqual([]);
@@ -511,7 +529,7 @@ test("profile import invalidates a stale preview when the bundle changes", async
 
   await applyButton.click();
 
-  await expect(page.getByText("Imported 2 endpoints, 1 strategies, 1 models, 2 connections")).toBeVisible();
+  await expect(page.getByText("Imported 2 endpoints, 1 strategies, 1 models, 2 top-level connections")).toBeVisible();
   const previewRequests = routes.getPreviewRequests();
   expect(previewRequests).toHaveLength(2);
   expect(previewRequests[0]).toEqual({

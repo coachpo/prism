@@ -1,19 +1,18 @@
-import { Navigate, useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useModelDetailData } from "./model-detail/useModelDetailData";
 import { useModelDetailPageShell } from "./model-detail/useModelDetailPageShell";
 import { ModelDetailHeader } from "./model-detail/ModelDetailHeader";
-import { ModelDetailTabs } from "./model-detail/ModelDetailTabs";
 import { OverviewCards } from "./model-detail/OverviewCards";
 import { ConnectionDialog } from "./model-detail/ConnectionDialog";
 import { ModelSettingsDialog } from "./model-detail/ModelSettingsDialog";
-import { getModelDetailPath } from "./model-detail/modelDetailMetricsAndPaths";
+import { AccessTargetsEditor } from "./models/AccessTargetsEditor";
+import { accessTargetToMutation } from "./models/modelFormState";
 
 export function ModelDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { activeTab, navigateBackToModels, navigateToRequestLogs, setActiveTab } =
-    useModelDetailPageShell(navigate);
+  const { navigateBackToModels, navigateToRequestLogs } = useModelDetailPageShell(navigate);
 
   const {
     model,
@@ -25,25 +24,20 @@ export function ModelDetailPage() {
     formData,
     setFormData,
     setLoadbalanceStrategyId,
-    nativeModelsForApiFamily,
+    targetConnectionsForApiFamily,
+    targetModelsForApiFamily,
+    targetEditorError,
     spending,
     spendingLoading,
     spendingCurrencySymbol,
     spendingCurrencyCode,
-    connections,
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
-    connectionSearch,
-    setConnectionSearch,
     healthCheckingIds,
     dialogTestingConnection,
     dialogTestResult,
     clearDialogTestResult,
-    currentStateByConnectionId,
-    resettingConnectionIds,
-    focusedConnectionId,
-    connectionCardRefs,
     globalEndpoints,
     createMode,
     setCreateMode,
@@ -55,19 +49,18 @@ export function ModelDetailPage() {
     setConnectionForm,
     headerRows,
     setHeaderRows,
-    proxyTargetSummary,
+    accessTargetSummary,
     endpointSourceDefaultName,
     openConnectionDialog,
     handleConnectionSubmit,
-    handleDeleteConnection,
     handleHealthCheck,
     handleDialogTestConnection,
-    handleToggleActive,
+    handleAddAccessTarget,
+    handleMoveAccessTarget,
+    handleToggleAccessTarget,
+    handleDeleteAccessTarget,
     handleEditModelSubmit,
     pricingTemplates,
-    reorderInFlight,
-    handleReorderConnections,
-    handleResetCooldown,
   } = useModelDetailData(id);
 
   if (loading) {
@@ -85,10 +78,6 @@ export function ModelDetailPage() {
 
   if (!model) return null;
 
-  if (model.model_type === "proxy") {
-    return <Navigate to={getModelDetailPath(model)} replace />;
-  }
-
   return (
     <div className="space-y-[var(--density-page-gap)] pb-2">
       <ModelDetailHeader
@@ -103,28 +92,26 @@ export function ModelDetailPage() {
         spendingLoading={spendingLoading}
         spendingCurrencySymbol={spendingCurrencySymbol}
         spendingCurrencyCode={spendingCurrencyCode}
-        proxyTargetSummary={proxyTargetSummary}
+        accessTargetSummary={accessTargetSummary}
         onViewRequestLogs={() => navigateToRequestLogs(model.model_id)}
       />
-      <ModelDetailTabs
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        model={model}
-        connections={connections}
-        connectionSearch={connectionSearch}
-        setConnectionSearch={setConnectionSearch}
-        openConnectionDialog={openConnectionDialog}
-        handleDeleteConnection={handleDeleteConnection}
-        handleHealthCheck={handleHealthCheck}
-        handleToggleActive={handleToggleActive}
-        handleReorderConnections={handleReorderConnections}
-        currentStateByConnectionId={currentStateByConnectionId}
-        resettingConnectionIds={resettingConnectionIds}
+      <AccessTargetsEditor
+        apiFamilyLabel={model.api_family}
+        accessTargets={model.access_targets
+          .map(accessTargetToMutation)
+          .filter((target): target is NonNullable<typeof target> => target !== null)}
+        modelOptions={targetModelsForApiFamily}
+        connectionOptions={targetConnectionsForApiFamily}
+        error={targetEditorError}
         healthCheckingIds={healthCheckingIds}
-        focusedConnectionId={focusedConnectionId}
-        connectionCardRefs={connectionCardRefs}
-        reorderInFlight={reorderInFlight}
-        handleResetCooldown={handleResetCooldown}
+        onAddTarget={handleAddAccessTarget}
+        onCreateConnection={() => openConnectionDialog()}
+        onDeleteTarget={handleDeleteAccessTarget}
+        onEditConnection={openConnectionDialog}
+        onHealthCheck={handleHealthCheck}
+        onMoveTarget={handleMoveAccessTarget}
+        onToggleTarget={handleToggleAccessTarget}
+        onChange={() => undefined}
       />
 
       <ConnectionDialog
@@ -158,7 +145,9 @@ export function ModelDetailPage() {
         isOpen={isEditModelDialogOpen}
         loadbalanceStrategies={loadbalanceStrategies}
         model={model}
-        nativeModelsForApiFamily={nativeModelsForApiFamily}
+        targetConnectionsForApiFamily={targetConnectionsForApiFamily}
+        targetEditorError={targetEditorError}
+        targetModelsForApiFamily={targetModelsForApiFamily}
         onOpenChange={setIsEditModelDialogOpen}
         setFormData={setFormData}
         setLoadbalanceStrategyId={setLoadbalanceStrategyId}

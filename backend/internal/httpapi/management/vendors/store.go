@@ -111,7 +111,7 @@ func ensureVendorUniqueness(ctx context.Context, exec queryExecutor, key *string
 }
 
 func listVendorModelUsage(ctx context.Context, exec queryExecutor, vendorID int) ([]vendorModelUsageItem, error) {
-	rows, err := exec.Query(ctx, `SELECT model_configs.id, profiles.id, profiles.name, model_configs.model_id, model_configs.display_name, model_configs.model_type, model_configs.api_family, model_configs.is_enabled FROM model_configs JOIN profiles ON profiles.id = model_configs.profile_id WHERE model_configs.vendor_id = $1 ORDER BY profiles.id ASC, model_configs.id ASC`, vendorID)
+	rows, err := exec.Query(ctx, `SELECT model_configs.id, profiles.id, profiles.name, model_configs.model_id, model_configs.display_name, model_configs.api_family, model_configs.is_enabled FROM model_configs JOIN profiles ON profiles.id = model_configs.profile_id WHERE model_configs.vendor_id = $1 ORDER BY profiles.id ASC, model_configs.id ASC`, vendorID)
 	if err != nil {
 		return nil, fmt.Errorf("query vendor model usage for vendor %d: %w", vendorID, err)
 	}
@@ -121,7 +121,7 @@ func listVendorModelUsage(ctx context.Context, exec queryExecutor, vendorID int)
 	for rows.Next() {
 		var item vendorModelUsageItem
 		var displayName sql.NullString
-		if err := rows.Scan(&item.ModelConfigID, &item.ProfileID, &item.ProfileName, &item.ModelID, &displayName, &item.ModelType, &item.APIFamily, &item.IsEnabled); err != nil {
+		if err := rows.Scan(&item.ModelConfigID, &item.ProfileID, &item.ProfileName, &item.ModelID, &displayName, &item.APIFamily, &item.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan vendor model usage: %w", err)
 		}
 		if displayName.Valid {

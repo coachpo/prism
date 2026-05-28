@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { generatePath, matchPath, useLocation } from "react-router-dom";
+import { matchPath, useLocation } from "react-router-dom";
 import { useLocale } from "@/i18n/useLocale";
 import type { Messages } from "@/i18n/messages/en";
 import {
@@ -120,23 +120,6 @@ function buildBreadcrumbs(
       return [
         { current: false, href: "/models", id: "models", label: messages.nav.models },
         { current: true, href: null, id: "model-detail", label: messages.modelDetail.configuration },
-      ];
-
-    case "proxy-model-detail":
-      return [
-        { current: false, href: "/models", id: "models", label: messages.nav.models },
-        {
-          current: false,
-          href: generatePath("/models/:id", { id: matchedRoute.params.id }),
-          id: "model-detail",
-          label: messages.modelDetail.configuration,
-        },
-        {
-          current: true,
-          href: null,
-          id: "proxy-model-detail",
-          label: messages.modelDetail.proxyRouting,
-        },
       ];
 
     case "settings": {

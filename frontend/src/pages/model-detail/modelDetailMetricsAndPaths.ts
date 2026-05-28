@@ -1,14 +1,10 @@
-import type { Connection } from "@/lib/types";
+import type { Connection, ModelConfig, ModelConfigListItem } from "@/lib/types";
 import { formatNumber, getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
 
-type ModelDetailPathTarget = {
-  id: number;
-  model_type: "native" | "proxy";
-};
+type ModelDetailPathTarget = Pick<ModelConfig, "id"> | Pick<ModelConfigListItem, "id">;
 
-export const getModelDetailPath = ({ id, model_type }: ModelDetailPathTarget): string =>
-  model_type === "proxy" ? `/models/${id}/proxy` : `/models/${id}`;
+export const getModelDetailPath = (model: ModelDetailPathTarget): string => `/models/${model.id}`;
 
 export const formatLatencyForDisplay = (value: number | null): string => {
   if (value === null || !Number.isFinite(value)) return "-";

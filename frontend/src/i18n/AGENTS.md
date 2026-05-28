@@ -21,7 +21,7 @@ i18n/
 - Provider mount point: `../main.tsx`
 - Shell and route consumers: `../App.tsx`, `../components/LanguageSwitcher.tsx`, `../components/ThemeToggle.tsx`, `../components/WebSocketStatusIndicator.tsx`, `../components/layout/page.tsx`
 - Shared formatting consumers: `../hooks/useTimezone.ts`, `../lib/timezone.ts`, `../lib/costing.ts`, and page helpers under `../pages/`
-- Static label helpers for non-hook callers, fallback labels, objective labels, and known-label comparisons: `staticMessages.ts`
+- Static label helpers for non-hook callers, fallback labels, Ban Policy labels, and known-label comparisons: `staticMessages.ts`
 
 ## CONVENTIONS
 
@@ -29,9 +29,9 @@ i18n/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep locale selection frontend-only.
 - Keep `document.documentElement.lang` synchronized through `LocaleProvider.tsx`.
-- Add new user-facing strings to the catalogs when they belong to reusable shell or route surfaces, including shared dual-strategy family, objective wording, and the `sidecarsPage` control-plane copy.
+- Add new user-facing strings to the catalogs when they belong to reusable shell or route surfaces, including shared legacy Ban Policy wording, final-target observability labels, and the `sidecarsPage` control-plane copy.
 - Route shared formatting through `format.ts` or `useLocale()` instead of ad hoc `Intl.*` usage.
-- Use `staticMessages.ts` when a non-hook caller needs locale-aware fallback labels, objective labels, or known-label comparisons instead of importing React hooks.
+- Use `staticMessages.ts` when a non-hook caller needs locale-aware fallback labels, Ban Policy labels, or known-label comparisons instead of importing React hooks.
 
 ## LLM UPSTREAM MATRIX
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.

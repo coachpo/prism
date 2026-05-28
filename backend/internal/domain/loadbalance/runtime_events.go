@@ -19,20 +19,18 @@ type PartitionEnsurer interface {
 }
 
 type runtimeEventPayload struct {
-	EventType           string
-	FailureKind         *string
-	ConsecutiveFailures int
-	CooldownSeconds     float64
-	BlockedUntilAt      *time.Time
-	FailureThreshold    *int
-	BackoffMultiplier   *float64
-	MaxCooldownSeconds  *int
-	MaxCooldownStrikes  *int
-	BanMode             *string
-	BannedUntilAt       *time.Time
+	EventType                 string
+	FailureKind               *string
+	CycleRetryAttempts        int
+	CumulativeRetryAttempts   int
+	NextRetryAt               *time.Time
+	LastRetryDelayMS          int
+	BanMode                   *string
+	BannedUntilAt             *time.Time
+	LastSuccessAt             *time.Time
 }
 
-func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, observedAt time.Time, payload runtimeEventPayload) error {
+func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, modelConfigID int, connectionID int, observedAt time.Time, payload runtimeEventPayload) error {
 	observedAt = observedAt.UTC()
 	if partitionEnsurer == nil {
 		return fmt.Errorf("loadbalance event partition ensurer unavailable")
@@ -40,30 +38,28 @@ func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, part
 	if err := partitionEnsurer.EnsurePartitionForTime(ctx, "loadbalance_events", observedAt); err != nil {
 		return fmt.Errorf("ensure loadbalance event partition for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
-	metadata, err := loadRuntimeEventMetadata(ctx, exec, profileID, connectionID)
+	metadata, err := loadRuntimeEventMetadata(ctx, exec, profileID, modelConfigID, connectionID)
 	if err != nil {
 		return err
 	}
 	_, err = exec.Exec(
 		ctx,
-		`INSERT INTO loadbalance_events (profile_id, connection_id, event_type, failure_kind, consecutive_failures, cooldown_seconds, blocked_until_mono, model_id, endpoint_id, vendor_id, failure_threshold, backoff_multiplier, max_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+		`INSERT INTO loadbalance_events (profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, banned_until_at, last_success_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		profileID,
 		connectionID,
 		payload.EventType,
 		nullableStringPointerArg(payload.FailureKind),
-		payload.ConsecutiveFailures,
-		payload.CooldownSeconds,
-		nullableBlockedUntilMonoArg(payload.BlockedUntilAt),
+		payload.CycleRetryAttempts,
+		payload.CumulativeRetryAttempts,
+		nullableTimeArg(payload.NextRetryAt),
+		payload.LastRetryDelayMS,
 		nullableStringPointerArg(metadata.ModelID),
 		nullableIntPointerArg(metadata.EndpointID),
 		nullableIntPointerArg(metadata.VendorID),
-		nullableIntPointerArg(payload.FailureThreshold),
-		nullableFloatPointerArg(payload.BackoffMultiplier),
-		nullableIntPointerArg(payload.MaxCooldownSeconds),
-		nullableIntPointerArg(payload.MaxCooldownStrikes),
 		nullableStringPointerArg(payload.BanMode),
 		nullableTimeArg(payload.BannedUntilAt),
+		nullableTimeArg(payload.LastSuccessAt),
 		observedAt.UTC(),
 	)
 	if err != nil {
@@ -72,19 +68,22 @@ func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, part
 	return nil
 }
 
-func loadRuntimeEventMetadata(ctx context.Context, exec queryExecutor, profileID int, connectionID int) (runtimeEventMetadata, error) {
+func loadRuntimeEventMetadata(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionID int) (runtimeEventMetadata, error) {
 	var modelID sql.NullString
 	var endpointID sql.NullInt32
 	var vendorID sql.NullInt32
 	err := exec.QueryRow(
 		ctx,
 		`SELECT model_configs.model_id, connections.endpoint_id, model_configs.vendor_id
-		FROM connections
-		JOIN model_configs ON model_configs.id = connections.model_config_id
-		WHERE connections.profile_id = $1 AND connections.id = $2
+		FROM model_access_targets
+		JOIN connections ON connections.id = model_access_targets.target_connection_id
+		JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id
+		WHERE model_access_targets.profile_id = $1 AND connections.id = $2
+		ORDER BY CASE WHEN model_access_targets.source_model_config_id = $3 THEN 0 ELSE 1 END, model_access_targets.position ASC, model_access_targets.id ASC
 		LIMIT 1`,
 		profileID,
 		connectionID,
+		modelConfigID,
 	).Scan(&modelID, &endpointID, &vendorID)
 	if err != nil {
 		return runtimeEventMetadata{}, fmt.Errorf("load runtime event metadata for connection %d in profile %d: %w", connectionID, profileID, err)
@@ -96,189 +95,114 @@ func loadRuntimeEventMetadata(ctx context.Context, exec queryExecutor, profileID
 	}, nil
 }
 
-func RecordRuntimePlanningSkip(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, state RuntimeConnectionState, strategy RuntimeStrategy, observedAt time.Time) error {
-	payload := buildRuntimePlanningSkipEventPayload(state, strategy, observedAt)
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
-		return fmt.Errorf("record runtime planning skip event for connection %d in profile %d: %w", connectionID, profileID, err)
+func InsertRuntimeAdmissionRejectedEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, modelConfigID int, connectionID int, state RuntimeConnectionState, observedAt time.Time) error {
+	payload := buildRuntimeAdmissionRejectedEventPayload(state)
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, modelConfigID, connectionID, observedAt.UTC(), payload); err != nil {
+		return fmt.Errorf("record runtime admission rejected event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return nil
 }
 
-func RecordRuntimeAdmissionRejection(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, observedAt time.Time) error {
-	payload := runtimeEventPayload{EventType: "not_opened"}
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
-		return fmt.Errorf("record runtime admission rejection event for connection %d in profile %d: %w", connectionID, profileID, err)
+func InsertRuntimeUnbannedEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, modelConfigID int, connectionID int, state RuntimeConnectionState, observedAt time.Time) error {
+	payload := buildRuntimeUnbannedEventPayload(state)
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, modelConfigID, connectionID, observedAt.UTC(), payload); err != nil {
+		return fmt.Errorf("record runtime unbanned event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return nil
 }
 
-func InsertRuntimeProbeEligibleEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, state RuntimeConnectionState, strategy RuntimeStrategy, observedAt time.Time) error {
-	payload := buildRuntimeProbeEligibleEventPayload(state, strategy)
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
-		return fmt.Errorf("record runtime probe-eligible event for connection %d in profile %d: %w", connectionID, profileID, err)
-	}
-	return nil
-}
-
-func InsertRuntimeRecoveryEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, observedAt time.Time) error {
+func InsertRuntimeRecoveryEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, modelConfigID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, observedAt time.Time) error {
 	if !transition.RecoveryEventEligible {
 		return nil
 	}
-	payload := buildRuntimeRecoveryEventPayload(transition.PreviousState, strategy)
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+	payload := buildRuntimeRecoveryEventPayload(transition.PreviousState, transition.CurrentState)
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, modelConfigID, connectionID, observedAt.UTC(), payload); err != nil {
 		return fmt.Errorf("record runtime recovery event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return nil
 }
 
-func InsertRuntimeFailureEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, failureKind string, observedAt time.Time) error {
-	payload := buildRuntimeFailureEventPayload(
-		transition.PreviousState,
-		strategy,
-		failureKind,
-		transition.CurrentState.ConsecutiveFailures,
-		transition.CurrentState.LastCooldownSeconds,
-		transition.CurrentState.MaxCooldownStrikes,
-		transition.CurrentState.BanMode,
-		transition.CurrentState.BannedUntilAt,
-		transition.CurrentState.OpenUntilAt,
-		observedAt.UTC(),
-	)
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+func InsertRuntimeFailureEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, modelConfigID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, failureKind string, observedAt time.Time) error {
+	payload := buildRuntimeFailureEventPayload(transition.CurrentState, strategy, failureKind)
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, modelConfigID, connectionID, observedAt.UTC(), payload); err != nil {
 		return fmt.Errorf("record runtime failure event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return nil
 }
 
-func buildRuntimePlanningSkipEventPayload(state RuntimeConnectionState, strategy RuntimeStrategy, observedAt time.Time) runtimeEventPayload {
-	policy := strategy.FeedbackPolicy()
-	nowAt := observedAt.UTC()
-	failureKind := state.LastFailureKind
-	if failureKind == nil {
-		failureKind = state.LastLiveFailureKind
-	}
-	banModeValue := normalizeBanMode(state.BanMode)
-	eventType := "opened"
-	blockedUntilAt := state.OpenUntilAt
-	var bannedUntilAt *time.Time
-	if banModeValue == "manual" || (state.BannedUntilAt != nil && state.BannedUntilAt.After(nowAt)) {
-		eventType = "banned"
-		blockedUntilAt = nil
-		bannedUntilAt = state.BannedUntilAt
-	} else if state.ProbeAvailableAt != nil && state.ProbeAvailableAt.After(nowAt) {
-		blockedUntilAt = state.ProbeAvailableAt
-	}
+func buildRuntimeAdmissionRejectedEventPayload(state RuntimeConnectionState) runtimeEventPayload {
 	return runtimeEventPayload{
-		EventType:           eventType,
-		FailureKind:         failureKind,
-		ConsecutiveFailures: state.ConsecutiveFailures,
-		CooldownSeconds:     state.LastCooldownSeconds,
-		BlockedUntilAt:      blockedUntilAt,
-		FailureThreshold:    intPointer(policy.FailureThreshold),
-		BackoffMultiplier:   float64Pointer(policy.BackoffMultiplier),
-		MaxCooldownSeconds:  intPointer(policy.MaxOpenSeconds),
-		MaxCooldownStrikes:  intPointer(state.MaxCooldownStrikes),
-		BanMode:             stringPointerIfNotEmpty(banModeValue),
-		BannedUntilAt:       bannedUntilAt,
+		EventType:               "admission_rejected",
+		FailureKind:             state.LastFailureKind,
+		CycleRetryAttempts:      state.CycleRetryAttempts,
+		CumulativeRetryAttempts: state.CumulativeRetryAttempts,
+		NextRetryAt:             state.NextRetryAt,
+		LastRetryDelayMS:        state.LastRetryDelayMS,
+		BanMode:                 stringPointerIfNotEmpty(normalizeBanMode(state.BanMode)),
+		BannedUntilAt:           state.BannedUntilAt,
+		LastSuccessAt:           state.LastSuccessAt,
 	}
 }
 
-func buildRuntimeProbeEligibleEventPayload(state RuntimeConnectionState, strategy RuntimeStrategy) runtimeEventPayload {
-	policy := strategy.FeedbackPolicy()
-	failureKind := state.LastFailureKind
-	if failureKind == nil {
-		failureKind = state.LastLiveFailureKind
-	}
-	blockedUntilAt := state.ProbeAvailableAt
-	if blockedUntilAt == nil {
-		blockedUntilAt = state.OpenUntilAt
-	}
-	banModeValue := normalizeBanMode(state.BanMode)
+func buildRuntimeUnbannedEventPayload(state RuntimeConnectionState) runtimeEventPayload {
 	return runtimeEventPayload{
-		EventType:           "probe_eligible",
-		FailureKind:         failureKind,
-		ConsecutiveFailures: state.ConsecutiveFailures,
-		CooldownSeconds:     state.LastCooldownSeconds,
-		BlockedUntilAt:      blockedUntilAt,
-		FailureThreshold:    intPointer(policy.FailureThreshold),
-		BackoffMultiplier:   float64Pointer(policy.BackoffMultiplier),
-		MaxCooldownSeconds:  intPointer(policy.MaxOpenSeconds),
-		MaxCooldownStrikes:  intPointer(state.MaxCooldownStrikes),
-		BanMode:             stringPointerIfNotEmpty(banModeValue),
-		BannedUntilAt:       state.BannedUntilAt,
+		EventType:               "unbanned",
+		FailureKind:             state.LastFailureKind,
+		CycleRetryAttempts:      state.CycleRetryAttempts,
+		CumulativeRetryAttempts: state.CumulativeRetryAttempts,
+		NextRetryAt:             state.NextRetryAt,
+		LastRetryDelayMS:        state.LastRetryDelayMS,
+		BanMode:                 stringPointerIfNotEmpty(normalizeBanMode(state.BanMode)),
+		BannedUntilAt:           state.BannedUntilAt,
+		LastSuccessAt:           state.LastSuccessAt,
 	}
 }
 
-func buildRuntimeFailureEventPayload(previousState RuntimeConnectionState, strategy RuntimeStrategy, failureKind string, consecutiveFailures int, cooldownSeconds float64, maxCooldownStrikes int, banMode string, bannedUntilAt *time.Time, blockedUntilAt *time.Time, observedAt time.Time) runtimeEventPayload {
+func buildRuntimeFailureEventPayload(state RuntimeConnectionState, strategy RuntimeStrategy, failureKind string) runtimeEventPayload {
 	policy := strategy.FeedbackPolicy()
 	failureKindValue := failureKind
-	banModeValue := strings.ToLower(strings.TrimSpace(banMode))
-	if banModeValue == "" {
-		banModeValue = "off"
-	}
-	eventType := "not_opened"
-	if cooldownSeconds > 0 {
-		eventType = "opened"
-		if previousState.OpenUntilAt != nil && previousState.OpenUntilAt.After(observedAt.UTC()) {
-			eventType = "extended"
-		}
-		if banModeValue != "off" && (banModeValue == "manual" || bannedUntilAt != nil) {
-			eventType = "banned"
-		}
+	banModeValue := normalizeBanMode(state.BanMode)
+	eventType := "retry_scheduled"
+	if banModeValue != "off" && (banModeValue == "manual" || state.BannedUntilAt != nil) {
+		eventType = "banned"
+	} else if state.CycleRetryAttempts >= maxInt(policy.RetryMaxAttempts, 1) {
+		eventType = "retry_exhausted"
 	}
 	return runtimeEventPayload{
-		EventType:           eventType,
-		FailureKind:         &failureKindValue,
-		ConsecutiveFailures: consecutiveFailures,
-		CooldownSeconds:     cooldownSeconds,
-		BlockedUntilAt:      blockedUntilAt,
-		FailureThreshold:    intPointer(policy.FailureThreshold),
-		BackoffMultiplier:   float64Pointer(policy.BackoffMultiplier),
-		MaxCooldownSeconds:  intPointer(policy.MaxOpenSeconds),
-		MaxCooldownStrikes:  intPointer(maxCooldownStrikes),
-		BanMode:             stringPointerIfNotEmpty(banModeValue),
-		BannedUntilAt:       bannedUntilAt,
+		EventType:               eventType,
+		FailureKind:             &failureKindValue,
+		CycleRetryAttempts:      state.CycleRetryAttempts,
+		CumulativeRetryAttempts: state.CumulativeRetryAttempts,
+		NextRetryAt:             state.NextRetryAt,
+		LastRetryDelayMS:        state.LastRetryDelayMS,
+		BanMode:                 stringPointerIfNotEmpty(banModeValue),
+		BannedUntilAt:           state.BannedUntilAt,
+		LastSuccessAt:           state.LastSuccessAt,
 	}
 }
 
-func buildRuntimeRecoveryEventPayload(previousState RuntimeConnectionState, strategy RuntimeStrategy) runtimeEventPayload {
-	policy := strategy.FeedbackPolicy()
-	failureKind := previousState.LastFailureKind
-	if failureKind == nil {
-		failureKind = previousState.LastLiveFailureKind
-	}
+func buildRuntimeRecoveryEventPayload(previousState RuntimeConnectionState, currentState RuntimeConnectionState) runtimeEventPayload {
 	return runtimeEventPayload{
-		EventType:           "recovered",
-		FailureKind:         failureKind,
-		ConsecutiveFailures: previousState.ConsecutiveFailures,
-		CooldownSeconds:     previousState.LastCooldownSeconds,
-		FailureThreshold:    intPointer(policy.FailureThreshold),
-		BackoffMultiplier:   float64Pointer(policy.BackoffMultiplier),
-		MaxCooldownSeconds:  intPointer(policy.MaxOpenSeconds),
-		MaxCooldownStrikes:  intPointer(previousState.MaxCooldownStrikes),
-		BanMode:             stringPointerIfNotEmpty(strings.TrimSpace(previousState.BanMode)),
-		BannedUntilAt:       previousState.BannedUntilAt,
+		EventType:               "recovered",
+		FailureKind:             previousState.LastFailureKind,
+		CycleRetryAttempts:      previousState.CycleRetryAttempts,
+		CumulativeRetryAttempts: previousState.CumulativeRetryAttempts,
+		NextRetryAt:             previousState.NextRetryAt,
+		LastRetryDelayMS:        previousState.LastRetryDelayMS,
+		BanMode:                 stringPointerIfNotEmpty(normalizeBanMode(previousState.BanMode)),
+		BannedUntilAt:           previousState.BannedUntilAt,
+		LastSuccessAt:           currentState.LastSuccessAt,
 	}
 }
 
 func shouldRecordRuntimeRecoveryEvent(state RuntimeConnectionState) bool {
-	if state.ConsecutiveFailures > 0 || state.LastCooldownSeconds > 0 || state.MaxCooldownStrikes > 0 {
+	if state.CycleRetryAttempts > 0 || state.CumulativeRetryAttempts > 0 || state.LastRetryDelayMS > 0 {
 		return true
 	}
-	if state.LastFailureKind != nil || state.LastLiveFailureKind != nil || state.LastLiveFailureAt != nil {
+	if state.LastFailureKind != nil || state.NextRetryAt != nil || state.BannedUntilAt != nil {
 		return true
 	}
-	if state.OpenUntilAt != nil || state.ProbeAvailableAt != nil || state.BannedUntilAt != nil {
-		return true
-	}
-	return strings.TrimSpace(strings.ToLower(state.CircuitState)) != "" && !strings.EqualFold(strings.TrimSpace(state.CircuitState), "closed")
-}
-
-func nullableBlockedUntilMonoArg(value *time.Time) any {
-	if value == nil {
-		return nil
-	}
-	return float64(value.UTC().UnixNano()) / float64(time.Second)
+	return normalizeBanMode(state.BanMode) != "off"
 }
 
 func nullableStringPointerArg(value *string) any {

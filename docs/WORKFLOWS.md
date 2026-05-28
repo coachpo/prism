@@ -4,7 +4,7 @@ This document maps Prism's current operator workflows from mounted frontend rout
 
 Validated again against current repo surfaces on 2026-05-10:
 - `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.3.21`, which is the current backend/frontend version surface.
-- The protected frontend route shell in `frontend/src/App.tsx` mounts `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/sidecars`; analytics lives under `/dashboard?tab=analytics`.
+- The protected frontend route shell in `frontend/src/App.tsx` mounts `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/sidecars`; analytics lives under `/dashboard?tab=analytics`.
 
 ## Evidence Sources
 
@@ -26,7 +26,7 @@ Validated again against current repo surfaces on 2026-05-10:
 ## Shared Scope Rules
 
 - Public auth routes are `/login`, `/forgot-password`, and `/reset-password`.
-- Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, and `/request-logs`; analytics is a dashboard tab at `/dashboard?tab=analytics`.
+- Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, and `/request-logs`; analytics is a dashboard tab at `/dashboard?tab=analytics`.
 - `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
 - Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `/api/sidecars/*`, and `/api/realtime/ws`.
 - `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
@@ -107,15 +107,14 @@ Validated again against current repo surfaces on 2026-05-10:
 
 - `/models`
 - `/models/:id`
-- `/models/:id/proxy`
 
 **Frontend flow**
 
 1. Operators list, search, create, edit, and delete model configs.
-2. Native models manage connections, pricing-template assignment, and attached loadbalance strategy.
-3. Proxy models manage `proxy_selection_strategy` and explicit proxy target metadata instead of direct connections, and both `/models` and `/models/:id/proxy` use the same non-empty same-family native-target contract.
-4. The `/models/:id/proxy` route keeps the page card summary-only; the shared Model Settings dialog is the one authoritative proxy-target editor and save path.
-5. Model detail loads connection KPIs, current loadbalance state, loadbalance event history, and manual health-check actions.
+2. Models manage ordered access targets that point to same-family models or standalone connections.
+3. The shared Model Settings dialog is the authoritative access-target editor and save path.
+4. Model detail loads attached standalone connection KPIs, current Ban Policy retry-window state, loadbalance event history, and manual health-check actions.
+5. Request-log handoff preserves the requested model while final-target fields show the terminal model reached through the access graph.
 
 **Backend touchpoints**
 
@@ -124,13 +123,14 @@ Validated again against current repo surfaces on 2026-05-10:
 - `GET /api/models/{model_config_id}`
 - `PUT /api/models/{model_config_id}`
 - `DELETE /api/models/{model_config_id}`
-- `GET /api/models/{model_config_id}/connections`
-- `POST /api/models/{model_config_id}/connections`
-- `POST /api/models/connections/batch`
+- `GET /api/models/{model_config_id}/targets`
+- `POST /api/models/{model_config_id}/targets`
+- `PUT /api/models/{model_config_id}/targets/{target_id}`
+- `DELETE /api/models/{model_config_id}/targets/{target_id}`
+- `PATCH /api/models/{model_config_id}/targets/reorder`
 - `GET /api/loadbalance/current-state`
 - `GET /api/loadbalance/events`
 - `POST /api/connections/{connection_id}/health-check`
-- `POST /api/models/{model_config_id}/connections/health-check-preview`
 
 ## 5. Endpoints, Loadbalance Strategies, And Pricing Templates
 
@@ -143,7 +143,7 @@ Validated again against current repo surfaces on 2026-05-10:
 **Frontend flow**
 
 1. Endpoints define reusable upstream credentials and base URLs.
-2. Loadbalance strategies define reusable `legacy` or `adaptive` routing policies for native models.
+2. Loadbalance strategies define reusable legacy routing plus Ban Policy retry-window settings for model access.
 3. Pricing templates define reusable cost models attached to connections with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`.
 4. Pricing-template management saves explicit strings for every component. Missing/null/blank inputs normalize to `"0"`; explicit `"0"` is configured free pricing, not missing pricing data.
 5. Request logs and cost math consume canonical disjoint token components: base input, cache-read input, cache-creation input, base output, and reasoning output. Aggregate `cached_tokens` is derived-only for presentation.
@@ -217,7 +217,7 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 1. Operators browse request history with server-backed filters.
 2. Exact request investigation opens the detail drawer through `request_id`.
 3. `ingress_request_id` groups all upstream attempts for one incoming proxy request.
-4. For proxy traffic, the request-log UI keeps the requested proxy `model_id` separate from the resolved native `resolved_target_model_id` so operators can see authoring intent and execution target at the same time.
+4. The request-log UI keeps the requested `model_id` separate from the final `resolved_target_model_id` so operators can see authoring intent and execution target at the same time.
 5. Audit payloads load lazily only when the audit tab is opened.
 
 **Backend touchpoints**
@@ -312,8 +312,8 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 **Runtime flow**
 
 1. The incoming request resolves a model from the request body or Gemini path.
-2. Proxy models choose a native target through `ordered_fallback`, `weighted_static`, or `priority_static` before connection planning starts.
-3. Native connection planning applies the attached loadbalance strategy and per-connection limits.
+2. Models resolve ordered access targets to same-family models or standalone connections before connection planning starts.
+3. Connection planning applies the attached legacy Ban Policy strategy and per-connection limits.
 4. The upstream request is rewritten as needed for the target API family, then proxied through.
 5. Request logs, audit data, and loadbalance events are recorded for later operator investigation.
 6. Missing pricing stays visibly degraded or unpriced, it never silently looks complete.

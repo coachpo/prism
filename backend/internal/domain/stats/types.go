@@ -39,7 +39,6 @@ type RequestLogListItem struct {
 	ModelLabel                  string    `json:"model_label"`
 	ResolvedTargetModelID       *string   `json:"resolved_target_model_id"`
 	ResolvedTargetModelLabel    *string   `json:"resolved_target_model_label"`
-	IsProxyOrigin               bool      `json:"is_proxy_origin"`
 	APIFamily                   string    `json:"api_family"`
 	VendorID                    *int      `json:"vendor_id"`
 	VendorKey                   *string   `json:"vendor_key"`
@@ -81,7 +80,6 @@ type RequestLogDetailSummary struct {
 	ModelLabel               string    `json:"model_label"`
 	ResolvedTargetModelID    *string   `json:"resolved_target_model_id"`
 	ResolvedTargetModelLabel *string   `json:"resolved_target_model_label"`
-	IsProxyOrigin            bool      `json:"is_proxy_origin"`
 	APIFamily                string    `json:"api_family"`
 	VendorID                 *int      `json:"vendor_id"`
 	VendorKey                *string   `json:"vendor_key"`

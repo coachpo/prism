@@ -91,9 +91,18 @@ export function LoadbalanceEventsTable({
                     <FailureKindBadge failureKind={event.failure_kind} />
                   </TableCell>
                   <TableCell className="font-mono text-xs">#{event.connection_id}</TableCell>
-                  <TableCell className="font-mono text-xs">{event.consecutive_failures}</TableCell>
                   <TableCell className="font-mono text-xs">
-                    {copy.cooldownValue(formatNumber(event.cooldown_seconds, { minimumFractionDigits: 1, maximumFractionDigits: 1 }))}
+                    {formatNumber(event.cumulative_retry_attempts)}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {event.next_retry_at
+                      ? formatTime(event.next_retry_at, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : messages.common.notApplicable}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {formatTime(event.created_at, {

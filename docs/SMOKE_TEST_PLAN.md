@@ -59,7 +59,7 @@ This plan is synthesized from:
 - When using the checked-in launcher, backend available at `http://localhost:18000` from the checked-in `config.json` and frontend at `http://localhost:5173`.
 - `backend/docker-compose.yml` binds PostgreSQL on host port `15432` for local orchestration.
 - Upstream behavior controlled by test doubles or known test endpoints.
-- At least one active model with connections for each runtime `api_family` under test.
+- At least one active model with enabled access targets for each runtime `api_family` under test.
 
 Suggested startup:
 
@@ -78,21 +78,21 @@ Suggested startup:
 
 Prepare seed state through API (not manual DB edits):
 
-1. Vendors exist: OpenAI, Anthropic, Gemini, plus any extra publisher metadata rows needed for cross-vendor proxy cases.
+1. Vendors exist: OpenAI, Anthropic, Gemini, plus any extra publisher metadata rows needed for cross-vendor catalog cases.
 2. Profiles exist: A, B, C; start with A as active runtime profile.
 3. Profile-scoped Endpoints (credentials):
    - in profile A: one OpenAI endpoint
    - in profile B: one Anthropic endpoint
    - in profile C: one Gemini endpoint
-4. Profile-scoped native models:
-   - in profile A: one OpenAI-family native model with 2+ active connections
-   - in profile B: one Anthropic-family native model
-   - in profile C: one Gemini-family native model
-5. Proxy models:
-   - same-`api_family` proxy model with `proxy_selection_strategy` and explicit `proxy_targets` (`target_model_id`, `position`, `weight`, `target_priority`) pointing to native models in the same profile, even when vendor metadata differs
-6. Connection diversity per profile:
+4. Profile-scoped models:
+   - in profile A: one OpenAI-family model with 2+ reachable standalone connection targets
+   - in profile B: one Anthropic-family model
+   - in profile C: one Gemini-family model
+5. Unified access targets:
+   - same-`api_family` model-target chains plus standalone connection targets using ordered `access_targets` (`target_type`, `target_model_id`, `connection_ref`, `position`, `is_enabled`) in the same profile, even when vendor metadata differs
+6. Standalone connection diversity per profile:
    - active + inactive
-   - differing priorities
+   - different model target positions
    - one connection with `custom_headers`
    - one connection assigned a `pricing_template_id`
 7. Audit toggles initially disabled, then enabled per-case.
@@ -129,14 +129,13 @@ Prepare seed state through API (not manual DB edits):
 | `PUT /api/endpoints/{endpoint_id}` | B14, M03 |
 | `PATCH /api/endpoints/{endpoint_id}/position` | B14A, M03 |
 | `DELETE /api/endpoints/{endpoint_id}` | B15, M03 |
-| `GET /api/models/{id}/connections` | B18, M03 |
-| `POST /api/models/connections/batch` | B18A, M03 |
-| `POST /api/models/{id}/connections` | B16-B17, L01-L02, M03 |
+| `GET /api/connections` | B18, M03 |
+| `POST /api/connections` | B16-B17, L01-L02, M03 |
 | `PUT /api/connections/{id}` | B19-B20, M03 |
-| `PATCH /api/models/{id}/connections/{connection_id}/priority` | B20A, M03 |
+| `GET /api/connections/{id}/references` | B21B, M03 |
 | `PUT /api/connections/{id}/pricing-template` | L03, L24, M03 |
 | `DELETE /api/connections/{id}` | B21-B21A, M03 |
-| `GET /api/connections/{id}/owner` | B21B, M03 |
+| `GET/POST/PATCH/DELETE /api/models/{model_config_id}/targets` | B18A, B20A, M03 |
 | `POST /api/connections/{id}/health-check` | D01-D06 |
 | `POST /v1/chat/completions` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/responses` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
@@ -230,14 +229,14 @@ Prepare seed state through API (not manual DB edits):
 | B01 | P0 | List vendors | Includes `audit_enabled`, `audit_capture_bodies` |
 | B02 | P0 | Patch vendor audit fields | Fields persist; omitted field unchanged |
 | B03 | P1 | Get/patch unknown vendor | `404` |
-| B04 | P0 | Create native model | `201`, model stored |
+| B04 | P0 | Create model | `201`, model stored |
 | B05 | P0 | Create duplicate `model_id` in same effective profile | `409` |
-| B06 | P0 | Create valid proxy model | `201` |
-| B07 | P0 | Proxy missing/invalid `proxy_selection_strategy` or target metadata | `400` |
-| B08 | P0 | Cross-api-family proxy target | `400` |
-| B09 | P0 | Proxy target is another proxy | `400` |
-| B10 | P0 | Native model with `proxy_selection_strategy` or non-empty `proxy_targets` | `400` |
-| B11 | P0 | Delete native model referenced by proxy | `400` with referrer detail |
+| B06 | P0 | Create valid model with ordered access targets | `201` |
+| B07 | P0 | Model missing/invalid access target metadata | `400` |
+| B08 | P0 | Cross-api-family model target | `400` |
+| B09 | P0 | Access target cycle | `400` |
+| B10 | P0 | Enabled model with no enabled access targets | `400` |
+| B11 | P0 | Delete model referenced by another model target | `409` with referrer detail |
 | B12 | P0 | List profile-scoped endpoints | `200`, returns array scoped to effective profile |
 | B12A | P0 | List profile-scoped endpoints preserves persisted order | Response order follows `position ASC, id ASC` |
 | B12B | P0 | List endpoint connections dropdown | `200`, returns connection dropdown items scoped to the effective profile |
@@ -248,33 +247,35 @@ Prepare seed state through API (not manual DB edits):
 | B14A | P0 | Move profile-scoped endpoint | `200`, returns reordered list; no-op stays stable; out-of-range `to_index` returns `422` |
 | B15 | P0 | Delete profile-scoped endpoint in use | `409` conflict |
 | B15A | P0 | Delete profile-scoped endpoint compacts later positions | Remaining endpoints are renumbered to contiguous `0..N-1` |
-| B16 | P0 | Create connection on native model | `201` |
-| B16A | P0 | Create connection appends at end | New connection gets `priority == count_before` |
-| B17 | P0 | Create connection on proxy model | `400` |
-| B18 | P1 | List connections for model | `200`, returns array ordered by `priority ASC, id ASC` |
+| B16 | P0 | Create standalone connection | `201`, connection stored with explicit `api_family` |
+| B16A | P0 | Attach connection target to a model | New access target appends after existing model targets |
+| B17 | P0 | Attach wrong-family connection target | `400` |
+| B18 | P1 | List standalone connections | `200`, returns profile-scoped connections with endpoint and pricing metadata |
+| B18A | P0 | List model access targets | `200`, returns ordered model and connection targets |
 | B19 | P0 | Update connection with `custom_headers=null/{}` | Headers removed |
 | B20 | P1 | Update connection omitting `custom_headers` | Existing headers retained |
-| B20A | P0 | Move connection priority | `200`, returns reordered list; no-op stays stable; wrong model/profile combo returns `404`; out-of-range `to_index` returns `422` |
-| B20B | P0 | Create/update payload containing `priority` | `422` validation error |
-| B21 | P1 | Delete connection | `200`, connection removed |
-| B21A | P0 | Delete connection compacts later priorities | Remaining connections are renumbered to contiguous `0..N-1` |
+| B20A | P0 | Reorder model access target | `200`, returns reordered targets; no-op stays stable; wrong model/profile combo returns `404`; out-of-range `to_index` returns `422` |
+| B20B | P0 | Connection payload containing access-target ordering fields | `422` validation error |
+| B21 | P1 | Delete unreferenced connection | `200`, connection removed |
+| B21A | P0 | Delete referenced connection | `409` until referencing model targets are removed |
+| B21B | P0 | Read connection references | `200`, returns model target rows that reference the connection |
 
-## C. Proxy Routing, Proxy Models, Headers, and Failover
+## C. Runtime Routing, Unified Access Targets, Headers, and Ban Policy
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
 | C01 | P0 | OpenAI-compatible proxy call | Upstream response proxied as-is |
 | C02 | P0 | Anthropic non-stream proxy call | Upstream response proxied as-is |
 | C03 | P1 | Gemini route compatibility | Correct routing and auth behavior |
-| C04 | P0 | Proxy model request | Routed via configured selector, then target native connections; requested model and resolved target logged separately |
+| C04 | P0 | Unified access-target model request | Routed through ordered model and connection targets; requested model and final target model are logged separately |
 | C05 | P0 | Unknown/disabled model | `404` |
-| C06 | P0 | Adaptive routing with minimize-latency objective | Lowest-priority active connection wins when runtime state is otherwise equal |
-| C07 | P0 | Adaptive routing recovery path | First transient failure increments counters without blocking; threshold hit opens cooldown with backoff+jitter; cooldown-expired endpoints re-enter as probes in normal priority order |
-| C08 | P0 | Failover on `403/429/500/502/503/529` | Next connection attempted; `403` follows the configured status-aware cooldown policy |
-| C09 | P0 | Failover on connection error/timeout | Next connection attempted; failure kind classified (`connect_error` / `timeout`) for recovery state |
-| C10 | P0 | Non-failover client error while recovery state exists | Request returns upstream error; existing recovery state is not force-cleared |
+| C06 | P0 | Fill-first routing order | Lowest-position eligible target wins when Ban Policy state is otherwise equal |
+| C07 | P0 | Ban Policy retry-window path | First transient failure increments retry counters without blocking; threshold hit opens a retry window with backoff and jitter; expired windows allow the connection to be selected again in normal order |
+| C08 | P0 | Failover on `403/429/500/502/503/529` | Next connection attempted; `403` follows the configured Ban Policy status-code rules |
+| C09 | P0 | Failover on connection error/timeout | Next connection attempted; failure kind classified (`connect_error` / `timeout`) for Ban Policy state |
+| C10 | P0 | Non-failover client error while Ban Policy state exists | Request returns upstream error; existing retry-window state is not force-cleared |
 | C11 | P0 | All failover attempts fail | `502` with last error detail |
-| C12 | P0 | No active connections | `503` |
+| C12 | P0 | No active connection targets | `503` |
 | C13 | P1 | Header merge order with custom override | Custom headers win over api-family/client headers |
 | C14 | P1 | Connection `custom_headers` override | Effective headers follow override |
 ## D. Connection Health Check and URL Failsafe
@@ -359,7 +360,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=1`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable `api_key_secret_ref`, `loadbalance_strategies`, top-level `strategy_type`, family-specific legacy/adaptive payloads, proxy `proxy_selection_strategy`, explicit target metadata in `proxy_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
+| H01 | P0 | Export schema and metadata | `version=2`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, `loadbalance_strategies`, top-level standalone `connections`, ordered model `access_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
 | H01A | P0 | Export includes endpoint position | Endpoints are ordered by `position` and each endpoint includes `position` |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Profile export excludes global vendor audit policy | Profile bundle uses `vendor_refs` only for actually referenced vendor rows; vendor audit metadata remains in the vendor-catalog bundle/global vendor rows |
@@ -370,12 +371,12 @@ Prepare seed state through API (not manual DB edits):
 | H05E | P0 | Import preview with selected-profile header | Preview requires `X-Profile-Id`, reports readiness or blocking errors, and does not mutate profile state |
 | H05A | P0 | Import with endpoint position hints | Imported endpoint order follows provided `position` values and is normalized contiguously |
 | H05B | P0 | Import payload without endpoint position | Imported endpoint order follows file order and remains valid |
-| H05C | P0 | Import with duplicate/gapped connection priorities | Imported connections are normalized to contiguous `0..N-1` while preserving relative order by imported priority then payload order |
+| H05C | P0 | Import with duplicate/gapped access-target positions | Imported model targets are normalized to contiguous `0..N-1` while preserving relative order by imported position then payload order |
 | H06 | P0 | Import failure rollback | Prior config remains intact |
 | H07 | P0 | Validation matrix | Correct `400` errors |
-| H08 | P1 | Settings UI export filename | `prism-profile-config-v1-YYYY-MM-DD.json` |
+| H08 | P1 | Settings UI export filename | `prism-profile-config-v2-YYYY-MM-DD.json` |
 | H09 | P1 | Settings UI import error paths | Parse/backend errors surfaced in toast |
-| H10 | P0 | Vendor catalog export schema and metadata | Go-era `version=1`, `bundle_kind=vendor_catalog`, audit flags, descriptions, and `icon_key` included |
+| H10 | P0 | Vendor catalog export schema and metadata | Vendor-catalog bundle metadata, audit flags, descriptions, and `icon_key` included |
 | H11 | P0 | Vendor catalog preview validation | Preview is global/no-header, returns create/update counts, and rejects duplicate keys/names or readonly overwrite attempts before mutation |
 | H12 | P0 | Vendor catalog import | Editable vendor metadata upserts correctly while readonly system vendors remain protected |
 
@@ -395,9 +396,9 @@ Prepare seed state through API (not manual DB edits):
 | I10 | P0 | Settings data management preset buttons | Correct API calls and toasts |
 | I11 | P1 | Connection custom header editor | Add/remove/persist roundtrip |
 | I12 | P1 | Frontend error details | Backend `detail` surfaced to user |
-| I12A | P0 | Connection drag reorder in Model Detail | Drop updates badges immediately, persists after refresh, and rollback toast appears on API failure |
-| I12B | P0 | Connection reorder disabled during active filter | Drag handles disable and helper text explains how to re-enable ordering |
-| I12C | P0 | Connection dialog priority UX | Dialog exposes no numeric priority field and explains that new connections append as fallbacks |
+| I12A | P0 | Access-target drag reorder in Model Detail | Drop updates target order immediately, persists after refresh, and rollback toast appears on API failure |
+| I12B | P0 | Access-target reorder disabled during active filter | Drag handles disable and helper text explains how to re-enable ordering |
+| I12C | P0 | Standalone connection dialog ordering UX | Dialog exposes no numeric priority field and explains that model attachment controls target order |
 | I13 | P0 | Settings data management custom days flow | Custom day input validates, calls API correctly |
 | I14 | P0 | Settings data management delete-all flow | Confirmation dialog shows "ALL", calls `delete_all=true` API |
 | I15 | P0 | Settings data management in-flight disable | All delete buttons disabled during active deletion |
@@ -413,7 +414,7 @@ Prepare seed state through API (not manual DB edits):
 | I25 | P0 | No-regression check for existing costing indicators | Existing spend columns still render correctly |
 | I26 | P0 | Dashboard websocket data-push recent activity | New request appears in Recent Activity within 1s of a proxy request |
 | I27 | P0 | Request logs manual refresh and exact-request mode | Refresh reloads the current server slice; `request_id` mode fetches only the targeted request |
-| I28 | P0 | Loadbalance events tab REST refresh | Refresh or page revisit loads the latest failover/recovery events for the model |
+| I28 | P0 | Loadbalance events tab REST refresh | Refresh or page revisit loads the latest failover and Ban Policy events for the model |
 | I29 | P0 | Requests audit drawer lazy fetch and retry | Opening the audit tab triggers linked-audit lookup, skips fetches when audit was disabled for that request, and retries empty/transient failures up to five times |
 | I30 | P0 | Dashboard reconnect reconciliation | Dashboard refetches ground truth after websocket reconnect and resumes push updates |
 | I31 | P1 | Dashboard websocket payload completeness | `dashboard.update` refreshes summary, api_family, spending, throughput, and routing data without a second signal |
@@ -549,9 +550,9 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export current format | Safe GET export returns `version: 1`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, proxy `proxy_selection_strategy`, explicit `proxy_targets`, pricing templates, and profile-scoped `profile_settings` |
+| L14 | P0 | Config export current format | Safe GET export returns `version: 2`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level standalone connections, ordered model access targets, pricing templates, and profile-scoped `profile_settings` |
 | L15 | P0 | Config export with secrets | Dangerous POST export returns the full secret-bearing bundle and requires the dangerous-confirm header |
-| L16 | P0 | Config import current format | Preview and apply restore vendors, strategies, proxy selectors and target metadata, templates, connections, vendorless models, and settings into the target profile only |
+| L16 | P0 | Config import current format | Preview and apply restore vendors, Ban Policy strategies, access targets, templates, connections, vendorless models, and settings into the target profile only |
 | L17 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | L18 | P1 | FX conversion with custom rate | Correct converted cost |
 | L19 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
@@ -584,17 +585,17 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | M09A | P0 | Update/Delete non-editable profile | Rejected (`400`), profile remains unchanged |
 | M10 | P0 | Create 11th non-deleted profile | `409` with actionable delete-before-create error |
 | M11 | P0 | Runtime request with `X-Profile-Id` override header | Runtime ignores override and uses active profile context only |
-| M12 | P0 | Same `model_id` exists in A/B with different connections | Routing uses active profile mappings only; no cross-profile resolution |
-| M13 | P0 | Proxy target exists only in another profile | Proxy target resolution fails (`404`) under current active profile |
+| M12 | P0 | Same `model_id` exists in A/B with different access targets | Routing uses active profile mappings only; no cross-profile resolution |
+| M13 | P0 | Access target exists only in another profile | Target resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=1`, `bundle_kind=profile_config`, and includes safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
+| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=2`, `bundle_kind=profile_config`, top-level standalone connections, ordered model access targets, and safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
 | M17 | P0 | Config import preview/apply binding | Apply only succeeds after preview returns a token and the same token is sent in `X-Prism-Preview-Token` |
 | M18 | P0 | Config import replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
 | M19 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | M19 | P0 | Costing/settings isolation | Updating currency/FX in A does not mutate B/C settings or spending results |
 | M20 | P0 | Header blocklist scope merge | Runtime uses global system rules + active profile user rules; management CRUD/list views stay on effective-profile scope |
-| M21 | P1 | Failover recovery-state isolation by profile | Cooldown/recovery state in profile A does not affect profile B |
+| M21 | P1 | Failover Ban Policy isolation by profile | Retry-window and ban state in profile A does not affect profile B |
 | N01 | P0 | Auth status check | Returns correct auth/authn state |
 | N02 | P0 | Public bootstrap | Initializes session for login |
 | N03 | P0 | Login with valid credentials | `200`, session cookies set |

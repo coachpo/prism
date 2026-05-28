@@ -1,6 +1,6 @@
 import { ArrowLeft, Pencil } from "lucide-react";
 import { CopyButton } from "@/components/CopyButton";
-import { StatusBadge, TypeBadge } from "@/components/StatusBadge";
+import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import type { ModelConfig } from "@/lib/types";
@@ -14,7 +14,6 @@ interface ModelDetailHeaderProps {
 export function ModelDetailHeader({ model, onBack, onEditModel }: ModelDetailHeaderProps) {
   const { messages } = useLocale();
   const copy = messages.modelDetail;
-  const typeLabel = model.model_type === "proxy" ? copy.typeProxy : copy.typeNative;
   const statusLabel = model.is_enabled ? copy.enabled : copy.disabled;
 
   return (
@@ -45,10 +44,7 @@ export function ModelDetailHeader({ model, onBack, onEditModel }: ModelDetailHea
                 className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
               />
             ) : null}
-            <TypeBadge
-              label={typeLabel}
-              intent={model.model_type === "proxy" ? "accent" : "info"}
-            />
+            <StatusBadge label={`${model.access_targets.length} targets`} intent="info" />
             <StatusBadge
               label={statusLabel}
               intent={model.is_enabled ? "success" : "muted"}

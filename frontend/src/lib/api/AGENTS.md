@@ -20,7 +20,7 @@ api/
 - Shared request rules, cookie credentials, `ApiError`, auth-refresh retry, and `X-Profile-Id` injection for selected management routes: `core.ts`
 - Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`
 - Cookie-auth bootstrap/session flows, settings auth endpoints, proxy-key endpoints, and browser WebAuthn endpoints: `authSettings.ts`
-- Global profile/vendor management plus profile-scoped model, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
+- Global profile/vendor management plus profile-scoped model, access-target, loadbalance strategy, endpoint, standalone connection, and pricing-template surfaces: `management.ts`
 - Observability, usage snapshot, throughput, bootstrap-config get/validate/update, config import/export, audit, loadbalance current state/events, and settings costing/timezone/retention clients: `observability.ts`
 - Global sidecar CRUD, test-connection, sync, auth/provider inventory, and direct auth-file mutations: `sidecars.ts`
 - Runtime operation paths `/v1` and `/v1beta` stay outside this client split; launcher/Vite proxying passes them through and backend runtime owns allowlist enforcement.

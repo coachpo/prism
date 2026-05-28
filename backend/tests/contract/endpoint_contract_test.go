@@ -13,6 +13,7 @@ import (
 
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
+	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
@@ -75,6 +76,11 @@ func TestEndpointCRUD(t *testing.T) {
 		t.Fatalf("expected delete conflict to expose dependent connection rows, got %+v", blockedPayload)
 	}
 
+	disableDependentModel := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{"is_enabled": false}, modelHeader(defaultProfileID))
+	assertStatus(t, disableDependentModel, http.StatusOK)
+	dependentTargetID := modelLoadConnectionTargetID(t, harness, modelConfigID, dependentConnectionID)
+	deleteTarget := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", modelConfigID, dependentTargetID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, deleteTarget, http.StatusOK)
 	deleteConnection := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/connections/%d", dependentConnectionID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, deleteConnection, http.StatusOK)
 	deleteDependent := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/endpoints/%d", dependentID), nil, modelHeader(defaultProfileID))
@@ -212,8 +218,13 @@ func newEndpointConnectionContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("build connections service: %v", err)
 	}
 	t.Cleanup(connectionsService.Close)
+	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool})
+	if err != nil {
+		t.Fatalf("build models service: %v", err)
+	}
+	t.Cleanup(modelsService.Close)
 
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "endpoint-connection-contract-test", EndpointsService: endpointsService, ConnectionsService: connectionsService})
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "endpoint-connection-contract-test", EndpointsService: endpointsService, ConnectionsService: connectionsService, ModelsService: modelsService})
 	if err != nil {
 		t.Fatalf("build handler: %v", err)
 	}

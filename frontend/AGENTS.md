@@ -32,7 +32,7 @@ frontend/
 
 ## ROUTE MAP
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
+- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
 - `/` redirects to `/dashboard`
 
 ## HIERARCHY

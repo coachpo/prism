@@ -1,25 +1,24 @@
 import type {
   ApiFamily,
+  Connection,
+  ModelAccessTarget,
+  ModelAccessTargetMutation,
   ModelConfig,
-  ModelConfigCreate,
   ModelConfigListItem,
   ModelConfigUpdate,
-  ModelType,
-  ProxySelectionStrategy,
-  ProxyTarget,
+  ModelConfigCreate,
   Vendor,
 } from "@/lib/types";
 
 export type SubmitEventLike = Pick<Event, "preventDefault">;
+
 export interface ModelFormData {
   vendor_id: number | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string;
-  model_type: ModelType;
-  proxy_selection_strategy: ProxySelectionStrategy | null;
-  proxy_targets: ProxyTarget[];
   loadbalance_strategy_id: number | null;
+  access_targets: ModelAccessTargetMutation[];
   is_enabled: boolean;
   last_auto_display_name?: string | null;
 }
@@ -27,10 +26,20 @@ export interface ModelFormData {
 export type ModelFormValidationError =
   | "api_family_required"
   | "loadbalance_strategy_required"
-  | "proxy_target_required";
+  | "access_target_required";
 
 const DEFAULT_API_FAMILY: ApiFamily = "openai";
-const DEFAULT_PROXY_SELECTION_STRATEGY: ProxySelectionStrategy = "ordered_fallback";
+
+export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
+  vendor_id: null,
+  api_family: DEFAULT_API_FAMILY,
+  model_id: "",
+  display_name: "",
+  loadbalance_strategy_id: null,
+  access_targets: [],
+  is_enabled: true,
+  last_auto_display_name: "",
+};
 
 export function resolveModelApiFamily(
   model: Pick<ModelConfigListItem, "api_family"> | Pick<ModelConfig, "api_family">,
@@ -44,190 +53,209 @@ function resolveModelVendorId(
   return model.vendor_id ?? null;
 }
 
-export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
-  vendor_id: null,
-  api_family: DEFAULT_API_FAMILY,
-  model_id: "",
-  display_name: "",
-  model_type: "native",
-  proxy_selection_strategy: null,
-  proxy_targets: [],
-  loadbalance_strategy_id: null,
-  is_enabled: true,
-  last_auto_display_name: "",
-};
-
 function shouldAutoSyncDisplayName(formData: ModelFormData): boolean {
   const displayName = formData.display_name ?? "";
   return displayName.trim() === "" || displayName === (formData.last_auto_display_name ?? "");
 }
 
-function normalizeProxyTargetMetadata(target: ProxyTarget, index: number): ProxyTarget {
-  return {
-    target_model_id: target.target_model_id.trim(),
-    position: index,
-    weight: Number.isInteger(target.weight) && target.weight >= 1 ? target.weight : 1,
-    target_priority:
-      Number.isInteger(target.target_priority) && target.target_priority >= 0
-        ? target.target_priority
-        : index,
-  };
+export function accessTargetKey(target: Pick<ModelAccessTargetMutation, "target_type" | "target_model_id" | "connection_id">): string | null {
+  if (target.target_type === "model" && target.target_model_id?.trim()) {
+    return `model:${target.target_model_id.trim()}`;
+  }
+  if (target.target_type === "connection" && typeof target.connection_id === "number") {
+    return `connection:${target.connection_id}`;
+  }
+  return null;
 }
 
-export function normalizeProxyTargets(proxyTargets: ProxyTarget[] | null | undefined): ProxyTarget[] {
-  const seenTargetIds = new Set<string>();
-
-  return (proxyTargets ?? [])
-    .map((target) => ({ ...target, target_model_id: target.target_model_id.trim() }))
-    .filter((target) => {
-      if (!target.target_model_id || seenTargetIds.has(target.target_model_id)) {
-        return false;
-      }
-
-      seenTargetIds.add(target.target_model_id);
-      return true;
-    })
-    .map((target, index) => normalizeProxyTargetMetadata(target, index));
-}
-
-function getNormalizedRoutingState(formData: ModelFormData) {
-  if (formData.model_type === "native") {
+export function accessTargetToMutation(target: ModelAccessTarget): ModelAccessTargetMutation | null {
+  if (target.target_type === "model" && target.target_model_id) {
     return {
-      model_type: "native" as const,
-      proxy_selection_strategy: null,
-      proxy_targets: [] as [],
-      loadbalance_strategy_id: formData.loadbalance_strategy_id ?? null,
+      target_type: "model",
+      target_model_id: target.target_model_id,
+      position: target.position,
+      is_enabled: target.is_enabled,
     };
   }
-
-  return {
-    model_type: "proxy" as const,
-    proxy_selection_strategy:
-      formData.proxy_selection_strategy ?? DEFAULT_PROXY_SELECTION_STRATEGY,
-    proxy_targets: normalizeProxyTargets(formData.proxy_targets),
-    loadbalance_strategy_id: null,
-  };
+  if (target.target_type === "connection" && target.connection_id !== null) {
+    return {
+      target_type: "connection",
+      connection_id: target.connection_id,
+      position: target.position,
+      is_enabled: target.is_enabled,
+    };
+  }
+  return null;
 }
 
-export function moveProxyTarget(proxyTargets: ProxyTarget[], fromIndex: number, toIndex: number): ProxyTarget[] {
+export function normalizeAccessTargetMutations(
+  targets: readonly ModelAccessTargetMutation[] | null | undefined,
+): ModelAccessTargetMutation[] {
+  const seen = new Set<string>();
+  const normalized: ModelAccessTargetMutation[] = [];
+  for (const target of targets ?? []) {
+    const key = accessTargetKey(target);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    if (target.target_type === "model") {
+      normalized.push({
+        target_type: "model",
+        target_model_id: target.target_model_id.trim(),
+        position: normalized.length,
+        is_enabled: target.is_enabled ?? true,
+      });
+    } else {
+      normalized.push({
+        target_type: "connection",
+        connection_id: target.connection_id,
+        position: normalized.length,
+        is_enabled: target.is_enabled ?? true,
+      });
+    }
+  }
+  return normalized;
+}
+
+export function moveAccessTarget(
+  targets: ModelAccessTargetMutation[],
+  fromIndex: number,
+  toIndex: number,
+): ModelAccessTargetMutation[] {
+  const normalized = normalizeAccessTargetMutations(targets);
   if (
     fromIndex < 0 ||
     toIndex < 0 ||
-    fromIndex >= proxyTargets.length ||
-    toIndex >= proxyTargets.length ||
+    fromIndex >= normalized.length ||
+    toIndex >= normalized.length ||
     fromIndex === toIndex
   ) {
-    return normalizeProxyTargets(proxyTargets);
+    return normalized;
   }
-
-  const nextTargets = [...normalizeProxyTargets(proxyTargets)];
+  const nextTargets = [...normalized];
   const [movedTarget] = nextTargets.splice(fromIndex, 1);
-
   if (!movedTarget) {
-    return normalizeProxyTargets(proxyTargets);
+    return normalized;
   }
-
   nextTargets.splice(toIndex, 0, movedTarget);
-  return normalizeProxyTargets(nextTargets);
+  return normalizeAccessTargetMutations(nextTargets);
 }
 
-export function appendProxyTarget(proxyTargets: ProxyTarget[], targetModelId: string): ProxyTarget[] {
-  const normalizedTargets = normalizeProxyTargets(proxyTargets);
-  return normalizeProxyTargets([
-    ...normalizedTargets,
-    {
-      target_model_id: targetModelId,
-      position: normalizedTargets.length,
-      weight: 1,
-      target_priority: normalizedTargets.length,
-    },
+export function appendAccessTarget(
+  targets: ModelAccessTargetMutation[],
+  target: Omit<ModelAccessTargetMutation, "position">,
+): ModelAccessTargetMutation[] {
+  return normalizeAccessTargetMutations([
+    ...normalizeAccessTargetMutations(targets),
+    { ...target, position: targets.length } as ModelAccessTargetMutation,
   ]);
 }
 
-export function removeProxyTarget(proxyTargets: ProxyTarget[], targetModelId: string): ProxyTarget[] {
-  return normalizeProxyTargets(
-    normalizeProxyTargets(proxyTargets).filter((target) => target.target_model_id !== targetModelId),
+export function removeAccessTarget(targets: ModelAccessTargetMutation[], index: number): ModelAccessTargetMutation[] {
+  return normalizeAccessTargetMutations(normalizeAccessTargetMutations(targets).filter((_, currentIndex) => currentIndex !== index));
+}
+
+export function setAccessTargetEnabled(
+  targets: ModelAccessTargetMutation[],
+  index: number,
+  isEnabled: boolean,
+): ModelAccessTargetMutation[] {
+  return normalizeAccessTargetMutations(
+    normalizeAccessTargetMutations(targets).map((target, currentIndex) =>
+      currentIndex === index ? { ...target, is_enabled: isEnabled } : target,
+    ),
   );
 }
 
 type EditableModelFormSource = Pick<
   ModelConfig,
-  | "vendor_id"
-  | "api_family"
-  | "model_id"
-  | "display_name"
-  | "model_type"
-  | "proxy_selection_strategy"
-  | "proxy_targets"
-  | "loadbalance_strategy_id"
-  | "is_enabled"
+  "vendor_id" | "api_family" | "model_id" | "display_name" | "loadbalance_strategy_id" | "access_targets" | "is_enabled"
 >;
+
+export function getModelConnections(
+  model: Pick<ModelConfig, "access_targets"> | Pick<ModelConfigListItem, "access_targets">,
+): Connection[] {
+  return model.access_targets
+    .filter((target) => target.target_type === "connection" && target.connection)
+    .sort((left, right) => left.position - right.position)
+    .map((target) => ({ ...(target.connection as Connection), priority: target.position }));
+}
 
 export function createEditModelFormData(model: EditableModelFormSource): ModelFormData {
   const vendorId = resolveModelVendorId(model);
   const displayName = model.display_name || "";
-
   return {
     vendor_id: vendorId,
     api_family: resolveModelApiFamily(model),
     model_id: model.model_id,
     display_name: displayName,
-    model_type: model.model_type,
-    proxy_selection_strategy:
-      model.model_type === "proxy"
-        ? model.proxy_selection_strategy ?? DEFAULT_PROXY_SELECTION_STRATEGY
-        : null,
-    proxy_targets: normalizeProxyTargets(model.proxy_targets),
     loadbalance_strategy_id: model.loadbalance_strategy_id,
+    access_targets: normalizeAccessTargetMutations(
+      model.access_targets.map(accessTargetToMutation).filter((target): target is ModelAccessTargetMutation => target !== null),
+    ),
     is_enabled: model.is_enabled,
     last_auto_display_name: displayName === model.model_id ? model.model_id : displayName,
   };
 }
 
-export function createNewModelFormData(
-  _vendors: Vendor[],
-  loadbalanceStrategyId: number | null,
-): ModelFormData {
+export function createNewModelFormData(_vendors: Vendor[], loadbalanceStrategyId: number | null): ModelFormData {
   return {
     ...DEFAULT_MODEL_FORM_DATA,
     loadbalance_strategy_id: loadbalanceStrategyId,
   };
 }
 
+export function getAccessTargetOptionKeys(
+  modelTargets: Pick<ModelConfigListItem, "model_id">[],
+  connectionTargets: Pick<Connection, "id">[],
+): Set<string> {
+  return new Set([
+    ...modelTargets.map((model) => `model:${model.model_id}`),
+    ...connectionTargets.map((connection) => `connection:${connection.id}`),
+  ]);
+}
+
 export function validateModelFormData(
   formData: ModelFormData,
-  availableProxyTargetModelIds?: Iterable<string>,
+  availableAccessTargetKeys?: Iterable<string>,
 ): ModelFormValidationError | null {
   if (!formData.api_family) {
     return "api_family_required";
   }
-
-  if (formData.model_type === "native" && formData.loadbalance_strategy_id === null) {
+  if (formData.loadbalance_strategy_id === null) {
     return "loadbalance_strategy_required";
   }
-
-  if (formData.model_type !== "proxy") {
+  const normalizedTargets = normalizeAccessTargetMutations(formData.access_targets);
+  if (formData.is_enabled && normalizedTargets.every((target) => target.is_enabled === false)) {
+    return "access_target_required";
+  }
+  if (!availableAccessTargetKeys) {
     return null;
   }
+  const validKeys = new Set(availableAccessTargetKeys);
+  return normalizedTargets.some((target) => {
+    const key = accessTargetKey(target);
+    return !key || !validKeys.has(key);
+  }) ? "access_target_required" : null;
+}
 
-  const normalizedProxyTargets = normalizeProxyTargets(formData.proxy_targets);
-  if (normalizedProxyTargets.length === 0) {
-    return "proxy_target_required";
+function getRequiredLoadbalanceStrategyId(formData: ModelFormData): number {
+  if (formData.loadbalance_strategy_id === null) {
+    throw new Error("loadbalance_strategy_id is required");
   }
+  return formData.loadbalance_strategy_id;
+}
 
-  if (!availableProxyTargetModelIds) {
-    return null;
-  }
-
-  const validProxyTargetIds = new Set(availableProxyTargetModelIds);
-  return normalizedProxyTargets.some((target) => !validProxyTargetIds.has(target.target_model_id))
-    ? "proxy_target_required"
-    : null;
+function getNormalizedRoutingState(formData: ModelFormData) {
+  return {
+    loadbalance_strategy_id: getRequiredLoadbalanceStrategyId(formData),
+    access_targets: normalizeAccessTargetMutations(formData.access_targets),
+  };
 }
 
 export function toModelCreatePayload(formData: ModelFormData): ModelConfigCreate {
   const normalizedDisplayName = formData.display_name?.trim() || formData.model_id.trim();
-
   return {
     vendor_id: formData.vendor_id ?? null,
     api_family: formData.api_family,
@@ -249,30 +277,7 @@ export function toModelUpdatePayload(formData: ModelFormData): ModelConfigUpdate
   };
 }
 
-export function setModelTypeOnForm(
-  formData: ModelFormData,
-  modelType: "native" | "proxy",
-  defaultLoadbalanceStrategyId: number | null,
-): ModelFormData {
-  return {
-    ...formData,
-    model_type: modelType,
-    proxy_selection_strategy:
-      modelType === "proxy"
-        ? formData.proxy_selection_strategy ?? DEFAULT_PROXY_SELECTION_STRATEGY
-        : null,
-    proxy_targets: [],
-    loadbalance_strategy_id:
-      modelType === "native"
-        ? formData.loadbalance_strategy_id ?? defaultLoadbalanceStrategyId
-        : null,
-  };
-}
-
-export function setLoadbalanceStrategyIdOnForm(
-  formData: ModelFormData,
-  strategyId: number | null,
-): ModelFormData {
+export function setLoadbalanceStrategyIdOnForm(formData: ModelFormData, strategyId: number | null): ModelFormData {
   return { ...formData, loadbalance_strategy_id: strategyId };
 }
 
@@ -280,21 +285,15 @@ export function setApiFamilyOnForm(formData: ModelFormData, apiFamily: ApiFamily
   if (formData.api_family === apiFamily) {
     return formData;
   }
-
   return {
     ...formData,
     api_family: apiFamily,
-    proxy_selection_strategy:
-      formData.model_type === "proxy"
-        ? formData.proxy_selection_strategy ?? DEFAULT_PROXY_SELECTION_STRATEGY
-        : formData.proxy_selection_strategy,
-    proxy_targets: formData.model_type === "proxy" ? [] : formData.proxy_targets,
+    access_targets: [],
   };
 }
 
 export function setModelIdOnForm(formData: ModelFormData, modelId: string): ModelFormData {
   const autoDisplayName = modelId;
-
   return {
     ...formData,
     model_id: modelId,
@@ -304,46 +303,37 @@ export function setModelIdOnForm(formData: ModelFormData, modelId: string): Mode
 }
 
 export function setDisplayNameOnForm(formData: ModelFormData, displayName: string): ModelFormData {
-  return {
-    ...formData,
-    display_name: displayName,
-  };
+  return { ...formData, display_name: displayName };
 }
 
-export function getNativeModelsForApiFamily(
+export function getAccessTargetModelsForApiFamily(
   models: ModelConfigListItem[],
   apiFamily: ApiFamily,
   excludedModelId?: string,
 ): ModelConfigListItem[] {
   return models.filter(
-    (model) =>
-      model.model_type === "native" &&
-      model.api_family === apiFamily &&
-      (!excludedModelId || model.model_id !== excludedModelId),
+    (model) => model.api_family === apiFamily && (!excludedModelId || model.model_id !== excludedModelId),
   );
 }
 
-export function toModelListItem(
-  model: ModelConfig,
-  _existing?: ModelConfigListItem,
-): ModelConfigListItem {
+export function toModelListItem(model: ModelConfig, existing?: ModelConfigListItem): ModelConfigListItem {
+  const connections = getModelConnections(model);
   return {
     id: model.id,
+    profile_id: model.profile_id,
     vendor_id: resolveModelVendorId(model),
     vendor: model.vendor,
     api_family: model.api_family,
     model_id: model.model_id,
     display_name: model.display_name,
-    model_type: model.model_type,
-    proxy_selection_strategy: model.proxy_selection_strategy,
-    proxy_targets: normalizeProxyTargets(model.proxy_targets),
     loadbalance_strategy_id: model.loadbalance_strategy_id,
     loadbalance_strategy: model.loadbalance_strategy,
+    access_targets: model.access_targets,
     is_enabled: model.is_enabled,
-    connection_count: model.connections.length,
-    active_connection_count: model.connections.filter((connection) => connection.is_active).length,
-    health_success_rate: _existing?.health_success_rate ?? null,
-    health_total_requests: _existing?.health_total_requests ?? 0,
+    connection_count: connections.length,
+    active_connection_count: connections.filter((connection) => connection.is_active).length,
+    health_success_rate: existing?.health_success_rate ?? null,
+    health_total_requests: existing?.health_total_requests ?? 0,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };

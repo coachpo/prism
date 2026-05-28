@@ -19,87 +19,36 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
   });
 }
 
-function canonicalLegacyRow() {
+function canonicalRow(id: number, name: string, legacyStrategyType: "single" | "fill-first" | "round-robin", banMode: "off" | "manual" = "off") {
   return {
-    id: 11,
+    id,
     profile_id: 1,
-    name: "Default legacy routing",
-    strategy_type: "legacy",
+    name,
+    legacy_strategy_type: legacyStrategyType,
+    failure_status_codes: [403, 422, 429, 500, 502, 503, 504, 529],
+    ban_mode: banMode,
+    retry_base_delay_ms: 60000,
+    retry_backoff_multiplier: 2,
+    retry_jitter_ratio: 0.2,
+    retry_max_delay_ms: 900000,
+    retry_max_attempts: 2,
+    ban_duration_seconds: 0,
     attached_model_count: 0,
     created_at: timestamp,
     updated_at: timestamp,
-    legacy_strategy_type: "fill-first",
-    auto_recovery: {
-      mode: "enabled",
-      status_codes: [403, 422, 429, 500, 502, 503, 504, 529],
-      cooldown: {
-        base_seconds: 60,
-        failure_threshold: 2,
-        backoff_multiplier: 2,
-        max_cooldown_seconds: 900,
-      },
-      ban: { mode: "off" },
-    },
   };
 }
 
-function canonicalAdaptiveRow() {
-  return {
-    id: 12,
-    profile_id: 1,
-    name: "Default adaptive routing",
-    strategy_type: "adaptive",
-    attached_model_count: 0,
-    created_at: timestamp,
-    updated_at: timestamp,
-    routing_policy: {
-      kind: "adaptive",
-      routing_objective: "minimize_latency",
-      hedge: {
-        enabled: false,
-        delay_ms: 1500,
-        max_additional_attempts: 1,
-      },
-      circuit_breaker: {
-        failure_status_codes: [403, 422, 429, 500, 502, 503, 504, 529],
-        base_open_seconds: 60,
-        failure_threshold: 2,
-        backoff_multiplier: 2,
-        max_open_seconds: 900,
-        ban_mode: "off",
-        max_open_strikes_before_ban: 0,
-        ban_duration_seconds: 0,
-      },
-      admission: {
-        respect_qps_limit: true,
-        respect_in_flight_limits: true,
-      },
-    },
-  };
+function canonicalRows() {
+  return [
+    canonicalRow(11, "Default single routing", "single"),
+    canonicalRow(12, "Default fill-first routing", "fill-first"),
+    canonicalRow(13, "Default round-robin routing", "round-robin"),
+  ];
 }
 
-function occupiedLegacyRow() {
-  return {
-    id: 21,
-    profile_id: 1,
-    name: "Default legacy routing",
-    strategy_type: "legacy",
-    attached_model_count: 0,
-    created_at: timestamp,
-    updated_at: timestamp,
-    legacy_strategy_type: "fill-first",
-    auto_recovery: {
-      mode: "enabled",
-      status_codes: [403, 422, 429, 500, 502, 503, 504, 529],
-      cooldown: {
-        base_seconds: 60,
-        failure_threshold: 2,
-        backoff_multiplier: 2,
-        max_cooldown_seconds: 900,
-      },
-      ban: { mode: "manual", max_cooldown_strikes_before_ban: 1 },
-    },
-  };
+function occupiedSingleRow() {
+  return canonicalRow(21, "Default single routing", "fill-first", "manual");
 }
 
 async function mockLoadbalanceRoutes(
@@ -181,12 +130,12 @@ async function mockLoadbalanceRoutes(
 }
 
 test("creates defaults from the loadbalance strategies page", async ({ page }) => {
-  const canonicalRows = [canonicalLegacyRow(), canonicalAdaptiveRow()];
+  const rows = canonicalRows();
 
   await mockLoadbalanceRoutes(page, [], {
-    items: canonicalRows,
-    created_count: 2,
-    created_names: ["Default legacy routing", "Default adaptive routing"],
+    items: rows,
+    created_count: 3,
+    created_names: ["Default single routing", "Default fill-first routing", "Default round-robin routing"],
     existing_names: [],
   });
 
@@ -194,62 +143,70 @@ test("creates defaults from the loadbalance strategies page", async ({ page }) =
 
   await expect(page.getByRole("button", { name: "Create Defaults" }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Add Strategy" }).first()).toBeVisible();
-  await expect(page.getByRole("row", { name: /Default legacy routing/ })).toHaveCount(0);
-  await expect(page.getByRole("row", { name: /Default adaptive routing/ })).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /Default single routing/ })).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /Default fill-first routing/ })).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /Default round-robin routing/ })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Create Defaults" }).first().click();
 
-  await expect(page.getByRole("row", { name: /Default legacy routing/ })).toHaveCount(1);
-  await expect(page.getByRole("row", { name: /Default adaptive routing/ })).toHaveCount(1);
-  await expect(page.getByRole("table")).toContainText("Default legacy routing");
-  await expect(page.getByRole("table")).toContainText("Default adaptive routing");
+  await expect(page.getByRole("row", { name: /Default single routing/ })).toHaveCount(1);
+  await expect(page.getByRole("row", { name: /Default fill-first routing/ })).toHaveCount(1);
+  await expect(page.getByRole("row", { name: /Default round-robin routing/ })).toHaveCount(1);
+  await expect(page.getByRole("table")).toContainText("Default single routing");
+  await expect(page.getByRole("table")).toContainText("Default fill-first routing");
+  await expect(page.getByRole("table")).toContainText("Default round-robin routing");
   await expect(page.getByRole("button", { name: "Create Defaults" })).toBeVisible();
 });
 
 test("repeat click does not duplicate defaults", async ({ page }) => {
-  const canonicalRows = [canonicalLegacyRow(), canonicalAdaptiveRow()];
+  const rows = canonicalRows();
 
-  await mockLoadbalanceRoutes(page, canonicalRows, {
-    items: canonicalRows,
+  await mockLoadbalanceRoutes(page, rows, {
+    items: rows,
     created_count: 0,
     created_names: [],
-    existing_names: ["Default legacy routing", "Default adaptive routing"],
+    existing_names: ["Default single routing", "Default fill-first routing", "Default round-robin routing"],
   });
 
   await page.goto("/loadbalance-strategies");
 
-  await expect(page.getByRole("row", { name: /Default legacy routing/ })).toBeVisible();
-  await expect(page.getByRole("row", { name: /Default adaptive routing/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Default single routing/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Default fill-first routing/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Default round-robin routing/ })).toBeVisible();
 
   const createDefaults = page.getByRole("button", { name: "Create Defaults" }).first();
   await createDefaults.click();
   await createDefaults.click();
 
-  await expect(page.getByRole("row", { name: /Default legacy routing/ })).toHaveCount(1);
-  await expect(page.getByRole("row", { name: /Default adaptive routing/ })).toHaveCount(1);
-  await expect(page.getByRole("table")).toContainText("Default legacy routing");
-  await expect(page.getByRole("table")).toContainText("Default adaptive routing");
+  await expect(page.getByRole("row", { name: /Default single routing/ })).toHaveCount(1);
+  await expect(page.getByRole("row", { name: /Default fill-first routing/ })).toHaveCount(1);
+  await expect(page.getByRole("row", { name: /Default round-robin routing/ })).toHaveCount(1);
+  await expect(page.getByRole("table")).toContainText("Default single routing");
+  await expect(page.getByRole("table")).toContainText("Default fill-first routing");
+  await expect(page.getByRole("table")).toContainText("Default round-robin routing");
   await expect(page.getByText("Default loadbalance strategies already exist").first()).toBeVisible();
 });
 
 test("shows conflict error when canonical names are occupied", async ({ page }) => {
-  const occupied = [occupiedLegacyRow(), canonicalAdaptiveRow()];
+  const occupied = [occupiedSingleRow(), ...canonicalRows().slice(1)];
 
   await mockLoadbalanceRoutes(page, occupied, {
     detail: {
       message: "Canonical loadbalance strategy default name conflict",
-      conflicting_names: ["Default legacy routing"],
+      conflicting_names: ["Default single routing"],
     },
   }, 409);
 
   await page.goto("/loadbalance-strategies");
 
-  await expect(page.getByRole("row", { name: /Default legacy routing/ })).toBeVisible();
-  await expect(page.getByRole("row", { name: /Default adaptive routing/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Default single routing/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Default fill-first routing/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Default round-robin routing/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Create Defaults" }).first().click();
 
-  await expect(page.getByRole("row", { name: /Default legacy routing/ })).toHaveCount(1);
-  await expect(page.getByRole("row", { name: /Default adaptive routing/ })).toHaveCount(1);
+  await expect(page.getByRole("row", { name: /Default single routing/ })).toHaveCount(1);
+  await expect(page.getByRole("row", { name: /Default fill-first routing/ })).toHaveCount(1);
+  await expect(page.getByRole("row", { name: /Default round-robin routing/ })).toHaveCount(1);
   await expect(page.getByText("Canonical loadbalance strategy default name conflict")).toBeVisible();
 });

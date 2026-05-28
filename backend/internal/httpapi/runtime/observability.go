@@ -691,7 +691,6 @@ func (s *Service) buildRuntimeTelemetryEnvelopeContext(plan requestPlan, result 
 		ingressRequestID = fmt.Sprintf("runtime-%d", pricingTiming.requestCompletedAt.UnixNano())
 	}
 	proxyKey, _ := requestcontext.RuntimeProxyKeyFromContext(request.Context())
-	captureBodies := plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest
 	return runtimeTelemetryEnvelopeContext{
 		runtimeTelemetryPricingTimingContext: pricingTiming,
 		ingressRequestID:                     ingressRequestID,
@@ -699,8 +698,7 @@ func (s *Service) buildRuntimeTelemetryEnvelopeContext(plan requestPlan, result 
 		callerUserAgent:                      trimmedStringPointer(request.UserAgent()),
 		requestGenerationSnapshot:            plan.RequestGenerationParamsSnapshot(),
 		attempts:                             runtimeTelemetryAttempts(result, request, pricingTiming),
-		capturedRequestBody:                  runtimeCapturedAuditBody(captureBodies, plan.UpstreamBody),
-		capturedResponseBody:                 runtimeCapturedAuditBody(captureBodies, responseCapture.AuditBody),
+		capturedResponseBody:                 runtimeCapturedAuditBody(result.AuditEnabledAtRequest && result.AuditCaptureBodiesAtRequest, responseCapture.AuditBody),
 	}
 }
 
@@ -745,13 +743,16 @@ func runtimeTelemetryAttempts(result executionResult, request *http.Request, pri
 		return result.Attempts
 	}
 	return []executionAttempt{{
-		Connection:      result.Connection,
-		RequestURL:      request.URL.String(),
-		RequestHeaders:  result.RequestHeaders,
-		ResponseHeaders: result.Response.Header.Clone(),
-		StatusCode:      result.Response.StatusCode,
-		ResponseTimeMS:  pricingTiming.responseTimeMS,
-		CompletedAt:     pricingTiming.requestCompletedAt,
+		Connection:                  result.Connection,
+		ResolvedTargetModelID:       dereferenceString(result.ResolvedTargetModelID),
+		RequestURL:                  request.URL.String(),
+		RequestHeaders:              result.RequestHeaders,
+		ResponseHeaders:             result.Response.Header.Clone(),
+		StatusCode:                  result.Response.StatusCode,
+		ResponseTimeMS:              pricingTiming.responseTimeMS,
+		CompletedAt:                 pricingTiming.requestCompletedAt,
+		AuditEnabledAtRequest:       result.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest: result.AuditCaptureBodiesAtRequest,
 	}}
 }
 
@@ -794,7 +795,7 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 	requestLog := requestLogInsert{
 		ProfileID:                     plan.ProfileID,
 		ModelID:                       plan.RequestedModelID,
-		ResolvedTargetModelID:         plan.ResolvedTargetModelID,
+		ResolvedTargetModelID:         resolvedTargetModelIDForAttempt(plan, attempt.attempt),
 		APIFamily:                     plan.APIFamily,
 		OperationName:                 telemetry.operationName,
 		VendorID:                      plan.RequestedVendorID,
@@ -826,8 +827,8 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 		CompletionDurationMS:          nil,
 		TTFTMS:                        nil,
 		StreamOutcome:                 runtimeStreamOutcomeNotStreaming,
-		AuditEnabledAtRequest:         plan.AuditEnabledAtRequest,
-		AuditCaptureBodiesAtRequest:   plan.AuditCaptureBodiesAtRequest,
+		AuditEnabledAtRequest:         attempt.attempt.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest:   attempt.attempt.AuditCaptureBodiesAtRequest,
 		RequestGenerationParams:       generationSnapshot.Params,
 		RequestGenerationParamsStatus: trimmedStringPointer(generationSnapshot.Status),
 	}
@@ -835,6 +836,13 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 		applyRuntimeFinalAttemptTelemetry(&requestLog, telemetry, attempt)
 	}
 	return requestLog
+}
+
+func resolvedTargetModelIDForAttempt(plan requestPlan, attempt executionAttempt) *string {
+	if trimmed := strings.TrimSpace(attempt.ResolvedTargetModelID); trimmed != "" {
+		return &trimmed
+	}
+	return plan.ResolvedTargetModelID
 }
 
 func applyRuntimeFinalAttemptTelemetry(requestLog *requestLogInsert, telemetry runtimeTelemetryEnvelopeContext, attempt runtimeTelemetryAttemptContext) {
@@ -856,11 +864,12 @@ func applyRuntimeFinalAttemptTelemetry(requestLog *requestLogInsert, telemetry r
 
 func buildRuntimeAuditLogRows(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext) []auditLogInsert {
 	auditLogs := make([]auditLogInsert, 0, len(telemetry.attempts))
-	if !plan.AuditEnabledAtRequest {
-		return auditLogs
-	}
 	for index := range telemetry.attempts {
-		auditLogs = append(auditLogs, buildRuntimeAuditLogRow(plan, request, telemetry, telemetry.attemptContext(index)))
+		attempt := telemetry.attemptContext(index)
+		if !attempt.attempt.AuditEnabledAtRequest {
+			continue
+		}
+		auditLogs = append(auditLogs, buildRuntimeAuditLogRow(plan, request, telemetry, attempt))
 	}
 	return auditLogs
 }
@@ -878,8 +887,8 @@ func buildRuntimeAuditLogRow(plan requestPlan, request *http.Request, telemetry 
 		RequestMethod:               request.Method,
 		RequestURL:                  runtimeAuditRequestURL(attempt.attempt.RequestURL, request),
 		RequestHeaders:              marshalAuditHeaders(attempt.attempt.RequestHeaders),
-		RequestBody:                 telemetry.capturedRequestBody,
-		RequestBodyStored:           telemetry.capturedRequestBody != nil,
+		RequestBody:                 runtimeCapturedAuditBody(attempt.attempt.AuditCaptureBodiesAtRequest, attempt.attempt.RequestBody),
+		RequestBodyStored:           attempt.attempt.AuditCaptureBodiesAtRequest && len(attempt.attempt.RequestBody) > 0,
 		ResponseStatus:              attempt.attempt.StatusCode,
 		ResponseHeaders:             marshalAuditHTTPHeaders(attempt.attempt.ResponseHeaders),
 		ResponseBody:                nil,
@@ -887,14 +896,21 @@ func buildRuntimeAuditLogRow(plan requestPlan, request *http.Request, telemetry 
 		IsStream:                    telemetry.isStream,
 		DurationMS:                  attempt.responseTimeMS,
 		CreatedAt:                   attempt.createdAt,
-		AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
-		AuditCaptureBodiesAtRequest: plan.AuditCaptureBodiesAtRequest,
+		AuditEnabledAtRequest:       attempt.attempt.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest: attempt.attempt.AuditCaptureBodiesAtRequest,
 	}
-	if attempt.isFinal {
+	if attempt.isFinal && attempt.attempt.AuditCaptureBodiesAtRequest {
 		auditLog.ResponseBody = telemetry.capturedResponseBody
 		auditLog.ResponseBodyStored = telemetry.capturedResponseBody != nil
 	}
 	return auditLog
+}
+
+func resolvedTargetModelIDForResult(plan requestPlan, result executionResult) *string {
+	if result.ResolvedTargetModelID != nil && strings.TrimSpace(*result.ResolvedTargetModelID) != "" {
+		return result.ResolvedTargetModelID
+	}
+	return plan.ResolvedTargetModelID
 }
 
 func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *http.Request, telemetry runtimeTelemetryEnvelopeContext, requestLogCount int) usageEventInsert {
@@ -906,7 +922,7 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		ProfileID:                plan.ProfileID,
 		IngressRequestID:         telemetry.ingressRequestID,
 		ModelID:                  plan.RequestedModelID,
-		ResolvedTargetModelID:    plan.ResolvedTargetModelID,
+		ResolvedTargetModelID:    resolvedTargetModelIDForResult(plan, result),
 		APIFamily:                plan.APIFamily,
 		OperationName:            telemetry.operationName,
 		EndpointID:               result.Connection.Endpoint.ID,

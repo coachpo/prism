@@ -15,7 +15,7 @@
 - Same-origin launcher coverage lives in `e2e/launcher-same-origin-realtime.spec.ts`; sidecar browser coverage lives in `e2e/sidecars.spec.ts`.
 - Startup bootstrap coverage lives in `e2e/settings-startup-tab.spec.ts`.
 - Request-log/detail coverage lives in `e2e/request-log-*.spec.ts`, `e2e/request-log-detail-copy.spec.ts`, `e2e/request-log-audit-disabled-state.spec.ts`, `e2e/request-logs-token-rate.spec.ts`, `e2e/request-logs-ttft.spec.ts`, and `e2e/request-logs-optional-zero.spec.ts`.
-- Model-detail handoff and connection-probe coverage lives in `e2e/model-detail-request-logs-handoff.spec.ts`, `e2e/model-detail-connection-dialog-probe.spec.ts`, `e2e/proxy-model-detail-authoring.spec.ts`, `model-detail/*.test.mjs`, and `../tests/lib/profile_scope_header_contract.test.mjs`.
+- Model-detail handoff, unified access-target authoring, and connection-probe coverage lives in the model-detail e2e flows, `e2e/model-detail-request-logs-handoff.spec.ts`, `e2e/model-detail-connection-dialog-probe.spec.ts`, `model-detail/*.test.mjs`, and `../tests/lib/profile_scope_header_contract.test.mjs`.
 - Contract tests for API profile scoping, loadbalance helpers, main provider wiring, model-detail helpers, and `server.mjs` stay outside `e2e/`.
 
 ## WHERE TO LOOK

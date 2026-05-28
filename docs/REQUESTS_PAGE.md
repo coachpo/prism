@@ -17,7 +17,7 @@ The request-log route now uses split HTTP contracts: a slim list payload for bro
 - Keep the retained browse filters server-backed and URL-addressable.
 - Expose linked audit payloads only when needed.
 - Support drill-down entry points from dashboard and model-detail views.
-- Show requested proxy model identity separately from the resolved native target model when proxy routing is involved.
+- Show requested model identity separately from the final target model chosen by unified access-target resolution.
 
 ## 3. Non-Goals
 
@@ -143,7 +143,7 @@ Required behavior:
 
 `RequestLogDetailSheet` should expose two tabs:
 
-- `overview`: request metadata, requested-vs-resolved model identity, token and cost breakdowns, routing context, and connection drill-down
+- `overview`: request metadata, requested model vs final target model identity, token and cost breakdowns, routing context, and connection drill-down
 - `audit`: lazily resolved request and response payload capture
 
 The drawer should also support direct navigation to the owning connection record.
@@ -161,7 +161,7 @@ The `frontend/src/pages/request-logs/` helper cluster should remain page-specifi
 - query-parameter definitions and parsers
 - retained browse-filter state and exact-request mode orchestration
 - sticky filter-bar UI groups
-- column definitions and row renderers, including requested-vs-resolved model identity rendering and the display-only vendor column
+- column definitions and row renderers, including requested model vs final target model identity rendering and the display-only vendor column
 - detail-sheet tabs and shared panels over the dedicated request-detail payload
 - audit loading hook
 - dedicated tests for page state, filter options, page data, and audit detail loading
@@ -191,7 +191,7 @@ The Requests page must remain compatible with the following backend-facing and s
 - `api.stats.requests()` for browsing slices and `/api/stats/requests/{request_id}` for exact detail
 - audit API client methods
 - dashboard flows that consume request-derived backend responses
-- proxy-routing observability fields such as `resolved_target_model_id`
+- final-target observability fields such as `resolved_target_model_id`
 
 ## 11. Acceptance Criteria
 
@@ -205,5 +205,5 @@ The Requests page must remain compatible with the following backend-facing and s
 8. The list view stays on the slim list payload, while exact-request investigation uses the dedicated detail payload without re-expanding the table schema.
 9. Dashboard and Model Detail can emit deep links into `/request-logs` without inventing route-local state outside the documented query contract.
 10. The overview tab renders `ingress_request_id`, `attempt_number`, and `provider_correlation_id` when present so operators can distinguish incoming request grouping from per-attempt row identity.
-11. The request-log table and detail drawer render requested model vs resolved target model separately whenever `resolved_target_model_id` differs from `model_id`.
+11. The request-log table and detail drawer render requested model vs final target model separately, falling back to the requested model when `resolved_target_model_id` matches `model_id`.
 12. Route-shell, filter, empty-state, and detail-drawer labels follow the active frontend locale while timestamp rendering stays aligned to the selected timezone and locale-aware formatting helpers.

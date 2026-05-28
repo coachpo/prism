@@ -29,7 +29,6 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldMailSMTPTimeout,
 		bootstrapFieldMailSMTPTLSServerName,
 		BootstrapConfigSecretMailSMTPPassword,
-		bootstrapFieldRuntimeBufferingMode,
 		bootstrapFieldRuntimeTransportMaxIdleConns,
 		bootstrapFieldRuntimeTransportMaxIdleConnsPerHost,
 		bootstrapFieldRuntimeTransportMaxConnsPerHost,

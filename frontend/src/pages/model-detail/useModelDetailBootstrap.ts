@@ -20,6 +20,7 @@ import type {
   SpendingSummary,
   Vendor,
 } from "@/lib/types";
+import { getModelConnections } from "../models/modelFormState";
 
 interface UseModelDetailBootstrapInput {
   id: string | undefined;
@@ -27,6 +28,7 @@ interface UseModelDetailBootstrapInput {
   navigate: (to: string) => void;
   setModel: Dispatch<SetStateAction<ModelConfig | null>>;
   setConnections: Dispatch<SetStateAction<Connection[]>>;
+  setAllConnections: Dispatch<SetStateAction<Connection[]>>;
   setGlobalEndpoints: Dispatch<SetStateAction<Endpoint[]>>;
   setLoadbalanceStrategies: Dispatch<SetStateAction<LoadbalanceStrategy[]>>;
   setAllModels: Dispatch<SetStateAction<ModelConfigListItem[]>>;
@@ -45,6 +47,7 @@ export function useModelDetailBootstrap({
   navigate,
   setModel,
   setConnections,
+  setAllConnections,
   setGlobalEndpoints,
   setLoadbalanceStrategies,
   setAllModels,
@@ -104,6 +107,7 @@ export function useModelDetailBootstrap({
         modelsList,
         pricingTemplatesList,
         vendorsList,
+        connectionsList,
       ] = await Promise.all([
         api.models.get(Number.parseInt(id, 10)),
         getSharedEndpoints(revision),
@@ -111,6 +115,7 @@ export function useModelDetailBootstrap({
         getSharedModels(revision),
         getSharedPricingTemplates(revision),
         getSharedVendors(revision),
+        api.connections.list(),
       ]);
 
       if (requestId !== modelRequestIdRef.current) {
@@ -118,7 +123,8 @@ export function useModelDetailBootstrap({
       }
 
       setModel(data);
-      setConnections(data.connections || []);
+      setConnections(getModelConnections(data));
+      setAllConnections(connectionsList);
       setGlobalEndpoints(endpointsList);
       setLoadbalanceStrategies(loadbalanceStrategiesList);
       setAllModels(modelsList);
@@ -145,6 +151,7 @@ export function useModelDetailBootstrap({
     revision,
     setAllModels,
     setConnections,
+    setAllConnections,
     setGlobalEndpoints,
     setLoadbalanceStrategies,
     setLoading,

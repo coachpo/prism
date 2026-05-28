@@ -86,7 +86,7 @@ func TestConnectionHealthCheckPreviewDoesNotPersist(t *testing.T) {
 	updatePhase4ConnectionHealthSnapshot(t, harness.base.conn, connectionID, "healthy", phase4StringPtr("existing preview health state"), &oldCheckedAt)
 	endpointsBefore := countPhase4ProfileEndpoints(t, harness.base.conn, profileID)
 
-	previewResponse := performPriorityRequest(
+	legacyPreviewResponse := performPriorityRequest(
 		t,
 		harness.client,
 		5*time.Second,
@@ -98,23 +98,21 @@ func TestConnectionHealthCheckPreviewDoesNotPersist(t *testing.T) {
 		},
 		runtimeModelHeader(profileID),
 	)
-	assertStatus(t, previewResponse, http.StatusOK)
-	var previewPayload map[string]any
-	decodeJSONResponse(t, previewResponse, &previewPayload)
-	if _, ok := previewPayload["connection_id"]; ok {
-		t.Fatalf("did not expect preview payload to include connection_id, got %+v", previewPayload)
+	assertStatus(t, legacyPreviewResponse, http.StatusNotFound)
+	if got := len(upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected removed preview route to avoid upstream probes, got %d requests", got)
 	}
 
 	endpointsAfter := countPhase4ProfileEndpoints(t, harness.base.conn, profileID)
 	if endpointsAfter != endpointsBefore {
-		t.Fatalf("expected preview probe to avoid persisting inline endpoints, got before=%d after=%d", endpointsBefore, endpointsAfter)
+		t.Fatalf("expected removed preview route to avoid persisting inline endpoints, got before=%d after=%d", endpointsBefore, endpointsAfter)
 	}
 	snapshot := loadPhase4ConnectionHealthSnapshot(t, harness.base.conn, connectionID)
 	if snapshot.HealthStatus != "healthy" || snapshot.HealthDetail == nil || *snapshot.HealthDetail != "existing preview health state" {
-		t.Fatalf("expected preview probe to leave persisted health state untouched, got %+v", snapshot)
+		t.Fatalf("expected removed preview route to leave persisted health state untouched, got %+v", snapshot)
 	}
 	if snapshot.LastHealthCheck == nil || !snapshot.LastHealthCheck.Equal(oldCheckedAt) {
-		t.Fatalf("expected preview probe to preserve last_health_check %s, got %+v", oldCheckedAt, snapshot)
+		t.Fatalf("expected removed preview route to preserve last_health_check %s, got %+v", oldCheckedAt, snapshot)
 	}
 }
 

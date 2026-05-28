@@ -101,54 +101,16 @@ func TestConnectionHealthChecks(t *testing.T) {
 	}
 }
 
-func TestConnectionHealthCheckPreview(t *testing.T) {
+func TestConnectionHealthCheckRequiresAttachedTarget(t *testing.T) {
 	upstream := newScriptedUpstream(t)
-	upstream.queueJSON(http.StatusOK, map[string]any{"ok": true})
-	upstream.queueJSON(http.StatusTooManyRequests, map[string]any{"error": map[string]any{"message": "rate limited"}})
 	checkedAt := time.Date(2026, time.April, 19, 15, 0, 0, 0, time.UTC)
 	harness := newConnectionHealthContractHarness(t, upstream, checkedAt)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+	endpointID := insertContractEndpointWithBaseURL(t, harness, defaultProfileID, "Unattached Health Endpoint", upstream.server.URL, "unattached-health-key", 0)
+	connectionID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", endpointID, 0, true, nil)
 
-	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
-	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S10 Preview Strategy")
-	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s10-preview-model", nil, "native", &strategyID, true)
-	existingEndpointID := insertContractEndpointWithBaseURL(t, harness, defaultProfileID, "Existing Preview Endpoint", "https://existing-preview.invalid", "existing-preview-key", 0)
-	oldCheckedAt := checkedAt.Add(-2 * time.Hour)
-	connectionID := insertContractConnectionWithState(t, harness, defaultProfileID, modelConfigID, existingEndpointID, nil, 0, true, nil, nil, "healthy", stringPtr("existing health state"), &oldCheckedAt)
-	endpointsBefore := countProfileEndpoints(t, harness, defaultProfileID)
-
-	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections/health-check-preview", modelConfigID), map[string]any{
-		"endpoint_create": map[string]any{"name": "Preview Inline Endpoint", "base_url": upstream.server.URL, "api_key": "preview-inline-key"},
-		"custom_headers":  map[string]string{"X-Allow-Preview": "preview-ok", "X-Request-ID": "blocked-request-id"},
-	}, modelHeader(defaultProfileID))
-	assertStatus(t, previewResponse, http.StatusOK)
-	var previewPayload map[string]any
-	decodeJSONResponse(t, previewResponse, &previewPayload)
-	if previewPayload["health_status"] != "healthy" || previewPayload["detail"] != "Rate limited (connection works)" {
-		t.Fatalf("expected preview health payload to stay healthy on 429, got %+v", previewPayload)
-	}
-	if jsonInt(t, previewPayload["response_time_ms"]) <= 0 {
-		t.Fatalf("expected positive preview response_time_ms, got %+v", previewPayload)
-	}
-	if _, ok := previewPayload["connection_id"]; ok {
-		t.Fatalf("did not expect preview payload to include connection_id, got %+v", previewPayload)
-	}
-
-	endpointsAfter := countProfileEndpoints(t, harness, defaultProfileID)
-	if endpointsAfter != endpointsBefore {
-		t.Fatalf("expected preview to avoid persisting inline endpoints, got before=%d after=%d", endpointsBefore, endpointsAfter)
-	}
-	snapshot := loadConnectionHealthSnapshot(t, harness, connectionID)
-	if snapshot.HealthStatus != "healthy" || snapshot.HealthDetail == nil || *snapshot.HealthDetail != "existing health state" || snapshot.LastHealthCheck == nil || !snapshot.LastHealthCheck.Equal(oldCheckedAt) {
-		t.Fatalf("expected preview to avoid mutating persisted connection state, got %+v", snapshot)
-	}
-	requests := upstream.snapshotRequests()
-	if len(requests) != 2 {
-		t.Fatalf("expected preview route to perform the same two-step probe, got %+v", requests)
-	}
-	if requests[0].Headers.Get("Authorization") != "Bearer preview-inline-key" || requests[0].Headers.Get("X-Allow-Preview") != "preview-ok" || requests[0].Headers.Get("X-Request-Id") != "" {
-		t.Fatalf("expected preview headers to use inline endpoint secret and block request-id, got %+v", requests[0].Headers)
-	}
+	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/connections/%d/health-check", connectionID), nil, modelHeader(defaultProfileID))
+	assertErrorResponse(t, response, http.StatusConflict, "Connection must be attached to a model target before health check")
 }
 
 func TestConnectionPricingTemplates(t *testing.T) {
@@ -429,14 +391,20 @@ func insertContractEndpointWithBaseURL(t *testing.T, harness *contractHarness, p
 func insertContractConnectionWithState(t *testing.T, harness *contractHarness, profileID int, modelConfigID int, endpointID int, pricingTemplateID *int, priority int, isActive bool, customHeaders map[string]string, name *string, healthStatus string, healthDetail *string, lastHealthCheck *time.Time) int {
 	t.Helper()
 	now := time.Now().UTC()
+	var apiFamily string
+	if err := harness.conn.QueryRow(context.Background(), `SELECT api_family FROM model_configs WHERE id = $1 AND profile_id = $2`, modelConfigID, profileID).Scan(&apiFamily); err != nil {
+		t.Fatalf("load model %d api family: %v", modelConfigID, err)
+	}
 	var headersValue any
 	if customHeaders != nil {
 		headersValue = mustModelJSON(t, customHeaders)
 	}
 	var connectionID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, model_config_id, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, NULL, NULL, NULL, NULL, $5, $6, $7, NULL, $8, $9, $10, $11, $12, $12) RETURNING id`, profileID, modelConfigID, endpointID, nullableTestInt(pricingTemplateID), isActive, priority, name, headersValue, healthStatus, healthDetail, lastHealthCheck, now).Scan(&connectionID); err != nil {
-
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, NULL, NULL, NULL, NULL, $5, $6, $7, NULL, $8, $9, $10, $11, $12, $12) RETURNING id`, profileID, apiFamily, endpointID, nullableTestInt(pricingTemplateID), isActive, priority, name, headersValue, healthStatus, healthDetail, lastHealthCheck, now).Scan(&connectionID); err != nil {
 		t.Fatalf("insert contract connection for model %d endpoint %d: %v", modelConfigID, endpointID, err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, $4, TRUE, $5, $5)`, profileID, modelConfigID, connectionID, priority, now); err != nil {
+		t.Fatalf("insert contract connection access target for model %d endpoint %d: %v", modelConfigID, endpointID, err)
 	}
 	return connectionID
 }
@@ -452,16 +420,6 @@ func loadConnectionHealthSnapshot(t *testing.T, harness *contractHarness, connec
 	snapshot.HealthDetail = detail.ptr()
 	snapshot.LastHealthCheck = checkedAt.ptr()
 	return snapshot
-}
-
-func countProfileEndpoints(t *testing.T, harness *contractHarness, profileID int) int {
-	t.Helper()
-	var count int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM endpoints WHERE profile_id = $1`, profileID).Scan(&count); err != nil {
-		t.Fatalf("count endpoints for profile %d: %v", profileID, err)
-	}
-
-	return count
 }
 
 func parseRFC3339Time(t *testing.T, value string) time.Time {

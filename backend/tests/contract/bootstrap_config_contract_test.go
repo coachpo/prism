@@ -3,6 +3,7 @@ package contract_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -159,6 +160,30 @@ func TestBootstrapConfigSchema(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestExistingBootstrapConfigWithRuntimeBufferingModeFails(t *testing.T) {
+	assertExistingBootstrapConfigWithRuntimeBufferingFieldFails(t, "buffering_mode")
+}
+
+func TestExistingBootstrapConfigWithCamelCaseRuntimeBufferingModeFails(t *testing.T) {
+	assertExistingBootstrapConfigWithRuntimeBufferingFieldFails(t, "bufferingMode")
+}
+
+func assertExistingBootstrapConfigWithRuntimeBufferingFieldFails(t *testing.T, key string) {
+	t.Helper()
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+	payload["runtime"].(map[string]any)[key] = "streaming"
+
+	_, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+
+	if err == nil {
+		t.Fatalf("expected stale runtime.%s to fail", key)
+	}
+	if !strings.Contains(err.Error(), fmt.Sprintf(`unknown field %q`, key)) {
+		t.Fatalf("expected unknown-field error for runtime.%s, got %v", key, err)
+	}
 }
 
 func TestBootstrapConfigValidation(t *testing.T) {
@@ -435,9 +460,6 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 		if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox {
 			t.Fatalf("expected durable runtime telemetry mode, got %q", settings.RuntimeTelemetryMode)
 		}
-		if settings.RuntimeBufferingMode != config.RuntimeBufferingModeStreaming {
-			t.Fatalf("expected streaming runtime buffering mode, got %q", settings.RuntimeBufferingMode)
-		}
 		transport := settings.RuntimeTransport()
 		if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 16 || transport.MaxConnsPerHost != 16 {
 			t.Fatalf("unexpected runtime transport pool settings: %+v", transport)
@@ -567,7 +589,6 @@ func canonicalBootstrapFixtureBytes(t *testing.T) []byte {
 	t.Helper()
 	payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
 	payload["server"].(map[string]any)["port"] = float64(8000)
-	payload["runtime"].(map[string]any)["bufferingMode"] = "streaming"
 	transport := payload["runtime"].(map[string]any)["transport"].(map[string]any)
 	transport["maxIdleConns"] = float64(100)
 	transport["maxIdleConnsPerHost"] = float64(16)

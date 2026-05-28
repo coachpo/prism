@@ -28,7 +28,6 @@ func TestRuntimeAdmissionUsesLocalStateOnly(t *testing.T) {
 	windowStartedAt := time.Now().UTC()
 	harness.runtimeService.RuntimeState().SeedConnectionState(profileID, targetModelConfigID, rejectedConnectionID, loadbalancedomain.RuntimeConnectionState{
 		ConnectionID:       rejectedConnectionID,
-		CircuitState:       "closed",
 		BanMode:            "off",
 		WindowStartedAt:    &windowStartedAt,
 		WindowRequestCount: 1,
@@ -89,17 +88,13 @@ func TestRuntimeCircuitRecoveryUsesLocalStateOnly(t *testing.T) {
 	probeEligibleAt := time.Now().UTC().Add(-1 * time.Minute)
 	priorFailureKind := "transient_http"
 	harness.runtimeService.RuntimeState().SeedConnectionState(profileID, targetModelConfigID, connectionID, loadbalancedomain.RuntimeConnectionState{
-		ConnectionID:        connectionID,
-		ConsecutiveFailures: 1,
-		LastFailureKind:     &priorFailureKind,
-		LastCooldownSeconds: 60,
-		MaxCooldownStrikes:  1,
-		BanMode:             "off",
-		OpenUntilAt:         &probeEligibleAt,
-		ProbeAvailableAt:    &probeEligibleAt,
-		CircuitState:        "open",
-		LastLiveFailureKind: &priorFailureKind,
-		LastLiveFailureAt:   &probeEligibleAt,
+		ConnectionID:              connectionID,
+		CycleRetryAttempts:        1,
+		CumulativeRetryAttempts:   1,
+		LastFailureKind:           &priorFailureKind,
+		LastRetryDelayMS:          60_000,
+		BanMode:                   "off",
+		NextRetryAt:               &probeEligibleAt,
 	}, probeEligibleAt, probeEligibleAt)
 
 	response, snapshot := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
@@ -109,8 +104,8 @@ func TestRuntimeCircuitRecoveryUsesLocalStateOnly(t *testing.T) {
 	assertStatus(t, response, http.StatusOK)
 	snapshot.assertExcludesCategory(t, runtimeSQLCategoryRuntimeStateTables)
 	state, ok := harness.runtimeService.RuntimeState().SnapshotConnectionState(profileID, connectionID)
-	if !ok || state.CircuitState != "closed" || state.ConsecutiveFailures != 0 {
-		t.Fatalf("expected successful probe to recover local circuit state, got %+v ok=%t", state, ok)
+	if !ok || state.CycleRetryAttempts != 0 || state.CumulativeRetryAttempts != 0 || state.NextRetryAt != nil {
+		t.Fatalf("expected success to recover local retry state, got %+v ok=%t", state, ok)
 	}
 }
 

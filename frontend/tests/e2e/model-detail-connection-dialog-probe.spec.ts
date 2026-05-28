@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-09T00:00:00Z";
 
@@ -13,21 +13,31 @@ function createModelResponse({
   apiFamily: "openai" | "anthropic";
   modelId: string;
   displayName: string;
-  connections?: Array<Record<string, unknown>>;
+  connections?: Array<ReturnType<typeof createConnection>>;
 }) {
   return {
     id,
+    profile_id: 1,
     vendor_id: null,
     vendor: null,
     api_family: apiFamily,
     model_id: modelId,
     display_name: displayName,
-    model_type: "native",
-    proxy_targets: [],
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
+    access_targets: connections.map((connection, index) => ({
+      id: 700 + index,
+      target_type: "connection",
+      target_model_id: null,
+      connection_id: connection.id,
+      position: index,
+      is_enabled: true,
+      target_model: null,
+      connection,
+      created_at: timestamp,
+      updated_at: timestamp,
+    })),
     is_enabled: true,
-    connections,
     created_at: timestamp,
     updated_at: timestamp,
   };
@@ -51,6 +61,7 @@ function createConnection({
     model_config_id: modelConfigId,
     endpoint_id: endpoint.id,
     endpoint,
+    api_family: endpoint.base_url.includes("anthropic") ? "anthropic" : "openai",
     is_active: true,
     priority: 0,
     name,
@@ -83,15 +94,15 @@ function createModelListItem({
 }) {
   return {
     id,
+    profile_id: 1,
     vendor_id: null,
     vendor: null,
     api_family: apiFamily,
     model_id: modelId,
     display_name: displayName,
-    model_type: "native",
-    proxy_targets: [],
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
+    access_targets: [],
     is_enabled: true,
     connection_count: 0,
     active_connection_count: 0,
@@ -127,7 +138,7 @@ function createSpendingResponse() {
   };
 }
 
-async function stubModelDetailRoutes(page: Parameters<typeof test>[0]["page"], model: ReturnType<typeof createModelResponse>) {
+async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof createModelResponse>) {
   const endpoint = {
     id: 11,
     profile_id: 1,
@@ -202,6 +213,10 @@ async function stubModelDetailRoutes(page: Parameters<typeof test>[0]["page"], m
       return fulfillJson([endpoint]);
     }
 
+    if (pathname === "/api/connections" && method === "GET") {
+      return fulfillJson(model.access_targets.map((target) => target.connection).filter(Boolean));
+    }
+
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson([]);
     }
@@ -222,24 +237,15 @@ async function stubModelDetailRoutes(page: Parameters<typeof test>[0]["page"], m
       return fulfillJson({ items: [] });
     }
 
-    if (pathname === `/api/models/${model.id}/connections/health-check-preview` && method === "POST") {
-      previewPayloads.push(request.postDataJSON());
-      return fulfillJson({
-        health_status: "healthy",
-        checked_at: timestamp,
-        detail: "Preview ok",
-        response_time_ms: 123,
-      });
-    }
-
-    if (pathname === `/api/models/${model.id}/connections` && method === "POST") {
+    if (pathname === "/api/connections" && method === "POST") {
       const payload = request.postDataJSON();
       savePayloads.push(payload);
       return fulfillJson({
         id: 101,
-        model_config_id: model.id,
+        model_config_id: null,
         endpoint_id: 11,
         endpoint,
+        api_family: payload.api_family,
         is_active: true,
         priority: 0,
         name: payload.name ?? endpoint.name,
@@ -259,6 +265,65 @@ async function stubModelDetailRoutes(page: Parameters<typeof test>[0]["page"], m
       });
     }
 
+    if (pathname === `/api/models/${model.id}/targets` && method === "POST") {
+      const payload = request.postDataJSON();
+      return fulfillJson([
+        {
+          id: 701,
+          target_type: "connection",
+          target_model_id: null,
+          connection_id: payload.connection_id,
+          position: 0,
+          is_enabled: true,
+          target_model: null,
+          connection: {
+            id: payload.connection_id,
+            model_config_id: null,
+            endpoint_id: 11,
+            endpoint,
+            api_family: model.api_family,
+            is_active: true,
+            priority: 0,
+            name: endpoint.name,
+            auth_type: null,
+            custom_headers: null,
+            openai_probe_endpoint_variant: null,
+            pricing_template_id: null,
+            qps_limit: null,
+            max_in_flight_non_stream: null,
+            max_in_flight_stream: null,
+            pricing_template: null,
+            health_status: "unknown",
+            health_detail: null,
+            last_health_check: null,
+            created_at: timestamp,
+            updated_at: timestamp,
+          },
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]);
+    }
+
+    if (pathname === "/api/connections/301" && method === "PUT") {
+      const payload = request.postDataJSON();
+      savePayloads.push(payload);
+      return fulfillJson({
+        ...(model.access_targets[0]?.connection ?? {}),
+        ...payload,
+      });
+    }
+
+    if (pathname === "/api/connections/301/health-check" && method === "POST") {
+      previewPayloads.push({ connection_id: 301 });
+      return fulfillJson({
+        health_status: "healthy",
+        checked_at: timestamp,
+        detail: "Preview ok",
+        response_time_ms: 123,
+      });
+    }
+
     return fulfillJson({ error: `Unhandled ${method} ${pathname}` }, 500);
   });
 
@@ -272,10 +337,10 @@ test("OpenAI connection dialog exposes probe controls and sends the resolved raw
     modelId: "gpt-4.1",
     displayName: "GPT 4.1",
   });
-  const { previewPayloads, savePayloads } = await stubModelDetailRoutes(page, model);
+  const { savePayloads } = await stubModelDetailRoutes(page, model);
 
   await page.goto("/models/1");
-  await page.getByRole("button", { name: "Add Connection" }).first().click();
+  await page.getByRole("button", { name: "New connection" }).first().click();
 
   await expect(page.getByTestId("connection-dialog-probe-section")).toBeVisible();
   await page.locator("#conn-selected-endpoint").click();
@@ -285,15 +350,9 @@ test("OpenAI connection dialog exposes probe controls and sends the resolved raw
   await page.locator("#conn-probe-reasoning-mode").click();
   await page.getByRole("option", { name: /Disable reasoning/ }).click();
 
-  await page.getByRole("button", { name: "Test Connection" }).click();
-  await expect.poll(() => previewPayloads.length).toBe(1);
-  await expect(previewPayloads[0]).toMatchObject({
-    openai_probe_endpoint_variant: "chat_completions_reasoning_none",
-  });
-
   await page.getByRole("button", { name: "Save Connection" }).click();
   await expect.poll(() => savePayloads.length).toBe(1);
-  await expect(savePayloads[0]).toMatchObject({
+  expect(savePayloads[0]).toMatchObject({
     openai_probe_endpoint_variant: "chat_completions_reasoning_none",
   });
 });
@@ -308,7 +367,7 @@ test("non-OpenAI connection dialog hides the probe section", async ({ page }) =>
   await stubModelDetailRoutes(page, model);
 
   await page.goto("/models/2");
-  await page.getByRole("button", { name: "Add Connection" }).first().click();
+  await page.getByRole("button", { name: "New connection" }).first().click();
 
   await expect(page.getByTestId("connection-dialog-probe-section")).toHaveCount(0);
 });
@@ -337,8 +396,7 @@ test("editing an OpenAI connection hydrates the saved probe settings into both s
   await stubModelDetailRoutes(page, model);
 
   await page.goto("/models/3");
-  await page.getByRole("button", { name: "Connection actions" }).first().click();
-  await page.getByRole("menuitem", { name: "Edit" }).click();
+  await page.getByRole("button", { name: "Edit Saved Connection" }).first().click();
 
   await expect(page.getByTestId("connection-dialog-probe-section")).toBeVisible();
   await expect(page.locator("#conn-probe-api")).toContainText("Chat Completions API");
