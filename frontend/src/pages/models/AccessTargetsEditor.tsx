@@ -155,7 +155,7 @@ export function AccessTargetsEditor({
 
       {normalizedTargets.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">
-          No access targets selected. Add at least one enabled target before enabling this model.
+          No access targets selected. This model can be saved disabled and have a target attached later. Enabled saves still require at least one enabled target.
         </div>
       ) : null}
       <div className="flex flex-col gap-2">
@@ -283,10 +283,10 @@ export function AccessTargetsEditor({
       </div>
 
       {pendingKind === "connection" && remainingConnections.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No unattached same-family standalone connections are available.</p>
+        <p className="text-xs text-muted-foreground">No unattached same-family standalone connections are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.</p>
       ) : null}
       {pendingKind === "model" && remainingModels.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No other same-family models are available.</p>
+        <p className="text-xs text-muted-foreground">No other same-family models are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.</p>
       ) : null}
     </div>
   );

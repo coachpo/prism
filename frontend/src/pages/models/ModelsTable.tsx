@@ -193,7 +193,7 @@ function getTargetSummary(model: ModelConfigListItem, formatNumber: (value: numb
     : firstTarget?.connection?.name || firstTarget?.connection?.endpoint?.name || (firstTarget?.connection_id ? `Connection ${firstTarget.connection_id}` : null);
 
   if (!firstLabel) {
-    return "No access targets";
+    return "Needs target";
   }
 
   return `${formatNumber(model.access_targets.length)} targets · First ${firstLabel}`;

@@ -44,6 +44,10 @@ export function OverviewCards({
   const strategyAssignmentLabel = model.loadbalance_strategy
     ? getLoadbalanceStrategyDetailLabel(model.loadbalance_strategy, strategyCopy)
     : null;
+  const hasEnabledAccessTarget = (accessTargetSummary?.enabledTargetCount ?? 0) > 0;
+  const accessTargetLabel = hasEnabledAccessTarget
+    ? `${copy.targets(formatNumber(accessTargetSummary?.targetCount ?? 0))}${accessTargetSummary?.firstTargetLabel ? ` · ${accessTargetSummary.firstTargetLabel}` : ""}`
+    : "Needs target";
   const spendingTokenDetail = spending
     ? [
         `${messages.requestLogs.input} ${formatNumber(spending.total_input_tokens)}`,
@@ -88,10 +92,7 @@ export function OverviewCards({
               </div>
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Access targets</p>
-                <span className="text-sm font-medium">
-                  {copy.targets(formatNumber(accessTargetSummary?.targetCount ?? 0))}
-                  {accessTargetSummary?.firstTargetLabel ? ` · ${accessTargetSummary.firstTargetLabel}` : ""}
-                </span>
+                <span className="text-sm font-medium">{accessTargetLabel}</span>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground mb-1">{copy.created}</p>
