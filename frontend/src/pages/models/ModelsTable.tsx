@@ -157,6 +157,7 @@ function getSuccessRateClass(successRate: number | null) {
 
 const INLINE_META_TEXT_CLASSES = {
   accent: "text-violet-700 dark:text-violet-400",
+  danger: "text-red-600 dark:text-red-400",
   info: "text-sky-700 dark:text-sky-400",
   muted: "text-muted-foreground",
   success: "text-emerald-700 dark:text-emerald-400",
@@ -221,7 +222,7 @@ function ModelRow({
   const targetSummary = getTargetSummary(model, formatNumber);
   const apiFamilyLabel = formatApiFamily(resolveApiFamily(model));
   const statusLabel = model.is_enabled ? detailCopy.enabled : detailCopy.disabled;
-  const statusIntent = model.is_enabled ? "success" : "muted";
+  const statusIntent = model.is_enabled ? "success" : "danger";
   const showModelId = Boolean(model.display_name && model.display_name !== model.model_id);
   const strategyTypeLabel = model.loadbalance_strategy
     ? getLoadbalanceStrategyTypeLabel(model.loadbalance_strategy, strategyCopy)
