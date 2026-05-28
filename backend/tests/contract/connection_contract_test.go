@@ -153,11 +153,13 @@ func TestDeleteReferencedConnection(t *testing.T) {
 
 	detachResponse := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", modelConfigID, targetID), nil, modelHeader(defaultProfileID))
 	assertErrorResponse(t, detachResponse, http.StatusBadRequest, "enabled models must include at least one enabled access target")
+
 	disableModel := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{"is_enabled": false}, modelHeader(defaultProfileID))
 	assertStatus(t, disableModel, http.StatusOK)
 	targetID = modelLoadConnectionTargetID(t, harness, modelConfigID, connectionID)
-	detachResponse = harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", modelConfigID, targetID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, detachResponse, http.StatusOK)
+
+	detachAfterDisable := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", modelConfigID, targetID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, detachAfterDisable, http.StatusOK)
 	deleteDetached := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/connections/%d", connectionID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, deleteDetached, http.StatusOK)
 }

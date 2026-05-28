@@ -63,6 +63,37 @@ func TestModelCRUD(t *testing.T) {
 	)
 	assertErrorResponse(t, createSelfTarget, http.StatusBadRequest, "Model access target cannot target itself")
 
+	createDraftResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		map[string]any{
+			"vendor_id":               vendorID,
+			"api_family":              "openai",
+			"model_id":                "s8-access-draft",
+			"display_name":            "S8 Access Draft",
+			"loadbalance_strategy_id": strategyID,
+			"is_enabled":              false,
+			"access_targets":          []map[string]any{},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, createDraftResponse, http.StatusCreated)
+	var createDraftPayload map[string]any
+	decodeJSONResponse(t, createDraftResponse, &createDraftPayload)
+	assertNoLegacyModelFields(t, createDraftPayload)
+	assertAccessTargets(t, createDraftPayload, nil)
+	if got := createDraftPayload["is_enabled"]; got != false {
+		t.Fatalf("expected disabled draft create to persist is_enabled=false, got %+v", createDraftPayload)
+	}
+	if got := createDraftPayload["display_name"]; got != "S8 Access Draft" {
+		t.Fatalf("expected draft display name to persist, got %+v", createDraftPayload)
+	}
+	if got := asMap(t, createDraftPayload["loadbalance_strategy"])["legacy_strategy_type"]; got != "single" {
+		t.Fatalf("expected legacy strategy summary on draft create, got %+v", createDraftPayload)
+	}
+
 	createResponse := harness.requestJSON(
 		t,
 		harness.client,
@@ -88,6 +119,23 @@ func TestModelCRUD(t *testing.T) {
 	if got := asMap(t, createPayload["loadbalance_strategy"])["legacy_strategy_type"]; got != "single" {
 		t.Fatalf("expected legacy strategy summary on model create, got %+v", createPayload)
 	}
+
+	enabledZeroTargetsCreate := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		map[string]any{
+			"vendor_id":               vendorID,
+			"api_family":              "openai",
+			"model_id":                "s8-enabled-zero-targets",
+			"loadbalance_strategy_id": strategyID,
+			"is_enabled":              true,
+			"access_targets":          []map[string]any{},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, enabledZeroTargetsCreate, http.StatusBadRequest, "enabled models must include at least one enabled access target")
 
 	duplicateCreate := harness.requestJSON(
 		t,
