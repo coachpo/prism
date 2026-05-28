@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { ApiFamilySelect } from "@/components/ApiFamilySelect";
+import { SwitchController } from "@/components/SwitchController";
 import { VendorSelect } from "@/components/VendorSelect";
 import {
   Dialog,
@@ -91,6 +92,7 @@ export function ModelSettingsDialog({
         </DialogHeader>
 
         <form onSubmit={handleEditModelSubmit} className="flex min-h-0 flex-1 flex-col">
+          <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
           <DialogBody className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7" data-testid="model-settings-scroll-body">
             <section
               className="flex flex-col gap-4 rounded-2xl border bg-muted/20 p-4 sm:p-5"
@@ -195,6 +197,12 @@ export function ModelSettingsDialog({
                   connectionOptions={targetConnectionsForApiFamily}
                   error={targetEditorError}
                   onChange={(accessTargets) => setFormData((current) => ({ ...current, access_targets: accessTargets }))}
+                />
+
+                <SwitchController
+                  label={copy.enabled}
+                  checked={formData.is_enabled}
+                  onCheckedChange={(checked) => setFormData((current) => ({ ...current, is_enabled: checked }))}
                 />
               </div>
             </section>

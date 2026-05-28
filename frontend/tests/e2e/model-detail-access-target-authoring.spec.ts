@@ -18,14 +18,14 @@ function createProfile() {
   };
 }
 
-function createAccessTarget(targetModelId: string, position: number, displayName: string) {
+function createAccessTarget(targetModelId: string, position: number, displayName: string, isEnabled = true) {
   return {
     id: 700 + position,
     target_type: "model",
     target_model_id: targetModelId,
     connection_id: null,
     position,
-    is_enabled: true,
+    is_enabled: isEnabled,
     target_model: {
       id: 100 + position,
       profile_id: 1,
@@ -48,6 +48,7 @@ function createModelListItem(
   displayName: string,
   apiFamily: "openai" | "anthropic",
   accessTargets: ReturnType<typeof createAccessTarget>[] = [],
+  isEnabled = true,
 ) {
   return {
     id,
@@ -72,7 +73,7 @@ function createModelListItem(
       ban_duration_seconds: 0,
     },
     access_targets: accessTargets,
-    is_enabled: true,
+    is_enabled: isEnabled,
     connection_count: 0,
     active_connection_count: 0,
     health_success_rate: null,
@@ -82,8 +83,11 @@ function createModelListItem(
   };
 }
 
-function createAccessTargetModelDetail(accessTargets: ReturnType<typeof createAccessTarget>[]) {
-  return createModelListItem(modelConfigId, "routed-openai", "Routed OpenAI", "openai", accessTargets);
+function createAccessTargetModelDetail(
+  accessTargets: ReturnType<typeof createAccessTarget>[],
+  isEnabled = true,
+) {
+  return createModelListItem(modelConfigId, "routed-openai", "Routed OpenAI", "openai", accessTargets, isEnabled);
 }
 
 function createSpendingResponse() {
@@ -115,6 +119,7 @@ async function mockModelDetailRoutes(page: Page) {
   const profile = createProfile();
   const updatePayloads: unknown[] = [];
   let currentAccessTargets = [createAccessTarget("target-alpha", 0, "Target Alpha")];
+  let currentModelEnabled = true;
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -163,7 +168,7 @@ async function mockModelDetailRoutes(page: Page) {
 
     if (pathname === "/api/models" && request.method() === "GET") {
       return fulfillJson([
-        createModelListItem(modelConfigId, "routed-openai", "Routed OpenAI", "openai", currentAccessTargets),
+        createModelListItem(modelConfigId, "routed-openai", "Routed OpenAI", "openai", currentAccessTargets, currentModelEnabled),
         createModelListItem(1, "target-alpha", "Target Alpha", "openai"),
         createModelListItem(2, "target-beta", "Target Beta", "openai"),
         createModelListItem(3, "shadow-openai", "Shadow OpenAI", "openai", [createAccessTarget("target-alpha", 0, "Target Alpha")]),
@@ -172,7 +177,7 @@ async function mockModelDetailRoutes(page: Page) {
     }
 
     if (pathname === `/api/models/${modelConfigId}` && request.method() === "GET") {
-      return fulfillJson(createAccessTargetModelDetail(currentAccessTargets));
+      return fulfillJson(createAccessTargetModelDetail(currentAccessTargets, currentModelEnabled));
     }
 
     if (pathname === `/api/models/${modelConfigId}` && request.method() === "PUT") {
@@ -186,11 +191,17 @@ async function mockModelDetailRoutes(page: Page) {
         is_enabled: boolean;
       };
       updatePayloads.push(payload);
+      currentModelEnabled = payload.is_enabled;
       currentAccessTargets = (payload.access_targets ?? []).map((target) =>
-        createAccessTarget(target.target_model_id, target.position, target.target_model_id === "target-alpha" ? "Target Alpha" : "Target Beta"),
+        createAccessTarget(
+          target.target_model_id,
+          target.position,
+          target.target_model_id === "target-alpha" ? "Target Alpha" : "Target Beta",
+          target.is_enabled ?? true,
+        ),
       );
       return fulfillJson({
-        ...createAccessTargetModelDetail(currentAccessTargets),
+        ...createAccessTargetModelDetail(currentAccessTargets, currentModelEnabled),
         vendor_id: payload.vendor_id ?? null,
         api_family: payload.api_family,
         model_id: payload.model_id,
@@ -212,7 +223,7 @@ async function mockModelDetailRoutes(page: Page) {
   };
 }
 
-test("model detail editing preserves ordered same-family access-target authoring", async ({ page }) => {
+test("model detail editing supports disabled targetless drafts and later enabled attachment", async ({ page }) => {
   const routes = await mockModelDetailRoutes(page);
 
   await page.goto(`/models/${modelConfigId}`);
@@ -229,30 +240,14 @@ test("model detail editing preserves ordered same-family access-target authoring
 
   await dialog.getByRole("button", { name: "Remove target 1" }).click();
   await dialog.getByRole("button", { name: "Save Changes" }).click();
-  await expect(page.getByText("Add at least one valid same-family access target before saving.").last()).toBeVisible();
+  await expect(page.getByText("Add at least one enabled same-family access target before saving an enabled model.").last()).toBeVisible();
   expect(routes.getUpdatePayloads()).toHaveLength(0);
 
-  await dialog.locator("#access-target-kind").click();
-  await page.getByRole("option", { name: "Model" }).click();
-  await dialog.locator("#access-target-select").click();
-  await expect(page.getByRole("option", { name: /Target Alpha/ })).toBeVisible();
-  await expect(page.getByRole("option", { name: /Target Beta/ })).toBeVisible();
-  await expect(page.getByRole("option", { name: /Shadow OpenAI/ })).toBeVisible();
-  await expect(page.getByRole("option", { name: /Claude Sonnet/ })).toHaveCount(0);
-  await page.keyboard.press("Escape");
-
-  await dialog.locator("#access-target-select").click();
-  await page.getByRole("option", { name: /Target Alpha/ }).click();
-  await dialog.getByRole("button", { name: "Add target" }).click();
-
-  await dialog.locator("#access-target-select").click();
-  await page.getByRole("option", { name: /Target Beta/ }).click();
-  await dialog.getByRole("button", { name: "Add target" }).click();
-  await dialog.getByRole("button", { name: "Move target 2 up" }).click();
-
+  await dialog.getByRole("switch").last().click();
   await dialog.getByRole("button", { name: "Save Changes" }).click();
   await expect(page.getByText("Model updated")).toBeVisible();
   await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("Needs target")).toBeVisible();
 
   expect(routes.getUpdatePayloads()).toEqual([
     {
@@ -260,9 +255,48 @@ test("model detail editing preserves ordered same-family access-target authoring
       api_family: "openai",
       model_id: "routed-openai",
       display_name: "Routed OpenAI",
+      access_targets: [],
+      loadbalance_strategy_id: 11,
+      is_enabled: false,
+    },
+  ]);
+
+  await page.getByRole("button", { name: /edit model/i }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.locator("#access-target-kind").click();
+  await page.getByRole("option", { name: "Model" }).click();
+  await dialog.locator("#access-target-select").click();
+  await expect(page.getByRole("option", { name: /Target Alpha/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /Target Beta/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /Shadow OpenAI/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /Claude Sonnet/ })).toHaveCount(0);
+  await page.getByRole("option", { name: /Target Alpha/ }).click();
+  await dialog.getByRole("button", { name: "Add target" }).click();
+  await expect(dialog.getByText("Target Alpha")).toBeVisible();
+
+  await dialog.getByRole("switch").last().click();
+  await dialog.getByRole("button", { name: "Save Changes" }).click();
+  await expect(page.getByText("Model updated")).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("Needs target")).toHaveCount(0);
+
+  expect(routes.getUpdatePayloads()).toEqual([
+    {
+      vendor_id: null,
+      api_family: "openai",
+      model_id: "routed-openai",
+      display_name: "Routed OpenAI",
+      access_targets: [],
+      loadbalance_strategy_id: 11,
+      is_enabled: false,
+    },
+    {
+      vendor_id: null,
+      api_family: "openai",
+      model_id: "routed-openai",
+      display_name: "Routed OpenAI",
       access_targets: [
-        { target_type: "model", target_model_id: "target-beta", position: 0, is_enabled: true },
-        { target_type: "model", target_model_id: "target-alpha", position: 1, is_enabled: true },
+        { target_type: "model", target_model_id: "target-alpha", position: 0, is_enabled: true },
       ],
       loadbalance_strategy_id: 11,
       is_enabled: true,
@@ -271,8 +305,6 @@ test("model detail editing preserves ordered same-family access-target authoring
 
   const accessTargetsEditor = page.getByTestId("access-targets-editor");
   await expect(page.getByRole("button", { name: "Add target" })).toHaveCount(1);
-  await expect(accessTargetsEditor.getByText("Target Beta")).toBeVisible();
-  await expect(accessTargetsEditor.getByText("Priority 1")).toBeVisible();
   await expect(accessTargetsEditor.getByText("Target Alpha")).toBeVisible();
-  await expect(accessTargetsEditor.getByText("Priority 2")).toBeVisible();
+  await expect(accessTargetsEditor.getByText("Priority 1")).toBeVisible();
 });

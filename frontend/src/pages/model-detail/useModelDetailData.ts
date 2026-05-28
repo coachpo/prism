@@ -157,6 +157,8 @@ export function useModelDetailData(id: string | undefined) {
     setLoadbalanceStrategyId,
     handleEditModelSubmit,
   } = useModelDetailModelForm({
+    allConnections,
+    allModels,
     model,
     revision,
     setIsEditModelDialogOpenState,
