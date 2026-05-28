@@ -11,31 +11,188 @@ const frontendDir = path.resolve(__dirname, "../..");
 
 const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const {
+  DEFAULT_MODEL_FORM_DATA,
   createEditModelFormData,
+  createNewModelFormData,
   setApiFamilyOnForm,
   toModelCreatePayload,
   toModelUpdatePayload,
   validateModelFormData,
 } = load(path.join(frontendDir, "src/pages/models/modelFormState.ts"));
 
-test("edit model form preserves and normalizes existing proxy targets", () => {
+test("new model defaults start as disabled drafts", () => {
+  const formData = createNewModelFormData([], 42);
+
+  assert.equal(DEFAULT_MODEL_FORM_DATA.is_enabled, false);
+  assert.equal(formData.is_enabled, false);
+  assert.deepEqual(formData.access_targets, []);
+  assert.equal(formData.loadbalance_strategy_id, 42);
+});
+
+test("disabled drafts validate with no access targets", () => {
+  assert.equal(
+    validateModelFormData({
+      vendor_id: null,
+      api_family: "openai",
+      model_id: "draft-model",
+      display_name: "Draft Model",
+      loadbalance_strategy_id: 9,
+      access_targets: [],
+      is_enabled: false,
+      last_auto_display_name: "Draft Model",
+    }),
+    null,
+  );
+});
+
+test("disabled drafts still reject invalid present targets when keys are provided", () => {
+  assert.equal(
+    validateModelFormData(
+      {
+        vendor_id: null,
+        api_family: "openai",
+        model_id: "draft-model",
+        display_name: "Draft Model",
+        loadbalance_strategy_id: 9,
+        access_targets: [
+          { target_type: "connection", connection_id: 77, position: 0, is_enabled: true },
+          { target_type: "model", target_model_id: "stale-model", position: 1, is_enabled: true },
+        ],
+        is_enabled: false,
+        last_auto_display_name: "Draft Model",
+      },
+      ["connection:77"],
+    ),
+    "access_target_required",
+  );
+});
+
+test("enabled models require at least one enabled valid access target", () => {
+  const enabledDraft = {
+    vendor_id: null,
+    api_family: "openai",
+    model_id: "live-model",
+    display_name: "Live Model",
+    loadbalance_strategy_id: 9,
+    access_targets: [],
+    is_enabled: true,
+    last_auto_display_name: "Live Model",
+  };
+
+  assert.equal(validateModelFormData(enabledDraft), "access_target_required");
+  assert.equal(
+    validateModelFormData(
+      {
+        ...enabledDraft,
+        access_targets: [{ target_type: "connection", connection_id: 77, position: 0, is_enabled: false }],
+      },
+      ["connection:77"],
+    ),
+    "access_target_required",
+  );
+  assert.equal(
+    validateModelFormData(
+      {
+        ...enabledDraft,
+        access_targets: [{ target_type: "connection", connection_id: 77, position: 0, is_enabled: true }],
+      },
+      ["connection:77"],
+    ),
+    null,
+  );
+});
+
+test("enabled forms reject any stale disabled target when keys are provided", () => {
+  assert.equal(
+    validateModelFormData(
+      {
+        vendor_id: null,
+        api_family: "openai",
+        model_id: "live-model",
+        display_name: "Live Model",
+        loadbalance_strategy_id: 9,
+        access_targets: [
+          { target_type: "connection", connection_id: 77, position: 0, is_enabled: true },
+          { target_type: "model", target_model_id: "stale-model", position: 1, is_enabled: false },
+        ],
+        is_enabled: true,
+        last_auto_display_name: "Live Model",
+      },
+      ["connection:77"],
+    ),
+    "access_target_required",
+  );
+});
+
+test("changing api family clears incompatible access targets", () => {
+  const formData = setApiFamilyOnForm(
+    {
+      vendor_id: 11,
+      api_family: "openai",
+      model_id: "targeted-model",
+      display_name: "Targeted Model",
+      loadbalance_strategy_id: 17,
+      access_targets: [{ target_type: "connection", connection_id: 88, position: 0, is_enabled: true }],
+      is_enabled: false,
+      last_auto_display_name: "Targeted Model",
+    },
+    "anthropic",
+  );
+
+  assert.equal(formData.api_family, "anthropic");
+  assert.deepEqual(formData.access_targets, []);
+});
+
+test("payload shaping keeps normalized access targets and required routing fields", () => {
+  const formData = {
+    vendor_id: 11,
+    api_family: "openai",
+    model_id: "live-model",
+    display_name: "  Live Model  ",
+    loadbalance_strategy_id: 17,
+    access_targets: [
+      { target_type: "connection", connection_id: 77, position: 4, is_enabled: true },
+      { target_type: "connection", connection_id: 77, position: 9, is_enabled: true },
+    ],
+    is_enabled: true,
+    last_auto_display_name: "Live Model",
+  };
+
+  assert.deepEqual(toModelCreatePayload(formData), {
+    vendor_id: 11,
+    api_family: "openai",
+    model_id: "live-model",
+    display_name: "Live Model",
+    is_enabled: true,
+    loadbalance_strategy_id: 17,
+    access_targets: [{ target_type: "connection", connection_id: 77, position: 0, is_enabled: true }],
+  });
+
+  assert.deepEqual(toModelUpdatePayload(formData), {
+    vendor_id: 11,
+    api_family: "openai",
+    display_name: "  Live Model  ",
+    model_id: "live-model",
+    is_enabled: true,
+    loadbalance_strategy_id: 17,
+    access_targets: [{ target_type: "connection", connection_id: 77, position: 0, is_enabled: true }],
+  });
+});
+
+test("edit model form keeps existing access targets normalized for shared validation", () => {
   const formData = createEditModelFormData({
     id: 7,
     vendor_id: 11,
     vendor: null,
     api_family: "openai",
-    model_id: "proxy-gateway",
-    display_name: "Proxy Gateway",
-    model_type: "proxy",
-    proxy_selection_strategy: "priority_static",
-    proxy_targets: [
-      { target_model_id: "native-b", position: 5, weight: 4, target_priority: 7 },
-      { target_model_id: "native-a", position: 2, weight: 2, target_priority: 1 },
-      { target_model_id: "native-b", position: 7, weight: 9, target_priority: 3 },
+    model_id: "native-model",
+    display_name: "Native Model",
+    loadbalance_strategy_id: 21,
+    access_targets: [
+      { target_type: "connection", connection_id: 88, position: 5, is_enabled: true, connection: null },
+      { target_type: "connection", connection_id: 88, position: 2, is_enabled: true, connection: null },
     ],
-    loadbalance_strategy_id: null,
-    loadbalance_strategy: null,
-    is_enabled: true,
+    is_enabled: false,
     connection_count: 0,
     active_connection_count: 0,
     health_success_rate: null,
@@ -44,119 +201,8 @@ test("edit model form preserves and normalizes existing proxy targets", () => {
     updated_at: "2026-04-20T00:00:00Z",
   });
 
-  assert.equal(formData.proxy_selection_strategy, "priority_static");
-  assert.deepEqual(formData.proxy_targets, [
-    { target_model_id: "native-b", position: 0, weight: 4, target_priority: 7 },
-    { target_model_id: "native-a", position: 1, weight: 2, target_priority: 1 },
+  assert.equal(formData.is_enabled, false);
+  assert.deepEqual(formData.access_targets, [
+    { target_type: "connection", connection_id: 88, position: 0, is_enabled: true },
   ]);
-});
-
-test("changing api family clears proxy targets for proxy models", () => {
-  const formData = setApiFamilyOnForm(
-    {
-      vendor_id: 11,
-      api_family: "openai",
-      model_id: "proxy-gateway",
-      display_name: "Proxy Gateway",
-      model_type: "proxy",
-      proxy_selection_strategy: "weighted_static",
-      proxy_targets: [
-        { target_model_id: "native-b", position: 0, weight: 3, target_priority: 5 },
-        { target_model_id: "native-a", position: 1, weight: 2, target_priority: 1 },
-      ],
-      loadbalance_strategy_id: null,
-      is_enabled: true,
-      last_auto_display_name: "Proxy Gateway",
-    },
-    "anthropic",
-  );
-
-  assert.equal(formData.api_family, "anthropic");
-  assert.equal(formData.proxy_selection_strategy, "weighted_static");
-  assert.deepEqual(formData.proxy_targets, []);
-});
-
-test("proxy model payloads keep ordered targets and clear native routing fields", () => {
-  const formData = {
-    vendor_id: 11,
-    api_family: "openai",
-    model_id: "proxy-gateway",
-    display_name: "Proxy Gateway",
-    model_type: "proxy",
-    proxy_selection_strategy: "ordered_fallback",
-    proxy_targets: [
-      { target_model_id: "native-b", position: 4, weight: 8, target_priority: 6 },
-      { target_model_id: "native-a", position: 1, weight: 3, target_priority: 2 },
-    ],
-    loadbalance_strategy_id: 99,
-    is_enabled: true,
-    last_auto_display_name: "Proxy Gateway",
-  };
-
-  assert.deepEqual(toModelCreatePayload(formData), {
-    vendor_id: 11,
-    api_family: "openai",
-    model_id: "proxy-gateway",
-    display_name: "Proxy Gateway",
-    model_type: "proxy",
-    proxy_selection_strategy: "ordered_fallback",
-    proxy_targets: [
-      { target_model_id: "native-b", position: 0, weight: 8, target_priority: 6 },
-      { target_model_id: "native-a", position: 1, weight: 3, target_priority: 2 },
-    ],
-    loadbalance_strategy_id: null,
-    is_enabled: true,
-  });
-
-  assert.deepEqual(toModelUpdatePayload(formData), {
-    vendor_id: 11,
-    api_family: "openai",
-    model_id: "proxy-gateway",
-    display_name: "Proxy Gateway",
-    model_type: "proxy",
-    proxy_selection_strategy: "ordered_fallback",
-    proxy_targets: [
-      { target_model_id: "native-b", position: 0, weight: 8, target_priority: 6 },
-      { target_model_id: "native-a", position: 1, weight: 3, target_priority: 2 },
-    ],
-    loadbalance_strategy_id: null,
-    is_enabled: true,
-  });
-});
-
-test("shared validation requires same-family proxy targets and native strategies", () => {
-  assert.equal(
-    validateModelFormData(
-      {
-        vendor_id: 11,
-        api_family: "openai",
-        model_id: "proxy-gateway",
-        display_name: "Proxy Gateway",
-        model_type: "proxy",
-        proxy_selection_strategy: "ordered_fallback",
-        proxy_targets: [{ target_model_id: "native-b", position: 0, weight: 1, target_priority: 0 }],
-        loadbalance_strategy_id: null,
-        is_enabled: true,
-        last_auto_display_name: "Proxy Gateway",
-      },
-      ["native-a"],
-    ),
-    "proxy_target_required",
-  );
-
-  assert.equal(
-    validateModelFormData({
-      vendor_id: 11,
-      api_family: "openai",
-      model_id: "native-gateway",
-      display_name: "Native Gateway",
-      model_type: "native",
-      proxy_selection_strategy: null,
-      proxy_targets: [],
-      loadbalance_strategy_id: null,
-      is_enabled: true,
-      last_auto_display_name: "Native Gateway",
-    }),
-    "loadbalance_strategy_required",
-  );
 });

@@ -37,7 +37,7 @@ export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   display_name: "",
   loadbalance_strategy_id: null,
   access_targets: [],
-  is_enabled: true,
+  is_enabled: false,
   last_auto_display_name: "",
 };
 
@@ -227,7 +227,8 @@ export function validateModelFormData(
     return "loadbalance_strategy_required";
   }
   const normalizedTargets = normalizeAccessTargetMutations(formData.access_targets);
-  if (formData.is_enabled && normalizedTargets.every((target) => target.is_enabled === false)) {
+  const enabledTargets = normalizedTargets.filter((target) => target.is_enabled !== false);
+  if (formData.is_enabled && enabledTargets.length === 0) {
     return "access_target_required";
   }
   if (!availableAccessTargetKeys) {
