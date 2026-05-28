@@ -518,32 +518,32 @@ test.describe("models and request logs reporting currency", () => {
       .getByRole("button")
       .filter({ hasText: "Payload symbol row" })
       .locator(":scope > div")
-      .nth(8);
+      .nth(9);
     const canonicalFallbackReasoning = page
       .getByRole("button")
       .filter({ hasText: "Canonical fallback row" })
       .locator(":scope > div")
-      .nth(8);
+      .nth(9);
     const payloadSymbolSpend = page
       .getByRole("button")
       .filter({ hasText: "Payload symbol row" })
       .locator(":scope > div")
-      .nth(11);
+      .nth(12);
     const canonicalFallbackSpend = page
       .getByRole("button")
       .filter({ hasText: "Canonical fallback row" })
       .locator(":scope > div")
-      .nth(11);
+      .nth(12);
     const zeroSpend = page
       .getByRole("button")
       .filter({ hasText: "Zero spend row" })
       .locator(":scope > div")
-      .nth(11);
+      .nth(12);
     const unpricedSpend = page
       .getByRole("button")
       .filter({ hasText: "Unpriced row" })
       .locator(":scope > div")
-      .nth(11);
+      .nth(12);
 
     await expect(page.getByText("Reasoning effort")).toBeVisible();
     await expect(payloadSymbolReasoning).toContainText("low");

@@ -316,12 +316,12 @@ test.describe("request logs optional zero pricing", () => {
       .getByRole("button")
       .filter({ hasText: "Optional zero row" })
       .locator(":scope > div")
-      .nth(11);
+      .nth(12);
     const historicalUnpricedSpend = page
       .getByRole("button")
       .filter({ hasText: "Historical missing price data" })
       .locator(":scope > div")
-      .nth(11);
+      .nth(12);
 
     await expect(pricedZeroSpend).toContainText("$0.00");
     await expect(pricedZeroSpend).not.toContainText("Unpriced");
