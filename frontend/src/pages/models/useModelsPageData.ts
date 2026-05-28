@@ -149,7 +149,7 @@ export function useModelsPageData(revision: number) {
     }
 
     if (validationError === "access_target_required") {
-      const message = "Add at least one valid same-family access target before saving.";
+      const message = "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.";
       setFormError(message);
       toast.error(message);
       return;

@@ -62,6 +62,9 @@ export function ModelDialog({
   const selectedLoadbalanceStrategy = [...loadbalanceStrategies]
     .reverse()
     .find((strategy) => strategy.id === formData.loadbalance_strategy_id);
+  const enabledDescription = editingModel
+    ? "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments."
+    : "New models start disabled so you can save a draft now and attach access targets later. Enabled saves require at least one enabled target.";
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -169,6 +172,7 @@ export function ModelDialog({
 
               <SwitchController
                 label={detailCopy.enabled}
+                description={enabledDescription}
                 checked={formData.is_enabled}
                 onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, is_enabled: checked }))}
               />

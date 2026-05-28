@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-27T12:00:00Z";
+const disabledDraftAccessTargetCopy = "No access targets selected. This model can be saved disabled and have a target attached later. Enabled saves still require at least one enabled target.";
+const enabledTargetRequiredCopy = "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.";
 
 function createProfile() {
   return {
@@ -117,6 +119,7 @@ async function mockModelRoutes(page: Page) {
       createdPayloads.push(payload);
       return fulfillJson({
         id: 50,
+        profile_id: 1,
         vendor_id: payload.vendor_id ?? null,
         vendor: null,
         api_family: payload.api_family,
@@ -144,6 +147,38 @@ async function mockModelRoutes(page: Page) {
   };
 }
 
+test("main model dialog saves targetless disabled drafts", async ({ page }) => {
+  const routes = await mockModelRoutes(page);
+
+  await page.goto("/models");
+  await page.getByRole("button", { name: "New Model" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "New Model" });
+  await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
+  await expect(dialog.getByText("New models start disabled so you can save a draft now and attach access targets later.")).toBeVisible();
+  await expect(dialog.locator('[data-slot="switch"]').last()).toHaveAttribute("data-state", "unchecked");
+
+  await page.getByRole("textbox", { name: "Model ID" }).fill("draft-openai");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Model created")).toBeVisible();
+
+  expect(routes.getCreatedPayloads()).toEqual([
+    {
+      vendor_id: null,
+      api_family: "openai",
+      model_id: "draft-openai",
+      display_name: "draft-openai",
+      access_targets: [],
+      loadbalance_strategy_id: 11,
+      is_enabled: false,
+    },
+  ]);
+
+  const draftRow = page.getByRole("link", { name: "draft-openai" }).locator("xpath=ancestor::div[contains(@class, 'group')][1]");
+  await expect(draftRow.getByText("Needs target")).toBeVisible();
+  await expect(draftRow.getByText("Disabled")).toBeVisible();
+});
+
 test("main model dialog authors ordered model access targets before save", async ({ page }) => {
   const routes = await mockModelRoutes(page);
 
@@ -151,10 +186,15 @@ test("main model dialog authors ordered model access targets before save", async
   await page.getByRole("button", { name: "New Model" }).click();
 
   const dialog = page.getByRole("dialog", { name: "New Model" });
+  await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
+  const enabledSwitch = dialog.locator('[data-slot="switch"]').last();
+  await expect(enabledSwitch).toHaveAttribute("data-state", "unchecked");
   await page.getByRole("textbox", { name: "Model ID" }).fill("routed-openai");
 
+  await enabledSwitch.click();
+  await expect(enabledSwitch).toHaveAttribute("data-state", "checked");
   await dialog.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Add at least one valid same-family access target before saving.").last()).toBeVisible();
+  await expect(page.getByText(enabledTargetRequiredCopy).last()).toBeVisible();
   expect(routes.getCreatedPayloads()).toHaveLength(0);
 
   await dialog.locator("#access-target-kind").click();
@@ -170,7 +210,7 @@ test("main model dialog authors ordered model access targets before save", async
 
   await dialog.getByRole("combobox").filter({ hasText: "OpenAI" }).click();
   await page.getByRole("option", { name: /Anthropic/i }).click();
-  await expect(page.getByText("No access targets selected. Add at least one enabled target before enabling this model.")).toBeVisible();
+  await expect(page.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
 
   await dialog.locator("#access-target-kind").click();
   await page.getByRole("option", { name: "Model" }).click();
@@ -180,7 +220,7 @@ test("main model dialog authors ordered model access targets before save", async
   await page.keyboard.press("Escape");
 
   await dialog.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Add at least one valid same-family access target before saving.").last()).toBeVisible();
+  await expect(page.getByText(enabledTargetRequiredCopy).last()).toBeVisible();
   expect(routes.getCreatedPayloads()).toHaveLength(0);
 
   await dialog.locator("#access-target-select").click();
