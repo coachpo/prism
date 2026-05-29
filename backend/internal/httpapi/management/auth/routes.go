@@ -61,24 +61,29 @@ func (s *Service) managementMiddleware(next http.Handler) http.Handler {
 
 		snapshot, err := s.loadAppAuthSettingsSnapshot(r.Context())
 		if err != nil {
+			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "settings_error")
 			writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
 		if !snapshot.AuthEnabled {
+			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "disabled")
 			next.ServeHTTP(w, r)
 			return
 		}
 		if isPublicManagementPath(r.URL.Path) {
+			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "public")
 			next.ServeHTTP(w, r)
 			return
 		}
 		authConfig := s.runtimeAuthConfigSnapshot()
 		authSubject, ok := s.authSubjectFromAccessSnapshot(r, authConfig, snapshot)
 		if !ok {
+			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "unauthenticated")
 			writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Authentication required")
 			return
 		}
 		contextWithSubject := context.WithValue(r.Context(), authSubjectContextKey{}, authSubject)
+		recordAuthDecision(contextWithSubject, authTelemetryBranchManagement, "authenticated")
 		next.ServeHTTP(w, r.WithContext(contextWithSubject))
 	})
 }
@@ -93,31 +98,38 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 		authSettings, err := s.loadRuntimeAuthSettings(r.Context())
 		if err != nil {
 			if isPublishedSnapshotUnavailable(err) {
+				recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "snapshot_unavailable")
 				writeError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
 				return
 			}
+			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "settings_error")
 			writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
 		if !authSettings.AuthEnabled {
+			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "disabled")
 			next.ServeHTTP(w, r)
 			return
 		}
 		rawKey, _ := extractProxyAPIKey(r.Header)
 		if rawKey == "" {
+			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "missing_proxy_key")
 			writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
 			return
 		}
 		proxyKey, err := s.verifyProxyAPIKey(r.Context(), rawKey)
 		if err != nil {
 			if isPublishedSnapshotUnavailable(err) {
+				recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "snapshot_unavailable")
 				writeError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
 				return
 			}
+			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "verify_error")
 			writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to verify proxy API key")
 			return
 		}
 		if proxyKey == nil {
+			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "invalid_proxy_key")
 			writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Invalid proxy API key")
 			return
 		}
@@ -133,6 +145,7 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 				slog.Error("failed to enqueue proxy API key usage", "error", err, "key_id", proxyKey.ID)
 			}
 		}
+		recordAuthDecision(contextWithProxyKey, authTelemetryBranchRuntime, "authenticated")
 		next.ServeHTTP(w, r.WithContext(contextWithProxyKey))
 	})
 }
@@ -635,6 +648,7 @@ func (s *Service) handleDeleteProxyKey(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
 	proxyKey, ok := runtimeProxyKeyFromRequest(r)
 	if !ok || proxyKey.ID <= 0 {
+		recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "missing_proxy_key")
 		writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
 		return
 	}

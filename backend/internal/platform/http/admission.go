@@ -84,10 +84,14 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "model health-check preview", method: http.MethodPost, pattern: "/models/{model_config_id}/connections/health-check-preview", tier: priority.ManagementTierM3},
 	{name: "model connection create", method: http.MethodPost, pattern: "/models/{model_config_id}/connections", tier: priority.ManagementTierM2},
 	{name: "model connection priority update", method: http.MethodPatch, pattern: "/models/{model_config_id}/connections/{connection_id}/priority", tier: priority.ManagementTierM2},
+	{name: "connections list", method: http.MethodGet, pattern: "/connections", tier: priority.ManagementTierM2},
+	{name: "connection create", method: http.MethodPost, pattern: "/connections", tier: priority.ManagementTierM2},
+	{name: "connection read", method: http.MethodGet, pattern: "/connections/{connection_id}", tier: priority.ManagementTierM2},
 	{name: "connection update", method: http.MethodPut, pattern: "/connections/{connection_id}", tier: priority.ManagementTierM2},
 	{name: "connection pricing template set", method: http.MethodPut, pattern: "/connections/{connection_id}/pricing-template", tier: priority.ManagementTierM2},
 	{name: "connection delete", method: http.MethodDelete, pattern: "/connections/{connection_id}", tier: priority.ManagementTierM2},
 	{name: "connection health-check", method: http.MethodPost, pattern: "/connections/{connection_id}/health-check", tier: priority.ManagementTierM3},
+	{name: "connection references list", method: http.MethodGet, pattern: "/connections/{connection_id}/references", tier: priority.ManagementTierM2},
 	{name: "connection owner read", method: http.MethodGet, pattern: "/connections/{connection_id}/owner", tier: priority.ManagementTierM2},
 	{name: "pricing templates list", method: http.MethodGet, pattern: "/pricing-templates", tier: priority.ManagementTierM2},
 	{name: "pricing template create", method: http.MethodPost, pattern: "/pricing-templates", tier: priority.ManagementTierM2},
@@ -113,6 +117,11 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "loadbalance events list", method: http.MethodGet, pattern: "/loadbalance/events", tier: priority.ManagementTierM3},
 	{name: "loadbalance event read", method: http.MethodGet, pattern: "/loadbalance/events/{event_id}", tier: priority.ManagementTierM3},
 	{name: "models by endpoints", method: http.MethodPost, pattern: "/models/by-endpoints", tier: priority.ManagementTierM2},
+	{name: "model targets list", method: http.MethodGet, pattern: "/models/{model_config_id}/targets", tier: priority.ManagementTierM2},
+	{name: "model target create", method: http.MethodPost, pattern: "/models/{model_config_id}/targets", tier: priority.ManagementTierM2},
+	{name: "model target update", method: http.MethodPut, pattern: "/models/{model_config_id}/targets/{target_id}", tier: priority.ManagementTierM2},
+	{name: "model target move", method: http.MethodPatch, pattern: "/models/{model_config_id}/targets/{target_id}/position", tier: priority.ManagementTierM2},
+	{name: "model target delete", method: http.MethodDelete, pattern: "/models/{model_config_id}/targets/{target_id}", tier: priority.ManagementTierM2},
 	{name: "model read", method: http.MethodGet, pattern: "/models/{model_config_id}", tier: priority.ManagementTierM2},
 	{name: "model create", method: http.MethodPost, pattern: "/models", tier: priority.ManagementTierM2},
 	{name: "model update", method: http.MethodPut, pattern: "/models/{model_config_id}", tier: priority.ManagementTierM2},
@@ -198,6 +207,7 @@ func (c *managementAdmissionController) Middleware(next http.Handler) http.Handl
 			controller = c.provider.AdmissionSnapshot().Controller()
 		}
 		requestContext, release, err := controller.Admit(r.Context(), routeSpec.AdmissionSpec())
+		recordAdmissionDecision(r.Context(), httpTelemetryBranchManagement, string(routeSpec.tier), err)
 		if err != nil {
 			writeAdmissionError(w, err)
 			return
@@ -229,6 +239,7 @@ func proxyAdmissionProviderMiddleware(provider hotAdmissionProvider, fallbackCon
 			Timeout:  timeout,
 		}
 		requestContext, release, err := controller.Admit(r.Context(), spec)
+		recordAdmissionDecision(r.Context(), httpTelemetryBranchRuntime, admissionTelemetryTierNone, err)
 		if err != nil {
 			writeAdmissionError(w, err)
 			return

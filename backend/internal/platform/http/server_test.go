@@ -368,7 +368,6 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 		path   string
 	}{
 		{method: http.MethodGet, path: "/health"},
-		{method: http.MethodGet, path: "/metrics"},
 		{method: http.MethodGet, path: "/api/auth/status"},
 		{method: http.MethodGet, path: "/api/profiles/active"},
 		{method: http.MethodGet, path: "/api/config/bootstrap"},
@@ -379,6 +378,7 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 	} {
 		assertRouteMounted(t, router, route.method, route.path)
 	}
+	assertRouteNotMounted(t, router, http.MethodGet, "/metrics")
 }
 
 func assertRouteMounted(t *testing.T, router *chi.Mux, method string, path string) {
@@ -386,6 +386,14 @@ func assertRouteMounted(t *testing.T, router *chi.Mux, method string, path strin
 	routeContext := chi.NewRouteContext()
 	if !router.Match(routeContext, method, path) {
 		t.Fatalf("expected route %s %s to be mounted", method, path)
+	}
+}
+
+func assertRouteNotMounted(t *testing.T, router *chi.Mux, method string, path string) {
+	t.Helper()
+	routeContext := chi.NewRouteContext()
+	if router.Match(routeContext, method, path) {
+		t.Fatalf("expected route %s %s to be unmapped", method, path)
 	}
 }
 
