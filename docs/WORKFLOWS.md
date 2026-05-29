@@ -143,7 +143,7 @@ Validated again against current repo surfaces on 2026-05-10:
 **Frontend flow**
 
 1. Endpoints define reusable upstream credentials and base URLs.
-2. Loadbalance strategies define reusable legacy routing plus Ban Policy retry-window settings for model access.
+2. Loadbalance strategies define reusable routing plus explicit Ban Policy retry-window settings for model access.
 3. Pricing templates define reusable cost models attached to connections with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`.
 4. Pricing-template management saves explicit strings for every component. Missing/null/blank inputs normalize to `"0"`; explicit `"0"` is configured free pricing, not missing pricing data.
 5. Request logs and cost math consume canonical disjoint token components: base input, cache-read input, cache-creation input, base output, and reasoning output. Aggregate `cached_tokens` is derived-only for presentation.
@@ -313,7 +313,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 
 1. The incoming request resolves a model from the request body or Gemini path.
 2. Models resolve ordered access targets to same-family models or standalone connections before connection planning starts.
-3. Connection planning applies the attached legacy Ban Policy strategy and per-connection limits.
+3. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
 4. The upstream request is rewritten as needed for the target API family, then proxied through.
 5. Request logs, audit data, and loadbalance events are recorded for later operator investigation.
 6. Missing pricing stays visibly degraded or unpriced, it never silently looks complete.

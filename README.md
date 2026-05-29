@@ -13,7 +13,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 - **Operation-registered runtime support**: allowed routes are `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/images/generations`, `POST /v1/images/edits`, `POST /v1/messages`, `POST /v1/messages/count_tokens`, `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, and `POST /v1beta/models/{model}:countTokens`
 - **Not a full vendor API clone**: unsupported vendor routes are rejected before provider transport, telemetry, audit, or feedback side effects
 - **Unified model access**: public model IDs resolve through ordered access targets that can point to other same-family models or standalone connections
-- **Legacy routing with Ban Policy**: reusable load-balance strategies use `single`, `fill-first`, or `round-robin` routing plus retry-window and ban settings
+- **Explicit Ban Policy routing**: reusable load-balance strategies use `single`, `fill-first`, or `round-robin` routing plus retry-window settings, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and `off`, `temporary`, or `until_reset` ban modes
 - **Automatic buffering**: operation hooks handle streaming and internal buffered fallbacks for supported routes
 
 ### Observability & management
@@ -229,9 +229,9 @@ When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./star
 
 ### Database
 
-Prism uses PostgreSQL with Go-backend-managed migrations applied automatically on startup. Development contract changes are clean cut: incompatible local data should be reset and recreated, with no backfill path promised for old pricing or token semantics.
+Prism uses PostgreSQL with Go-backend-managed migrations applied automatically on startup. Development contract changes are clean cut: incompatible local data should be reset and recreated, with no backfill path promised for old pricing, token, or Ban Policy semantics.
 
-Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as legacy Ban Policy strategies:
+Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as explicit Ban Policy strategies. Retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`; Ban Policy bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; current-state views stay connection-global while loadbalance events keep policy threshold snapshots for history:
 
 - `Default single routing`
 - `Default fill-first routing`

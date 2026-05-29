@@ -109,7 +109,7 @@ frontend/
 - The backend image runs as `prism:prism`, UID/GID `1000:1000`. Container deployments that bind mount `/app/config` or any other `PRISM_CONFIG_PATH` parent must make that host directory writable by UID/GID `1000:1000`; new and existing root-owned mounts should be prepared once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
 - Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
-- The current implementation keeps the split-bundle contract canonical: `profile_config` bundles use `version: 2`, `vendor_catalog` bundles use `version: 1`, and no older bundle narrative survives.
+- The current implementation keeps the split-bundle contract canonical: `profile_config` bundles use `version: 3`, `vendor_catalog` bundles use `version: 1`, and no older profile-bundle narrative survives.
 - `backend/Dockerfile` is the live Go backend image build path and copies the backend binary, version surface, and `migrations/` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
@@ -137,7 +137,7 @@ Prism is proxy-first. It forwards only the provider-native operations registered
 
 The operation registry is the ingress contract for the runtime plane. Each supported operation declares an exact HTTP method, path template, API family, model-binding source, streaming classification, canonical operation name, and hook collection. The current canonical operation names are `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`. Requests that do not match that registry are rejected before body reads, planning, provider transport, telemetry, audit, or feedback side effects.
 
-After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves ordered access targets to a final standalone connection or final model target, applies the attached legacy Ban Policy strategy, claims leases, builds upstream headers, forwards to the selected provider connection, and records telemetry through the runtime outbox seams. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
+After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves ordered access targets to a final standalone connection or final model target, applies the attached explicit Ban Policy strategy, claims leases, builds upstream headers, forwards to the selected provider connection, and records telemetry through the runtime outbox seams. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
 
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
@@ -149,7 +149,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
   -> Shared core captures active profile snapshot at request start
   -> Gateway assigns one Prism `ingress_request_id` for the incoming runtime request
   -> Request setup resolves the requested model and its ordered access targets in active profile scope
-  -> Planner reaches a standalone connection target, applies the attached legacy Ban Policy strategy, and checks admission counters plus retry-window state
+  -> Planner reaches a standalone connection target, applies the attached explicit Ban Policy strategy, and checks admission counters plus retry-window state
   -> Executor claims the primary attempt lease and forwards the request to the selected endpoint
   -> Upstream responds with JSON
   -> Gateway returns JSON to client, releases any non-stream lease, persists one `request_logs` row for the attempt, and feeds the outcome back into runtime routing state
@@ -190,7 +190,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
 | API family            | Canonical operation names                       | Supported Prism operation paths                    | Upstream path                                      | Auth header                                          |
 | --------------------- | ----------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
 | OpenAI                | `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits` | `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/images/generations`, `POST /v1/images/edits` | Same path under `{base_url}` | `Authorization: Bearer {key}`                        |
-| Anthropic             | `anthropic.messages`, `anthropic.count_tokens`  | `POST /v1/messages`, `POST /v1/messages/count_tokens` | Same path under `{base_url}` | `x-api-key: {key}` + `anthropic-version: 2023-06-01` |
+| Anthropic             | `anthropic.messages`, `anthropic.count_tokens`  | `POST /v1/messages`, `POST /v1/messages/count_tokens` | Same path under `{base_url}` | `x-api-key` set to `{key}` plus `anthropic-version` set to `2023-06-01` |
 | Gemini                | `gemini.generate_content`, `gemini.stream_generate_content`, `gemini.count_tokens` | `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, `POST /v1beta/models/{model}:countTokens` | Same path under `{base_url}` | `Authorization: Bearer {key}`                        |
 
 OpenAI runtime support is limited to the registered chat, Responses, and image operations listed above. Stored Responses object lifecycle APIs, including retrieve, list, delete, cancel, and compact routes, are outside Prism's supported contract. `openai.images.generations` and `openai.images.edits` are media operations with copy-only token usage semantics, not generic OpenAI passthrough routes.
@@ -284,8 +284,12 @@ The realtime API has two supported channels. `dashboard.update` is the overview 
 
 ### 4.1 Routing policy contract
 
-- Models attach one profile-scoped legacy loadbalance strategy.
-- Strategies carry `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`) plus Ban Policy fields for failure status codes, retry delay, backoff, jitter, retry attempts, retry-window limits, ban mode, and ban duration.
+- Models attach one profile-scoped explicit loadbalance strategy.
+- Strategies carry the routing family field `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`).
+- Strategies also carry explicit Ban Policy fields for failure status codes, retry delay, backoff, jitter, retry-window limits, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration.
+- Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.
+- Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; the runtime never derives this threshold from the cycle limit.
+- `ban_mode` accepts `off`, `temporary`, and `until_reset`. The `until_reset` mode keeps a connection banned until the current-state reset endpoint clears it.
 - The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for that profile.
 - Upstream request timing is controlled by shared backend timeout settings, not by per-strategy timeout documents.
 
@@ -295,7 +299,7 @@ The realtime API has two supported channels. `dashboard.update` is the overview 
 2. Request setup resolves the active-profile model, ordered access targets, attached strategy, and one immutable effective strategy snapshot for the request.
 3. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from admission counters and Ban Policy retry-window state.
 4. The shared execution core claims per-attempt leases and uses shared upstream timeout behavior from the backend runtime before any client-visible bytes are committed.
-5. Operation request, response, stream, and media hooks interpret provider-native payload details by canonical operation name. Token-count hooks are attached to `anthropic.count_tokens` and `gemini.count_tokens`, media hooks are attached to `openai.images.generations` and `openai.images.edits`, and the Gemini SSE hook is attached to `gemini.stream_generate_content`; passive outcomes feed back into runtime state and durable transition history stays in `loadbalance_events`.
+5. Operation request, response, stream, and media hooks interpret provider-native payload details by canonical operation name. Token-count hooks are attached to `anthropic.count_tokens` and `gemini.count_tokens`, media hooks are attached to `openai.images.generations` and `openai.images.edits`, and the Gemini SSE hook is attached to `gemini.stream_generate_content`; passive outcomes feed back into connection-global runtime state while durable transition history persists model-policy snapshots and exposes them on event APIs as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.
 
 If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail.
 

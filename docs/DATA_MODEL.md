@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped legacy Ban Policy routing, UNLOGGED routing hot state, global sidecar control-plane tables, and the current split-bundle configuration format (`version: 2` profile bundle, `version: 1` vendor catalog bundle).
+Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped explicit Ban Policy routing, UNLOGGED routing hot state, global sidecar control-plane tables, and the current split-bundle configuration format (`version: 3` profile bundle, `version: 1` vendor catalog bundle).
 
 ## 1. Entity Relationship Diagram
 
@@ -43,7 +43,7 @@ loadbalance_strategies (profile-scoped)
   id PK
   profile_id FK -> profiles.id
   name
-  legacy Ban Policy fields
+  routing and explicit Ban Policy fields
   created_at, updated_at
   UNIQUE(profile_id, name)
       | 1:N
@@ -365,7 +365,7 @@ Constraints:
 
 ### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
 
-Reusable legacy Ban Policy strategy objects attached by models within one profile.
+Reusable explicit Ban Policy strategy objects attached by models within one profile.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -374,12 +374,13 @@ Reusable legacy Ban Policy strategy objects attached by models within one profil
 | name | VARCHAR(200) | NOT NULL | Strategy name (profile-unique) |
 | legacy_strategy_type | VARCHAR(20) | NOT NULL, CHECK IN (`single`, `fill-first`, `round-robin`) | Routing subtype |
 | failure_status_codes | INTEGER[] | NOT NULL | Status codes that count as retry-window failures |
-| ban_mode | VARCHAR(20) | NOT NULL | `off`, `temporary`, or `manual` |
+| ban_mode | VARCHAR(20) | NOT NULL | `off`, `temporary`, or `until_reset` |
 | retry_base_delay_ms | INTEGER | NOT NULL | First retry-window delay in milliseconds |
 | retry_backoff_multiplier | NUMERIC | NOT NULL | Backoff multiplier |
 | retry_jitter_ratio | NUMERIC | NOT NULL | Retry-window jitter ratio |
 | retry_max_delay_ms | INTEGER | NOT NULL | Maximum retry-window delay in milliseconds |
-| retry_max_attempts | INTEGER | NOT NULL | Max attempts per request |
+| cycle_retry_attempt_limit | INTEGER | NOT NULL | Inclusive retry-cycle exhaustion limit |
+| ban_cumulative_retry_attempt_threshold | INTEGER | NOT NULL | Inclusive cumulative retry threshold for Ban Policy bans, or zero when `ban_mode = off` |
 | ban_duration_seconds | INTEGER | NOT NULL | Temporary ban duration, or zero when mode requires no duration |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -387,7 +388,10 @@ Reusable legacy Ban Policy strategy objects attached by models within one profil
 Constraints and lifecycle rules:
 - `UNIQUE(profile_id, name)`.
 - Effective runtime policy resolves once per request from the attached strategy row.
-- Ban Policy fields carry failure status codes, retry-window delay/backoff/jitter tuning, retry attempt limits, and ban duration semantics.
+- Ban Policy fields carry failure status codes, retry-window delay/backoff/jitter tuning, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and ban duration semantics.
+- Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.
+- Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; Prism does not derive the ban threshold from the cycle limit.
+- `ban_mode = off` requires threshold and duration `0`; `temporary` requires threshold `>= cycle_retry_attempt_limit` plus positive duration; `until_reset` requires threshold `>= cycle_retry_attempt_limit` plus duration `0`.
 - The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for that profile.
 - Strategies cannot be deleted while attached to one or more models.
 
@@ -409,7 +413,7 @@ Reusable credential objects scoped to one profile.
 Constraints and indexes:
 - `UNIQUE(profile_id, name)`.
 - `INDEX(profile_id, position)` for ordered reads.
-- Profile config export never emits plaintext `api_key`; the `version: 2` profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
+- Profile config export never emits plaintext `api_key`; the `version: 3` profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
 - Endpoints with no upstream credential export `api_key_secret_ref = null` and do not emit a bundle secret entry.
 
 ### 2.5 `connections` (profile-scoped standalone routing targets)
@@ -470,7 +474,7 @@ Reusable token pricing definitions that can be attached to many connections with
 
 Constraint: `UNIQUE(profile_id, name)`.
 
-Pricing templates use five concrete pricing strings in steady state. Management API writes and profile bundle v2 import normalize missing/null/blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
+Pricing templates use five concrete pricing strings in steady state. Management API writes and profile bundle v3 import normalize missing, null, or blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
 
 Token costing consumes canonical disjoint token components: base input, cache-read input, cache-creation input, base output, reasoning output, and provider or derived total. `cached_tokens` is derived-only for aggregate and presentation surfaces from cache-read plus cache-creation input tokens.
 
@@ -641,16 +645,24 @@ Persistent record of retry-window, ban, recovery, and admission transitions. The
 | event_type | VARCHAR(32) | NOT NULL | `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, `admission_rejected` |
 | failure_kind | VARCHAR(20) | NULLABLE | `transient_http`, `connect_error`, `timeout` |
 | cycle_retry_attempts | INTEGER | NOT NULL | Retry attempts in the current retry cycle |
-| cumulative_retry_attempts | INTEGER | NOT NULL | Retry attempts accumulated for Ban Mode thresholding |
+| cumulative_retry_attempts | INTEGER | NOT NULL | Retry attempts accumulated for Ban Policy thresholding |
+| policy_cycle_retry_attempt_limit | INTEGER | NULLABLE | Strategy cycle limit snapshot for events produced by Ban Policy evaluation |
+| policy_ban_cumulative_retry_attempt_threshold | INTEGER | NULLABLE | Strategy cumulative ban threshold snapshot for events produced by Ban Policy evaluation |
 | next_retry_at | DATETIME | NULLABLE | Wall-clock time when the next retry cycle can run |
 | last_retry_delay_ms | INTEGER | NOT NULL | Last resolved retry-window delay in milliseconds |
 | model_id | VARCHAR(200) | NULLABLE | Model ID snapshot |
 | endpoint_id | INTEGER | NULLABLE | Endpoint ID snapshot |
 | vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor snapshot |
-| ban_mode | VARCHAR(20) | NULLABLE | `off`, `temporary`, or `manual` when relevant |
+| ban_mode | VARCHAR(20) | NULLABLE | `off`, `temporary`, or `until_reset` when relevant |
 | banned_until_at | DATETIME | NULLABLE | Temporary-ban expiry when relevant |
 | last_success_at | DATETIME | NULLABLE | Successful response time that cleared retry state when relevant |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp and partition key |
+
+Event snapshot semantics:
+- Ban Policy event rows keep immutable SQL storage snapshots in `policy_cycle_retry_attempt_limit` and `policy_ban_cumulative_retry_attempt_threshold` from the strategy evaluated at event time.
+- Event list/detail APIs expose those snapshots as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` so the public payload matches the strategy contract.
+- Current-state rows stay connection-global and do not store strategy threshold fields, because the same standalone connection can be reached by more than one model policy over time.
+- Historical events can explain inclusive threshold behavior even after a strategy changes later.
 
 ### 2.14 `log_retention_settings` (global singleton)
 
@@ -747,10 +759,10 @@ Ephemeral hot-state row for per-connection admission counters and Ban Mode retry
 | in_flight_non_stream | INTEGER | NOT NULL, DEFAULT 0 | Current non-stream reservations |
 | in_flight_stream | INTEGER | NOT NULL, DEFAULT 0 | Current stream reservations |
 | cycle_retry_attempts | INTEGER | NOT NULL | Retry attempts in the current retry cycle |
-| cumulative_retry_attempts | INTEGER | NOT NULL | Retry attempts accumulated for Ban Mode thresholding |
+| cumulative_retry_attempts | INTEGER | NOT NULL | Retry attempts accumulated for Ban Policy thresholding |
 | next_retry_at | DATETIME | NULLABLE | Wall-clock time when the next retry cycle can run |
 | last_retry_delay_ms | INTEGER | NOT NULL | Last resolved retry-window delay in milliseconds |
-| ban_mode | VARCHAR(20) | NOT NULL | `off`, `temporary`, or `manual` |
+| ban_mode | VARCHAR(20) | NOT NULL | `off`, `temporary`, or `until_reset` |
 | banned_until_at | DATETIME | NULLABLE | Temporary-ban expiry when relevant |
 | last_failure_kind | VARCHAR(20) | NULLABLE | Latest retryable failure kind: `transient_http`, `connect_error`, or `timeout` |
 | last_success_at | DATETIME | NULLABLE | Successful response time that cleared retry state when relevant |
@@ -761,13 +773,13 @@ Ephemeral hot-state row for per-connection admission counters and Ban Mode retry
 Constraints:
 - `UNIQUE(profile_id, connection_id)`.
 - Admission and retry counters are non-negative.
-- `ban_mode` is restricted to `off`, `temporary`, or `manual`.
+- `ban_mode` is restricted to `off`, `temporary`, or `until_reset`.
 - `last_failure_kind` is restricted to `transient_http`, `connect_error`, or `timeout` when present.
 
 Ban Mode semantics:
 - `next_retry_at` represents the retry-window boundary. Until it passes, runtime planning treats the connection as `retry_wait` and can try other eligible final targets.
-- `cycle_retry_attempts` resets when the next retry window opens; `cumulative_retry_attempts` is the Ban Mode threshold counter for the shared connection.
-- `ban_mode="manual"` keeps the connection banned until reset. `ban_mode="temporary"` keeps it banned until `banned_until_at`; expired temporary bans are cleared on the next runtime attempt.
+- `cycle_retry_attempts` resets when the next retry window opens; `cumulative_retry_attempts` is the Ban Policy counter for the shared connection. The configured threshold is not stored here because current state is connection-global.
+- `ban_mode="until_reset"` keeps the connection banned until reset. `ban_mode="temporary"` keeps it banned until `banned_until_at`; expired temporary bans are cleared on the next runtime attempt.
 - Successful upstream responses clear retry-window and ban state for the standalone connection.
 
 ### 2.16 `routing_connection_runtime_leases` (profile-scoped runtime lease table, `UNLOGGED`)
@@ -989,17 +1001,17 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 
 ## 7. Config Import/Export Versioning
 
-- Canonical profile export format is Go-era config version `2` with `bundle_kind = profile_config`, top-level standalone `connections`, `models[].access_targets[]`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable model `vendor_key`, and model `api_family`.
+- Canonical profile export format is Go-era config version `3` with `bundle_kind = profile_config`, top-level standalone `connections`, `models[].access_targets[]`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable model `vendor_key`, and model `api_family`.
 - Canonical global vendor export format is Go-era config version `1` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts `v2` profile bundles only and validates top-level standalone connections, ordered model access targets, legacy Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, five concrete pricing fields, and encrypted `secret_payload` entries. Bundle v2 import normalizes missing/null/blank pricing inputs to `"0"` before validation.
+- Profile import accepts version-3 profile bundles only and validates top-level standalone connections, ordered model access targets, explicit Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, five concrete pricing fields, and encrypted `secret_payload` entries. Version-3 profile import normalizes missing/null/blank pricing inputs to `"0"` before validation.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
-- Persisted rows created by import always receive fresh database IDs; the v2 profile bundle contract omits internal IDs entirely and relies on name-based references.
+- Persisted rows created by import always receive fresh database IDs; the version-3 profile bundle contract omits internal IDs entirely and relies on name-based references.
 - Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
 - Profile import reuses exact global vendor keys when provided, creates missing vendors when the proposed name is unique, and rejects duplicate bundle keys or vendor-name collisions before destructive profile-scoped replacement begins.
 
 
 ## 8. Invariant Notes
 
-- The canonical split-bundle contract version is `2` for profile bundles and `1` for vendor catalog bundles.
+- The canonical split-bundle contract version is `3` for profile bundles and `1` for vendor catalog bundles.
 - Runtime hot state remains profile-scoped and reset-on-crash by design.

@@ -360,7 +360,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=2`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, `loadbalance_strategies`, top-level standalone `connections`, ordered model `access_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
+| H01 | P0 | Export schema and metadata | `version=3`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, `loadbalance_strategies`, top-level standalone `connections`, ordered model `access_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
 | H01A | P0 | Export includes endpoint position | Endpoints are ordered by `position` and each endpoint includes `position` |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Profile export excludes global vendor audit policy | Profile bundle uses `vendor_refs` only for actually referenced vendor rows; vendor audit metadata remains in the vendor-catalog bundle/global vendor rows |
@@ -374,7 +374,7 @@ Prepare seed state through API (not manual DB edits):
 | H05C | P0 | Import with duplicate/gapped access-target positions | Imported model targets are normalized to contiguous `0..N-1` while preserving relative order by imported position then payload order |
 | H06 | P0 | Import failure rollback | Prior config remains intact |
 | H07 | P0 | Validation matrix | Correct `400` errors |
-| H08 | P1 | Settings UI export filename | `prism-profile-config-v2-YYYY-MM-DD.json` |
+| H08 | P1 | Settings UI export filename | `prism-profile-config-v3-YYYY-MM-DD.json` |
 | H09 | P1 | Settings UI import error paths | Parse/backend errors surfaced in toast |
 | H10 | P0 | Vendor catalog export schema and metadata | Vendor-catalog bundle metadata, audit flags, descriptions, and `icon_key` included |
 | H11 | P0 | Vendor catalog preview validation | Preview is global/no-header, returns create/update counts, and rejects duplicate keys/names or readonly overwrite attempts before mutation |
@@ -550,7 +550,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export current format | Safe GET export returns `version: 2`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level standalone connections, ordered model access targets, pricing templates, and profile-scoped `profile_settings` |
+| L14 | P0 | Config export current format | Safe GET export returns `version: 3`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level standalone connections, ordered model access targets, pricing templates, and profile-scoped `profile_settings` |
 | L15 | P0 | Config export with secrets | Dangerous POST export returns the full secret-bearing bundle and requires the dangerous-confirm header |
 | L16 | P0 | Config import current format | Preview and apply restore vendors, Ban Policy strategies, access targets, templates, connections, vendorless models, and settings into the target profile only |
 | L17 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
@@ -589,7 +589,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | M13 | P0 | Access target exists only in another profile | Target resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=2`, `bundle_kind=profile_config`, top-level standalone connections, ordered model access targets, and safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
+| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=3`, `bundle_kind=profile_config`, top-level standalone connections, ordered model access targets, and safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
 | M17 | P0 | Config import preview/apply binding | Apply only succeeds after preview returns a token and the same token is sent in `X-Prism-Preview-Token` |
 | M18 | P0 | Config import replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
 | M19 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |

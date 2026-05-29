@@ -46,8 +46,9 @@ Single operator (developer/power user) running the application locally or on a l
 ### 4.4 Load Balancing & Failover
 - For models with multiple reachable connections:
   - **Automatic failover** when an attempt returns a failover-triggering status (`403`, `429`, `500`, `502`, `503`, `529`) or raises connection/timeout errors
-  - Models attach one reusable legacy Ban Policy strategy using `single`, `fill-first`, or `round-robin` routing
-  - Upstream request timing uses shared backend timeout settings, while Ban Policy owns retry windows, retry attempts, temporary/manual bans, and failover status codes
+  - Models attach one reusable explicit Ban Policy strategy using `single`, `fill-first`, or `round-robin` routing
+  - Upstream request timing uses shared backend timeout settings, while Ban Policy owns retry windows, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, `temporary` or `until_reset` bans, and failover status codes
+  - Ban Policy thresholds are inclusive: retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`, and bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`
 - Failover-worthy HTTP responses are governed by the attached strategy's configured failure status codes and retry-window settings
   - Non-failover client errors (for example `400`, `404`, `422`) do not force-clear existing Ban Policy state
   - Each connection can optionally define `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited
@@ -108,7 +109,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Add/edit/delete profile-scoped endpoints
 - Add/edit/delete standalone connections
 - Toggle enabled/disabled access targets per model
-- Select a legacy Ban Policy routing strategy per model
+- Select an explicit load-balance strategy with Ban Policy settings per model
 - Manual health check for connections with visual status indicators
 - Dedicated model-detail route (`/models/:id`) with manual health checks, connection KPIs, current loadbalance state, and loadbalance event history
 - Dedicated request-log browsing and investigation at `/request-logs`, separate from dashboard analytics
@@ -125,7 +126,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
 - Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file and managed through `/settings#startup`
 - The default profile exists from the first startup and remains editable after initialization
-- Config export/import uses the split-bundle contract: profile bundles are `version: 2` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 1` with `bundle_kind: vendor_catalog`
+- Config export/import uses the split-bundle contract: profile bundles are `version: 3` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 1` with `bundle_kind: vendor_catalog`
 - Profile bundles carry `vendor_refs`, `profile_settings`, encrypted `secret_payload`, top-level `loadbalance_strategies`, top-level standalone `connections`, model `access_targets`, nullable `vendor_key`, and `api_family`
 - Profile import preview validates bundle kind, version, secret decryption, and vendor resolution before replace-mode import; unsupported versions are rejected
 - Database setup is managed by the Go backend runtime and applies the checked-in fresh-install baseline on startup

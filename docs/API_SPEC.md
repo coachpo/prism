@@ -828,7 +828,7 @@ Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`,
 
 Prism uses a split config-bundle contract with two explicit ownership domains:
 
-- **Profile bundle**: `version: 2`, profile-scoped config only
+- **Profile bundle**: `version: 3`, profile-scoped config only
 - **Vendor catalog bundle**: `version: 1`, global vendor metadata only
 
 #### Export Profile Configuration
@@ -838,7 +838,7 @@ GET /api/config/profile/export
 Response `200`:
 ```json
 {
-  "version": 2,
+  "version": 3,
   "bundle_kind": "profile_config",
   "exported_at": "2026-04-04T15:00:00Z",
   "vendor_refs": [
@@ -909,7 +909,7 @@ Response `200`:
   }
 }
 ```
-The response includes a `Content-Disposition` header to trigger a file download: `attachment; filename="prism-profile-config-v2-YYYY-MM-DD.json"`.
+The response includes a `Content-Disposition` header to trigger a file download: `attachment; filename="prism-profile-config-v3-YYYY-MM-DD.json"`.
 
 Profile export semantics:
 - `bundle_kind` is always `profile_config`.
@@ -927,7 +927,7 @@ Profile export semantics:
 ```
 POST /api/config/profile/import/preview
 ```
-Request: Full profile bundle using `version: 2` and `bundle_kind: "profile_config"`.
+Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
 
 This preview route is profile-scoped and requires `X-Profile-Id`.
 
@@ -935,7 +935,7 @@ Response `200`:
 ```json
 {
   "ready": true,
-  "version": 2,
+  "version": 3,
   "bundle_kind": "profile_config",
   "endpoints_imported": 2,
   "pricing_templates_imported": 4,
@@ -998,7 +998,7 @@ Preview semantics:
 ```
 POST /api/config/profile/import
 ```
-Request: Full profile bundle using `version: 2` and `bundle_kind: "profile_config"`.
+Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
 
 This import route is profile-scoped and requires `X-Profile-Id`.
 
@@ -1038,8 +1038,9 @@ Profile import semantics:
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and `target_model_id`.
 - Exported/imported models carry ordered `access_targets` entries with either model or standalone connection targets plus `position` and `is_enabled` metadata.
 - Exported/imported standalone connections live at the top level and include `api_family`, endpoint and pricing-template name references, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited.
-- Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle `v2` import normalizes missing/null/blank pricing inputs for any of those fields to `"0"` before validation.
-- Exported/imported loadbalance strategies use the legacy Ban Policy shape: `legacy_strategy_type`, failure status codes, retry-window fields, retry attempts, ban mode, and ban duration.
+- Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle v3 import normalizes missing, null, or blank pricing inputs for any of those fields to `"0"` before validation.
+- Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`.
+- Their explicit Ban Policy shape carries failure status codes, retry-window fields, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration. Import rejects removed keys and accepts only `off`, `temporary`, or `until_reset` for `ban_mode`.
 - Other profile config version numbers are unsupported.
 
 #### Export Vendor Catalog
@@ -1121,7 +1122,7 @@ Vendor catalog semantics:
 - Vendor catalog preview/import mutate only the shared vendor catalog.
 - Vendor catalog preview/import reject duplicate bundle keys, duplicate bundle names, and global name collisions before mutation.
 - Vendor catalog import is independent from the profile backup/import flow.
-- Vendor catalog exports and imports stay on the same split-bundle contract version as profile bundles.
+- Vendor catalog exports and imports stay in the same split-bundle workflow, while vendor catalog payloads keep their own `version: 1` contract.
 
 ---
 
@@ -2336,7 +2337,7 @@ POST /api/loadbalance/strategies/defaults
 ```
 No request body.
 
-This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical legacy Ban Policy defaults for that profile only: `Default single routing`, `Default fill-first routing`, and `Default round-robin routing`.
+This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical explicit Ban Policy defaults for that profile only: `Default single routing`, `Default fill-first routing`, and `Default round-robin routing`.
 
 Response `200`:
 ```json
@@ -2375,7 +2376,8 @@ Request:
   "retry_backoff_multiplier": 3.5,
   "retry_jitter_ratio": 0.2,
   "retry_max_delay_ms": 720000,
-  "retry_max_attempts": 3,
+  "cycle_retry_attempt_limit": 3,
+  "ban_cumulative_retry_attempt_threshold": 6,
   "ban_duration_seconds": 1800
 }
 ```
@@ -2385,11 +2387,14 @@ Validation rules:
 - `name` must be unique within the effective profile scope.
 - `legacy_strategy_type` must be `single`, `fill-first`, or `round-robin`.
 - `failure_status_codes` must be a unique, sorted list of valid HTTP status integers (`100..599`).
-- Retry-window delay, backoff, jitter, max delay, and max attempts must stay within backend bounds.
-- `ban_mode` is `off`, `temporary`, or `manual`.
-- `ban_mode = "off"` requires zero ban duration.
-- `ban_mode = "temporary"` requires `ban_duration_seconds >= 1`.
-- `ban_mode = "manual"` requires zero ban duration.
+- Retry-window delay, backoff, jitter, max delay, and cycle retry attempt limit must stay within backend bounds.
+- `cycle_retry_attempt_limit` is required and valid from `1` to `50`.
+- `ban_mode` is `off`, `temporary`, or `until_reset`.
+- `ban_mode = "off"` requires `ban_cumulative_retry_attempt_threshold = 0` and `ban_duration_seconds = 0`.
+- `ban_mode = "temporary"` requires `ban_cumulative_retry_attempt_threshold` from `1` to `500`, `ban_cumulative_retry_attempt_threshold >= cycle_retry_attempt_limit`, and `ban_duration_seconds` from `1` to `86400`.
+- `ban_mode = "until_reset"` requires `ban_cumulative_retry_attempt_threshold` from `1` to `500`, `ban_cumulative_retry_attempt_threshold >= cycle_retry_attempt_limit`, and `ban_duration_seconds = 0`.
+- Runtime retry-cycle exhaustion is inclusive: `cycle_retry_attempts >= cycle_retry_attempt_limit` schedules the retry-window transition.
+- Runtime banning is inclusive and explicit: `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`. Prism never derives the ban threshold from `cycle_retry_attempt_limit`.
 - Upstream request timing is controlled by the shared backend timeout settings rather than per-strategy fields.
 
 ### 6.4 Update Loadbalance Strategy
@@ -2399,7 +2404,7 @@ PUT /api/loadbalance/strategies/{strategy_id}
 Request: Full replacement of mutable strategy fields using the same shape as create.
 Response `200`: Updated strategy object.
 
-Strategy responses include the persisted legacy Ban Policy strategy document:
+Strategy responses include the persisted explicit Ban Policy strategy document:
 
 ```json
 {
@@ -2413,7 +2418,8 @@ Strategy responses include the persisted legacy Ban Policy strategy document:
   "retry_backoff_multiplier": 3.5,
   "retry_jitter_ratio": 0.2,
   "retry_max_delay_ms": 720000,
-  "retry_max_attempts": 3,
+  "cycle_retry_attempt_limit": 3,
+  "ban_cumulative_retry_attempt_threshold": 6,
   "ban_duration_seconds": 1800,
   "attached_model_count": 2,
   "created_at": "2026-03-25T08:00:00Z",
@@ -2466,7 +2472,7 @@ Response `200`:
 
 Returns `404` when the model config does not exist in the effective profile.
 
-`state` is derived from the Ban Mode retry-cycle fields and is one of `available`, `retry_wait`, or `banned`. `manual` bans are always `banned`; temporary bans stay `banned` until `banned_until_at`; retry windows stay `retry_wait` until `next_retry_at`; otherwise the connection is `available`. The remaining fields expose QPS and in-flight admission counters plus the current retry-cycle counters for each standalone connection directly targeted by the model.
+`state` is derived from the connection-global Ban Policy runtime state and is one of `available`, `retry_wait`, or `banned`. `until_reset` bans stay `banned` until the current-state reset endpoint clears them; temporary bans stay `banned` until `banned_until_at`; retry windows stay `retry_wait` until `next_retry_at`; otherwise the connection is `available`. Current-state items expose QPS and in-flight admission counters plus live retry-cycle counters for each standalone connection directly targeted by the model. They intentionally omit `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` because current state is connection-global, while policy thresholds belong to the model strategy snapshot recorded on events.
 
 ### 6.7 Reset Current Loadbalance State for a Connection
 ```
@@ -2505,20 +2511,22 @@ Response `200`:
       "event_type": "banned",
       "failure_kind": "transient_http",
       "cycle_retry_attempts": 2,
-      "cumulative_retry_attempts": 5,
+      "cumulative_retry_attempts": 6,
+      "cycle_retry_attempt_limit": 3,
+      "ban_cumulative_retry_attempt_threshold": 6,
       "next_retry_at": "2026-03-30T08:02:00Z",
       "last_retry_delay_ms": 60000,
       "model_id": "gpt-4o",
       "endpoint_id": 12,
       "vendor_id": 1,
-      "ban_mode": "temporary",
-      "banned_until_at": "2026-03-30T08:30:00Z",
+      "ban_mode": "until_reset",
+      "banned_until_at": null,
       "last_success_at": null,
       "summary": {
         "event": "Connection was banned",
-        "reason": "The retryable HTTP failure pushed cumulative retry attempts to 5, exceeding the Ban Mode threshold.",
+        "reason": "The retryable HTTP failure pushed cumulative retry attempts to 6, meeting the configured cumulative ban threshold of 6 attempts.",
         "operation": "Prism removed this connection globally until the ban expires or an operator resets it.",
-        "cooldown": "1m"
+        "cooldown": "1 minute"
       },
       "created_at": "2026-03-30T08:01:00Z"
     }
@@ -2529,13 +2537,13 @@ Response `200`:
 }
 ```
 
-Loadbalance event types are `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, and `admission_rejected`. They record retry-cycle attempts, cumulative attempts, next retry timing, last retry delay, optional ban metadata, optional success time, and the model, endpoint, and vendor snapshots for operator review.
+Loadbalance event types are `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, and `admission_rejected`. They record retry-cycle attempts, cumulative attempts, next retry timing, last retry delay, optional ban metadata, optional success time, and the model, endpoint, and vendor snapshots for operator review. Events produced by Ban Policy evaluation also expose immutable policy snapshots as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold`, so historical event detail explains the threshold that was active when the event was written.
 
 ### 6.8 Get Loadbalance Event Detail
 ```
 GET /api/loadbalance/events/{id}
 ```
-Response `200`: Single event object with the same Ban Mode retry-window metadata and summary fields as the list item.
+Response `200`: Single event object with the same Ban Policy retry-window metadata, policy snapshot fields, and summary fields as the list item.
 
 ### 6.9 Loadbalance Event Retention
 
