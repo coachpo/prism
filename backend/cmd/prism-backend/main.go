@@ -14,6 +14,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/lifecycle"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
+	platformtelemetry "github.com/coachpo/prism/backend/internal/platform/telemetry"
 )
 
 const (
@@ -29,7 +30,8 @@ var (
 	newStartupRunner = func(options startup.Options) (startupRunner, error) {
 		return startup.New(options)
 	}
-	newPlatformApp = lifecycle.NewProductionApp
+	newTelemetryProviders = platformtelemetry.BuildProviders
+	newPlatformApp        = lifecycle.NewProductionApp
 )
 
 type bootstrapStartupConfig struct {
@@ -86,6 +88,17 @@ func run(ctx context.Context) error {
 		return nil
 	}
 
+	telemetryProviders, err := newTelemetryProviders(ctx, settings.Telemetry)
+	if err != nil {
+		return newRunError("failed to build telemetry providers", err)
+	}
+	telemetryOwnedByLifecycle := false
+	defer func() {
+		if !telemetryOwnedByLifecycle {
+			shutdownStartupTelemetry(telemetryProviders)
+		}
+	}()
+
 	startupService, err := newStartupRunner(startup.Options{
 		DatabaseURL:         settings.DatabaseURL,
 		SecretEncryptionKey: settings.SecretEncryptionKey,
@@ -113,10 +126,12 @@ func run(ctx context.Context) error {
 			LoadedRevision:     bootstrapConfig.LoadedRevision,
 			LoadedDocumentETag: bootstrapConfig.LoadedDocumentETag,
 		},
+		TelemetryShutdown: telemetryProviders.Shutdown,
 	})
 	if err != nil {
 		return newRunError("failed to build server", err)
 	}
+	telemetryOwnedByLifecycle = true
 
 	slog.Info(
 		"starting prism backend",
@@ -134,6 +149,17 @@ func runStartupWithTimeout(ctx context.Context, service startupRunner, timeout t
 	startupCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return service.Run(startupCtx)
+}
+
+func shutdownStartupTelemetry(telemetryProviders interface{ Shutdown(context.Context) error }) {
+	if telemetryProviders == nil {
+		return
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := telemetryProviders.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("startup telemetry shutdown failed", "error", err)
+	}
 }
 
 func loadBootstrapSettings() (bootstrapStartupConfig, error) {
