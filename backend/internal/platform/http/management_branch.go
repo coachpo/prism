@@ -22,7 +22,6 @@ import (
 	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	"github.com/coachpo/prism/backend/internal/platform/admission"
-	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
 )
 
 type healthResponse struct {
@@ -35,9 +34,6 @@ type healthResponse struct {
 
 func mountManagementBranch(router chi.Router, deps Dependencies, admissionController *admission.Controller, admissionProvider hotAdmissionProvider) {
 	router.Get("/health", healthHandler(deps.Version))
-	if deps.DatabasePools != nil {
-		router.Get("/metrics", platformdb.MetricsHandler(deps.DatabasePools))
-	}
 
 	managementHandler := NewManagementRouter(deps.AuditService, deps.AuthService, deps.BootstrapConfigService, deps.ConfigBundleService, deps.ConfigRulesService, deps.ConnectionsService, deps.EndpointsService, deps.LoadbalanceService, deps.ModelsService, deps.ProfilesService, deps.RealtimeService, deps.SettingsService, deps.SidecarsService, deps.StatsService, deps.VendorsService)
 	if deps.AuthService != nil {
@@ -45,6 +41,7 @@ func mountManagementBranch(router chi.Router, deps Dependencies, admissionContro
 	}
 	managementHandler = (&managementAdmissionController{controller: admissionController, provider: admissionProvider}).Middleware(managementHandler)
 	managementHandler = newRuntimeCacheInvalidationMiddleware(deps.RuntimeCache, deps.RuntimeAuthService, deps.RuntimeState, deps.StatsService).Middleware(managementHandler)
+	managementHandler = managementIngressTelemetryMiddleware(managementHandler)
 	router.Mount("/api", managementHandler)
 }
 

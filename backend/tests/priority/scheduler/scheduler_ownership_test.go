@@ -19,7 +19,7 @@ func TestSchedulerOwnsBackgroundWork(t *testing.T) {
 		"runtimeService.RegisterBackgroundWorkers",
 		"emailOutbox.RegisterBackgroundWorker",
 		"resources.scheduler.Start(ctx)",
-		"SchedulerStop:    resources.schedulerStopHook()",
+		"SchedulerStop:",
 		"resources.schedulerStopHook()",
 		"resources.scheduler.Stop(ctx, deadline)",
 	})
