@@ -25,6 +25,8 @@ models/
 - Keep connection CRUD in `connections/`, even when model detail responses include attached standalone connections.
 - Keep access targets ordered, same-profile, same-family, and acyclic.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - When model `api_family` or access-target validation changes, evaluate OpenAI, Anthropic, and Gemini operation compatibility.
 

@@ -23,6 +23,8 @@ configrules/
 - Keep rules selected-profile scoped, while allowing system rules to appear where the store includes them.
 - Don't let system header-blocklist rules be deleted or reshaped through profile CRUD.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - When rule behavior affects upstream request headers or client attribution, check operation behavior across OpenAI, Anthropic, and Gemini shapes.
 

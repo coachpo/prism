@@ -18,10 +18,13 @@ bootstrapconfig/
 
 ## CONVENTIONS
 - Keep bootstrap config file-backed and separate from `management/settings/`, profile/vendor bundle import/export, and sidecar control-plane state.
+- Keep steady-state startup settings on the managed bootstrap JSON; env vars stay limited to selecting the file or initial database seeding instead of growing into a second config channel.
 - Keep GET/validate/PUT behavior centered on loaded snapshot plus live settings comparison, planned changes, and apply results; do not reframe this package as a generic settings CRUD layer.
 - Keep hot-eligible changes and restart-required changes classified explicitly, including `failed_hot_apply_fields`.
 - Keep runtime buffering out of the bootstrap API. Buffering is automatic runtime behavior, not a file-backed setting.
 - Keep the writable-path guardrails and revision/etag semantics intact.
+
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.

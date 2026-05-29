@@ -21,6 +21,8 @@ audit/
 - Keep management job status and cancellation here, while job creation and retention settings stay in `settings/` and platform workers.
 - Keep audit-log payload reads separate from runtime request execution and request-log retention ownership.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - When audit or observability behavior changes, evaluate request and response evidence across supported OpenAI, Anthropic, and Gemini operation shapes rather than assuming one provider family covers all audit rows.
 

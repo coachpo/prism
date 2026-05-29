@@ -29,6 +29,8 @@ connections/
 - Keep standalone connection deletes blocked while `/api/connections/{id}/references` reports model target usage.
 - Keep endpoint secrets encrypted at rest through the shared endpoint-domain helpers.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - When health checks or probe variants change, evaluate OpenAI, Anthropic, and Gemini connection behavior instead of assuming one provider shape covers all families.
 

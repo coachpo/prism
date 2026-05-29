@@ -24,6 +24,8 @@ vendors/
 - Don't mutate readonly system vendor identity fields here.
 - Keep vendor catalog export/import in `configbundle/`.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - Vendor metadata changes must not imply runtime support for OpenAI, Anthropic, Gemini, or other upstream operation families.
 

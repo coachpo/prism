@@ -23,6 +23,8 @@ profiles/
 - Activation must check the expected active profile before switching.
 - Profile deletion is soft delete and only allowed for inactive non-default profiles.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - Profile lifecycle changes should preserve management/runtime separation across all LLM operation shapes; `X-Profile-Id` remains management-only.
 

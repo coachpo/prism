@@ -21,6 +21,8 @@ stats/
 - Use dashboard aggregate snapshots only for matching default dashboard windows.
 - Keep snapshot invalidation behind management side-effect events, not inline request-path rebuilds.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - When observability shaping changes, preserve operation-name and token/cost visibility across OpenAI, Anthropic, and Gemini operation shapes.
 

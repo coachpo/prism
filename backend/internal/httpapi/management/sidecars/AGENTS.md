@@ -35,6 +35,8 @@ sidecars/
 - Keep the CLIProxyAPI allowlist tight: `/auth-files`, `/auth-files/models`, `/auth-files/status`, `/auth-files/fields`, and provider inventory paths only.
 - Keep `sidecar_snapshot_sync` as a bounded low-background worker with queue limit 1 and no priority elevation.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - When sidecar auth or provider inventory logic changes, check CLIProxyAPI observations across provider families without treating inventory as runtime compatibility.
 

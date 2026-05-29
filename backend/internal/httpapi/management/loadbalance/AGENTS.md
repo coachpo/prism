@@ -27,6 +27,8 @@ loadbalance/
 - Keep current-state reset/list wired through `LocalRuntimeStateStore` and the loadbalance domain.
 - Keep event reads here; request logs and statistics stay in `stats/`.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - When routing-family or Ban Policy retry-window behavior changes, evaluate model access across supported operation shapes, not just one provider family.
 
