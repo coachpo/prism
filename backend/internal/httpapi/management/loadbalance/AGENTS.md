@@ -28,7 +28,7 @@ loadbalance/
 - Keep event reads here; request logs and statistics stay in `stats/`.
 
 ## LLM UPSTREAM MATRIX
-- When legacy routing or Ban Policy retry-window behavior changes, evaluate model access across supported operation shapes, not just one provider family.
+- When routing-family or Ban Policy retry-window behavior changes, evaluate model access across supported operation shapes, not just one provider family.
 
 ## ANTI-PATTERNS
 - Do not delete load-balance strategies while attached models exist.

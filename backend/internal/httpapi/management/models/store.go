@@ -70,17 +70,18 @@ type vendorRecord struct {
 }
 
 type strategyRecord struct {
-	ID                     int
-	Name                   string
-	LegacyStrategyType     string
-	FailureStatusCodes     []int
-	BanMode                string
-	RetryBaseDelayMS       int
-	RetryBackoffMultiplier float64
-	RetryJitterRatio       float64
-	RetryMaxDelayMS        int
-	RetryMaxAttempts       int
-	BanDurationSeconds     int
+	ID                                 int
+	Name                               string
+	LegacyStrategyType                 string
+	FailureStatusCodes                 []int
+	BanMode                            string
+	RetryBaseDelayMS                   int
+	RetryBackoffMultiplier             float64
+	RetryJitterRatio                   float64
+	RetryMaxDelayMS                    int
+	CycleRetryAttemptLimit             int
+	BanCumulativeRetryAttemptThreshold int
+	BanDurationSeconds                 int
 }
 
 type modelConnectionCounts struct {
@@ -258,7 +259,7 @@ func loadStrategyRecordsByIDs(ctx context.Context, exec queryExecutor, profileID
 	for _, strategyID := range strategyIDs {
 		args = append(args, strategyID)
 	}
-	query := fmt.Sprintf(`SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts, ban_duration_seconds FROM loadbalance_strategies WHERE profile_id = $1 AND id IN (%s) ORDER BY id ASC`, placeholders(2, len(strategyIDs)))
+	query := fmt.Sprintf(`SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds FROM loadbalance_strategies WHERE profile_id = $1 AND id IN (%s) ORDER BY id ASC`, placeholders(2, len(strategyIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query strategies by id for profile %d: %w", profileID, err)
@@ -758,7 +759,8 @@ func scanStrategyRecord(scanner interface{ Scan(...any) error }) (strategyRecord
 		&record.RetryBackoffMultiplier,
 		&record.RetryJitterRatio,
 		&record.RetryMaxDelayMS,
-		&record.RetryMaxAttempts,
+		&record.CycleRetryAttemptLimit,
+		&record.BanCumulativeRetryAttemptThreshold,
 		&record.BanDurationSeconds,
 	); err != nil {
 		return strategyRecord{}, err
@@ -901,7 +903,7 @@ func vendorResponseFromRecord(record vendorRecord) *vendorResponse {
 }
 
 func strategySummaryFromRecord(record strategyRecord) *loadbalanceStrategySummary {
-	return &loadbalanceStrategySummary{ID: record.ID, Name: record.Name, LegacyStrategyType: record.LegacyStrategyType, FailureStatusCodes: cloneIntSlice(record.FailureStatusCodes), BanMode: record.BanMode, RetryBaseDelayMS: record.RetryBaseDelayMS, RetryBackoffMultiplier: record.RetryBackoffMultiplier, RetryJitterRatio: record.RetryJitterRatio, RetryMaxDelayMS: record.RetryMaxDelayMS, RetryMaxAttempts: record.RetryMaxAttempts, BanDurationSeconds: record.BanDurationSeconds}
+	return &loadbalanceStrategySummary{ID: record.ID, Name: record.Name, LegacyStrategyType: record.LegacyStrategyType, FailureStatusCodes: cloneIntSlice(record.FailureStatusCodes), BanMode: record.BanMode, RetryBaseDelayMS: record.RetryBaseDelayMS, RetryBackoffMultiplier: record.RetryBackoffMultiplier, RetryJitterRatio: record.RetryJitterRatio, RetryMaxDelayMS: record.RetryMaxDelayMS, CycleRetryAttemptLimit: record.CycleRetryAttemptLimit, BanCumulativeRetryAttemptThreshold: record.BanCumulativeRetryAttemptThreshold, BanDurationSeconds: record.BanDurationSeconds}
 }
 
 func accessTargetResponsesFromRecords(records []accessTargetRecord) []modelAccessTargetResponse {

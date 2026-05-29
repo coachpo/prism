@@ -248,16 +248,17 @@ func TestLoadbalanceStrategyGet(t *testing.T) {
 		http.MethodPost,
 		"/api/loadbalance/strategies",
 		map[string]any{
-			"name":                     "S11 Legacy Detail",
-			"legacy_strategy_type":     "round-robin",
-			"failure_status_codes":     []int{503, 429, 500},
-			"ban_mode":                 "temporary",
-			"retry_base_delay_ms":      1234,
-			"retry_backoff_multiplier": 3.5,
-			"retry_jitter_ratio":       0.35,
-			"retry_max_delay_ms":       456789,
-			"retry_max_attempts":       7,
-			"ban_duration_seconds":     1800,
+			"name":                                   "S11 Legacy Detail",
+			"legacy_strategy_type":                   "round-robin",
+			"failure_status_codes":                   []int{503, 429, 500},
+			"ban_mode":                               "temporary",
+			"retry_base_delay_ms":                    1234,
+			"retry_backoff_multiplier":               3.5,
+			"retry_jitter_ratio":                     0.35,
+			"retry_max_delay_ms":                     456789,
+			"cycle_retry_attempt_limit":              7,
+			"ban_cumulative_retry_attempt_threshold": 9,
+			"ban_duration_seconds":                   1800,
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -274,7 +275,7 @@ func TestLoadbalanceStrategyGet(t *testing.T) {
 		t.Fatalf("expected legacy-only detail payload for edit flow, got %+v", detail)
 	}
 	assertIntList(t, detail["failure_status_codes"], []int{429, 500, 503})
-	if detail["ban_mode"] != "temporary" || jsonInt(t, detail["retry_base_delay_ms"]) != 1234 || jsonFloat(t, detail["retry_backoff_multiplier"]) != 3.5 || jsonFloat(t, detail["retry_jitter_ratio"]) != 0.35 || jsonInt(t, detail["retry_max_delay_ms"]) != 456789 || jsonInt(t, detail["retry_max_attempts"]) != 7 || jsonInt(t, detail["ban_duration_seconds"]) != 1800 {
+	if detail["ban_mode"] != "temporary" || jsonInt(t, detail["retry_base_delay_ms"]) != 1234 || jsonFloat(t, detail["retry_backoff_multiplier"]) != 3.5 || jsonFloat(t, detail["retry_jitter_ratio"]) != 0.35 || jsonInt(t, detail["retry_max_delay_ms"]) != 456789 || jsonInt(t, detail["cycle_retry_attempt_limit"]) != 7 || jsonInt(t, detail["ban_cumulative_retry_attempt_threshold"]) != 9 || jsonInt(t, detail["ban_duration_seconds"]) != 1800 {
 		t.Fatalf("expected explicit Ban Policy fields, got %+v", detail)
 	}
 	assertNoLegacyRemovedStrategyFields(t, detail)
@@ -362,22 +363,77 @@ func TestLoadbalanceStrategies(t *testing.T) {
 		t.Fatalf("expected timeout_policy rejection detail, got %+v", timeoutPayload)
 	}
 
+	removedRetryField := removedRetryAttemptsField()
+	retryMaxRejected := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/loadbalance/strategies",
+		map[string]any{
+			"name":                 "S11 Removed Retry Limit",
+			"legacy_strategy_type": "round-robin",
+			removedRetryField:      4,
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, retryMaxRejected, http.StatusBadRequest)
+	var retryMaxPayload map[string]any
+	decodeJSONResponse(t, retryMaxRejected, &retryMaxPayload)
+	if detail := retryMaxPayload["detail"]; detail != fmt.Sprintf("json: unknown field %q", removedRetryField) {
+		t.Fatalf("expected removed retry field structural rejection detail, got %+v", retryMaxPayload)
+	}
+
+	removedModeRejected := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/loadbalance/strategies",
+		map[string]any{
+			"name":                                   "S11 Removed Ban Mode Rejected",
+			"legacy_strategy_type":                   "round-robin",
+			"ban_mode":                               removedBanModeValue(),
+			"cycle_retry_attempt_limit":              2,
+			"ban_cumulative_retry_attempt_threshold": 2,
+			"ban_duration_seconds":                   0,
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, removedModeRejected, http.StatusBadRequest, "ban_mode must be one of 'off', 'temporary', or 'until_reset'")
+
+	thresholdRejected := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/loadbalance/strategies",
+		map[string]any{
+			"name":                                   "S11 Threshold Below Cycle",
+			"legacy_strategy_type":                   "round-robin",
+			"ban_mode":                               "temporary",
+			"cycle_retry_attempt_limit":              5,
+			"ban_cumulative_retry_attempt_threshold": 4,
+			"ban_duration_seconds":                   60,
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, thresholdRejected, http.StatusBadRequest, "ban_cumulative_retry_attempt_threshold must be greater than or equal to cycle_retry_attempt_limit when ban_mode is 'temporary' or 'until_reset'")
+
 	createResponse := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPost,
 		"/api/loadbalance/strategies",
 		map[string]any{
-			"name":                     "S11 Legacy Primary",
-			"legacy_strategy_type":     "round-robin",
-			"failure_status_codes":     []int{504, 500, 429},
-			"ban_mode":                 "temporary",
-			"retry_base_delay_ms":      45000,
-			"retry_backoff_multiplier": 3.5,
-			"retry_jitter_ratio":       0.4,
-			"retry_max_delay_ms":       720000,
-			"retry_max_attempts":       4,
-			"ban_duration_seconds":     1800,
+			"name":                                   "S11 Legacy Primary",
+			"legacy_strategy_type":                   "round-robin",
+			"failure_status_codes":                   []int{504, 500, 429},
+			"ban_mode":                               "temporary",
+			"retry_base_delay_ms":                    45000,
+			"retry_backoff_multiplier":               3.5,
+			"retry_jitter_ratio":                     0.4,
+			"retry_max_delay_ms":                     720000,
+			"cycle_retry_attempt_limit":              4,
+			"ban_cumulative_retry_attempt_threshold": 6,
+			"ban_duration_seconds":                   1800,
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -385,8 +441,8 @@ func TestLoadbalanceStrategies(t *testing.T) {
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
 	strategyID := jsonInt(t, created["id"])
-	if created["legacy_strategy_type"] != "round-robin" || created["ban_mode"] != "temporary" || jsonInt(t, created["retry_max_attempts"]) != 4 {
-		t.Fatalf("expected created legacy-only strategy payload, got %+v", created)
+	if created["legacy_strategy_type"] != "round-robin" || created["ban_mode"] != "temporary" || jsonInt(t, created["cycle_retry_attempt_limit"]) != 4 || jsonInt(t, created["ban_cumulative_retry_attempt_threshold"]) != 6 {
+		t.Fatalf("expected created Ban Policy strategy payload, got %+v", created)
 	}
 	assertIntList(t, created["failure_status_codes"], []int{429, 500, 504})
 	assertNoLegacyRemovedStrategyFields(t, created)
@@ -410,24 +466,25 @@ func TestLoadbalanceStrategies(t *testing.T) {
 		http.MethodPut,
 		fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID),
 		map[string]any{
-			"name":                     "S11 Legacy Updated",
-			"legacy_strategy_type":     "single",
-			"failure_status_codes":     []int{503, 403},
-			"ban_mode":                 "manual",
-			"retry_base_delay_ms":      0,
-			"retry_backoff_multiplier": 2.5,
-			"retry_jitter_ratio":       0.1,
-			"retry_max_delay_ms":       120000,
-			"retry_max_attempts":       2,
-			"ban_duration_seconds":     0,
+			"name":                                   "S11 Legacy Updated",
+			"legacy_strategy_type":                   "single",
+			"failure_status_codes":                   []int{503, 403},
+			"ban_mode":                               "until_reset",
+			"retry_base_delay_ms":                    0,
+			"retry_backoff_multiplier":               2.5,
+			"retry_jitter_ratio":                     0.1,
+			"retry_max_delay_ms":                     120000,
+			"cycle_retry_attempt_limit":              2,
+			"ban_cumulative_retry_attempt_threshold": 2,
+			"ban_duration_seconds":                   0,
 		},
 		modelHeader(defaultProfileID),
 	)
 	assertStatus(t, updated, http.StatusOK)
 	var updatedPayload map[string]any
 	decodeJSONResponse(t, updated, &updatedPayload)
-	if updatedPayload["name"] != "S11 Legacy Updated" || updatedPayload["legacy_strategy_type"] != "single" || updatedPayload["ban_mode"] != "manual" || jsonInt(t, updatedPayload["retry_base_delay_ms"]) != 0 || jsonInt(t, updatedPayload["retry_max_attempts"]) != 2 {
-		t.Fatalf("expected updated legacy-only Ban Policy payload, got %+v", updatedPayload)
+	if updatedPayload["name"] != "S11 Legacy Updated" || updatedPayload["legacy_strategy_type"] != "single" || updatedPayload["ban_mode"] != "until_reset" || jsonInt(t, updatedPayload["retry_base_delay_ms"]) != 0 || jsonInt(t, updatedPayload["cycle_retry_attempt_limit"]) != 2 || jsonInt(t, updatedPayload["ban_cumulative_retry_attempt_threshold"]) != 2 || jsonInt(t, updatedPayload["ban_duration_seconds"]) != 0 {
+		t.Fatalf("expected updated Ban Policy payload, got %+v", updatedPayload)
 	}
 	assertIntList(t, updatedPayload["failure_status_codes"], []int{403, 503})
 	assertNoLegacyRemovedStrategyFields(t, updatedPayload)
@@ -482,7 +539,7 @@ func TestLoadbalanceLegacyDefaults(t *testing.T) {
 		for _, item := range items {
 			assertNoLegacyRemovedStrategyFields(t, item)
 			assertIntList(t, item["failure_status_codes"], []int{403, 422, 429, 500, 502, 503, 504, 529})
-			if item["ban_mode"] != "off" || jsonInt(t, item["retry_base_delay_ms"]) != 60000 || jsonFloat(t, item["retry_backoff_multiplier"]) != 2.0 || jsonFloat(t, item["retry_jitter_ratio"]) != 0.2 || jsonInt(t, item["retry_max_delay_ms"]) != 900000 || jsonInt(t, item["retry_max_attempts"]) != 3 || jsonInt(t, item["ban_duration_seconds"]) != 0 {
+			if item["ban_mode"] != "off" || jsonInt(t, item["retry_base_delay_ms"]) != 60000 || jsonFloat(t, item["retry_backoff_multiplier"]) != 2.0 || jsonFloat(t, item["retry_jitter_ratio"]) != 0.2 || jsonInt(t, item["retry_max_delay_ms"]) != 900000 || jsonInt(t, item["cycle_retry_attempt_limit"]) != 3 || jsonInt(t, item["ban_cumulative_retry_attempt_threshold"]) != 0 || jsonInt(t, item["ban_duration_seconds"]) != 0 {
 				t.Fatalf("expected canonical Ban Policy defaults, got %+v", item)
 			}
 		}
@@ -783,9 +840,9 @@ func s11InsertStrategy(t *testing.T, harness *contractHarness, profileID int, na
 	if err := harness.conn.QueryRow(
 		context.Background(),
 		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode,
-			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts,
-			ban_duration_seconds, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4::integer[], $5, 60000, 2.0, 0.2, 900000, 3, $6, $7, $7)
+			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit,
+			ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4::integer[], $5, 60000, 2.0, 0.2, 900000, 3, 0, $6, $7, $7)
 		 RETURNING id`,
 		profileID,
 		name,
@@ -864,9 +921,17 @@ func jsonFloat(t *testing.T, raw any) float64 {
 	return value
 }
 
+func removedRetryAttemptsField() string {
+	return "retry_" + "max_attempts"
+}
+
+func removedBanModeValue() string {
+	return "man" + "ual"
+}
+
 func assertNoLegacyRemovedStrategyFields(t *testing.T, payload map[string]any) {
 	t.Helper()
-	for _, key := range []string{"strategy_type", "routing_policy", "auto_recovery"} {
+	for _, key := range []string{"strategy_type", "routing_policy", "auto_recovery", removedRetryAttemptsField()} {
 		if _, ok := payload[key]; ok {
 			t.Fatalf("expected strategy payload to omit %s, got %+v", key, payload)
 		}

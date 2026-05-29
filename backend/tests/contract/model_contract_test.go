@@ -90,9 +90,7 @@ func TestModelCRUD(t *testing.T) {
 	if got := createDraftPayload["display_name"]; got != "S8 Access Draft" {
 		t.Fatalf("expected draft display name to persist, got %+v", createDraftPayload)
 	}
-	if got := asMap(t, createDraftPayload["loadbalance_strategy"])["legacy_strategy_type"]; got != "single" {
-		t.Fatalf("expected legacy strategy summary on draft create, got %+v", createDraftPayload)
-	}
+	assertModelLoadbalanceStrategySummary(t, createDraftPayload["loadbalance_strategy"], strategyID, "S8 Access Strategy")
 
 	createResponse := harness.requestJSON(
 		t,
@@ -116,9 +114,22 @@ func TestModelCRUD(t *testing.T) {
 	sourceModelConfigID := jsonInt(t, createPayload["id"])
 	assertNoLegacyModelFields(t, createPayload)
 	assertAccessTargets(t, createPayload, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, IsEnabled: true}})
-	if got := asMap(t, createPayload["loadbalance_strategy"])["legacy_strategy_type"]; got != "single" {
-		t.Fatalf("expected legacy strategy summary on model create, got %+v", createPayload)
-	}
+	assertModelLoadbalanceStrategySummary(t, createPayload["loadbalance_strategy"], strategyID, "S8 Access Strategy")
+
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d", sourceModelConfigID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	assertNoLegacyModelFields(t, detailPayload)
+	assertModelLoadbalanceStrategySummary(t, detailPayload["loadbalance_strategy"], strategyID, "S8 Access Strategy")
+
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models", nil, modelHeader(defaultProfileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listPayload []any
+	decodeJSONResponse(t, listResponse, &listPayload)
+	listItem := findModelListItemByModelID(t, listPayload, "s8-access-model")
+	assertNoLegacyModelFields(t, listItem)
+	assertModelLoadbalanceStrategySummary(t, listItem["loadbalance_strategy"], strategyID, "S8 Access Strategy")
 
 	enabledZeroTargetsCreate := harness.requestJSON(
 		t,
@@ -492,9 +503,9 @@ func modelInsertLoadbalanceStrategy(t *testing.T, harness *contractHarness, prof
 	if err := harness.conn.QueryRow(
 		context.Background(),
 		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode,
-			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts,
-			ban_duration_seconds, created_at, updated_at)
-		 VALUES ($1, $2, 'single', $3::integer[], 'off', 60000, 2.0, 0.2, 900000, 3, 0, $4, $4)
+			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit,
+			ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at)
+		 VALUES ($1, $2, 'single', $3::integer[], 'until_reset', 60000, 2.0, 0.2, 900000, 2, 4, 0, $4, $4)
 		 RETURNING id`,
 		profileID,
 		name,
@@ -653,6 +664,23 @@ func assertNoLegacyModelFields(t *testing.T, payload map[string]any) {
 		if _, ok := payload[key]; ok {
 			t.Fatalf("expected payload to omit legacy field %s, got %+v", key, payload)
 		}
+	}
+}
+
+func assertModelLoadbalanceStrategySummary(t *testing.T, raw any, wantID int, wantName string) {
+	t.Helper()
+	summary := asMap(t, raw)
+	if jsonInt(t, summary["id"]) != wantID || summary["name"] != wantName {
+		t.Fatalf("unexpected loadbalance strategy identity: got %+v want id=%d name=%q", summary, wantID, wantName)
+	}
+	if _, ok := summary[removedRetryAttemptsField()]; ok {
+		t.Fatalf("model strategy summary must not include removed retry field: %+v", summary)
+	}
+	if summary["legacy_strategy_type"] != "single" || summary["ban_mode"] != "until_reset" {
+		t.Fatalf("unexpected loadbalance strategy policy identifiers: %+v", summary)
+	}
+	if jsonInt(t, summary["retry_base_delay_ms"]) != 60000 || jsonInt(t, summary["retry_max_delay_ms"]) != 900000 || jsonInt(t, summary["cycle_retry_attempt_limit"]) != 2 || jsonInt(t, summary["ban_cumulative_retry_attempt_threshold"]) != 4 || jsonInt(t, summary["ban_duration_seconds"]) != 0 {
+		t.Fatalf("unexpected loadbalance strategy retry/ban policy fields: %+v", summary)
 	}
 }
 

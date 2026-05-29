@@ -61,6 +61,15 @@ func assertDashboardSnapshotTopLevelShape(t *testing.T, payload map[string]any) 
 	}
 }
 
+func assertS15NoPolicyThresholdFields(t *testing.T, item map[string]any) {
+	t.Helper()
+	for _, key := range []string{"policy_cycle_retry_attempt_limit", "policy_ban_cumulative_retry_attempt_threshold", "cycle_retry_attempt_limit", "ban_cumulative_retry_attempt_threshold"} {
+		if _, ok := item[key]; ok {
+			t.Fatalf("current-state payload must stay threshold-free; found %q in %+v", key, item)
+		}
+	}
+}
+
 func assertS15UsageSnapshotTokenTotals(t *testing.T, payload map[string]any, wantInput int, wantOutput int, wantTotal int, wantCached int, wantReasoning int) {
 	t.Helper()
 	overview := asMap(t, payload["overview"])
@@ -891,6 +900,7 @@ func TestLoadbalanceCurrentState(t *testing.T) {
 	if jsonInt(t, item["connection_id"]) != connectionID || item["state"] != "retry_wait" || item["next_retry_at"] == nil || jsonInt(t, item["live_p95_latency_ms"]) != 540 {
 		t.Fatalf("unexpected loadbalance current-state payload: %+v", item)
 	}
+	assertS15NoPolicyThresholdFields(t, item)
 }
 
 func TestObservabilityLoadbalanceRetryWindowStateAndSummaryRemainCoherent(t *testing.T) {
@@ -923,6 +933,7 @@ func TestObservabilityLoadbalanceRetryWindowStateAndSummaryRemainCoherent(t *tes
 	if item["state"] != "retry_wait" || item["next_retry_at"] == nil || jsonInt(t, item["cycle_retry_attempts"]) != 1 || jsonInt(t, item["last_retry_delay_ms"]) != 60000 {
 		t.Fatalf("expected retry-window current-state payload, got %+v", item)
 	}
+	assertS15NoPolicyThresholdFields(t, item)
 
 	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1150, ProfileID: profileID, ConnectionID: connectionID, EventType: "retry_scheduled", FailureKind: &failureKind, ConsecutiveFailures: 1, CooldownSeconds: 60.0, ModelID: stringPtr("lb-retry-window-model"), EndpointID: &endpointID, VendorID: &vendorID, BanMode: stringPtr("off"), CreatedAt: fixedS15Now})
 
@@ -954,7 +965,7 @@ func TestLoadbalanceReset(t *testing.T) {
 	modelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "lb-reset-model", nil, "native", &strategyID, true)
 	endpointID := modelInsertEndpoint(t, harness, profileID, "LB Reset Endpoint", 0)
 	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
-	insertRuntimeState(t, harness, runtimeStateSeed{ProfileID: profileID, ConnectionID: connectionID, ConsecutiveFailures: 3, LastFailureKind: stringPtr("timeout"), LastCooldownSeconds: 90.0, MaxCooldownStrikes: 2, BanMode: "manual", ProbeEligibleLogged: false, CircuitState: "open", CreatedAt: fixedS15Now.Add(-1 * time.Hour), UpdatedAt: fixedS15Now})
+	insertRuntimeState(t, harness, runtimeStateSeed{ProfileID: profileID, ConnectionID: connectionID, ConsecutiveFailures: 3, LastFailureKind: stringPtr("timeout"), LastCooldownSeconds: 90.0, MaxCooldownStrikes: 2, BanMode: "until_reset", ProbeEligibleLogged: false, CircuitState: "open", CreatedAt: fixedS15Now.Add(-1 * time.Hour), UpdatedAt: fixedS15Now})
 	for range 3 {
 		harness.runtimeService.RuntimeState().ClaimRoundRobinCursor(profileID, modelConfigID, 4)
 	}
@@ -978,7 +989,7 @@ func TestLoadbalanceEvents(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1000, ProfileID: profileID, ConnectionID: 1, EventType: "retry_scheduled", FailureKind: stringPtr("timeout"), ConsecutiveFailures: 2, CooldownSeconds: 60.0, ModelID: stringPtr("lb-events-model"), EndpointID: intPtr(12), VendorID: intPtr(1), BanMode: stringPtr("off"), CreatedAt: fixedS15Now.Add(-2 * time.Minute)})
-	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1001, ProfileID: profileID, ConnectionID: 1, EventType: "banned", FailureKind: stringPtr("transient_http"), ConsecutiveFailures: 3, CooldownSeconds: 120.0, ModelID: stringPtr("lb-events-model"), EndpointID: intPtr(12), VendorID: intPtr(1), BanMode: stringPtr("temporary"), BannedUntilAt: timePtr(fixedS15Now.Add(1 * time.Hour)), CreatedAt: fixedS15Now.Add(-1 * time.Minute)})
+	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1001, ProfileID: profileID, ConnectionID: 1, EventType: "banned", FailureKind: stringPtr("transient_http"), ConsecutiveFailures: 3, CooldownSeconds: 120.0, ModelID: stringPtr("lb-events-model"), EndpointID: intPtr(12), VendorID: intPtr(1), BanMode: stringPtr("temporary"), PolicyCycleRetryAttemptLimit: intPtr(2), PolicyBanCumulativeRetryAttemptThreshold: intPtr(3), BannedUntilAt: timePtr(fixedS15Now.Add(1 * time.Hour)), CreatedAt: fixedS15Now.Add(-1 * time.Minute)})
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/events?model_id=lb-events-model&limit=50&offset=0", nil, modelHeader(profileID))
 	assertStatus(t, listResponse, http.StatusOK)
@@ -989,16 +1000,28 @@ func TestLoadbalanceEvents(t *testing.T) {
 		t.Fatalf("expected loadbalance events list payload, got %+v", listPayload)
 	}
 	first := asMap(t, items[0])
-	if jsonInt(t, first["id"]) != 1001 || asMap(t, first["summary"])["event"] != "Connection was banned" {
-		t.Fatalf("expected newest banned event with derived summary, got %+v", first)
+	firstSummary := asMap(t, first["summary"])
+	if jsonInt(t, first["id"]) != 1001 || firstSummary["event"] != "Connection was banned" || jsonInt(t, first["cycle_retry_attempt_limit"]) != 2 || jsonInt(t, first["ban_cumulative_retry_attempt_threshold"]) != 3 || !strings.Contains(firstSummary["reason"].(string), "cumulative ban threshold of 3 attempts") || strings.Contains(firstSummary["reason"].(string), "Ban Mode threshold") {
+		t.Fatalf("expected newest banned event with public policy snapshots and exact threshold summary, got %+v", first)
+	}
+	for _, legacyKey := range []string{"policy_cycle_retry_attempt_limit", "policy_ban_cumulative_retry_attempt_threshold"} {
+		if _, ok := first[legacyKey]; ok {
+			t.Fatalf("loadbalance event list must not expose legacy public snapshot key %q: %+v", legacyKey, first)
+		}
 	}
 
 	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/events/1001", nil, modelHeader(profileID))
 	assertStatus(t, detailResponse, http.StatusOK)
 	var detailPayload map[string]any
 	decodeJSONResponse(t, detailResponse, &detailPayload)
-	if jsonInt(t, detailPayload["cycle_retry_attempts"]) != 3 || jsonInt(t, detailPayload["cumulative_retry_attempts"]) != 3 || jsonInt(t, detailPayload["last_retry_delay_ms"]) != 120000 || detailPayload["ban_mode"] != "temporary" {
-		t.Fatalf("expected loadbalance event detail payload, got %+v", detailPayload)
+	detailSummary := asMap(t, detailPayload["summary"])
+	if jsonInt(t, detailPayload["cycle_retry_attempts"]) != 3 || jsonInt(t, detailPayload["cumulative_retry_attempts"]) != 3 || jsonInt(t, detailPayload["last_retry_delay_ms"]) != 120000 || detailPayload["ban_mode"] != "temporary" || jsonInt(t, detailPayload["cycle_retry_attempt_limit"]) != 2 || jsonInt(t, detailPayload["ban_cumulative_retry_attempt_threshold"]) != 3 || !strings.Contains(detailSummary["reason"].(string), "cumulative ban threshold of 3 attempts") {
+		t.Fatalf("expected loadbalance event detail payload with public policy snapshot, got %+v", detailPayload)
+	}
+	for _, legacyKey := range []string{"policy_cycle_retry_attempt_limit", "policy_ban_cumulative_retry_attempt_threshold"} {
+		if _, ok := detailPayload[legacyKey]; ok {
+			t.Fatalf("loadbalance event detail must not expose legacy public snapshot key %q: %+v", legacyKey, detailPayload)
+		}
 	}
 }
 
@@ -1037,6 +1060,75 @@ func TestLoadbalanceEventRetentionJob(t *testing.T) {
 	if jobID == "" || s15CountRows(t, harness, `SELECT COUNT(*) FROM loadbalance_events WHERE profile_id = $1`, profileID) != 2 {
 		t.Fatalf("expected loadbalance event retention job to enqueue without inline delete")
 	}
+}
+
+func TestLoadbalanceEventsPersistPolicySnapshotsFromRuntimeFailure(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "S15 Runtime Event Snapshot Strategy")
+	modelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "lb-runtime-snapshot-model", stringPtr("Runtime Snapshot Model"), "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "LB Runtime Snapshot Endpoint", 0)
+	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
+	strategy, ok, err := loadbalancedomain.LoadRuntimeStrategy(context.Background(), harness.conn, profileID, strategyID)
+	if err != nil || !ok {
+		t.Fatalf("load runtime strategy for snapshot test: ok=%t err=%v", ok, err)
+	}
+	var transition loadbalancedomain.RuntimeStateTransition
+	for attempt := 0; attempt < 4; attempt++ {
+		transition = harness.runtimeService.RuntimeState().RecordRuntimeTransportFailure(profileID, modelConfigID, connectionID, strategy, fixedS15Now.Add(time.Duration(attempt)*time.Second))
+	}
+	if transition.CurrentState.BanMode != "until_reset" || transition.CurrentState.CumulativeRetryAttempts != 4 {
+		t.Fatalf("expected runtime policy evaluation to ban at threshold, got %+v", transition.CurrentState)
+	}
+	if err := loadbalancedomain.InsertRuntimeFailureEvent(context.Background(), harness.conn, s15LoadbalancePartitionEnsurer{harness: harness}, profileID, modelConfigID, connectionID, transition, strategy, "connect_error", fixedS15Now.Add(4*time.Second)); err != nil {
+		t.Fatalf("insert runtime failure loadbalance event: %v", err)
+	}
+
+	var storedCycleLimit, storedBanThreshold int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold FROM loadbalance_events WHERE profile_id = $1 AND connection_id = $2`, profileID, connectionID).Scan(&storedCycleLimit, &storedBanThreshold); err != nil {
+		t.Fatalf("load stored policy snapshots: %v", err)
+	}
+	if storedCycleLimit != 2 || storedBanThreshold != 4 {
+		t.Fatalf("expected stored immutable policy snapshots 2/4, got %d/%d", storedCycleLimit, storedBanThreshold)
+	}
+
+	listPath := "/api/loadbalance/events?model_id=lb-runtime-snapshot-model&limit=20&offset=0"
+	listPayload := requestS15LoadbalanceEventsUntil(t, harness, profileID, listPath, connectionID, "banned")
+	event := s15LoadbalanceEventByConnectionIDAndType(t, listPayload, connectionID, "banned")
+	summary := asMap(t, event["summary"])
+	if jsonInt(t, event["cycle_retry_attempt_limit"]) != 2 || jsonInt(t, event["ban_cumulative_retry_attempt_threshold"]) != 4 || !strings.Contains(summary["reason"].(string), "cumulative ban threshold of 4 attempts") || strings.Contains(summary["reason"].(string), "Ban Mode threshold") {
+		t.Fatalf("expected runtime event list to expose public policy snapshots and exact threshold summary, got %+v", event)
+	}
+	for _, legacyKey := range []string{"policy_cycle_retry_attempt_limit", "policy_ban_cumulative_retry_attempt_threshold"} {
+		if _, ok := event[legacyKey]; ok {
+			t.Fatalf("runtime event list must not expose legacy public snapshot key %q: %+v", legacyKey, event)
+		}
+	}
+
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/events/%d", jsonInt(t, event["id"])), nil, modelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	detailSummary := asMap(t, detailPayload["summary"])
+	if jsonInt(t, detailPayload["cycle_retry_attempt_limit"]) != 2 || jsonInt(t, detailPayload["ban_cumulative_retry_attempt_threshold"]) != 4 || !strings.Contains(detailSummary["reason"].(string), "cumulative ban threshold of 4 attempts") {
+		t.Fatalf("expected runtime event detail to expose public policy snapshots, got %+v", detailPayload)
+	}
+	for _, legacyKey := range []string{"policy_cycle_retry_attempt_limit", "policy_ban_cumulative_retry_attempt_threshold"} {
+		if _, ok := detailPayload[legacyKey]; ok {
+			t.Fatalf("runtime event detail must not expose legacy public snapshot key %q: %+v", legacyKey, detailPayload)
+		}
+	}
+
+	currentStateResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/current-state?model_config_id=%d", modelConfigID), nil, modelHeader(profileID))
+	assertStatus(t, currentStateResponse, http.StatusOK)
+	var currentStatePayload map[string]any
+	decodeJSONResponse(t, currentStateResponse, &currentStatePayload)
+	currentState := s15CurrentStateItemByConnectionID(t, currentStatePayload, connectionID)
+	if currentState["state"] != "banned" || currentState["ban_mode"] != "until_reset" {
+		t.Fatalf("expected current-state to remain connection-global while banned, got %+v", currentState)
+	}
+	assertS15NoPolicyThresholdFields(t, currentState)
 }
 
 func TestLoadbalanceCurrentStateReflectsRuntimeRetryTransition(t *testing.T) {
@@ -1225,24 +1317,26 @@ type runtimeStateSeed struct {
 }
 
 type loadbalanceEventSeed struct {
-	ID                  int64
-	ProfileID           int
-	ConnectionID        int
-	EventType           string
-	FailureKind         *string
-	ConsecutiveFailures int
-	CooldownSeconds     float64
-	BlockedUntilMono    *float64
-	ModelID             *string
-	EndpointID          *int
-	VendorID            *int
-	FailureThreshold    *int
-	BackoffMultiplier   *float64
-	MaxCooldownSeconds  *int
-	MaxCooldownStrikes  *int
-	BanMode             *string
-	BannedUntilAt       *time.Time
-	CreatedAt           time.Time
+	ID                                       int64
+	ProfileID                                int
+	ConnectionID                             int
+	EventType                                string
+	FailureKind                              *string
+	ConsecutiveFailures                      int
+	CooldownSeconds                          float64
+	BlockedUntilMono                         *float64
+	ModelID                                  *string
+	EndpointID                               *int
+	VendorID                                 *int
+	FailureThreshold                         *int
+	BackoffMultiplier                        *float64
+	MaxCooldownSeconds                       *int
+	MaxCooldownStrikes                       *int
+	BanMode                                  *string
+	PolicyCycleRetryAttemptLimit             *int
+	PolicyBanCumulativeRetryAttemptThreshold *int
+	BannedUntilAt                            *time.Time
+	CreatedAt                                time.Time
 }
 
 func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSeed) {
@@ -1338,6 +1432,14 @@ func insertAuditLog(t *testing.T, harness *contractHarness, seed auditLogSeed) {
 	}
 }
 
+type s15LoadbalancePartitionEnsurer struct {
+	harness *contractHarness
+}
+
+func (e s15LoadbalancePartitionEnsurer) EnsurePartitionForTime(ctx context.Context, tableName string, timestamp time.Time) error {
+	return ensureContractTestLogPartition(ctx, e.harness, tableName, utcContractPartitionDay(timestamp))
+}
+
 func insertRuntimeState(t *testing.T, harness *contractHarness, seed runtimeStateSeed) {
 	t.Helper()
 	if harness.runtimeService == nil {
@@ -1380,27 +1482,27 @@ func insertLoadbalanceEvent(t *testing.T, harness *contractHarness, seed loadbal
 		nextRetryAt = &resolved
 	}
 	lastRetryDelayMS := int(seed.CooldownSeconds * 1000)
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO loadbalance_events (id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, banned_until_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12, $13, $14)`, seed.ID, seed.ProfileID, seed.ConnectionID, seed.EventType, nullableTestString(seed.FailureKind), seed.ConsecutiveFailures, nullableTestTime(nextRetryAt), lastRetryDelayMS, nullableTestString(seed.ModelID), nullableTestInt(seed.EndpointID), nullableTestInt(seed.VendorID), nullableTestString(seed.BanMode), nullableTestTime(seed.BannedUntilAt), seed.CreatedAt); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO loadbalance_events (id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`, seed.ID, seed.ProfileID, seed.ConnectionID, seed.EventType, nullableTestString(seed.FailureKind), seed.ConsecutiveFailures, nullableTestTime(nextRetryAt), lastRetryDelayMS, nullableTestString(seed.ModelID), nullableTestInt(seed.EndpointID), nullableTestInt(seed.VendorID), nullableTestString(seed.BanMode), nullableTestInt(seed.PolicyCycleRetryAttemptLimit), nullableTestInt(seed.PolicyBanCumulativeRetryAttemptThreshold), nullableTestTime(seed.BannedUntilAt), seed.CreatedAt); err != nil {
 		t.Fatalf("insert loadbalance event %d: %v", seed.ID, err)
 	}
 }
 
-func s15InsertRuntimeLoadbalanceStrategy(t *testing.T, harness *contractHarness, profileID int, name string, legacyStrategyType string, retryMaxAttempts int) int {
+func s15InsertRuntimeLoadbalanceStrategy(t *testing.T, harness *contractHarness, profileID int, name string, legacyStrategyType string, cycleRetryAttemptLimit int) int {
 	t.Helper()
 	now := fixedS15Now.UTC()
 	var strategyID int
 	if err := harness.conn.QueryRow(
 		context.Background(),
 		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode,
-			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts,
-			ban_duration_seconds, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4::integer[], 'off', 60000, 2.0, 0.2, 900000, $5, 0, $6, $6)
+			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit,
+			ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4::integer[], 'off', 60000, 2.0, 0.2, 900000, $5, 0, 0, $6, $6)
 		 RETURNING id`,
 		profileID,
 		name,
 		legacyStrategyType,
 		[]int32{503},
-		retryMaxAttempts,
+		cycleRetryAttemptLimit,
 		now,
 	).Scan(&strategyID); err != nil {
 		t.Fatalf("insert S15 runtime loadbalance strategy %q: %v", name, err)

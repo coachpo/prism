@@ -14,6 +14,7 @@ import (
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
+// Current state is connection-global; model-policy threshold snapshots belong to historical event payloads.
 func (s *Service) handleListCurrentState(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := parseRequiredPositiveIntQuery(r, "model_config_id")
 	if err != nil {

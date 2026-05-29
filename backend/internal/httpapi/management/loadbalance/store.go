@@ -29,7 +29,8 @@ func listStrategyRows(ctx context.Context, exec queryExecutor, profileID int) ([
 			loadbalance_strategies.retry_backoff_multiplier,
 			loadbalance_strategies.retry_jitter_ratio,
 			loadbalance_strategies.retry_max_delay_ms,
-			loadbalance_strategies.retry_max_attempts,
+			loadbalance_strategies.cycle_retry_attempt_limit,
+			loadbalance_strategies.ban_cumulative_retry_attempt_threshold,
 			loadbalance_strategies.ban_duration_seconds,
 			loadbalance_strategies.created_at,
 			loadbalance_strategies.updated_at,
@@ -64,7 +65,7 @@ func listStrategyRows(ctx context.Context, exec queryExecutor, profileID int) ([
 func loadStrategyRow(ctx context.Context, exec queryExecutor, profileID int, strategyID int, forUpdate bool) (strategyRow, bool, error) {
 	query := `SELECT id, profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
-			retry_max_delay_ms, retry_max_attempts, ban_duration_seconds,
+			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds,
 			created_at, updated_at, 0 AS attached_model_count
 		FROM loadbalance_strategies
 		WHERE profile_id = $1 AND id = $2`
@@ -124,11 +125,11 @@ func insertStrategy(ctx context.Context, exec queryExecutor, profileID int, payl
 		ctx,
 		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
-			retry_max_delay_ms, retry_max_attempts, ban_duration_seconds, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4::integer[], $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4::integer[], $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 RETURNING id, profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
-			retry_max_delay_ms, retry_max_attempts, ban_duration_seconds,
+			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds,
 			created_at, updated_at, 0 AS attached_model_count`,
 		profileID,
 		payload.Name,
@@ -139,7 +140,8 @@ func insertStrategy(ctx context.Context, exec queryExecutor, profileID int, payl
 		payload.RetryBackoffMultiplier,
 		payload.RetryJitterRatio,
 		payload.RetryMaxDelayMS,
-		payload.RetryMaxAttempts,
+		payload.CycleRetryAttemptLimit,
+		payload.BanCumulativeRetryAttemptThreshold,
 		payload.BanDurationSeconds,
 		currentTime,
 		currentTime,
@@ -162,13 +164,14 @@ func updateStrategy(ctx context.Context, exec queryExecutor, strategyID int, pay
 		     retry_backoff_multiplier = $7,
 		     retry_jitter_ratio = $8,
 		     retry_max_delay_ms = $9,
-		     retry_max_attempts = $10,
-		     ban_duration_seconds = $11,
-		     updated_at = $12
+		     cycle_retry_attempt_limit = $10,
+		     ban_cumulative_retry_attempt_threshold = $11,
+		     ban_duration_seconds = $12,
+		     updated_at = $13
 		 WHERE id = $1
 		 RETURNING id, profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
-			retry_max_delay_ms, retry_max_attempts, ban_duration_seconds,
+			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds,
 			created_at, updated_at, 0 AS attached_model_count`,
 		strategyID,
 		payload.Name,
@@ -179,7 +182,8 @@ func updateStrategy(ctx context.Context, exec queryExecutor, strategyID int, pay
 		payload.RetryBackoffMultiplier,
 		payload.RetryJitterRatio,
 		payload.RetryMaxDelayMS,
-		payload.RetryMaxAttempts,
+		payload.CycleRetryAttemptLimit,
+		payload.BanCumulativeRetryAttemptThreshold,
 		payload.BanDurationSeconds,
 		currentTime,
 	))
@@ -211,7 +215,8 @@ func scanStrategyRow(scanner interface{ Scan(...any) error }) (strategyRow, erro
 		&item.RetryBackoffMultiplier,
 		&item.RetryJitterRatio,
 		&item.RetryMaxDelayMS,
-		&item.RetryMaxAttempts,
+		&item.CycleRetryAttemptLimit,
+		&item.BanCumulativeRetryAttemptThreshold,
 		&item.BanDurationSeconds,
 		&item.CreatedAt,
 		&item.UpdatedAt,
