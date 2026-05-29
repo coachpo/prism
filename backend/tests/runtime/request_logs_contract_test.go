@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
+	platformtelemetry "github.com/coachpo/prism/backend/internal/platform/telemetry"
 )
 
 type requestLogContractHarness struct {
@@ -203,6 +205,44 @@ func TestRequestLogStreamErrorDetailContract(t *testing.T) {
 	summary := asMapRuntime(t, payload["summary"])
 	if summary["stream_outcome"] != "upstream_read_error" || summary["stream_error_kind"] != "upstream_read_failed" || summary["stream_error_detail"] != streamErrorDetail {
 		t.Fatalf("expected request-log detail summary to expose exact sanitized stream error detail, got %+v", summary)
+	}
+}
+
+func TestRequestLogsContractStartupOTLPInstrumentationKeepsDurableProductHistory(t *testing.T) {
+	var collectorRequests atomic.Int32
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		collectorRequests.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(collector.Close)
+
+	var shutdownOTLP func()
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
+		SettingsMutator: func(settings *config.Settings) {
+			shutdownOTLP = installRuntimeStartupOTLPProviders(t, settings, collector.URL)
+		},
+	})
+	if shutdownOTLP == nil {
+		t.Fatal("expected runtime harness to install startup OTLP providers")
+	}
+	profileID := harness.activeProfileID(t)
+	route := seedPartitionedLogFailoverRoute(t, harness, profileID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "durable history survives startup OTLP instrumentation"}},
+		"model":    route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	if events := loadLoadbalanceEvents(t, harness.conn, profileID, route.PrimaryConnectionID); len(events) != 1 {
+		t.Fatalf("expected one loadbalance feedback event under startup OTLP instrumentation, got %+v", events)
+	}
+
+	assertRuntimeDurableHistoryCounts(t, harness.conn, profileID, runtimeDurableHistoryCounts{RequestLogs: 2, UsageEvents: 1, AuditLogs: 2, LoadbalanceEvents: 1})
+	assertRuntimeRetainedStatsAPIs(t, harness, profileID)
+	shutdownOTLP()
+	if collectorRequests.Load() == 0 {
+		t.Fatal("expected startup OTLP instrumentation to export at least one metrics or trace request")
 	}
 }
 
@@ -1613,6 +1653,121 @@ func TestRuntimeRequestLogPersistsGeminiStreamGenerateContentUsage(t *testing.T)
 		CacheReadInputTokens: runtimeNullInt64(3),
 		ReasoningTokens:      runtimeNullInt64(5),
 	})
+}
+
+type runtimeDurableHistoryCounts struct {
+	RequestLogs       int
+	UsageEvents       int
+	AuditLogs         int
+	LoadbalanceEvents int
+}
+
+func installRuntimeStartupOTLPProviders(t *testing.T, settings *config.Settings, endpoint string) func() {
+	t.Helper()
+	settings.Telemetry = config.TelemetryConfig{
+		Enabled: true,
+		Service: config.TelemetryServiceConfig{
+			Namespace: "prism",
+			Name:      "prism-backend",
+		},
+		Exporter: config.TelemetryExporterConfig{
+			Endpoint:    endpoint,
+			Protocol:    config.TelemetryExporterProtocolHTTPProtobuf,
+			Compression: config.TelemetryExporterCompressionNone,
+			Timeout:     time.Second,
+			Auth:        config.TelemetryExporterAuthConfig{Mode: config.TelemetryExporterAuthModeNone},
+		},
+		Metrics: config.TelemetrySignalConfig{Enabled: true},
+		Traces:  config.TelemetryTracesConfig{Enabled: true, SamplingRatio: 1},
+	}
+	providers, err := platformtelemetry.BuildProviders(context.Background(), settings.Telemetry)
+	if err != nil {
+		t.Fatalf("build startup OTLP providers for runtime history contract: %v", err)
+	}
+	shutdown := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := providers.Shutdown(ctx); err != nil {
+			t.Fatalf("shutdown startup OTLP providers for runtime history contract: %v", err)
+		}
+	}
+	t.Cleanup(shutdown)
+	return shutdown
+}
+
+func assertRuntimeDurableHistoryCounts(t *testing.T, conn *pgx.Conn, profileID int, want runtimeDurableHistoryCounts) {
+	t.Helper()
+	var got runtimeDurableHistoryCounts
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT
+			(SELECT COUNT(*) FROM request_logs WHERE profile_id = $1),
+			(SELECT COUNT(*) FROM usage_request_events WHERE profile_id = $1),
+			(SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1),
+			(SELECT COUNT(*) FROM loadbalance_events WHERE profile_id = $1)`,
+		profileID,
+	).Scan(&got.RequestLogs, &got.UsageEvents, &got.AuditLogs, &got.LoadbalanceEvents); err != nil {
+		t.Fatalf("load durable history counts under startup OTLP instrumentation: %v", err)
+	}
+	if got != want {
+		t.Fatalf("expected durable history counts %+v under startup OTLP instrumentation, got %+v", want, got)
+	}
+}
+
+func assertRuntimeRetainedStatsAPIs(t *testing.T, harness *runtimeHarness, profileID int) {
+	t.Helper()
+	tests := []struct {
+		name   string
+		path   string
+		assert func(map[string]any)
+	}{
+		{
+			name: "request history",
+			path: "/api/stats/requests?limit=50&offset=0",
+			assert: func(payload map[string]any) {
+				items, ok := payload["items"].([]any)
+				if !ok || len(items) != 2 {
+					t.Fatalf("expected retained request history to return two durable rows, got %+v", payload)
+				}
+			},
+		},
+		{
+			name: "spending",
+			path: "/api/stats/spending?preset=1h&group_by=none&limit=50&offset=0",
+			assert: func(payload map[string]any) {
+				if _, ok := payload["summary"].(map[string]any); !ok {
+					t.Fatalf("expected retained spending API summary, got %+v", payload)
+				}
+			},
+		},
+		{
+			name: "usage snapshot",
+			path: "/api/stats/usage-snapshot?preset=1h",
+			assert: func(payload map[string]any) {
+				if _, ok := payload["overview"].(map[string]any); !ok {
+					t.Fatalf("expected retained usage snapshot overview, got %+v", payload)
+				}
+			},
+		},
+		{
+			name: "dashboard aggregate",
+			path: "/api/stats/dashboard?window=24h",
+			assert: func(payload map[string]any) {
+				if _, ok := payload["metric_snapshot"].(map[string]any); !ok {
+					t.Fatalf("expected retained dashboard metric snapshot, got %+v", payload)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := harness.requestJSON(t, http.MethodGet, test.path, nil, runtimeModelHeader(profileID))
+			assertStatus(t, response, http.StatusOK)
+			var payload map[string]any
+			decodeJSONResponse(t, response, &payload)
+			test.assert(payload)
+		})
+	}
 }
 
 type runtimePersistedStreamTelemetryRow struct {

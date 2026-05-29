@@ -28,6 +28,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/logretention"
 	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
+	platformtelemetry "github.com/coachpo/prism/backend/internal/platform/telemetry"
 )
 
 var phase7Now = time.Date(2026, time.April, 30, 12, 0, 0, 0, time.UTC)
@@ -346,6 +347,71 @@ func TestManagementDashboardStatsRouteReturnsAggregateSnapshot(t *testing.T) {
 	metricSnapshot := payload["metric_snapshot"].(map[string]any)
 	if metricSnapshot["total_requests"] != float64(1) || metricSnapshot["success_rate"] != float64(100) {
 		t.Fatalf("expected aggregate dashboard metrics from seeded activity, got %+v", metricSnapshot)
+	}
+}
+
+func TestManagementAuditStatsPhase7StartupOTLPKeepsRetainedStatsAPIs(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(collector.Close)
+	settings := phase7StartupOTLPSettings(t, collector.URL)
+	phase7InstallStartupOTLPProviders(t, settings)
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	databaseName := "stats_phase7_startup_otlp_retained_apis"
+	conn := harness.openDatabase(t, ctx, databaseName)
+	if _, err := runner.Run(ctx, conn); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+	profileID := phase7InsertProfile(t, ctx, conn)
+	createdAt := phase7Now.Add(-30 * time.Minute)
+	phase7InsertRequestLog(t, ctx, conn, profileID, 1401, http.StatusOK, createdAt)
+	phase7InsertUsageEvent(t, ctx, conn, profileID, 1402, createdAt)
+	phase7InsertAuditLog(t, ctx, conn, profileID, 1403, createdAt)
+	phase7InsertLoadbalanceEvent(t, ctx, conn, profileID, 1404, createdAt)
+	if err := conn.Close(ctx); err != nil {
+		t.Fatalf("close retained stats setup conn: %v", err)
+	}
+	pool, err := pgxpool.New(ctx, harness.connectionString(databaseName))
+	if err != nil {
+		t.Fatalf("open retained stats pool: %v", err)
+	}
+	defer pool.Close()
+	for tableName, want := range map[string]int{"request_logs": 1, "usage_request_events": 1, "audit_logs": 1, "loadbalance_events": 1} {
+		if got := phase7CountRows(t, ctx, pool, fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE profile_id = $1`, tableName), profileID); got != want {
+			t.Fatalf("expected %s to keep %d retained rows under startup OTLP, got %d", tableName, want, got)
+		}
+	}
+
+	service, err := managementstats.NewService(settings, managementstats.Options{Pool: pool, Now: func() time.Time { return phase7Now }})
+	if err != nil {
+		t.Fatalf("create retained stats service with startup OTLP settings: %v", err)
+	}
+	defer service.Close()
+	router := chiRouterForStats(service)
+	requestHistory := phase7StatsRoutePayload(t, router, "/stats/requests?limit=50&offset=0", profileID)
+	items, ok := requestHistory["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected retained request-history API to return the DB row under startup OTLP, got %+v", requestHistory)
+	}
+	spending := phase7StatsRoutePayload(t, router, "/stats/spending?preset=1h&group_by=none&limit=50&offset=0", profileID)
+	spendingSummary := spending["summary"].(map[string]any)
+	if spendingSummary["successful_request_count"] != float64(1) || spendingSummary["total_cost_micros"] != float64(1250) {
+		t.Fatalf("expected retained spending API to use usage_request_events, got %+v", spendingSummary)
+	}
+	usageSnapshot := phase7StatsRoutePayload(t, router, "/stats/usage-snapshot?preset=1h", profileID)
+	usageOverview := usageSnapshot["overview"].(map[string]any)
+	if usageOverview["total_requests"] != float64(1) || usageOverview["total_tokens"] != float64(18) {
+		t.Fatalf("expected retained usage snapshot API to use durable usage rows, got %+v", usageOverview)
+	}
+	dashboard := phase7StatsRoutePayload(t, router, "/stats/dashboard?window=24h", profileID)
+	metricSnapshot := dashboard["metric_snapshot"].(map[string]any)
+	if metricSnapshot["total_requests"] != float64(1) || metricSnapshot["success_rate"] != float64(100) {
+		t.Fatalf("expected retained dashboard aggregate API to use DB request history, got %+v", metricSnapshot)
 	}
 }
 
@@ -765,6 +831,54 @@ func TestManagementAuditDeleteJobDoesNotDeleteJobAudit(t *testing.T) {
 	}
 }
 
+func phase7StartupOTLPSettings(t *testing.T, endpoint string) config.Settings {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "bootstrap.json")
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	if _, err := manager.LoadOrSeed(configPath); err != nil {
+		t.Fatalf("seed phase7 startup OTLP bootstrap config: %v", err)
+	}
+	mutateStartupBootstrapJSON(t, configPath, func(payload map[string]any) {
+		payload["telemetry"] = startupTelemetryBootstrapPayload(endpoint)
+	})
+	settings, err := manager.Load(configPath)
+	if err != nil {
+		t.Fatalf("load phase7 startup OTLP bootstrap config: %v", err)
+	}
+	return settings
+}
+
+func phase7InstallStartupOTLPProviders(t *testing.T, settings config.Settings) {
+	t.Helper()
+	providers, err := platformtelemetry.BuildProviders(context.Background(), settings.Telemetry)
+	if err != nil {
+		t.Fatalf("build phase7 startup OTLP providers: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := providers.Shutdown(ctx); err != nil {
+			t.Fatalf("shutdown phase7 startup OTLP providers: %v", err)
+		}
+	})
+}
+
+func phase7StatsRoutePayload(t *testing.T, router http.Handler, path string, profileID int) map[string]any {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.Header.Set("X-Profile-Id", fmt.Sprintf("%d", profileID))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET %s status=%d body=%s", path, recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode %s response: %v", path, err)
+	}
+	return payload
+}
+
 func chiRouterForSettings(service *managementsettings.Service) http.Handler {
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
@@ -904,6 +1018,16 @@ func phase7InsertAuditLog(t *testing.T, ctx context.Context, exec interface {
 	phase7EnsureLogPartition(t, ctx, exec, "audit_logs", createdAt)
 	if _, err := exec.Exec(ctx, `INSERT INTO audit_logs (id, profile_id, model_id, request_method, request_url, request_headers, request_body_stored, response_status, response_headers, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at) VALUES ($1, $2, 'phase7-model', 'POST', 'https://phase7.invalid/v1/chat/completions', '{}', FALSE, 200, '{}', FALSE, FALSE, 100, TRUE, FALSE, $3)`, id, profileID, createdAt.UTC()); err != nil {
 		t.Fatalf("insert phase7 audit log %d: %v", id, err)
+	}
+}
+
+func phase7InsertLoadbalanceEvent(t *testing.T, ctx context.Context, exec interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, profileID int, connectionID int, createdAt time.Time) {
+	t.Helper()
+	phase7EnsureLogPartition(t, ctx, exec, "loadbalance_events", createdAt)
+	if _, err := exec.Exec(ctx, `INSERT INTO loadbalance_events (profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, ban_mode, created_at) VALUES ($1, $2, 'retry_scheduled', 'transient_http', 1, 1, $3, 60000, 'off', $4)`, profileID, connectionID, createdAt.UTC().Add(time.Minute), createdAt.UTC()); err != nil {
+		t.Fatalf("insert phase7 loadbalance event for connection %d: %v", connectionID, err)
 	}
 }
 
