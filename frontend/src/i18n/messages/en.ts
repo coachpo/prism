@@ -805,6 +805,51 @@ export interface Messages {
     sideEffectsAttemptTimeout: string;
     sideEffectsAttemptTimeoutDescription: string;
     sideEffectsAttemptTimeoutRequired: string;
+    telemetry: string;
+    telemetryAuthorizationHeader: string;
+    telemetryAuthorizationHeaderDescription: string;
+    telemetryAuthorizationHeaderRequired: string;
+    telemetryCompressionGzip: string;
+    telemetryCompressionNone: string;
+    telemetryEnabled: string;
+    telemetryEnabledDescription: string;
+    telemetryExporter: string;
+    telemetryExporterAuthMode: string;
+    telemetryExporterAuthModeNone: string;
+    telemetryExporterAuthModeAuthorizationHeader: string;
+    telemetryExporterAuthModePlaceholder: string;
+    telemetryExporterAuthModeRequired: string;
+    telemetryExporterCompression: string;
+    telemetryExporterCompressionPlaceholder: string;
+    telemetryExporterCompressionRequired: string;
+    telemetryExporterEndpoint: string;
+    telemetryExporterEndpointPlaceholder: string;
+    telemetryExporterEndpointRequired: string;
+    telemetryExporterProtocol: string;
+    telemetryExporterProtocolGrpc: string;
+    telemetryExporterProtocolHttpProtobuf: string;
+    telemetryExporterProtocolPlaceholder: string;
+    telemetryExporterProtocolRequired: string;
+    telemetryExporterTimeout: string;
+    telemetryExporterTimeoutPlaceholder: string;
+    telemetryExporterTimeoutRequired: string;
+    telemetryMetricsEnabled: string;
+    telemetryProtocolAndExporterTitle: string;
+    telemetrySectionDescription: string;
+    telemetrySectionTitle: string;
+    telemetrySignals: string;
+    telemetrySignalsDescription: string;
+    telemetryTls: string;
+    telemetryTlsCaFile: string;
+    telemetryTlsCaFileAbsolute: string;
+    telemetryTlsCaFileDescription: string;
+    telemetryTlsCaFilePlaceholder: string;
+    telemetryTlsInsecureSkipVerify: string;
+    telemetryTlsInsecureSkipVerifyDescription: string;
+    telemetryTracesEnabled: string;
+    telemetryTracesSamplingRatio: string;
+    telemetryTracesSamplingRatioDescription: string;
+    telemetryTracesSamplingRatioRange: string;
     state: string;
     stateTransferDescription: string;
     stateTransferTitle: string;
@@ -2931,6 +2976,51 @@ export const enMessages: Messages = {
     sideEffectsAttemptTimeout: "Telemetry enqueue attempt timeout",
     sideEffectsAttemptTimeoutDescription: "How long runtime side effects may spend attempting to enqueue telemetry work before giving up.",
     sideEffectsAttemptTimeoutRequired: "Telemetry enqueue attempt timeout is required.",
+    telemetry: "Telemetry",
+    telemetryAuthorizationHeader: "Telemetry authorization header",
+    telemetryAuthorizationHeaderDescription: "Stored as a managed secret. The raw header is never returned after save or reload.",
+    telemetryAuthorizationHeaderRequired: "Authorization header auth requires a telemetry authorization header replacement or configured secret.",
+    telemetryCompressionGzip: "gzip",
+    telemetryCompressionNone: "No compression",
+    telemetryEnabled: "Enable OpenTelemetry export",
+    telemetryEnabledDescription: "Writes OTLP telemetry settings to startup config. All telemetry changes require restart in this version.",
+    telemetryExporter: "Exporter",
+    telemetryExporterAuthMode: "Telemetry auth",
+    telemetryExporterAuthModeNone: "No telemetry auth",
+    telemetryExporterAuthModeAuthorizationHeader: "Authorization header",
+    telemetryExporterAuthModePlaceholder: "Select auth mode",
+    telemetryExporterAuthModeRequired: "Select a valid telemetry auth mode.",
+    telemetryExporterCompression: "Telemetry compression",
+    telemetryExporterCompressionPlaceholder: "Select compression",
+    telemetryExporterCompressionRequired: "Select a valid telemetry compression mode.",
+    telemetryExporterEndpoint: "OTLP endpoint",
+    telemetryExporterEndpointPlaceholder: "otel-collector:4317 or https://otel.example.com/v1/traces",
+    telemetryExporterEndpointRequired: "OTLP endpoint is required when telemetry is enabled.",
+    telemetryExporterProtocol: "OTLP protocol",
+    telemetryExporterProtocolGrpc: "gRPC",
+    telemetryExporterProtocolHttpProtobuf: "HTTP/protobuf",
+    telemetryExporterProtocolPlaceholder: "Select protocol",
+    telemetryExporterProtocolRequired: "Select a supported OTLP protocol.",
+    telemetryExporterTimeout: "Exporter timeout",
+    telemetryExporterTimeoutPlaceholder: "10s",
+    telemetryExporterTimeoutRequired: "Exporter timeout is required when telemetry is enabled.",
+    telemetryMetricsEnabled: "Export metrics",
+    telemetryProtocolAndExporterTitle: "OTLP exporter",
+    telemetrySectionDescription: "OpenTelemetry exporter, auth, TLS, metrics, and traces. These fields are restart-required and do not hot-apply.",
+    telemetrySectionTitle: "Telemetry",
+    telemetrySignals: "Signals",
+    telemetrySignalsDescription: "Choose which telemetry signals Prism starts on next process boot.",
+    telemetryTls: "TLS",
+    telemetryTlsCaFile: "Custom CA file",
+    telemetryTlsCaFileAbsolute: "Custom CA file must be an absolute container-readable path.",
+    telemetryTlsCaFileDescription: "Optional absolute path to a custom trust root mounted in the backend container.",
+    telemetryTlsCaFilePlaceholder: "/etc/prism/otel-ca.pem",
+    telemetryTlsInsecureSkipVerify: "Skip TLS verification",
+    telemetryTlsInsecureSkipVerifyDescription: "Disables certificate verification for the OTLP exporter after restart.",
+    telemetryTracesEnabled: "Export traces",
+    telemetryTracesSamplingRatio: "Trace sampling ratio",
+    telemetryTracesSamplingRatioDescription: "Required only when trace export is enabled. Use a value from 0 to 1.",
+    telemetryTracesSamplingRatioRange: "Trace sampling ratio must be between 0 and 1.",
     state: "State",
     stateTransferDescription: "Config bundle encryption metadata. Runtime secret encryption key is read-only and preserve-only.",
     stateTransferTitle: "State transfer",
