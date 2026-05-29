@@ -28,10 +28,14 @@ startup/
 - Keep field registries and effect helpers in `startupFieldMetadata.ts`; keep section components presentation-focused.
 - Keep runtime transport and side-effects timeout handling explicit. Raw file field `runtime.transport.requestTimeout` appears as API field `runtime.transport.request_timeout`, is seeded as `300s`, and is hot-applicable. Raw file field `runtime.sideEffects.attemptTimeout` appears as API field `runtime.side_effects.attempt_timeout`, is seeded as `10s`, and remains restart-required.
 - Keep secret replacement fields and dangerous confirmations local to this cluster instead of pushing them back into `SettingsPage.tsx`.
+- Keep dangerous confirmation-token UX explicit for host, port, database URL, JWT signing key, and bundle-key changes instead of hiding those restart-sensitive edits behind generic save copy.
 - Mirror backend apply-capability and failed-hot-apply semantics in copy and effect badges, not in bespoke page-level state.
 - Keep bootstrap config editing separate from profile-scoped settings and from config import/export.
+- Keep frontend env usage out of startup configuration ownership. This UI renders backend-provided bootstrap JSON and uses `VITE_API_BASE` only as transport wiring.
 - Keep missing pool or startup values empty or validation-driven instead of filling them from a frontend canonical default table. Current backend fresh seeds provide `8000`, `5173`, `15432`, pool split `4/8/4/2/2/2/2`, runtime transport `100/16/16/300s/90s/0s/10s/1s`, and admission `3/2`.
 - Existing valid bootstrap files may show older values because startup preserves them. Reset guidance belongs in copy as manual operator action: stop Prism, remove or relocate the bootstrap file, then restart.
+
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.

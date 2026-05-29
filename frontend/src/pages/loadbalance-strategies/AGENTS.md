@@ -33,6 +33,8 @@ loadbalance-strategies/
 - Keep summary wording in `LoadbalanceStrategiesTable.tsx` and shared page data helpers; do not duplicate retry-window or ban labels elsewhere.
 - Keep the contract forward-only. Do not add compatibility shims, silent coercion, or a fallback path that reintroduces removed strategy families.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
