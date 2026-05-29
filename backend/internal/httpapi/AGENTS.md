@@ -25,7 +25,7 @@ httpapi/
 - Realtime websocket service and dashboard publisher: `realtime/service.go`, `realtime/dashboard_publisher.go`
 - Proxy-key usage capture: `proxykeyusage/`
 - Request-context helpers shared across mounted handlers: `requestcontext/`
-- Router mounting and `/metrics`: `../platform/http/server.go`
+- Router mounting and OTLP-first operations telemetry: `../platform/http/server.go`, `../platform/telemetry/`, `../platform/db/telemetry.go`
 
 ## CONVENTIONS
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
@@ -38,7 +38,7 @@ httpapi/
 - Keep request-log and dashboard materialization off the hot request path by using runtime telemetry outboxes and realtime publishers.
 - Keep runtime partition creation on `runtime/log_partitions.go` and `platform/logretention.Store`; handlers should not create or drop partitions directly.
 - Keep log-retention settings global in `management/settings/`, with cleanup triggered through low-priority management jobs instead of request-path cleanup.
-- Keep `/metrics` DB-backed and mounted by platform server assembly, even though stats handlers live under management.
+- Keep operations telemetry on startup-JSON OTLP providers; do not reintroduce a backend-local `/metrics` compatibility endpoint. Stats handlers under management remain product-facing retained-history APIs.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

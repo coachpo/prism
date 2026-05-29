@@ -49,7 +49,7 @@ backend/
 ## RUNTIME FACTS
 - `cmd/prism-backend/main.go` is the backend process entrypoint.
 - `internal/platform/lifecycle/` wires production services, DB lanes, runtime cache bootstrap, scheduler workers, side-effect drains, and shutdown order.
-- `internal/platform/http/server.go` mounts `/health`, DB-backed `/metrics`, `/api`, `/v1`, and `/v1beta`; the exact supported runtime operations are resolved later by `internal/httpapi/runtime/operations.go`.
+- `internal/platform/http/server.go` mounts `/health`, `/api`, `/v1`, and `/v1beta`; operational metrics/traces export through startup-JSON OTLP providers rather than a backend-local `/metrics` route, and the exact supported runtime operations are resolved later by `internal/httpapi/runtime/operations.go`.
 - `internal/platform/http/hot_bootstrap_runtime.go` publishes hot snapshots for CORS, auth, mail, runtime proxy transport, and admission limits.
 - `internal/platform/config/` owns the plaintext bootstrap contract loaded by `cmd/prism-backend/main.go`; steady-state startup settings live in that file, while `PRISM_CONFIG_PATH` and optional `DATABASE_URL` remain bootstrap-only env exceptions. Eligible runtime fields hot-apply through the Startup tab or bootstrap API, while structural fields stay restart-required.
 - `internal/platform/startup/` and `internal/platform/migrate/` own startup sequencing, SQL migration execution, vendor/profile/settings seeds, and endpoint-secret normalization.

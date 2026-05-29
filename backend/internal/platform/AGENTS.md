@@ -25,7 +25,7 @@ platform/
 
 ## WHERE TO LOOK
 - Production dependency graph, service registration, runtime cache bootstrap, scheduler start, and shutdown order: `lifecycle/production.go`, `lifecycle/app.go`
-- Router mounting, middleware, `/health`, `/metrics`, `/api`, `/v1`, `/v1beta`, and hot bootstrap runtime snapshots: `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/hot_bootstrap_runtime.go`
+- Router mounting, middleware, `/health`, `/api`, `/v1`, `/v1beta`, startup-JSON OTLP providers, and hot bootstrap runtime snapshots: `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/hot_bootstrap_runtime.go`, `telemetry/`, `db/telemetry.go`
 - Plaintext bootstrap contract, restart-required fields, hot-apply publishing, and safe secret metadata: `config/`
 - Startup migration and seed flow: `startup/`, `migrate/`, `../../migrations/`
 - DB lane budgets and pool handles: `db/`
