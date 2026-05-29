@@ -42,6 +42,7 @@ const (
 	BootstrapConfigSecretAuthJWTSigningKey                  = "auth.jwtSigningKey"
 	BootstrapConfigSecretStateTransferBundleKey             = "stateTransfer.bundleEncryptionKey"
 	BootstrapConfigSecretMailSMTPPassword                   = "mail.smtp.password"
+	BootstrapConfigSecretTelemetryAuthorizationHeader       = "telemetry.exporter.auth.authorizationHeader"
 	BootstrapConfigConfirmationServerHostChange             = "server-host-change"
 	BootstrapConfigConfirmationServerPortChange             = "server-port-change"
 	BootstrapConfigConfirmationDatabaseURLChange            = "database-url-change"
@@ -54,6 +55,7 @@ type BootstrapConfigSecretAction string
 const (
 	BootstrapConfigSecretActionPreserve BootstrapConfigSecretAction = "preserve"
 	BootstrapConfigSecretActionReplace  BootstrapConfigSecretAction = "replace"
+	BootstrapConfigSecretActionClear    BootstrapConfigSecretAction = "clear"
 )
 
 type BootstrapConfigSnapshot struct {
@@ -104,12 +106,13 @@ type BootstrapConfigResponseOptions struct {
 }
 
 type BootstrapConfigValues struct {
-	Server   *BootstrapConfigServerValues   `json:"server"`
-	Database *BootstrapConfigDatabaseValues `json:"database"`
-	Runtime  *BootstrapConfigRuntimeValues  `json:"runtime"`
-	HTTP     *BootstrapConfigHTTPValues     `json:"http"`
-	Auth     *BootstrapConfigAuthValues     `json:"auth"`
-	Mail     *BootstrapConfigMailValues     `json:"mail,omitempty"`
+	Server    *BootstrapConfigServerValues    `json:"server"`
+	Database  *BootstrapConfigDatabaseValues  `json:"database"`
+	Runtime   *BootstrapConfigRuntimeValues   `json:"runtime"`
+	HTTP      *BootstrapConfigHTTPValues      `json:"http"`
+	Auth      *BootstrapConfigAuthValues      `json:"auth"`
+	Mail      *BootstrapConfigMailValues      `json:"mail,omitempty"`
+	Telemetry *BootstrapConfigTelemetryValues `json:"telemetry,omitempty"`
 }
 
 type BootstrapConfigServerValues struct {
@@ -195,6 +198,40 @@ type BootstrapConfigMailSMTPValues struct {
 	TLSServerName *string `json:"tls_server_name"`
 }
 
+type BootstrapConfigTelemetryValues struct {
+	Enabled  *bool                                   `json:"enabled"`
+	Exporter *BootstrapConfigTelemetryExporterValues `json:"exporter,omitempty"`
+	Metrics  *BootstrapConfigTelemetrySignalValues   `json:"metrics,omitempty"`
+	Traces   *BootstrapConfigTelemetryTracesValues   `json:"traces,omitempty"`
+}
+
+type BootstrapConfigTelemetryExporterValues struct {
+	Endpoint    *string                                     `json:"endpoint,omitempty"`
+	Protocol    *string                                     `json:"protocol,omitempty"`
+	Compression *string                                     `json:"compression,omitempty"`
+	Timeout     *string                                     `json:"timeout,omitempty"`
+	Auth        *BootstrapConfigTelemetryExporterAuthValues `json:"auth,omitempty"`
+	TLS         *BootstrapConfigTelemetryExporterTLSValues  `json:"tls,omitempty"`
+}
+
+type BootstrapConfigTelemetryExporterAuthValues struct {
+	Mode *string `json:"mode,omitempty"`
+}
+
+type BootstrapConfigTelemetryExporterTLSValues struct {
+	InsecureSkipVerify *bool   `json:"insecure_skip_verify"`
+	CAFile             *string `json:"ca_file,omitempty"`
+}
+
+type BootstrapConfigTelemetrySignalValues struct {
+	Enabled *bool `json:"enabled"`
+}
+
+type BootstrapConfigTelemetryTracesValues struct {
+	Enabled       *bool    `json:"enabled"`
+	SamplingRatio *float64 `json:"sampling_ratio,omitempty"`
+}
+
 type BootstrapConfigSecretMetadata struct {
 	Configured bool   `json:"configured"`
 	Editable   bool   `json:"editable"`
@@ -260,6 +297,7 @@ type bootstrapConfigDocument struct {
 	HTTP          *bootstrapHTTP          `json:"http"`
 	Auth          *bootstrapAuth          `json:"auth"`
 	Mail          *bootstrapMail          `json:"mail,omitempty"`
+	Telemetry     *bootstrapTelemetry     `json:"telemetry,omitempty"`
 	StateTransfer *bootstrapStateTransfer `json:"stateTransfer"`
 }
 
@@ -355,6 +393,41 @@ type bootstrapSMTP struct {
 	PasswordFile  *string `json:"passwordFile,omitempty"`
 	Timeout       *string `json:"timeout,omitempty"`
 	TLSServerName *string `json:"tlsServerName,omitempty"`
+}
+
+type bootstrapTelemetry struct {
+	Enabled  *bool                       `json:"enabled"`
+	Exporter *bootstrapTelemetryExporter `json:"exporter,omitempty"`
+	Metrics  *bootstrapTelemetrySignal   `json:"metrics,omitempty"`
+	Traces   *bootstrapTelemetryTraces   `json:"traces,omitempty"`
+}
+
+type bootstrapTelemetryExporter struct {
+	Endpoint    *string                         `json:"endpoint,omitempty"`
+	Protocol    *string                         `json:"protocol,omitempty"`
+	Compression *string                         `json:"compression,omitempty"`
+	Timeout     *string                         `json:"timeout,omitempty"`
+	Auth        *bootstrapTelemetryExporterAuth `json:"auth,omitempty"`
+	TLS         *bootstrapTelemetryExporterTLS  `json:"tls,omitempty"`
+}
+
+type bootstrapTelemetryExporterAuth struct {
+	Mode                *string `json:"mode,omitempty"`
+	AuthorizationHeader *string `json:"authorizationHeader,omitempty"`
+}
+
+type bootstrapTelemetryExporterTLS struct {
+	InsecureSkipVerify *bool   `json:"insecureSkipVerify,omitempty"`
+	CAFile             *string `json:"caFile,omitempty"`
+}
+
+type bootstrapTelemetrySignal struct {
+	Enabled *bool `json:"enabled"`
+}
+
+type bootstrapTelemetryTraces struct {
+	Enabled       *bool    `json:"enabled"`
+	SamplingRatio *float64 `json:"samplingRatio,omitempty"`
 }
 
 type bootstrapStateTransfer struct {
@@ -678,18 +751,25 @@ func applyBootstrapConfigValues(document *bootstrapConfigDocument, values *Boots
 		document.HTTP = nil
 		document.Auth = nil
 		document.Mail = nil
+		document.Telemetry = nil
 		return
 	}
 	databaseURL := currentBootstrapDatabaseURL(document)
 	runtimeSecret := currentBootstrapRuntimeSecret(document)
 	authJWTSigningKey := currentBootstrapAuthJWTSigningKey(document)
 	mailSMTPPassword := currentBootstrapMailSMTPPassword(document)
+	telemetryAuthorizationHeader := currentBootstrapTelemetryAuthorizationHeader(document)
+	telemetryWasOmitted := document.Telemetry == nil
 	document.Server = bootstrapServerFromSafeValues(values.Server)
 	document.Database = bootstrapDatabaseFromSafeValues(values.Database, databaseURL)
 	document.Runtime = bootstrapRuntimeFromSafeValues(values.Runtime, runtimeSecret)
 	document.HTTP = bootstrapHTTPFromSafeValues(values.HTTP)
 	document.Auth = bootstrapAuthFromSafeValues(values.Auth, authJWTSigningKey)
 	document.Mail = bootstrapMailFromSafeValues(values.Mail, mailSMTPPassword)
+	document.Telemetry = bootstrapTelemetryFromSafeValues(values.Telemetry, telemetryAuthorizationHeader)
+	if telemetryWasOmitted && isDisabledSafeBootstrapTelemetry(values.Telemetry) {
+		document.Telemetry = nil
+	}
 }
 
 func applyBootstrapConfigSecretUpdates(candidate *bootstrapConfigDocument, current bootstrapConfigDocument, updates map[string]BootstrapConfigSecretUpdate) error {
@@ -721,13 +801,21 @@ func applyBootstrapConfigSecretUpdates(candidate *bootstrapConfigDocument, curre
 			if field == BootstrapConfigSecretMailSMTPPassword && !bootstrapMailEnabled(candidate.Mail) {
 				continue
 			}
+			if field == BootstrapConfigSecretTelemetryAuthorizationHeader && !bootstrapTelemetryAuthorizationHeaderEnabled(candidate.Telemetry) {
+				continue
+			}
 			value, err := replacementBootstrapSecretValue(field, update.Value, current)
 			if err != nil {
 				return err
 			}
 			setBootstrapConfigSecret(candidate, field, value)
+		case BootstrapConfigSecretActionClear:
+			if field != BootstrapConfigSecretTelemetryAuthorizationHeader {
+				return &BootstrapConfigSecretOperationError{Field: field, Action: update.Action, Reason: "clear is only supported for telemetry authorization header"}
+			}
+			clearBootstrapConfigSecret(candidate, field)
 		default:
-			return &BootstrapConfigSecretOperationError{Field: field, Action: update.Action, Reason: "action must be preserve or replace"}
+			return &BootstrapConfigSecretOperationError{Field: field, Action: update.Action, Reason: "action must be preserve, replace, or clear"}
 		}
 	}
 	return nil
@@ -820,6 +908,27 @@ func setBootstrapConfigSecret(document *bootstrapConfigDocument, field string, v
 			document.Mail.SMTP = &bootstrapSMTP{}
 		}
 		document.Mail.SMTP.Password = stringPointer(value)
+	case BootstrapConfigSecretTelemetryAuthorizationHeader:
+		if document.Telemetry == nil {
+			document.Telemetry = &bootstrapTelemetry{}
+		}
+		if document.Telemetry.Exporter == nil {
+			document.Telemetry.Exporter = &bootstrapTelemetryExporter{}
+		}
+		if document.Telemetry.Exporter.Auth == nil {
+			document.Telemetry.Exporter.Auth = &bootstrapTelemetryExporterAuth{}
+		}
+		document.Telemetry.Exporter.Auth.AuthorizationHeader = stringPointer(value)
+	}
+}
+
+func clearBootstrapConfigSecret(document *bootstrapConfigDocument, field string) {
+	switch field {
+	case BootstrapConfigSecretTelemetryAuthorizationHeader:
+		if document.Telemetry == nil || document.Telemetry.Exporter == nil || document.Telemetry.Exporter.Auth == nil {
+			return
+		}
+		document.Telemetry.Exporter.Auth.AuthorizationHeader = nil
 	}
 }
 
@@ -884,17 +993,19 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 			RefreshCookieName:      cloneStringPointer(document.Auth.RefreshCookieName),
 			CookieSecure:           cloneBoolPointer(document.Auth.CookieSecure),
 		},
-		Mail: safeBootstrapMailValues(document.Mail),
+		Mail:      safeBootstrapMailValues(document.Mail),
+		Telemetry: safeBootstrapTelemetryValues(document.Telemetry),
 	}
 }
 
 func bootstrapConfigSecretMetadata(document bootstrapConfigDocument) map[string]BootstrapConfigSecretMetadata {
 	return map[string]BootstrapConfigSecretMetadata{
-		BootstrapConfigSecretDatabaseURL:                secretMetadata(document.Database.URL, true, maskBootstrapDatabaseURL),
-		BootstrapConfigSecretRuntimeSecretEncryptionKey: secretMetadata(document.Runtime.SecretEncryptionKey, false, maskConfiguredBootstrapSecret),
-		BootstrapConfigSecretAuthJWTSigningKey:          secretMetadata(document.Auth.JWTSigningKey, true, maskConfiguredBootstrapSecret),
-		BootstrapConfigSecretStateTransferBundleKey:     secretMetadata(document.StateTransfer.BundleEncryptionKey, true, maskConfiguredBootstrapSecret),
-		BootstrapConfigSecretMailSMTPPassword:           secretMetadata(bootstrapMailSMTPPassword(document.Mail), true, maskConfiguredBootstrapSecret),
+		BootstrapConfigSecretDatabaseURL:                  secretMetadata(document.Database.URL, true, maskBootstrapDatabaseURL),
+		BootstrapConfigSecretRuntimeSecretEncryptionKey:   secretMetadata(document.Runtime.SecretEncryptionKey, false, maskConfiguredBootstrapSecret),
+		BootstrapConfigSecretAuthJWTSigningKey:            secretMetadata(document.Auth.JWTSigningKey, true, maskConfiguredBootstrapSecret),
+		BootstrapConfigSecretStateTransferBundleKey:       secretMetadata(document.StateTransfer.BundleEncryptionKey, true, maskConfiguredBootstrapSecret),
+		BootstrapConfigSecretMailSMTPPassword:             secretMetadata(bootstrapMailSMTPPassword(document.Mail), true, maskConfiguredBootstrapSecret),
+		BootstrapConfigSecretTelemetryAuthorizationHeader: secretMetadata(bootstrapTelemetryAuthorizationHeader(document.Telemetry), true, maskConfiguredBootstrapSecret),
 	}
 }
 
@@ -1087,6 +1198,74 @@ func bootstrapSMTPFromSafeValues(values *BootstrapConfigMailSMTPValues, smtpPass
 	}
 }
 
+func bootstrapTelemetryFromSafeValues(values *BootstrapConfigTelemetryValues, authorizationHeader *string) *bootstrapTelemetry {
+	if isDisabledSafeBootstrapTelemetry(values) {
+		return canonicalDisabledBootstrapTelemetryDocument()
+	}
+	return &bootstrapTelemetry{
+		Enabled:  cloneBoolPointer(values.Enabled),
+		Exporter: bootstrapTelemetryExporterFromSafeValues(values.Exporter, authorizationHeader),
+		Metrics:  bootstrapTelemetrySignalFromSafeValues(values.Metrics),
+		Traces:   bootstrapTelemetryTracesFromSafeValues(values.Traces),
+	}
+}
+
+func isDisabledSafeBootstrapTelemetry(values *BootstrapConfigTelemetryValues) bool {
+	return values == nil || values.Enabled == nil || !*values.Enabled
+}
+
+func bootstrapTelemetryExporterFromSafeValues(values *BootstrapConfigTelemetryExporterValues, authorizationHeader *string) *bootstrapTelemetryExporter {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapTelemetryExporter{
+		Endpoint:    cloneStringPointer(values.Endpoint),
+		Protocol:    cloneStringPointer(values.Protocol),
+		Compression: cloneStringPointer(values.Compression),
+		Timeout:     cloneStringPointer(values.Timeout),
+		Auth:        bootstrapTelemetryExporterAuthFromSafeValues(values.Auth, authorizationHeader),
+		TLS:         bootstrapTelemetryExporterTLSFromSafeValues(values.TLS),
+	}
+}
+
+func bootstrapTelemetryExporterAuthFromSafeValues(values *BootstrapConfigTelemetryExporterAuthValues, authorizationHeader *string) *bootstrapTelemetryExporterAuth {
+	if values == nil {
+		return nil
+	}
+	preservedHeader := cloneStringPointer(authorizationHeader)
+	if values.Mode == nil || strings.TrimSpace(*values.Mode) != string(TelemetryExporterAuthModeAuthorizationHeader) {
+		preservedHeader = nil
+	}
+	return &bootstrapTelemetryExporterAuth{
+		Mode:                cloneStringPointer(values.Mode),
+		AuthorizationHeader: preservedHeader,
+	}
+}
+
+func bootstrapTelemetryExporterTLSFromSafeValues(values *BootstrapConfigTelemetryExporterTLSValues) *bootstrapTelemetryExporterTLS {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapTelemetryExporterTLS{
+		InsecureSkipVerify: cloneBoolPointer(values.InsecureSkipVerify),
+		CAFile:             cloneStringPointer(values.CAFile),
+	}
+}
+
+func bootstrapTelemetrySignalFromSafeValues(values *BootstrapConfigTelemetrySignalValues) *bootstrapTelemetrySignal {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapTelemetrySignal{Enabled: cloneBoolPointer(values.Enabled)}
+}
+
+func bootstrapTelemetryTracesFromSafeValues(values *BootstrapConfigTelemetryTracesValues) *bootstrapTelemetryTraces {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapTelemetryTraces{Enabled: cloneBoolPointer(values.Enabled), SamplingRatio: cloneFloat64Pointer(values.SamplingRatio)}
+}
+
 func currentBootstrapDatabaseURL(document *bootstrapConfigDocument) *string {
 	if document == nil || document.Database == nil {
 		return nil
@@ -1115,6 +1294,13 @@ func currentBootstrapMailSMTPPassword(document *bootstrapConfigDocument) *string
 	return cloneStringPointer(bootstrapMailSMTPPassword(document.Mail))
 }
 
+func currentBootstrapTelemetryAuthorizationHeader(document *bootstrapConfigDocument) *string {
+	if document == nil {
+		return nil
+	}
+	return cloneStringPointer(bootstrapTelemetryAuthorizationHeader(document.Telemetry))
+}
+
 func bootstrapMailSMTPPassword(mailConfig *bootstrapMail) *string {
 	if mailConfig == nil || mailConfig.SMTP == nil {
 		return nil
@@ -1126,6 +1312,20 @@ func bootstrapMailEnabled(mailConfig *bootstrapMail) bool {
 	return mailConfig != nil && mailConfig.Enabled != nil && *mailConfig.Enabled
 }
 
+func bootstrapTelemetryAuthorizationHeader(telemetry *bootstrapTelemetry) *string {
+	if telemetry == nil || telemetry.Exporter == nil || telemetry.Exporter.Auth == nil {
+		return nil
+	}
+	return telemetry.Exporter.Auth.AuthorizationHeader
+}
+
+func bootstrapTelemetryAuthorizationHeaderEnabled(telemetry *bootstrapTelemetry) bool {
+	if telemetry == nil || telemetry.Exporter == nil || telemetry.Exporter.Auth == nil || telemetry.Exporter.Auth.Mode == nil {
+		return false
+	}
+	return strings.TrimSpace(*telemetry.Exporter.Auth.Mode) == string(TelemetryExporterAuthModeAuthorizationHeader)
+}
+
 func orderedBootstrapConfigSecretFields() []string {
 	return []string{
 		BootstrapConfigSecretDatabaseURL,
@@ -1133,12 +1333,13 @@ func orderedBootstrapConfigSecretFields() []string {
 		BootstrapConfigSecretAuthJWTSigningKey,
 		BootstrapConfigSecretStateTransferBundleKey,
 		BootstrapConfigSecretMailSMTPPassword,
+		BootstrapConfigSecretTelemetryAuthorizationHeader,
 	}
 }
 
 func isKnownBootstrapConfigSecretField(field string) bool {
 	switch field {
-	case BootstrapConfigSecretDatabaseURL, BootstrapConfigSecretRuntimeSecretEncryptionKey, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigSecretStateTransferBundleKey, BootstrapConfigSecretMailSMTPPassword:
+	case BootstrapConfigSecretDatabaseURL, BootstrapConfigSecretRuntimeSecretEncryptionKey, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigSecretStateTransferBundleKey, BootstrapConfigSecretMailSMTPPassword, BootstrapConfigSecretTelemetryAuthorizationHeader:
 		return true
 	default:
 		return false
@@ -1203,8 +1404,45 @@ func cloneBootstrapConfigDocument(document bootstrapConfigDocument) bootstrapCon
 	clone.HTTP = bootstrapHTTPFromSafeValues(safeBootstrapHTTPValues(document.HTTP))
 	clone.Auth = bootstrapAuthFromSafeValues(safeBootstrapAuthValues(document.Auth), currentBootstrapAuthJWTSigningKey(&document))
 	clone.Mail = bootstrapMailFromSafeValues(safeBootstrapMailValues(document.Mail), currentBootstrapMailSMTPPassword(&document))
+	clone.Telemetry = cloneBootstrapTelemetry(document.Telemetry)
 	if document.StateTransfer != nil {
 		clone.StateTransfer = &bootstrapStateTransfer{BundleEncryptionKey: cloneStringPointer(document.StateTransfer.BundleEncryptionKey)}
+	}
+	return clone
+}
+
+func cloneBootstrapTelemetry(telemetry *bootstrapTelemetry) *bootstrapTelemetry {
+	if telemetry == nil {
+		return nil
+	}
+	clone := &bootstrapTelemetry{
+		Enabled: cloneBoolPointer(telemetry.Enabled),
+	}
+	if telemetry.Exporter != nil {
+		clone.Exporter = &bootstrapTelemetryExporter{
+			Endpoint:    cloneStringPointer(telemetry.Exporter.Endpoint),
+			Protocol:    cloneStringPointer(telemetry.Exporter.Protocol),
+			Compression: cloneStringPointer(telemetry.Exporter.Compression),
+			Timeout:     cloneStringPointer(telemetry.Exporter.Timeout),
+		}
+		if telemetry.Exporter.Auth != nil {
+			clone.Exporter.Auth = &bootstrapTelemetryExporterAuth{
+				Mode:                cloneStringPointer(telemetry.Exporter.Auth.Mode),
+				AuthorizationHeader: cloneStringPointer(telemetry.Exporter.Auth.AuthorizationHeader),
+			}
+		}
+		if telemetry.Exporter.TLS != nil {
+			clone.Exporter.TLS = &bootstrapTelemetryExporterTLS{
+				InsecureSkipVerify: cloneBoolPointer(telemetry.Exporter.TLS.InsecureSkipVerify),
+				CAFile:             cloneStringPointer(telemetry.Exporter.TLS.CAFile),
+			}
+		}
+	}
+	if telemetry.Metrics != nil {
+		clone.Metrics = &bootstrapTelemetrySignal{Enabled: cloneBoolPointer(telemetry.Metrics.Enabled)}
+	}
+	if telemetry.Traces != nil {
+		clone.Traces = &bootstrapTelemetryTraces{Enabled: cloneBoolPointer(telemetry.Traces.Enabled), SamplingRatio: cloneFloat64Pointer(telemetry.Traces.SamplingRatio)}
 	}
 	return clone
 }
@@ -1347,6 +1585,71 @@ func safeBootstrapSMTPValues(smtp *bootstrapSMTP) *BootstrapConfigMailSMTPValues
 	}
 }
 
+func safeBootstrapTelemetryValues(telemetry *bootstrapTelemetry) *BootstrapConfigTelemetryValues {
+	if telemetry == nil {
+		return canonicalDisabledBootstrapTelemetryValues()
+	}
+	return &BootstrapConfigTelemetryValues{
+		Enabled:  cloneBoolPointer(telemetry.Enabled),
+		Exporter: safeBootstrapTelemetryExporterValues(telemetry.Exporter),
+		Metrics:  safeBootstrapTelemetrySignalValues(telemetry.Metrics),
+		Traces:   safeBootstrapTelemetryTracesValues(telemetry.Traces),
+	}
+}
+
+func canonicalDisabledBootstrapTelemetryValues() *BootstrapConfigTelemetryValues {
+	return &BootstrapConfigTelemetryValues{Enabled: boolPointer(false)}
+}
+
+func canonicalDisabledBootstrapTelemetryDocument() *bootstrapTelemetry {
+	return &bootstrapTelemetry{Enabled: boolPointer(false)}
+}
+
+func safeBootstrapTelemetryExporterValues(exporter *bootstrapTelemetryExporter) *BootstrapConfigTelemetryExporterValues {
+	if exporter == nil {
+		return nil
+	}
+	return &BootstrapConfigTelemetryExporterValues{
+		Endpoint:    cloneStringPointer(exporter.Endpoint),
+		Protocol:    cloneStringPointer(exporter.Protocol),
+		Compression: cloneStringPointer(exporter.Compression),
+		Timeout:     cloneStringPointer(exporter.Timeout),
+		Auth:        safeBootstrapTelemetryExporterAuthValues(exporter.Auth),
+		TLS:         safeBootstrapTelemetryExporterTLSValues(exporter.TLS),
+	}
+}
+
+func safeBootstrapTelemetryExporterAuthValues(auth *bootstrapTelemetryExporterAuth) *BootstrapConfigTelemetryExporterAuthValues {
+	if auth == nil {
+		return nil
+	}
+	return &BootstrapConfigTelemetryExporterAuthValues{Mode: cloneStringPointer(auth.Mode)}
+}
+
+func safeBootstrapTelemetryExporterTLSValues(tlsConfig *bootstrapTelemetryExporterTLS) *BootstrapConfigTelemetryExporterTLSValues {
+	if tlsConfig == nil {
+		return nil
+	}
+	return &BootstrapConfigTelemetryExporterTLSValues{
+		InsecureSkipVerify: cloneBoolPointer(tlsConfig.InsecureSkipVerify),
+		CAFile:             cloneStringPointer(tlsConfig.CAFile),
+	}
+}
+
+func safeBootstrapTelemetrySignalValues(signal *bootstrapTelemetrySignal) *BootstrapConfigTelemetrySignalValues {
+	if signal == nil {
+		return nil
+	}
+	return &BootstrapConfigTelemetrySignalValues{Enabled: cloneBoolPointer(signal.Enabled)}
+}
+
+func safeBootstrapTelemetryTracesValues(traces *bootstrapTelemetryTraces) *BootstrapConfigTelemetryTracesValues {
+	if traces == nil {
+		return nil
+	}
+	return &BootstrapConfigTelemetryTracesValues{Enabled: cloneBoolPointer(traces.Enabled), SamplingRatio: cloneFloat64Pointer(traces.SamplingRatio)}
+}
+
 func cloneIntPointer(value *int) *int {
 	if value == nil {
 		return nil
@@ -1366,6 +1669,13 @@ func cloneBoolPointer(value *bool) *bool {
 		return nil
 	}
 	return boolPointer(*value)
+}
+
+func cloneFloat64Pointer(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	return float64Pointer(*value)
 }
 
 func cloneStringSlicePointer(value *[]string) *[]string {
@@ -1505,6 +1815,11 @@ func (d bootstrapConfigDocument) validateSchema() error {
 	}
 	if d.Mail != nil {
 		if err := d.Mail.validate(); err != nil {
+			return err
+		}
+	}
+	if d.Telemetry != nil {
+		if err := d.Telemetry.validate(); err != nil {
 			return err
 		}
 	}
@@ -1921,6 +2236,10 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	telemetryConfig, err := d.Telemetry.toTelemetryConfig()
+	if err != nil {
+		return Settings{}, err
+	}
 
 	return Settings{
 		Host:                             host,
@@ -1928,6 +2247,7 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      databaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
+		Telemetry:                        telemetryConfig,
 		RuntimeTransportConfig:           runtimeTransport,
 		RuntimeSideEffectsConfig:         runtimeSideEffects,
 		PostgresPoolsBudget:              postgresPoolsBudget,
@@ -2040,6 +2360,201 @@ func (s bootstrapSMTP) toMailSMTPConfig(enabled bool) (MailSMTPConfig, error) {
 	}
 	if enabled && result.Auth == "" {
 		result.Auth = MailSMTPAuthNone
+	}
+	return result, nil
+}
+
+func (t *bootstrapTelemetry) validate() error {
+	_, err := t.toTelemetryConfig()
+	return err
+}
+
+func (t *bootstrapTelemetry) toTelemetryConfig() (TelemetryConfig, error) {
+	result := defaultTelemetryConfig()
+	if t == nil {
+		return result, nil
+	}
+	enabled, err := requiredBool("telemetry.enabled", t.Enabled)
+	if err != nil {
+		return TelemetryConfig{}, err
+	}
+	result.Enabled = enabled
+	exporter, err := t.Exporter.toTelemetryExporterConfig(enabled)
+	if err != nil {
+		return TelemetryConfig{}, err
+	}
+	result.Exporter = exporter
+	metrics, err := t.Metrics.toTelemetrySignalConfig("telemetry.metrics", enabled)
+	if err != nil {
+		return TelemetryConfig{}, err
+	}
+	result.Metrics = metrics
+	traces, err := t.Traces.toTelemetryTracesConfig(enabled)
+	if err != nil {
+		return TelemetryConfig{}, err
+	}
+	result.Traces = traces
+	return result, nil
+}
+
+func (e *bootstrapTelemetryExporter) toTelemetryExporterConfig(enabled bool) (TelemetryExporterConfig, error) {
+	result := defaultTelemetryConfig().Exporter
+	if e == nil {
+		if enabled {
+			return TelemetryExporterConfig{}, missingBootstrapFieldError("telemetry.exporter")
+		}
+		return result, nil
+	}
+	if e.Endpoint != nil {
+		endpoint, err := requiredTrimmedString("telemetry.exporter.endpoint", e.Endpoint, 1, 2048)
+		if err != nil {
+			return TelemetryExporterConfig{}, err
+		}
+		result.Endpoint = endpoint
+	} else if enabled {
+		return TelemetryExporterConfig{}, missingBootstrapFieldError("telemetry.exporter.endpoint")
+	}
+	if e.Protocol != nil {
+		protocol, err := requiredEnumString("telemetry.exporter.protocol", e.Protocol, allowedTelemetryExporterProtocols())
+		if err != nil {
+			return TelemetryExporterConfig{}, err
+		}
+		result.Protocol = TelemetryExporterProtocol(protocol)
+	} else if enabled {
+		return TelemetryExporterConfig{}, missingBootstrapFieldError("telemetry.exporter.protocol")
+	}
+	if e.Compression != nil {
+		compression, err := requiredEnumString("telemetry.exporter.compression", e.Compression, allowedTelemetryExporterCompressions())
+		if err != nil {
+			return TelemetryExporterConfig{}, err
+		}
+		result.Compression = TelemetryExporterCompression(compression)
+	} else if enabled {
+		return TelemetryExporterConfig{}, missingBootstrapFieldError("telemetry.exporter.compression")
+	}
+	if e.Timeout != nil {
+		timeout, err := parseDurationField("telemetry.exporter.timeout", e.Timeout)
+		if err != nil {
+			return TelemetryExporterConfig{}, err
+		}
+		if timeout <= 0 {
+			return TelemetryExporterConfig{}, fmt.Errorf("bootstrap config field telemetry.exporter.timeout must be greater than zero")
+		}
+		result.Timeout = timeout
+	} else if enabled {
+		return TelemetryExporterConfig{}, missingBootstrapFieldError("telemetry.exporter.timeout")
+	}
+	auth, err := e.Auth.toTelemetryExporterAuthConfig(enabled)
+	if err != nil {
+		return TelemetryExporterConfig{}, err
+	}
+	result.Auth = auth
+	tlsConfig, err := e.TLS.toTelemetryExporterTLSConfig(enabled)
+	if err != nil {
+		return TelemetryExporterConfig{}, err
+	}
+	result.TLS = tlsConfig
+	return result, nil
+}
+
+func (a *bootstrapTelemetryExporterAuth) toTelemetryExporterAuthConfig(enabled bool) (TelemetryExporterAuthConfig, error) {
+	result := TelemetryExporterAuthConfig{Mode: defaultTelemetryExporterAuthMode}
+	if a == nil {
+		if enabled {
+			return TelemetryExporterAuthConfig{}, missingBootstrapFieldError("telemetry.exporter.auth")
+		}
+		return result, nil
+	}
+	if a.Mode != nil {
+		mode, err := requiredEnumString("telemetry.exporter.auth.mode", a.Mode, allowedTelemetryExporterAuthModes())
+		if err != nil {
+			return TelemetryExporterAuthConfig{}, err
+		}
+		result.Mode = TelemetryExporterAuthMode(mode)
+	} else if enabled {
+		return TelemetryExporterAuthConfig{}, missingBootstrapFieldError("telemetry.exporter.auth.mode")
+	}
+	if result.Mode == TelemetryExporterAuthModeAuthorizationHeader {
+		header, err := requiredTrimmedString("telemetry.exporter.auth.authorizationHeader", a.AuthorizationHeader, 1, 8192)
+		if err != nil {
+			return TelemetryExporterAuthConfig{}, err
+		}
+		result.AuthorizationHeader = header
+		return result, nil
+	}
+	if a.AuthorizationHeader != nil {
+		header, err := optionalTrimmedString("telemetry.exporter.auth.authorizationHeader", a.AuthorizationHeader, 8192)
+		if err != nil {
+			return TelemetryExporterAuthConfig{}, err
+		}
+		result.AuthorizationHeader = header
+	}
+	return result, nil
+}
+
+func (t *bootstrapTelemetryExporterTLS) toTelemetryExporterTLSConfig(enabled bool) (TelemetryExporterTLSConfig, error) {
+	result := TelemetryExporterTLSConfig{}
+	if t == nil {
+		if enabled {
+			return TelemetryExporterTLSConfig{}, missingBootstrapFieldError("telemetry.exporter.tls")
+		}
+		return result, nil
+	}
+	insecureSkipVerify, err := requiredBool("telemetry.exporter.tls.insecureSkipVerify", t.InsecureSkipVerify)
+	if err != nil {
+		return TelemetryExporterTLSConfig{}, err
+	}
+	result.InsecureSkipVerify = insecureSkipVerify
+	if t.CAFile != nil {
+		caFile, err := requiredTrimmedString("telemetry.exporter.tls.caFile", t.CAFile, 1, 4096)
+		if err != nil {
+			return TelemetryExporterTLSConfig{}, err
+		}
+		if !filepath.IsAbs(caFile) {
+			return TelemetryExporterTLSConfig{}, fmt.Errorf("bootstrap config field telemetry.exporter.tls.caFile must be an absolute container-readable trust-root path")
+		}
+		result.CAFile = filepath.Clean(caFile)
+	}
+	return result, nil
+}
+
+func (s *bootstrapTelemetrySignal) toTelemetrySignalConfig(path string, telemetryEnabled bool) (TelemetrySignalConfig, error) {
+	result := TelemetrySignalConfig{}
+	if s == nil {
+		if telemetryEnabled {
+			return TelemetrySignalConfig{}, missingBootstrapFieldError(path)
+		}
+		return result, nil
+	}
+	enabled, err := requiredBool(path+".enabled", s.Enabled)
+	if err != nil {
+		return TelemetrySignalConfig{}, err
+	}
+	result.Enabled = enabled
+	return result, nil
+}
+
+func (t *bootstrapTelemetryTraces) toTelemetryTracesConfig(telemetryEnabled bool) (TelemetryTracesConfig, error) {
+	result := defaultTelemetryConfig().Traces
+	if t == nil {
+		if telemetryEnabled {
+			return TelemetryTracesConfig{}, missingBootstrapFieldError("telemetry.traces")
+		}
+		return result, nil
+	}
+	enabled, err := requiredBool("telemetry.traces.enabled", t.Enabled)
+	if err != nil {
+		return TelemetryTracesConfig{}, err
+	}
+	result.Enabled = enabled
+	if t.SamplingRatio != nil {
+		samplingRatio, err := requiredFloat64Range("telemetry.traces.samplingRatio", t.SamplingRatio, 0, 1)
+		if err != nil {
+			return TelemetryTracesConfig{}, err
+		}
+		result.SamplingRatio = samplingRatio
+	} else if telemetryEnabled && enabled {
+		return TelemetryTracesConfig{}, missingBootstrapFieldError("telemetry.traces.samplingRatio")
 	}
 	return result, nil
 }
@@ -2186,6 +2701,9 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 		Mail: &bootstrapMail{
 			Enabled: boolPointer(false),
 		},
+		Telemetry: &bootstrapTelemetry{
+			Enabled: boolPointer(false),
+		},
 		StateTransfer: &bootstrapStateTransfer{
 			BundleEncryptionKey: stringPointer(bundleEncryptionKey),
 		},
@@ -2226,6 +2744,10 @@ func stringPointer(value string) *string {
 }
 
 func boolPointer(value bool) *bool {
+	return &value
+}
+
+func float64Pointer(value float64) *float64 {
 	return &value
 }
 
@@ -2302,6 +2824,18 @@ func allowedMailSMTPAuthModes() []string {
 	return []string{string(MailSMTPAuthNone), string(MailSMTPAuthPlain)}
 }
 
+func allowedTelemetryExporterProtocols() []string {
+	return []string{string(TelemetryExporterProtocolGRPC), string(TelemetryExporterProtocolHTTPProtobuf)}
+}
+
+func allowedTelemetryExporterCompressions() []string {
+	return []string{string(TelemetryExporterCompressionNone), string(TelemetryExporterCompressionGzip)}
+}
+
+func allowedTelemetryExporterAuthModes() []string {
+	return []string{string(TelemetryExporterAuthModeNone), string(TelemetryExporterAuthModeAuthorizationHeader)}
+}
+
 func normalizedMailSMTPMode(value *string) MailSMTPMode {
 	if value == nil {
 		return ""
@@ -2369,6 +2903,16 @@ func requiredIntRange(path string, value *int, minimum int, maximum int) (int, e
 	}
 	if *value < minimum || *value > maximum {
 		return 0, fmt.Errorf("bootstrap config field %s must be between %d and %d", path, minimum, maximum)
+	}
+	return *value, nil
+}
+
+func requiredFloat64Range(path string, value *float64, minimum float64, maximum float64) (float64, error) {
+	if value == nil {
+		return 0, missingBootstrapFieldError(path)
+	}
+	if *value < minimum || *value > maximum {
+		return 0, fmt.Errorf("bootstrap config field %s must be between %g and %g", path, minimum, maximum)
 	}
 	return *value, nil
 }
