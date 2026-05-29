@@ -17,6 +17,7 @@ import type {
 import { StartupDatabaseSection } from "./startup/StartupDatabaseSection";
 import { StartupMailSecretsSection } from "./startup/StartupMailSecretsSection";
 import { StartupRuntimeSection } from "./startup/StartupRuntimeSection";
+import { StartupTelemetrySection } from "./startup/StartupTelemetrySection";
 import {
   FieldEffectBadge,
   LoadingSkeleton,
@@ -41,6 +42,9 @@ import {
   getErrorMessage,
   normalizeBootstrapValues,
   normalizeMailValues,
+  normalizeTelemetryValues,
+  telemetryValuesForNewOrIncompleteConfig,
+  parseNullableFloat,
   parseNullableInteger,
   parseOrigins,
   summarizeApplyResult,
@@ -132,6 +136,20 @@ export function SettingsStartupTab() {
     });
   }, [updateValues]);
 
+  const setFloatField = useCallback((path: string, rawValue: string) => {
+    const parsed = parseNullableFloat(rawValue);
+    updateValues((current) => {
+      const next = cloneValues(current);
+      const segments = path.split(".");
+      let target: Record<string, unknown> = next as unknown as Record<string, unknown>;
+      for (let index = 0; index < segments.length - 1; index += 1) {
+        target = target[segments[index]] as Record<string, unknown>;
+      }
+      target[segments[segments.length - 1]] = parsed;
+      return next;
+    });
+  }, [updateValues]);
+
   const setBooleanField = useCallback((path: string, checked: boolean) => {
     updateValues((current) => {
       const next = cloneValues(current);
@@ -182,6 +200,35 @@ export function SettingsStartupTab() {
     });
   }, [updateValues]);
 
+  const setTelemetryEnabled = useCallback((checked: boolean) => {
+    if (!checked) {
+      setSecretInputs((current) => ({ ...current, "telemetry.exporter.auth.authorizationHeader": "" }));
+    }
+    updateValues((current) => {
+      if (!checked) {
+        return { ...current, telemetry: { enabled: false, exporter: null, metrics: null, traces: null } };
+      }
+      const currentTelemetry = normalizeTelemetryValues(current.telemetry);
+      const enabledTelemetry = telemetryValuesForNewOrIncompleteConfig();
+      return {
+        ...current,
+        telemetry: {
+          enabled: true,
+          exporter: currentTelemetry.exporter ?? enabledTelemetry.exporter,
+          metrics: currentTelemetry.metrics ?? enabledTelemetry.metrics,
+          traces: currentTelemetry.traces ?? enabledTelemetry.traces,
+        },
+      };
+    });
+  }, [updateValues]);
+
+  const setTelemetryAuthMode = useCallback((value: string) => {
+    if (value !== "authorization_header") {
+      setSecretInputs((current) => ({ ...current, "telemetry.exporter.auth.authorizationHeader": "" }));
+    }
+    setStringField("telemetry.exporter.auth.mode", value);
+  }, [setStringField]);
+
   const handleSecretInputChange = useCallback((secretKey: BootstrapConfigSecretKey, value: string) => {
     if (secretKey === "runtime.secretEncryptionKey") {
       return;
@@ -197,8 +244,15 @@ export function SettingsStartupTab() {
   const secretUpdates = useMemo<BootstrapConfigSecretUpdates>(() => {
     const updates = buildPreserveSecretUpdates();
     const mailEnabled = values ? normalizeMailValues(values.mail).enabled : false;
+    const telemetryAuthMode = values ? normalizeTelemetryValues(values.telemetry).exporter?.auth?.mode : null;
     for (const secretKey of SECRET_KEYS) {
       if (secretKey === "mail.smtp.password" && !mailEnabled) {
+        continue;
+      }
+      if (secretKey === "telemetry.exporter.auth.authorizationHeader" && telemetryAuthMode !== "authorization_header") {
+        if (bootstrapConfig?.secrets[secretKey].configured) {
+          updates[secretKey] = { action: "clear" };
+        }
         continue;
       }
       const replacement = secretInputs[secretKey].trim();
@@ -416,6 +470,7 @@ export function SettingsStartupTab() {
         <StartupServerSection copy={copy} controlsDisabled={controlsDisabled} corsOriginsText={corsOriginsText} fieldErrors={fieldErrors} fieldEffect={fieldEffect} sectionEffect={sectionEffect} setCorsOriginsText={setCorsOriginsText} setServerField={setServerField} values={values} />
         <StartupDatabaseSection bootstrapConfig={bootstrapConfig} clearSecretInput={clearSecretInput} controlsDisabled={controlsDisabled} copy={copy} fieldErrors={fieldErrors} fieldEffect={fieldEffect} handleSecretInputChange={handleSecretInputChange} sectionEffect={sectionEffect} secretInputs={secretInputs} setNumberField={setNumberField} values={values} />
         <StartupRuntimeSection controlsDisabled={controlsDisabled} copy={copy} fieldErrors={fieldErrors} fieldEffect={fieldEffect} sectionEffect={sectionEffect} setNumberField={setNumberField} setStringField={setStringField} values={values} />
+        <StartupTelemetrySection bootstrapConfig={bootstrapConfig} clearSecretInput={clearSecretInput} controlsDisabled={controlsDisabled} copy={copy} fieldErrors={fieldErrors} fieldEffect={fieldEffect} handleSecretInputChange={handleSecretInputChange} sectionEffect={sectionEffect} secretInputs={secretInputs} setBooleanField={setBooleanField} setFloatField={setFloatField} setStringField={setStringField} setTelemetryAuthMode={setTelemetryAuthMode} setTelemetryEnabled={setTelemetryEnabled} values={values} />
         <StartupMailSecretsSection activeDangerousConfirmations={activeDangerousConfirmations} bootstrapConfig={bootstrapConfig} clearSecretInput={clearSecretInput} confirmedTokens={confirmedTokens} controlsDisabled={controlsDisabled} copy={copy} dangerDialogOpen={dangerDialogOpen} dangerousConfirmations={dangerousConfirmations} dirtySummary={dirtySummary} fieldErrors={fieldErrors} fieldEffect={fieldEffect} handleDangerDialogOpenChange={handleDangerDialogOpenChange} handleSave={handleSave} handleSecretInputChange={handleSecretInputChange} handleValidate={handleValidate} mailEnabled={mailEnabled} mailValues={mailValues} performSave={performSave} saving={saving} sectionEffect={sectionEffect} secretInputs={secretInputs} setBooleanField={setBooleanField} setMailEnabled={setMailEnabled} setMailStringField={setMailStringField} setNumberField={setNumberField} setSMTPNumberField={setSMTPNumberField} setSMTPStringField={setSMTPStringField} setStringField={setStringField} smtpControlsDisabled={smtpControlsDisabled} smtpValues={smtpValues} toggleConfirmation={toggleConfirmation} validating={validating} validationRows={validationRows} values={values} />
       </div>
     </div>

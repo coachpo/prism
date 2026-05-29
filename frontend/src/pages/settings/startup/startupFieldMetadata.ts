@@ -12,6 +12,8 @@ import type {
   BootstrapConfigDatabasePoolsValues,
   BootstrapConfigMailSMTPValues,
   BootstrapConfigMailValues,
+  BootstrapConfigTelemetryExporterValues,
+  BootstrapConfigTelemetryValues,
   BootstrapConfigValues,
 } from "@/lib/types";
 
@@ -21,6 +23,7 @@ export const SECRET_KEYS: BootstrapConfigSecretKey[] = [
   "auth.jwtSigningKey",
   "stateTransfer.bundleEncryptionKey",
   "mail.smtp.password",
+  "telemetry.exporter.auth.authorizationHeader",
 ];
 
 export type ValidationStatus = "success" | "warning" | "error";
@@ -47,6 +50,7 @@ export const emptySecretInputs = (): SecretInputState => ({
   "auth.jwtSigningKey": "",
   "stateTransfer.bundleEncryptionKey": "",
   "mail.smtp.password": "",
+  "telemetry.exporter.auth.authorizationHeader": "",
 });
 
 // Backend bootstrap responses own canonical pool sizes; legacy or incomplete payloads render missing lanes as empty fields only.
@@ -107,6 +111,18 @@ const FIELD_LABELS = {
   "runtime.transport.tls_handshake_timeout": (copy) => copy.tlsHandshakeTimeout,
   "runtime.transport.expect_continue_timeout": (copy) => copy.expectContinueTimeout,
   "runtime.side_effects.attempt_timeout": (copy) => copy.sideEffectsAttemptTimeout,
+  "telemetry.enabled": (copy) => copy.telemetryEnabled,
+  "telemetry.exporter.endpoint": (copy) => copy.telemetryExporterEndpoint,
+  "telemetry.exporter.protocol": (copy) => copy.telemetryExporterProtocol,
+  "telemetry.exporter.compression": (copy) => copy.telemetryExporterCompression,
+  "telemetry.exporter.timeout": (copy) => copy.telemetryExporterTimeout,
+  "telemetry.exporter.auth.mode": (copy) => copy.telemetryExporterAuthMode,
+  "telemetry.exporter.auth.authorizationHeader": (copy) => copy.telemetryAuthorizationHeader,
+  "telemetry.exporter.tls.insecure_skip_verify": (copy) => copy.telemetryTlsInsecureSkipVerify,
+  "telemetry.exporter.tls.ca_file": (copy) => copy.telemetryTlsCaFile,
+  "telemetry.metrics.enabled": (copy) => copy.telemetryMetricsEnabled,
+  "telemetry.traces.enabled": (copy) => copy.telemetryTracesEnabled,
+  "telemetry.traces.sampling_ratio": (copy) => copy.telemetryTracesSamplingRatio,
   "auth.jwtSigningKey": (copy) => copy.jwtSigningKey,
   "auth.access_token_ttl_seconds": (copy) => copy.accessTokenTtlSeconds,
   "auth.refresh_token_ttl_seconds": (copy) => copy.refreshTokenTtlSeconds,
@@ -164,6 +180,20 @@ export const TRANSPORT_FIELD_PATHS = [
 ];
 export const SIDE_EFFECT_FIELD_PATHS = ["runtime.side_effects.attempt_timeout"];
 export const RUNTIME_FIELD_PATHS = [...TRANSPORT_FIELD_PATHS, ...SIDE_EFFECT_FIELD_PATHS];
+export const TELEMETRY_FIELD_PATHS = [
+  "telemetry.enabled",
+  "telemetry.exporter.endpoint",
+  "telemetry.exporter.protocol",
+  "telemetry.exporter.compression",
+  "telemetry.exporter.timeout",
+  "telemetry.exporter.auth.mode",
+  "telemetry.exporter.auth.authorizationHeader",
+  "telemetry.exporter.tls.insecure_skip_verify",
+  "telemetry.exporter.tls.ca_file",
+  "telemetry.metrics.enabled",
+  "telemetry.traces.enabled",
+  "telemetry.traces.sampling_ratio",
+];
 export const AUTH_FIELD_PATHS = [
   "auth.jwtSigningKey",
   "auth.access_token_ttl_seconds",
@@ -252,6 +282,60 @@ export function normalizeMailValues(mail: BootstrapConfigMailValues | null | und
   };
 }
 
+function emptyTelemetryExporterValues(): BootstrapConfigTelemetryExporterValues {
+  return {
+    endpoint: null,
+    protocol: null,
+    compression: null,
+    timeout: null,
+    auth: { mode: null },
+    tls: { insecure_skip_verify: false, ca_file: null },
+  };
+}
+
+export function emptyDisabledTelemetryValuesForUiState(): BootstrapConfigTelemetryValues {
+  return {
+    enabled: false,
+    exporter: null,
+    metrics: null,
+    traces: null,
+  };
+}
+
+export function telemetryValuesForNewOrIncompleteConfig(): BootstrapConfigTelemetryValues {
+  return {
+    enabled: true,
+    exporter: emptyTelemetryExporterValues(),
+    metrics: { enabled: false },
+    traces: { enabled: false, sampling_ratio: null },
+  };
+}
+
+export function normalizeTelemetryValues(telemetry: BootstrapConfigTelemetryValues | null | undefined): BootstrapConfigTelemetryValues {
+  if (!telemetry) {
+    return emptyDisabledTelemetryValuesForUiState();
+  }
+  const enabled = Boolean(telemetry.enabled);
+  const requireEditableShape = enabled;
+  const exporter = telemetry.exporter ?? (requireEditableShape ? emptyTelemetryExporterValues() : null);
+  return {
+    enabled,
+    exporter: exporter ? {
+      endpoint: exporter.endpoint ?? null,
+      protocol: exporter.protocol ?? null,
+      compression: exporter.compression ?? null,
+      timeout: exporter.timeout ?? null,
+      auth: { mode: exporter.auth?.mode ?? null },
+      tls: {
+        insecure_skip_verify: exporter.tls?.insecure_skip_verify ?? false,
+        ca_file: exporter.tls?.ca_file ?? null,
+      },
+    } : null,
+    metrics: telemetry.metrics ?? (requireEditableShape ? { enabled: false } : null),
+    traces: telemetry.traces ?? (requireEditableShape ? { enabled: false, sampling_ratio: null } : null),
+  };
+}
+
 export function normalizeBootstrapValues(values: BootstrapConfigValues): BootstrapConfigValues {
   const nextValues = cloneValues(values);
   nextValues.runtime = {
@@ -263,6 +347,7 @@ export function normalizeBootstrapValues(values: BootstrapConfigValues): Bootstr
     management_admission: nextValues.database.management_admission,
   };
   nextValues.mail = normalizeMailValues(nextValues.mail);
+  nextValues.telemetry = normalizeTelemetryValues(nextValues.telemetry);
   return nextValues;
 }
 
@@ -280,6 +365,15 @@ export function parseNullableInteger(rawValue: string): number | null {
     return null;
   }
   const parsed = Number.parseInt(trimmed, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+export function parseNullableFloat(rawValue: string): number | null {
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number.parseFloat(trimmed);
   return Number.isNaN(parsed) ? null : parsed;
 }
 
@@ -325,6 +419,22 @@ export function isValidSMTPMode(value: string | null): boolean {
 
 export function isValidSMTPAuth(value: string | null): boolean {
   return value === "none" || value === "plain";
+}
+
+export function isValidTelemetryProtocol(value: string | null): boolean {
+  return value === "grpc" || value === "http/protobuf";
+}
+
+export function isValidTelemetryCompression(value: string | null): boolean {
+  return value === "none" || value === "gzip";
+}
+
+export function isValidTelemetryAuthMode(value: string | null): boolean {
+  return value === "none" || value === "authorization_header";
+}
+
+function isAbsoluteContainerPath(value: string): boolean {
+  return value.startsWith("/");
 }
 
 interface StartupValidationInput {
@@ -382,6 +492,30 @@ export function validateStartupValues({
       else if (passwordSourceCount > 1) addError("mail.smtp.password", copy.smtpPasswordSourceConflict);
     }
   }
+  const telemetryValues = normalizeTelemetryValues(values.telemetry);
+  if (telemetryValues.enabled) {
+    const exporter = telemetryValues.exporter ?? emptyTelemetryExporterValues();
+    if (!exporter.endpoint?.trim()) addError("telemetry.exporter.endpoint", copy.telemetryExporterEndpointRequired);
+    if (!isValidTelemetryProtocol(exporter.protocol)) addError("telemetry.exporter.protocol", copy.telemetryExporterProtocolRequired);
+    if (!isValidTelemetryCompression(exporter.compression)) addError("telemetry.exporter.compression", copy.telemetryExporterCompressionRequired);
+    if (!exporter.timeout?.trim()) addError("telemetry.exporter.timeout", copy.telemetryExporterTimeoutRequired);
+    if (!isValidTelemetryAuthMode(exporter.auth?.mode ?? null)) addError("telemetry.exporter.auth.mode", copy.telemetryExporterAuthModeRequired);
+    if (exporter.tls?.ca_file?.trim() && !isAbsoluteContainerPath(exporter.tls.ca_file.trim())) {
+      addError("telemetry.exporter.tls.ca_file", copy.telemetryTlsCaFileAbsolute);
+    }
+    if (exporter.auth?.mode === "authorization_header") {
+      const authHeaderUpdate = secretUpdates["telemetry.exporter.auth.authorizationHeader"];
+      const stagedHeader = authHeaderUpdate.action === "replace";
+      const preservedHeader = Boolean(bootstrapConfig?.secrets["telemetry.exporter.auth.authorizationHeader"].configured && authHeaderUpdate.action === "preserve");
+      if (!stagedHeader && !preservedHeader) addError("telemetry.exporter.auth.authorizationHeader", copy.telemetryAuthorizationHeaderRequired);
+    }
+    if (telemetryValues.traces?.enabled) {
+      const samplingRatio = telemetryValues.traces.sampling_ratio;
+      if (samplingRatio === null || samplingRatio < 0 || samplingRatio > 1) {
+        addError("telemetry.traces.sampling_ratio", copy.telemetryTracesSamplingRatioRange);
+      }
+    }
+  }
   const add = (field: string, message: string) => addError(field, message);
   const checkPositive = (field: string, value: number | null) => { if (!isPositiveInteger(value)) add(field, copy.usePositiveInteger); };
   const checkNonNegative = (field: string, value: number | null) => { if (!isNonNegativeInteger(value)) add(field, copy.useZeroOrPositiveInteger); };
@@ -420,6 +554,7 @@ export function buildPreserveSecretUpdates(): BootstrapConfigSecretUpdates {
     "auth.jwtSigningKey": { action: "preserve" },
     "stateTransfer.bundleEncryptionKey": { action: "preserve" },
     "mail.smtp.password": { action: "preserve" },
+    "telemetry.exporter.auth.authorizationHeader": { action: "preserve" },
   };
 }
 
@@ -512,7 +647,8 @@ export function getChangedCapabilityFields(
   nextValues.http.cors_allowed_origins = parseOrigins(corsOriginsText);
   return Object.keys(bootstrapConfig.apply_capabilities).filter((field) => {
     if (SECRET_FIELD_PATHS.has(field)) {
-      return secretUpdates[field as BootstrapConfigSecretKey]?.action === "replace";
+      const action = secretUpdates[field as BootstrapConfigSecretKey]?.action;
+      return action === "replace" || action === "clear";
     }
     return !valuesEqual(getValueAtPath(bootstrapConfig.values, field), getValueAtPath(nextValues, field));
   });
