@@ -81,6 +81,9 @@ type bootstrapSeededFile struct {
 	Mail struct {
 		Enabled bool `json:"enabled"`
 	} `json:"mail"`
+	Telemetry struct {
+		Enabled bool `json:"enabled"`
+	} `json:"telemetry"`
 	StateTransfer struct {
 		BundleEncryptionKey string `json:"bundleEncryptionKey"`
 	} `json:"stateTransfer"`
@@ -389,6 +392,9 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 	if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox {
 		t.Fatalf("unexpected seeded runtime telemetry mode: %q", settings.RuntimeTelemetryMode)
 	}
+	if settings.Telemetry.Enabled || settings.Telemetry.Service.Namespace != "prism" || settings.Telemetry.Service.Name != "prism-backend" || settings.Telemetry.Exporter.Endpoint != "" {
+		t.Fatalf("unexpected seeded telemetry settings: %+v", settings.Telemetry)
+	}
 	transport := settings.RuntimeTransport()
 	if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 16 || transport.MaxConnsPerHost != 16 {
 		t.Fatalf("unexpected seeded runtime transport pool: %+v", transport)
@@ -433,6 +439,7 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	}
 	assertBootstrapTopLevelKeys(t, raw)
 	assertSeededBootstrapMailDocument(t, raw)
+	assertSeededBootstrapTelemetryDocument(t, raw)
 
 	var seeded bootstrapSeededFile
 	if err := json.Unmarshal(raw, &seeded); err != nil {
@@ -477,6 +484,9 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	if seeded.Mail.Enabled {
 		t.Fatalf("expected seeded mail payload to be disabled: %+v", seeded.Mail)
 	}
+	if seeded.Telemetry.Enabled {
+		t.Fatalf("expected seeded telemetry payload to be disabled: %+v", seeded.Telemetry)
+	}
 	if seeded.StateTransfer.BundleEncryptionKey != bootstrapFixtureBundleKey {
 		t.Fatalf("unexpected seeded bundle key payload: %q", seeded.StateTransfer.BundleEncryptionKey)
 	}
@@ -508,6 +518,32 @@ func assertSeededBootstrapMailDocument(t *testing.T, raw []byte) {
 	}
 }
 
+func assertSeededBootstrapTelemetryDocument(t *testing.T, raw []byte) {
+	t.Helper()
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode seeded bootstrap top-level JSON: %v", err)
+	}
+	telemetryRaw, ok := payload["telemetry"]
+	if !ok {
+		t.Fatal("expected seeded bootstrap config to include top-level telemetry")
+	}
+	var telemetryPayload map[string]json.RawMessage
+	if err := json.Unmarshal(telemetryRaw, &telemetryPayload); err != nil {
+		t.Fatalf("decode seeded bootstrap telemetry JSON: %v", err)
+	}
+	if len(telemetryPayload) != 1 {
+		t.Fatalf("expected seeded bootstrap telemetry to contain only enabled, got %v", keysFromPayload(telemetryPayload))
+	}
+	var enabled bool
+	if err := json.Unmarshal(telemetryPayload["enabled"], &enabled); err != nil {
+		t.Fatalf("decode seeded bootstrap telemetry enabled value: %v", err)
+	}
+	if enabled {
+		t.Fatal("expected seeded bootstrap telemetry.enabled to be false")
+	}
+}
+
 func setBootstrapSeedEnv(t *testing.T, values map[string]string) {
 	t.Helper()
 	for name, value := range values {
@@ -521,7 +557,7 @@ func assertBootstrapTopLevelKeys(t *testing.T, raw []byte) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatalf("decode bootstrap top-level JSON: %v", err)
 	}
-	required := []string{"meta", "server", "database", "runtime", "http", "auth", "mail", "stateTransfer"}
+	required := []string{"meta", "server", "database", "runtime", "http", "auth", "mail", "telemetry", "stateTransfer"}
 	if len(payload) != len(required) {
 		t.Fatalf("expected seeded bootstrap config top-level keys %v, got %v", required, keysFromPayload(payload))
 	}

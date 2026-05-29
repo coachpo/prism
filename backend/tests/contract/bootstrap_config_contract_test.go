@@ -485,6 +485,130 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 	})
 }
 
+func TestBootstrapConfigTelemetryContract(t *testing.T) {
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+
+	t.Run("disabled telemetry permits minimal startup config", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		payload["telemetry"] = map[string]any{"enabled": false}
+		settings, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err != nil {
+			t.Fatalf("parse disabled telemetry block: %v", err)
+		}
+		if settings.Telemetry.Enabled || settings.Telemetry.Exporter.Endpoint != "" {
+			t.Fatalf("expected disabled telemetry without exporter details, got %+v", settings.Telemetry)
+		}
+		if settings.Telemetry.Service.Namespace != "prism" || settings.Telemetry.Service.Name != "prism-backend" {
+			t.Fatalf("expected code-owned telemetry service identity, got %+v", settings.Telemetry.Service)
+		}
+	})
+
+	t.Run("enabled telemetry maps exact startup fields", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		payload["telemetry"] = validBootstrapTelemetryPayload()
+		settings, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err != nil {
+			t.Fatalf("parse enabled telemetry block: %v", err)
+		}
+		telemetry := settings.Telemetry
+		if !telemetry.Enabled || !telemetry.Metrics.Enabled || !telemetry.Traces.Enabled {
+			t.Fatalf("expected telemetry signals enabled, got %+v", telemetry)
+		}
+		if telemetry.Exporter.Endpoint != "https://otel-collector.example.test:4318" || telemetry.Exporter.Protocol != config.TelemetryExporterProtocolHTTPProtobuf || telemetry.Exporter.Compression != config.TelemetryExporterCompressionGzip || telemetry.Exporter.Timeout != 7*time.Second {
+			t.Fatalf("unexpected telemetry exporter settings: %+v", telemetry.Exporter)
+		}
+		if telemetry.Exporter.Auth.Mode != config.TelemetryExporterAuthModeAuthorizationHeader || telemetry.Exporter.Auth.AuthorizationHeader != "Bearer otlp-secret" {
+			t.Fatalf("unexpected telemetry auth settings: %+v", telemetry.Exporter.Auth)
+		}
+		if telemetry.Exporter.TLS.InsecureSkipVerify || telemetry.Exporter.TLS.CAFile != "/etc/prism/otel-ca.pem" {
+			t.Fatalf("unexpected telemetry TLS settings: %+v", telemetry.Exporter.TLS)
+		}
+		if telemetry.Traces.SamplingRatio != 0.25 {
+			t.Fatalf("expected sampling ratio 0.25, got %v", telemetry.Traces.SamplingRatio)
+		}
+	})
+
+	tests := []struct {
+		name    string
+		mutate  func(map[string]any)
+		wantErr string
+	}{
+		{
+			name: "invalid protocol rejected",
+			mutate: func(payload map[string]any) {
+				payload["telemetry"] = validBootstrapTelemetryPayload()
+				payload["telemetry"].(map[string]any)["exporter"].(map[string]any)["protocol"] = "http/json"
+			},
+			wantErr: "telemetry.exporter.protocol must be one of",
+		},
+		{
+			name: "invalid compression rejected",
+			mutate: func(payload map[string]any) {
+				payload["telemetry"] = validBootstrapTelemetryPayload()
+				payload["telemetry"].(map[string]any)["exporter"].(map[string]any)["compression"] = "brotli"
+			},
+			wantErr: "telemetry.exporter.compression must be one of",
+		},
+		{
+			name: "invalid sampling ratio rejected",
+			mutate: func(payload map[string]any) {
+				payload["telemetry"] = validBootstrapTelemetryPayload()
+				payload["telemetry"].(map[string]any)["traces"].(map[string]any)["samplingRatio"] = 1.5
+			},
+			wantErr: "telemetry.traces.samplingRatio must be between 0 and 1",
+		},
+		{
+			name: "relative ca file rejected",
+			mutate: func(payload map[string]any) {
+				payload["telemetry"] = validBootstrapTelemetryPayload()
+				payload["telemetry"].(map[string]any)["exporter"].(map[string]any)["tls"].(map[string]any)["caFile"] = "relative/ca.pem"
+			},
+			wantErr: "telemetry.exporter.tls.caFile must be an absolute container-readable trust-root path",
+		},
+		{
+			name: "missing authorization header rejected",
+			mutate: func(payload map[string]any) {
+				payload["telemetry"] = validBootstrapTelemetryPayload()
+				delete(payload["telemetry"].(map[string]any)["exporter"].(map[string]any)["auth"].(map[string]any), "authorizationHeader")
+			},
+			wantErr: "telemetry.exporter.auth.authorizationHeader is required",
+		},
+		{
+			name: "unknown telemetry field rejected",
+			mutate: func(payload map[string]any) {
+				payload["telemetry"] = validBootstrapTelemetryPayload()
+				payload["telemetry"].(map[string]any)["exporter"].(map[string]any)["headers"] = map[string]any{"Authorization": "Bearer secret"}
+			},
+			wantErr: `unknown field "headers"`,
+		},
+		{
+			name: "malformed sampling ratio rejected",
+			mutate: func(payload map[string]any) {
+				payload["telemetry"] = validBootstrapTelemetryPayload()
+				payload["telemetry"].(map[string]any)["traces"].(map[string]any)["samplingRatio"] = "half"
+			},
+			wantErr: "cannot unmarshal string",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+			testCase.mutate(payload)
+			_, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+			if err == nil {
+				t.Fatalf("expected %s to fail", testCase.name)
+			}
+			if !strings.Contains(err.Error(), testCase.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", testCase.wantErr, err)
+			}
+			if strings.Contains(err.Error(), "otlp-secret") {
+				t.Fatalf("telemetry validation error exposed authorization header: %v", err)
+			}
+		})
+	}
+}
+
 func TestBootstrapConfigMailMapping(t *testing.T) {
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
 
@@ -620,6 +744,28 @@ func assertContractDisabledSafeMailValues(t *testing.T, values *config.Bootstrap
 	}
 	if values.From != nil || values.ReplyTo != nil || values.SMTP != nil {
 		t.Fatalf("expected legacy no-mail safe values to omit from/reply_to/smtp, got %+v", values)
+	}
+}
+
+func validBootstrapTelemetryPayload() map[string]any {
+	return map[string]any{
+		"enabled": true,
+		"exporter": map[string]any{
+			"endpoint":    "https://otel-collector.example.test:4318",
+			"protocol":    "http/protobuf",
+			"compression": "gzip",
+			"timeout":     "7s",
+			"auth": map[string]any{
+				"mode":                "authorization_header",
+				"authorizationHeader": "Bearer otlp-secret",
+			},
+			"tls": map[string]any{
+				"insecureSkipVerify": false,
+				"caFile":             "/etc/prism/otel-ca.pem",
+			},
+		},
+		"metrics": map[string]any{"enabled": true},
+		"traces":  map[string]any{"enabled": true, "samplingRatio": 0.25},
 	}
 }
 
