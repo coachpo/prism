@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
@@ -35,11 +36,14 @@ func (s *Store) RegisterBackgroundWorker(scheduler *background.Scheduler) error 
 }
 
 func (s *Store) handlePartitionMaintenance(ctx context.Context, _ background.Job) background.JobResult {
+	startedAt := time.Now()
 	if err := s.EnsurePartitionHorizon(ctx); err != nil {
 		err = fmt.Errorf("refresh log partition horizon: %w", err)
+		asyncmetrics.RecordDuration(ctx, "log_retention_worker", "partition_horizon", asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		slog.Error("log partition maintenance failed", "error", err)
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
+	asyncmetrics.RecordDuration(ctx, "log_retention_worker", "partition_horizon", asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 	slog.Info("log partition maintenance completed")
 	return background.JobResult{Status: background.JobSucceeded}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/logretention"
 )
@@ -136,6 +137,7 @@ func (s *Store) Wake(ctx context.Context) error {
 		return nil
 	}
 	result := s.scheduler.Submit(ctx, background.JobRequest{Worker: WorkerName, CoalesceKey: string(WorkerName)})
+	asyncmetrics.RecordOutcome(ctx, "management_jobs", "wake", managementJobSubmitOutcome(result.Status))
 	if result.Status == background.SubmitAccepted || result.Status == background.SubmitCoalesced {
 		return nil
 	}
@@ -167,8 +169,10 @@ func (s *Store) CreateAuditDeleteJob(ctx context.Context, req CreateAuditDeleteJ
 	var id string
 	err = s.pool.QueryRow(ctx, `INSERT INTO management_jobs (id, type, state, requested_by, requested_at, priority, idempotency_key, profile_id, scope_json, reason, created_at, updated_at) VALUES ($1, 'audit_delete', 'queued', $2, $3, 'maintenance', $4, $5, $6, $7, $3, $3) ON CONFLICT (type, requested_by, idempotency_key) WHERE idempotency_key IS NOT NULL DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key RETURNING id`, jobID, requestedBy, s.now().UTC(), req.IdempotencyKey, req.ProfileID, scopeJSON, strings.TrimSpace(req.Reason)).Scan(&id)
 	if err != nil {
+		asyncmetrics.RecordOutcome(ctx, "management_jobs", TypeAuditDelete+":enqueue", asyncmetrics.OutcomeFailure)
 		return Job{}, fmt.Errorf("insert management job: %w", err)
 	}
+	asyncmetrics.RecordOutcome(ctx, "management_jobs", TypeAuditDelete+":enqueue", asyncmetrics.OutcomeSuccess)
 	_ = s.appendEvent(ctx, id, "created", "audit delete job accepted", 0)
 	_ = s.Wake(context.Background())
 	return s.GetJob(ctx, id, req.ProfileID)
@@ -209,8 +213,10 @@ func (s *Store) CreateLogRetentionJob(ctx context.Context, req CreateLogRetentio
 		err = s.pool.QueryRow(ctx, `INSERT INTO management_jobs (id, type, state, requested_by, requested_at, priority, idempotency_key, profile_id, scope_json, reason, created_at, updated_at) VALUES ($1, $2, 'queued', $3, $4, 'maintenance', $5, 0, $6, $7, $4, $4) ON CONFLICT (type, requested_by, idempotency_key) WHERE idempotency_key IS NOT NULL DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key RETURNING id`, jobID, TypeLogRetention, requestedBy, s.now().UTC(), idempotencyKey, scopeJSON, reason).Scan(&id)
 	}
 	if err != nil {
+		asyncmetrics.RecordOutcome(ctx, "management_jobs", TypeLogRetention+":enqueue", asyncmetrics.OutcomeFailure)
 		return Job{}, fmt.Errorf("insert log retention job: %w", err)
 	}
+	asyncmetrics.RecordOutcome(ctx, "management_jobs", TypeLogRetention+":enqueue", asyncmetrics.OutcomeSuccess)
 	_ = s.appendEvent(ctx, id, "created", "log retention job accepted", 0)
 	_ = s.Wake(context.Background())
 	return s.GetGlobalJob(ctx, id)
@@ -286,12 +292,16 @@ func IsNotFound(err error) bool {
 }
 
 func (s *Store) handleScheduledJobs(ctx context.Context, _ background.Job) background.JobResult {
+	startedAt := time.Now()
 	if err := s.ScheduleGlobalLogRetention(ctx); err != nil {
+		asyncmetrics.RecordDuration(ctx, "management_jobs", "scheduled_worker", asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
 	if err := s.ProcessDue(ctx); err != nil {
+		asyncmetrics.RecordDuration(ctx, "management_jobs", "scheduled_worker", asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
+	asyncmetrics.RecordDuration(ctx, "management_jobs", "scheduled_worker", asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 	return background.JobResult{Status: background.JobSucceeded}
 }
 
@@ -376,18 +386,29 @@ func (s *Store) ProcessDue(ctx context.Context) error {
 	if s == nil || s.pool == nil {
 		return nil
 	}
+	startedAt := time.Now()
 	job, ok, err := s.claimOne(ctx)
-	if err != nil || !ok {
+	if err != nil {
+		asyncmetrics.RecordDuration(ctx, "management_jobs", "process_due", asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		return err
 	}
+	if !ok {
+		asyncmetrics.RecordBatchSize(ctx, "management_jobs", "claim", 0)
+		asyncmetrics.RecordDuration(ctx, "management_jobs", "process_due", asyncmetrics.OutcomeSkipped, time.Since(startedAt))
+		return nil
+	}
+	asyncmetrics.RecordBatchSize(ctx, "management_jobs", "claim", 1)
+	var processErr error
 	switch job.Type {
 	case TypeAuditDelete:
-		return s.processAuditDelete(ctx, job)
+		processErr = s.processAuditDelete(ctx, job)
 	case TypeLogRetention:
-		return s.processLogRetention(ctx, job)
+		processErr = s.processLogRetention(ctx, job)
 	default:
-		return fmt.Errorf("unknown management job type %s", job.Type)
+		processErr = fmt.Errorf("unknown management job type %s", job.Type)
 	}
+	asyncmetrics.RecordDuration(ctx, "management_jobs", managementJobTypeOperation(job.Type), asyncmetrics.OutcomeFromError(processErr), time.Since(startedAt))
+	return processErr
 }
 
 func (s *Store) claimOne(ctx context.Context) (Job, bool, error) {
@@ -423,6 +444,7 @@ func (s *Store) processLogRetention(ctx context.Context, job Job) error {
 	}
 	summary, err := s.logRetention.RunRetention(ctx, job.Scope.Table, job.Scope.Cutoff, job.Scope.DeleteAll)
 	if err != nil {
+		asyncmetrics.RecordRetry(ctx, "management_jobs", managementJobTypeOperation(job.Type), asyncmetrics.OutcomeRetryScheduled)
 		_, _ = s.pool.Exec(ctx, `UPDATE management_jobs SET attempt_count = LEAST(attempt_count + 1, max_attempts), state = CASE WHEN attempt_count + 1 >= max_attempts THEN 'failed' ELSE 'queued' END, error_code = 'retention_error', error_message = $2, next_attempt_at = CASE WHEN attempt_count + 1 >= max_attempts THEN next_attempt_at ELSE now() + interval '5 seconds' END, finished_at = CASE WHEN attempt_count + 1 >= max_attempts THEN now() ELSE finished_at END, locked_by = NULL, locked_until = NULL, updated_at = now() WHERE id = $1`, job.ID, err.Error())
 		return err
 	}
@@ -496,4 +518,30 @@ func defaultWorkerID() string {
 
 func LogTransition(jobID string, state string) {
 	slog.Info("management.job.transition", "job_id", jobID, "state", state)
+}
+
+func managementJobSubmitOutcome(status background.SubmitStatus) string {
+	switch status {
+	case background.SubmitAccepted:
+		return asyncmetrics.OutcomeAccepted
+	case background.SubmitCoalesced:
+		return asyncmetrics.OutcomeCoalesced
+	case background.SubmitRejectedBackpressure:
+		return asyncmetrics.OutcomeBackpressure
+	case background.SubmitRejectedStopping, background.SubmitRejectedUnknownWorker, background.SubmitRejectedInvalidPriority:
+		return asyncmetrics.OutcomeRejected
+	default:
+		return asyncmetrics.OutcomeOther
+	}
+}
+
+func managementJobTypeOperation(jobType string) string {
+	switch jobType {
+	case TypeAuditDelete:
+		return TypeAuditDelete
+	case TypeLogRetention:
+		return TypeLogRetention
+	default:
+		return "unknown_job_type"
+	}
 }

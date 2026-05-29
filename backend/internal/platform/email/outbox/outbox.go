@@ -20,6 +20,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/email"
 )
@@ -154,6 +155,7 @@ func (s *Store) Wake(ctx context.Context) error {
 		return nil
 	}
 	result := s.scheduler.Submit(ctx, background.JobRequest{Worker: WorkerName, CoalesceKey: string(WorkerName)})
+	asyncmetrics.RecordOutcome(ctx, "email_outbox", "wake", emailOutboxSubmitOutcome(result.Status))
 	switch result.Status {
 	case background.SubmitAccepted, background.SubmitCoalesced:
 		return nil
@@ -171,12 +173,14 @@ func (s *Store) EnqueueTx(ctx context.Context, tx pgx.Tx, job Job) (string, erro
 
 func InsertTx(ctx context.Context, tx pgx.Tx, secretEncryptionKey string, now func() time.Time, job Job) (string, error) {
 	if strings.TrimSpace(job.Kind) == "" || strings.TrimSpace(job.RecipientEmail) == "" || strings.TrimSpace(job.Template) == "" || strings.TrimSpace(job.IdempotencyKey) == "" {
+		asyncmetrics.RecordOutcome(ctx, "email_outbox", "enqueue", asyncmetrics.OutcomeInvalid)
 		return "", fmt.Errorf("email outbox job missing required identity")
 	}
 	secretCiphertext := ""
 	if strings.TrimSpace(job.Secret) != "" {
 		encrypted, err := endpointdomain.EncryptSecret(job.Secret, secretEncryptionKey, now)
 		if err != nil {
+			asyncmetrics.RecordOutcome(ctx, "email_outbox", "enqueue", asyncmetrics.OutcomeFailure)
 			return "", fmt.Errorf("encrypt email outbox secret: %w", err)
 		}
 		secretCiphertext = encrypted
@@ -187,6 +191,7 @@ func InsertTx(ctx context.Context, tx pgx.Tx, secretEncryptionKey string, now fu
 	}
 	rawPayload, err := json.Marshal(payload)
 	if err != nil {
+		asyncmetrics.RecordOutcome(ctx, "email_outbox", "enqueue", asyncmetrics.OutcomeFailure)
 		return "", fmt.Errorf("marshal email outbox payload: %w", err)
 	}
 	maxAttempts := job.MaxAttempts
@@ -195,6 +200,7 @@ func InsertTx(ctx context.Context, tx pgx.Tx, secretEncryptionKey string, now fu
 	}
 	id, err := newUUID()
 	if err != nil {
+		asyncmetrics.RecordOutcome(ctx, "email_outbox", "enqueue", asyncmetrics.OutcomeFailure)
 		return "", err
 	}
 	var rowID string
@@ -206,15 +212,20 @@ func InsertTx(ctx context.Context, tx pgx.Tx, secretEncryptionKey string, now fu
 		ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
 		RETURNING id::text`, id, strings.TrimSpace(job.Kind), strings.TrimSpace(job.RecipientEmail), strings.TrimSpace(job.Template), rawPayload, secretCiphertext, strings.TrimSpace(job.IdempotencyKey), maxAttempts).Scan(&rowID)
 	if err != nil {
+		asyncmetrics.RecordOutcome(ctx, "email_outbox", "enqueue", asyncmetrics.OutcomeFailure)
 		return "", fmt.Errorf("insert email outbox row: %w", err)
 	}
+	asyncmetrics.RecordOutcome(ctx, "email_outbox", "enqueue", asyncmetrics.OutcomeSuccess)
 	return rowID, nil
 }
 
 func (s *Store) handleScheduledSend(ctx context.Context, _ background.Job) background.JobResult {
+	startedAt := time.Now()
 	if err := s.ProcessDue(ctx); err != nil {
+		asyncmetrics.RecordDuration(ctx, "email_outbox", "scheduled_send", asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
+	asyncmetrics.RecordDuration(ctx, "email_outbox", "scheduled_send", asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 	return background.JobResult{Status: background.JobSucceeded}
 }
 
@@ -229,6 +240,7 @@ func (s *Store) ProcessDue(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	asyncmetrics.RecordBatchSize(ctx, "email_outbox", "claim", int64(len(rows)))
 	for _, row := range rows {
 		s.processRow(ctx, row)
 	}
@@ -281,11 +293,16 @@ func (s *Store) ClaimBatch(ctx context.Context) ([]Row, error) {
 		if err := rows.Err(); err != nil {
 			return nil, fmt.Errorf("iterate email outbox rows: %w", err)
 		}
+		asyncmetrics.RecordQueueDepth(claimCtx, "email_outbox", "claimed_rows", int64(len(claimed)))
 		return claimed, nil
 	})
 }
 
 func (s *Store) processRow(ctx context.Context, row Row) {
+	startedAt := time.Now()
+	operation := emailOutboxTemplateOperation(row.Template)
+	asyncmetrics.AddInflight(ctx, "email_outbox", operation, 1)
+	defer asyncmetrics.AddInflight(ctx, "email_outbox", operation, -1)
 	secret, err := endpointdomain.DecryptSecret(row.EmailSecretCiphertext, s.secretEncryptionKey)
 	if err == nil && strings.TrimSpace(secret) == "" {
 		err = PermanentError{Err: fmt.Errorf("email secret is missing")}
@@ -297,9 +314,11 @@ func (s *Store) processRow(ctx context.Context, row Row) {
 	}
 	if err == nil {
 		s.finalizeSuccess(context.Background(), row.ID)
+		asyncmetrics.RecordDuration(ctx, "email_outbox", operation, asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 		return
 	}
 	s.finalizeFailure(context.Background(), row, err)
+	asyncmetrics.RecordDuration(ctx, "email_outbox", operation, emailOutboxFailureOutcome(row, err), time.Since(startedAt))
 }
 
 func (s *Store) send(ctx context.Context, row Row, secret string) error {
@@ -345,6 +364,9 @@ func (s *Store) finalizeFailure(ctx context.Context, row Row, err error) {
 	if errors.As(err, &permanent) || newAttemptCount >= row.MaxAttempts {
 		status = "dead"
 		nextAttemptAt = s.now().UTC()
+		asyncmetrics.RecordRetry(ctx, "email_outbox", emailOutboxTemplateOperation(row.Template), asyncmetrics.OutcomeRetryExhausted)
+	} else {
+		asyncmetrics.RecordRetry(ctx, "email_outbox", emailOutboxTemplateOperation(row.Template), asyncmetrics.OutcomeRetryScheduled)
 	}
 	_, execErr := s.pool.Exec(ctx, `
 		UPDATE email_outbox
@@ -421,4 +443,39 @@ func defaultWorkerID() string {
 		hostname = "unknown-host"
 	}
 	return fmt.Sprintf("%s:%d", hostname, os.Getpid())
+}
+
+func emailOutboxSubmitOutcome(status background.SubmitStatus) string {
+	switch status {
+	case background.SubmitAccepted:
+		return asyncmetrics.OutcomeAccepted
+	case background.SubmitCoalesced:
+		return asyncmetrics.OutcomeCoalesced
+	case background.SubmitRejectedBackpressure:
+		return asyncmetrics.OutcomeBackpressure
+	case background.SubmitRejectedStopping, background.SubmitRejectedUnknownWorker, background.SubmitRejectedInvalidPriority:
+		return asyncmetrics.OutcomeRejected
+	default:
+		return asyncmetrics.OutcomeOther
+	}
+}
+
+func emailOutboxTemplateOperation(template string) string {
+	switch template {
+	case TemplateEmailVerificationOTP:
+		return "email_verification"
+	case TemplatePasswordReset:
+		return "reset_email"
+	default:
+		return "unknown_template"
+	}
+}
+
+func emailOutboxFailureOutcome(row Row, err error) string {
+	newAttemptCount := row.AttemptCount + 1
+	var permanent PermanentError
+	if errors.As(err, &permanent) || newAttemptCount >= row.MaxAttempts {
+		return asyncmetrics.OutcomePermanentFailure
+	}
+	return asyncmetrics.OutcomeTransientFailure
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
@@ -145,6 +146,7 @@ func (d *Dispatcher) Wake(ctx context.Context) error {
 		return nil
 	}
 	result := d.scheduler.Submit(ctx, background.JobRequest{Worker: WorkerName, CoalesceKey: string(WorkerName)})
+	asyncmetrics.RecordOutcome(ctx, "management_side_effect_outbox", "wake", managementSideEffectSubmitOutcome(result.Status))
 	switch result.Status {
 	case background.SubmitAccepted, background.SubmitCoalesced:
 		return nil
@@ -180,8 +182,10 @@ func InsertTx(ctx context.Context, tx pgx.Tx, intent Intent) (int64, error) {
 		intent.TraceID,
 	).Scan(&id)
 	if err != nil {
+		asyncmetrics.RecordOutcome(ctx, "management_side_effect_outbox", "enqueue", asyncmetrics.OutcomeFailure)
 		return 0, fmt.Errorf("insert management side-effect outbox row: %w", err)
 	}
+	asyncmetrics.RecordOutcome(ctx, "management_side_effect_outbox", "enqueue", asyncmetrics.OutcomeSuccess)
 	return id, nil
 }
 
@@ -191,12 +195,18 @@ func AfterCommit(ctx context.Context, wake func(context.Context) error, hooks ..
 			continue
 		}
 		if err := hook(ctx); err != nil {
+			asyncmetrics.RecordOutcome(ctx, "management_side_effect_outbox", "after_commit_hook", asyncmetrics.OutcomeFailure)
 			slog.Error("management after-commit hook failed", "error", err)
+		} else {
+			asyncmetrics.RecordOutcome(ctx, "management_side_effect_outbox", "after_commit_hook", asyncmetrics.OutcomeSuccess)
 		}
 	}
 	if wake != nil {
 		if err := wake(ctx); err != nil {
+			asyncmetrics.RecordOutcome(ctx, "management_side_effect_outbox", "after_commit_wake", asyncmetrics.OutcomeFailure)
 			slog.Error("management side-effect dispatcher wake failed", "error", err)
+		} else {
+			asyncmetrics.RecordOutcome(ctx, "management_side_effect_outbox", "after_commit_wake", asyncmetrics.OutcomeSuccess)
 		}
 	}
 }
@@ -224,16 +234,21 @@ func (d *Dispatcher) handleScheduledDispatch(ctx context.Context, _ background.J
 	if d == nil || d.pool == nil {
 		return background.JobResult{Status: background.JobSucceeded}
 	}
+	startedAt := time.Now()
 	if err := d.recoverStaleLocks(ctx); err != nil {
+		asyncmetrics.RecordDuration(ctx, "management_side_effect_outbox", "scheduled_dispatch", asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
 	rows, err := d.claimBatch(ctx)
 	if err != nil {
+		asyncmetrics.RecordDuration(ctx, "management_side_effect_outbox", "scheduled_dispatch", asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
+	asyncmetrics.RecordBatchSize(ctx, "management_side_effect_outbox", "claim", int64(len(rows)))
 	for _, row := range rows {
 		d.processRow(ctx, row)
 	}
+	asyncmetrics.RecordDuration(ctx, "management_side_effect_outbox", "scheduled_dispatch", asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 	return background.JobResult{Status: background.JobSucceeded}
 }
 
@@ -288,9 +303,13 @@ func (d *Dispatcher) claimBatch(ctx context.Context) ([]Event, error) {
 }
 
 func (d *Dispatcher) processRow(ctx context.Context, event Event) {
+	startedAt := time.Now()
+	asyncmetrics.AddInflight(ctx, "management_side_effect_outbox", "process_row", 1)
+	defer asyncmetrics.AddInflight(ctx, "management_side_effect_outbox", "process_row", -1)
 	handler := d.handler(event.EventType)
 	if handler == nil {
 		d.finalizeFailure(ctx, event, PermanentError{Err: fmt.Errorf("no handler registered for %s", event.EventType)})
+		asyncmetrics.RecordDuration(ctx, "management_side_effect_outbox", "process_row", asyncmetrics.OutcomePermanentFailure, time.Since(startedAt))
 		return
 	}
 	handlerCtx, cancel := context.WithTimeout(ctx, defaultHandlerTimeout)
@@ -298,9 +317,11 @@ func (d *Dispatcher) processRow(ctx context.Context, event Event) {
 	cancel()
 	if err == nil {
 		d.finalizeSuccess(context.Background(), event.ID)
+		asyncmetrics.RecordDuration(ctx, "management_side_effect_outbox", "process_row", asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 		return
 	}
 	d.finalizeFailure(context.Background(), event, err)
+	asyncmetrics.RecordDuration(ctx, "management_side_effect_outbox", "process_row", managementSideEffectFailureOutcome(event, err, d.maxAttempts), time.Since(startedAt))
 }
 
 func (d *Dispatcher) handler(eventType string) Handler {
@@ -324,6 +345,9 @@ func (d *Dispatcher) finalizeFailure(ctx context.Context, event Event, err error
 	if errors.As(err, &permanent) || event.AttemptCount >= d.maxAttempts {
 		status = "failed_permanent"
 		nextAttemptAt = d.now().UTC()
+		asyncmetrics.RecordRetry(ctx, "management_side_effect_outbox", "process_row", asyncmetrics.OutcomeRetryExhausted)
+	} else {
+		asyncmetrics.RecordRetry(ctx, "management_side_effect_outbox", "process_row", asyncmetrics.OutcomeRetryScheduled)
 	}
 	_, execErr := d.pool.Exec(ctx, `
 		UPDATE management_outbox
@@ -362,4 +386,27 @@ func defaultLockedBy() string {
 		hostname = "unknown-host"
 	}
 	return fmt.Sprintf("%s:%d", hostname, os.Getpid())
+}
+
+func managementSideEffectSubmitOutcome(status background.SubmitStatus) string {
+	switch status {
+	case background.SubmitAccepted:
+		return asyncmetrics.OutcomeAccepted
+	case background.SubmitCoalesced:
+		return asyncmetrics.OutcomeCoalesced
+	case background.SubmitRejectedBackpressure:
+		return asyncmetrics.OutcomeBackpressure
+	case background.SubmitRejectedStopping, background.SubmitRejectedUnknownWorker, background.SubmitRejectedInvalidPriority:
+		return asyncmetrics.OutcomeRejected
+	default:
+		return asyncmetrics.OutcomeOther
+	}
+}
+
+func managementSideEffectFailureOutcome(event Event, err error, maxAttempts int) string {
+	var permanent PermanentError
+	if errors.As(err, &permanent) || event.AttemptCount >= maxAttempts {
+		return asyncmetrics.OutcomePermanentFailure
+	}
+	return asyncmetrics.OutcomeTransientFailure
 }

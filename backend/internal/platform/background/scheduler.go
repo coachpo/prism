@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/priority"
 )
 
@@ -208,7 +209,14 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *Scheduler) Submit(ctx context.Context, req JobRequest) SubmitResult {
+func (s *Scheduler) Submit(ctx context.Context, req JobRequest) (result SubmitResult) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	workerName := string(req.Worker)
+	defer func() {
+		asyncmetrics.RecordOutcome(ctx, "background_scheduler", workerName, schedulerSubmitOutcome(result.Status))
+	}()
 	if s == nil {
 		return SubmitResult{Status: SubmitRejectedUnknownWorker, Reason: "scheduler unavailable"}
 	}
@@ -237,6 +245,7 @@ func (s *Scheduler) Submit(ctx context.Context, req JobRequest) SubmitResult {
 	if req.CoalesceKey != "" && worker.spec.CoalescePolicy != CoalesceNone {
 		if existing := worker.coalesce[req.CoalesceKey]; existing != nil {
 			s.applyCoalescing(worker, existing, req)
+			asyncmetrics.RecordQueueDepth(ctx, "background_scheduler", workerName, int64(len(worker.queue)))
 			return SubmitResult{Status: SubmitCoalesced, JobID: existing.job.ID}
 		}
 	}
@@ -261,6 +270,7 @@ func (s *Scheduler) Submit(ctx context.Context, req JobRequest) SubmitResult {
 	}
 	s.queued++
 	s.prioQ[jobPriority]++
+	asyncmetrics.RecordQueueDepth(ctx, "background_scheduler", workerName, int64(len(worker.queue)))
 	s.dispatchLocked()
 	return SubmitResult{Status: SubmitAccepted, JobID: job.ID}
 }
@@ -393,6 +403,8 @@ func (s *Scheduler) startJobLocked(worker *workerState, jobIndex int) {
 	s.prioRun[queued.job.Priority]++
 	worker.running++
 	queued.job.StartedAt = time.Now().UTC()
+	asyncmetrics.RecordQueueDepth(context.Background(), "background_scheduler", string(queued.job.Worker), int64(len(worker.queue)))
+	asyncmetrics.AddInflight(context.Background(), "background_scheduler", string(queued.job.Worker), 1)
 	go s.runJob(worker, queued.job)
 }
 
@@ -407,15 +419,28 @@ func (s *Scheduler) runJob(worker *workerState, job Job) {
 		ctx, cancel = context.WithTimeout(ctx, worker.spec.Timeout)
 		defer cancel()
 	}
+	startedAt := job.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	}
 	result := worker.handler(ctx, job)
 	s.mu.Lock()
+	outcome := asyncmetrics.OutcomeSuccess
 	if s.shouldRetryLocked(worker, job, result) {
+		outcome = asyncmetrics.OutcomeRetryScheduled
+		asyncmetrics.RecordRetry(ctx, "background_scheduler", string(job.Worker), outcome)
 		s.scheduleRetryLocked(worker, job)
 	} else if result.Status == JobFailed || result.Err != nil {
+		outcome = asyncmetrics.OutcomeFailure
+		if result.Retry {
+			asyncmetrics.RecordRetry(ctx, "background_scheduler", string(job.Worker), asyncmetrics.OutcomeRetryExhausted)
+		}
 		s.result.Failed++
 	} else {
 		s.result.Completed++
 	}
+	asyncmetrics.RecordDuration(ctx, "background_scheduler", string(job.Worker), outcome, time.Since(startedAt))
+	asyncmetrics.AddInflight(ctx, "background_scheduler", string(job.Worker), -1)
 	s.running--
 	s.prioRun[job.Priority]--
 	worker.running--
@@ -461,6 +486,7 @@ func (s *Scheduler) enqueueRetryLocked(worker *workerState, job Job, readyAt tim
 	}
 	s.queued++
 	s.prioQ[job.Priority]++
+	asyncmetrics.RecordQueueDepth(context.Background(), "background_scheduler", string(job.Worker), int64(len(worker.queue)))
 }
 
 func (s *Scheduler) wakeAfter(delay time.Duration) {
@@ -558,6 +584,8 @@ func (s *Scheduler) dropOldestLocked(worker *workerState) {
 	s.queued--
 	s.prioQ[oldest.job.Priority]--
 	s.result.Dropped++
+	asyncmetrics.RecordQueueDepth(context.Background(), "background_scheduler", string(oldest.job.Worker), int64(len(worker.queue)))
+	asyncmetrics.RecordOutcome(context.Background(), "background_scheduler", string(oldest.job.Worker), asyncmetrics.OutcomeBackpressure)
 }
 
 func (s *Scheduler) notify() {
@@ -644,4 +672,19 @@ func comparePriority(left PriorityClass, right PriorityClass) int {
 		}
 	}
 	return rank(left) - rank(right)
+}
+
+func schedulerSubmitOutcome(status SubmitStatus) string {
+	switch status {
+	case SubmitAccepted:
+		return asyncmetrics.OutcomeAccepted
+	case SubmitCoalesced:
+		return asyncmetrics.OutcomeCoalesced
+	case SubmitRejectedBackpressure:
+		return asyncmetrics.OutcomeBackpressure
+	case SubmitRejectedStopping, SubmitRejectedUnknownWorker, SubmitRejectedInvalidPriority:
+		return asyncmetrics.OutcomeRejected
+	default:
+		return asyncmetrics.OutcomeOther
+	}
 }
