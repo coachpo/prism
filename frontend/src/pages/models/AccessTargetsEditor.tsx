@@ -35,8 +35,8 @@ interface AccessTargetsEditorProps {
   onToggleTarget?: (index: number, enabled: boolean) => Promise<void> | void;
 }
 
-function getConnectionName(connection: Connection) {
-  return connection.name?.trim() || connection.endpoint?.name?.trim() || `Connection ${connection.id}`;
+function getConnectionName(connection: Connection, connectionFallback: (id: string) => string) {
+  return connection.name?.trim() || connection.endpoint?.name?.trim() || connectionFallback(String(connection.id));
 }
 
 function getModelLabel(model: ModelConfigListItem) {
@@ -47,12 +47,13 @@ function resolveTargetLabel(
   target: ModelAccessTargetMutation,
   modelOptions: ModelConfigListItem[],
   connectionOptions: Connection[],
+  connectionFallback: (id: string) => string,
 ) {
   if (target.target_type === "model") {
     return modelOptions.find((model) => model.model_id === target.target_model_id)?.display_name || target.target_model_id;
   }
   const connection = connectionOptions.find((candidate) => candidate.id === target.connection_id);
-  return connection ? getConnectionName(connection) : `Connection ${target.connection_id}`;
+  return connection ? getConnectionName(connection, connectionFallback) : connectionFallback(String(target.connection_id));
 }
 
 function buildDraft(kind: TargetKind, value: string, position: number): ModelAccessTargetMutation | null {
@@ -85,7 +86,10 @@ export function AccessTargetsEditor({
   onMoveTarget,
   onToggleTarget,
 }: AccessTargetsEditorProps) {
-  const { formatNumber } = useLocale();
+  const { formatNumber, messages } = useLocale();
+  const copy = messages.modelsUi;
+  const detailCopy = messages.modelDetail;
+  const connectionFallback = messages.modelDetailData.connectionFallback;
   const [pendingKind, setPendingKind] = useState<TargetKind>("connection");
   const [pendingValue, setPendingValue] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -133,16 +137,14 @@ export function AccessTargetsEditor({
       <div className="flex items-start gap-2">
         <GitBranch className="mt-0.5 h-4 w-4 text-muted-foreground" />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <p className="text-sm font-medium text-foreground">Access targets</p>
-          <p className="text-sm text-muted-foreground">
-            Select same-family models or standalone connections. Prism tries enabled rows in this order using the selected legacy strategy.
-          </p>
-          <p className="text-xs text-muted-foreground">Current API family: {formatApiFamily(apiFamilyLabel)}</p>
+          <p className="text-sm font-medium text-foreground">{copy.accessTargets}</p>
+          <p className="text-sm text-muted-foreground">{copy.accessTargetsDescription}</p>
+          <p className="text-xs text-muted-foreground">{copy.currentApiFamily(formatApiFamily(apiFamilyLabel))}</p>
         </div>
         {onCreateConnection ? (
           <Button type="button" size="sm" variant="outline" onClick={onCreateConnection}>
             <Plus data-icon="inline-start" />
-            New connection
+            {copy.newConnection}
           </Button>
         ) : null}
       </div>
@@ -155,7 +157,7 @@ export function AccessTargetsEditor({
 
       {normalizedTargets.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">
-          No access targets selected. This model can be saved disabled and have a target attached later. Enabled saves still require at least one enabled target.
+          {copy.noAccessTargetsSelected}
         </div>
       ) : null}
       <div className="flex flex-col gap-2">
@@ -172,10 +174,10 @@ export function AccessTargetsEditor({
                   {target.target_type === "model" ? <GitBranch className="h-4 w-4" /> : <Cable className="h-4 w-4" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{resolveTargetLabel(target, modelOptions, connectionOptions)}</p>
+                  <p className="truncate text-sm font-medium">{resolveTargetLabel(target, modelOptions, connectionOptions, connectionFallback)}</p>
                   <p className="text-xs text-muted-foreground">
-                    {target.target_type === "model" ? "Model target" : "Connection target"} · Priority {formatNumber(index + 1)}
-                    {target.is_enabled === false ? " · Disabled" : ""}
+                    {target.target_type === "model" ? copy.modelTarget : copy.connectionTarget} · {copy.priority(formatNumber(index + 1))}
+                    {target.is_enabled === false ? ` · ${detailCopy.disabled}` : ""}
                   </p>
                 </div>
               </div>
@@ -190,13 +192,13 @@ export function AccessTargetsEditor({
                       onToggleTarget ? () => onToggleTarget(index, checked) : undefined,
                     );
                   }}
-                  aria-label={`Enable access target ${index + 1}`}
+                  aria-label={copy.enableAccessTarget(formatNumber(index + 1))}
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon-sm"
-                  aria-label={`Move target ${index + 1} up`}
+                  aria-label={copy.targetMoveUp(formatNumber(index + 1))}
                   disabled={disabled || index === 0 || busyKey === `move:${index}:up`}
                   onClick={() => void changeOrPersist(`move:${index}:up`, () => moveAccessTarget(normalizedTargets, index, index - 1), onMoveTarget ? () => onMoveTarget(index, index - 1) : undefined)}
                 >
@@ -206,7 +208,7 @@ export function AccessTargetsEditor({
                   type="button"
                   variant="outline"
                   size="icon-sm"
-                  aria-label={`Move target ${index + 1} down`}
+                  aria-label={copy.targetMoveDown(formatNumber(index + 1))}
                   disabled={disabled || index === normalizedTargets.length - 1 || busyKey === `move:${index}:down`}
                   onClick={() => void changeOrPersist(`move:${index}:down`, () => moveAccessTarget(normalizedTargets, index, index + 1), onMoveTarget ? () => onMoveTarget(index, index + 1) : undefined)}
                 >
@@ -217,7 +219,7 @@ export function AccessTargetsEditor({
                     type="button"
                     variant="outline"
                     size="icon-sm"
-                    aria-label={`Health check ${getConnectionName(connection)}`}
+                    aria-label={`${detailCopy.healthCheck} ${getConnectionName(connection, connectionFallback)}`}
                     disabled={disabled || isChecking}
                     onClick={() => void onHealthCheck(connection.id)}
                   >
@@ -225,7 +227,7 @@ export function AccessTargetsEditor({
                   </Button>
                 ) : null}
                 {connection && onEditConnection ? (
-                  <Button type="button" variant="outline" size="icon-sm" aria-label={`Edit ${getConnectionName(connection)}`} onClick={() => onEditConnection(connection)}>
+                  <Button type="button" variant="outline" size="icon-sm" aria-label={`${detailCopy.edit} ${getConnectionName(connection, connectionFallback)}`} onClick={() => onEditConnection(connection)}>
                     <Pencil />
                   </Button>
                 ) : null}
@@ -233,7 +235,7 @@ export function AccessTargetsEditor({
                   type="button"
                   variant="outline"
                   size="icon-sm"
-                  aria-label={`Remove target ${index + 1}`}
+                  aria-label={copy.targetRemove(formatNumber(index + 1))}
                   disabled={disabled || busyKey === `delete:${index}`}
                   onClick={() => void changeOrPersist(`delete:${index}`, () => removeAccessTarget(normalizedTargets, index), onDeleteTarget ? () => onDeleteTarget(index) : undefined)}
                 >
@@ -254,13 +256,13 @@ export function AccessTargetsEditor({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="connection">Connection</SelectItem>
-            <SelectItem value="model">Model</SelectItem>
+            <SelectItem value="connection">{copy.targetKindConnection}</SelectItem>
+            <SelectItem value="model">{copy.targetKindModel}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={pendingValue} onValueChange={setPendingValue} disabled={disabled || selectableValues.length === 0}>
           <SelectTrigger id="access-target-select" className="min-w-0">
-            <SelectValue placeholder={pendingKind === "model" ? "Select same-family model" : "Select same-family connection"} />
+            <SelectValue placeholder={pendingKind === "model" ? copy.selectSameFamilyModel : copy.selectSameFamilyConnection} />
           </SelectTrigger>
           <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
             {pendingKind === "model"
@@ -271,22 +273,22 @@ export function AccessTargetsEditor({
                 ))
               : remainingConnections.map((connection) => (
                   <SelectItem key={connection.id} value={String(connection.id)}>
-                    <span className="block truncate">{getConnectionName(connection)}</span>
+                    <span className="block truncate">{getConnectionName(connection, connectionFallback)}</span>
                   </SelectItem>
                 ))}
           </SelectContent>
         </Select>
         <Button type="button" variant="outline" disabled={disabled || !effectivePendingValue || busyKey === "add"} onClick={() => void handleAdd()}>
           {busyKey === "add" ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}
-          Add target
+          {copy.addTarget}
         </Button>
       </div>
 
       {pendingKind === "connection" && remainingConnections.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No unattached same-family standalone connections are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.</p>
+        <p className="text-xs text-muted-foreground">{copy.noSameFamilyConnectionsAvailable}</p>
       ) : null}
       {pendingKind === "model" && remainingModels.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No other same-family models are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.</p>
+        <p className="text-xs text-muted-foreground">{copy.noSameFamilyModelsAvailable}</p>
       ) : null}
     </div>
   );
