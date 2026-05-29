@@ -63,8 +63,8 @@ export function ModelDialog({
     .reverse()
     .find((strategy) => strategy.id === formData.loadbalance_strategy_id);
   const enabledDescription = editingModel
-    ? "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments."
-    : "New models start disabled so you can save a draft now and attach access targets later. Enabled saves require at least one enabled target.";
+    ? copy.editModelEnabledDescription
+    : copy.newModelEnabledDescription;
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
