@@ -187,17 +187,24 @@ function InlineMetaDivider() {
   );
 }
 
-function getTargetSummary(model: ModelConfigListItem, formatNumber: (value: number) => string) {
+function getTargetSummary(
+  model: ModelConfigListItem,
+  formatNumber: (value: number) => string,
+  needsTarget: string,
+  targetsLabel: (count: string) => string,
+  firstTargetLabel: (targetId: string) => string,
+  connectionFallback: (id: number) => string,
+) {
   const firstTarget = [...model.access_targets].sort((left, right) => left.position - right.position)[0];
   const firstLabel = firstTarget?.target_type === "model"
     ? firstTarget.target_model?.display_name || firstTarget.target_model_id
-    : firstTarget?.connection?.name || firstTarget?.connection?.endpoint?.name || (firstTarget?.connection_id ? `Connection ${firstTarget.connection_id}` : null);
+    : firstTarget?.connection?.name || firstTarget?.connection?.endpoint?.name || (firstTarget?.connection_id ? connectionFallback(firstTarget.connection_id) : null);
 
   if (!firstLabel) {
-    return "Needs target";
+    return needsTarget;
   }
 
-  return `${formatNumber(model.access_targets.length)} targets · First ${firstLabel}`;
+  return `${targetsLabel(formatNumber(model.access_targets.length))} · ${firstTargetLabel(firstLabel)}`;
 }
 
 function ModelRow({
@@ -219,7 +226,14 @@ function ModelRow({
   const p95LatencyMs = metrics24h?.p95_latency_ms ?? null;
   const spend30dMicros = modelSpend30dMicros[model.id] ?? 0;
   const title = model.display_name || model.model_id;
-  const targetSummary = getTargetSummary(model, formatNumber);
+  const targetSummary = getTargetSummary(
+    model,
+    formatNumber,
+    copy.needsTarget,
+    detailCopy.targets,
+    detailCopy.firstTarget,
+    detailCopy.connectionFallback,
+  );
   const apiFamilyLabel = formatApiFamily(resolveApiFamily(model));
   const statusLabel = model.is_enabled ? detailCopy.enabled : detailCopy.disabled;
   const statusIntent = model.is_enabled ? "success" : "danger";
