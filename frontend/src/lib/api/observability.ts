@@ -131,16 +131,18 @@ export const settingsRetention = {
     }),
 };
 
+const bootstrapConfigEndpoint = "/api/config/bootstrap";
+
 export const config = {
   bootstrap: {
-    get: () => request<BootstrapConfigResponse>("/api/config/bootstrap"),
+    get: () => request<BootstrapConfigResponse>(bootstrapConfigEndpoint),
     validate: (data: BootstrapConfigUpdateRequest) =>
-      request<BootstrapConfigResponse>("/api/config/bootstrap/validate", {
+      request<BootstrapConfigResponse>(`${bootstrapConfigEndpoint}/validate`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
     update: (data: BootstrapConfigUpdateRequest) =>
-      request<BootstrapConfigResponse>("/api/config/bootstrap", {
+      request<BootstrapConfigResponse>(bootstrapConfigEndpoint, {
         method: "PUT",
         body: JSON.stringify(data),
       }),

@@ -3,9 +3,10 @@ export type BootstrapConfigSecretKey =
   | "runtime.secretEncryptionKey"
   | "auth.jwtSigningKey"
   | "stateTransfer.bundleEncryptionKey"
-  | "mail.smtp.password";
+  | "mail.smtp.password"
+  | "telemetry.exporter.auth.authorizationHeader";
 
-export type BootstrapConfigSecretAction = "preserve" | "replace";
+export type BootstrapConfigSecretAction = "preserve" | "replace" | "clear";
 
 export type BootstrapConfigConfirmationToken =
   | "server-host-change"
@@ -99,6 +100,40 @@ export interface BootstrapConfigMailValues {
   smtp: BootstrapConfigMailSMTPValues | null;
 }
 
+export interface BootstrapConfigTelemetryExporterAuthValues {
+  mode: string | null;
+}
+
+export interface BootstrapConfigTelemetryExporterTLSValues {
+  insecure_skip_verify: boolean | null;
+  ca_file: string | null;
+}
+
+export interface BootstrapConfigTelemetryExporterValues {
+  endpoint: string | null;
+  protocol: string | null;
+  compression: string | null;
+  timeout: string | null;
+  auth: BootstrapConfigTelemetryExporterAuthValues | null;
+  tls: BootstrapConfigTelemetryExporterTLSValues | null;
+}
+
+export interface BootstrapConfigTelemetrySignalValues {
+  enabled: boolean | null;
+}
+
+export interface BootstrapConfigTelemetryTracesValues {
+  enabled: boolean | null;
+  sampling_ratio: number | null;
+}
+
+export interface BootstrapConfigTelemetryValues {
+  enabled: boolean | null;
+  exporter: BootstrapConfigTelemetryExporterValues | null;
+  metrics: BootstrapConfigTelemetrySignalValues | null;
+  traces: BootstrapConfigTelemetryTracesValues | null;
+}
+
 export interface BootstrapConfigValues {
   server: BootstrapConfigServerValues;
   database: BootstrapConfigDatabaseValues;
@@ -106,6 +141,7 @@ export interface BootstrapConfigValues {
   http: BootstrapConfigHTTPValues;
   auth: BootstrapConfigAuthValues;
   mail?: BootstrapConfigMailValues | null;
+  telemetry?: BootstrapConfigTelemetryValues | null;
 }
 
 export interface BootstrapConfigSecretMetadata {
@@ -121,7 +157,8 @@ export type BootstrapConfigSecrets = Record<
 
 export type BootstrapConfigSecretUpdate =
   | { action: "preserve"; value?: never }
-  | { action: "replace"; value: string };
+  | { action: "replace"; value: string }
+  | { action: "clear"; value?: never };
 
 export type BootstrapConfigSecretUpdates = Record<
   BootstrapConfigSecretKey,
