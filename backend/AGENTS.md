@@ -51,7 +51,7 @@ backend/
 - `internal/platform/lifecycle/` wires production services, DB lanes, runtime cache bootstrap, scheduler workers, side-effect drains, and shutdown order.
 - `internal/platform/http/server.go` mounts `/health`, DB-backed `/metrics`, `/api`, `/v1`, and `/v1beta`; the exact supported runtime operations are resolved later by `internal/httpapi/runtime/operations.go`.
 - `internal/platform/http/hot_bootstrap_runtime.go` publishes hot snapshots for CORS, auth, mail, runtime proxy transport, and admission limits.
-- `internal/platform/config/` owns the plaintext bootstrap contract loaded by `cmd/prism-backend/main.go`; eligible runtime fields hot-apply through the Startup tab or bootstrap API, while structural fields stay restart-required.
+- `internal/platform/config/` owns the plaintext bootstrap contract loaded by `cmd/prism-backend/main.go`; steady-state startup settings live in that file, while `PRISM_CONFIG_PATH` and optional `DATABASE_URL` remain bootstrap-only env exceptions. Eligible runtime fields hot-apply through the Startup tab or bootstrap API, while structural fields stay restart-required.
 - `internal/platform/startup/` and `internal/platform/migrate/` own startup sequencing, SQL migration execution, vendor/profile/settings seeds, and endpoint-secret normalization.
 - `internal/platform/logretention/` owns daily partitions, 15-day horizon creation, retention deletes, and low-priority partition maintenance for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - `internal/httpapi/management/` fans out into mounted management subpackages for auth, bootstrapconfig, configbundle, configrules, connections, endpoints, loadbalance, models, profiles, settings, sidecars, stats, vendors, and audit.
@@ -97,6 +97,8 @@ backend/
 - Keep partitioned log tables under `internal/platform/logretention/` and runtime partition ensuring; managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - Keep backend container execution non-root with writable config ownership under `/app/config`; update `tests/integration/dockerfile_contract_test.go` when changing that contract.
 - Keep implementation detail in the Go ownership tree instead of inventing alternate runtime surfaces.
+
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.

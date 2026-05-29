@@ -1,4 +1,4 @@
-<!-- Generated: 2026-05-27 | branch: main | commit: f527d6a -->
+<!-- Generated: 2026-05-29 | branch: main | commit: b71f525 -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -20,6 +20,7 @@ prism/
 │       ├── components/AGENTS.md
 │       ├── context/AGENTS.md
 │       ├── hooks/AGENTS.md
+│       ├── i18n/AGENTS.md
 │       └── lib/AGENTS.md
 ├── docs/
 │   ├── AGENTS.md
@@ -61,7 +62,9 @@ prism/
 - `frontend/AGENTS.md`: frontend monorepo directory root for routes, shared shell, context, typed browser/backend seams, and child ownership routers under `src/`.
 - `frontend/src/pages/AGENTS.md`: route-domain handoff for mounted page surfaces and page-owned drill-down clusters.
 - `frontend/src/pages/dashboard/AGENTS.md`, `frontend/src/pages/model-detail/AGENTS.md`, `frontend/src/pages/request-logs/AGENTS.md`, `frontend/src/pages/settings/AGENTS.md`, `frontend/src/pages/sidecars/AGENTS.md`, and `frontend/src/pages/statistics/AGENTS.md`: dense route-domain leaves; dashboard and settings point to their own deeper child docs.
+- `frontend/src/pages/settings/{costing,dialogs,sections,startup}/AGENTS.md`: settings-shell child ownership for costing state, dialog flows, section rendering, authentication/billing-currency leaves, and the startup bootstrap UI.
 - `frontend/src/pages/settings/startup/AGENTS.md`: startup-tab field metadata, server/database/runtime/mail+secret sections, dangerous confirmations, and apply-capability rendering.
+- `frontend/src/i18n/AGENTS.md`: locale catalogs, shared formatting helpers, and static message lookup for non-hook callers.
 - `frontend/src/pages/endpoints/AGENTS.md`, `frontend/src/pages/loadbalance-strategies/AGENTS.md`, `frontend/src/pages/models/AGENTS.md`, `frontend/src/pages/pricing-templates/AGENTS.md`, and `frontend/src/pages/proxy-api-keys/AGENTS.md`: profile-scoped or global management route leaves.
 - `frontend/src/components/AGENTS.md`: shared shell and widget handoff for `layout/app-layout`, loadbalance, statistics, and `ui/` child leaves.
 - `frontend/src/context/AGENTS.md`: provider-layer handoff for auth, selected-profile management scope, and reporting-currency readiness; `auth/` and `profile/` own helper leaves.
@@ -131,6 +134,8 @@ cd frontend && pnpm run test:e2e
 - Keep partitioned log-retention docs aligned with the four managed tables, runtime partition ensuring, management retention jobs, and the low-priority platform worker.
 - Keep `README.md` aligned with the same launcher, release, and deploy facts.
 - Keep active implementation plans out of `docs/`; store working plans under `.omo/plans/`, use `.omo/evidence/` for live execution artifacts, and reserve `docs/archive/` for finished notes or retained evidence.
+
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
