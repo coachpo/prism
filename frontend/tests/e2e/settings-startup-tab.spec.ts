@@ -8,6 +8,7 @@ const maskedRuntimeKey = "runtime-secret-********";
 const maskedJwtKey = "jwt-signing-********";
 const maskedBundleKey = "bundle-key-********";
 const maskedSmtpPassword = "smtp-password-********";
+const maskedTelemetryAuthorizationHeader = "telemetry-authorization-********";
 const forbiddenSecretSentinel = "should-never-render-secret-sentinel";
 const task3EvidenceDir = fileURLToPath(new URL("../../../.omo/evidence/", import.meta.url));
 const task3StartupScreenshotPath = fileURLToPath(new URL("../../../.omo/evidence/task-3-startup-ui.png", import.meta.url));
@@ -117,6 +118,18 @@ function createApplyCapabilities() {
     ["database.pools.background_jobs.max_conns", ""],
     ["database.pools.background_jobs.min_idle_conns", ""],
     ["runtime.side_effects.attempt_timeout", ""],
+    ["telemetry.enabled", ""],
+    ["telemetry.exporter.endpoint", ""],
+    ["telemetry.exporter.protocol", ""],
+    ["telemetry.exporter.compression", ""],
+    ["telemetry.exporter.timeout", ""],
+    ["telemetry.exporter.auth.mode", ""],
+    ["telemetry.exporter.auth.authorizationHeader", ""],
+    ["telemetry.exporter.tls.insecure_skip_verify", ""],
+    ["telemetry.exporter.tls.ca_file", ""],
+    ["telemetry.metrics.enabled", ""],
+    ["telemetry.traces.enabled", ""],
+    ["telemetry.traces.sampling_ratio", ""],
     ["runtime.secretEncryptionKey", ""],
     ["auth.jwtSigningKey", "auth-jwt-signing-key-change"],
     ["stateTransfer.bundleEncryptionKey", "state-transfer-bundle-encryption-key-change"],
@@ -147,6 +160,29 @@ function createEnabledMailBootstrapResponse() {
       timeout: "15s",
       tls_server_name: "smtp.example.com",
     },
+  };
+  return response;
+}
+
+function createEnabledTelemetryBootstrapResponse() {
+  const response = createBootstrapResponse();
+  (response.values as { telemetry: unknown }).telemetry = {
+    enabled: true,
+    exporter: {
+      endpoint: "https://otel.example.com/v1/traces",
+      protocol: "http/protobuf",
+      compression: "gzip",
+      timeout: "7s",
+      auth: { mode: "authorization_header" },
+      tls: { insecure_skip_verify: false, ca_file: "/etc/prism/otel-ca.pem" },
+    },
+    metrics: { enabled: true },
+    traces: { enabled: true, sampling_ratio: 0.25 },
+  };
+  response.secrets["telemetry.exporter.auth.authorizationHeader"] = {
+    configured: true,
+    editable: true,
+    masked: maskedTelemetryAuthorizationHeader,
   };
   return response;
 }
@@ -214,6 +250,7 @@ function createBootstrapResponse() {
         cookie_secure: false,
       },
       mail: { enabled: false, from: null, reply_to: null, smtp: null },
+      telemetry: { enabled: false, exporter: null, metrics: null, traces: null },
     },
     secrets: {
       "database.url": { configured: true, editable: true, masked: maskedDatabaseUrl },
@@ -221,11 +258,19 @@ function createBootstrapResponse() {
       "auth.jwtSigningKey": { configured: true, editable: true, masked: maskedJwtKey },
       "stateTransfer.bundleEncryptionKey": { configured: true, editable: true, masked: maskedBundleKey },
       "mail.smtp.password": { configured: true, editable: true, masked: maskedSmtpPassword },
+      "telemetry.exporter.auth.authorizationHeader": { configured: false, editable: true, masked: "" },
     },
   };
 }
 
-type BootstrapTestResponse = ReturnType<typeof createBootstrapResponse>;
+type RawBootstrapTestResponse = ReturnType<typeof createBootstrapResponse>;
+type BootstrapTelemetryTestValues = Record<string, unknown> & {
+  exporter?: { auth?: Record<string, unknown> | null } | null;
+};
+type BootstrapTestResponse = Omit<RawBootstrapTestResponse, "values" | "secrets"> & {
+  values: Omit<RawBootstrapTestResponse["values"], "telemetry"> & { telemetry?: BootstrapTelemetryTestValues | null };
+  secrets: Record<string, { configured: boolean; editable: boolean; masked: string }>;
+};
 type BootstrapTestUpdatePayload = {
   values: BootstrapTestResponse["values"];
   secret_updates?: Record<string, { action: string; value?: string }>;
@@ -242,7 +287,7 @@ type MockOptions = {
 
 async function mockSettingsStartupRoutes(page: Page, options: MockOptions = {}) {
   const profile = createProfile();
-  let bootstrapResponse = options.bootstrapResponse ?? createBootstrapResponse();
+  let bootstrapResponse: BootstrapTestResponse = options.bootstrapResponse ?? createBootstrapResponse();
   const validateRequests: unknown[] = [];
   const updateRequests: unknown[] = [];
 
@@ -864,4 +909,74 @@ test("backend validation errors map into review output", async ({ page }) => {
   await expect(page.getByText("Required confirmations: database-url-change.")).toBeVisible();
   expect(routes.getValidateRequests()).toHaveLength(1);
   expect(routes.getUpdateRequests()).toHaveLength(0);
+});
+
+test("startup telemetry section renders backend fields, restart badges, and masked authorization header", async ({ page }) => {
+  await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledTelemetryBootstrapResponse() });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Telemetry", { exact: true })).toBeVisible();
+  await expect(page.getByText("OpenTelemetry exporter, auth, TLS, metrics, and traces. These fields are restart-required and do not hot-apply.")).toBeVisible();
+
+  await expect(page.getByRole("switch", { name: "Enable OpenTelemetry export" })).toBeChecked();
+  await expect(page.getByRole("textbox", { name: "OTLP endpoint" })).toHaveValue("https://otel.example.com/v1/traces");
+  await expect(page.getByRole("combobox", { name: "OTLP protocol" })).toContainText("HTTP/protobuf");
+  await expect(page.getByRole("combobox", { name: "Telemetry compression" })).toContainText("gzip");
+  await expect(page.getByRole("textbox", { name: "Exporter timeout" })).toHaveValue("7s");
+  await expect(page.getByRole("combobox", { name: "Telemetry auth" })).toContainText("Authorization header");
+  await expect(page.getByText(maskedTelemetryAuthorizationHeader)).toBeVisible();
+  await expect(page.getByLabel("Telemetry authorization header")).toHaveValue("");
+  await expect(page.getByRole("switch", { name: "Export metrics" })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Export traces" })).toBeChecked();
+  await expect(page.getByRole("spinbutton", { name: "Trace sampling ratio" })).toHaveValue("0.25");
+  await expect(page.locator('label[for="startup-telemetry-endpoint"]').locator("..").getByText("Restart required")).toBeVisible();
+  await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
+});
+
+test("startup telemetry authorization header saves only through secret updates and remasks after load", async ({ page }) => {
+  const routes = await mockSettingsStartupRoutes(page, {
+    bootstrapResponse: createEnabledTelemetryBootstrapResponse(),
+    updateResponse: (payload, current) => ({
+      ...current,
+      file_revision: current.file_revision + 1,
+      document_etag: "etag-telemetry-8",
+      updated_at: "2026-04-28T12:05:00Z",
+      restart_required: true,
+      apply_result: {
+        applied_now_fields: [],
+        restart_required_fields: ["telemetry.exporter.auth.authorizationHeader"],
+        unchanged_fields: [],
+        pending_hot_apply_fields: [],
+        failed_hot_apply_fields: [],
+      },
+      values: payload.values,
+      secrets: {
+        ...current.secrets,
+        "telemetry.exporter.auth.authorizationHeader": {
+          configured: true,
+          editable: true,
+          masked: "telemetry-authorization-new-********",
+        },
+      },
+    }),
+  });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Telemetry", { exact: true })).toBeVisible();
+  await page.getByLabel("Telemetry authorization header").fill("Bearer new-telemetry-secret");
+  await page.getByRole("button", { name: "Save startup config" }).click();
+
+  await expect(page.getByText("Saved to config.json. Structural settings require restart.")).toBeVisible();
+  await expect(page.getByText("telemetry-authorization-new-********")).toBeVisible();
+  await expect(page.getByLabel("Telemetry authorization header")).toHaveValue("");
+  await expect(page.getByText("Bearer new-telemetry-secret")).toHaveCount(0);
+
+  expect(routes.getUpdateRequests()).toHaveLength(1);
+  const payload = routes.getUpdateRequests()[0] as BootstrapTestUpdatePayload;
+  expect(payload.secret_updates?.["telemetry.exporter.auth.authorizationHeader"]).toEqual({
+    action: "replace",
+    value: "Bearer new-telemetry-secret",
+  });
+  expect(payload.values.telemetry?.exporter?.auth).toEqual({ mode: "authorization_header" });
+  expect(payload.values.telemetry?.exporter?.auth).not.toHaveProperty("authorizationHeader");
 });
