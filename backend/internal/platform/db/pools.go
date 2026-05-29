@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -111,6 +110,7 @@ func OpenDatabasePools(ctx context.Context, databaseURL string, budget config.Po
 		closeCreatedLanePools(created)
 		return nil, err
 	}
+	pools.registerTelemetry()
 	return pools, nil
 }
 
@@ -127,6 +127,7 @@ func (p *DatabasePools) Close() {
 		return
 	}
 	p.closeOnce.Do(func() {
+		p.unregisterTelemetry()
 		for _, lanePool := range []LanePool{p.BackgroundJobs, p.CacheRefresh, p.Realtime, p.RuntimeFeedback, p.RuntimeTelemetry, p.RuntimeExecution, p.Management} {
 			closeLanePool(lanePool)
 		}
@@ -158,34 +159,21 @@ func (p *DatabasePools) Metrics() []PoolMetricSnapshot {
 	return snapshots
 }
 
-func MetricsHandler(pools *DatabasePools) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		for _, snapshot := range pools.Metrics() {
-			lane := string(snapshot.Lane)
-			_, _ = fmt.Fprintf(w, "prism_db_pool_acquired_connections{lane=%q} %d\n", lane, snapshot.AcquiredConnections)
-			_, _ = fmt.Fprintf(w, "prism_db_pool_idle_connections{lane=%q} %d\n", lane, snapshot.IdleConnections)
-			_, _ = fmt.Fprintf(w, "prism_db_pool_total_connections{lane=%q} %d\n", lane, snapshot.TotalConnections)
-			_, _ = fmt.Fprintf(w, "prism_db_pool_max_connections{lane=%q} %d\n", lane, snapshot.MaxConnections)
-			_, _ = fmt.Fprintf(w, "prism_db_pool_acquire_count{lane=%q} %d\n", lane, snapshot.AcquireCount)
-			_, _ = fmt.Fprintf(w, "prism_db_pool_acquire_duration_seconds{lane=%q} %.9f\n", lane, snapshot.AcquireDurationSeconds)
-			_, _ = fmt.Fprintf(w, "prism_db_pool_acquire_timeout_count{lane=%q} %d\n", lane, snapshot.AcquireTimeoutCount)
-			_, _ = fmt.Fprintf(w, "prism_db_pool_empty_acquire_count{lane=%q} %d\n", lane, snapshot.EmptyAcquireCount)
-		}
-	}
-}
-
 func openLanePool(ctx context.Context, databaseURL string, lane config.PostgresPoolLane, budget config.DatabasePoolBudget) (*pgxpool.Pool, error) {
+	ctx, finishTelemetry := startPoolCreateTelemetry(ctx, lane)
 	parsedConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
+		finishTelemetry(err)
 		return nil, fmt.Errorf("parse postgres pool config lane=%s: %w", lane, err)
 	}
 	parsedConfig.MaxConns = budget.MaxConns
 	parsedConfig.MinIdleConns = budget.MinIdleConns
 	pool, err := pgxpool.NewWithConfig(ctx, parsedConfig)
+	finishTelemetry(err)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres pool lane=%s: %w", lane, err)
 	}
+	registerLanePoolTelemetry(pool, lane)
 	slog.Info("postgres pool created", "lane", lane, "max_conns", budget.MaxConns, "min_idle_conns", budget.MinIdleConns)
 	return pool, nil
 }
@@ -200,6 +188,7 @@ func closeLanePool(pool LanePool) {
 	if pool.pool == nil {
 		return
 	}
+	unregisterLanePoolTelemetry(pool.pool)
 	startedAt := time.Now()
 	pool.pool.Close()
 	slog.Info("closed postgres pool", "lane", pool.lane, "elapsed", time.Since(startedAt))

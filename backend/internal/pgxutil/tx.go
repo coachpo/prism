@@ -3,6 +3,7 @@ package pgxutil
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -37,26 +38,32 @@ func InReadOnlyTxValue[T any](ctx context.Context, beginner Beginner, label stri
 	return inTxValue(ctx, beginner, label, pgx.TxOptions{AccessMode: pgx.ReadOnly}, fn)
 }
 
-func inTxValue[T any](ctx context.Context, beginner Beginner, label string, options pgx.TxOptions, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
+func inTxValue[T any](ctx context.Context, beginner Beginner, label string, options pgx.TxOptions, fn func(pgx.Tx) (T, error)) (value T, err error) {
+	ctx, finishTelemetry := startTransactionTelemetry(ctx, beginner)
+	defer func() {
+		finishTelemetry(err)
+	}()
+
+	beginStartedAt := time.Now()
 	tx, err := beginner.BeginTx(ctx, options)
+	recordTransactionAcquire(ctx, beginner, time.Since(beginStartedAt), err)
 	if err != nil {
-		return zero, fmt.Errorf("begin %s transaction: %w", label, err)
+		return value, fmt.Errorf("begin %s transaction: %w", label, err)
 	}
 	defer func() {
 		_ = tx.Rollback(ctx)
 	}()
-	value, err := fn(tx)
+	value, err = fn(tx)
 	if err != nil {
-		return zero, err
+		return value, err
 	}
 	if hook, ok := ctx.Value(beforeCommitHookContextKey{}).(BeforeCommitHook); ok && hook != nil {
 		if err := hook(ctx, tx); err != nil {
-			return zero, err
+			return value, err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit %s transaction: %w", label, err)
+		return value, fmt.Errorf("commit %s transaction: %w", label, err)
 	}
 	return value, nil
 }

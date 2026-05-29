@@ -86,8 +86,8 @@ func TestDBPoolLaneIsolation(t *testing.T) {
 			"platformdb.OpenDatabasePools(ctx, settings.DatabaseURL",
 			"resources.dbClose = func(context.Context) error",
 			"databasePools.Close()",
-			"SchedulerStop:    resources.schedulerStopHook()",
-			"DBClose:          resources.dbClose",
+			"SchedulerStop:     resources.schedulerStopHook()",
+			"DBClose:           resources.dbClose",
 		} {
 			if !strings.Contains(content, want) {
 				t.Fatalf("expected lifecycle wiring to contain %q", want)
