@@ -18,10 +18,11 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 
 ### Observability & management
 
-- **Request telemetry**: latency, token usage, success rates, and error patterns
+- **OpenTelemetry operations path**: startup JSON configures OTLP metrics and traces for a Collector or Grafana Alloy pipeline feeding Prometheus/Grafana/Tempo-style operations stacks
+- **Retained request history**: product-facing request logs, spending, usage snapshots, and dashboard aggregates remain in PostgreSQL for `/request-logs` and `/api/stats/*`
 - **Audit logging**: optional request/response body capture with header redaction
 - **Success-rate badges**: connection health based on recent request data
-- **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, masked secret metadata, and explicit confirmation for dangerous structural changes
+- **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, restart-required OTLP telemetry fields, masked secret metadata, and explicit confirmation for dangerous structural changes
 - **Config export/import**: PostgreSQL-backed profile and vendor bundles with profile-scoped replace-mode import
 - **CLIProxyAPI sidecars**: global sidecar registrations, live auth-files, provider inventory, connection testing, manual sync, and direct auth-file mutations through `/sidecars` and `/api/sidecars/*`
 
@@ -167,14 +168,16 @@ The frontend build injects `VITE_APP_VERSION` from `frontend/package.json` plus 
 
 Use [`frontend/.env.example`](frontend/.env.example) as the frontend sample.
 
-Plaintext bootstrap startup uses a single steady-state external input:
+Plaintext bootstrap startup uses the startup JSON as the steady-state source, with only bootstrap-critical environment exceptions:
 
 - `PRISM_CONFIG_PATH` points at a plaintext bootstrap file such as `config.json`
-- `DATABASE_URL` is optional and defaults to `postgres://prism:prism@localhost:15432/prism?sslmode=disable`
+- `DATABASE_URL` is optional seed/startup input and defaults to `postgres://prism:prism@localhost:15432/prism?sslmode=disable`
 
 The Startup tab at `/settings#startup` manages that plaintext file directly. GET returns masked metadata only, field-level apply capabilities, and pending apply state only when the file differs from the live applied baseline. PUT applies explicit preserve or replace secret actions with expected revision and etag checks, writes the file, and immediately publishes eligible hot fields. Dangerous host, port, database, JWT signing key, and bundle key changes require confirmation tokens. `runtime.secretEncryptionKey` is preserve only in v1, and redacted placeholders are not persisted.
 
-That bootstrap file owns startup values directly. Hot-eligible fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, and M2/M3 management admission limits. Runtime buffering is automatic and not user-configurable. Listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, JWT signing key, and bundle key changes still require restart. If an encrypted bootstrap file is still present, replace it before booting.
+That bootstrap file owns startup values directly. Hot-eligible fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, and M2/M3 management admission limits. Runtime buffering is automatic and not user-configurable. Listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, JWT signing key, bundle key changes, and all telemetry exporter/metrics/tracing settings still require restart. If an encrypted bootstrap file is still present, replace it before booting.
+
+Operational telemetry is configured through the top-level `telemetry` section in the startup JSON, not through long-lived `OTEL_*` environment variables. Point Prism at an OTLP Collector or Grafana Alloy endpoint from that file, then let Collector/Alloy fan metrics and traces into Prometheus, Grafana, Tempo, or another backend. Prism no longer exposes a backend-local `/metrics` scrape endpoint; retained request-history, spending, usage, and dashboard aggregate APIs remain product-facing PostgreSQL-backed APIs under `/api/stats/*`.
 
 Plaintext bootstrap files must include `runtime.transport.requestTimeout`, seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout`, seeded as `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through the Startup tab or API. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
 

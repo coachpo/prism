@@ -4,6 +4,8 @@ Local `./start.sh` backend base URL follows the selected bootstrap file's `serve
 
 Container and custom deployments use the listener configured in the plaintext bootstrap file; the manual Docker examples commonly publish `http://localhost:8000`.
 
+Prism does not expose a backend-local `/metrics` operations endpoint. Configure OTLP metrics and traces in startup JSON, send them to an OpenTelemetry Collector or Grafana Alloy, and connect Prometheus/Grafana/Tempo or another backend from that collector layer. The retained `/api/stats/*` routes remain product-facing request-history and aggregate APIs.
+
 ## 0. Profile Context Semantics
 - Prism has three route classes:
   - Global management routes, which omit `X-Profile-Id`.
@@ -20,7 +22,7 @@ Container and custom deployments use the listener configured in the plaintext bo
 
 ### 1.0 Bootstrap Config
 
-The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle, and it has no compatibility mode for older bootstrap shapes. Backend-owned canonical defaults are the source of truth for freshly seeded files. API-managed writes update the file and immediately apply fields that are marked `hot_apply`; structural fields are durable for the next Prism start. Existing valid files are preserved until the operator resets manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
+The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle, and it has no compatibility mode for older bootstrap shapes. Backend-owned canonical defaults are the source of truth for freshly seeded files, including disabled telemetry. API-managed writes update the file and immediately apply fields that are marked `hot_apply`; structural fields, including every telemetry exporter/metrics/tracing field, are durable for the next Prism start. Existing valid files are preserved until the operator resets manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
 
 #### Get Bootstrap Config
 ```
@@ -80,6 +82,29 @@ GET is a read of the managed file plus the live applied baseline. Current respon
       "from": null,
       "reply_to": null,
       "smtp": null
+    },
+    "telemetry": {
+      "enabled": true,
+      "exporter": {
+        "endpoint": "http://otel-collector:4318",
+        "protocol": "http/protobuf",
+        "compression": "gzip",
+        "timeout": "10s",
+        "auth": {
+          "mode": "authorization_header"
+        },
+        "tls": {
+          "insecure_skip_verify": false,
+          "ca_file": null
+        }
+      },
+      "metrics": {
+        "enabled": true
+      },
+      "traces": {
+        "enabled": true,
+        "sampling_ratio": 1
+      }
     }
   },
   "secrets": {
@@ -97,6 +122,11 @@ GET is a read of the managed file plus the live applied baseline. Current respon
       "configured": false,
       "editable": true,
       "masked": ""
+    },
+    "telemetry.exporter.auth.authorizationHeader": {
+      "configured": true,
+      "editable": true,
+      "masked": "set"
     }
   }
 }
@@ -122,6 +152,41 @@ Raw runtime startup config uses camelCase JSON field names in the file:
   }
 }
 ```
+
+The underlying `config.json` file may also include an optional top-level `telemetry` block. Missing telemetry and `telemetry.enabled=false` both mean disabled no-op OpenTelemetry export. Enabled telemetry requires exporter endpoint, protocol (`grpc` or `http/protobuf`), compression (`none` or `gzip`), timeout, auth mode (`none` or `authorization_header`), TLS values, metrics enabled, traces enabled, and traces sampling ratio. These fields are restart-required: PUT persists them, but Prism rebuilds providers only on restart. `telemetry.exporter.auth.authorizationHeader` is secret-managed and appears only in `secrets` metadata plus `secret_updates`.
+
+Raw telemetry startup config uses camelCase JSON field names in the file:
+
+```json
+{
+  "telemetry": {
+    "enabled": true,
+    "exporter": {
+      "endpoint": "http://otel-collector:4318",
+      "protocol": "http/protobuf",
+      "compression": "gzip",
+      "timeout": "10s",
+      "auth": {
+        "mode": "authorization_header",
+        "authorizationHeader": "Bearer collector-token"
+      },
+      "tls": {
+        "insecureSkipVerify": false,
+        "caFile": "/etc/prism/otel-ca.pem"
+      }
+    },
+    "metrics": {
+      "enabled": true
+    },
+    "traces": {
+      "enabled": true,
+      "samplingRatio": 1
+    }
+  }
+}
+```
+
+Use the startup JSON as Prism's steady-state telemetry source. `OTEL_*` environment variables are not Prism's supported long-term configuration path, and Prism does not expose a backend-local `/metrics` scrape endpoint. Export OTLP to Collector or Alloy and attach Prometheus/Grafana/Tempo from there.
 
 The underlying `config.json` file may also include an optional top-level `mail` block. Missing `mail` and `mail.enabled=false` both mean disabled no-op auth email delivery with no SMTP network activity. Seeded configs use `{ "mail": { "enabled": false } }`.
 
@@ -150,11 +215,11 @@ Enabled SMTP startup config uses camelCase JSON field names in the file:
 
 Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is valid only for localhost or loopback SMTP hosts, and auth over non-local plaintext is forbidden. `mail.smtp.auth` accepts `none` or `plain`; `plain` requires `mail.smtp.username` plus exactly one of `mail.smtp.password` or `mail.smtp.passwordFile`. `mail.smtp.timeout` must parse as a Go duration such as `15s`.
 
-Safe bootstrap API values omit the plaintext password and use snake_case for API fields, such as runtime `request_timeout`, `side_effects.attempt_timeout`, mail `reply_to`, `ehlo_hostname`, `password_file`, and `tls_server_name`. `mail.smtp.password` appears only in `secrets` metadata and in `secret_updates`. To keep the current password, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password value.
+Safe bootstrap API values omit plaintext secrets and use snake_case for API fields, such as runtime `request_timeout`, `side_effects.attempt_timeout`, mail `reply_to`, `ehlo_hostname`, `password_file`, `tls_server_name`, telemetry `sampling_ratio`, `insecure_skip_verify`, and `ca_file`. `mail.smtp.password` and `telemetry.exporter.auth.authorizationHeader` appear only in `secrets` metadata and in `secret_updates`. To keep the current secret, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password or telemetry authorization-header value.
 
-The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `runtime.transport.max_idle_conns`, `runtime.transport.max_idle_conns_per_host`, `runtime.transport.max_conns_per_host`, `runtime.transport.idle_conn_timeout`, `runtime.transport.request_timeout`, `runtime.transport.response_header_timeout`, `runtime.transport.tls_handshake_timeout`, and `runtime.transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`. `runtime.side_effects.attempt_timeout` is intentionally absent from hot-apply fields.
+The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `runtime.transport.max_idle_conns`, `runtime.transport.max_idle_conns_per_host`, `runtime.transport.max_conns_per_host`, `runtime.transport.idle_conn_timeout`, `runtime.transport.request_timeout`, `runtime.transport.response_header_timeout`, `runtime.transport.tls_handshake_timeout`, and `runtime.transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`. `runtime.side_effects.attempt_timeout` and all `telemetry.*` fields are intentionally absent from hot-apply fields.
 
-Restart-required fields are listener fields `server.host` and `server.port`; `database.url`; PostgreSQL pool fields `database.pools.total_max_conns`, `database.pools.management.max_conns`, `database.pools.management.min_idle_conns`, `database.pools.runtime_execution.max_conns`, `database.pools.runtime_execution.min_idle_conns`, `database.pools.runtime_telemetry.max_conns`, `database.pools.runtime_telemetry.min_idle_conns`, `database.pools.runtime_feedback.max_conns`, `database.pools.runtime_feedback.min_idle_conns`, `database.pools.realtime.max_conns`, `database.pools.realtime.min_idle_conns`, `database.pools.cache_refresh.max_conns`, `database.pools.cache_refresh.min_idle_conns`, `database.pools.background_jobs.max_conns`, and `database.pools.background_jobs.min_idle_conns`; runtime field `runtime.side_effects.attempt_timeout`; and secret fields `runtime.secretEncryptionKey`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey`. Confirmation tokens are required for `server.host`, `server.port`, `database.url`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey` changes. There is no hot apply for listener, database URL, pool budgets, `runtime.side_effects.attempt_timeout`, JWT signing keys, state-transfer bundle keys, or the runtime secret encryption key.
+Restart-required fields are listener fields `server.host` and `server.port`; `database.url`; PostgreSQL pool fields `database.pools.total_max_conns`, `database.pools.management.max_conns`, `database.pools.management.min_idle_conns`, `database.pools.runtime_execution.max_conns`, `database.pools.runtime_execution.min_idle_conns`, `database.pools.runtime_telemetry.max_conns`, `database.pools.runtime_telemetry.min_idle_conns`, `database.pools.runtime_feedback.max_conns`, `database.pools.runtime_feedback.min_idle_conns`, `database.pools.realtime.max_conns`, `database.pools.realtime.min_idle_conns`, `database.pools.cache_refresh.max_conns`, `database.pools.cache_refresh.min_idle_conns`, `database.pools.background_jobs.max_conns`, and `database.pools.background_jobs.min_idle_conns`; runtime field `runtime.side_effects.attempt_timeout`; telemetry fields `telemetry.enabled`, `telemetry.exporter.endpoint`, `telemetry.exporter.protocol`, `telemetry.exporter.compression`, `telemetry.exporter.timeout`, `telemetry.exporter.auth.mode`, `telemetry.exporter.auth.authorizationHeader`, `telemetry.exporter.tls.insecure_skip_verify`, `telemetry.exporter.tls.ca_file`, `telemetry.metrics.enabled`, `telemetry.traces.enabled`, and `telemetry.traces.sampling_ratio`; and secret fields `runtime.secretEncryptionKey`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey`. Confirmation tokens are required for `server.host`, `server.port`, `database.url`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey` changes. There is no hot apply for listener, database URL, pool budgets, telemetry provider settings, `runtime.side_effects.attempt_timeout`, JWT signing keys, state-transfer bundle keys, or the runtime secret encryption key.
 
 #### Validate Bootstrap Config
 ```
@@ -187,6 +252,19 @@ PUT prepares and validates the requested file, validates hot runtime resources b
     "mail.smtp.password": {
       "action": "replace",
       "value": "new-smtp-password"
+    }
+  }
+}
+```
+
+`telemetry.exporter.auth.authorizationHeader` is also secret-managed. Replace it when `telemetry.exporter.auth.mode` is `authorization_header`, preserve it to keep the current collector credential, or clear it when switching auth mode to `none`.
+
+```json
+{
+  "secret_updates": {
+    "telemetry.exporter.auth.authorizationHeader": {
+      "action": "replace",
+      "value": "Bearer collector-token"
     }
   }
 }
@@ -1800,7 +1878,7 @@ Response `200`:
 }
 ```
 
-The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes requested-model labels, final-target labels, `stream_outcome`, and `stream_error_kind` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This is the operator drill-in surface for investigation, not a dashboard aggregate.
+The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes requested-model labels, final-target labels, `stream_outcome`, and `stream_error_kind` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This retained-history route is the operator drill-in surface for investigation, not a dashboard aggregate or an OTLP metrics endpoint.
 
 `filter_options` always includes both `endpoints` and `models`. `filter_options.models` is request-log scoped and contains `{ model_id, model_label }` entries; when no current model options exist, the backend still returns `models: []` instead of omitting the field. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. `model_id` stays the requested model and `resolved_target_model_id` captures the final target model for that attempt, while `resolved_target_model_label` surfaces the matching display label.
 
@@ -1902,6 +1980,8 @@ Response `404`: returned when the request ID is missing or out of scope for the 
 Stream telemetry values are stable strings. `stream_outcome` is one of `not_streaming`, `completed`, `provider_incomplete`, `client_disconnected`, `upstream_read_error`, `upstream_ended_without_terminal`, or `unknown`. `stream_error_kind` is nullable and, when present, is one of `client_write_failed`, `request_context_canceled`, `upstream_read_failed`, or `missing_terminal_event`. `stream_error_detail` appears only on exact request-log detail responses; it is sanitized diagnostic text, not provider content, headers, or secrets.
 
 The request-log sheet consumes this grouped detail contract. The frontend keeps audit loading separate and lazy: opening the `overview` tab uses only this response, while the `audit` tab resolves linked audit payloads on demand with `request_log_id` plus a UTC window derived from `summary.created_at`. The derived frontend window is `created_at` minus 12 hours through `created_at` plus 12 hours, serialized explicitly as canonical audit `from` and `to` query parameters.
+
+The request-history, spending, throughput, usage-snapshot, model-metrics, connection-success-rate, and dashboard aggregate APIs in this section remain product-facing PostgreSQL-backed surfaces. OTLP metrics and traces are exported through the startup-configured Collector/Alloy path and are not surfaced as a backend-local `/metrics` compatibility route.
 
 ### 4.4 Get Aggregated Statistics
 ```

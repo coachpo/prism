@@ -36,7 +36,7 @@ backend/
 │   │   ├── runtime/            # operation-registered /v1 and /v1beta proxy handlers
 │   │   └── realtime/           # WebSocket room management and publishing
 │   ├── platform/
-│   │   ├── config/             # environment and runtime settings
+│   │   ├── config/             # startup bootstrap JSON and runtime settings
 │   │   ├── http/               # server assembly and route mounting
 │   │   ├── migrate/            # SQL migration runner and schema helpers
 │   │   ├── startup/            # startup sequencing and default seeding
@@ -108,7 +108,9 @@ frontend/
 - Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; encrypted bootstrap files must be replaced before boot, and there is no compatibility mode for older bootstrap file shapes. Missing files are seeded once. Existing valid files are preserved until an operator resets manually by stopping Prism, removing or relocating the file, and restarting.
 - The backend image runs as `prism:prism`, UID/GID `1000:1000`. Container deployments that bind mount `/app/config` or any other `PRISM_CONFIG_PATH` parent must make that host directory writable by UID/GID `1000:1000`; new and existing root-owned mounts should be prepared once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
-- Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
+- Operational telemetry is startup-JSON-owned: the top-level `telemetry` section configures OTLP endpoint, protocol, compression, timeout, auth, TLS, metrics, and traces. Prism does not use long-lived `OTEL_*` environment variables as the steady-state config source.
+- The primary ops path is OTLP to an OpenTelemetry Collector or Grafana Alloy, with Prometheus/Grafana/Tempo or another backend attached from that collector layer. The backend does not mount a local `/metrics` scrape endpoint.
+- Profile backup/restore, vendor catalog export/import, request-history APIs, and other settings-page state flows remain PostgreSQL-backed product state instead of bootstrap or OTLP ownership.
 - The current implementation keeps the split-bundle contract canonical: `profile_config` bundles use `version: 3`, `vendor_catalog` bundles use `version: 1`, and no older profile-bundle narrative survives.
 - `backend/Dockerfile` is the live Go backend image build path and copies the backend binary, version surface, and `migrations/` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
@@ -117,7 +119,7 @@ frontend/
 
 Prism assigns trusted backend priority metadata before work touches shared resources. Runtime proxy traffic is `proxy`, management routes are `management` with an explicit `M1`, `M2`, or `M3` tier, and scheduler-owned workers are `background` with a declared subclass, budget, coalescing policy, retry policy, and drain policy. Priority-sensitive backend changes should stay covered by the standard priority regression tests, including `go test ./tests/priority/...`.
 
-PostgreSQL capacity is split into finite named lanes: `runtime_execution`, `runtime_telemetry`, `runtime_feedback`, `management`, `realtime`, `cache_refresh`, and `background_jobs`. Operators should treat lane saturation by owner: proxy execution pressure is separate from management UI pressure, telemetry drain pressure, lossy feedback drain pressure, realtime fanout, cache refresh, and generic background jobs. Background or management saturation must not consume protected proxy capacity.
+PostgreSQL capacity is split into finite named lanes: `runtime_execution`, `runtime_telemetry`, `runtime_feedback`, `management`, `realtime`, `cache_refresh`, and `background_jobs`. Operators should treat lane saturation by owner: proxy execution pressure is separate from management UI pressure, telemetry drain pressure, lossy feedback drain pressure, realtime fanout, cache refresh, and generic background jobs. Background or management saturation must not consume protected proxy capacity. Lane metrics are emitted through OTLP DB-pool instruments, not through a backend-local Prometheus text endpoint.
 
 Management overload is reported as typed admission failure with retry metadata. Lower-priority M3 reporting and maintenance routes shed before M2 and M1 management work, and proxy traffic remains isolated from management/background saturation. When overload appears, retry after the advertised delay rather than increasing client concurrency.
 
@@ -137,7 +139,7 @@ Prism is proxy-first. It forwards only the provider-native operations registered
 
 The operation registry is the ingress contract for the runtime plane. Each supported operation declares an exact HTTP method, path template, API family, model-binding source, streaming classification, canonical operation name, and hook collection. The current canonical operation names are `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`. Requests that do not match that registry are rejected before body reads, planning, provider transport, telemetry, audit, or feedback side effects.
 
-After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves ordered access targets to a final standalone connection or final model target, applies the attached explicit Ban Policy strategy, claims leases, builds upstream headers, forwards to the selected provider connection, and records telemetry through the runtime outbox seams. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
+After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves ordered access targets to a final standalone connection or final model target, applies the attached explicit Ban Policy strategy, claims leases, builds upstream headers, forwards to the selected provider connection, records retained request history through durable seams, and emits bounded OTLP metrics/traces through startup-owned providers when enabled. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
 
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
@@ -278,7 +280,7 @@ Dashboard analytics tab -> WebSocket connect /api/realtime/ws
   -> The frontend treats each `analytics.snapshot` as a full replacement for that scoped analytics view
 ```
 
-The realtime API has two supported channels. `dashboard.update` is the overview dashboard signal and carries `request_log` plus the same `DashboardSnapshot` returned by `GET /api/stats/dashboard`; it does not carry analytics page replacement data. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and powers the Analytics tab without requiring UI calls to `/api/stats/*`. The REST stats endpoints, including `GET /api/stats/dashboard` and `GET /api/stats/usage-snapshot`, remain supported API and debug surfaces.
+The realtime API has two supported channels. `dashboard.update` is the overview dashboard signal and carries `request_log` plus the same `DashboardSnapshot` returned by `GET /api/stats/dashboard`; it does not carry analytics page replacement data. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and powers the Analytics tab without requiring UI calls to `/api/stats/*`. The REST stats endpoints, including `GET /api/stats/dashboard`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs; OTLP/Prometheus operations telemetry does not replace them.
 
 ## 4. Routing Strategies and Runtime Health Signals
 
@@ -387,7 +389,7 @@ To prevent the `/v1/v1` double-path bug (where endpoint `base_url` already conta
 
 ### 7.1 Concept
 
-All proxy requests are automatically logged with telemetry data for analytics and debugging.
+All proxy attempts are automatically logged as retained, product-facing request history for analytics, debugging, spending, and dashboard views. OTLP metrics and traces are the primary operations path, but they do not replace the PostgreSQL-backed request-history APIs.
 
 ### 7.2 Logging Flow
 
@@ -418,6 +420,8 @@ Request-log semantics are per-attempt: one incoming runtime request can create m
 - Filter by model, api family, status, time range
 - Aggregated statistics with grouping by model/api family/endpoint
 - Pagination for request log listing
+
+These query APIs intentionally remain product-facing retained-history surfaces for the UI and operators. Prometheus/Grafana should consume Prism operations data from the configured OTLP Collector or Alloy path instead of scraping Prism for local metrics.
 
 ## 8. Request Audit Logging
 

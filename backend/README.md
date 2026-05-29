@@ -51,6 +51,12 @@ Supported runtime routes are:
 
 After registry resolution, all supported operations share the same execution core for active-profile model access resolution, load-balance planning, upstream forwarding, and runtime telemetry. Ordered access targets resolve to final standalone connections or same-family model targets before execution, and operation hooks own request extraction, non-stream response parsing, stream terminal classification, and media or multipart handling around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
 
+## Operations telemetry
+
+Prism builds OpenTelemetry providers once at startup from the top-level `telemetry` section in the plaintext bootstrap JSON. Configure OTLP endpoint, protocol, compression, timeout, auth, TLS, metrics, and traces there; `OTEL_*` environment variables are not the steady-state Prism configuration source.
+
+Send Prism OTLP metrics and traces to an OpenTelemetry Collector or Grafana Alloy, then route them to Prometheus/Grafana/Tempo or another backend from that collector layer. The backend no longer mounts a local `/metrics` endpoint. Retained request logs, spending, usage snapshots, dashboard aggregates, and model metrics remain product-facing PostgreSQL-backed APIs under `/api/stats/*`.
+
 ## Verification
 
 Use the Go regression packages directly for targeted validation:
@@ -62,8 +68,8 @@ go build ./cmd/prism-backend
 ```
 
 ## Configuration
-- Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`.
-- Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, CORS for `http://localhost:5173`, PostgreSQL pool total `24` with split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and management admission `3/2`.
+- Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`; the file, not long-lived `OTEL_*` variables, owns OTLP telemetry settings.
+- Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, CORS for `http://localhost:5173`, PostgreSQL pool total `24` with split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, disabled telemetry, and management admission `3/2`.
 - When the bootstrap file already exists and is valid, Prism loads startup settings from it without rewriting it, even if it contains older values.
 - When the bootstrap file is missing, Prism seeds it from backend-owned defaults plus the optional `DATABASE_URL` input only.
 - The startup bootstrap contract is not DB-backed, and profile backup/restore, vendor catalog export/import, global log retention, and other settings-page state flows remain PostgreSQL-backed state transport.
@@ -74,7 +80,8 @@ go build ./cmd/prism-backend
 - Prepare new host config directories with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`. Use the same one-time remediation for existing root-owned bind mounts before starting the non-root backend image.
 - Bootstrap writes are file-durable. Eligible hot fields apply immediately when written through the Startup tab or `PUT /api/config/bootstrap`; structural fields remain pending until restart.
 - Hot fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, and M2/M3 management admission limits. Runtime buffering is internal and not exposed through bootstrap config.
-- Restart-required fields include listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and state-transfer bundle key.
+- Restart-required fields include listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, state-transfer bundle key, and all telemetry exporter/metrics/tracing fields.
+- Telemetry startup fields include `telemetry.enabled`, exporter endpoint/protocol/compression/timeout/auth/TLS values, `telemetry.metrics.enabled`, `telemetry.traces.enabled`, and `telemetry.traces.samplingRatio`. Enabled telemetry exports through OTLP to a Collector or Grafana Alloy; Prism does not provide a backend-local `/metrics` compatibility endpoint.
 - External edits to the bootstrap file are not watched automatically. Use the Startup tab or `PUT /api/config/bootstrap` to publish hot-eligible file edits into the running process.
 - The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.
 - Raw bootstrap files require `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set `runtime.transport.requestTimeout` to `"300s"` and `runtime.sideEffects.attemptTimeout` to `"10s"`. Missing either required field fails startup validation by design.
