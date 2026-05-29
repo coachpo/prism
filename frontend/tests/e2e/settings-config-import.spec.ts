@@ -80,7 +80,7 @@ function createModelListItem() {
 function buildProfileImportBundle(variant: "alpha" | "beta") {
   if (variant === "alpha") {
     return {
-      version: 2 as const,
+      version: 3 as const,
       bundle_kind: "profile_config" as const,
       vendor_refs: [
         {
@@ -125,7 +125,8 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
           retry_backoff_multiplier: 2,
           retry_jitter_ratio: 0.2,
           retry_max_delay_ms: 8000,
-          retry_max_attempts: 3,
+          cycle_retry_attempt_limit: 3,
+          ban_cumulative_retry_attempt_threshold: 0,
           ban_duration_seconds: 0,
         },
       ],
@@ -173,7 +174,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
   }
 
   return {
-    version: 2 as const,
+    version: 3 as const,
     bundle_kind: "profile_config" as const,
     vendor_refs: [
       {
@@ -238,7 +239,8 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
         retry_backoff_multiplier: 2,
         retry_jitter_ratio: 0.2,
         retry_max_delay_ms: 8000,
-        retry_max_attempts: 3,
+        cycle_retry_attempt_limit: 3,
+        ban_cumulative_retry_attempt_threshold: 0,
         ban_duration_seconds: 0,
       },
     ],
@@ -296,7 +298,7 @@ function countConnections(bundle: ProfileImportBundle) {
 function buildPreviewResponse(bundle: ProfileImportBundle, previewToken: string) {
   return {
     ready: true,
-    version: 2 as const,
+    version: 3 as const,
     bundle_kind: "profile_config" as const,
     preview_token: previewToken,
     bundle_fingerprint: `profile-fingerprint-${previewToken}`,

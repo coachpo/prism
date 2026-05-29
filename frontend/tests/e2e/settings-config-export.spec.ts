@@ -77,7 +77,7 @@ function createModelListItem() {
 
 function createSafeExportBundle() {
   return {
-    version: 2 as const,
+    version: 3 as const,
     bundle_kind: "profile_config" as const,
     exported_at: `${fixedDate}T12:00:00Z`,
     vendor_refs: [],
@@ -112,7 +112,7 @@ function createSafeExportBundle() {
 
 function createDangerousExportBundle() {
   return {
-    version: 2 as const,
+    version: 3 as const,
     bundle_kind: "profile_config" as const,
     exported_at: `${fixedDate}T12:00:00Z`,
     vendor_refs: [],
@@ -279,7 +279,7 @@ test("profile safe export uses the redacted route and synthesizes the filename l
   );
 
   expect(capture).not.toBeNull();
-  expect(capture?.download).toBe(`prism-profile-config-v2-${fixedDate}.json`);
+  expect(capture?.download).toBe(`prism-profile-config-v3-${fixedDate}.json`);
   expect(capture?.download).not.toBe("server-safe-name.json");
   expect(capture?.href.startsWith("blob:")).toBe(true);
 });
@@ -310,7 +310,7 @@ test("profile dangerous export stays disabled until acknowledged and uses the da
   );
 
   expect(capture).not.toBeNull();
-  expect(capture?.download).toBe(`prism-profile-config-with-secrets-v2-${fixedDate}.json`);
+  expect(capture?.download).toBe(`prism-profile-config-with-secrets-v3-${fixedDate}.json`);
   expect(capture?.download).not.toBe("server-dangerous-name.json");
   expect(capture?.href.startsWith("blob:")).toBe(true);
 });

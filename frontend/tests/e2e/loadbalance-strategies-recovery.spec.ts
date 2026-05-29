@@ -16,11 +16,13 @@ function createStrategyRow({
   name,
   banMode,
   banDurationSeconds = 0,
+  banCumulativeRetryAttemptThreshold = 0,
 }: {
   id: number;
   name: string;
-  banMode: "off" | "manual" | "temporary";
+  banMode: "off" | "temporary" | "until_reset";
   banDurationSeconds?: number;
+  banCumulativeRetryAttemptThreshold?: number;
 }) {
   return {
     id,
@@ -33,7 +35,8 @@ function createStrategyRow({
     retry_backoff_multiplier: 2,
     retry_jitter_ratio: 0.2,
     retry_max_delay_ms: 900000,
-    retry_max_attempts: 2,
+    cycle_retry_attempt_limit: 2,
+    ban_cumulative_retry_attempt_threshold: banCumulativeRetryAttemptThreshold,
     ban_duration_seconds: banDurationSeconds,
     attached_model_count: 0,
     created_at: timestamp,
@@ -47,7 +50,7 @@ async function expectRecoveryLines(row: Locator, lines: string[]) {
   await expect(recoveryLines).toHaveText(lines);
 }
 
-test("shows legacy Ban Policy rows by name", async ({ page }) => {
+test("loadbalance strategies table shows explicit Ban Policy rows by name", async ({ page }) => {
   const strategies = [
     createStrategyRow({
       id: 1,
@@ -56,14 +59,16 @@ test("shows legacy Ban Policy rows by name", async ({ page }) => {
     }),
     createStrategyRow({
       id: 2,
-      name: "Legacy Manual",
-      banMode: "manual",
+      name: "Legacy Until Reset",
+      banMode: "until_reset",
+      banCumulativeRetryAttemptThreshold: 4,
     }),
     createStrategyRow({
       id: 3,
       name: "Legacy Temporary",
       banMode: "temporary",
       banDurationSeconds: 28800,
+      banCumulativeRetryAttemptThreshold: 4,
     }),
   ];
 
@@ -144,24 +149,39 @@ test("shows legacy Ban Policy rows by name", async ({ page }) => {
   await page.goto("/loadbalance-strategies");
 
   await expect(page.getByRole("table")).toContainText("Legacy Off");
-  await expect(page.getByRole("table")).toContainText("Legacy Manual");
+  await expect(page.getByRole("table")).toContainText("Legacy Until Reset");
   await expect(page.getByRole("table")).toContainText("Legacy Temporary");
 
   await expectRecoveryLines(page.getByRole("row", { name: /Legacy Off/ }), [
     "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Retry window 60,000ms base • 900,000ms max • 2 attempts • 2x • jitter 0.2",
-    "Ban off",
+    "Cycle retry limit 2 attempts • retry window 60,000ms base, 900,000ms max, 2x backoff, jitter 0.2",
+    "Ban off; cumulative threshold disabled",
   ]);
 
-  await expectRecoveryLines(page.getByRole("row", { name: /Legacy Manual/ }), [
+  await expectRecoveryLines(page.getByRole("row", { name: /Legacy Until Reset/ }), [
     "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Retry window 60,000ms base • 900,000ms max • 2 attempts • 2x • jitter 0.2",
-    "Manual dismiss ban",
+    "Cycle retry limit 2 attempts • retry window 60,000ms base, 900,000ms max, 2x backoff, jitter 0.2",
+    "Cumulative threshold 4 attempts bans until reset",
   ]);
 
   await expectRecoveryLines(page.getByRole("row", { name: /Legacy Temporary/ }), [
     "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Retry window 60,000ms base • 900,000ms max • 2 attempts • 2x • jitter 0.2",
-    "Temporary ban 28,800s",
+    "Cycle retry limit 2 attempts • retry window 60,000ms base, 900,000ms max, 2x backoff, jitter 0.2",
+    "Cumulative threshold 4 attempts triggers temporary ban for 28,800s",
   ]);
+
+  await page.getByRole("button", { name: "Add Strategy" }).first().click();
+  const cycleLimitInput = page.getByLabel("Cycle Retry Attempt Limit");
+  const cumulativeThresholdInput = page.getByLabel("Ban Cumulative Retry Attempt Threshold");
+  await expect(cycleLimitInput).toBeVisible();
+  await expect(cumulativeThresholdInput).toBeVisible();
+
+  await page.getByLabel("Ban Mode").click();
+  await expect(page.getByRole("option")).toHaveText(["Off", "Temporary", "Until reset"]);
+  await page.getByRole("option", { name: "Temporary" }).click();
+
+  await expect(cumulativeThresholdInput).toHaveValue("6");
+  await cumulativeThresholdInput.fill("4");
+  await cycleLimitInput.fill("5");
+  await expect(cumulativeThresholdInput).toHaveValue("5");
 });

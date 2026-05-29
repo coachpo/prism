@@ -62,7 +62,8 @@ const strategy = {
   retry_backoff_multiplier: 2,
   retry_jitter_ratio: 0.2,
   retry_max_delay_ms: 8000,
-  retry_max_attempts: 3,
+  cycle_retry_attempt_limit: 3,
+  ban_cumulative_retry_attempt_threshold: 4,
   ban_duration_seconds: 60,
   attached_model_count: 1,
   created_at: timestamp,
@@ -180,9 +181,9 @@ function requestLogDetail() {
   };
 }
 
-function profileBundleV2() {
+function profileBundleV3() {
   return {
-    version: 2,
+    version: 3,
     bundle_kind: "profile_config",
     exported_at: timestamp,
     vendor_refs: [],
@@ -211,7 +212,8 @@ function profileBundleV2() {
       retry_backoff_multiplier: 2,
       retry_jitter_ratio: 0.2,
       retry_max_delay_ms: 8000,
-      retry_max_attempts: 3,
+      cycle_retry_attempt_limit: 3,
+      ban_cumulative_retry_attempt_threshold: 4,
       ban_duration_seconds: 60,
     }],
     models: [{
@@ -275,7 +277,7 @@ async function mockRoutes(page: Page) {
     if (pathname === "/api/config/profile/import/preview") {
       return fulfillJson({
         ready: true,
-        version: 2,
+        version: 3,
         bundle_kind: "profile_config",
         preview_token: "task-17-preview",
         bundle_fingerprint: "task-17-fingerprint",
@@ -310,7 +312,7 @@ test("legacy strategy ui and request log target labels", async ({ page }) => {
 
   await page.goto("/loadbalance-strategies");
   await expect(page.getByText("Ban Policy").first()).toBeVisible();
-  await expect(page.getByText("Legacy routing").first()).toBeVisible();
+  await expect(page.getByText("routing-family Ban Policy").first()).toBeVisible();
   await expect(page.getByText(/Adaptive|Auto Recovery|Routing Policy/)).toHaveCount(0);
 
   await page.goto("/request-logs");
@@ -337,13 +339,13 @@ test("endpoint reachable chained models", async ({ page }) => {
   await expect(page.getByText("Terminal Model")).toBeVisible();
 });
 
-test("settings config bundle v2 preview summary", async ({ page }) => {
+test("settings config bundle v3 preview summary", async ({ page }) => {
   await mockRoutes(page);
-  const bundle = JSON.stringify(profileBundleV2());
+  const bundle = JSON.stringify(profileBundleV3());
 
   await page.goto("/settings#backup");
   await page.getByTestId("profile-import-file").setInputFiles({
-    name: "profile-v2.json",
+    name: "profile-v3.json",
     mimeType: "application/json",
     buffer: Buffer.from(bundle),
   });

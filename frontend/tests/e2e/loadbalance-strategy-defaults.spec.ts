@@ -19,7 +19,12 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
   });
 }
 
-function canonicalRow(id: number, name: string, legacyStrategyType: "single" | "fill-first" | "round-robin", banMode: "off" | "manual" = "off") {
+function canonicalRow(
+  id: number,
+  name: string,
+  legacyStrategyType: "single" | "fill-first" | "round-robin",
+  banMode: "off" | "temporary" | "until_reset" = "off",
+) {
   return {
     id,
     profile_id: 1,
@@ -31,8 +36,9 @@ function canonicalRow(id: number, name: string, legacyStrategyType: "single" | "
     retry_backoff_multiplier: 2,
     retry_jitter_ratio: 0.2,
     retry_max_delay_ms: 900000,
-    retry_max_attempts: 2,
-    ban_duration_seconds: 0,
+    cycle_retry_attempt_limit: 2,
+    ban_cumulative_retry_attempt_threshold: banMode === "off" ? 0 : 4,
+    ban_duration_seconds: banMode === "temporary" ? 28800 : 0,
     attached_model_count: 0,
     created_at: timestamp,
     updated_at: timestamp,
@@ -48,7 +54,7 @@ function canonicalRows() {
 }
 
 function occupiedSingleRow() {
-  return canonicalRow(21, "Default single routing", "fill-first", "manual");
+  return canonicalRow(21, "Default single routing", "fill-first", "until_reset");
 }
 
 async function mockLoadbalanceRoutes(
