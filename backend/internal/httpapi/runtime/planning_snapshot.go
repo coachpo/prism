@@ -496,7 +496,7 @@ func listRuntimeStrategiesForProfile(ctx context.Context, tx pgx.Tx, profileID i
 		ctx,
 		`SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
-			retry_max_delay_ms, retry_max_attempts, ban_duration_seconds
+			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds
 		FROM loadbalance_strategies
 		WHERE profile_id = $1
 		ORDER BY id ASC`,
@@ -522,7 +522,8 @@ func listRuntimeStrategiesForProfile(ctx context.Context, tx pgx.Tx, profileID i
 			&item.RetryBackoffMultiplier,
 			&item.RetryJitterRatio,
 			&item.RetryMaxDelayMS,
-			&item.RetryMaxAttempts,
+			&item.CycleRetryAttemptLimit,
+			&item.BanCumulativeRetryAttemptThreshold,
 			&item.BanDurationSeconds,
 		); err != nil {
 			return nil, fmt.Errorf("scan runtime strategy for profile %d: %w", profileID, err)

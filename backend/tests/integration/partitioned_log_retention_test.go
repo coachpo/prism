@@ -778,7 +778,7 @@ func task9SeedRuntimeRoute(t *testing.T, ctx context.Context, exec interface {
 func task9InsertRuntimeStrategy(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, name string, now time.Time) int {
 	t.Helper()
 	var strategyID int
-	if err := exec.QueryRow(ctx, `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts, ban_duration_seconds, created_at, updated_at) VALUES ($1, $2, 'round-robin', ARRAY[403,422,429,500,502,503,504,529], 'off', 60000, 2.0, 0.2, 900000, 3, 0, $3, $3) RETURNING id`, profileID, name, now).Scan(&strategyID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at) VALUES ($1, $2, 'round-robin', ARRAY[403,422,429,500,502,503,504,529], 'off', 60000, 2.0, 0.2, 900000, 3, 0, 0, $3, $3) RETURNING id`, profileID, name, now).Scan(&strategyID); err != nil {
 		t.Fatalf("insert task9 runtime strategy: %v", err)
 	}
 	return strategyID

@@ -17,7 +17,7 @@ func TestRuntimeConnectionStateIsEligible(t *testing.T) {
 		state RuntimeConnectionState
 		want  bool
 	}{
-		{name: "manual ban excluded", state: RuntimeConnectionState{BanMode: "manual"}, want: false},
+		{name: "until_reset ban excluded", state: RuntimeConnectionState{BanMode: "until_reset"}, want: false},
 		{name: "temporary ban excluded", state: RuntimeConnectionState{BanMode: "temporary", BannedUntilAt: &futureBan}, want: false},
 		{name: "retry wait excluded", state: RuntimeConnectionState{BanMode: "off", NextRetryAt: &futureRetry}, want: false},
 		{name: "past retry window eligible", state: RuntimeConnectionState{BanMode: "off", NextRetryAt: &pastRetry}, want: true},

@@ -2281,7 +2281,7 @@ func seedRequestLogModels(t *testing.T, harness *requestLogContractHarness, prof
 	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
 	openAIVendorID := loadRequestLogVendorIDByKey(t, harness, "openai")
 	var strategyID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, created_at, updated_at) VALUES ($1, $2, 'round-robin', $3, $3) RETURNING id`, profileID, "request-log-current-models", now).Scan(&strategyID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at) VALUES ($1, $2, 'round-robin', ARRAY[403,422,429,500,502,503,504,529], 'off', 60000, 2.0, 0.2, 900000, 3, 0, 0, $3, $3) RETURNING id`, profileID, "request-log-current-models", now).Scan(&strategyID); err != nil {
 		t.Fatalf("insert current request-log strategy: %v", err)
 	}
 	var nativeModelID int

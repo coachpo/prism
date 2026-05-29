@@ -27,23 +27,23 @@ type queryExecutor interface {
 }
 
 type CurrentStateItem struct {
-	ConnectionID              int        `json:"connection_id"`
-	WindowStartedAt           *time.Time `json:"window_started_at"`
-	WindowRequestCount        int        `json:"window_request_count"`
-	InFlightNonStream         int        `json:"in_flight_non_stream"`
-	InFlightStream            int        `json:"in_flight_stream"`
-	CycleRetryAttempts        int        `json:"cycle_retry_attempts"`
-	CumulativeRetryAttempts   int        `json:"cumulative_retry_attempts"`
-	NextRetryAt               *time.Time `json:"next_retry_at"`
-	LastRetryDelayMS          int        `json:"last_retry_delay_ms"`
-	BanMode                   string     `json:"ban_mode"`
-	BannedUntilAt             *time.Time `json:"banned_until_at"`
-	LastFailureKind           *string    `json:"last_failure_kind"`
-	LastSuccessAt             *time.Time `json:"last_success_at"`
-	LiveP95LatencyMS          *int       `json:"live_p95_latency_ms"`
-	State                     string     `json:"state"`
-	CreatedAt                 time.Time  `json:"created_at"`
-	UpdatedAt                 time.Time  `json:"updated_at"`
+	ConnectionID            int        `json:"connection_id"`
+	WindowStartedAt         *time.Time `json:"window_started_at"`
+	WindowRequestCount      int        `json:"window_request_count"`
+	InFlightNonStream       int        `json:"in_flight_non_stream"`
+	InFlightStream          int        `json:"in_flight_stream"`
+	CycleRetryAttempts      int        `json:"cycle_retry_attempts"`
+	CumulativeRetryAttempts int        `json:"cumulative_retry_attempts"`
+	NextRetryAt             *time.Time `json:"next_retry_at"`
+	LastRetryDelayMS        int        `json:"last_retry_delay_ms"`
+	BanMode                 string     `json:"ban_mode"`
+	BannedUntilAt           *time.Time `json:"banned_until_at"`
+	LastFailureKind         *string    `json:"last_failure_kind"`
+	LastSuccessAt           *time.Time `json:"last_success_at"`
+	LiveP95LatencyMS        *int       `json:"live_p95_latency_ms"`
+	State                   string     `json:"state"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 type CurrentStateListResponse struct {
@@ -63,23 +63,25 @@ type EventSummary struct {
 }
 
 type Event struct {
-	ID                        int64        `json:"id"`
-	ProfileID                 int          `json:"profile_id"`
-	ConnectionID              int          `json:"connection_id"`
-	EventType                 string       `json:"event_type"`
-	FailureKind               *string      `json:"failure_kind"`
-	CycleRetryAttempts        int          `json:"cycle_retry_attempts"`
-	CumulativeRetryAttempts   int          `json:"cumulative_retry_attempts"`
-	NextRetryAt               *time.Time   `json:"next_retry_at"`
-	LastRetryDelayMS          int          `json:"last_retry_delay_ms"`
-	ModelID                   *string      `json:"model_id"`
-	EndpointID                *int         `json:"endpoint_id"`
-	VendorID                  *int         `json:"vendor_id"`
-	BanMode                   *string      `json:"ban_mode"`
-	BannedUntilAt             *time.Time   `json:"banned_until_at"`
-	LastSuccessAt             *time.Time   `json:"last_success_at"`
-	Summary                   EventSummary `json:"summary"`
-	CreatedAt                 time.Time    `json:"created_at"`
+	ID                                 int64        `json:"id"`
+	ProfileID                          int          `json:"profile_id"`
+	ConnectionID                       int          `json:"connection_id"`
+	EventType                          string       `json:"event_type"`
+	FailureKind                        *string      `json:"failure_kind"`
+	CycleRetryAttempts                 int          `json:"cycle_retry_attempts"`
+	CumulativeRetryAttempts            int          `json:"cumulative_retry_attempts"`
+	NextRetryAt                        *time.Time   `json:"next_retry_at"`
+	LastRetryDelayMS                   int          `json:"last_retry_delay_ms"`
+	ModelID                            *string      `json:"model_id"`
+	EndpointID                         *int         `json:"endpoint_id"`
+	VendorID                           *int         `json:"vendor_id"`
+	BanMode                            *string      `json:"ban_mode"`
+	CycleRetryAttemptLimit             *int         `json:"cycle_retry_attempt_limit"`
+	BanCumulativeRetryAttemptThreshold *int         `json:"ban_cumulative_retry_attempt_threshold"`
+	BannedUntilAt                      *time.Time   `json:"banned_until_at"`
+	LastSuccessAt                      *time.Time   `json:"last_success_at"`
+	Summary                            EventSummary `json:"summary"`
+	CreatedAt                          time.Time    `json:"created_at"`
 }
 
 type EventDetail struct {
@@ -173,7 +175,7 @@ func ListEvents(ctx context.Context, exec queryExecutor, profileID int, modelID 
 	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM loadbalance_events WHERE profile_id = $1 AND model_id = $2`, profileID, modelID).Scan(&total); err != nil {
 		return EventListResponse{}, fmt.Errorf("count loadbalance events for profile %d model %q: %w", profileID, modelID, err)
 	}
-	rows, err := exec.Query(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, profileID, modelID, limit, offset)
+	rows, err := exec.Query(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, profileID, modelID, limit, offset)
 	if err != nil {
 		return EventListResponse{}, fmt.Errorf("query loadbalance events for profile %d model %q: %w", profileID, modelID, err)
 	}
@@ -193,7 +195,7 @@ func ListEvents(ctx context.Context, exec queryExecutor, profileID int, modelID 
 }
 
 func GetEvent(ctx context.Context, exec queryExecutor, profileID int, eventID int64) (*EventDetail, error) {
-	row := exec.QueryRow(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, eventID)
+	row := exec.QueryRow(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, eventID)
 	item, err := scanEvent(row)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -211,10 +213,12 @@ func scanEvent(scanner interface{ Scan(...any) error }) (EventDetail, error) {
 	var endpointID sql.NullInt32
 	var vendorID sql.NullInt32
 	var banMode sql.NullString
+	var policyCycleRetryAttemptLimit sql.NullInt32
+	var policyBanCumulativeRetryAttemptThreshold sql.NullInt32
 	var bannedUntilAt sql.NullTime
 	var lastSuccessAt sql.NullTime
 	item := EventDetail{}
-	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.ConnectionID, &item.EventType, &failureKind, &item.CycleRetryAttempts, &item.CumulativeRetryAttempts, &nextRetryAt, &item.LastRetryDelayMS, &modelID, &endpointID, &vendorID, &banMode, &bannedUntilAt, &lastSuccessAt, &item.CreatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.ConnectionID, &item.EventType, &failureKind, &item.CycleRetryAttempts, &item.CumulativeRetryAttempts, &nextRetryAt, &item.LastRetryDelayMS, &modelID, &endpointID, &vendorID, &banMode, &policyCycleRetryAttemptLimit, &policyBanCumulativeRetryAttemptThreshold, &bannedUntilAt, &lastSuccessAt, &item.CreatedAt); err != nil {
 		return EventDetail{}, err
 	}
 	item.FailureKind = nullableString(failureKind)
@@ -223,15 +227,17 @@ func scanEvent(scanner interface{ Scan(...any) error }) (EventDetail, error) {
 	item.EndpointID = nullableInt32(endpointID)
 	item.VendorID = nullableInt32(vendorID)
 	item.BanMode = nullableString(banMode)
+	item.CycleRetryAttemptLimit = nullableInt32(policyCycleRetryAttemptLimit)
+	item.BanCumulativeRetryAttemptThreshold = nullableInt32(policyBanCumulativeRetryAttemptThreshold)
 	item.BannedUntilAt = nullableTime(bannedUntilAt)
 	item.LastSuccessAt = nullableTime(lastSuccessAt)
 	item.CreatedAt = item.CreatedAt.UTC()
-	item.Summary = describeEvent(item.EventType, item.FailureKind, item.CycleRetryAttempts, item.CumulativeRetryAttempts, item.LastRetryDelayMS)
+	item.Summary = describeEvent(item.EventType, item.FailureKind, item.CycleRetryAttempts, item.CumulativeRetryAttempts, item.LastRetryDelayMS, item.BanCumulativeRetryAttemptThreshold)
 	return item, nil
 }
 
 func deriveCurrentState(banMode string, bannedUntilAt *time.Time, nextRetryAt *time.Time, nowAt time.Time) string {
-	if strings.EqualFold(strings.TrimSpace(banMode), "manual") {
+	if strings.EqualFold(strings.TrimSpace(banMode), "until_reset") {
 		return "banned"
 	}
 	if bannedUntilAt != nil && bannedUntilAt.After(nowAt.UTC()) {
@@ -243,7 +249,7 @@ func deriveCurrentState(banMode string, bannedUntilAt *time.Time, nextRetryAt *t
 	return "available"
 }
 
-func describeEvent(eventType string, failureKind *string, cycleRetryAttempts int, cumulativeRetryAttempts int, lastRetryDelayMS int) EventSummary {
+func describeEvent(eventType string, failureKind *string, cycleRetryAttempts int, cumulativeRetryAttempts int, lastRetryDelayMS int, policyBanCumulativeRetryAttemptThreshold *int) EventSummary {
 	failureLabel := "failure"
 	if failureKind != nil {
 		switch *failureKind {
@@ -262,7 +268,7 @@ func describeEvent(eventType string, failureKind *string, cycleRetryAttempts int
 	case "retry_exhausted":
 		return EventSummary{Event: "Retry cycle was exhausted", Reason: fmt.Sprintf("The %s exhausted the current retry cycle after %d attempts.", failureLabel, cycleRetryAttempts), Operation: fmt.Sprintf("Prism will wait %s before opening a new retry cycle for this connection.", delayLabel), Cooldown: delayLabel}
 	case "banned":
-		return EventSummary{Event: "Connection was banned", Reason: fmt.Sprintf("The %s pushed cumulative retry attempts to %d, exceeding the Ban Mode threshold.", failureLabel, cumulativeRetryAttempts), Operation: "Prism removed this connection globally until the ban expires or an operator resets it.", Cooldown: delayLabel}
+		return EventSummary{Event: "Connection was banned", Reason: describeBannedEventReason(failureLabel, cumulativeRetryAttempts, policyBanCumulativeRetryAttemptThreshold), Operation: "Prism removed this connection globally until the ban expires or an operator resets it.", Cooldown: delayLabel}
 	case "unbanned":
 		return EventSummary{Event: "Connection was unbanned", Reason: "The temporary ban expired before the next runtime attempt.", Operation: "Prism returned the connection to global availability for models that share it.", Cooldown: "Ban expired"}
 	case "recovered":
@@ -272,6 +278,13 @@ func describeEvent(eventType string, failureKind *string, cycleRetryAttempts int
 	default:
 		return EventSummary{Event: "Retry event was recorded", Reason: fmt.Sprintf("The connection has %d cycle retry attempts and %d cumulative retry attempts.", cycleRetryAttempts, cumulativeRetryAttempts), Operation: "Prism updated connection-global retry state.", Cooldown: delayLabel}
 	}
+}
+
+func describeBannedEventReason(failureLabel string, cumulativeRetryAttempts int, policyBanCumulativeRetryAttemptThreshold *int) string {
+	if policyBanCumulativeRetryAttemptThreshold != nil {
+		return fmt.Sprintf("The %s pushed cumulative retry attempts to %d, meeting the configured cumulative ban threshold of %d attempts.", failureLabel, cumulativeRetryAttempts, *policyBanCumulativeRetryAttemptThreshold)
+	}
+	return fmt.Sprintf("The %s pushed cumulative retry attempts to %d and banned the connection; no policy threshold snapshot was recorded for this historical event.", failureLabel, cumulativeRetryAttempts)
 }
 
 func formatDurationMS(milliseconds int) string {

@@ -164,23 +164,23 @@ func (s *LocalRuntimeStateStore) SnapshotCurrentState(profileID int, modelConfig
 		state.refreshAvailabilityLocked(nowAt)
 		snapshot := state.snapshotLocked()
 		item := CurrentStateItem{
-			ConnectionID:              snapshot.ConnectionID,
-			WindowStartedAt:           cloneTimePointer(snapshot.WindowStartedAt),
-			WindowRequestCount:        snapshot.WindowRequestCount,
-			InFlightNonStream:         snapshot.InFlightNonStream,
-			InFlightStream:            snapshot.InFlightStream,
-			CycleRetryAttempts:        snapshot.CycleRetryAttempts,
-			CumulativeRetryAttempts:   snapshot.CumulativeRetryAttempts,
-			NextRetryAt:               cloneTimePointer(snapshot.NextRetryAt),
-			LastRetryDelayMS:          snapshot.LastRetryDelayMS,
-			BanMode:                   snapshot.BanMode,
-			BannedUntilAt:             cloneTimePointer(snapshot.BannedUntilAt),
-			LastFailureKind:           cloneStringPointer(snapshot.LastFailureKind),
-			LastSuccessAt:             cloneTimePointer(snapshot.LastSuccessAt),
-			LiveP95LatencyMS:          cloneIntPointer(snapshot.LiveP95LatencyMS),
-			State:                     deriveCurrentState(snapshot.BanMode, snapshot.BannedUntilAt, snapshot.NextRetryAt, nowAt),
-			CreatedAt:                 state.createdAt.UTC(),
-			UpdatedAt:                 state.updatedAt.UTC(),
+			ConnectionID:            snapshot.ConnectionID,
+			WindowStartedAt:         cloneTimePointer(snapshot.WindowStartedAt),
+			WindowRequestCount:      snapshot.WindowRequestCount,
+			InFlightNonStream:       snapshot.InFlightNonStream,
+			InFlightStream:          snapshot.InFlightStream,
+			CycleRetryAttempts:      snapshot.CycleRetryAttempts,
+			CumulativeRetryAttempts: snapshot.CumulativeRetryAttempts,
+			NextRetryAt:             cloneTimePointer(snapshot.NextRetryAt),
+			LastRetryDelayMS:        snapshot.LastRetryDelayMS,
+			BanMode:                 snapshot.BanMode,
+			BannedUntilAt:           cloneTimePointer(snapshot.BannedUntilAt),
+			LastFailureKind:         cloneStringPointer(snapshot.LastFailureKind),
+			LastSuccessAt:           cloneTimePointer(snapshot.LastSuccessAt),
+			LiveP95LatencyMS:        cloneIntPointer(snapshot.LiveP95LatencyMS),
+			State:                   deriveCurrentState(snapshot.BanMode, snapshot.BannedUntilAt, snapshot.NextRetryAt, nowAt),
+			CreatedAt:               state.createdAt.UTC(),
+			UpdatedAt:               state.updatedAt.UTC(),
 		}
 		state.mu.Unlock()
 		items = append(items, item)
@@ -515,14 +515,14 @@ func (s *LocalRuntimeStateStore) recordRuntimeFailure(profileID int, modelConfig
 		banMode = activeBanMode
 		bannedUntilAt = cloneTimePointer(activeBannedUntilAt)
 	}
-	if normalizeBanMode(policy.BanMode) != "off" && cumulativeRetryAttempts > 2*maxInt(policy.RetryMaxAttempts, 1) {
+	if cumulativeRetryAttemptsReachedBanThreshold(policy, cumulativeRetryAttempts) {
 		banMode = normalizeBanMode(policy.BanMode)
 		nextRetryAt = nil
 		switch banMode {
 		case "temporary":
 			bannedUntil := nowAt.Add(time.Duration(maxInt(policy.BanDurationSeconds, 0)) * time.Second)
 			bannedUntilAt = &bannedUntil
-		case "manual":
+		case "until_reset":
 			bannedUntilAt = nil
 		default:
 			banMode = "off"
@@ -606,11 +606,15 @@ func (state *localRuntimeConnectionState) refreshAvailabilityLocked(referenceNow
 	return changed
 }
 
+func cumulativeRetryAttemptsReachedBanThreshold(policy runtimeFeedbackPolicy, cumulativeRetryAttempts int) bool {
+	return normalizeBanMode(policy.BanMode) != "off" && cumulativeRetryAttempts >= policy.BanCumulativeRetryAttemptThreshold
+}
+
 func activeBanState(state RuntimeConnectionState, referenceNow time.Time) (string, *time.Time) {
 	nowAt := referenceNow.UTC()
 	banMode := normalizeBanMode(state.BanMode)
 	switch banMode {
-	case "manual":
+	case "until_reset":
 		return banMode, nil
 	case "temporary":
 		if state.BannedUntilAt != nil && state.BannedUntilAt.After(nowAt) {

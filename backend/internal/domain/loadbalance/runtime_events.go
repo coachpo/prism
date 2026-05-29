@@ -19,15 +19,17 @@ type PartitionEnsurer interface {
 }
 
 type runtimeEventPayload struct {
-	EventType                 string
-	FailureKind               *string
-	CycleRetryAttempts        int
-	CumulativeRetryAttempts   int
-	NextRetryAt               *time.Time
-	LastRetryDelayMS          int
-	BanMode                   *string
-	BannedUntilAt             *time.Time
-	LastSuccessAt             *time.Time
+	EventType                                string
+	FailureKind                              *string
+	CycleRetryAttempts                       int
+	CumulativeRetryAttempts                  int
+	NextRetryAt                              *time.Time
+	LastRetryDelayMS                         int
+	BanMode                                  *string
+	PolicyCycleRetryAttemptLimit             *int
+	PolicyBanCumulativeRetryAttemptThreshold *int
+	BannedUntilAt                            *time.Time
+	LastSuccessAt                            *time.Time
 }
 
 func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, modelConfigID int, connectionID int, observedAt time.Time, payload runtimeEventPayload) error {
@@ -44,8 +46,8 @@ func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, part
 	}
 	_, err = exec.Exec(
 		ctx,
-		`INSERT INTO loadbalance_events (profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, banned_until_at, last_success_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		`INSERT INTO loadbalance_events (profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
 		profileID,
 		connectionID,
 		payload.EventType,
@@ -58,6 +60,8 @@ func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, part
 		nullableIntPointerArg(metadata.EndpointID),
 		nullableIntPointerArg(metadata.VendorID),
 		nullableStringPointerArg(payload.BanMode),
+		nullableIntPointerArg(payload.PolicyCycleRetryAttemptLimit),
+		nullableIntPointerArg(payload.PolicyBanCumulativeRetryAttemptThreshold),
 		nullableTimeArg(payload.BannedUntilAt),
 		nullableTimeArg(payload.LastSuccessAt),
 		observedAt.UTC(),
@@ -163,22 +167,37 @@ func buildRuntimeFailureEventPayload(state RuntimeConnectionState, strategy Runt
 	failureKindValue := failureKind
 	banModeValue := normalizeBanMode(state.BanMode)
 	eventType := "retry_scheduled"
-	if banModeValue != "off" && (banModeValue == "manual" || state.BannedUntilAt != nil) {
+	if runtimeFailureEventStateIsBanned(state, policy, banModeValue) {
 		eventType = "banned"
-	} else if state.CycleRetryAttempts >= maxInt(policy.RetryMaxAttempts, 1) {
+	} else if state.CycleRetryAttempts >= maxInt(policy.CycleRetryAttemptLimit, 1) {
 		eventType = "retry_exhausted"
 	}
 	return runtimeEventPayload{
-		EventType:               eventType,
-		FailureKind:             &failureKindValue,
-		CycleRetryAttempts:      state.CycleRetryAttempts,
-		CumulativeRetryAttempts: state.CumulativeRetryAttempts,
-		NextRetryAt:             state.NextRetryAt,
-		LastRetryDelayMS:        state.LastRetryDelayMS,
-		BanMode:                 stringPointerIfNotEmpty(banModeValue),
-		BannedUntilAt:           state.BannedUntilAt,
-		LastSuccessAt:           state.LastSuccessAt,
+		EventType:                                eventType,
+		FailureKind:                              &failureKindValue,
+		CycleRetryAttempts:                       state.CycleRetryAttempts,
+		CumulativeRetryAttempts:                  state.CumulativeRetryAttempts,
+		NextRetryAt:                              state.NextRetryAt,
+		LastRetryDelayMS:                         state.LastRetryDelayMS,
+		BanMode:                                  stringPointerIfNotEmpty(banModeValue),
+		PolicyCycleRetryAttemptLimit:             intPointer(policy.CycleRetryAttemptLimit),
+		PolicyBanCumulativeRetryAttemptThreshold: intPointer(policy.BanCumulativeRetryAttemptThreshold),
+		BannedUntilAt:                            state.BannedUntilAt,
+		LastSuccessAt:                            state.LastSuccessAt,
 	}
+}
+
+func runtimeFailureEventStateIsBanned(state RuntimeConnectionState, policy runtimeFeedbackPolicy, banModeValue string) bool {
+	if banModeValue == "off" {
+		return false
+	}
+	if banModeValue != "until_reset" && state.BannedUntilAt == nil {
+		return false
+	}
+	if normalizeBanMode(policy.BanMode) == "off" {
+		return true
+	}
+	return cumulativeRetryAttemptsReachedBanThreshold(policy, state.CumulativeRetryAttempts)
 }
 
 func buildRuntimeRecoveryEventPayload(previousState RuntimeConnectionState, currentState RuntimeConnectionState) runtimeEventPayload {

@@ -11,17 +11,18 @@ import (
 )
 
 type RuntimeStrategy struct {
-	ID                     int
-	Name                   string
-	LegacyStrategyType     *string
-	FailureStatusCodes     []int
-	BanMode                string
-	RetryBaseDelayMS       int
-	RetryBackoffMultiplier float64
-	RetryJitterRatio       float64
-	RetryMaxDelayMS        int
-	RetryMaxAttempts       int
-	BanDurationSeconds     int
+	ID                                 int
+	Name                               string
+	LegacyStrategyType                 *string
+	FailureStatusCodes                 []int
+	BanMode                            string
+	RetryBaseDelayMS                   int
+	RetryBackoffMultiplier             float64
+	RetryJitterRatio                   float64
+	RetryMaxDelayMS                    int
+	CycleRetryAttemptLimit             int
+	BanCumulativeRetryAttemptThreshold int
+	BanDurationSeconds                 int
 }
 
 type ConnectionOrderCandidate struct {
@@ -32,14 +33,15 @@ type ConnectionOrderCandidate struct {
 var defaultRuntimeFailoverStatusCodes = []int{403, 422, 429, 500, 502, 503, 504, 529}
 
 type runtimeFeedbackPolicy struct {
-	Enabled            bool
-	RetryMaxAttempts   int
-	BaseDelayMS        int
-	BackoffMultiplier  float64
-	JitterRatio        float64
-	MaxDelayMS         int
-	BanMode            string
-	BanDurationSeconds int
+	Enabled                            bool
+	CycleRetryAttemptLimit             int
+	BanCumulativeRetryAttemptThreshold int
+	BaseDelayMS                        int
+	BackoffMultiplier                  float64
+	JitterRatio                        float64
+	MaxDelayMS                         int
+	BanMode                            string
+	BanDurationSeconds                 int
 }
 
 type runtimeAdmissionPolicy struct {
@@ -61,7 +63,7 @@ func LoadRuntimeStrategy(ctx context.Context, exec queryExecutor, profileID int,
 		ctx,
 		`SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
-			retry_max_delay_ms, retry_max_attempts, ban_duration_seconds
+			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds
 		FROM loadbalance_strategies
 		WHERE profile_id = $1 AND id = $2
 		LIMIT 1`,
@@ -77,7 +79,8 @@ func LoadRuntimeStrategy(ctx context.Context, exec queryExecutor, profileID int,
 		&record.RetryBackoffMultiplier,
 		&record.RetryJitterRatio,
 		&record.RetryMaxDelayMS,
-		&record.RetryMaxAttempts,
+		&record.CycleRetryAttemptLimit,
+		&record.BanCumulativeRetryAttemptThreshold,
 		&record.BanDurationSeconds,
 	)
 	if err == pgx.ErrNoRows {
@@ -134,14 +137,15 @@ func (strategy RuntimeStrategy) FailoverStatusCodes() []int {
 
 func (strategy RuntimeStrategy) FeedbackPolicy() runtimeFeedbackPolicy {
 	return runtimeFeedbackPolicy{
-		Enabled:            true,
-		RetryMaxAttempts:   maxInt(strategy.RetryMaxAttempts, 1),
-		BaseDelayMS:        maxInt(strategy.RetryBaseDelayMS, 0),
-		BackoffMultiplier:  maxFloat(strategy.RetryBackoffMultiplier, 1),
-		JitterRatio:        clampFloat(strategy.RetryJitterRatio, 0, 1),
-		MaxDelayMS:         maxInt(strategy.RetryMaxDelayMS, 0),
-		BanMode:            normalizeBanMode(strategy.BanMode),
-		BanDurationSeconds: maxInt(strategy.BanDurationSeconds, 0),
+		Enabled:                            true,
+		CycleRetryAttemptLimit:             maxInt(strategy.CycleRetryAttemptLimit, 1),
+		BanCumulativeRetryAttemptThreshold: maxInt(strategy.BanCumulativeRetryAttemptThreshold, 0),
+		BaseDelayMS:                        maxInt(strategy.RetryBaseDelayMS, 0),
+		BackoffMultiplier:                  maxFloat(strategy.RetryBackoffMultiplier, 1),
+		JitterRatio:                        clampFloat(strategy.RetryJitterRatio, 0, 1),
+		MaxDelayMS:                         maxInt(strategy.RetryMaxDelayMS, 0),
+		BanMode:                            normalizeBanMode(strategy.BanMode),
+		BanDurationSeconds:                 maxInt(strategy.BanDurationSeconds, 0),
 	}
 }
 
@@ -178,9 +182,10 @@ func clampFloat(value float64, minimum float64, maximum float64) float64 {
 }
 
 func normalizeBanMode(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "manual", "temporary":
-		return strings.ToLower(strings.TrimSpace(value))
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "temporary", "until_reset":
+		return normalized
 	default:
 		return "off"
 	}

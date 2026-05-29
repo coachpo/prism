@@ -807,7 +807,7 @@ func TestRuntimeSharedConnectionGlobalBan(t *testing.T) {
 	if _, err := harness.conn.Exec(
 		context.Background(),
 		`UPDATE loadbalance_strategies
-		 SET ban_mode = 'temporary', retry_base_delay_ms = 0, retry_max_attempts = 1, ban_duration_seconds = 600, updated_at = $2
+		 SET ban_mode = 'temporary', retry_base_delay_ms = 0, cycle_retry_attempt_limit = 1, ban_cumulative_retry_attempt_threshold = 3, ban_duration_seconds = 600, updated_at = $2
 		 WHERE id = $1`,
 		banStrategyID,
 		time.Now().UTC(),
@@ -2646,12 +2646,13 @@ func (h *runtimeHarness) seedLegacyStrategyWithAutoRecovery(tb testing.TB, profi
 	var strategyID int
 	if err := h.conn.QueryRow(
 		context.Background(),
-		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $4)
+		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4::integer[], 'off', 60000, 2.0, 0.2, 900000, 3, 0, 0, $5, $5)
 		 RETURNING id`,
 		profileID,
 		name,
 		legacyStrategyType,
+		[]int32{403, 422, 429, 500, 502, 503, 504, 529},
 		now,
 	).Scan(&strategyID); err != nil {
 		tb.Fatalf("insert runtime strategy %q: %v", name, err)
@@ -3060,43 +3061,43 @@ func TestRuntimeBanEscalationRecordsTemporaryBanStateAndEvent(t *testing.T) {
 	}
 }
 
-func TestRuntimeBanEscalationRecordsManualBanStateAndEvent(t *testing.T) {
+func TestRuntimeBanEscalationRecordsUntilResetBanStateAndEvent(t *testing.T) {
 	t.Skip("Task 14 owns Ban Mode runtime state/event semantics")
 	harness := newRuntimeHarness(t)
 	activeProfileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "proxy-ban-manual-" + suffix
-	targetModelID := "native-ban-manual-" + suffix
-	banUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "manual ban trigger"})
-	strategyID := harness.seedAdaptiveStrategy(t, activeProfileID, "runtime-ban-manual-"+suffix)
+	publicModelID := "proxy-ban-until-reset-" + suffix
+	targetModelID := "native-ban-until-reset-" + suffix
+	banUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "until-reset ban trigger"})
+	strategyID := harness.seedAdaptiveStrategy(t, activeProfileID, "runtime-ban-until-reset-"+suffix)
 	if _, err := harness.conn.Exec(
 		context.Background(),
 		`UPDATE loadbalance_strategies
 		 SET routing_policy = $2::jsonb, updated_at = $3
 		 WHERE id = $1`,
 		strategyID,
-		`{"kind":"adaptive","routing_objective":"minimize_latency","hedge":{"enabled":false,"delay_ms":1500,"max_additional_attempts":1},"circuit_breaker":{"failure_status_codes":[503],"base_open_seconds":1,"failure_threshold":1,"backoff_multiplier":2.0,"max_open_seconds":60,"ban_mode":"manual","max_open_strikes_before_ban":1,"ban_duration_seconds":0},"admission":{"respect_qps_limit":true,"respect_in_flight_limits":true}}`,
+		`{"kind":"adaptive","routing_objective":"minimize_latency","hedge":{"enabled":false,"delay_ms":1500,"max_additional_attempts":1},"circuit_breaker":{"failure_status_codes":[503],"base_open_seconds":1,"failure_threshold":1,"backoff_multiplier":2.0,"max_open_seconds":60,"ban_mode":"until_reset","max_open_strikes_before_ban":1,"ban_duration_seconds":0},"admission":{"respect_qps_limit":true,"respect_in_flight_limits":true}}`,
 		time.Now().UTC(),
 	); err != nil {
-		t.Fatalf("update manual ban routing policy: %v", err)
+		t.Fatalf("update until-reset ban routing policy: %v", err)
 	}
 	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
 	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
-	endpointID := harness.seedEndpoint(t, activeProfileID, "ban-manual-endpoint-"+suffix, banUpstream.baseURL("/loadbalance/ban/manual"), "ban-manual-key", 0)
-	connectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, endpointID, "ban-manual-connection-"+suffix, nil, nil, 0)
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "trigger manual ban"}}, "model": publicModelID}, nil)
+	endpointID := harness.seedEndpoint(t, activeProfileID, "ban-until-reset-endpoint-"+suffix, banUpstream.baseURL("/loadbalance/ban/until-reset"), "ban-until-reset-key", 0)
+	connectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, endpointID, "ban-until-reset-connection-"+suffix, nil, nil, 0)
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "trigger until-reset ban"}}, "model": publicModelID}, nil)
 	assertStatus(t, response, http.StatusServiceUnavailable)
 	state := loadRuntimeState(t, harness, activeProfileID, connectionID)
-	if state.BanMode != "manual" || state.BannedUntilAt.Valid || state.CircuitState != "open" {
-		t.Fatalf("expected manual ban in runtime state, got %+v", state)
+	if state.BanMode != "until_reset" || state.BannedUntilAt.Valid || state.CircuitState != "open" {
+		t.Fatalf("expected until-reset ban in runtime state, got %+v", state)
 	}
 	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, connectionID)
 	if len(events) != 1 {
-		t.Fatalf("expected one loadbalance event for manual ban, got %+v", events)
+		t.Fatalf("expected one loadbalance event for until-reset ban, got %+v", events)
 	}
-	if events[0].EventType != "banned" || !events[0].BanMode.Valid || events[0].BanMode.String != "manual" || events[0].BannedUntilAt.Valid {
-		t.Fatalf("expected banned event with manual ban metadata, got %+v", events[0])
+	if events[0].EventType != "banned" || !events[0].BanMode.Valid || events[0].BanMode.String != "until_reset" || events[0].BannedUntilAt.Valid {
+		t.Fatalf("expected banned event with until-reset ban metadata, got %+v", events[0])
 	}
 }
 
