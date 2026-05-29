@@ -59,6 +59,7 @@ export interface Messages {
   dashboard: {
     activeModels: string;
     analyticsTab: string;
+    adaptiveStrategy: string;
     averageRpm: string;
     avgLatency: string;
     errorRate: string;
@@ -71,6 +72,7 @@ export interface Messages {
     noRecentActivityDescription: string;
     noSpendingData: string;
     noSpendingDataDescription: string;
+    legacyStrategy: string;
     overviewTab: string;
     performanceSnapshot: string;
     performanceSnapshotDescription: string;
@@ -80,6 +82,7 @@ export interface Messages {
     quickActions: string;
     quickActionsDescription: string;
     routingStrategyMix: string;
+    strategyNotConfigured: string;
     recentActivity: string;
     recentActivityDescription: string;
     refreshDashboard: string;
@@ -334,11 +337,13 @@ export interface Messages {
     basicsSectionTitle: string;
     banDurationDescription: string;
     banDurationLabel: string;
+    banCumulativeRetryAttemptThresholdDescription: string;
+    banCumulativeRetryAttemptThresholdLabel: string;
     banModeDescription: string;
     banModeLabel: string;
-    banModeManualOption: string;
     banModeOffOption: string;
     banModeTemporaryOption: string;
+    banModeUntilResetOption: string;
     backoffMultiplierDescription: string;
     backoffMultiplierLabel: string;
     cancel: string;
@@ -355,8 +360,8 @@ export interface Messages {
     retryBaseDelayLabel: string;
     retryJitterRatioDescription: string;
     retryJitterRatioLabel: string;
-    retryMaxAttemptsDescription: string;
-    retryMaxAttemptsLabel: string;
+    cycleRetryAttemptLimitDescription: string;
+    cycleRetryAttemptLimitLabel: string;
     retryMaxDelayDescription: string;
     retryMaxDelayLabel: string;
     reliabilityControlsSectionTitle: string;
@@ -380,9 +385,9 @@ export interface Messages {
   };
   loadbalanceEvents: {
     backoffMultiplier: string;
-    banModeManual: string;
     banModeOff: string;
     banModeTemporary: string;
+    banModeUntilReset: string;
     banMode: string;
     bannedUntil: string;
     connection: string;
@@ -442,10 +447,10 @@ export interface Messages {
     addStrategy: string;
     createDefaults: string;
     attachedModels: string;
-    banManualDismissPolicy: string;
     banOff: string;
     banPolicy: string;
-    banTemporaryPolicy: (durationSeconds: string) => string;
+    banTemporaryPolicy: (threshold: string, durationSeconds: string) => string;
+    banUntilResetPolicy: (threshold: string) => string;
     description: string;
     disabled: string;
     edit: string;
@@ -458,7 +463,7 @@ export interface Messages {
     retryPolicySummary: (
       baseDelayMs: string,
       maxDelayMs: string,
-      maxAttempts: string,
+      cycleRetryAttemptLimit: string,
       multiplier: string,
       jitterRatio: string,
     ) => string;
@@ -480,10 +485,13 @@ export interface Messages {
   loadbalanceStrategyValidation: {
     addStatusCode: string;
     backoffMultiplierRange: string;
+    banCumulativeRetryAttemptThresholdInteger: string;
+    banCumulativeRetryAttemptThresholdMinCycle: string;
+    banCumulativeRetryAttemptThresholdRange: string;
     banDurationIntegerSeconds: string;
-    banDurationManualDismissZero: string;
     banDurationTemporaryMin: string;
-    banModeOffZero: string;
+    banDurationUntilResetZero: string;
+    banModeOffThresholdZero: string;
     baseCooldownIntegerSeconds: string;
     baseCooldownMin: string;
     failureThresholdInteger: string;
@@ -496,8 +504,8 @@ export interface Messages {
     retryBaseDelayIntegerMs: string;
     retryBaseDelayRange: string;
     retryJitterRatioRange: string;
-    retryMaxAttemptsInteger: string;
-    retryMaxAttemptsRange: string;
+    cycleRetryAttemptLimitInteger: string;
+    cycleRetryAttemptLimitRange: string;
     retryMaxDelayIntegerMs: string;
     retryMaxDelayRange: string;
     statusCodeExists: string;
@@ -2153,6 +2161,7 @@ export const enMessages: Messages = {
   dashboard: {
     activeModels: "Active Models",
     analyticsTab: "Analytics",
+    adaptiveStrategy: "Adaptive strategy",
     averageRpm: "Average RPM",
     avgLatency: "Avg Latency",
     dashboardDescription: "System overview and health status",
@@ -2163,6 +2172,7 @@ export const enMessages: Messages = {
     noRecentActivityDescription: "Requests will appear here once processed.",
     noSpendingData: "No spending data",
     noSpendingDataDescription: "Cost data will appear here once requests are priced.",
+    legacyStrategy: "Legacy strategy",
     noApiFamilyActivity: "No API family activity",
     noApiFamilyActivityDescription: "API family request distribution appears after traffic is processed.",
     overviewTab: "Overview",
@@ -2175,6 +2185,7 @@ export const enMessages: Messages = {
     quickActions: "Quick Actions",
     quickActionsDescription: "Jump to focused spending analysis",
     routingStrategyMix: "Routing strategy mix",
+    strategyNotConfigured: "Strategy not configured",
     recentActivity: "Recent Activity",
     recentActivityDescription: "Latest requests processed by the gateway",
     refreshDashboard: "Refresh dashboard",
@@ -2436,17 +2447,20 @@ export const enMessages: Messages = {
     banDurationDescription:
       "How long a temporary ban lasts before the connection can be routed again.",
     banDurationLabel: "Ban Duration (seconds)",
+    banCumulativeRetryAttemptThresholdDescription:
+      "Cumulative retry attempts that trigger the selected ban mode; use 0 only when Ban Mode is Off.",
+    banCumulativeRetryAttemptThresholdLabel: "Ban Cumulative Retry Attempt Threshold",
     banModeDescription:
-      "Choose whether retry exhaustion leaves routing unbanned, applies a temporary ban, or waits for manual dismiss.",
+      "Choose whether cumulative retry attempts never ban, ban temporarily, or ban until reset.",
     banModeLabel: "Ban Mode",
-    banModeManualOption: "Manual dismiss",
     banModeOffOption: "Off",
     banModeTemporaryOption: "Temporary",
+    banModeUntilResetOption: "Until reset",
     backoffMultiplierDescription:
       "Multiplier applied to each retry-window delay after a failure is recorded.",
     backoffMultiplierLabel: "Backoff Multiplier",
     cancel: "Cancel",
-    description: "Configure reusable legacy-routing Ban Policy strategies for this profile.",
+    description: "Configure reusable routing-family Ban Policy strategies for this profile.",
     editTitle: "Edit Loadbalance Strategy",
     explainField: (label) => `Explain ${label}`,
     failureStatusCodesDescription:
@@ -2462,9 +2476,9 @@ export const enMessages: Messages = {
     retryJitterRatioDescription:
       "Randomized delay ratio applied to retry backoff; use 0 for no jitter and 1 for full jitter.",
     retryJitterRatioLabel: "Retry Jitter Ratio",
-    retryMaxAttemptsDescription:
-      "Maximum retry attempts before the failure remains blocked or triggers the selected ban mode.",
-    retryMaxAttemptsLabel: "Retry Max Attempts",
+    cycleRetryAttemptLimitDescription:
+      "Retry attempts allowed within one cycle before routing moves to the next eligible connection.",
+    cycleRetryAttemptLimitLabel: "Cycle Retry Attempt Limit",
     retryMaxDelayDescription:
       "Upper limit for computed retry-window delays after backoff is applied.",
     retryMaxDelayLabel: "Retry Max Delay (ms)",
@@ -2484,16 +2498,16 @@ export const enMessages: Messages = {
   },
   loadbalanceStrategiesPage: {
     description:
-      "Manage reusable legacy-routing Ban Policy strategies for this profile",
+      "Manage reusable routing-family Ban Policy strategies for this profile",
     selectedProfileFallback: "the selected profile",
     scopeCallout: (profileLabel) =>
       `Changes here affect ${profileLabel} and models attached to these strategies.`,
   },
   loadbalanceEvents: {
     backoffMultiplier: "Retry Delay (ms)",
-    banModeManual: "Manual dismiss",
     banModeOff: "Off",
     banModeTemporary: "Temporary",
+    banModeUntilReset: "Until reset",
     banMode: "Ban Mode",
     bannedUntil: "Banned Until",
     connection: "Connection",
@@ -2553,12 +2567,14 @@ export const enMessages: Messages = {
     addStrategy: "Add Strategy",
     createDefaults: "Create Defaults",
     attachedModels: "Attached Models",
-    banManualDismissPolicy: "Manual dismiss ban",
-    banOff: "Ban off",
+    banOff: "Ban off; cumulative threshold disabled",
     banPolicy: "Ban Policy",
-    banTemporaryPolicy: (durationSeconds) => `Temporary ban ${durationSeconds}s`,
+    banTemporaryPolicy: (threshold, durationSeconds) =>
+      `Cumulative threshold ${threshold} attempts triggers temporary ban for ${durationSeconds}s`,
+    banUntilResetPolicy: (threshold) =>
+      `Cumulative threshold ${threshold} attempts bans until reset`,
     description:
-      "Reuse legacy-routing Ban Policy strategies across models instead of redefining retry and ban behavior per model.",
+      "Reuse routing-family Ban Policy strategies across models instead of redefining retry and ban behavior per model.",
     disabled: "Disabled",
     edit: "Edit",
     enabled: "Enabled",
@@ -2567,8 +2583,8 @@ export const enMessages: Messages = {
     deleteStrategyInUse: (count) => `This strategy is attached to ${count} model${count === "1" ? "" : "s"} and cannot be deleted yet.`,
     name: "Name",
     noStrategiesConfigured: "No loadbalance strategies configured.",
-    retryPolicySummary: (baseDelayMs, maxDelayMs, maxAttempts, multiplier, jitterRatio) =>
-      `Retry window ${baseDelayMs}ms base • ${maxDelayMs}ms max • ${maxAttempts} attempts • ${multiplier}x • jitter ${jitterRatio}`,
+    retryPolicySummary: (baseDelayMs, maxDelayMs, cycleRetryAttemptLimit, multiplier, jitterRatio) =>
+      `Cycle retry limit ${cycleRetryAttemptLimit} attempts • retry window ${baseDelayMs}ms base, ${maxDelayMs}ms max, ${multiplier}x backoff, jitter ${jitterRatio}`,
     statusCodes: (codes) => `Status codes ${codes}`,
     title: "Loadbalance Strategies",
     type: "Type",
@@ -2587,10 +2603,16 @@ export const enMessages: Messages = {
   loadbalanceStrategyValidation: {
     addStatusCode: "Add at least one failure status code",
     backoffMultiplierRange: "Backoff multiplier must be between 1 and 10",
+    banCumulativeRetryAttemptThresholdInteger:
+      "Ban cumulative retry attempt threshold must be a whole number",
+    banCumulativeRetryAttemptThresholdMinCycle:
+      "Ban cumulative retry attempt threshold must be greater than or equal to the cycle retry attempt limit",
+    banCumulativeRetryAttemptThresholdRange:
+      "Ban cumulative retry attempt threshold must be between 1 and 500 when banning is enabled",
     banDurationIntegerSeconds: "Ban duration must be a whole number of seconds",
-    banDurationManualDismissZero: "Ban duration must be 0 seconds for manual dismiss bans",
     banDurationTemporaryMin: "Ban duration must be at least 1 second for temporary bans",
-    banModeOffZero: "Ban escalation must stay at 0 strikes and 0 seconds while ban mode is off",
+    banDurationUntilResetZero: "Ban duration must be 0 seconds for off or until-reset bans",
+    banModeOffThresholdZero: "Ban mode Off requires cumulative threshold 0",
     baseCooldownIntegerSeconds: "Base open window must be a whole number of seconds",
     baseCooldownMin: "Base open window must be at least 0 seconds",
     failureThresholdInteger: "Failure threshold must be a whole number",
@@ -2603,8 +2625,8 @@ export const enMessages: Messages = {
     retryBaseDelayIntegerMs: "Retry base delay must be a whole number of milliseconds",
     retryBaseDelayRange: "Retry base delay must be between 0 and 86400000 milliseconds",
     retryJitterRatioRange: "Retry jitter ratio must be between 0 and 1",
-    retryMaxAttemptsInteger: "Retry max attempts must be a whole number",
-    retryMaxAttemptsRange: "Retry max attempts must be between 1 and 50",
+    cycleRetryAttemptLimitInteger: "Cycle retry attempt limit must be a whole number",
+    cycleRetryAttemptLimitRange: "Cycle retry attempt limit must be between 1 and 50",
     retryMaxDelayIntegerMs: "Retry max delay must be a whole number of milliseconds",
     retryMaxDelayRange: "Retry max delay must be between 1 and 86400000 milliseconds",
     statusCodeExists: "That status code is already included",
@@ -3221,7 +3243,7 @@ export const enMessages: Messages = {
     exportWithoutSecrets: "Export without secrets",
     exportWithoutSecretsDescription: "Returns the safe redacted bundle, which stays import-compatible for preview and apply.",
     import: "Profile import",
-    importDescription: "Upload a version 2 profile bundle with top-level connections, preview the exact replacement scope for this selected profile, and apply only with the current preview token.",
+    importDescription: "Upload a version 3 profile bundle with top-level connections, preview the exact replacement scope for this selected profile, and apply only with the current preview token.",
     importInProgress: "Applying import...",
     loadedSummary: (fileName, endpoints, strategies, models, connections) =>
       `Loaded ${fileName}: ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} top-level connections.`,

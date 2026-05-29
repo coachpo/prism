@@ -45,12 +45,13 @@ export interface ConfigLoadbalanceStrategyExport {
   name: string;
   legacy_strategy_type: "single" | "fill-first" | "round-robin" | null;
   failure_status_codes: number[];
-  ban_mode: "off" | "temporary" | "manual" | null;
+  ban_mode: "off" | "temporary" | "until_reset" | null;
   retry_base_delay_ms: number | null;
   retry_backoff_multiplier: number | null;
   retry_jitter_ratio: number | null;
   retry_max_delay_ms: number | null;
-  retry_max_attempts: number | null;
+  cycle_retry_attempt_limit: number | null;
+  ban_cumulative_retry_attempt_threshold: number | null;
   ban_duration_seconds: number | null;
 }
 
@@ -173,7 +174,7 @@ export interface ConfigVendorExport {
 export type ConfigVendorImport = ConfigVendorExport;
 
 export interface ConfigExportResponse {
-  version: 2;
+  version: 3;
   bundle_kind: "profile_config";
   exported_at: string;
   vendor_refs: ConfigVendorRef[];
@@ -189,7 +190,7 @@ export interface ConfigExportResponse {
 }
 
 export interface ConfigImportRequest {
-  version: 2;
+  version: 3;
   bundle_kind: "profile_config";
   exported_at?: string;
   vendor_refs: ConfigVendorRef[];
@@ -250,7 +251,7 @@ export interface ConfigImportSecretSummary {
 
 export interface ConfigImportPreviewResponse {
   ready: boolean;
-  version: 2;
+  version: 3;
   bundle_kind: "profile_config";
   preview_token: string;
   bundle_fingerprint: string;

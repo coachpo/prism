@@ -1,7 +1,7 @@
 # FRONTEND LOADBALANCE STRATEGIES DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/loadbalance-strategies/` owns the dedicated strategy-management route behind `../LoadbalanceStrategiesPage.tsx`. It covers the profile-scoped strategy list, create or edit dialog flows, delete confirmation, and the form normalization that mirrors the backend legacy Ban Policy contract for model access routing.
+`pages/loadbalance-strategies/` owns the dedicated strategy-management route behind `../LoadbalanceStrategiesPage.tsx`. It covers the profile-scoped strategy list, create or edit dialog flows, delete confirmation, and the form normalization that mirrors the backend explicit Ban Policy contract for model access routing.
 
 ## STRUCTURE
 ```
@@ -17,7 +17,7 @@ loadbalance-strategies/
 
 - Route shell and page composition: `../LoadbalanceStrategiesPage.tsx`
 - Strategy bootstrap, mutation orchestration, and optimistic patching: `useLoadbalanceStrategiesPageData.ts`
-- Form defaults, validation, and request payload shaping for the legacy Ban Policy contract: strategies carry `legacy_strategy_type`, failure status codes, retry-window settings, retry attempt limits, and ban mode fields through `loadbalanceStrategyFormState.ts`
+- Form defaults, validation, and request payload shaping for the explicit Ban Policy contract: strategies carry a routing-family field, failure status codes, retry-window settings, cycle retry attempt limits, cumulative ban thresholds, and ban mode fields through `loadbalanceStrategyFormState.ts`
 - Table rendering and destructive flow entrypoints: `LoadbalanceStrategiesTable.tsx`, `DeleteLoadbalanceStrategyDialog.tsx`
 
 ## CONVENTIONS
@@ -27,8 +27,8 @@ loadbalance-strategies/
 - Keep backend access on the shared `api.*` boundary; this page should not create a parallel fetch layer.
 - Keep strategy form normalization and request shaping in `loadbalanceStrategyFormState.ts` rather than scattering the rules across dialogs.
 - Match the CRUD/page shell pattern used by other profile-scoped management pages such as pricing templates.
-- Keep legacy routing and Ban Policy fields on the existing strategy dialog.
-- Keep retry-window fields explicit in form state: failure status codes, base retry delay, backoff, jitter, maximum retry delay, retry attempts, ban mode, and ban duration.
+- Keep routing-family and Ban Policy fields on the existing strategy dialog.
+- Keep retry-window fields explicit in form state: failure status codes, base retry delay, backoff, jitter, maximum retry delay, cycle retry attempts, cumulative ban threshold, ban mode, and ban duration.
 - Keep failure-status editing and Ban Policy payload normalization inside `loadbalanceStrategyFormState.ts`; do not scatter contract shaping across dialog components.
 - Keep summary wording in `LoadbalanceStrategiesTable.tsx` and shared page data helpers; do not duplicate retry-window or ban labels elsewhere.
 - Keep the contract forward-only. Do not add compatibility shims, silent coercion, or a fallback path that reintroduces removed strategy families.

@@ -13,48 +13,90 @@ const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const { ConfigImportSchema, VendorCatalogImportSchema } = load(
   path.join(frontendDir, "src/lib/configImportValidation.ts")
 );
+const removedRetryAttemptsKey = ["retry", "max", "attempts"].join("_");
+const removedBanMode = ["man", "ual"].join("");
 
 function buildValidConfigImport() {
   return {
-    version: 1,
+    version: 3,
     bundle_kind: "profile_config",
-    vendor_refs: [],
+    vendor_refs: [{ key: "openai", name_hint: "OpenAI" }],
     endpoints: [
       {
-        name: "Demo endpoint",
-        base_url: "https://demo.invalid",
+        name: "OpenAI",
+        base_url: "https://api.openai.com/v1",
         position: 0,
       },
     ],
-    pricing_templates: [],
+    pricing_templates: [
+      {
+        name: "Default pricing",
+        pricing_unit: "PER_1M",
+        pricing_currency_code: "USD",
+        input_price: "0",
+        output_price: "0",
+        cached_input_price: "0",
+        cache_creation_price: "0",
+        reasoning_price: "0",
+        version: 1,
+      },
+    ],
+    connections: [
+      {
+        ref: "openai-primary",
+        api_family: "openai",
+        endpoint_name: "OpenAI",
+        pricing_template_name: "Default pricing",
+        is_active: true,
+        priority: 0,
+      },
+    ],
     loadbalance_strategies: [
       {
-        name: "Default legacy routing",
-        strategy_type: "legacy",
-        legacy_strategy_type: "round-robin",
-        auto_recovery: { mode: "disabled" },
+        name: "Default single",
+        legacy_strategy_type: "single",
+        failure_status_codes: [429, 500],
+        ban_mode: "until_reset",
+        retry_base_delay_ms: 60_000,
+        retry_backoff_multiplier: 2,
+        retry_jitter_ratio: 0.2,
+        retry_max_delay_ms: 900_000,
+        cycle_retry_attempt_limit: 2,
+        ban_cumulative_retry_attempt_threshold: 4,
+        ban_duration_seconds: 0,
       },
     ],
     models: [
       {
+        vendor_key: "openai",
         api_family: "openai",
-        model_id: "demo-native",
-        model_type: "native",
-        proxy_selection_strategy: null,
-        proxy_targets: [],
-        loadbalance_strategy_name: "Default legacy routing",
-        connections: [],
-      },
-      {
-        api_family: "openai",
-        model_id: "demo-proxy",
-        model_type: "proxy",
-        proxy_selection_strategy: "ordered_fallback",
-        proxy_targets: [{ target_model_id: "demo-native", position: 0, weight: 1, target_priority: 0 }],
-        loadbalance_strategy_name: null,
-        connections: [],
+        model_id: "gpt-4o-mini",
+        display_name: "GPT 4o Mini",
+        loadbalance_strategy_name: "Default single",
+        is_enabled: true,
+        access_targets: [
+          {
+            position: 0,
+            is_enabled: true,
+            target_type: "connection",
+            connection_ref: "openai-primary",
+          },
+        ],
       },
     ],
+    profile_settings: {
+      report_currency_code: "USD",
+      report_currency_symbol: "$",
+      endpoint_fx_mappings: [
+        {
+          model_id: "gpt-4o-mini",
+          connection_ref: "openai-primary",
+          fx_rate: "1",
+        },
+      ],
+    },
+    header_blocklist_rules: [],
+    user_agent_client_rules: [],
     secret_payload: {
       kind: "encrypted",
       cipher: "fernet-v1",
@@ -64,13 +106,43 @@ function buildValidConfigImport() {
   };
 }
 
-test("config import schema accepts the current timeout-free rollback payload", () => {
+test("config import schema accepts current profile bundle v3 Ban Policy payloads", () => {
   const parsed = ConfigImportSchema.parse(buildValidConfigImport());
 
-  assert.equal(parsed.endpoints[0].name, "Demo endpoint");
-  assert.equal(parsed.loadbalance_strategies[0].strategy_type, "legacy");
-  assert.ok(!Object.hasOwn(parsed.endpoints[0], "write_timeout"));
-  assert.ok(!Object.hasOwn(parsed.loadbalance_strategies[0], "timeout_policy"));
+  assert.equal(parsed.version, 3);
+  assert.equal(parsed.endpoints[0].name, "OpenAI");
+  assert.equal(parsed.loadbalance_strategies[0].ban_mode, "until_reset");
+  assert.equal(parsed.loadbalance_strategies[0].cycle_retry_attempt_limit, 2);
+  assert.equal(parsed.loadbalance_strategies[0].ban_cumulative_retry_attempt_threshold, 4);
+  assert.ok(!Object.hasOwn(parsed.loadbalance_strategies[0], removedRetryAttemptsKey));
+});
+
+test("config import schema rejects profile bundles before v3", () => {
+  const payload = buildValidConfigImport();
+  payload.version = payload.version - 1;
+
+  assert.throws(() => ConfigImportSchema.parse(payload));
+});
+
+test("config import schema rejects the removed retry attempt key", () => {
+  const payload = buildValidConfigImport();
+  payload.loadbalance_strategies[0][removedRetryAttemptsKey] = 3;
+
+  assert.throws(() => ConfigImportSchema.parse(payload));
+});
+
+test("config import schema rejects the removed reset-only ban value", () => {
+  const payload = buildValidConfigImport();
+  payload.loadbalance_strategies[0].ban_mode = removedBanMode;
+
+  assert.throws(() => ConfigImportSchema.parse(payload));
+});
+
+test("config import schema requires renamed Ban Policy threshold fields", () => {
+  const payload = buildValidConfigImport();
+  delete payload.loadbalance_strategies[0].cycle_retry_attempt_limit;
+
+  assert.throws(() => ConfigImportSchema.parse(payload));
 });
 
 test("config import schema rejects removed endpoint timeout fields", () => {
@@ -119,54 +191,36 @@ test("vendor catalog import schema rejects profile bundles on the vendor path", 
   );
 });
 
-test("config import schema rejects native models with proxy targets", () => {
+test("config import schema rejects model access targets with non-contiguous positions", () => {
   const payload = buildValidConfigImport();
-  payload.models[0].proxy_targets = [{ target_model_id: "demo-native", position: 0, weight: 1, target_priority: 0 }];
+  payload.models[0].access_targets[0].position = 2;
 
   assert.throws(() => ConfigImportSchema.parse(payload));
 });
 
-test("config import schema rejects proxy models with non-null strategy names", () => {
+test("config import schema rejects model access targets with duplicate references", () => {
   const payload = buildValidConfigImport();
-  payload.models[1].loadbalance_strategy_name = "Default legacy routing";
-
-  assert.throws(() => ConfigImportSchema.parse(payload));
-});
-
-test("config import schema rejects proxy models with non-contiguous proxy target positions", () => {
-  const payload = buildValidConfigImport();
-  payload.models[1].proxy_targets = [{ target_model_id: "demo-native", position: 2, weight: 1, target_priority: 0 }];
-
-  assert.throws(() => ConfigImportSchema.parse(payload));
-});
-
-test("config import schema rejects proxy models with duplicate target ids", () => {
-  const payload = buildValidConfigImport();
-  payload.models[1].proxy_targets = [
-    { target_model_id: "demo-native", position: 0, weight: 1, target_priority: 0 },
-    { target_model_id: "demo-native", position: 1, weight: 1, target_priority: 1 },
+  payload.models[0].access_targets = [
+    {
+      position: 0,
+      is_enabled: true,
+      target_type: "connection",
+      connection_ref: "openai-primary",
+    },
+    {
+      position: 1,
+      is_enabled: true,
+      target_type: "connection",
+      connection_ref: "openai-primary",
+    },
   ];
 
   assert.throws(() => ConfigImportSchema.parse(payload));
 });
 
-test("config import schema rejects proxy models missing selector", () => {
+test("config import schema rejects connection access targets without connection_ref", () => {
   const payload = buildValidConfigImport();
-  delete payload.models[1].proxy_selection_strategy;
-
-  assert.throws(() => ConfigImportSchema.parse(payload));
-});
-
-test("config import schema rejects proxy models missing target weight", () => {
-  const payload = buildValidConfigImport();
-  delete payload.models[1].proxy_targets[0].weight;
-
-  assert.throws(() => ConfigImportSchema.parse(payload));
-});
-
-test("config import schema rejects proxy models missing target priority", () => {
-  const payload = buildValidConfigImport();
-  delete payload.models[1].proxy_targets[0].target_priority;
+  delete payload.models[0].access_targets[0].connection_ref;
 
   assert.throws(() => ConfigImportSchema.parse(payload));
 });

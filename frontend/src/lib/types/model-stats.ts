@@ -561,6 +561,12 @@ export interface DashboardMetricSnapshot {
   unpriced_request_count: number;
 }
 
+export interface DashboardStrategyFamilySummary {
+  adaptive_count: number;
+  legacy_count: number;
+  unassigned_count: number;
+}
+
 export interface DashboardRoutingNode {
   id: string;
   name: string;
@@ -611,6 +617,7 @@ export interface DashboardSnapshot {
   health: DashboardSnapshotHealth;
   metric_snapshot: DashboardMetricSnapshot;
   api_family_rows: StatGroup[];
+  strategy_family_summary: DashboardStrategyFamilySummary;
   recent_requests: RequestLogListItem[];
   top_spending_models: SpendingTopModel[];
   routing_health_map: DashboardRoutingHealthMap;

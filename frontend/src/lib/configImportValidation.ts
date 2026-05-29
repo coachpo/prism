@@ -16,7 +16,7 @@ const OpenAIProbeEndpointVariantImportSchema = z.enum([
 
 const componentPricingDecimalPattern = /^\d+(\.\d+)?$/;
 
-// Bundle v2 keeps all component prices as concrete strings.
+// Bundle v3/current contract keeps all component prices as concrete strings.
 // Missing, null, blank, and whitespace-only inputs normalize to "0" before decimal validation.
 const ComponentPricingImportSchema = z.preprocess(
   (value) => {
@@ -67,12 +67,13 @@ const LoadbalanceStrategyImportSchema = z.strictObject({
   name: z.string(),
   legacy_strategy_type: z.enum(["single", "fill-first", "round-robin"]).nullable(),
   failure_status_codes: z.array(z.number().int().min(100).max(599)),
-  ban_mode: z.enum(["off", "temporary", "manual"]).nullable(),
+  ban_mode: z.enum(["off", "temporary", "until_reset"]).nullable(),
   retry_base_delay_ms: z.number().int().min(0).nullable(),
   retry_backoff_multiplier: z.number().min(1).nullable(),
   retry_jitter_ratio: z.number().min(0).max(1).nullable(),
   retry_max_delay_ms: z.number().int().min(1).nullable(),
-  retry_max_attempts: z.number().int().min(1).nullable(),
+  cycle_retry_attempt_limit: z.number().int().min(1).nullable(),
+  ban_cumulative_retry_attempt_threshold: z.number().int().min(0).nullable(),
   ban_duration_seconds: z.number().int().min(0).nullable(),
 });
 
@@ -212,7 +213,7 @@ const VendorCatalogRowSchema = z.strictObject({
 });
 
 export const ConfigImportSchema = z.strictObject({
-  version: z.literal(2),
+  version: z.literal(3),
   bundle_kind: z.literal("profile_config"),
   exported_at: z.string().optional(),
   vendor_refs: z.array(VendorRefImportSchema),

@@ -11,7 +11,7 @@
 ## DOMAINS
 - Auth entry and recovery: `LoginPage.tsx`, `ForgotPasswordPage.tsx`, `ResetPasswordPage.tsx`
 - Observability: `DashboardPage.tsx`, dashboard analytics content from `statistics/`, and `RequestLogsPage.tsx`
-- Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is where unified access targets, standalone connections, and legacy Ban Policy strategy assignment surfaces live
+- Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is where unified access targets, standalone connections, and explicit Ban Policy strategy assignment surfaces live
 - Access control and runtime credentials: `ProxyApiKeysPage.tsx`
 - Global sidecar control plane: `SidecarsPage.tsx`, `sidecars/AGENTS.md`
 - Settings shell: `SettingsPage.tsx` with Profile, Global, and Startup tabs, plus `settings/sections/`, `settings/dialogs/`, `settings/startup/`, and `settings/costing/`

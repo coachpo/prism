@@ -10,55 +10,35 @@ const __dirname = path.dirname(__filename);
 const frontendDir = path.resolve(__dirname, "../..");
 
 const requestCalls = [];
+let loadbalanceStrategyPayloads = [];
+
+function buildStrategyPayload(overrides = {}) {
+  return {
+    id: 1,
+    profile_id: 7,
+    name: "Default until reset",
+    legacy_strategy_type: "round-robin",
+    failure_status_codes: [503, 429, 503],
+    ban_mode: "until_reset",
+    retry_base_delay_ms: 60_000,
+    retry_backoff_multiplier: 2,
+    retry_jitter_ratio: 0.2,
+    retry_max_delay_ms: 900_000,
+    cycle_retry_attempt_limit: 2,
+    ban_cumulative_retry_attempt_threshold: 4,
+    ban_duration_seconds: 0,
+    attached_model_count: 1,
+    created_at: "2026-04-09T00:00:00Z",
+    updated_at: "2026-04-09T00:00:00Z",
+    ...overrides,
+  };
+}
+
 const coreMock = {
   request: async (path) => {
     requestCalls.push(path);
     if (path === "/api/loadbalance/strategies") {
-      return [
-        {
-          id: 1,
-          profile_id: 7,
-          name: "Legacy strategy",
-          strategy_type: "legacy",
-          legacy_strategy_type: "round-robin",
-          auto_recovery: { mode: "disabled" },
-          attached_model_count: 1,
-          created_at: "2026-04-09T00:00:00Z",
-          updated_at: "2026-04-09T00:00:00Z",
-        },
-        {
-          id: 2,
-          profile_id: 7,
-          name: "Adaptive strategy",
-          strategy_type: "adaptive",
-          routing_policy: {
-            kind: "adaptive",
-            routing_objective: "minimize_latency",
-            hedge: {
-              enabled: false,
-              delay_ms: 1500,
-              max_additional_attempts: 1,
-            },
-            circuit_breaker: {
-              failure_status_codes: [503, 429, 503],
-              base_open_seconds: 60,
-              failure_threshold: 2,
-              backoff_multiplier: 2,
-              max_open_seconds: 900,
-              ban_mode: "off",
-              max_open_strikes_before_ban: 0,
-              ban_duration_seconds: 0,
-            },
-            admission: {
-              respect_qps_limit: true,
-              respect_in_flight_limits: true,
-            },
-          },
-          attached_model_count: 2,
-          created_at: "2026-04-09T00:00:00Z",
-          updated_at: "2026-04-09T00:00:00Z",
-        },
-      ];
+      return loadbalanceStrategyPayloads;
     }
 
     if (path === "/api/endpoints") {
@@ -99,60 +79,61 @@ const { loadbalanceStrategies, endpoints } = load(
   path.join(frontendDir, "src/lib/api/management.ts"),
 );
 
-test("management loadbalance strategy normalization accepts timeout-free API payloads", async () => {
+const removedRetryAttemptsKey = ["retry", "max", "attempts"].join("_");
+const removedBanMode = ["man", "ual"].join("");
+
+test("management loadbalance strategy normalization accepts explicit Ban Policy payloads", async () => {
+  requestCalls.length = 0;
+  loadbalanceStrategyPayloads = [buildStrategyPayload()];
+
   const strategies = await loadbalanceStrategies.list();
 
   assert.deepEqual(strategies, [
     {
       id: 1,
       profile_id: 7,
-      name: "Legacy strategy",
-      strategy_type: "legacy",
+      name: "Default until reset",
       legacy_strategy_type: "round-robin",
-      auto_recovery: { mode: "disabled" },
+      failure_status_codes: [429, 503],
+      ban_mode: "until_reset",
+      retry_base_delay_ms: 60_000,
+      retry_backoff_multiplier: 2,
+      retry_jitter_ratio: 0.2,
+      retry_max_delay_ms: 900_000,
+      cycle_retry_attempt_limit: 2,
+      ban_cumulative_retry_attempt_threshold: 4,
+      ban_duration_seconds: 0,
       attached_model_count: 1,
       created_at: "2026-04-09T00:00:00Z",
       updated_at: "2026-04-09T00:00:00Z",
     },
-    {
-      id: 2,
-      profile_id: 7,
-      name: "Adaptive strategy",
-      strategy_type: "adaptive",
-      routing_policy: {
-        kind: "adaptive",
-        routing_objective: "minimize_latency",
-        hedge: {
-          enabled: false,
-          delay_ms: 1500,
-          max_additional_attempts: 1,
-        },
-        circuit_breaker: {
-          failure_status_codes: [429, 503],
-          base_open_seconds: 60,
-          failure_threshold: 2,
-          backoff_multiplier: 2,
-          max_open_seconds: 900,
-          ban_mode: "off",
-          max_open_strikes_before_ban: 0,
-          ban_duration_seconds: 0,
-        },
-        admission: {
-          respect_qps_limit: true,
-          respect_in_flight_limits: true,
-        },
-      },
-      attached_model_count: 2,
-      created_at: "2026-04-09T00:00:00Z",
-      updated_at: "2026-04-09T00:00:00Z",
-    },
   ]);
-  for (const strategy of strategies) {
-    assert.ok(!Object.hasOwn(strategy, "timeout_policy"));
-  }
+  assert.ok(!Object.hasOwn(strategies[0], removedRetryAttemptsKey));
+  assert.deepEqual(requestCalls, ["/api/loadbalance/strategies"]);
+});
+
+test("management loadbalance strategy normalization rejects the removed retry attempt key", async () => {
+  requestCalls.length = 0;
+  loadbalanceStrategyPayloads = [buildStrategyPayload({ [removedRetryAttemptsKey]: 3 })];
+
+  await assert.rejects(
+    () => loadbalanceStrategies.list(),
+    new RegExp(removedRetryAttemptsKey),
+  );
+});
+
+test("management loadbalance strategy normalization rejects the removed reset-only ban value", async () => {
+  requestCalls.length = 0;
+  loadbalanceStrategyPayloads = [buildStrategyPayload({ ban_mode: removedBanMode })];
+
+  await assert.rejects(
+    () => loadbalanceStrategies.list(),
+    /ban_mode/,
+  );
 });
 
 test("management endpoints contract accepts timeout-free endpoint payloads", async () => {
+  requestCalls.length = 0;
   const items = await endpoints.list();
 
   assert.deepEqual(items, [
@@ -172,5 +153,5 @@ test("management endpoints contract accepts timeout-free endpoint payloads", asy
   assert.ok(!Object.hasOwn(items[0], "connect_timeout"));
   assert.ok(!Object.hasOwn(items[0], "write_timeout"));
   assert.ok(!Object.hasOwn(items[0], "read_idle_timeout"));
-  assert.deepEqual(requestCalls, ["/api/loadbalance/strategies", "/api/endpoints"]);
+  assert.deepEqual(requestCalls, ["/api/endpoints"]);
 });

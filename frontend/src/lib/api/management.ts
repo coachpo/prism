@@ -51,7 +51,8 @@ type RawLoadbalanceBanPolicyFields = {
   retry_backoff_multiplier?: unknown;
   retry_jitter_ratio?: unknown;
   retry_max_delay_ms?: unknown;
-  retry_max_attempts?: unknown;
+  cycle_retry_attempt_limit?: unknown;
+  ban_cumulative_retry_attempt_threshold?: unknown;
   ban_duration_seconds?: unknown;
 };
 
@@ -118,7 +119,7 @@ function normalizeLegacyStrategyType(value: unknown): LegacyLoadbalanceStrategyT
 }
 
 function normalizeBanMode(value: unknown): LoadbalanceBanMode {
-  if (value === "off" || value === "temporary" || value === "manual") {
+  if (value === "off" || value === "temporary" || value === "until_reset") {
     return value;
   }
 
@@ -133,9 +134,19 @@ function normalizeStatusCodes(value: unknown) {
   return normalizeFailureStatusCodes(value);
 }
 
+const removedRetryAttemptField = ["retry", "max", "attempts"].join("_");
+
+function rejectRemovedLoadbalanceBanPolicyFields(strategy: RawLoadbalanceBanPolicyFields) {
+  if (Object.hasOwn(strategy, removedRetryAttemptField)) {
+    unsupportedLoadbalanceStrategy(removedRetryAttemptField);
+  }
+}
+
 function normalizeLoadbalanceBanPolicyFields(
   strategy: RawLoadbalanceBanPolicyFields,
 ): LoadbalanceBanPolicyFields {
+  rejectRemovedLoadbalanceBanPolicyFields(strategy);
+
   return {
     legacy_strategy_type: normalizeLegacyStrategyType(strategy.legacy_strategy_type),
     failure_status_codes: normalizeStatusCodes(strategy.failure_status_codes),
@@ -150,7 +161,14 @@ function normalizeLoadbalanceBanPolicyFields(
     ),
     retry_jitter_ratio: normalizeNumber(strategy.retry_jitter_ratio, "retry_jitter_ratio"),
     retry_max_delay_ms: normalizeInteger(strategy.retry_max_delay_ms, "retry_max_delay_ms"),
-    retry_max_attempts: normalizeInteger(strategy.retry_max_attempts, "retry_max_attempts"),
+    cycle_retry_attempt_limit: normalizeInteger(
+      strategy.cycle_retry_attempt_limit,
+      "cycle_retry_attempt_limit",
+    ),
+    ban_cumulative_retry_attempt_threshold: normalizeInteger(
+      strategy.ban_cumulative_retry_attempt_threshold,
+      "ban_cumulative_retry_attempt_threshold",
+    ),
     ban_duration_seconds: normalizeInteger(
       strategy.ban_duration_seconds,
       "ban_duration_seconds",

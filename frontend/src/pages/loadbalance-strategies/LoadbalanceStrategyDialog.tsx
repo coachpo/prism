@@ -34,6 +34,7 @@ import {
   removeCircuitBreakerStatusCode,
   setLegacyLoadbalanceStrategyType,
   setLoadbalanceStrategyBanMode,
+  setLoadbalanceStrategyCycleRetryAttemptLimit,
   type LoadbalanceStrategyFormState,
 } from "./loadbalanceStrategyFormState";
 
@@ -137,8 +138,8 @@ export function LoadbalanceStrategyDialog({
   const getBanModeOptionLabel = (banMode: LoadbalanceBanMode) =>
     banMode === "off"
       ? dialogMessages.banModeOffOption
-      : banMode === "manual"
-        ? dialogMessages.banModeManualOption
+      : banMode === "until_reset"
+        ? dialogMessages.banModeUntilResetOption
         : dialogMessages.banModeTemporaryOption;
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -319,24 +320,48 @@ export function LoadbalanceStrategyDialog({
                       </StrategyDialogField>
 
                       <StrategyDialogField
-                        id="ban-policy-retry-max-attempts"
-                        label={dialogMessages.retryMaxAttemptsLabel}
-                        description={dialogMessages.retryMaxAttemptsDescription}
+                        id="ban-policy-cycle-retry-attempt-limit"
+                        label={dialogMessages.cycleRetryAttemptLimitLabel}
+                        description={dialogMessages.cycleRetryAttemptLimitDescription}
                       >
                         <Input
-                          id="ban-policy-retry-max-attempts"
+                          id="ban-policy-cycle-retry-attempt-limit"
                           type="number"
                           autoComplete="off"
                           min={1}
                           max={50}
                           step={1}
-                          value={loadbalanceStrategyForm.retry_max_attempts}
+                          value={loadbalanceStrategyForm.cycle_retry_attempt_limit}
+                          onChange={(event) =>
+                            setLoadbalanceStrategyForm((prev) =>
+                              setLoadbalanceStrategyCycleRetryAttemptLimit(
+                                prev,
+                                parseIntegerInput(event.target.value, prev.cycle_retry_attempt_limit),
+                              ),
+                            )
+                          }
+                        />
+                      </StrategyDialogField>
+
+                      <StrategyDialogField
+                        id="ban-policy-cumulative-threshold"
+                        label={dialogMessages.banCumulativeRetryAttemptThresholdLabel}
+                        description={dialogMessages.banCumulativeRetryAttemptThresholdDescription}
+                      >
+                        <Input
+                          id="ban-policy-cumulative-threshold"
+                          type="number"
+                          autoComplete="off"
+                          min={0}
+                          max={500}
+                          step={1}
+                          value={loadbalanceStrategyForm.ban_cumulative_retry_attempt_threshold}
                           onChange={(event) =>
                             setLoadbalanceStrategyForm((prev) => ({
                               ...prev,
-                              retry_max_attempts: parseIntegerInput(
+                              ban_cumulative_retry_attempt_threshold: parseIntegerInput(
                                 event.target.value,
-                                prev.retry_max_attempts,
+                                prev.ban_cumulative_retry_attempt_threshold,
                               ),
                             }))
                           }

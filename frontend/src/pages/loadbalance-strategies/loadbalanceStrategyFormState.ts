@@ -19,7 +19,8 @@ export type LoadbalanceStrategyFormState = {
   retry_backoff_multiplier: number;
   retry_jitter_ratio: number;
   retry_max_delay_ms: number;
-  retry_max_attempts: number;
+  cycle_retry_attempt_limit: number;
+  ban_cumulative_retry_attempt_threshold: number;
   ban_duration_seconds: number;
 };
 
@@ -64,7 +65,8 @@ export function loadbalanceStrategyFormStateFromStrategy(
     retry_backoff_multiplier: strategy.retry_backoff_multiplier,
     retry_jitter_ratio: strategy.retry_jitter_ratio,
     retry_max_delay_ms: strategy.retry_max_delay_ms,
-    retry_max_attempts: strategy.retry_max_attempts,
+    cycle_retry_attempt_limit: strategy.cycle_retry_attempt_limit,
+    ban_cumulative_retry_attempt_threshold: strategy.ban_cumulative_retry_attempt_threshold,
     ban_duration_seconds: strategy.ban_duration_seconds,
   };
 }
@@ -91,11 +93,40 @@ export function setLoadbalanceStrategyBanMode(
     return formState;
   }
 
+  const shouldSeedThreshold =
+    formState.ban_mode === "off" &&
+    mode !== "off" &&
+    formState.ban_cumulative_retry_attempt_threshold === 0;
+
   return {
     ...formState,
     ban_mode: mode,
+    ban_cumulative_retry_attempt_threshold:
+      mode === "off"
+        ? 0
+        : shouldSeedThreshold
+          ? formState.cycle_retry_attempt_limit * 2
+          : formState.ban_cumulative_retry_attempt_threshold,
     ban_duration_seconds:
       mode === "temporary" ? Math.max(formState.ban_duration_seconds, 1) : 0,
+  };
+}
+
+export function setLoadbalanceStrategyCycleRetryAttemptLimit(
+  formState: LoadbalanceStrategyFormState,
+  cycleRetryAttemptLimit: number,
+): LoadbalanceStrategyFormState {
+  const nextCycleRetryAttemptLimit = normalizeInteger(cycleRetryAttemptLimit);
+  const shouldClampThreshold =
+    formState.ban_cumulative_retry_attempt_threshold !== 0 &&
+    nextCycleRetryAttemptLimit > formState.ban_cumulative_retry_attempt_threshold;
+
+  return {
+    ...formState,
+    cycle_retry_attempt_limit: nextCycleRetryAttemptLimit,
+    ban_cumulative_retry_attempt_threshold: shouldClampThreshold
+      ? nextCycleRetryAttemptLimit
+      : formState.ban_cumulative_retry_attempt_threshold,
   };
 }
 
@@ -173,7 +204,10 @@ export function toLoadbalanceStrategyPayload(
     retry_backoff_multiplier: formState.retry_backoff_multiplier,
     retry_jitter_ratio: formState.retry_jitter_ratio,
     retry_max_delay_ms: normalizeInteger(formState.retry_max_delay_ms),
-    retry_max_attempts: normalizeInteger(formState.retry_max_attempts),
+    cycle_retry_attempt_limit: normalizeInteger(formState.cycle_retry_attempt_limit),
+    ban_cumulative_retry_attempt_threshold: normalizeInteger(
+      formState.ban_cumulative_retry_attempt_threshold,
+    ),
     ban_duration_seconds: banDurationSeconds,
   };
 }
@@ -240,11 +274,35 @@ function getBanPolicyValidationError(
     return messages.retryMaxDelayRange;
   }
 
-  if (!Number.isInteger(banPolicy.retry_max_attempts)) {
-    return messages.retryMaxAttemptsInteger;
+  if (!Number.isInteger(banPolicy.cycle_retry_attempt_limit)) {
+    return messages.cycleRetryAttemptLimitInteger;
   }
-  if (banPolicy.retry_max_attempts < 1 || banPolicy.retry_max_attempts > 50) {
-    return messages.retryMaxAttemptsRange;
+  if (banPolicy.cycle_retry_attempt_limit < 1 || banPolicy.cycle_retry_attempt_limit > 50) {
+    return messages.cycleRetryAttemptLimitRange;
+  }
+
+  if (!Number.isInteger(banPolicy.ban_cumulative_retry_attempt_threshold)) {
+    return messages.banCumulativeRetryAttemptThresholdInteger;
+  }
+
+  if (banPolicy.ban_mode === "off") {
+    if (banPolicy.ban_cumulative_retry_attempt_threshold !== 0) {
+      return messages.banModeOffThresholdZero;
+    }
+  } else {
+    if (
+      banPolicy.ban_cumulative_retry_attempt_threshold < 1 ||
+      banPolicy.ban_cumulative_retry_attempt_threshold > 500
+    ) {
+      return messages.banCumulativeRetryAttemptThresholdRange;
+    }
+
+    if (
+      banPolicy.ban_cumulative_retry_attempt_threshold <
+      banPolicy.cycle_retry_attempt_limit
+    ) {
+      return messages.banCumulativeRetryAttemptThresholdMinCycle;
+    }
   }
 
   if (!Number.isInteger(banPolicy.ban_duration_seconds)) {
@@ -256,7 +314,7 @@ function getBanPolicyValidationError(
   }
 
   if (banPolicy.ban_duration_seconds !== 0) {
-    return messages.banDurationManualDismissZero;
+    return messages.banDurationUntilResetZero;
   }
 
   return null;

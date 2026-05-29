@@ -7,7 +7,7 @@ export type LoadbalanceEventType =
   | "admission_rejected";
 
 export type LegacyLoadbalanceStrategyType = "single" | "fill-first" | "round-robin";
-export type LoadbalanceBanMode = "off" | "temporary" | "manual";
+export type LoadbalanceBanMode = "off" | "temporary" | "until_reset";
 
 export type LoadbalanceFailureKind =
   | "transient_http"
@@ -22,7 +22,8 @@ export interface LoadbalanceBanPolicyFields {
   retry_backoff_multiplier: number;
   retry_jitter_ratio: number;
   retry_max_delay_ms: number;
-  retry_max_attempts: number;
+  cycle_retry_attempt_limit: number;
+  ban_cumulative_retry_attempt_threshold: number;
   ban_duration_seconds: number;
 }
 
@@ -103,6 +104,8 @@ export interface LoadbalanceEvent {
   endpoint_id: number | null;
   vendor_id: number | null;
   ban_mode: LoadbalanceBanMode | null;
+  cycle_retry_attempt_limit: number | null;
+  ban_cumulative_retry_attempt_threshold: number | null;
   banned_until_at: string | null;
   last_success_at: string | null;
   summary: LoadbalanceEventSummary;

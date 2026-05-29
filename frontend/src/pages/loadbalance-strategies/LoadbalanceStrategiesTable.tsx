@@ -60,15 +60,20 @@ export function LoadbalanceStrategiesTable({
       tableCopy.retryPolicySummary(
         formatNumber(strategy.retry_base_delay_ms),
         formatNumber(strategy.retry_max_delay_ms),
-        formatNumber(strategy.retry_max_attempts),
+        formatNumber(strategy.cycle_retry_attempt_limit),
         formatNumber(strategy.retry_backoff_multiplier, { maximumFractionDigits: 2 }),
         formatNumber(strategy.retry_jitter_ratio, { maximumFractionDigits: 2 }),
       ),
       strategy.ban_mode === "off"
         ? tableCopy.banOff
-        : strategy.ban_mode === "manual"
-          ? tableCopy.banManualDismissPolicy
-          : tableCopy.banTemporaryPolicy(formatNumber(strategy.ban_duration_seconds)),
+        : strategy.ban_mode === "until_reset"
+          ? tableCopy.banUntilResetPolicy(
+              formatNumber(strategy.ban_cumulative_retry_attempt_threshold),
+            )
+          : tableCopy.banTemporaryPolicy(
+              formatNumber(strategy.ban_cumulative_retry_attempt_threshold),
+              formatNumber(strategy.ban_duration_seconds),
+            ),
     ];
   };
 

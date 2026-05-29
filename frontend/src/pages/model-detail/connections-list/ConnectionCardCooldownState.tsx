@@ -21,7 +21,7 @@ export function ConnectionCardCooldownState({
   isResetting: boolean;
   onResetCooldown: (connectionId: number) => void;
 }) {
-  const { messages } = useLocale();
+  const { formatNumber, messages } = useLocale();
   const copy = messages.modelDetail;
 
   if (!currentState) {
@@ -34,6 +34,10 @@ export function ConnectionCardCooldownState({
 
   const tone = getCurrentStateTone(currentState.state, copy);
   const failureCountLabel = copy.failureCount(currentState.cumulative_retry_attempts);
+  const formatCumulativeFailures = (count: number) => {
+    const formattedCount = formatNumber(count);
+    return `${formattedCount} cumulative failure${count === 1 ? "" : "s"}`;
+  };
 
   return (
     <div className={cn("rounded-lg border px-3 py-2 text-xs", tone.panelClassName)}>
@@ -45,14 +49,16 @@ export function ConnectionCardCooldownState({
           </div>
           <p className="leading-5 text-muted-foreground">
             {buildCurrentStateCopy(currentState, formatTime, {
-              consecutiveFailures: copy.consecutiveFailures,
+              consecutiveFailures: formatCumulativeFailures,
               cooldownMinutes: copy.cooldownMinutes,
               cooldownMinutesSeconds: copy.cooldownMinutesSeconds,
               cooldownSeconds: copy.cooldownSeconds,
               currentStateBlocked: copy.currentStateBlocked,
               currentStateCounting: copy.currentStateCounting,
-              currentStateManualBan: copy.currentStateManualBan,
-              currentStateTemporaryBan: copy.currentStateTemporaryBan,
+              currentStateTemporaryBan: (failureSummary, until) =>
+                `${failureSummary} triggered a temporary ban until ${until ?? "the ban expires"}.`,
+              currentStateUntilResetBan: (failureSummary) =>
+                `${failureSummary} triggered an until reset ban. Use ${copy.resetBanPolicyState} to return this connection to routing.`,
               failureKindConnectError: copy.failureKindConnectError,
               failureKindTimeout: copy.failureKindTimeout,
               failureKindTransientHttp: copy.failureKindTransientHttp,

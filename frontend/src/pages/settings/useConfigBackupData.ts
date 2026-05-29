@@ -16,8 +16,8 @@ interface UseConfigBackupDataInput {
 function buildProfileConfigExportFilename(mode: ConfigExportMode, now: Date = new Date()) {
   const date = now.toISOString().split("T")[0];
   return mode === "dangerous"
-    ? `prism-profile-config-with-secrets-v2-${date}.json`
-    : `prism-profile-config-v2-${date}.json`;
+    ? `prism-profile-config-with-secrets-v3-${date}.json`
+    : `prism-profile-config-v3-${date}.json`;
 }
 
 export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConfigBackupDataInput) {

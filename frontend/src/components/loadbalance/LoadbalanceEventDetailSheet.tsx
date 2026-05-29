@@ -80,8 +80,8 @@ export function LoadbalanceEventDetailSheet({
   const banModeLabel =
     event?.ban_mode === "temporary"
       ? copy.banModeTemporary
-      : event?.ban_mode === "manual"
-        ? copy.banModeManual
+      : event?.ban_mode === "until_reset"
+        ? copy.banModeUntilReset
         : event?.ban_mode === "off"
           ? copy.banModeOff
           : null;
@@ -171,16 +171,32 @@ export function LoadbalanceEventDetailSheet({
               </section>
 
               <section className="space-y-3 rounded-2xl border bg-card p-4">
-                <h3 className="text-sm font-semibold">{copy.failoverConfiguration}</h3>
+                <h3 className="text-sm font-semibold">{messages.loadbalanceStrategiesTable.banPolicy}</h3>
                 <div className="space-y-1">
-                  <DetailRow fallback={messages.common.notApplicable} label={copy.failureThreshold} value={event.cumulative_retry_attempts} />
+                  <DetailRow
+                    fallback={messages.common.notApplicable}
+                    label={messages.loadbalanceStrategyDialog.cycleRetryAttemptLimitLabel}
+                    value={event.cycle_retry_attempt_limit !== null
+                      ? formatNumber(event.cycle_retry_attempt_limit)
+                      : null}
+                  />
+                  <DetailRow
+                    fallback={messages.common.notApplicable}
+                    label={messages.loadbalanceStrategyDialog.banCumulativeRetryAttemptThresholdLabel}
+                    value={event.ban_cumulative_retry_attempt_threshold !== null
+                      ? formatNumber(event.ban_cumulative_retry_attempt_threshold)
+                      : null}
+                  />
+                  <DetailRow
+                    fallback={messages.common.notApplicable}
+                    label={copy.consecutiveFailures}
+                    value={formatNumber(event.cumulative_retry_attempts)}
+                  />
                   <DetailRow
                     fallback={messages.common.notApplicable}
                     label={copy.backoffMultiplier}
                     value={event.last_retry_delay_ms !== null ? formatNumber(event.last_retry_delay_ms) : null}
                   />
-                  <DetailRow fallback={messages.common.notApplicable} label={copy.maxCooldownSeconds} value={event.cycle_retry_attempts} />
-                  <DetailRow fallback={messages.common.notApplicable} label={copy.maxCooldownStrikes} value={event.cumulative_retry_attempts} />
                   {event.next_retry_at ? (
                     <DetailRow
                       fallback={messages.common.notApplicable}

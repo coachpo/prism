@@ -5,7 +5,7 @@ import type {
 } from "./types";
 
 export const LOADBALANCE_LEGACY_STRATEGY_TYPES = ["single", "fill-first", "round-robin"] as const;
-export const LOADBALANCE_BAN_MODES = ["off", "manual", "temporary"] as const;
+export const LOADBALANCE_BAN_MODES = ["off", "temporary", "until_reset"] as const;
 export const DEFAULT_FAILURE_STATUS_CODES = [403, 422, 429, 500, 502, 503, 504, 529];
 
 export const DEFAULT_BAN_POLICY_FIELDS = {
@@ -15,7 +15,8 @@ export const DEFAULT_BAN_POLICY_FIELDS = {
   retry_backoff_multiplier: 2,
   retry_jitter_ratio: 0.2,
   retry_max_delay_ms: 900_000,
-  retry_max_attempts: 3,
+  cycle_retry_attempt_limit: 3,
+  ban_cumulative_retry_attempt_threshold: 0,
   ban_duration_seconds: 0,
 };
 

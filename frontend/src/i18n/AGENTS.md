@@ -29,7 +29,7 @@ i18n/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep locale selection frontend-only.
 - Keep `document.documentElement.lang` synchronized through `LocaleProvider.tsx`.
-- Add new user-facing strings to the catalogs when they belong to reusable shell or route surfaces, including shared legacy Ban Policy wording, final-target observability labels, and the `sidecarsPage` control-plane copy.
+- Add new user-facing strings to the catalogs when they belong to reusable shell or route surfaces, including shared explicit Ban Policy wording, final-target observability labels, and the `sidecarsPage` control-plane copy.
 - Route shared formatting through `format.ts` or `useLocale()` instead of ad hoc `Intl.*` usage.
 - Use `staticMessages.ts` when a non-hook caller needs locale-aware fallback labels, Ban Policy labels, or known-label comparisons instead of importing React hooks.
 

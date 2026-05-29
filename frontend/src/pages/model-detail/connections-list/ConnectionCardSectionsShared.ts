@@ -13,8 +13,8 @@ export type ConnectionCardCurrentStateCopy = {
     blockedUntil: string | null,
   ) => string;
   currentStateCounting: (failureSummary: string, failureKind: string) => string;
-  currentStateManualBan: string;
-  currentStateTemporaryBan: (until: string | null) => string;
+  currentStateTemporaryBan: (failureSummary: string, until: string | null) => string;
+  currentStateUntilResetBan: (failureSummary: string) => string;
   failureKindConnectError: string;
   failureKindTimeout: string;
   failureKindTransientHttp: string;
@@ -74,10 +74,10 @@ export function buildCurrentStateCopy(
 
   if (currentState.state === "banned") {
     if (currentState.ban_mode === "temporary") {
-      return copy.currentStateTemporaryBan(bannedUntilLabel);
+      return copy.currentStateTemporaryBan(failureSummary, bannedUntilLabel);
     }
 
-    return copy.currentStateManualBan;
+    return copy.currentStateUntilResetBan(failureSummary);
   }
 
   if (currentState.state === "retry_wait") {
