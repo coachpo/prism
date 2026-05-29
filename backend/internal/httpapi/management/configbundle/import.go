@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	canonicalProfileBundleVersion = 2
+	canonicalProfileBundleVersion = 3
 	canonicalVendorCatalogVersion = 1
 	canonicalProfileBundleKind    = "profile_config"
 	canonicalVendorCatalogKind    = "vendor_catalog"
@@ -888,31 +888,33 @@ func canonicalizeImportedStrategies(strategies []loadbalanceStrategyExport) ([]i
 	items := make([]importedStrategyPayload, 0, len(strategies))
 	for _, strategy := range strategies {
 		canonical, err := managementloadbalance.CanonicalizeImportedStrategyDocument(managementloadbalance.ImportedStrategyDocument{
-			Name:                   strategy.Name,
-			LegacyStrategyType:     strategy.LegacyStrategyType,
-			FailureStatusCodes:     strategy.FailureStatusCodes,
-			BanMode:                strategy.BanMode,
-			RetryBaseDelayMS:       strategy.RetryBaseDelayMS,
-			RetryBackoffMultiplier: strategy.RetryBackoffMultiplier,
-			RetryJitterRatio:       strategy.RetryJitterRatio,
-			RetryMaxDelayMS:        strategy.RetryMaxDelayMS,
-			RetryMaxAttempts:       strategy.RetryMaxAttempts,
-			BanDurationSeconds:     strategy.BanDurationSeconds,
+			Name:                               strategy.Name,
+			LegacyStrategyType:                 strategy.LegacyStrategyType,
+			FailureStatusCodes:                 strategy.FailureStatusCodes,
+			BanMode:                            strategy.BanMode,
+			RetryBaseDelayMS:                   strategy.RetryBaseDelayMS,
+			RetryBackoffMultiplier:             strategy.RetryBackoffMultiplier,
+			RetryJitterRatio:                   strategy.RetryJitterRatio,
+			RetryMaxDelayMS:                    strategy.RetryMaxDelayMS,
+			CycleRetryAttemptLimit:             strategy.CycleRetryAttemptLimit,
+			BanCumulativeRetryAttemptThreshold: strategy.BanCumulativeRetryAttemptThreshold,
+			BanDurationSeconds:                 strategy.BanDurationSeconds,
 		})
 		if err != nil {
 			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: err.Error()}
 		}
 		items = append(items, importedStrategyPayload{
-			Name:                   canonical.Name,
-			LegacyStrategyType:     *canonical.LegacyStrategyType,
-			FailureStatusCodes:     canonical.FailureStatusCodes,
-			BanMode:                canonical.BanMode,
-			RetryBaseDelayMS:       canonical.RetryBaseDelayMS,
-			RetryBackoffMultiplier: canonical.RetryBackoffMultiplier,
-			RetryJitterRatio:       canonical.RetryJitterRatio,
-			RetryMaxDelayMS:        canonical.RetryMaxDelayMS,
-			RetryMaxAttempts:       canonical.RetryMaxAttempts,
-			BanDurationSeconds:     canonical.BanDurationSeconds,
+			Name:                               canonical.Name,
+			LegacyStrategyType:                 *canonical.LegacyStrategyType,
+			FailureStatusCodes:                 canonical.FailureStatusCodes,
+			BanMode:                            canonical.BanMode,
+			RetryBaseDelayMS:                   canonical.RetryBaseDelayMS,
+			RetryBackoffMultiplier:             canonical.RetryBackoffMultiplier,
+			RetryJitterRatio:                   canonical.RetryJitterRatio,
+			RetryMaxDelayMS:                    canonical.RetryMaxDelayMS,
+			CycleRetryAttemptLimit:             canonical.CycleRetryAttemptLimit,
+			BanCumulativeRetryAttemptThreshold: canonical.BanCumulativeRetryAttemptThreshold,
+			BanDurationSeconds:                 canonical.BanDurationSeconds,
 		})
 	}
 	return items, nil
@@ -1058,7 +1060,7 @@ func insertImportedStrategies(ctx context.Context, exec queryExecutor, profileID
 	strategyIDsByName := map[string]int{}
 	for _, strategy := range strategies {
 		var strategyID int
-		if err := exec.QueryRow(ctx, `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts, ban_duration_seconds, created_at, updated_at) VALUES ($1, $2, $3, $4::integer[], $5, $6, $7, $8, $9, $10, $11, $12, $12) RETURNING id`, profileID, strategy.Name, strategy.LegacyStrategyType, toInt32Slice(strategy.FailureStatusCodes), strategy.BanMode, strategy.RetryBaseDelayMS, strategy.RetryBackoffMultiplier, strategy.RetryJitterRatio, strategy.RetryMaxDelayMS, strategy.RetryMaxAttempts, strategy.BanDurationSeconds, currentTime).Scan(&strategyID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at) VALUES ($1, $2, $3, $4::integer[], $5, $6, $7, $8, $9, $10, $11, $12, $13, $13) RETURNING id`, profileID, strategy.Name, strategy.LegacyStrategyType, toInt32Slice(strategy.FailureStatusCodes), strategy.BanMode, strategy.RetryBaseDelayMS, strategy.RetryBackoffMultiplier, strategy.RetryJitterRatio, strategy.RetryMaxDelayMS, strategy.CycleRetryAttemptLimit, strategy.BanCumulativeRetryAttemptThreshold, strategy.BanDurationSeconds, currentTime).Scan(&strategyID); err != nil {
 			return nil, 0, fmt.Errorf("insert imported loadbalance strategy %q: %w", strategy.Name, err)
 		}
 

@@ -83,16 +83,17 @@ type vendorCatalogImportResponse struct {
 }
 
 type importedStrategyPayload struct {
-	Name                   string
-	LegacyStrategyType     string
-	FailureStatusCodes     []int
-	BanMode                string
-	RetryBaseDelayMS       int
-	RetryBackoffMultiplier float64
-	RetryJitterRatio       float64
-	RetryMaxDelayMS        int
-	RetryMaxAttempts       int
-	BanDurationSeconds     int
+	Name                               string
+	LegacyStrategyType                 string
+	FailureStatusCodes                 []int
+	BanMode                            string
+	RetryBaseDelayMS                   int
+	RetryBackoffMultiplier             float64
+	RetryJitterRatio                   float64
+	RetryMaxDelayMS                    int
+	CycleRetryAttemptLimit             int
+	BanCumulativeRetryAttemptThreshold int
+	BanDurationSeconds                 int
 }
 
 type secretPayloadEntryMap map[string]string

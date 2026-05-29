@@ -53,16 +53,17 @@ type pricingTemplateExport struct {
 }
 
 type loadbalanceStrategyExport struct {
-	Name                   string   `json:"name"`
-	LegacyStrategyType     *string  `json:"legacy_strategy_type"`
-	FailureStatusCodes     []int    `json:"failure_status_codes"`
-	BanMode                *string  `json:"ban_mode"`
-	RetryBaseDelayMS       *int     `json:"retry_base_delay_ms"`
-	RetryBackoffMultiplier *float64 `json:"retry_backoff_multiplier"`
-	RetryJitterRatio       *float64 `json:"retry_jitter_ratio"`
-	RetryMaxDelayMS        *int     `json:"retry_max_delay_ms"`
-	RetryMaxAttempts       *int     `json:"retry_max_attempts"`
-	BanDurationSeconds     *int     `json:"ban_duration_seconds"`
+	Name                               string   `json:"name"`
+	LegacyStrategyType                 *string  `json:"legacy_strategy_type"`
+	FailureStatusCodes                 []int    `json:"failure_status_codes"`
+	BanMode                            *string  `json:"ban_mode"`
+	RetryBaseDelayMS                   *int     `json:"retry_base_delay_ms"`
+	RetryBackoffMultiplier             *float64 `json:"retry_backoff_multiplier"`
+	RetryJitterRatio                   *float64 `json:"retry_jitter_ratio"`
+	RetryMaxDelayMS                    *int     `json:"retry_max_delay_ms"`
+	CycleRetryAttemptLimit             *int     `json:"cycle_retry_attempt_limit"`
+	BanCumulativeRetryAttemptThreshold *int     `json:"ban_cumulative_retry_attempt_threshold"`
+	BanDurationSeconds                 *int     `json:"ban_duration_seconds"`
 }
 
 type modelExport struct {

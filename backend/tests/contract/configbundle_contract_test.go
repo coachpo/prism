@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
@@ -21,38 +22,38 @@ import (
 
 const (
 	configBundleSecretKey    = "configbundle-contract-secret"
-	configBundleFixtureKeyID = "sha256:profile-v2-contract"
+	configBundleFixtureKeyID = "sha256:profile-v3-contract"
 	configBundleOpenAISecret = "fixture-openai-secret"
 )
 
 var configBundleFixtureTime = time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
 
-func TestProfileBundleV2Contract(t *testing.T) {
-	harness := newConfigBundleV2ContractHarness(t)
+func TestProfileBundleV3Contract(t *testing.T) {
+	harness := newConfigBundleV3ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	seedConfigBundleV2Graph(t, harness, profileID)
+	seedConfigBundleV3Graph(t, harness, profileID)
 
 	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
 	assertStatus(t, exportResponse, http.StatusOK)
-	if got := exportResponse.Header.Get("Content-Disposition"); got != "attachment; filename=\"prism-profile-config-v2-2026-04-18.json\"" {
-		t.Fatalf("expected v2 profile export filename header, got %q", got)
+	if got := exportResponse.Header.Get("Content-Disposition"); got != "attachment; filename=\"prism-profile-config-v3-2026-04-18.json\"" {
+		t.Fatalf("expected v3 profile export filename header, got %q", got)
 	}
 
 	var payload map[string]any
 	decodeJSONResponse(t, exportResponse, &payload)
-	assertProfileBundleV2Shape(t, payload)
+	assertProfileBundleV3Shape(t, payload)
 
 	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", payload, modelHeader(profileID))
 	assertStatus(t, previewResponse, http.StatusOK)
 	var previewPayload map[string]any
 	decodeJSONResponse(t, previewResponse, &previewPayload)
 	if previewPayload["ready"] != true || previewPayload["preview_token"] == "" {
-		t.Fatalf("expected ready v2 profile import preview, got %+v", previewPayload)
+		t.Fatalf("expected ready v3 profile import preview, got %+v", previewPayload)
 	}
 
 	scope := asMap(t, previewPayload["replacement_scope"])
 	if jsonInt(t, previewPayload["connections_imported"]) != 1 || jsonInt(t, scope["connections"]) != 1 {
-		t.Fatalf("expected one top-level connection in v2 preview, got %+v", previewPayload)
+		t.Fatalf("expected one top-level connection in v3 preview, got %+v", previewPayload)
 	}
 
 	importHeaders := configBundleHeadersWithPreviewToken(modelHeader(profileID), previewPayload["preview_token"].(string))
@@ -61,20 +62,40 @@ func TestProfileBundleV2Contract(t *testing.T) {
 	var importPayload map[string]any
 	decodeJSONResponse(t, importResponse, &importPayload)
 	if jsonInt(t, importPayload["connections_imported"]) != 1 || jsonInt(t, importPayload["models_imported"]) != 1 {
-		t.Fatalf("expected v2 import counts for one connection and one model, got %+v", importPayload)
+		t.Fatalf("expected v3 import counts for one connection and one model, got %+v", importPayload)
 	}
 
-	legacyPayload := cloneProfileBundleV2Payload(t, payload)
-	legacyPayload["version"] = float64(1)
-	legacyResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", legacyPayload, modelHeader(profileID))
-	assertErrorResponse(t, legacyResponse, http.StatusBadRequest, "Unsupported profile config bundle version '1'; expected 2")
+	version2Payload := cloneProfileBundleV3Payload(t, payload)
+	version2Payload["version"] = float64(2)
+	version2Preview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", version2Payload, modelHeader(profileID))
+	assertErrorResponse(t, version2Preview, http.StatusBadRequest, "Unsupported profile config bundle version '2'; expected 3")
+	version2Import := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", version2Payload, modelHeader(profileID))
+	assertErrorResponse(t, version2Import, http.StatusBadRequest, "Unsupported profile config bundle version '2'; expected 3")
+
+	legacyKeyPayload := cloneProfileBundleV3Payload(t, payload)
+	legacyKeyStrategy := asMap(t, legacyKeyPayload["loadbalance_strategies"].([]any)[0])
+	removedRetryField := removedRetryAttemptsField()
+	legacyKeyStrategy[removedRetryField] = float64(3)
+	legacyKeyPreview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", legacyKeyPayload, modelHeader(profileID))
+	assertErrorResponse(t, legacyKeyPreview, http.StatusBadRequest, fmt.Sprintf("json: unknown field %q", removedRetryField))
+	legacyKeyImport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", legacyKeyPayload, modelHeader(profileID))
+	assertErrorResponse(t, legacyKeyImport, http.StatusBadRequest, fmt.Sprintf("json: unknown field %q", removedRetryField))
+
+	removedModePayload := cloneProfileBundleV3Payload(t, payload)
+	removedModeStrategy := asMap(t, removedModePayload["loadbalance_strategies"].([]any)[0])
+	removedModeStrategy["ban_mode"] = removedBanModeValue()
+	removedModeDetail := "ban_mode must be one of 'off', 'temporary', or 'until_reset'"
+	removedModePreviewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", removedModePayload, modelHeader(profileID))
+	assertErrorResponse(t, removedModePreviewResponse, http.StatusBadRequest, removedModeDetail)
+	removedModeImport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", removedModePayload, modelHeader(profileID))
+	assertErrorResponse(t, removedModeImport, http.StatusBadRequest, removedModeDetail)
 }
 
-func newConfigBundleV2ContractHarness(t *testing.T) *contractHarness {
+func newConfigBundleV3ContractHarness(t *testing.T) *contractHarness {
 	t.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	t.Cleanup(cancel)
-	databaseName := "configbundle_v2_contract_" + randomSuffix()
+	databaseName := "configbundle_v3_contract_" + randomSuffix()
 	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 
@@ -109,7 +130,7 @@ func newConfigBundleV2ContractHarness(t *testing.T) *contractHarness {
 			if value != configBundleOpenAISecret {
 				return "", fmt.Errorf("unexpected bundle secret %q", value)
 			}
-			return "enc:gAAAAABlProfileV2OpenAI", nil
+			return "enc:gAAAAABlProfileV3OpenAI", nil
 		},
 	})
 	if err != nil {
@@ -117,7 +138,7 @@ func newConfigBundleV2ContractHarness(t *testing.T) *contractHarness {
 	}
 	t.Cleanup(configBundleService.Close)
 
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "configbundle-v2-contract-test", ConfigBundleService: configBundleService})
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "configbundle-v3-contract-test", ConfigBundleService: configBundleService})
 	if err != nil {
 		t.Fatalf("build handler: %v", err)
 	}
@@ -132,7 +153,7 @@ func newConfigBundleV2ContractHarness(t *testing.T) *contractHarness {
 	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: nil, server: server, service: nil, url: server.URL}
 }
 
-func seedConfigBundleV2Graph(t *testing.T, harness *contractHarness, profileID int) {
+func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID int) {
 	t.Helper()
 	now := configBundleFixtureTime
 	openaiVendorID := modelLoadVendorIDByKey(t, harness, "openai")
@@ -149,7 +170,7 @@ func seedConfigBundleV2Graph(t *testing.T, harness *contractHarness, profileID i
 		`DELETE FROM user_agent_client_rules WHERE profile_id = $1 AND is_system = FALSE`,
 	} {
 		if _, err := harness.conn.Exec(context.Background(), statement, profileID); err != nil {
-			t.Fatalf("clear v2 fixture state with %q: %v", statement, err)
+			t.Fatalf("clear v3 fixture state with %q: %v", statement, err)
 		}
 	}
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE user_settings SET report_currency_code = 'USD', report_currency_symbol = '$', timezone_preference = 'Europe/Helsinki', updated_at = $2 WHERE profile_id = $1`, profileID, now); err != nil {
@@ -169,7 +190,7 @@ func seedConfigBundleV2Graph(t *testing.T, harness *contractHarness, profileID i
 		t.Fatalf("insert pricing template: %v", err)
 	}
 	var strategyID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts, ban_duration_seconds, created_at, updated_at) VALUES ($1, 'Default round robin', 'round-robin', ARRAY[429,500], 'off', 60000, 2.0, 0.2, 900000, 3, 0, $2, $2) RETURNING id`, profileID, now).Scan(&strategyID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at) VALUES ($1, 'Default round robin', 'round-robin', ARRAY[429,500], 'until_reset', 60000, 2.0, 0.2, 900000, 2, 4, 0, $2, $2) RETURNING id`, profileID, now).Scan(&strategyID); err != nil {
 		t.Fatalf("insert strategy: %v", err)
 	}
 
@@ -178,7 +199,7 @@ func seedConfigBundleV2Graph(t *testing.T, harness *contractHarness, profileID i
 		t.Fatalf("insert model: %v", err)
 	}
 	var connectionID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, $3, 60, 8, 4, 'responses_minimal', TRUE, 0, 'Primary OpenAI connection', 'openai', $4, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, endpointID, pricingID, `{"X-Prism-Trace":"v2-contract"}`, now).Scan(&connectionID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, $3, 60, 8, 4, 'responses_minimal', TRUE, 0, 'Primary OpenAI connection', 'openai', $4, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, endpointID, pricingID, `{"X-Prism-Trace":"v3-contract"}`, now).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, modelConfigID, connectionID, now); err != nil {
@@ -196,10 +217,10 @@ func seedConfigBundleV2Graph(t *testing.T, harness *contractHarness, profileID i
 	}
 }
 
-func assertProfileBundleV2Shape(t *testing.T, payload map[string]any) {
+func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	t.Helper()
-	if jsonInt(t, payload["version"]) != 2 || payload["bundle_kind"] != "profile_config" {
-		t.Fatalf("expected profile_config v2 bundle, got %+v", payload)
+	if jsonInt(t, payload["version"]) != 3 || payload["bundle_kind"] != "profile_config" {
+		t.Fatalf("expected profile_config v3 bundle, got %+v", payload)
 	}
 	connections := payload["connections"].([]any)
 	if len(connections) != 1 {
@@ -208,7 +229,19 @@ func assertProfileBundleV2Shape(t *testing.T, payload map[string]any) {
 	connection := asMap(t, connections[0])
 	connectionRef := connection["ref"].(string)
 	if !strings.HasPrefix(connectionRef, "openai-primary-openai") || connection["api_family"] != "openai" || connection["endpoint_name"] != "Primary OpenAI" {
-		t.Fatalf("expected v2 standalone OpenAI connection export, got %+v", connection)
+		t.Fatalf("expected v3 standalone OpenAI connection export, got %+v", connection)
+	}
+	strategies := payload["loadbalance_strategies"].([]any)
+	if len(strategies) != 1 {
+		t.Fatalf("expected one exported loadbalance strategy, got %+v", strategies)
+	}
+	strategy := asMap(t, strategies[0])
+	removedRetryField := removedRetryAttemptsField()
+	if _, ok := strategy[removedRetryField]; ok {
+		t.Fatalf("v3 strategy export must not include removed retry field: %+v", strategy)
+	}
+	if strategy["ban_mode"] != "until_reset" || jsonInt(t, strategy["cycle_retry_attempt_limit"]) != 2 || jsonInt(t, strategy["ban_cumulative_retry_attempt_threshold"]) != 4 {
+		t.Fatalf("expected v3 explicit Ban Policy fields, got %+v", strategy)
 	}
 	models := payload["models"].([]any)
 	if len(models) != 1 {
@@ -226,20 +259,24 @@ func assertProfileBundleV2Shape(t *testing.T, payload map[string]any) {
 	}
 	target := asMap(t, targets[0])
 	if target["target_type"] != "connection" || target["connection_ref"] != connectionRef || jsonInt(t, target["position"]) != 0 || target["is_enabled"] != true {
-		t.Fatalf("expected v2 connection access target, got %+v", target)
+		t.Fatalf("expected v3 connection access target, got %+v", target)
 	}
 	settings := asMap(t, payload["profile_settings"])
 	fxMappings := settings["endpoint_fx_mappings"].([]any)
 	if len(fxMappings) != 1 || asMap(t, fxMappings[0])["connection_ref"] != connectionRef {
-		t.Fatalf("expected v2 FX mapping keyed by connection_ref, got %+v", settings)
+		t.Fatalf("expected v3 FX mapping keyed by connection_ref, got %+v", settings)
 	}
 }
 
-func cloneProfileBundleV2Payload(t *testing.T, payload map[string]any) map[string]any {
+func cloneProfileBundleV3Payload(t *testing.T, payload map[string]any) map[string]any {
 	t.Helper()
-	cloned := make(map[string]any, len(payload))
-	for key, value := range payload {
-		cloned[key] = value
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal profile bundle payload: %v", err)
+	}
+	var cloned map[string]any
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		t.Fatalf("clone profile bundle payload: %v", err)
 	}
 	return cloned
 }

@@ -80,8 +80,8 @@ func TestValidateConnectionAuthTypeAndNormalization(t *testing.T) {
 	}
 }
 
-func TestProfileBundleV2RoundTrip(t *testing.T) {
-	request := validProfileBundleV2Request()
+func TestProfileBundleV3RoundTrip(t *testing.T) {
+	request := validProfileBundleV3Request()
 	if request.ProfileSettings == nil {
 		t.Fatal("test bundle must include profile settings")
 	}
@@ -102,27 +102,27 @@ func TestProfileBundleV2RoundTrip(t *testing.T) {
 	}
 	raw, err := json.Marshal(exported)
 	if err != nil {
-		t.Fatalf("marshal v2 bundle: %v", err)
+		t.Fatalf("marshal v3 bundle: %v", err)
 	}
 
 	var imported profileImportRequest
 	if err := json.Unmarshal(raw, &imported); err != nil {
-		t.Fatalf("unmarshal v2 bundle: %v", err)
+		t.Fatalf("unmarshal v3 bundle: %v", err)
 	}
 	if err := validateProfileImportRequest(imported); err != nil {
-		t.Fatalf("validate v2 bundle: %v", err)
+		t.Fatalf("validate v3 bundle: %v", err)
 	}
 	if imported.Version != canonicalProfileBundleVersion || len(imported.Connections) != 1 || len(imported.Models[0].AccessTargets) != 1 {
-		t.Fatalf("expected v2 unified-access shape, got version=%d connections=%d targets=%d", imported.Version, len(imported.Connections), len(imported.Models[0].AccessTargets))
+		t.Fatalf("expected v3 unified-access shape, got version=%d connections=%d targets=%d", imported.Version, len(imported.Connections), len(imported.Models[0].AccessTargets))
 	}
 }
 
-func TestProfileBundleImportRejectsV1(t *testing.T) {
-	request := validProfileBundleV2Request()
-	request.Version = 1
+func TestProfileBundleImportRejectsV2(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.Version = 2
 	raw, err := json.Marshal(request)
 	if err != nil {
-		t.Fatalf("marshal v1 bundle: %v", err)
+		t.Fatalf("marshal v2 bundle: %v", err)
 	}
 
 	service := &Service{}
@@ -130,15 +130,54 @@ func TestProfileBundleImportRejectsV1(t *testing.T) {
 	service.handlePreviewProfileImport(response, httptest.NewRequest(http.MethodPost, "/api/config/profile/import/preview", bytes.NewReader(raw)))
 
 	if response.Code != http.StatusBadRequest {
-		t.Fatalf("expected v1 preview to reject with 400, got status=%d body=%s", response.Code, response.Body.String())
+		t.Fatalf("expected v2 preview to reject with 400, got status=%d body=%s", response.Code, response.Body.String())
 	}
 	var body map[string]string
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
-	if body["detail"] != "Unsupported profile config bundle version '1'; expected 2" {
-		t.Fatalf("unexpected v1 rejection detail: %q", body["detail"])
+	if body["detail"] != "Unsupported profile config bundle version '2'; expected 3" {
+		t.Fatalf("unexpected v2 rejection detail: %q", body["detail"])
 	}
+}
+
+func TestProfileBundleImportRejectsRemovedRetryAttemptKey(t *testing.T) {
+	removedRetryField := "retry_" + "max_attempts"
+	rawPayload := map[string]any{
+		"version":     3,
+		"bundle_kind": "profile_config",
+		"loadbalance_strategies": []map[string]any{{
+			"name":                 "Default",
+			"legacy_strategy_type": "single",
+			removedRetryField:      3,
+		}},
+	}
+	raw, err := json.Marshal(rawPayload)
+	if err != nil {
+		t.Fatalf("marshal removed retry key payload: %v", err)
+	}
+	service := &Service{}
+	response := httptest.NewRecorder()
+	service.handlePreviewProfileImport(response, httptest.NewRequest(http.MethodPost, "/api/config/profile/import/preview", bytes.NewReader(raw)))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected removed retry key to reject with 400, got status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	expectedDetail := `json: unknown field "` + removedRetryField + `"`
+	if body["detail"] != expectedDetail {
+		t.Fatalf("unexpected removed retry key rejection detail: %q", body["detail"])
+	}
+}
+
+func TestProfileBundleImportRejectsRemovedBanMode(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.LoadbalanceStrategies[0].BanMode = stringPtr("man" + "ual")
+	err := validateProfileImportRequest(request)
+	requireConfigBundleDomainError(t, err, http.StatusBadRequest, "ban_mode must be one of 'off', 'temporary', or 'until_reset'")
 }
 
 func TestProfileBundleImportValidatesAccessTargets(t *testing.T) {
@@ -179,7 +218,7 @@ func TestProfileBundleImportValidatesAccessTargets(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			request := validProfileBundleV2Request()
+			request := validProfileBundleV3Request()
 			test.mutate(&request)
 
 			err := validateProfileImportRequest(request)
@@ -189,7 +228,7 @@ func TestProfileBundleImportValidatesAccessTargets(t *testing.T) {
 }
 
 func TestProfileBundleImportCountsTopLevelConnections(t *testing.T) {
-	request := validProfileBundleV2Request()
+	request := validProfileBundleV3Request()
 	request.Connections = append(request.Connections, connectionExport{
 		Ref:                 "openai-secondary",
 		APIFamily:           "openai",
@@ -208,7 +247,7 @@ func TestProfileBundleImportCountsTopLevelConnections(t *testing.T) {
 	}
 }
 
-func validProfileBundleV2Request() profileImportRequest {
+func validProfileBundleV3Request() profileImportRequest {
 	return profileImportRequest{
 		Version:    canonicalProfileBundleVersion,
 		BundleKind: canonicalProfileBundleKind,
@@ -241,16 +280,17 @@ func validProfileBundleV2Request() profileImportRequest {
 			Priority:            0,
 		}},
 		LoadbalanceStrategies: []loadbalanceStrategyExport{{
-			Name:                   "Default single",
-			LegacyStrategyType:     stringPtr("single"),
-			FailureStatusCodes:     []int{429, 500},
-			BanMode:                stringPtr("off"),
-			RetryBaseDelayMS:       intPtr(60000),
-			RetryBackoffMultiplier: float64Ptr(2),
-			RetryJitterRatio:       float64Ptr(0.2),
-			RetryMaxDelayMS:        intPtr(900000),
-			RetryMaxAttempts:       intPtr(3),
-			BanDurationSeconds:     intPtr(0),
+			Name:                               "Default single",
+			LegacyStrategyType:                 stringPtr("single"),
+			FailureStatusCodes:                 []int{429, 500},
+			BanMode:                            stringPtr("until_reset"),
+			RetryBaseDelayMS:                   intPtr(60000),
+			RetryBackoffMultiplier:             float64Ptr(2),
+			RetryJitterRatio:                   float64Ptr(0.2),
+			RetryMaxDelayMS:                    intPtr(900000),
+			CycleRetryAttemptLimit:             intPtr(2),
+			BanCumulativeRetryAttemptThreshold: intPtr(4),
+			BanDurationSeconds:                 intPtr(0),
 		}},
 		Models: []modelExport{{
 			VendorKey:               stringPtr("openai"),

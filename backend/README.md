@@ -114,7 +114,7 @@ Enabled SMTP bootstrap example:
 ## Database and runtime data
 - Fresh-install schema setup is Go-managed and applied from the single checked-in baseline under `migrations/` at startup.
 - Prism supports empty PostgreSQL databases and databases already stamped with the current `prism_schema_migrations` baseline. Databases with application tables but missing current baseline history fail fast; reset incompatible local databases instead of expecting startup to rewrite historical schemas.
-- Pricing and token contract changes use the same clean cut local-data stance: reset and recreate incompatible local data, with no backfill path for old pricing or token semantics.
+- Pricing, token, and Ban Policy contract changes use the same clean cut local-data stance: reset and recreate incompatible local data, with no backfill path for old pricing, token, or Ban Policy semantics.
 - For local-only manual testing where a PostgreSQL reset is simpler than remediating a hand-edited database, stop Prism and run `docker compose down -v` from `backend/`, then `docker compose up -d prism-postgres` or `../start.sh headless` to recreate the local database. This deletes local PostgreSQL data.
 - Request telemetry, usage attribution, audit rows, and load-balance history live in PostgreSQL partitioned log tables.
 - Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.

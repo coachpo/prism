@@ -53,10 +53,14 @@ func (s *Service) exportProfileBundle(w http.ResponseWriter, r *http.Request, in
 func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Request) {
 	var requestBody profileImportRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := validateProfileBundleEnvelope(requestBody); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	if err := validateProfileImportRequest(requestBody); err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
@@ -95,10 +99,14 @@ func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 func (s *Service) handleImportProfileBundle(w http.ResponseWriter, r *http.Request) {
 	var requestBody profileImportRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := validateProfileBundleEnvelope(requestBody); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	if err := validateProfileImportRequest(requestBody); err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}

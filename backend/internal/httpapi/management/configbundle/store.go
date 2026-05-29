@@ -43,17 +43,18 @@ type pricingTemplateRow struct {
 }
 
 type strategyRow struct {
-	ID                     int
-	Name                   string
-	LegacyStrategyType     string
-	FailureStatusCodes     []int
-	BanMode                string
-	RetryBaseDelayMS       int
-	RetryBackoffMultiplier float64
-	RetryJitterRatio       float64
-	RetryMaxDelayMS        int
-	RetryMaxAttempts       int
-	BanDurationSeconds     int
+	ID                                 int
+	Name                               string
+	LegacyStrategyType                 string
+	FailureStatusCodes                 []int
+	BanMode                            string
+	RetryBaseDelayMS                   int
+	RetryBackoffMultiplier             float64
+	RetryJitterRatio                   float64
+	RetryMaxDelayMS                    int
+	CycleRetryAttemptLimit             int
+	BanCumulativeRetryAttemptThreshold int
+	BanDurationSeconds                 int
 }
 
 type modelRow struct {
@@ -287,16 +288,17 @@ func buildLoadbalanceStrategyExports(strategies []strategyRow) ([]loadbalanceStr
 	for _, strategy := range strategies {
 		strategyNameByID[strategy.ID] = strategy.Name
 		exportedStrategies = append(exportedStrategies, loadbalanceStrategyExport{
-			Name:                   strategy.Name,
-			LegacyStrategyType:     stringPtr(strategy.LegacyStrategyType),
-			FailureStatusCodes:     append([]int(nil), strategy.FailureStatusCodes...),
-			BanMode:                stringPtr(strategy.BanMode),
-			RetryBaseDelayMS:       intPtr(strategy.RetryBaseDelayMS),
-			RetryBackoffMultiplier: float64Ptr(strategy.RetryBackoffMultiplier),
-			RetryJitterRatio:       float64Ptr(strategy.RetryJitterRatio),
-			RetryMaxDelayMS:        intPtr(strategy.RetryMaxDelayMS),
-			RetryMaxAttempts:       intPtr(strategy.RetryMaxAttempts),
-			BanDurationSeconds:     intPtr(strategy.BanDurationSeconds),
+			Name:                               strategy.Name,
+			LegacyStrategyType:                 stringPtr(strategy.LegacyStrategyType),
+			FailureStatusCodes:                 append([]int(nil), strategy.FailureStatusCodes...),
+			BanMode:                            stringPtr(strategy.BanMode),
+			RetryBaseDelayMS:                   intPtr(strategy.RetryBaseDelayMS),
+			RetryBackoffMultiplier:             float64Ptr(strategy.RetryBackoffMultiplier),
+			RetryJitterRatio:                   float64Ptr(strategy.RetryJitterRatio),
+			RetryMaxDelayMS:                    intPtr(strategy.RetryMaxDelayMS),
+			CycleRetryAttemptLimit:             intPtr(strategy.CycleRetryAttemptLimit),
+			BanCumulativeRetryAttemptThreshold: intPtr(strategy.BanCumulativeRetryAttemptThreshold),
+			BanDurationSeconds:                 intPtr(strategy.BanDurationSeconds),
 		})
 	}
 	return exportedStrategies, strategyNameByID
@@ -593,7 +595,7 @@ func listPricingTemplates(ctx context.Context, exec queryExecutor, profileID int
 }
 
 func listStrategies(ctx context.Context, exec queryExecutor, profileID int) ([]strategyRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, retry_max_attempts, ban_duration_seconds FROM loadbalance_strategies WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds FROM loadbalance_strategies WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query loadbalance strategies for profile %d: %w", profileID, err)
 	}
@@ -603,7 +605,7 @@ func listStrategies(ctx context.Context, exec queryExecutor, profileID int) ([]s
 	for rows.Next() {
 		var statusCodes []int32
 		item := strategyRow{}
-		if err := rows.Scan(&item.ID, &item.Name, &item.LegacyStrategyType, &statusCodes, &item.BanMode, &item.RetryBaseDelayMS, &item.RetryBackoffMultiplier, &item.RetryJitterRatio, &item.RetryMaxDelayMS, &item.RetryMaxAttempts, &item.BanDurationSeconds); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.LegacyStrategyType, &statusCodes, &item.BanMode, &item.RetryBaseDelayMS, &item.RetryBackoffMultiplier, &item.RetryJitterRatio, &item.RetryMaxDelayMS, &item.CycleRetryAttemptLimit, &item.BanCumulativeRetryAttemptThreshold, &item.BanDurationSeconds); err != nil {
 			return nil, fmt.Errorf("scan loadbalance strategy row: %w", err)
 		}
 		item.FailureStatusCodes = intSliceFromInt32(statusCodes)
