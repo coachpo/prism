@@ -89,6 +89,34 @@ func TestRuntimeSideEffectOptionsFromSettings(t *testing.T) {
 	}
 }
 
+func TestProductionAppBuildsWithStartupTelemetry(t *testing.T) {
+	settings := config.Settings{
+		Host:                   "127.0.0.1",
+		Port:                   18000,
+		AppEnv:                 config.EnvironmentDevelopment,
+		RuntimeTransportConfig: config.RuntimeTransportConfig{RequestTimeout: time.Second},
+	}
+	var shutdownCalled bool
+	app, server, err := NewProductionApp(context.Background(), settings, ProductionOptions{
+		TelemetryShutdown: func(context.Context) error {
+			shutdownCalled = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("build production app with startup telemetry: %v", err)
+	}
+	if app == nil || server == nil {
+		t.Fatalf("expected app and server, got app=%v server=%v", app, server)
+	}
+	if err := app.Shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown production app with startup telemetry: %v", err)
+	}
+	if !shutdownCalled {
+		t.Fatal("expected startup telemetry shutdown hook to flush during lifecycle shutdown")
+	}
+}
+
 func TestNewProductionAppUsesPlatformHTTPServerAssemblyWithoutDatabaseOwnership(t *testing.T) {
 	settings := config.Settings{
 		Host:                   "127.0.0.1",

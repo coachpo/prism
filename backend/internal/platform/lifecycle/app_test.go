@@ -294,6 +294,37 @@ func TestAppShutdownLogsPhaseOrder(t *testing.T) {
 	}
 }
 
+func TestAppShutdownFlushesTelemetry(t *testing.T) {
+	recorder := newLifecycleRecorder()
+	server := &immediateHTTPServer{recorder: recorder, shutdownName: "http shutdown"}
+	app := NewApp(Options{
+		HTTPServer:        server,
+		RealtimeShutdown:  []ShutdownHook{recorder.hook("realtime shutdown")},
+		SideEffectDrain:   []ShutdownHook{recorder.hook("side effect drain")},
+		SchedulerStop:     recorder.hook("scheduler stop"),
+		ServiceClose:      []ShutdownHook{recorder.hook("service close")},
+		TelemetryShutdown: recorder.hook("telemetry shutdown"),
+		DBClose:           recorder.hook("db close"),
+	})
+	ctx := context.WithValue(context.Background(), traceContextKey{}, "telemetry-shutdown")
+	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Minute))
+	defer cancel()
+
+	if err := app.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	wantOrder := []string{"http shutdown", "realtime shutdown", "side effect drain", "scheduler stop", "service close", "telemetry shutdown", "db close"}
+	assertOrder(t, recorder.snapshot(), wantOrder)
+	assertContexts(t, recorder, wantOrder, "telemetry-shutdown")
+	assertCallCounts(t, recorder, wantOrder, 1)
+
+	if err := app.Shutdown(ctx); err != nil {
+		t.Fatalf("second shutdown: %v", err)
+	}
+	assertOrder(t, recorder.snapshot(), wantOrder)
+	assertCallCounts(t, recorder, wantOrder, 1)
+}
+
 func TestAppRunNoDeadlineCancellationUsesDefaultShutdownDeadline(t *testing.T) {
 	previousTimeout := defaultShutdownTimeout
 	defaultShutdownTimeout = 30 * time.Millisecond

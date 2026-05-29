@@ -42,16 +42,18 @@ import (
 type BootstrapConfigOptions = platformhttp.BootstrapConfigOptions
 
 type ProductionOptions struct {
-	BootstrapConfig BootstrapConfigOptions
+	BootstrapConfig   BootstrapConfigOptions
+	TelemetryShutdown ShutdownHook
 }
 
 type productionResources struct {
-	deps             platformhttp.Dependencies
-	scheduler        *background.Scheduler
-	realtimeShutdown []ShutdownHook
-	sideEffectDrain  []ShutdownHook
-	serviceClose     []ShutdownHook
-	dbClose          ShutdownHook
+	deps              platformhttp.Dependencies
+	scheduler         *background.Scheduler
+	realtimeShutdown  []ShutdownHook
+	sideEffectDrain   []ShutdownHook
+	serviceClose      []ShutdownHook
+	telemetryShutdown ShutdownHook
+	dbClose           ShutdownHook
 }
 
 func NewProductionApp(ctx context.Context, settings config.Settings, options ProductionOptions) (*App, *http.Server, error) {
@@ -72,18 +74,19 @@ func NewProductionApp(ctx context.Context, settings config.Settings, options Pro
 		}
 	}
 	app := NewApp(Options{
-		HTTPServer:       server,
-		RealtimeShutdown: resources.realtimeShutdown,
-		SideEffectDrain:  resources.sideEffectDrain,
-		SchedulerStop:    resources.schedulerStopHook(),
-		ServiceClose:     resources.serviceClose,
-		DBClose:          resources.dbClose,
+		HTTPServer:        server,
+		RealtimeShutdown:  resources.realtimeShutdown,
+		SideEffectDrain:   resources.sideEffectDrain,
+		SchedulerStop:     resources.schedulerStopHook(),
+		ServiceClose:      resources.serviceClose,
+		TelemetryShutdown: resources.telemetryShutdown,
+		DBClose:           resources.dbClose,
 	})
 	return app, server, nil
 }
 
 func buildProductionResources(ctx context.Context, settings config.Settings, options ProductionOptions) (*productionResources, error) {
-	resources := &productionResources{}
+	resources := &productionResources{telemetryShutdown: options.TelemetryShutdown}
 	if err := resources.configureHTTPAssembly(settings, options); err != nil {
 		return nil, err
 	}
@@ -526,6 +529,9 @@ func (resources *productionResources) cleanup(ctx context.Context) error {
 	}
 	for _, hook := range resources.serviceClose {
 		errs = appendError(errs, hook(ctx))
+	}
+	if resources.telemetryShutdown != nil {
+		errs = appendError(errs, resources.telemetryShutdown(ctx))
 	}
 	if resources.dbClose != nil {
 		errs = appendError(errs, resources.dbClose(ctx))

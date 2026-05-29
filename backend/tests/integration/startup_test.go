@@ -6,10 +6,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -195,6 +199,41 @@ func TestStartupPreservesExistingBootstrap(t *testing.T) {
 	assertStartupPrintLine(t, output, "SERVER_PORT=18000")
 	assertStartupPrintDoesNotContain(t, output, envDatabaseURL)
 	assertStartupBootstrapFileStatePreserved(t, configPath, before)
+}
+
+func TestBackendStartupWithStartupTelemetryConfig(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	databaseName := "backend_startup_telemetry_config"
+	conn := harness.openDatabase(t, testContext, databaseName)
+	defer func() { _ = conn.Close(testContext) }()
+
+	configPath := filepath.Join(t.TempDir(), "bootstrap.json")
+	backendPort := reserveLocalTCPPort(t)
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer collector.Close()
+
+	t.Setenv("DATABASE_URL", harness.connectionString(databaseName))
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	if _, err := manager.LoadOrSeed(configPath); err != nil {
+		t.Fatalf("seed startup telemetry bootstrap config: %v", err)
+	}
+	mutateStartupBootstrapJSON(t, configPath, func(payload map[string]any) {
+		server := startupBootstrapObject(t, payload, "server")
+		server["host"] = "127.0.0.1"
+		server["port"] = backendPort
+		payload["telemetry"] = startupTelemetryBootstrapPayload(collector.URL)
+	})
+
+	binaryPath := buildBackendBinary(t, testContext)
+	output := runBackendUntilHealthyThenInterrupt(t, testContext, binaryPath, configPath, backendPort)
+	if !strings.Contains(output, "starting prism backend") {
+		t.Fatalf("expected backend startup log, got:\n%s", output)
+	}
 }
 
 func TestStartupIgnoresLegacySkipEnv(t *testing.T) {
@@ -706,6 +745,132 @@ type startupStateSnapshot struct {
 type startupBootstrapFileState struct {
 	raw     []byte
 	modTime time.Time
+}
+
+func startupTelemetryBootstrapPayload(endpoint string) map[string]any {
+	return map[string]any{
+		"enabled": true,
+		"exporter": map[string]any{
+			"endpoint":    endpoint,
+			"protocol":    "http/protobuf",
+			"compression": "none",
+			"timeout":     "1s",
+			"auth": map[string]any{
+				"mode": "none",
+			},
+			"tls": map[string]any{
+				"insecureSkipVerify": false,
+			},
+		},
+		"metrics": map[string]any{
+			"enabled": true,
+		},
+		"traces": map[string]any{
+			"enabled":       true,
+			"samplingRatio": 0.5,
+		},
+	}
+}
+
+func reserveLocalTCPPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve backend port: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("reserved listener address has type %T", listener.Addr())
+	}
+	return addr.Port
+}
+
+func buildBackendBinary(t *testing.T, ctx context.Context) string {
+	t.Helper()
+	packageDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("resolve integration package directory: %v", err)
+	}
+	backendRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
+	binaryPath := filepath.Join(t.TempDir(), "prism-backend")
+	command := exec.CommandContext(ctx, "go", "build", "-o", binaryPath, "./cmd/prism-backend")
+	command.Dir = backendRoot
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build backend binary: %v\n%s", err, output)
+	}
+	return binaryPath
+}
+
+func runBackendUntilHealthyThenInterrupt(t *testing.T, ctx context.Context, binaryPath string, configPath string, port int) string {
+	t.Helper()
+	var output bytes.Buffer
+	command := exec.CommandContext(ctx, binaryPath)
+	command.Env = append(os.Environ(),
+		config.BootstrapConfigPathEnv+"="+configPath,
+		"DATABASE_URL=postgres://ignored-env@db.invalid:5432/prism?sslmode=disable",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1/ignored-env",
+	)
+	command.Stdout = &output
+	command.Stderr = &output
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := command.Start(); err != nil {
+		t.Fatalf("start backend with startup telemetry config: %v", err)
+	}
+
+	waitErr := make(chan error, 1)
+	go func() { waitErr <- command.Wait() }()
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	if err := waitForBackendHealth(ctx, healthURL, waitErr); err != nil {
+		terminateBackendProcess(command.Process.Pid)
+		t.Fatalf("backend did not become healthy with startup telemetry config: %v\n%s", err, output.String())
+	}
+	if err := syscall.Kill(-command.Process.Pid, syscall.SIGINT); err != nil {
+		terminateBackendProcess(command.Process.Pid)
+		t.Fatalf("interrupt backend with startup telemetry config: %v", err)
+	}
+	select {
+	case err := <-waitErr:
+		if err != nil {
+			t.Fatalf("backend exited after interrupt: %v\n%s", err, output.String())
+		}
+	case <-ctx.Done():
+		terminateBackendProcess(command.Process.Pid)
+		t.Fatalf("backend did not stop after interrupt: %v\n%s", ctx.Err(), output.String())
+	}
+	return output.String()
+}
+
+func waitForBackendHealth(ctx context.Context, healthURL string, waitErr <-chan error) error {
+	client := http.Client{Timeout: 200 * time.Millisecond}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-waitErr:
+			return fmt.Errorf("backend exited before health was ready: %w", err)
+		case <-ticker.C:
+			request, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
+			if err != nil {
+				return err
+			}
+			response, err := client.Do(request)
+			if err != nil {
+				continue
+			}
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func terminateBackendProcess(pid int) {
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
 }
 
 func runBackendPrintEffectiveStartupSettings(t *testing.T, configPath, databaseURL string) string {
