@@ -42,6 +42,18 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 	}
 	restartFields := []string{
 		bootstrapFieldRuntimeSideEffectsAttemptTimeout,
+		bootstrapFieldTelemetryEnabled,
+		bootstrapFieldTelemetryExporterEndpoint,
+		bootstrapFieldTelemetryExporterProtocol,
+		bootstrapFieldTelemetryExporterCompression,
+		bootstrapFieldTelemetryExporterTimeout,
+		bootstrapFieldTelemetryExporterAuthMode,
+		BootstrapConfigSecretTelemetryAuthorizationHeader,
+		bootstrapFieldTelemetryExporterTLSInsecureSkipVerify,
+		bootstrapFieldTelemetryExporterTLSCAFile,
+		bootstrapFieldTelemetryMetricsEnabled,
+		bootstrapFieldTelemetryTracesEnabled,
+		bootstrapFieldTelemetryTracesSamplingRatio,
 		bootstrapFieldServerHost,
 		bootstrapFieldServerPort,
 		BootstrapConfigSecretDatabaseURL,
@@ -127,6 +139,25 @@ func TestBootstrapConfigFieldDiffDetectsRestartOnlyChanges(t *testing.T) {
 	}
 }
 
+func TestTelemetryFieldsAreRestartRequired(t *testing.T) {
+	capabilities := BootstrapConfigApplyCapabilities()
+	telemetryFields := []string{
+		bootstrapFieldTelemetryEnabled,
+		bootstrapFieldTelemetryExporterEndpoint,
+		bootstrapFieldTelemetryExporterProtocol,
+		bootstrapFieldTelemetryExporterCompression,
+		bootstrapFieldTelemetryExporterTimeout,
+		bootstrapFieldTelemetryExporterAuthMode,
+		BootstrapConfigSecretTelemetryAuthorizationHeader,
+		bootstrapFieldTelemetryExporterTLSInsecureSkipVerify,
+		bootstrapFieldTelemetryExporterTLSCAFile,
+		bootstrapFieldTelemetryMetricsEnabled,
+		bootstrapFieldTelemetryTracesEnabled,
+		bootstrapFieldTelemetryTracesSamplingRatio,
+	}
+	assertBootstrapFieldModes(t, capabilities, telemetryFields, BootstrapConfigApplyModeRestartRequired)
+}
+
 func TestBootstrapConfigFieldDiffDetectsRuntimeSideEffectsAttemptTimeoutRestartOnly(t *testing.T) {
 	current := bootstrapApplyTestValues(t)
 	requested := cloneManagementValues(t, current)
@@ -173,12 +204,14 @@ func TestBootstrapConfigFieldDiffEmitsSecretUpdatePaths(t *testing.T) {
 	updates[BootstrapConfigSecretAuthJWTSigningKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretStateTransferBundleKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretMailSMTPPassword] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
+	updates[BootstrapConfigSecretTelemetryAuthorizationHeader] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	diff, err := DiffBootstrapConfigFields(current, cloneManagementValues(t, current), updates)
 	if err != nil {
 		t.Fatalf("diff secret update bootstrap fields: %v", err)
 	}
 	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, []string{BootstrapConfigSecretMailSMTPPassword})
 	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, []string{
+		BootstrapConfigSecretTelemetryAuthorizationHeader,
 		BootstrapConfigSecretDatabaseURL,
 		BootstrapConfigSecretRuntimeSecretEncryptionKey,
 		BootstrapConfigSecretAuthJWTSigningKey,

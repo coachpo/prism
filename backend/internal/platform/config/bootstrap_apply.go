@@ -77,53 +77,64 @@ func (e *BootstrapConfigFieldClassificationError) Error() string {
 }
 
 const (
-	bootstrapFieldHTTPCORSAllowedOrigins                = "http.cors_allowed_origins"
-	bootstrapFieldAuthAccessTokenTTLSeconds             = "auth.access_token_ttl_seconds"
-	bootstrapFieldAuthRefreshTokenTTLSeconds            = "auth.refresh_token_ttl_seconds"
-	bootstrapFieldAuthResetCodeTTLSeconds               = "auth.reset_code_ttl_seconds"
-	bootstrapFieldAuthAccessCookieName                  = "auth.access_cookie_name"
-	bootstrapFieldAuthRefreshCookieName                 = "auth.refresh_cookie_name"
-	bootstrapFieldAuthCookieSecure                      = "auth.cookie_secure"
-	bootstrapFieldMailEnabled                           = "mail.enabled"
-	bootstrapFieldMailFrom                              = "mail.from"
-	bootstrapFieldMailReplyTo                           = "mail.reply_to"
-	bootstrapFieldMailSMTPHost                          = "mail.smtp.host"
-	bootstrapFieldMailSMTPPort                          = "mail.smtp.port"
-	bootstrapFieldMailSMTPMode                          = "mail.smtp.mode"
-	bootstrapFieldMailSMTPEHLOHostname                  = "mail.smtp.ehlo_hostname"
-	bootstrapFieldMailSMTPAuth                          = "mail.smtp.auth"
-	bootstrapFieldMailSMTPUsername                      = "mail.smtp.username"
-	bootstrapFieldMailSMTPPasswordFile                  = "mail.smtp.password_file"
-	bootstrapFieldMailSMTPTimeout                       = "mail.smtp.timeout"
-	bootstrapFieldMailSMTPTLSServerName                 = "mail.smtp.tls_server_name"
-	bootstrapFieldRuntimeTransportMaxIdleConns          = "runtime.transport.max_idle_conns"
-	bootstrapFieldRuntimeTransportMaxIdleConnsPerHost   = "runtime.transport.max_idle_conns_per_host"
-	bootstrapFieldRuntimeTransportMaxConnsPerHost       = "runtime.transport.max_conns_per_host"
-	bootstrapFieldRuntimeTransportIdleConnTimeout       = "runtime.transport.idle_conn_timeout"
-	bootstrapFieldRuntimeTransportRequestTimeout        = "runtime.transport.request_timeout"
-	bootstrapFieldRuntimeTransportResponseHeaderTimeout = "runtime.transport.response_header_timeout"
-	bootstrapFieldRuntimeTransportTLSHandshakeTimeout   = "runtime.transport.tls_handshake_timeout"
-	bootstrapFieldRuntimeTransportExpectContinueTimeout = "runtime.transport.expect_continue_timeout"
-	bootstrapFieldRuntimeSideEffectsAttemptTimeout      = "runtime.side_effects.attempt_timeout"
-	bootstrapFieldDatabaseManagementAdmissionM2Max      = "database.management_admission.m2_max_concurrent"
-	bootstrapFieldDatabaseManagementAdmissionM3Max      = "database.management_admission.m3_max_concurrent"
-	bootstrapFieldServerHost                            = "server.host"
-	bootstrapFieldServerPort                            = "server.port"
-	bootstrapFieldDatabasePoolsTotalMaxConns            = "database.pools.total_max_conns"
-	bootstrapFieldDatabasePoolsManagementMaxConns       = "database.pools.management.max_conns"
-	bootstrapFieldDatabasePoolsManagementMinIdleConns   = "database.pools.management.min_idle_conns"
-	bootstrapFieldDatabasePoolsRuntimeExecutionMaxConns = "database.pools.runtime_execution.max_conns"
-	bootstrapFieldDatabasePoolsRuntimeExecutionMinIdle  = "database.pools.runtime_execution.min_idle_conns"
-	bootstrapFieldDatabasePoolsRuntimeTelemetryMaxConns = "database.pools.runtime_telemetry.max_conns"
-	bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle  = "database.pools.runtime_telemetry.min_idle_conns"
-	bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns  = "database.pools.runtime_feedback.max_conns"
-	bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle   = "database.pools.runtime_feedback.min_idle_conns"
-	bootstrapFieldDatabasePoolsRealtimeMaxConns         = "database.pools.realtime.max_conns"
-	bootstrapFieldDatabasePoolsRealtimeMinIdleConns     = "database.pools.realtime.min_idle_conns"
-	bootstrapFieldDatabasePoolsCacheRefreshMaxConns     = "database.pools.cache_refresh.max_conns"
-	bootstrapFieldDatabasePoolsCacheRefreshMinIdle      = "database.pools.cache_refresh.min_idle_conns"
-	bootstrapFieldDatabasePoolsBackgroundJobsMaxConns   = "database.pools.background_jobs.max_conns"
-	bootstrapFieldDatabasePoolsBackgroundJobsMinIdle    = "database.pools.background_jobs.min_idle_conns"
+	bootstrapFieldHTTPCORSAllowedOrigins                 = "http.cors_allowed_origins"
+	bootstrapFieldAuthAccessTokenTTLSeconds              = "auth.access_token_ttl_seconds"
+	bootstrapFieldAuthRefreshTokenTTLSeconds             = "auth.refresh_token_ttl_seconds"
+	bootstrapFieldAuthResetCodeTTLSeconds                = "auth.reset_code_ttl_seconds"
+	bootstrapFieldAuthAccessCookieName                   = "auth.access_cookie_name"
+	bootstrapFieldAuthRefreshCookieName                  = "auth.refresh_cookie_name"
+	bootstrapFieldAuthCookieSecure                       = "auth.cookie_secure"
+	bootstrapFieldMailEnabled                            = "mail.enabled"
+	bootstrapFieldMailFrom                               = "mail.from"
+	bootstrapFieldMailReplyTo                            = "mail.reply_to"
+	bootstrapFieldMailSMTPHost                           = "mail.smtp.host"
+	bootstrapFieldMailSMTPPort                           = "mail.smtp.port"
+	bootstrapFieldMailSMTPMode                           = "mail.smtp.mode"
+	bootstrapFieldMailSMTPEHLOHostname                   = "mail.smtp.ehlo_hostname"
+	bootstrapFieldMailSMTPAuth                           = "mail.smtp.auth"
+	bootstrapFieldMailSMTPUsername                       = "mail.smtp.username"
+	bootstrapFieldMailSMTPPasswordFile                   = "mail.smtp.password_file"
+	bootstrapFieldMailSMTPTimeout                        = "mail.smtp.timeout"
+	bootstrapFieldMailSMTPTLSServerName                  = "mail.smtp.tls_server_name"
+	bootstrapFieldRuntimeTransportMaxIdleConns           = "runtime.transport.max_idle_conns"
+	bootstrapFieldRuntimeTransportMaxIdleConnsPerHost    = "runtime.transport.max_idle_conns_per_host"
+	bootstrapFieldRuntimeTransportMaxConnsPerHost        = "runtime.transport.max_conns_per_host"
+	bootstrapFieldRuntimeTransportIdleConnTimeout        = "runtime.transport.idle_conn_timeout"
+	bootstrapFieldRuntimeTransportRequestTimeout         = "runtime.transport.request_timeout"
+	bootstrapFieldRuntimeTransportResponseHeaderTimeout  = "runtime.transport.response_header_timeout"
+	bootstrapFieldRuntimeTransportTLSHandshakeTimeout    = "runtime.transport.tls_handshake_timeout"
+	bootstrapFieldRuntimeTransportExpectContinueTimeout  = "runtime.transport.expect_continue_timeout"
+	bootstrapFieldRuntimeSideEffectsAttemptTimeout       = "runtime.side_effects.attempt_timeout"
+	bootstrapFieldTelemetryEnabled                       = "telemetry.enabled"
+	bootstrapFieldTelemetryExporterEndpoint              = "telemetry.exporter.endpoint"
+	bootstrapFieldTelemetryExporterProtocol              = "telemetry.exporter.protocol"
+	bootstrapFieldTelemetryExporterCompression           = "telemetry.exporter.compression"
+	bootstrapFieldTelemetryExporterTimeout               = "telemetry.exporter.timeout"
+	bootstrapFieldTelemetryExporterAuthMode              = "telemetry.exporter.auth.mode"
+	bootstrapFieldTelemetryExporterTLSInsecureSkipVerify = "telemetry.exporter.tls.insecure_skip_verify"
+	bootstrapFieldTelemetryExporterTLSCAFile             = "telemetry.exporter.tls.ca_file"
+	bootstrapFieldTelemetryMetricsEnabled                = "telemetry.metrics.enabled"
+	bootstrapFieldTelemetryTracesEnabled                 = "telemetry.traces.enabled"
+	bootstrapFieldTelemetryTracesSamplingRatio           = "telemetry.traces.sampling_ratio"
+	bootstrapFieldDatabaseManagementAdmissionM2Max       = "database.management_admission.m2_max_concurrent"
+	bootstrapFieldDatabaseManagementAdmissionM3Max       = "database.management_admission.m3_max_concurrent"
+	bootstrapFieldServerHost                             = "server.host"
+	bootstrapFieldServerPort                             = "server.port"
+	bootstrapFieldDatabasePoolsTotalMaxConns             = "database.pools.total_max_conns"
+	bootstrapFieldDatabasePoolsManagementMaxConns        = "database.pools.management.max_conns"
+	bootstrapFieldDatabasePoolsManagementMinIdleConns    = "database.pools.management.min_idle_conns"
+	bootstrapFieldDatabasePoolsRuntimeExecutionMaxConns  = "database.pools.runtime_execution.max_conns"
+	bootstrapFieldDatabasePoolsRuntimeExecutionMinIdle   = "database.pools.runtime_execution.min_idle_conns"
+	bootstrapFieldDatabasePoolsRuntimeTelemetryMaxConns  = "database.pools.runtime_telemetry.max_conns"
+	bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle   = "database.pools.runtime_telemetry.min_idle_conns"
+	bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns   = "database.pools.runtime_feedback.max_conns"
+	bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle    = "database.pools.runtime_feedback.min_idle_conns"
+	bootstrapFieldDatabasePoolsRealtimeMaxConns          = "database.pools.realtime.max_conns"
+	bootstrapFieldDatabasePoolsRealtimeMinIdleConns      = "database.pools.realtime.min_idle_conns"
+	bootstrapFieldDatabasePoolsCacheRefreshMaxConns      = "database.pools.cache_refresh.max_conns"
+	bootstrapFieldDatabasePoolsCacheRefreshMinIdle       = "database.pools.cache_refresh.min_idle_conns"
+	bootstrapFieldDatabasePoolsBackgroundJobsMaxConns    = "database.pools.background_jobs.max_conns"
+	bootstrapFieldDatabasePoolsBackgroundJobsMinIdle     = "database.pools.background_jobs.min_idle_conns"
 )
 
 type bootstrapConfigFieldRegistration struct {
@@ -163,6 +174,18 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM2Max),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM3Max),
 	restartRequiredBootstrapField(bootstrapFieldRuntimeSideEffectsAttemptTimeout, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryEnabled, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterEndpoint, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterProtocol, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterCompression, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterTimeout, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterAuthMode, ""),
+	restartRequiredBootstrapField(BootstrapConfigSecretTelemetryAuthorizationHeader, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterTLSInsecureSkipVerify, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterTLSCAFile, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryMetricsEnabled, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryTracesEnabled, ""),
+	restartRequiredBootstrapField(bootstrapFieldTelemetryTracesSamplingRatio, ""),
 	restartRequiredBootstrapField(bootstrapFieldServerHost, BootstrapConfigConfirmationServerHostChange),
 	restartRequiredBootstrapField(bootstrapFieldServerPort, BootstrapConfigConfirmationServerPortChange),
 	restartRequiredBootstrapField(BootstrapConfigSecretDatabaseURL, BootstrapConfigConfirmationDatabaseURLChange),
@@ -238,7 +261,7 @@ func DiffBootstrapConfigFields(current BootstrapConfigValues, requested Bootstra
 		}
 	}
 	for field, update := range secretUpdates {
-		if update.Action == BootstrapConfigSecretActionReplace {
+		if update.Action == BootstrapConfigSecretActionReplace || update.Action == BootstrapConfigSecretActionClear {
 			changed[field] = struct{}{}
 		}
 	}
@@ -331,6 +354,7 @@ func bootstrapConfigSafeFieldValues(values BootstrapConfigValues) map[string]boo
 	addBootstrapHTTPFieldValues(fields, values.HTTP)
 	addBootstrapAuthFieldValues(fields, values.Auth)
 	addBootstrapMailFieldValues(fields, values.Mail)
+	addBootstrapTelemetryFieldValues(fields, values.Telemetry)
 	return fields
 }
 
@@ -500,6 +524,67 @@ func addBootstrapMailContentFieldValues(fields map[string]bootstrapConfigFieldVa
 	fields[bootstrapFieldMailSMTPTLSServerName] = bootstrapOptionalStringFieldValue(smtp.TLSServerName)
 }
 
+func addBootstrapTelemetryFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigTelemetryValues) {
+	if values == nil {
+		fields[bootstrapFieldTelemetryEnabled] = bootstrapBoolFieldValue(nil)
+		addBootstrapTelemetryExporterFieldValues(fields, nil)
+		addBootstrapTelemetrySignalFieldValues(fields, bootstrapFieldTelemetryMetricsEnabled, nil)
+		addBootstrapTelemetryTracesFieldValues(fields, nil)
+		return
+	}
+	fields[bootstrapFieldTelemetryEnabled] = bootstrapBoolFieldValue(values.Enabled)
+	addBootstrapTelemetryExporterFieldValues(fields, values.Exporter)
+	addBootstrapTelemetrySignalFieldValues(fields, bootstrapFieldTelemetryMetricsEnabled, values.Metrics)
+	addBootstrapTelemetryTracesFieldValues(fields, values.Traces)
+}
+
+func addBootstrapTelemetryExporterFieldValues(fields map[string]bootstrapConfigFieldValue, exporter *BootstrapConfigTelemetryExporterValues) {
+	if exporter == nil {
+		fields[bootstrapFieldTelemetryExporterEndpoint] = bootstrapOptionalStringFieldValue(nil)
+		fields[bootstrapFieldTelemetryExporterProtocol] = bootstrapOptionalStringFieldValue(nil)
+		fields[bootstrapFieldTelemetryExporterCompression] = bootstrapOptionalStringFieldValue(nil)
+		fields[bootstrapFieldTelemetryExporterTimeout] = bootstrapOptionalDurationFieldValue(nil)
+		fields[bootstrapFieldTelemetryExporterAuthMode] = bootstrapOptionalStringFieldValue(nil)
+		fields[bootstrapFieldTelemetryExporterTLSInsecureSkipVerify] = bootstrapOptionalBoolFieldValue(nil)
+		fields[bootstrapFieldTelemetryExporterTLSCAFile] = bootstrapOptionalStringFieldValue(nil)
+		return
+	}
+	fields[bootstrapFieldTelemetryExporterEndpoint] = bootstrapOptionalStringFieldValue(exporter.Endpoint)
+	fields[bootstrapFieldTelemetryExporterProtocol] = bootstrapOptionalStringFieldValue(exporter.Protocol)
+	fields[bootstrapFieldTelemetryExporterCompression] = bootstrapOptionalStringFieldValue(exporter.Compression)
+	fields[bootstrapFieldTelemetryExporterTimeout] = bootstrapOptionalDurationFieldValue(exporter.Timeout)
+	if exporter.Auth == nil {
+		fields[bootstrapFieldTelemetryExporterAuthMode] = bootstrapOptionalStringFieldValue(nil)
+	} else {
+		fields[bootstrapFieldTelemetryExporterAuthMode] = bootstrapOptionalStringFieldValue(exporter.Auth.Mode)
+	}
+	if exporter.TLS == nil {
+		fields[bootstrapFieldTelemetryExporterTLSInsecureSkipVerify] = bootstrapOptionalBoolFieldValue(nil)
+		fields[bootstrapFieldTelemetryExporterTLSCAFile] = bootstrapOptionalStringFieldValue(nil)
+		return
+	}
+	fields[bootstrapFieldTelemetryExporterTLSInsecureSkipVerify] = bootstrapOptionalBoolFieldValue(exporter.TLS.InsecureSkipVerify)
+	fields[bootstrapFieldTelemetryExporterTLSCAFile] = bootstrapOptionalStringFieldValue(exporter.TLS.CAFile)
+}
+
+func addBootstrapTelemetrySignalFieldValues(fields map[string]bootstrapConfigFieldValue, field string, signal *BootstrapConfigTelemetrySignalValues) {
+	if signal == nil {
+		fields[field] = bootstrapOptionalBoolFieldValue(nil)
+		return
+	}
+	fields[field] = bootstrapOptionalBoolFieldValue(signal.Enabled)
+}
+
+func addBootstrapTelemetryTracesFieldValues(fields map[string]bootstrapConfigFieldValue, traces *BootstrapConfigTelemetryTracesValues) {
+	if traces == nil {
+		fields[bootstrapFieldTelemetryTracesEnabled] = bootstrapOptionalBoolFieldValue(nil)
+		fields[bootstrapFieldTelemetryTracesSamplingRatio] = bootstrapOptionalFloat64FieldValue(nil)
+		return
+	}
+	fields[bootstrapFieldTelemetryTracesEnabled] = bootstrapOptionalBoolFieldValue(traces.Enabled)
+	fields[bootstrapFieldTelemetryTracesSamplingRatio] = bootstrapOptionalFloat64FieldValue(traces.SamplingRatio)
+}
+
 func bootstrapIntFieldValue(value *int) bootstrapConfigFieldValue {
 	if value == nil {
 		return bootstrapConfigFieldValue{}
@@ -510,6 +595,20 @@ func bootstrapIntFieldValue(value *int) bootstrapConfigFieldValue {
 func bootstrapBoolFieldValue(value *bool) bootstrapConfigFieldValue {
 	if value == nil {
 		return bootstrapConfigFieldValue{}
+	}
+	return bootstrapConfigFieldValue{present: true, value: *value}
+}
+
+func bootstrapOptionalBoolFieldValue(value *bool) bootstrapConfigFieldValue {
+	if value == nil {
+		return bootstrapConfigFieldValue{present: true, value: false}
+	}
+	return bootstrapConfigFieldValue{present: true, value: *value}
+}
+
+func bootstrapOptionalFloat64FieldValue(value *float64) bootstrapConfigFieldValue {
+	if value == nil {
+		return bootstrapConfigFieldValue{present: true, value: float64(0)}
 	}
 	return bootstrapConfigFieldValue{present: true, value: *value}
 }
@@ -619,7 +718,8 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 			RefreshCookieName:      stringPointer(strings.TrimSpace(settings.AuthRefreshCookieName)),
 			CookieSecure:           boolPointer(settings.AuthCookieSecure),
 		},
-		Mail: bootstrapConfigMailValuesFromSettings(settings.Mail),
+		Mail:      bootstrapConfigMailValuesFromSettings(settings.Mail),
+		Telemetry: bootstrapConfigTelemetryValuesFromSettings(settings.Telemetry),
 	}
 }
 
@@ -651,24 +751,60 @@ func bootstrapConfigMailValuesFromSettings(mail MailConfig) *BootstrapConfigMail
 	return values
 }
 
+func bootstrapConfigTelemetryValuesFromSettings(telemetry TelemetryConfig) *BootstrapConfigTelemetryValues {
+	values := &BootstrapConfigTelemetryValues{Enabled: boolPointer(telemetry.Enabled)}
+	if !telemetry.Enabled {
+		return values
+	}
+	timeout := telemetry.Exporter.Timeout.String()
+	values.Exporter = &BootstrapConfigTelemetryExporterValues{
+		Endpoint:    optionalStringPointer(telemetry.Exporter.Endpoint),
+		Protocol:    stringPointer(string(telemetry.Exporter.Protocol)),
+		Compression: stringPointer(string(telemetry.Exporter.Compression)),
+		Timeout:     &timeout,
+		Auth: &BootstrapConfigTelemetryExporterAuthValues{
+			Mode: stringPointer(string(telemetry.Exporter.Auth.Mode)),
+		},
+		TLS: &BootstrapConfigTelemetryExporterTLSValues{
+			InsecureSkipVerify: boolPointer(telemetry.Exporter.TLS.InsecureSkipVerify),
+			CAFile:             optionalStringPointer(telemetry.Exporter.TLS.CAFile),
+		},
+	}
+	values.Metrics = &BootstrapConfigTelemetrySignalValues{Enabled: boolPointer(telemetry.Metrics.Enabled)}
+	values.Traces = &BootstrapConfigTelemetryTracesValues{
+		Enabled:       boolPointer(telemetry.Traces.Enabled),
+		SamplingRatio: float64Pointer(telemetry.Traces.SamplingRatio),
+	}
+	return values
+}
+
 func bootstrapConfigSecretUpdatesForSettingsDiff(current Settings, requested Settings) map[string]BootstrapConfigSecretUpdate {
 	updates := map[string]BootstrapConfigSecretUpdate{
-		BootstrapConfigSecretDatabaseURL:                {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretRuntimeSecretEncryptionKey: {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretAuthJWTSigningKey:          {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretStateTransferBundleKey:     {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretMailSMTPPassword:           {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretDatabaseURL:                  {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretRuntimeSecretEncryptionKey:   {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretAuthJWTSigningKey:            {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretStateTransferBundleKey:       {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretMailSMTPPassword:             {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretTelemetryAuthorizationHeader: {Action: BootstrapConfigSecretActionPreserve},
 	}
 	markReplace := func(field string, currentValue string, requestedValue string) {
-		if strings.TrimSpace(currentValue) != strings.TrimSpace(requestedValue) {
-			updates[field] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
+		currentTrimmed := strings.TrimSpace(currentValue)
+		requestedTrimmed := strings.TrimSpace(requestedValue)
+		if currentTrimmed == requestedTrimmed {
+			return
 		}
+		if requestedTrimmed == "" {
+			updates[field] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionClear}
+			return
+		}
+		updates[field] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	}
 	markReplace(BootstrapConfigSecretDatabaseURL, current.DatabaseURL, requested.DatabaseURL)
 	markReplace(BootstrapConfigSecretRuntimeSecretEncryptionKey, current.SecretEncryptionKey, requested.SecretEncryptionKey)
 	markReplace(BootstrapConfigSecretAuthJWTSigningKey, current.AuthJWTSecret, requested.AuthJWTSecret)
 	markReplace(BootstrapConfigSecretStateTransferBundleKey, current.ConfigBundleEncryptionKey, requested.ConfigBundleEncryptionKey)
 	markReplace(BootstrapConfigSecretMailSMTPPassword, current.Mail.SMTP.Password, requested.Mail.SMTP.Password)
+	markReplace(BootstrapConfigSecretTelemetryAuthorizationHeader, current.Telemetry.Exporter.Auth.AuthorizationHeader, requested.Telemetry.Exporter.Auth.AuthorizationHeader)
 	return updates
 }
 

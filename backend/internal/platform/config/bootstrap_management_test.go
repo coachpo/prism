@@ -13,11 +13,12 @@ import (
 )
 
 const (
-	managementTestDatabaseURL   = "postgres://prism:top-secret@db.internal:5432/prism?sslmode=disable&password=query-secret&sslpassword=ssl-password&passphrase=passphrase-secret&passwd=passwd-secret"
-	managementTestRuntimeSecret = "runtime-secret-for-management-test"
-	managementTestJWTSecret     = "jwt-secret-for-management-test"
-	managementTestBundleSecret  = "bundle-secret-for-management-test"
-	managementTestSMTPPassword  = "smtp-password-for-management-test"
+	managementTestDatabaseURL                  = "postgres://prism:top-secret@db.internal:5432/prism?sslmode=disable&password=query-secret&sslpassword=ssl-password&passphrase=passphrase-secret&passwd=passwd-secret"
+	managementTestRuntimeSecret                = "runtime-secret-for-management-test"
+	managementTestJWTSecret                    = "jwt-secret-for-management-test"
+	managementTestBundleSecret                 = "bundle-secret-for-management-test"
+	managementTestSMTPPassword                 = "smtp-password-for-management-test"
+	managementTestTelemetryAuthorizationHeader = "Bearer telemetry-secret-for-management-test"
 )
 
 func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
@@ -86,6 +87,130 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 	smtpSecret := snapshot.Secrets[BootstrapConfigSecretMailSMTPPassword]
 	if !smtpSecret.Configured || !smtpSecret.Editable || smtpSecret.Masked != "set" {
 		t.Fatal("expected SMTP password metadata to be editable and masked")
+	}
+}
+
+func TestTelemetryAuthorizationHeaderIsMasked(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	document := newManagementTestDocument(t, createdAt)
+	document.Telemetry = managementTestTelemetryDocument()
+	path, _ := writeManagementTestDocument(t, document)
+	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{})
+
+	snapshot, settings, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load telemetry bootstrap config management snapshot: %v", err)
+	}
+	if settings.Telemetry.Exporter.Auth.AuthorizationHeader != managementTestTelemetryAuthorizationHeader {
+		t.Fatal("expected raw settings to preserve telemetry authorization header")
+	}
+	if snapshot.Values.Telemetry == nil || snapshot.Values.Telemetry.Exporter == nil || snapshot.Values.Telemetry.Exporter.Auth == nil || snapshot.Values.Telemetry.Exporter.Auth.Mode == nil || *snapshot.Values.Telemetry.Exporter.Auth.Mode != string(TelemetryExporterAuthModeAuthorizationHeader) {
+		t.Fatalf("expected safe telemetry auth mode without raw header, got %+v", snapshot.Values.Telemetry)
+	}
+	telemetrySecret := snapshot.Secrets[BootstrapConfigSecretTelemetryAuthorizationHeader]
+	if !telemetrySecret.Configured || !telemetrySecret.Editable || telemetrySecret.Masked != "set" {
+		t.Fatalf("expected telemetry authorization header metadata to be editable and masked, got %+v", telemetrySecret)
+	}
+	encoded := mustMarshalJSON(t, snapshot)
+	assertNoSecretValue(t, encoded, "telemetry authorization header", managementTestTelemetryAuthorizationHeader)
+	if !bytes.Contains(encoded, []byte(`"telemetry"`)) || !bytes.Contains(encoded, []byte(`"mode":"authorization_header"`)) {
+		t.Fatalf("expected safe snapshot to expose telemetry values and auth metadata, got %s", encoded)
+	}
+}
+
+func TestTelemetrySecretPreserveReplaceClear(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	document := newManagementTestDocument(t, createdAt)
+	document.Telemetry = managementTestTelemetryDocument()
+	path, _ := writeManagementTestDocument(t, document)
+	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{
+		TimeNow: func() time.Time { return createdAt.Add(2 * time.Hour) },
+	})
+	snapshot, _, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load snapshot before telemetry secret update: %v", err)
+	}
+
+	preserved, err := manager.PrepareBootstrapConfigUpdate(path, managementRequestForSnapshot(t, snapshot))
+	if err != nil {
+		t.Fatalf("prepare telemetry secret preserve update: %v", err)
+	}
+	preservedSettings, err := manager.Parse(preserved.Payload)
+	if err != nil {
+		t.Fatalf("parse preserved telemetry secret payload: %v", err)
+	}
+	if preservedSettings.Telemetry.Exporter.Auth.AuthorizationHeader != managementTestTelemetryAuthorizationHeader {
+		t.Fatal("expected preserve action to keep telemetry authorization header")
+	}
+
+	replacementHeader := "Bearer replacement-telemetry-secret"
+	replaceRequest := managementRequestForSnapshot(t, snapshot)
+	replaceRequest.SecretUpdates[BootstrapConfigSecretTelemetryAuthorizationHeader] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace, Value: stringPointer(replacementHeader)}
+	replaced, err := manager.PrepareBootstrapConfigUpdate(path, replaceRequest)
+	if err != nil {
+		t.Fatalf("prepare telemetry secret replace update: %v", err)
+	}
+	replacedSettings, err := manager.Parse(replaced.Payload)
+	if err != nil {
+		t.Fatalf("parse telemetry secret replace payload: %v", err)
+	}
+	if replacedSettings.Telemetry.Exporter.Auth.AuthorizationHeader != replacementHeader {
+		t.Fatal("expected replace action to update telemetry authorization header")
+	}
+	assertNoSecretValue(t, mustMarshalJSON(t, replaced.Snapshot), "replacement telemetry authorization header", replacementHeader)
+
+	clearRequest := managementRequestForSnapshot(t, snapshot)
+	clearValues := cloneManagementValues(t, snapshot.Values)
+	clearValues.Telemetry.Exporter.Auth.Mode = stringPointer(string(TelemetryExporterAuthModeNone))
+	clearRequest.Values = &clearValues
+	clearRequest.SecretUpdates[BootstrapConfigSecretTelemetryAuthorizationHeader] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionClear}
+	cleared, err := manager.PrepareBootstrapConfigUpdate(path, clearRequest)
+	if err != nil {
+		t.Fatalf("prepare telemetry secret clear update: %v", err)
+	}
+	clearedSettings, err := manager.Parse(cleared.Payload)
+	if err != nil {
+		t.Fatalf("parse telemetry secret clear payload: %v", err)
+	}
+	if clearedSettings.Telemetry.Exporter.Auth.Mode != TelemetryExporterAuthModeNone || clearedSettings.Telemetry.Exporter.Auth.AuthorizationHeader != "" {
+		t.Fatalf("expected clear action to remove telemetry authorization header, got %+v", clearedSettings.Telemetry.Exporter.Auth)
+	}
+	if cleared.Snapshot.Secrets[BootstrapConfigSecretTelemetryAuthorizationHeader].Configured {
+		t.Fatalf("expected safe snapshot to mark telemetry authorization header unconfigured after clear, got %+v", cleared.Snapshot.Secrets[BootstrapConfigSecretTelemetryAuthorizationHeader])
+	}
+	assertNoSecretValue(t, cleared.Payload, "cleared telemetry authorization header", managementTestTelemetryAuthorizationHeader)
+}
+
+func TestBootstrapConfigManagementNoopPreservesOmittedTelemetry(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	document := newManagementTestDocument(t, createdAt)
+	document.Telemetry = nil
+	path, originalPayload := writeManagementTestDocument(t, document)
+	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{})
+
+	snapshot, settings, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load legacy bootstrap config management snapshot: %v", err)
+	}
+	if settings.Telemetry.Enabled {
+		t.Fatalf("expected omitted telemetry to resolve to disabled settings, got %+v", settings.Telemetry)
+	}
+	if snapshot.Values.Telemetry == nil || snapshot.Values.Telemetry.Enabled == nil || *snapshot.Values.Telemetry.Enabled {
+		t.Fatalf("expected safe values to expose disabled telemetry, got %+v", snapshot.Values.Telemetry)
+	}
+
+	prepared, err := manager.PrepareBootstrapConfigUpdate(path, managementRequestForSnapshot(t, snapshot))
+	if err != nil {
+		t.Fatalf("prepare omitted telemetry no-op update: %v", err)
+	}
+	if !prepared.Noop {
+		t.Fatal("expected unchanged safe update to preserve omitted telemetry as a no-op")
+	}
+	if !bytes.Equal(prepared.Payload, originalPayload) {
+		t.Fatal("expected omitted telemetry no-op payload to match original legacy payload")
+	}
+	if bytes.Contains(prepared.Payload, []byte(`"telemetry"`)) {
+		t.Fatalf("expected omitted telemetry to remain absent from prepared payload, got %s", prepared.Payload)
 	}
 }
 
@@ -906,6 +1031,28 @@ func newManagementTestDocument(t *testing.T, createdAt time.Time) bootstrapConfi
 	return document
 }
 
+func managementTestTelemetryDocument() *bootstrapTelemetry {
+	return &bootstrapTelemetry{
+		Enabled: boolPointer(true),
+		Exporter: &bootstrapTelemetryExporter{
+			Endpoint:    stringPointer("https://otel-collector.example.test:4318"),
+			Protocol:    stringPointer(string(TelemetryExporterProtocolHTTPProtobuf)),
+			Compression: stringPointer(string(TelemetryExporterCompressionGzip)),
+			Timeout:     stringPointer("7s"),
+			Auth: &bootstrapTelemetryExporterAuth{
+				Mode:                stringPointer(string(TelemetryExporterAuthModeAuthorizationHeader)),
+				AuthorizationHeader: stringPointer(managementTestTelemetryAuthorizationHeader),
+			},
+			TLS: &bootstrapTelemetryExporterTLS{
+				InsecureSkipVerify: boolPointer(false),
+				CAFile:             stringPointer("/etc/prism/otel-ca.pem"),
+			},
+		},
+		Metrics: &bootstrapTelemetrySignal{Enabled: boolPointer(true)},
+		Traces:  &bootstrapTelemetryTraces{Enabled: boolPointer(true), SamplingRatio: float64Pointer(0.25)},
+	}
+}
+
 func writeManagementTestDocument(t *testing.T, document bootstrapConfigDocument) (string, []byte) {
 	t.Helper()
 	payload := mustCanonicalManagementPayload(t, document)
@@ -950,6 +1097,7 @@ func assertSafeManagementSnapshot(t *testing.T, payload []byte) {
 	assertNoSecretValue(t, payload, "JWT secret", managementTestJWTSecret)
 	assertNoSecretValue(t, payload, "bundle secret", managementTestBundleSecret)
 	assertNoSecretValue(t, payload, "SMTP password", managementTestSMTPPassword)
+	assertNoSecretValue(t, payload, "telemetry authorization header", managementTestTelemetryAuthorizationHeader)
 }
 
 func assertNoSecretValue(t *testing.T, payload []byte, label string, secret string) {
@@ -1039,11 +1187,12 @@ func managementRequestForSnapshot(t *testing.T, snapshot BootstrapConfigSnapshot
 
 func preserveManagementSecretUpdates() map[string]BootstrapConfigSecretUpdate {
 	return map[string]BootstrapConfigSecretUpdate{
-		BootstrapConfigSecretDatabaseURL:                {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretRuntimeSecretEncryptionKey: {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretAuthJWTSigningKey:          {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretStateTransferBundleKey:     {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretMailSMTPPassword:           {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretDatabaseURL:                  {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretRuntimeSecretEncryptionKey:   {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretAuthJWTSigningKey:            {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretStateTransferBundleKey:       {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretMailSMTPPassword:             {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretTelemetryAuthorizationHeader: {Action: BootstrapConfigSecretActionPreserve},
 	}
 }
 
