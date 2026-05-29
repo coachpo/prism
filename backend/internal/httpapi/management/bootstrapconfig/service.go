@@ -225,6 +225,7 @@ func (s *Service) hotApplySettings(liveSettings config.Settings, requested confi
 	projected.Mail = requested.Mail
 	projected.RuntimeTransportConfig = requested.RuntimeTransportConfig
 	projected.ManagementAdmissionControlBudget = requested.ManagementAdmissionControlBudget
+	// Telemetry providers are startup-owned; telemetry.* edits remain pending until restart.
 	return projected
 }
 

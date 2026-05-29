@@ -28,6 +28,7 @@ const (
 	routeTestNextDatabaseURL                       = "postgres://prism:" + routeTestNextDatabasePassword + "@db.next.internal:5432/prism?sslmode=disable"
 	routeTestReplacementJWTSecret                  = "route-replacement-jwt-secret"
 	routeTestRuntimeReplacementSecret              = "route-runtime-replacement-secret"
+	routeTestTelemetryAuthorizationHeader          = "Bearer route-telemetry-secret"
 	routeTestRuntimeSideEffectsAttemptTimeoutField = "runtime.side_effects.attempt_timeout"
 )
 
@@ -77,6 +78,29 @@ func TestBootstrapConfigRouteGetReturnsSafeMetadata(t *testing.T) {
 	runtimeSecret := body.Secrets[config.BootstrapConfigSecretRuntimeSecretEncryptionKey]
 	if !runtimeSecret.Configured || runtimeSecret.Editable {
 		t.Fatal("expected runtime secret metadata to be configured and read-only")
+	}
+}
+
+func TestBootstrapConfigGetIncludesTelemetry(t *testing.T) {
+	fixture := newBootstrapRouteFixture(t)
+
+	response := fixture.do(t, http.MethodGet, "/api/config/bootstrap", nil)
+
+	requireStatus(t, response, http.StatusOK)
+	body := decodeBootstrapConfigResponse(t, response)
+	if body.Values.Telemetry == nil || body.Values.Telemetry.Enabled == nil || *body.Values.Telemetry.Enabled {
+		t.Fatalf("expected GET to include disabled telemetry safe values, got %+v", body.Values.Telemetry)
+	}
+	telemetrySecret, ok := body.Secrets[config.BootstrapConfigSecretTelemetryAuthorizationHeader]
+	if !ok {
+		t.Fatal("expected GET to include telemetry authorization header secret metadata")
+	}
+	if telemetrySecret.Configured || !telemetrySecret.Editable || telemetrySecret.Masked != "" {
+		t.Fatalf("expected default telemetry secret metadata to be unconfigured and editable, got %+v", telemetrySecret)
+	}
+	capability, ok := body.ApplyCapabilities["telemetry.enabled"]
+	if !ok || capability.Mode != config.BootstrapConfigApplyModeRestartRequired {
+		t.Fatalf("expected telemetry.enabled to be restart-required, got %+v", capability)
 	}
 }
 
@@ -607,6 +631,54 @@ func TestBootstrapConfigRoutePutRuntimeSideEffectsAttemptTimeoutRestartOnlyDoesN
 	assertStringSetEqual(t, getBody.ApplyResult.RestartRequiredFields, []string{routeTestRuntimeSideEffectsAttemptTimeoutField})
 	assertStringSetEqual(t, getBody.ApplyResult.PendingHotApplyFields, []string{})
 	assertStringSetEqual(t, getBody.ApplyResult.FailedHotApplyFields, []string{})
+}
+
+func TestBootstrapConfigPutRejectsHotApplyForTelemetry(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{}
+	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.Telemetry = routeTelemetryValues()
+	request.SecretUpdates[config.BootstrapConfigSecretTelemetryAuthorizationHeader] = config.BootstrapConfigSecretUpdate{
+		Action: config.BootstrapConfigSecretActionReplace,
+		Value:  routeStringPtr(routeTestTelemetryAuthorizationHeader),
+	}
+
+	response := fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", request)
+
+	requireStatus(t, response, http.StatusOK)
+	assertNoRouteSecrets(t, response.Body.Bytes(), settings, routeSecret{label: "telemetry authorization header", value: routeTestTelemetryAuthorizationHeader})
+	if hotRuntime.validateCalls != 0 || hotRuntime.publishCalls != 0 {
+		t.Fatalf("expected telemetry PUT not to touch hot runtime, got validate=%d publish=%d", hotRuntime.validateCalls, hotRuntime.publishCalls)
+	}
+	body := decodeBootstrapConfigResponse(t, response)
+	if !body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected telemetry PUT to require restart, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{
+		"telemetry.enabled",
+		"telemetry.exporter.endpoint",
+		"telemetry.exporter.protocol",
+		"telemetry.exporter.compression",
+		"telemetry.exporter.timeout",
+		"telemetry.exporter.auth.mode",
+		config.BootstrapConfigSecretTelemetryAuthorizationHeader,
+		"telemetry.exporter.tls.insecure_skip_verify",
+		"telemetry.exporter.tls.ca_file",
+		"telemetry.metrics.enabled",
+		"telemetry.traces.enabled",
+		"telemetry.traces.sampling_ratio",
+	})
+	_, writtenSettings, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load written telemetry bootstrap config: %v", err)
+	}
+	if !writtenSettings.Telemetry.Enabled || writtenSettings.Telemetry.Exporter.Auth.AuthorizationHeader != routeTestTelemetryAuthorizationHeader {
+		t.Fatalf("expected telemetry settings to persist as restart-required file state, got %+v", writtenSettings.Telemetry)
+	}
 }
 
 func TestBootstrapConfigRoutePutMixedCORSAndDatabaseURLAppliesOnlyCORS(t *testing.T) {
@@ -1153,10 +1225,12 @@ func bootstrapRouteRequestPayloadWithoutFields(t *testing.T, snapshot config.Boo
 
 func preserveBootstrapRouteSecrets() map[string]config.BootstrapConfigSecretUpdate {
 	return map[string]config.BootstrapConfigSecretUpdate{
-		config.BootstrapConfigSecretDatabaseURL:                {Action: config.BootstrapConfigSecretActionPreserve},
-		config.BootstrapConfigSecretRuntimeSecretEncryptionKey: {Action: config.BootstrapConfigSecretActionPreserve},
-		config.BootstrapConfigSecretAuthJWTSigningKey:          {Action: config.BootstrapConfigSecretActionPreserve},
-		config.BootstrapConfigSecretStateTransferBundleKey:     {Action: config.BootstrapConfigSecretActionPreserve},
+		config.BootstrapConfigSecretDatabaseURL:                  {Action: config.BootstrapConfigSecretActionPreserve},
+		config.BootstrapConfigSecretRuntimeSecretEncryptionKey:   {Action: config.BootstrapConfigSecretActionPreserve},
+		config.BootstrapConfigSecretAuthJWTSigningKey:            {Action: config.BootstrapConfigSecretActionPreserve},
+		config.BootstrapConfigSecretStateTransferBundleKey:       {Action: config.BootstrapConfigSecretActionPreserve},
+		config.BootstrapConfigSecretMailSMTPPassword:             {Action: config.BootstrapConfigSecretActionPreserve},
+		config.BootstrapConfigSecretTelemetryAuthorizationHeader: {Action: config.BootstrapConfigSecretActionPreserve},
 	}
 }
 
@@ -1277,6 +1351,7 @@ func assertNoRouteSecrets(t *testing.T, body []byte, settings config.Settings, e
 		{label: "runtime secret", value: settings.SecretEncryptionKey},
 		{label: "auth JWT secret", value: settings.AuthJWTSecret},
 		{label: "bundle secret", value: settings.ConfigBundleEncryptionKey},
+		{label: "telemetry authorization header", value: settings.Telemetry.Exporter.Auth.AuthorizationHeader},
 	}
 	secrets = append(secrets, extraSecrets...)
 	for _, secret := range secrets {
@@ -1352,6 +1427,34 @@ func routeStringPtr(value string) *string {
 
 func routeBoolPtr(value bool) *bool {
 	return &value
+}
+
+func routeFloat64Ptr(value float64) *float64 {
+	return &value
+}
+
+func routeTelemetryValues() *config.BootstrapConfigTelemetryValues {
+	return &config.BootstrapConfigTelemetryValues{
+		Enabled: routeBoolPtr(true),
+		Exporter: &config.BootstrapConfigTelemetryExporterValues{
+			Endpoint:    routeStringPtr("https://otel-collector.route.test:4318"),
+			Protocol:    routeStringPtr(string(config.TelemetryExporterProtocolGRPC)),
+			Compression: routeStringPtr(string(config.TelemetryExporterCompressionGzip)),
+			Timeout:     routeStringPtr("7s"),
+			Auth: &config.BootstrapConfigTelemetryExporterAuthValues{
+				Mode: routeStringPtr(string(config.TelemetryExporterAuthModeAuthorizationHeader)),
+			},
+			TLS: &config.BootstrapConfigTelemetryExporterTLSValues{
+				InsecureSkipVerify: routeBoolPtr(true),
+				CAFile:             routeStringPtr("/etc/prism/route-otel-ca.pem"),
+			},
+		},
+		Metrics: &config.BootstrapConfigTelemetrySignalValues{Enabled: routeBoolPtr(true)},
+		Traces: &config.BootstrapConfigTelemetryTracesValues{
+			Enabled:       routeBoolPtr(true),
+			SamplingRatio: routeFloat64Ptr(0.25),
+		},
+	}
 }
 
 func TestBootstrapConfigRouteErrorsUsePublishedCORSProvider(t *testing.T) {
