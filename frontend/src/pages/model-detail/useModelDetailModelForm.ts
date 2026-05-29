@@ -97,7 +97,7 @@ export function useModelDetailModelForm({
       }
 
       if (validationError === "access_target_required") {
-        const message = "Add at least one enabled same-family access target before saving an enabled model.";
+        const message = messages.modelDetailData.enabledAccessTargetRequired;
         setTargetEditorError(message);
         toast.error(message);
         return;

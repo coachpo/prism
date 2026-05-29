@@ -37,6 +37,7 @@ export function OverviewCards({
   const { format: formatTime } = useTimezone();
   const { formatNumber, locale, messages } = useLocale();
   const copy = messages.modelDetail;
+  const modelsUiCopy = messages.modelsUi;
   const strategyCopy = messages.loadbalanceStrategyCopy;
   const fieldCopy = messages.common;
   const apiFamily = model.api_family ?? "openai";
@@ -47,7 +48,7 @@ export function OverviewCards({
   const hasEnabledAccessTarget = (accessTargetSummary?.enabledTargetCount ?? 0) > 0;
   const accessTargetLabel = hasEnabledAccessTarget
     ? `${copy.targets(formatNumber(accessTargetSummary?.targetCount ?? 0))}${accessTargetSummary?.firstTargetLabel ? ` · ${accessTargetSummary.firstTargetLabel}` : ""}`
-    : "Needs target";
+    : modelsUiCopy.needsTarget;
   const spendingTokenDetail = spending
     ? [
         `${messages.requestLogs.input} ${formatNumber(spending.total_input_tokens)}`,
@@ -91,7 +92,7 @@ export function OverviewCards({
                 </div>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Access targets</p>
+                <p className="text-xs text-muted-foreground mb-1">{modelsUiCopy.accessTargets}</p>
                 <span className="text-sm font-medium">{accessTargetLabel}</span>
               </div>
               <div>

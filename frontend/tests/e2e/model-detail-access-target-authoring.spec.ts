@@ -245,7 +245,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
 
   await dialog.getByRole("switch").last().click();
   await dialog.getByRole("button", { name: "Save Changes" }).click();
-  await expect(page.getByText("Model updated")).toBeVisible();
+  await expect(page.getByText("Model updated").last()).toBeVisible();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText("Needs target")).toBeVisible();
 
@@ -276,7 +276,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
 
   await dialog.getByRole("switch").last().click();
   await dialog.getByRole("button", { name: "Save Changes" }).click();
-  await expect(page.getByText("Model updated")).toBeVisible();
+  await expect(page.getByText("Model updated").last()).toBeVisible();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText("Needs target")).toHaveCount(0);
 
