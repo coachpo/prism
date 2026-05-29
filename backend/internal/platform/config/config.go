@@ -11,6 +11,12 @@ type Environment string
 
 type RuntimeTelemetryMode string
 
+type TelemetryExporterProtocol string
+
+type TelemetryExporterCompression string
+
+type TelemetryExporterAuthMode string
+
 type MailSMTPMode string
 
 type MailSMTPAuth string
@@ -27,6 +33,21 @@ const (
 )
 
 const (
+	TelemetryExporterProtocolGRPC         TelemetryExporterProtocol = "grpc"
+	TelemetryExporterProtocolHTTPProtobuf TelemetryExporterProtocol = "http/protobuf"
+)
+
+const (
+	TelemetryExporterCompressionNone TelemetryExporterCompression = "none"
+	TelemetryExporterCompressionGzip TelemetryExporterCompression = "gzip"
+)
+
+const (
+	TelemetryExporterAuthModeNone                TelemetryExporterAuthMode = "none"
+	TelemetryExporterAuthModeAuthorizationHeader TelemetryExporterAuthMode = "authorization_header"
+)
+
+const (
 	MailSMTPModeStartTLSRequired   MailSMTPMode = "starttls_required"
 	MailSMTPModeImplicitTLS        MailSMTPMode = "implicit_tls"
 	MailSMTPModePlaintextLocalOnly MailSMTPMode = "plaintext_local_only"
@@ -38,19 +59,26 @@ const (
 )
 
 const (
-	bootstrapDatabaseURLEnv            = "DATABASE_URL"
-	defaultBootstrapHost               = "0.0.0.0"
-	defaultBootstrapPort               = 8000
-	defaultBootstrapDatabaseURL        = "postgres://prism:prism@localhost:5432/prism?sslmode=disable"
-	defaultBootstrapCORSAllowedOrigins = "http://localhost:5173,http://127.0.0.1:5173"
-	defaultSeedSecretEncryptionKey     = "prism-dev-runtime-secret-change-me"
-	defaultAuthJWTSecret               = "prism-dev-jwt-secret-change-me"
-	defaultAuthAccessTokenTTLSeconds   = 900
-	defaultAuthRefreshTokenTTLSeconds  = 604800
-	defaultAuthResetCodeTTLSeconds     = 600
-	defaultAuthCookieName              = "prism_access_token"
-	defaultAuthRefreshCookieName       = "prism_refresh_token"
-	defaultMailSMTPTimeout             = 15 * time.Second
+	bootstrapDatabaseURLEnv             = "DATABASE_URL"
+	defaultBootstrapHost                = "0.0.0.0"
+	defaultBootstrapPort                = 8000
+	defaultBootstrapDatabaseURL         = "postgres://prism:prism@localhost:5432/prism?sslmode=disable"
+	defaultBootstrapCORSAllowedOrigins  = "http://localhost:5173,http://127.0.0.1:5173"
+	defaultSeedSecretEncryptionKey      = "prism-dev-runtime-secret-change-me"
+	defaultAuthJWTSecret                = "prism-dev-jwt-secret-change-me"
+	defaultAuthAccessTokenTTLSeconds    = 900
+	defaultAuthRefreshTokenTTLSeconds   = 604800
+	defaultAuthResetCodeTTLSeconds      = 600
+	defaultAuthCookieName               = "prism_access_token"
+	defaultAuthRefreshCookieName        = "prism_refresh_token"
+	defaultTelemetryServiceNamespace    = "prism"
+	defaultTelemetryServiceName         = "prism-backend"
+	defaultTelemetryExporterProtocol    = TelemetryExporterProtocolHTTPProtobuf
+	defaultTelemetryExporterCompression = TelemetryExporterCompressionNone
+	defaultTelemetryExporterAuthMode    = TelemetryExporterAuthModeNone
+	defaultTelemetryExporterTimeout     = 10 * time.Second
+	defaultTelemetryTracesSamplingRatio = 1.0
+	defaultMailSMTPTimeout              = 15 * time.Second
 )
 
 const (
@@ -115,6 +143,47 @@ type ManagementAdmissionBudget struct {
 	M3MaxConcurrent int64
 }
 
+type TelemetryConfig struct {
+	Enabled  bool
+	Service  TelemetryServiceConfig
+	Exporter TelemetryExporterConfig
+	Metrics  TelemetrySignalConfig
+	Traces   TelemetryTracesConfig
+}
+
+type TelemetryServiceConfig struct {
+	Namespace string
+	Name      string
+}
+
+type TelemetryExporterConfig struct {
+	Endpoint    string
+	Protocol    TelemetryExporterProtocol
+	Compression TelemetryExporterCompression
+	Timeout     time.Duration
+	Auth        TelemetryExporterAuthConfig
+	TLS         TelemetryExporterTLSConfig
+}
+
+type TelemetryExporterAuthConfig struct {
+	Mode                TelemetryExporterAuthMode
+	AuthorizationHeader string
+}
+
+type TelemetryExporterTLSConfig struct {
+	InsecureSkipVerify bool
+	CAFile             string
+}
+
+type TelemetrySignalConfig struct {
+	Enabled bool
+}
+
+type TelemetryTracesConfig struct {
+	Enabled       bool
+	SamplingRatio float64
+}
+
 type RuntimeTransportConfig struct {
 	MaxIdleConns          int
 	MaxIdleConnsPerHost   int
@@ -156,6 +225,7 @@ type Settings struct {
 	AppEnv                           Environment
 	DatabaseURL                      string
 	RuntimeTelemetryMode             RuntimeTelemetryMode
+	Telemetry                        TelemetryConfig
 	RuntimeTransportConfig           RuntimeTransportConfig
 	RuntimeSideEffectsConfig         RuntimeSideEffectsConfig
 	PostgresPoolsBudget              PostgresPoolsBudget
@@ -191,6 +261,7 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      resolvedDatabaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
+		Telemetry:                        defaultTelemetryConfig(),
 		RuntimeTransportConfig:           defaultRuntimeTransportConfig(),
 		RuntimeSideEffectsConfig:         defaultRuntimeSideEffectsConfig(),
 		PostgresPoolsBudget:              DefaultPostgresPoolsBudget(),
@@ -213,6 +284,22 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 
 func defaultMailConfig() MailConfig {
 	return MailConfig{SMTP: MailSMTPConfig{Timeout: defaultMailSMTPTimeout}}
+}
+
+func defaultTelemetryConfig() TelemetryConfig {
+	return TelemetryConfig{
+		Service: TelemetryServiceConfig{
+			Namespace: defaultTelemetryServiceNamespace,
+			Name:      defaultTelemetryServiceName,
+		},
+		Exporter: TelemetryExporterConfig{
+			Protocol:    defaultTelemetryExporterProtocol,
+			Compression: defaultTelemetryExporterCompression,
+			Timeout:     defaultTelemetryExporterTimeout,
+			Auth:        TelemetryExporterAuthConfig{Mode: defaultTelemetryExporterAuthMode},
+		},
+		Traces: TelemetryTracesConfig{SamplingRatio: defaultTelemetryTracesSamplingRatio},
+	}
 }
 
 func DefaultPostgresPoolsBudget() PostgresPoolsBudget {
