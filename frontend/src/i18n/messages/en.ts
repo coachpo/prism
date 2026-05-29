@@ -1520,24 +1520,41 @@ export interface Messages {
     title: string;
   };
   modelsUi: {
+    accessTargets: string;
+    accessTargetsDescription: string;
     addTarget: string;
+    connectionTarget: string;
+    currentApiFamily: (apiFamily: string) => string;
     deleteModel: string;
     deleteModelDescription: (name: string) => string;
     displayNameOptional: string;
     editModel: string;
+    editModelEnabledDescription: string;
+    enableAccessTarget: (value: string) => string;
     modelId: string;
     modelIdPlaceholder: string;
+    modelTarget: string;
+    needsTarget: string;
+    newConnection: string;
+    newModelEnabledDescription: string;
+    noAccessTargetsSelected: string;
+    noModelsMatchSearch: string;
+    noModelsConfigured: string;
+    noSameFamilyConnectionsAvailable: string;
+    noSameFamilyModelsAvailable: string;
     optionalFriendlyName: string;
     priority: (value: string) => string;
     routingTypeDescription: string;
     save: string;
+    selectSameFamilyConnection: string;
+    selectSameFamilyModel: string;
     strategyNotConfigured: string;
+    targetKindConnection: string;
+    targetKindModel: string;
     targetMoveDown: (id: string) => string;
     targetMoveUp: (id: string) => string;
     targetRemove: (id: string) => string;
     viewModelDetails: (name: string) => string;
-    noModelsMatchSearch: string;
-    noModelsConfigured: string;
     tryDifferentModelNameOrId: string;
     createFirstModel: string;
     activeConnections: (active: string, total: string) => string;
@@ -1552,6 +1569,7 @@ export interface Messages {
     created: string;
     deleted: string;
     deleteFailed: string;
+    enabledAccessTargetRequired: string;
     fetchFailed: string;
     saveFailed: string;
     selectApiFamily: string;
@@ -1693,6 +1711,7 @@ export interface Messages {
     connectionDeleted: string;
     connectionTestFailed: string;
     connectionUpdated: string;
+    enabledAccessTargetRequired: string;
     fetchModelDetailsFailed: string;
     deleteConnectionFailed: string;
     fillEndpointFields: string;
@@ -3587,6 +3606,7 @@ export const enMessages: Messages = {
     connectionDeleted: "Connection deleted",
     connectionTestFailed: "Connection test failed",
     connectionUpdated: "Connection updated",
+    enabledAccessTargetRequired: "Add at least one enabled same-family access target before saving an enabled model.",
     fetchModelDetailsFailed: "Failed to fetch model details",
     deleteConnectionFailed: "Failed to delete connection",
     fillEndpointFields: "Please fill in all endpoint fields",
@@ -3662,24 +3682,41 @@ export const enMessages: Messages = {
     title: "Models",
   },
   modelsUi: {
-    addTarget: "Add Target",
+    accessTargets: "Access targets",
+    accessTargetsDescription: "Select same-family models or standalone connections. Prism tries enabled rows in this order using the selected legacy strategy.",
+    addTarget: "Add target",
+    connectionTarget: "Connection target",
+    currentApiFamily: (apiFamily) => `Current API family: ${apiFamily}`,
     deleteModel: "Delete Model",
     deleteModelDescription: (name) => `Are you sure you want to delete "${name}"? This will also delete all associated endpoints.`,
     displayNameOptional: "Display Name",
     editModel: "Edit Model",
+    editModelEnabledDescription: "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments.",
+    enableAccessTarget: (value) => `Enable access target ${value}`,
     modelId: "Model ID",
     modelIdPlaceholder: "e.g. gpt-4o",
+    modelTarget: "Model target",
+    needsTarget: "Needs target",
+    newConnection: "New connection",
+    newModelEnabledDescription: "New models start disabled so you can save a draft now and attach access targets later. Enabled saves require at least one enabled target.",
+    noAccessTargetsSelected: "No access targets selected. This model can be saved disabled and have a target attached later. Enabled saves still require at least one enabled target.",
+    noModelsMatchSearch: "No models match search",
+    noModelsConfigured: "No models configured",
+    noSameFamilyConnectionsAvailable: "No unattached same-family standalone connections are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.",
+    noSameFamilyModelsAvailable: "No other same-family models are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.",
     optionalFriendlyName: "Optional friendly name",
     priority: (value) => `Priority ${value}`,
     routingTypeDescription: "Turn this model on or off",
     save: "Save",
+    selectSameFamilyConnection: "Select same-family connection",
+    selectSameFamilyModel: "Select same-family model",
     strategyNotConfigured: "Strategy not configured",
+    targetKindConnection: "Connection",
+    targetKindModel: "Model",
     targetMoveDown: (id) => `Move target ${id} down`,
     targetMoveUp: (id) => `Move target ${id} up`,
     targetRemove: (id) => `Remove target ${id}`,
     viewModelDetails: (name) => `View model details for ${name}`,
-    noModelsMatchSearch: "No models match search",
-    noModelsConfigured: "No models configured",
     tryDifferentModelNameOrId: "Try a different model name or ID",
     createFirstModel: "Create your first model to get started",
     activeConnections: (active, total) => `${active}/${total} active`,
@@ -3694,6 +3731,7 @@ export const enMessages: Messages = {
     created: "Model created",
     deleted: "Model deleted",
     deleteFailed: "Failed to delete model",
+    enabledAccessTargetRequired: "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.",
     fetchFailed: "Failed to fetch data",
     saveFailed: "Failed to save model",
     selectApiFamily: "Please select an API family",
