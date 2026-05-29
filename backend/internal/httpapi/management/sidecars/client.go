@@ -15,6 +15,8 @@ import (
 	pathpkg "path"
 	"strings"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 )
 
 var sidecarReservedTestNetPrefixes = []netip.Prefix{
@@ -238,10 +240,15 @@ func (c *CLIProxyClient) FetchJSON(ctx context.Context, target CLIProxyTarget, m
 	return c.FetchJSONWithQuery(ctx, target, method, managementPath, nil, payload, responseTarget)
 }
 
-func (c *CLIProxyClient) FetchJSONWithQuery(ctx context.Context, target CLIProxyTarget, method string, managementPath string, query urlpkg.Values, payload any, responseTarget any) (CLIProxyResponse, error) {
+func (c *CLIProxyClient) FetchJSONWithQuery(ctx context.Context, target CLIProxyTarget, method string, managementPath string, query urlpkg.Values, payload any, responseTarget any) (response CLIProxyResponse, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	startedAt := time.Now()
+	telemetryOperation := "unknown_management"
+	defer func() {
+		asyncmetrics.RecordOutbound(ctx, "sidecar_client", telemetryOperation, sidecarClientTelemetryOutcome(response, err), time.Since(startedAt))
+	}()
 	policy := CLIProxyConnectionPolicy{AllowPrivateNetwork: target.AllowPrivateNetwork, AllowInsecureHTTP: target.AllowInsecureHTTP, SkipTLSVerify: target.SkipTLSVerify}
 	baseURL, err := NormalizeCLIProxyBaseURL(target.BaseURL, policy)
 	if err != nil {
@@ -254,6 +261,7 @@ func (c *CLIProxyClient) FetchJSONWithQuery(ctx context.Context, target CLIProxy
 	if err := validateCLIProxyManagementMethod(method, path); err != nil {
 		return CLIProxyResponse{}, err
 	}
+	telemetryOperation = sidecarClientTelemetryOperation(method, path)
 	requestURL, err := buildCLIProxyManagementURL(baseURL, path, query)
 	if err != nil {
 		return CLIProxyResponse{}, err
@@ -277,6 +285,7 @@ func (c *CLIProxyClient) FetchJSONWithQuery(ctx context.Context, target CLIProxy
 			return result, err
 		}
 		lastErr = err
+		asyncmetrics.RecordRetry(requestCtx, "sidecar_client", telemetryOperation, asyncmetrics.OutcomeRetryScheduled)
 		if attempt == 0 {
 			if err := sleepWithContext(requestCtx, retryBackoffDelay(attempt)); err != nil {
 				return CLIProxyResponse{}, &CLIProxyClientError{Code: CLIProxyErrorTimeout, Path: path, Err: err}
@@ -650,4 +659,61 @@ func isRetryableNetworkError(ctx context.Context, err error) bool {
 		return true
 	}
 	return true
+}
+
+func sidecarClientTelemetryOperation(method string, managementPath string) string {
+	prefix := "other"
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case http.MethodGet:
+		prefix = "get"
+	case http.MethodPatch:
+		prefix = "patch"
+	case http.MethodDelete:
+		prefix = "delete"
+	}
+	switch managementPath {
+	case "/auth-files":
+		return prefix + "_auth_files"
+	case "/auth-files/models":
+		return prefix + "_auth_file_models"
+	case "/auth-files/status":
+		return prefix + "_auth_file_status"
+	case "/auth-files/fields":
+		return prefix + "_auth_file_fields"
+	case "/gemini-api-key":
+		return prefix + "_gemini_provider"
+	case "/claude-api-key":
+		return prefix + "_claude_provider"
+	case "/codex-api-key":
+		return prefix + "_codex_provider"
+	case "/vertex-api-key":
+		return prefix + "_vertex_provider"
+	case "/openai-compatibility":
+		return prefix + "_openai_compatibility"
+	default:
+		return "unknown_management"
+	}
+}
+
+func sidecarClientTelemetryOutcome(response CLIProxyResponse, err error) string {
+	if err == nil {
+		return asyncmetrics.OutcomeSuccess
+	}
+	var clientErr *CLIProxyClientError
+	if errors.As(err, &clientErr) {
+		switch clientErr.Code {
+		case CLIProxyErrorTimeout:
+			return asyncmetrics.OutcomeTimeout
+		case CLIProxyErrorInvalidBaseURL, CLIProxyErrorPrivateNetworkBlocked, CLIProxyErrorInsecureHTTPBlocked, CLIProxyErrorUnsupportedPath, CLIProxyErrorRequestBuild, CLIProxyErrorMalformedJSON, CLIProxyErrorOversizedBody:
+			return asyncmetrics.OutcomeInvalid
+		case CLIProxyErrorInvalidManagementAuth, CLIProxyErrorManagementDisabled:
+			return asyncmetrics.OutcomeRejected
+		default:
+			return asyncmetrics.OutcomeFailure
+		}
+	}
+	if response.StatusCode >= http.StatusInternalServerError {
+		return asyncmetrics.OutcomeTransientFailure
+	}
+	return asyncmetrics.OutcomeFromError(err)
 }

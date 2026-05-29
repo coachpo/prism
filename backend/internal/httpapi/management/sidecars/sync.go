@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 )
 
 const sidecarConditionUnobservable = "condition_unobservable"
@@ -47,7 +49,11 @@ type SidecarSyncStatus struct {
 	Paused                bool
 }
 
-func (s *Service) SyncSidecar(ctx context.Context, sidecarID int) (SidecarSyncResult, error) {
+func (s *Service) SyncSidecar(ctx context.Context, sidecarID int) (result SidecarSyncResult, err error) {
+	startedAt := time.Now()
+	defer func() {
+		asyncmetrics.RecordDuration(ctx, "sidecar_sync", "manual_sync", sidecarSyncTelemetryOutcome(result, err), time.Since(startedAt))
+	}()
 	if s == nil || s.store == nil {
 		return SidecarSyncResult{}, fmt.Errorf("sidecar service unavailable")
 	}
@@ -65,7 +71,12 @@ func (s *Service) SyncSidecar(ctx context.Context, sidecarID int) (SidecarSyncRe
 	return s.syncSidecarInstance(ctx, instance)
 }
 
-func (s *Service) SyncDueSidecars(ctx context.Context) (SidecarSyncSummary, error) {
+func (s *Service) SyncDueSidecars(ctx context.Context) (summary SidecarSyncSummary, err error) {
+	startedAt := time.Now()
+	defer func() {
+		asyncmetrics.RecordBatchSize(ctx, "sidecar_sync", "due_instances", int64(summary.Checked))
+		asyncmetrics.RecordDuration(ctx, "sidecar_sync", "due_sync", sidecarSyncSummaryTelemetryOutcome(summary, err), time.Since(startedAt))
+	}()
 	if s == nil || s.store == nil {
 		return SidecarSyncSummary{}, fmt.Errorf("sidecar service unavailable")
 	}
@@ -73,7 +84,7 @@ func (s *Service) SyncDueSidecars(ctx context.Context) (SidecarSyncSummary, erro
 	if err != nil {
 		return SidecarSyncSummary{}, err
 	}
-	summary := SidecarSyncSummary{Checked: len(instances)}
+	summary = SidecarSyncSummary{Checked: len(instances)}
 	now := s.nowUTC()
 	for _, instance := range instances {
 		if !s.sidecarDueForPeriodicSync(instance, now) {
@@ -94,9 +105,13 @@ func (s *Service) SyncDueSidecars(ctx context.Context) (SidecarSyncSummary, erro
 	return summary, nil
 }
 
-func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInstance) (SidecarSyncResult, error) {
+func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInstance) (result SidecarSyncResult, err error) {
+	startedAt := time.Now()
+	defer func() {
+		asyncmetrics.RecordDuration(ctx, "sidecar_sync", "sync_instance", sidecarSyncTelemetryOutcome(result, err), time.Since(startedAt))
+	}()
 	syncedAt := s.nowUTC()
-	result := SidecarSyncResult{Sidecar: instance, SyncedAt: syncedAt}
+	result = SidecarSyncResult{Sidecar: instance, SyncedAt: syncedAt}
 	password, err := s.decryptManagementPassword(instance.EncryptedManagementPassword)
 	if err != nil || strings.TrimSpace(password) == "" {
 		if err == nil {
@@ -116,6 +131,7 @@ func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInsta
 	if err != nil {
 		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 	}
+	asyncmetrics.RecordBatchSize(ctx, "sidecar_sync", "provider_batches", int64(len(providerBatches)))
 	providerSnapshotCount := 0
 	for _, batch := range providerBatches {
 		if batch.Replace {
@@ -592,4 +608,40 @@ func intFromValue(value any) (int, bool) {
 func mapValue(value any) (map[string]any, bool) {
 	typed, ok := value.(map[string]any)
 	return typed, ok
+}
+
+func sidecarSyncTelemetryOutcome(result SidecarSyncResult, err error) string {
+	if result.Skipped {
+		return asyncmetrics.OutcomeSkipped
+	}
+	if err == nil {
+		return asyncmetrics.OutcomeSuccess
+	}
+	if errors.Is(err, errSidecarManagementPasswordMissing) {
+		return asyncmetrics.OutcomeUnavailable
+	}
+	var clientErr *CLIProxyClientError
+	if errors.As(err, &clientErr) {
+		if clientErr.Code == CLIProxyErrorTimeout {
+			return asyncmetrics.OutcomeTimeout
+		}
+		if clientErr.Code == CLIProxyErrorInvalidManagementAuth || clientErr.Code == CLIProxyErrorManagementDisabled {
+			return asyncmetrics.OutcomeRejected
+		}
+		return asyncmetrics.OutcomeFailure
+	}
+	return asyncmetrics.OutcomeFromError(err)
+}
+
+func sidecarSyncSummaryTelemetryOutcome(summary SidecarSyncSummary, err error) string {
+	if err != nil {
+		return asyncmetrics.OutcomeFromError(err)
+	}
+	if summary.Failed > 0 {
+		return asyncmetrics.OutcomeFailure
+	}
+	if summary.Synced == 0 {
+		return asyncmetrics.OutcomeSkipped
+	}
+	return asyncmetrics.OutcomeSuccess
 }

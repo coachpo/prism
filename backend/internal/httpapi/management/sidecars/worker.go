@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
@@ -35,12 +36,17 @@ func (s *Service) RegisterBackgroundWorker(scheduler *background.Scheduler) erro
 }
 
 func (s *Service) handleScheduledSidecarSync(ctx context.Context, _ background.Job) background.JobResult {
+	startedAt := time.Now()
 	summary, err := s.SyncDueSidecars(ctx)
 	if err != nil {
 		err = fmt.Errorf("sync due sidecar providers: %w", err)
+		asyncmetrics.RecordDuration(ctx, "sidecar_worker", "due_sync", asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		slog.Error("sidecar provider sync worker failed", "error", err)
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
+	outcome := sidecarSyncSummaryTelemetryOutcome(summary, nil)
+	asyncmetrics.RecordBatchSize(ctx, "sidecar_worker", "due_sync_checked", int64(summary.Checked))
+	asyncmetrics.RecordDuration(ctx, "sidecar_worker", "due_sync", outcome, time.Since(startedAt))
 	if summary.Failed > 0 {
 		slog.Warn("sidecar provider sync worker completed with sidecar failures", "checked", summary.Checked, "synced", summary.Synced, "skipped", summary.Skipped, "failed", summary.Failed)
 	} else {

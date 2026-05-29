@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
@@ -133,13 +134,19 @@ func NewSMTPMailer(mailConfig config.MailConfig) (*SMTPMailer, error) {
 }
 
 func (m *SMTPMailer) SendEmailVerificationOTP(ctx context.Context, recipient string, otpCode string) error {
+	startedAt := time.Now()
 	body := "Use this code to verify your Prism recovery email:\n\n" + strings.TrimSpace(otpCode) + "\n"
-	return m.send(ctx, recipient, emailVerificationSubject, body)
+	err := m.send(ctx, recipient, emailVerificationSubject, body)
+	asyncmetrics.RecordOutbound(ctx, "smtp_mailer", "email_verification", asyncmetrics.OutcomeFromError(err), time.Since(startedAt))
+	return err
 }
 
 func (m *SMTPMailer) SendPasswordResetEmail(ctx context.Context, recipient string, otpCode string) error {
+	startedAt := time.Now()
 	body := "Use this code to reset your Prism password:\n\n" + strings.TrimSpace(otpCode) + "\n"
-	return m.send(ctx, recipient, passwordResetSubject, body)
+	err := m.send(ctx, recipient, passwordResetSubject, body)
+	asyncmetrics.RecordOutbound(ctx, "smtp_mailer", "reset_email", asyncmetrics.OutcomeFromError(err), time.Since(startedAt))
+	return err
 }
 
 func (m *SMTPMailer) send(ctx context.Context, recipient string, subject string, body string) error {
