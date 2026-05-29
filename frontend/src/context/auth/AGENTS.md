@@ -30,6 +30,8 @@ auth/
 - Keep passive refresh mutation-aware. `refresh.ts` should return early while a login/logout mutation is in flight.
 - Keep the proactive refresh interval and visibility-refresh rules centralized in `refresh.ts`.
 
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
 ## LLM UPSTREAM MATRIX
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
