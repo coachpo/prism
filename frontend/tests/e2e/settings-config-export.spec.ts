@@ -268,7 +268,10 @@ test("profile safe export uses the redacted route and synthesizes the filename l
   const backupSection = page.locator("section#backup");
   await expect(backupSection).toBeVisible();
 
+  const downloadPromise = page.waitForEvent("download");
   await backupSection.getByTestId("profile-export-safe").click();
+  const download = await downloadPromise;
+  const suggestedFilename = download.suggestedFilename();
 
   await expect(page.getByText("Configuration exported successfully")).toBeVisible();
   expect(routes.getSafeExportRequestCount()).toBe(1);
@@ -278,9 +281,10 @@ test("profile safe export uses the redacted route and synthesizes the filename l
     () => (window as Window & { __downloadCapture?: DownloadCapture }).__downloadCapture ?? null,
   );
 
+  expect(suggestedFilename).toBe(`prism-profile-config-v3-${fixedDate}.json`);
+  expect(suggestedFilename).not.toBe("server-safe-name.json");
   expect(capture).not.toBeNull();
-  expect(capture?.download).toBe(`prism-profile-config-v3-${fixedDate}.json`);
-  expect(capture?.download).not.toBe("server-safe-name.json");
+  expect(capture?.download).toBe(suggestedFilename);
   expect(capture?.href.startsWith("blob:")).toBe(true);
 });
 
@@ -298,7 +302,10 @@ test("profile dangerous export stays disabled until acknowledged and uses the da
   await backupSection.getByTestId("profile-export-dangerous-acknowledgement").click();
   await expect(dangerousButton).toBeEnabled();
 
+  const downloadPromise = page.waitForEvent("download");
   await dangerousButton.click();
+  const download = await downloadPromise;
+  const suggestedFilename = download.suggestedFilename();
 
   await expect(page.getByText("Configuration exported successfully")).toBeVisible();
   expect(routes.getSafeExportRequestCount()).toBe(0);
@@ -309,8 +316,9 @@ test("profile dangerous export stays disabled until acknowledged and uses the da
     () => (window as Window & { __downloadCapture?: DownloadCapture }).__downloadCapture ?? null,
   );
 
+  expect(suggestedFilename).toBe(`prism-profile-config-with-secrets-v3-${fixedDate}.json`);
+  expect(suggestedFilename).not.toBe("server-dangerous-name.json");
   expect(capture).not.toBeNull();
-  expect(capture?.download).toBe(`prism-profile-config-with-secrets-v3-${fixedDate}.json`);
-  expect(capture?.download).not.toBe("server-dangerous-name.json");
+  expect(capture?.download).toBe(suggestedFilename);
   expect(capture?.href.startsWith("blob:")).toBe(true);
 });

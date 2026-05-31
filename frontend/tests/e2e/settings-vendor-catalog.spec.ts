@@ -59,6 +59,47 @@ function buildVendorImportBundle() {
         audit_enabled: true,
         audit_capture_bodies: false,
       },
+      {
+        key: "gemini",
+        name: "Gemini",
+        description: "Existing vendor",
+        icon_key: "gemini",
+        audit_enabled: true,
+        audit_capture_bodies: false,
+      },
+    ],
+  };
+}
+
+function buildChangedVendorImportBundle() {
+  return {
+    version: 1,
+    bundle_kind: "vendor_catalog" as const,
+    vendors: [
+      {
+        key: "openai",
+        name: "OpenAI Updated Again",
+        description: "Changed vendor",
+        icon_key: "openai",
+        audit_enabled: true,
+        audit_capture_bodies: false,
+      },
+      {
+        key: "anthropic",
+        name: "Anthropic",
+        description: "New vendor",
+        icon_key: "anthropic",
+        audit_enabled: true,
+        audit_capture_bodies: false,
+      },
+      {
+        key: "gemini",
+        name: "Gemini",
+        description: "Existing vendor",
+        icon_key: "gemini",
+        audit_enabled: true,
+        audit_capture_bodies: false,
+      },
     ],
   };
 }
@@ -66,11 +107,16 @@ function buildVendorImportBundle() {
 async function mockSettingsRoutes(page: Page) {
   const profile = createProfile();
   const previewTokenBindings = new Map<string, string>();
-  let vendors = [createVendor(1, "openai", "OpenAI", "Primary vendor")];
+  let vendors = [
+    createVendor(1, "openai", "OpenAI", "Primary vendor"),
+    createVendor(2, "gemini", "Gemini", "Existing vendor"),
+  ];
   let exportRequestCount = 0;
   const importedPayloads: unknown[] = [];
   const previewPayloads: unknown[] = [];
   const appliedPreviewTokens: string[] = [];
+  const vendorGlobalRouteHits: Array<{ method: string; pathname: string; profileId: string | undefined }> = [];
+  const profileConfigRouteHits: Array<{ method: string; pathname: string; profileId: string | undefined }> = [];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -78,6 +124,16 @@ async function mockSettingsRoutes(page: Page) {
 
     if (!pathname.startsWith("/api/")) {
       return route.continue();
+    }
+
+    const requestHeaders = await request.allHeaders();
+    const profileId = requestHeaders["x-profile-id"];
+
+    if (pathname === "/api/vendors" || pathname.startsWith("/api/config/vendors/")) {
+      vendorGlobalRouteHits.push({ method: request.method(), pathname, profileId });
+    }
+    if (pathname === "/api/config/header-blocklist-rules" || pathname === "/api/config/user-agent-client-rules") {
+      profileConfigRouteHits.push({ method: request.method(), pathname, profileId });
     }
 
     const fulfillJson = (body: unknown, status = 200, headers?: Record<string, string>) =>
@@ -147,7 +203,7 @@ async function mockSettingsRoutes(page: Page) {
           target: "global_vendor_catalog",
           create_count: 1,
           update_count: 1,
-          unchanged_count: 0,
+          unchanged_count: 1,
         },
         untouched_scope: {
           profiles: true,
@@ -161,7 +217,7 @@ async function mockSettingsRoutes(page: Page) {
       });
     }
     if (pathname === "/api/config/vendors/import" && request.method() === "POST") {
-      const previewToken = (await request.allHeaders())["x-prism-preview-token"] ?? "";
+      const previewToken = requestHeaders["x-prism-preview-token"] ?? "";
       const payload = request.postDataJSON();
       if (!previewToken) {
         return fulfillJson({ error: "missing preview token" }, 400);
@@ -172,8 +228,9 @@ async function mockSettingsRoutes(page: Page) {
       appliedPreviewTokens.push(previewToken);
       importedPayloads.push(payload);
       vendors = [
-        createVendor(1, "openai", "OpenAI Updated", "Updated vendor"),
+        createVendor(1, "openai", "OpenAI Updated Again", "Changed vendor"),
         createVendor(2, "anthropic", "Anthropic", "New vendor"),
+        createVendor(3, "gemini", "Gemini", "Existing vendor"),
       ];
       return fulfillJson({ created_count: 1, updated_count: 1 });
     }
@@ -224,19 +281,31 @@ async function mockSettingsRoutes(page: Page) {
     getExportRequestCount: () => exportRequestCount,
     getImportedPayloads: () => importedPayloads,
     getPreviewPayloads: () => previewPayloads,
+    getProfileConfigRouteHits: () => profileConfigRouteHits,
+    getVendorGlobalRouteHits: () => vendorGlobalRouteHits,
   };
 }
 
 test("global settings exposes vendor catalog export plus an explicit preview before apply", async ({ page }) => {
+  test.setTimeout(60_000);
+
   const routes = await mockSettingsRoutes(page);
   const importBundle = buildVendorImportBundle();
+  const changedImportBundle = buildChangedVendorImportBundle();
+  const previewValue = (label: string, value: string) =>
+    page.locator(`xpath=//span[normalize-space()="${label}"]/following-sibling::span//*[normalize-space()="${value}"]`);
 
   await page.goto("/settings");
-  await page.getByRole("tab", { name: "Global" }).click();
-  await expect(page.getByText("Vendor Catalog Transport")).toBeVisible();
+  const globalTab = page.getByRole("tab", { name: "Global" });
+  await expect(globalTab).toBeVisible({ timeout: 30_000 });
+  await globalTab.click();
+  await expect(page.getByText("Vendor Catalog Transport")).toBeVisible({ timeout: 30_000 });
 
+  const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export Vendor Catalog" }).click();
+  const download = await downloadPromise;
   await expect(page.getByText("Vendor catalog exported successfully")).toBeVisible();
+  expect(download.suggestedFilename()).toBe(`prism-vendor-catalog-v1-${fixedDate}.json`);
   expect(routes.getExportRequestCount()).toBe(1);
 
   const capture = await page.evaluate(
@@ -252,7 +321,7 @@ test("global settings exposes vendor catalog export plus an explicit preview bef
   });
 
   const applyButton = page.getByTestId("vendor-catalog-apply");
-  await expect(page.getByText("Loaded vendors.json: 2 vendor rows.")).toBeVisible();
+  await expect(page.getByText("Loaded vendors.json: 3 vendor rows.")).toBeVisible();
   await expect(page.getByText("Run preview to bind a fresh token for the currently loaded vendor bundle before applying it.")).toBeVisible();
   await expect(applyButton).toBeDisabled();
   expect(routes.getPreviewPayloads()).toEqual([]);
@@ -263,17 +332,57 @@ test("global settings exposes vendor catalog export plus an explicit preview bef
   await expect(page.getByText("Preview ready for apply")).toBeVisible();
   await expect(page.getByText("Apply is bound to the currently loaded bundle: vendors.json.")).toBeVisible();
   await expect(page.getByText("Mutation scope")).toBeVisible();
+  await expect(previewValue("Target", "Global vendor catalog")).toBeVisible();
+  await expect(previewValue("Create vendors", "1")).toBeVisible();
+  await expect(previewValue("Update vendors", "1")).toBeVisible();
+  await expect(previewValue("Leave unchanged", "1")).toBeVisible();
   await expect(page.getByText("Untouched scope")).toBeVisible();
+  await expect(previewValue("All profiles", "Untouched")).toBeVisible();
+  await expect(previewValue("Profile-scoped configuration", "Untouched")).toBeVisible();
+  await expect(previewValue("Request logs", "Untouched")).toBeVisible();
   await expect(page.getByText("Readonly vendors will be skipped.")).toBeVisible();
+  await expect(applyButton).toBeEnabled();
+
+  await page.getByTestId("vendor-catalog-import-file").setInputFiles({
+    name: "vendors-changed.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(changedImportBundle)),
+  });
+
+  await expect(page.getByText("Loaded vendors-changed.json: 3 vendor rows.")).toBeVisible();
+  await expect(page.getByText("Run preview to bind a fresh token for the currently loaded vendor bundle before applying it.")).toBeVisible();
+  await expect(page.getByText("Apply is bound to the currently loaded bundle: vendors.json.")).not.toBeVisible();
+  await expect(applyButton).toBeDisabled();
+  expect(routes.getPreviewPayloads()).toEqual([importBundle]);
+  expect(routes.getImportedPayloads()).toEqual([]);
+  expect(routes.getAppliedPreviewTokens()).toEqual([]);
+
+  await page.getByTestId("vendor-catalog-preview").click();
+  await expect(page.getByText("Apply is bound to the currently loaded bundle: vendors-changed.json.")).toBeVisible();
   await expect(applyButton).toBeEnabled();
 
   await applyButton.click();
 
   await expect(page.getByText("Imported 1 vendors and updated 1 vendors")).toBeVisible();
-  await expect(page.getByText("OpenAI Updated")).toBeVisible();
+  await expect(page.getByText("OpenAI Updated Again")).toBeVisible();
   await expect(page.getByRole("row", { name: /Anthropic anthropic New vendor Edit Delete/i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Gemini gemini Existing vendor Edit Delete/i })).toBeVisible();
 
-  expect(routes.getPreviewPayloads()).toEqual([importBundle]);
-  expect(routes.getImportedPayloads()).toEqual([importBundle]);
-  expect(routes.getAppliedPreviewTokens()).toEqual(["vendor-preview-token-1"]);
+  expect(routes.getPreviewPayloads()).toEqual([importBundle, changedImportBundle]);
+  expect(routes.getImportedPayloads()).toEqual([changedImportBundle]);
+  expect(routes.getAppliedPreviewTokens()).toEqual(["vendor-preview-token-2"]);
+  expect(routes.getVendorGlobalRouteHits()).toEqual(
+    expect.arrayContaining([
+      { method: "GET", pathname: "/api/config/vendors/export", profileId: undefined },
+      { method: "POST", pathname: "/api/config/vendors/import/preview", profileId: undefined },
+      { method: "POST", pathname: "/api/config/vendors/import", profileId: undefined },
+    ]),
+  );
+  expect(routes.getVendorGlobalRouteHits().every((hit) => hit.profileId === undefined)).toBe(true);
+  expect(routes.getProfileConfigRouteHits()).toEqual(
+    expect.arrayContaining([
+      { method: "GET", pathname: "/api/config/header-blocklist-rules", profileId: "1" },
+      { method: "GET", pathname: "/api/config/user-agent-client-rules", profileId: "1" },
+    ]),
+  );
 });

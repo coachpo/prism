@@ -25,6 +25,18 @@ function createProfile() {
   };
 }
 
+function createSecondaryProfile() {
+  return {
+    ...createProfile(),
+    id: 2,
+    name: "Disaster recovery",
+    description: "Restores imported profile bundles",
+    is_active: false,
+    is_default: false,
+    version: 2,
+  };
+}
+
 function createAuthSettings() {
   return {
     auth_enabled: false,
@@ -345,8 +357,27 @@ function buildPreviewResponse(bundle: ProfileImportBundle, previewToken: string)
   };
 }
 
-async function mockSettingsRoutes(page: Page) {
-  const profile = createProfile();
+type ProfileFixture = ReturnType<typeof createProfile> | ReturnType<typeof createSecondaryProfile>;
+
+type ProfilePreviewResponse = Omit<ReturnType<typeof buildPreviewResponse>, "blocking_errors" | "warnings"> & {
+  blocking_errors: string[];
+  warnings: string[];
+};
+
+type PreviewResponseFactory = (
+  bundle: ProfileImportBundle,
+  previewToken: string,
+) => ProfilePreviewResponse;
+
+interface MockSettingsRoutesOptions {
+  profiles?: ProfileFixture[];
+  previewResponseFactory?: PreviewResponseFactory;
+}
+
+async function mockSettingsRoutes(page: Page, options: MockSettingsRoutesOptions = {}) {
+  const defaultProfile = createProfile();
+  const profiles = options.profiles ?? [defaultProfile];
+  const activeProfile = profiles.find((profile) => profile.is_active) ?? profiles[0] ?? defaultProfile;
   const previewTokenBindings = new Map<string, { payloadText: string; profileHeader: string | null }>();
   const previewRequests: PreviewRequestCapture[] = [];
   const importedPayloads: unknown[] = [];
@@ -372,7 +403,7 @@ async function mockSettingsRoutes(page: Page) {
       return fulfillJson({ auth_enabled: false });
     }
     if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
+      return fulfillJson({ profiles, active_profile: activeProfile, profile_limits: { max_profiles: 5 } });
     }
     if (pathname === "/api/settings/costing") {
       return fulfillJson(createCostingSettings());
@@ -401,7 +432,9 @@ async function mockSettingsRoutes(page: Page) {
       const previewToken = `profile-preview-token-${previewRequests.length + 1}`;
       previewRequests.push({ payload, previewToken, profileHeader });
       previewTokenBindings.set(previewToken, { payloadText: JSON.stringify(payload), profileHeader });
-      return fulfillJson(buildPreviewResponse(payload, previewToken));
+      const previewResponse = options.previewResponseFactory?.(payload, previewToken)
+        ?? buildPreviewResponse(payload, previewToken);
+      return fulfillJson(previewResponse);
     }
     if (pathname === "/api/config/profile/import" && request.method() === "POST") {
       const headers = await request.allHeaders();
@@ -496,6 +529,42 @@ test("profile import requires an explicit preview before apply", async ({ page }
   expect(routes.getAppliedProfileHeaders()).toEqual(["1"]);
 });
 
+test("profile import keeps apply disabled and surfaces the first blocking preview error", async ({ page }) => {
+  const routes = await mockSettingsRoutes(page, {
+    previewResponseFactory: (bundle, previewToken) => ({
+      ...buildPreviewResponse(bundle, previewToken),
+      ready: false,
+      blocking_errors: [
+        "Bundle key mismatch blocks this import.",
+        "Second blocking error stays in the preview details.",
+      ],
+    }),
+  });
+  const importBundle = buildProfileImportBundle("alpha");
+
+  await page.goto("/settings#backup");
+  const backupSection = page.locator("section#backup");
+  const applyButton = backupSection.getByTestId("profile-import-apply");
+
+  await expect(backupSection).toBeVisible();
+  await backupSection.getByTestId("profile-import-file").setInputFiles({
+    name: "profile-import-alpha.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(importBundle)),
+  });
+  await expect(applyButton).toBeDisabled();
+
+  await backupSection.getByTestId("profile-import-preview").click();
+
+  await expect(backupSection.getByText("Blocking errors", { exact: true })).toBeVisible();
+  await expect(backupSection.getByText("Bundle key mismatch blocks this import.")).toBeVisible();
+  await expect(backupSection.getByText("Second blocking error stays in the preview details.")).toBeVisible();
+  await expect(applyButton).toBeDisabled();
+  expect(routes.getPreviewRequests()).toHaveLength(1);
+  expect(routes.getImportedPayloads()).toEqual([]);
+  expect(routes.getAppliedPreviewTokens()).toEqual([]);
+});
+
 test("profile import invalidates a stale preview when the bundle changes", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
   const firstBundle = buildProfileImportBundle("alpha");
@@ -547,4 +616,64 @@ test("profile import invalidates a stale preview when the bundle changes", async
   expect(routes.getImportedPayloads()).toEqual([secondBundle]);
   expect(routes.getAppliedPreviewTokens()).toEqual(["profile-preview-token-2"]);
   expect(routes.getAppliedProfileHeaders()).toEqual(["1"]);
+});
+
+test("profile import invalidates a stale preview when the selected profile changes", async ({ page }) => {
+  const routes = await mockSettingsRoutes(page, {
+    profiles: [createProfile(), createSecondaryProfile()],
+  });
+  const importBundle = buildProfileImportBundle("alpha");
+
+  await page.goto("/settings#backup");
+  const backupSection = page.locator("section#backup");
+  const applyButton = backupSection.getByTestId("profile-import-apply");
+
+  await expect(backupSection).toBeVisible();
+  await backupSection.getByTestId("profile-import-file").setInputFiles({
+    name: "profile-import-alpha.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(importBundle)),
+  });
+  await backupSection.getByTestId("profile-import-preview").click();
+  await expect(backupSection.getByText("This preview token is bound to Default (#1). Changing the file or selected profile requires a fresh preview before apply.")).toBeVisible();
+  await expect(applyButton).toBeEnabled();
+
+  await page.getByTestId("shell-profile-switcher").getByRole("button").click();
+  await page.getByRole("menuitem", { name: /Disaster recovery/ }).click();
+
+  await expect(page.getByText("Changes here manage Disaster recovery (#2).")).toBeVisible();
+  await expect(backupSection.getByText("Loaded profile-import-alpha.json")).toHaveCount(0);
+  await expect(applyButton).toHaveCount(0);
+  expect(routes.getImportedPayloads()).toEqual([]);
+
+  await backupSection.getByTestId("profile-import-file").setInputFiles({
+    name: "profile-import-alpha.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(importBundle)),
+  });
+  const reboundApplyButton = backupSection.getByTestId("profile-import-apply");
+  await expect(reboundApplyButton).toBeDisabled();
+
+  await backupSection.getByTestId("profile-import-preview").click();
+  await expect(backupSection.getByText("This preview token is bound to Disaster recovery (#2). Changing the file or selected profile requires a fresh preview before apply.")).toBeVisible();
+  await expect(reboundApplyButton).toBeEnabled();
+
+  await reboundApplyButton.click();
+
+  await expect(page.getByText("Imported 1 endpoints, 1 strategies, 1 models, 1 top-level connections")).toBeVisible();
+  const previewRequests = routes.getPreviewRequests();
+  expect(previewRequests).toHaveLength(2);
+  expect(previewRequests[0]).toEqual({
+    payload: importBundle,
+    previewToken: "profile-preview-token-1",
+    profileHeader: "1",
+  });
+  expect(previewRequests[1]).toEqual({
+    payload: importBundle,
+    previewToken: "profile-preview-token-2",
+    profileHeader: "2",
+  });
+  expect(routes.getImportedPayloads()).toEqual([importBundle]);
+  expect(routes.getAppliedPreviewTokens()).toEqual(["profile-preview-token-2"]);
+  expect(routes.getAppliedProfileHeaders()).toEqual(["2"]);
 });
