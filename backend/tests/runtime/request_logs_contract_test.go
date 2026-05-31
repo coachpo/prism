@@ -2285,6 +2285,9 @@ func TestRequestLogCurrentModelEnrichmentContract(t *testing.T) {
 		t.Fatalf("did not expect proxy-origin field in detail summary, got %+v", summary)
 	}
 	routing := asMapRuntime(t, payload["routing"])
+	if _, ok := routing["connection_id"]; ok {
+		t.Fatalf("did not expect routing field connection_id in enriched detail payload, got %+v", routing)
+	}
 	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family", "vendor_id", "vendor_key", "vendor_name"} {
 		if _, ok := routing[absent]; ok {
 			t.Fatalf("did not expect routing field %s in enriched detail payload, got %+v", absent, routing)

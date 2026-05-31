@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import type { RequestLogDetailRouting } from "../../src/lib/types";
 
 const timestamp = "2026-04-13T00:00:00Z";
 const rawErrorDetail = JSON.stringify({
@@ -17,6 +18,16 @@ function normalizeClipboardText(value: string) {
 }
 
 function createRequestLogDetail() {
+  const routing = {
+    profile_id: 1,
+    endpoint_label: "Primary endpoint",
+    endpoint_id: 1,
+    endpoint_base_url: "https://api.example.test",
+    endpoint_description: "Primary endpoint",
+    audit_enabled_at_request: true,
+    audit_capture_bodies_at_request: true,
+  } satisfies RequestLogDetailRouting;
+
   return {
     summary: {
       id: 101,
@@ -45,20 +56,7 @@ function createRequestLogDetail() {
       user_agent_overridden: false,
       error_detail: rawErrorDetail,
     },
-    routing: {
-      profile_id: 1,
-      model_id: "gpt-4o-mini",
-      resolved_target_model_id: null,
-      api_family: "openai",
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
-      endpoint_id: 1,
-      connection_id: null,
-      endpoint_base_url: "https://api.example.test",
-      endpoint_description: "Primary endpoint",
-      audit_enabled_at_request: true,
-    },
+    routing,
     usage: {
       input_tokens: 12,
       output_tokens: 8,
@@ -267,6 +265,13 @@ async function mockRequestLogDetailRoutes(page: Page) {
 
 async function openRequestLogDetail(page: Page, context: BrowserContext) {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const ownerRouteRequests: string[] = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (/^\/api\/connections\/\d+\/owner$/.test(pathname)) {
+      ownerRouteRequests.push(request.url());
+    }
+  });
   await mockRequestLogDetailRoutes(page);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
@@ -313,14 +318,19 @@ async function openRequestLogDetail(page: Page, context: BrowserContext) {
   const drawer = page.getByTestId("request-log-detail-sheet");
 
   await expect(drawer).toBeVisible({ timeout: 15000 });
-  return drawer;
+  return { drawer, ownerRouteRequests };
 }
 
 test.describe("request log detail copy regression", () => {
   test("overview error detail copy button writes the formatted block text", async ({ page, context }) => {
-    const drawer = await openRequestLogDetail(page, context);
+    const { drawer, ownerRouteRequests } = await openRequestLogDetail(page, context);
     const overviewCopyButton = drawer.getByRole("button", { name: /^Copy$/ });
+    const routingContext = drawer.getByText("Routing context", { exact: true }).locator("xpath=..");
 
+    await expect(routingContext).toBeVisible();
+    await expect(routingContext.locator("span").filter({ hasText: /^Connection$/ })).toHaveCount(0);
+    await expect(routingContext.getByRole("link", { name: "Open connection" })).toHaveCount(0);
+    expect(ownerRouteRequests).toEqual([]);
     await expect(overviewCopyButton).toHaveCount(1);
 
     await drawer.locator("pre:visible").evaluateAll((elements) => {
@@ -333,9 +343,10 @@ test.describe("request log detail copy regression", () => {
   });
 
   test("audit payload copy buttons write their corresponding payload blocks", async ({ page, context }) => {
-    const drawer = await openRequestLogDetail(page, context);
+    const { drawer, ownerRouteRequests } = await openRequestLogDetail(page, context);
 
     await drawer.getByRole("tab", { name: "Audit" }).click();
+    expect(ownerRouteRequests).toEqual([]);
 
     const copyButtons = drawer.getByRole("button", { name: /^Copy$/ });
     const visiblePreBlocks = drawer.locator("pre:visible");

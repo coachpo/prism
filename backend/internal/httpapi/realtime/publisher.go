@@ -151,10 +151,17 @@ func loadRequestLogEntry(ctx context.Context, tx pgx.Tx, requestLogID int, profi
 	if detail == nil {
 		return RequestLogEntry{}, fmt.Errorf("%w: request log %d not found for profile %d", errDashboardRequestLogNotFound, requestLogID, profileID)
 	}
-	return requestLogEntryFromDetail(*detail), nil
+	var connectionID *int
+	if err := tx.QueryRow(ctx, `SELECT connection_id FROM request_logs WHERE profile_id = $1 AND id = $2`, profileID, requestLogID).Scan(&connectionID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RequestLogEntry{}, fmt.Errorf("%w: request log %d not found for profile %d", errDashboardRequestLogNotFound, requestLogID, profileID)
+		}
+		return RequestLogEntry{}, fmt.Errorf("load request log %d connection for profile %d: %w", requestLogID, profileID, err)
+	}
+	return requestLogEntryFromDetail(*detail, connectionID), nil
 }
 
-func requestLogEntryFromDetail(detail statsdomain.RequestLogDetailResponse) RequestLogEntry {
+func requestLogEntryFromDetail(detail statsdomain.RequestLogDetailResponse, connectionID *int) RequestLogEntry {
 	return RequestLogEntry{
 		ID:                                detail.Summary.ID,
 		ProfileID:                         detail.Routing.ProfileID,
@@ -167,7 +174,7 @@ func requestLogEntryFromDetail(detail statsdomain.RequestLogDetailResponse) Requ
 		VendorKey:                         detail.Summary.VendorKey,
 		VendorName:                        detail.Summary.VendorName,
 		EndpointID:                        detail.Routing.EndpointID,
-		ConnectionID:                      detail.Routing.ConnectionID,
+		ConnectionID:                      connectionID,
 		ProxyAPIKeyID:                     detail.Request.ProxyAPIKeyID,
 		ProxyAPIKeyNameSnapshot:           detail.Request.ProxyAPIKeyNameSnapshot,
 		IngressRequestID:                  detail.Request.IngressRequestID,

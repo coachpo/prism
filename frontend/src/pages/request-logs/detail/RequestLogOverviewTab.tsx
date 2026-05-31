@@ -1,5 +1,4 @@
 import { AlertTriangle, Coins, Copy, FileText } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { useLocale } from "@/i18n/useLocale";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
 import { SpendTrustNote } from "@/components/SpendTrustIndicator";
@@ -25,7 +24,6 @@ import {
   SummaryStat,
 } from "./requestLogDetailShared";
 import { copyRequestLogText, getStatusIntent, getStatusTone } from "./requestLogDetailUtils";
-import { createConnectionNavigator } from "../connectionNavigation";
 import { resolveRequestAuditCaptureMode } from "../requestLogAuditState";
 import {
   getStreamOutcomeIntent,
@@ -106,7 +104,6 @@ export function RequestLogOverviewTab({
   request,
   formatTimestamp,
 }: RequestLogOverviewTabProps) {
-  const navigate = useNavigate();
   const { currencyState } = useReportingCurrencyContext();
   const { formatNumber, messages } = useLocale();
   const summary = request.summary;
@@ -146,7 +143,6 @@ export function RequestLogOverviewTab({
     requestInfo.caller_client_display !== null
     || requestInfo.caller_user_agent !== null
     || requestInfo.user_agent_overridden;
-  const navigateToConnection = createConnectionNavigator({ navigate });
   const streamUsageUnavailable = isStreamUsageUnavailableReason(usage.unpriced_reason);
   const historicalUnknownStream = isHistoricalUnknownStreamRow(summary.is_stream, summary.stream_outcome);
   const streamStatusLabel = getStreamOutcomeLabel(summary.stream_outcome, messages.requestLogs);
@@ -415,25 +411,6 @@ export function RequestLogOverviewTab({
               ) : null}
               <DetailRow label={messages.requestLogs.auditCapture}>
                 {renderAuditCaptureState(routing, messages)}
-              </DetailRow>
-              <DetailRow label={messages.requestLogs.connection}>
-                {routing.connection_id !== null ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-[12px]">#{routing.connection_id}</span>
-                    <a
-                      href="#"
-                      className="rounded-sm text-[11px] font-medium text-primary underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        void navigateToConnection(routing.connection_id!);
-                      }}
-                    >
-                      {messages.requestLogs.viewConnection}
-                    </a>
-                  </div>
-                ) : (
-                  messages.requestLogs.noConnectionRecorded
-                )}
               </DetailRow>
             </div>
           </div>

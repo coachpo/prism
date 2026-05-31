@@ -85,6 +85,9 @@ func TestConnectionReadSurfacesHideOwnerlessConnections(t *testing.T) {
 		t.Fatalf("expected /references to report the direct owner model only, got %+v", references)
 	}
 
+	ownerRouteResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/connections/%d/owner", ownedConnectionID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, ownerRouteResponse, http.StatusNotFound)
+
 	ownerlessReferencesResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/connections/%d/references", ownerlessConnectionID), nil, modelHeader(defaultProfileID))
 	assertErrorResponse(t, ownerlessReferencesResponse, http.StatusNotFound, "Connection not found")
 	assertStoredConnectionCount(t, harness, ownerlessConnectionID, 1)

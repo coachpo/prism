@@ -283,7 +283,6 @@ export interface RequestLogDetailRouting {
   profile_id: number;
   endpoint_label: string;
   endpoint_id: number | null;
-  connection_id: number | null;
   endpoint_base_url: string | null;
   endpoint_description: string | null;
   audit_enabled_at_request: boolean;

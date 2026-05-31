@@ -124,7 +124,6 @@ export interface Messages {
     activeRoutes: (count: string) => string;
     endpointCount: (count: string) => string;
     modelCount: (count: string) => string;
-    strategyFamilyCount: (label: string, count: string) => string;
     totalConfigured: (count: string) => string;
     totalRequests: (count: string) => string;
     successRate: (rate: string) => string;
@@ -1916,8 +1915,6 @@ export interface Messages {
     tokenRange: string;
     triage: string;
     view: string;
-    viewConnection: string;
-    noConnectionRecorded: string;
     fiveHundredsOnly: string;
     spend: string;
     viewRequestInLogs: string;
@@ -1926,7 +1923,6 @@ export interface Messages {
     zeroResults: string;
   };
   requestLogsDetail: {
-    connectionNotFound: string;
     copyFailed: (label: string) => string;
     copied: (label: string) => string;
   };
@@ -2202,7 +2198,6 @@ export const enMessages: Messages = {
   dashboard: {
     activeModels: "Active Models",
     analyticsTab: "Analytics",
-    adaptiveStrategy: "Adaptive strategy",
     averageRpm: "Average RPM",
     avgLatency: "Avg Latency",
     dashboardDescription: "System overview and health status",
@@ -2213,7 +2208,6 @@ export const enMessages: Messages = {
     noRecentActivityDescription: "Requests will appear here once processed.",
     noSpendingData: "No spending data",
     noSpendingDataDescription: "Cost data will appear here once requests are priced.",
-    legacyStrategy: "Legacy strategy",
     noApiFamilyActivity: "No API family activity",
     noApiFamilyActivityDescription: "API family request distribution appears after traffic is processed.",
     overviewTab: "Overview",

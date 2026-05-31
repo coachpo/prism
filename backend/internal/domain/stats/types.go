@@ -115,7 +115,6 @@ type RequestLogDetailRouting struct {
 	ProfileID                   int     `json:"profile_id"`
 	EndpointLabel               string  `json:"endpoint_label"`
 	EndpointID                  *int    `json:"endpoint_id"`
-	ConnectionID                *int    `json:"connection_id"`
 	EndpointBaseURL             *string `json:"endpoint_base_url"`
 	EndpointDescription         *string `json:"endpoint_description"`
 	AuditEnabledAtRequest       bool    `json:"audit_enabled_at_request"`
