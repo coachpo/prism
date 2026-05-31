@@ -39,7 +39,6 @@ The route should also integrate shared application services:
 - `useProfileContext()` for selected-profile and profile-revision refresh behavior.
 - `useTimezone()` plus the shared frontend locale boundary for locale-aware timestamp formatting.
 - `useLocale()` for route-shell, filter, empty-state, and detail-drawer copy.
-- `request-logs/connectionNavigation.ts` for connection-centric drill-down flows.
 - `TooltipProvider` for table and filter affordances.
 
 ## 5. URL State Contract
