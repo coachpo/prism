@@ -28,7 +28,7 @@ docs/
 
 ## WHERE TO LOOK
 - Launcher, release, and deploy facts: `../README.md`, `../start.sh`, `../release.sh`, `../deploy.sh`, `../frontend/.env.example`
-- Backend/frontend version surfaces: `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
+- Backend/frontend version surfaces: `../VERSION`, `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend container contract: `../backend/Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation contract, hook residency, rejected-route isolation, and `operation_name` persistence: `API_SPEC.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `../backend/internal/httpapi/runtime/AGENTS.md`, `../backend/internal/httpapi/runtime/operations.go`
 - Startup bootstrap contract, hot-apply effect reporting, and startup-tab ownership: `../backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `../backend/internal/platform/config/`, `../frontend/src/pages/settings/startup/AGENTS.md`
@@ -49,7 +49,7 @@ docs/
 - Keep docs Prism-specific.
 - Point to child AGENTS files instead of repeating leaf detail.
 - Prefer documenting steady-state configuration through the file-backed startup JSON and its owning AGENTS/code paths; mention env vars only when they are bootstrap-critical exceptions such as `PRISM_CONFIG_PATH` or `DATABASE_URL`.
-- Keep launcher facts aligned with `../start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, the canonical PostgreSQL host port `15432`, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, and the bootstrap-only startup contract.
+- Keep launcher facts aligned with `../start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, the canonical PostgreSQL host port `15432`, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, the checked-in `config.json` backend port `18000`, and the bootstrap-only startup contract.
 - Keep runtime contract docs aligned with the explicit operation allowlist, operation hook collections, rejected-route isolation, and `operation_name` persistence instead of broad vendor path-family wording.
 - Keep bootstrap docs aligned with backend ownership: plaintext file-backed v1, required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, metadata-only safe secrets, `runtime.secretEncryptionKey` preserve-only, apply-capability reporting, unsupported encrypted legacy files, and enabled SMTP fail-fast.
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
