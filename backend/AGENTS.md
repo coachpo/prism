@@ -30,10 +30,11 @@ backend/
 - `internal/platform/AGENTS.md`: backend process infrastructure, lifecycle assembly, hot bootstrap runtime, DB lanes, scheduler, migrations, partitioned log retention, and side-effect ownership.
 - `internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, proxy-key usage, retention-job, and request-context seams.
 - `internal/httpapi/runtime/AGENTS.md`: explicit runtime operation registry, request planning, hook collections, telemetry outbox, feedback pipeline, partition ensuring, and runtime side-effect seams.
+- `internal/httpapi/realtime/AGENTS.md`: mounted `/api/realtime/ws` websocket delivery, connection-manager ownership, and async dashboard plus analytics publishers.
 - `internal/httpapi/management/bootstrapconfig/AGENTS.md`: file-backed startup bootstrap API, validate/apply planning, hot-apply publication, and failed-hot-apply reporting.
 - `internal/httpapi/management/configbundle/AGENTS.md`: profile bundle and vendor catalog export/preview/import, preview tokens, bundle secret encryption, and after-import hooks.
 - `internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and retention-job endpoints.
-- `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
+- `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, password-reset and verification delivery, proxy-key, realtime auth-state, and runtime-cache seams.
 - `internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registrations, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
 - `internal/httpapi/management/connections/AGENTS.md`: selected-profile connection reads/references, owner-scoped model-private connection routes, health checks, and pricing templates.
 - `internal/httpapi/management/configrules/AGENTS.md`: selected-profile header-blocklist and user-agent/client mapping rules under `/api/config/*`.
@@ -47,12 +48,12 @@ backend/
 - `tests/AGENTS.md`: backend Go regression boundary, including operation route matrix, rejected-route isolation, bootstrap config, Dockerfile, sidecars, and priority/lane isolation tests.
 
 ## RUNTIME FACTS
-- `cmd/prism-backend/main.go` is the backend process entrypoint.
+- `cmd/prism-backend/main.go` is the backend process entrypoint and auto-reseeds stale bootstrap files that still contain the retired `docsEnabled` field.
 - `internal/platform/lifecycle/` wires production services, DB lanes, runtime cache bootstrap, scheduler workers, side-effect drains, and shutdown order.
-- `internal/platform/http/server.go` mounts `/health`, `/api`, `/v1`, and `/v1beta`; operational metrics/traces export through startup-JSON OTLP providers rather than a backend-local `/metrics` route, and the exact supported runtime operations are resolved later by `internal/httpapi/runtime/operations.go`.
+- `internal/platform/http/server.go` mounts `/health`, `/api`, `/v1`, and `/v1beta`; `/api` includes the separate realtime websocket seam at `/api/realtime/ws`, operational metrics/traces export through startup-JSON OTLP providers rather than a backend-local `/metrics` route, and the exact supported runtime operations are resolved later by `internal/httpapi/runtime/operations.go`.
 - `internal/platform/http/hot_bootstrap_runtime.go` publishes hot snapshots for CORS, auth, mail, runtime proxy transport, and admission limits.
 - `internal/platform/config/` owns the plaintext bootstrap contract loaded by `cmd/prism-backend/main.go`; steady-state startup settings live in that file, while `PRISM_CONFIG_PATH` and optional `DATABASE_URL` remain bootstrap-only env exceptions. Eligible runtime fields hot-apply through the Startup tab or bootstrap API, while structural fields stay restart-required.
-- `internal/platform/startup/` and `internal/platform/migrate/` own startup sequencing, SQL migration execution, vendor/profile/settings seeds, and endpoint-secret normalization.
+- `internal/platform/startup/` and `internal/platform/migrate/` own startup sequencing, SQL migration execution, vendor/profile invariant/user settings seeds, app-auth settings, user-agent and client rules, header-blocklist seeds, and endpoint-secret normalization.
 - `internal/platform/logretention/` owns daily partitions, 15-day horizon creation, retention deletes, and low-priority partition maintenance for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - `internal/httpapi/management/` fans out into mounted management subpackages for auth, bootstrapconfig, configbundle, configrules, connections, endpoints, loadbalance, models, profiles, settings, sidecars, stats, vendors, and audit.
 - `internal/httpapi/management/bootstrapconfig/` owns GET/validate/PUT for the file-backed bootstrap document plus planned changes, apply capabilities, hot-apply publication, and `failed_hot_apply_fields` reporting.
@@ -70,11 +71,12 @@ backend/
 - Process entrypoint: `cmd/prism-backend/main.go`
 - Platform lifecycle, server assembly, hot bootstrap runtime, DB lanes, startup, migrations, scheduler, log retention, and side effects: `internal/platform/AGENTS.md`
 - Mounted management, runtime, realtime, proxy-key usage, retention-job, and request-context seams: `internal/httpapi/AGENTS.md`
+- Realtime websocket delivery, connection-manager ownership, and async dashboard plus analytics publishers: `internal/httpapi/realtime/AGENTS.md`
 - Runtime allowlist, request planning, hook residency, telemetry outbox, feedback pipeline, and partition ensuring: `internal/httpapi/runtime/AGENTS.md`
 - Startup bootstrap GET/validate/PUT, apply-capability reporting, and hot-apply failure handling: `internal/httpapi/management/bootstrapconfig/AGENTS.md`
 - Config bundle and vendor catalog export/import plus preview tokens: `internal/httpapi/management/configbundle/AGENTS.md`
 - Management settings costing, timezone, retention settings, and maintenance-job endpoints: `internal/httpapi/management/settings/AGENTS.md`
-- Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `internal/httpapi/management/auth/AGENTS.md`
+- Management auth status/session/bootstrap, password-reset and verification delivery, proxy-key, realtime auth-state, and runtime-cache seams: `internal/httpapi/management/auth/AGENTS.md`
 - Global sidecar registration, CLIProxyAPI sync, live auth-files, provider inventory, and direct auth-file mutation: `internal/httpapi/management/sidecars/AGENTS.md`
 - Management leaf packages for audit, connections, config rules, endpoints, load-balance strategies, models, profiles, stats, and vendors: `internal/httpapi/management/audit/AGENTS.md`, `internal/httpapi/management/connections/AGENTS.md`, `internal/httpapi/management/configrules/AGENTS.md`, `internal/httpapi/management/endpoints/AGENTS.md`, `internal/httpapi/management/loadbalance/AGENTS.md`, `internal/httpapi/management/models/AGENTS.md`, `internal/httpapi/management/profiles/AGENTS.md`, `internal/httpapi/management/stats/AGENTS.md`, `internal/httpapi/management/vendors/AGENTS.md`
 - Shared transaction helper: `internal/pgxutil/tx.go`
