@@ -93,11 +93,22 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Post("/models/connections/batch", s.handleListConnectionsBatch)
+	api.Get("/models/{model_config_id}/connections", s.handleListModelConnections)
+	api.Post("/models/{model_config_id}/connections", s.handleCreateModelConnection)
+	api.Post("/models/{model_config_id}/connections/health-check-preview", s.handleLegacyModelConnectionNotFound)
+	api.Patch("/models/{model_config_id}/connections/{connection_id}", s.handleUpdateModelConnection)
+	api.Put("/models/{model_config_id}/connections/{connection_id}", s.handleRejectModelConnectionLegacyMutation)
+	api.Delete("/models/{model_config_id}/connections/{connection_id}", s.handleDeleteModelConnection)
+	api.Put("/models/{model_config_id}/connections/{connection_id}/pricing-template", s.handleRejectModelConnectionLegacyMutation)
+	api.Post("/models/{model_config_id}/connections/{connection_id}/health", s.handleModelConnectionHealthCheck)
+	api.Post("/models/{model_config_id}/connections/{connection_id}/health-check", s.handleRejectModelConnectionLegacyMutation)
+	api.Patch("/models/{model_config_id}/connections/{connection_id}/priority", s.handleRejectModelConnectionLegacyMutation)
 
 	api.Get("/connections", s.handleListConnections)
 	api.Post("/connections", s.handleCreateConnection)
 	api.Get("/connections/{connection_id}", s.handleGetConnection)
 	api.Put("/connections/{connection_id}", s.handleUpdateConnection)
+	api.Patch("/connections/{connection_id}", s.handleUpdateConnection)
 	api.Put("/connections/{connection_id}/pricing-template", s.handleSetConnectionPricingTemplate)
 	api.Delete("/connections/{connection_id}", s.handleDeleteConnection)
 	api.Post("/connections/{connection_id}/health-check", s.handleConnectionHealthCheck)

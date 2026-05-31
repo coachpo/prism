@@ -3,6 +3,7 @@ package contract_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
@@ -158,8 +160,6 @@ func TestModelCRUD(t *testing.T) {
 	)
 	assertErrorResponse(t, duplicateCreate, http.StatusConflict, "Model ID 's8-access-model' already exists")
 
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "S8 Access Endpoint", 0)
-	connectionID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", endpointID, 3, true, nil)
 	updateResponse := harness.requestJSON(
 		t,
 		harness.client,
@@ -168,8 +168,7 @@ func TestModelCRUD(t *testing.T) {
 		map[string]any{
 			"display_name": nil,
 			"access_targets": []map[string]any{
-				modelAccessTarget("connection", "", &connectionID, 0, true),
-				modelAccessTarget("model", "s8-target-model", nil, 1, false),
+				modelAccessTarget("model", "s8-target-model", nil, 0, true),
 			},
 		},
 		modelHeader(defaultProfileID),
@@ -178,7 +177,7 @@ func TestModelCRUD(t *testing.T) {
 	var updatePayload map[string]any
 	decodeJSONResponse(t, updateResponse, &updatePayload)
 	assertNoLegacyModelFields(t, updatePayload)
-	assertAccessTargets(t, updatePayload, []expectedAccessTarget{{TargetType: "connection", ConnectionID: connectionID, Position: 0, IsEnabled: true}, {TargetType: "model", TargetModelID: "s8-target-model", Position: 1, IsEnabled: false}})
+	assertAccessTargets(t, updatePayload, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, IsEnabled: true}})
 	if updatePayload["display_name"] != "s8-access-model" {
 		t.Fatalf("expected nil display_name update to reset to model_id, got %+v", updatePayload)
 	}
@@ -260,6 +259,60 @@ func TestDeleteReferencedModel(t *testing.T) {
 	assertErrorResponse(t, deleteReferenced, http.StatusConflict, "Cannot delete: models [delete-source] target this model")
 }
 
+func TestModelDeleteRemovesOwnedPrivateConnections(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Task 5 Delete Owner Strategy")
+	ownerID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-delete-owner", nil, &strategyID, true)
+	targetID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-delete-owner-target", nil, &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Task 5 Delete Owner Endpoint", 0)
+	connectionAID := modelInsertConnection(t, harness, profileID, ownerID, endpointID, 0, true, nil)
+	connectionBID := modelInsertConnection(t, harness, profileID, ownerID, endpointID, 1, true, nil)
+	modelInsertModelTarget(t, harness, profileID, ownerID, targetID, 2, true)
+
+	deleteOwner := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d", ownerID), nil, modelHeader(profileID))
+	assertStatus(t, deleteOwner, http.StatusOK)
+	assertStoredConnectionCount(t, harness, connectionAID, 0)
+	assertStoredConnectionCount(t, harness, connectionBID, 0)
+	assertNoSourceAccessTargets(t, harness, ownerID)
+	assertModelConfigCount(t, harness, ownerID, 0)
+	assertEndpointCount(t, harness, endpointID, 1)
+
+	rollbackOwnerID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-delete-rollback-owner", nil, &strategyID, true)
+	rollbackConnectionID := modelInsertConnection(t, harness, profileID, rollbackOwnerID, endpointID, 0, true, nil)
+	if _, err := harness.conn.Exec(context.Background(), `CREATE OR REPLACE FUNCTION task5_fail_connection_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced private connection delete failure'; END; $$`); err != nil {
+		t.Fatalf("install connection delete failure function: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `CREATE TRIGGER task5_fail_connection_delete BEFORE DELETE ON connections FOR EACH ROW EXECUTE FUNCTION task5_fail_connection_delete()`); err != nil {
+		t.Fatalf("install connection delete failure trigger: %v", err)
+	}
+
+	failedDelete := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d", rollbackOwnerID), nil, modelHeader(profileID))
+	assertErrorResponse(t, failedDelete, http.StatusInternalServerError, "Internal server error")
+	assertModelConfigCount(t, harness, rollbackOwnerID, 1)
+	assertStoredConnectionCount(t, harness, rollbackConnectionID, 1)
+	assertModelConnectionTargetCount(t, harness, rollbackOwnerID, 1)
+}
+
+func TestModelDeleteStillBlockedWhenOtherModelsTargetIt(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Task 5 Referenced Delete Strategy")
+	ownerID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-referenced-owner", nil, &strategyID, true)
+	referrerID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-referenced-referrer", nil, &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Task 5 Referenced Endpoint", 0)
+	connectionID := modelInsertConnection(t, harness, profileID, ownerID, endpointID, 0, true, nil)
+	modelInsertModelTarget(t, harness, profileID, referrerID, ownerID, 0, true)
+
+	deleteOwner := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d", ownerID), nil, modelHeader(profileID))
+	assertErrorResponse(t, deleteOwner, http.StatusConflict, "Cannot delete: models [task5-referenced-referrer] target this model")
+	assertModelConfigCount(t, harness, ownerID, 1)
+	assertStoredConnectionCount(t, harness, connectionID, 1)
+	assertModelConnectionTargetCount(t, harness, ownerID, 1)
+}
+
 func TestWrongFamilyTarget(t *testing.T) {
 	harness := newModelContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -279,7 +332,115 @@ func TestWrongProfileTarget(t *testing.T) {
 	otherEndpointID := modelInsertEndpoint(t, harness, otherProfileID, "Other Profile Endpoint", 0)
 	otherConnectionID := modelInsertStandaloneConnection(t, harness, otherProfileID, "openai", otherEndpointID, 0, true, nil)
 	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"vendor_id": vendorID, "api_family": "openai", "model_id": "wrong-profile-source", "loadbalance_strategy_id": strategyID, "access_targets": []map[string]any{modelAccessTarget("connection", "", &otherConnectionID, 0, true)}}, modelHeader(profileID))
-	assertErrorResponse(t, response, http.StatusBadRequest, fmt.Sprintf("Target connection %d not found", otherConnectionID))
+	assertErrorResponse(t, response, http.StatusBadRequest, modelConnectionTargetsManagedDetail())
+}
+
+func TestModelAccessTargetConnectionOwnerUniqueness(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Connection Owner Strategy")
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Connection Owner Endpoint", 0)
+	connectionID := modelInsertStandaloneConnection(t, harness, profileID, "openai", endpointID, 0, true, nil)
+
+	firstSourceID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "connection-owner-source-a", nil, &strategyID, true)
+	modelInsertConnectionTarget(t, harness, profileID, firstSourceID, connectionID, 0, true)
+
+	var ownerCount int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM model_access_targets WHERE target_connection_id = $1`, connectionID).Scan(&ownerCount); err != nil {
+		t.Fatalf("count connection owners for %d: %v", connectionID, err)
+	}
+	if ownerCount != 1 {
+		t.Fatalf("expected one connection owner after first insert, got %d", ownerCount)
+	}
+
+	secondSourceID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "connection-owner-source-b", nil, &strategyID, true)
+	now := time.Now().UTC()
+	_, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, secondSourceID, connectionID, now)
+	if err == nil {
+		t.Fatal("expected duplicate connection owner insert to fail")
+	}
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("expected PostgreSQL unique constraint error, got %T: %v", err, err)
+	}
+	if pgErr.Code != "23505" || pgErr.ConstraintName != "uq_model_access_targets_connection_owner" {
+		t.Fatalf("expected uq_model_access_targets_connection_owner unique violation, got code=%s constraint=%s error=%v", pgErr.Code, pgErr.ConstraintName, err)
+	}
+}
+
+func TestModelTargetRejectsArbitraryConnectionAssignment(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Reject Connection Assignment Strategy")
+	targetModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "reject-connection-target-model", nil, &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Reject Connection Assignment Endpoint", 0)
+	connectionID := modelInsertStandaloneConnection(t, harness, profileID, "openai", endpointID, 0, true, nil)
+
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"vendor_id": vendorID, "api_family": "openai", "model_id": "reject-connection-source", "loadbalance_strategy_id": strategyID, "access_targets": []map[string]any{modelAccessTarget("connection", "", &connectionID, 0, true)}}, modelHeader(profileID))
+	assertErrorResponse(t, createResponse, http.StatusBadRequest, modelConnectionTargetsManagedDetail())
+	assertConnectionTargetCount(t, harness, connectionID, 0)
+
+	sourceModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "reject-connection-existing-source", nil, &strategyID, true)
+	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", sourceModelID), map[string]any{"access_targets": []map[string]any{modelAccessTarget("connection", "", &connectionID, 0, true)}}, modelHeader(profileID))
+	assertErrorResponse(t, updateResponse, http.StatusBadRequest, modelConnectionTargetsManagedDetail())
+	assertConnectionTargetCount(t, harness, connectionID, 0)
+
+	addConnectionTarget := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", sourceModelID), map[string]any{"target_type": "connection", "connection_id": connectionID, "position": 0, "is_enabled": true}, modelHeader(profileID))
+	assertErrorResponse(t, addConnectionTarget, http.StatusBadRequest, modelConnectionTargetsManagedDetail())
+	assertConnectionTargetCount(t, harness, connectionID, 0)
+
+	addModelTarget := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", sourceModelID), map[string]any{"target_type": "model", "target_model_id": "reject-connection-target-model", "position": 0, "is_enabled": true}, modelHeader(profileID))
+	assertStatus(t, addModelTarget, http.StatusCreated)
+	_ = targetModelID
+	assertConnectionTargetCount(t, harness, connectionID, 0)
+}
+
+func TestModelTargetRejectsConnectionRetarget(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Reject Connection Retarget Strategy")
+	targetModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "reject-retarget-model-target", nil, &strategyID, true)
+	sourceModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "reject-retarget-source", nil, &strategyID, true)
+	modelInsertModelTarget(t, harness, profileID, sourceModelID, targetModelID, 0, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Reject Connection Retarget Endpoint", 0)
+	connectionAID := modelInsertStandaloneConnection(t, harness, profileID, "openai", endpointID, 0, true, nil)
+	connectionBID := modelInsertStandaloneConnection(t, harness, profileID, "openai", endpointID, 1, true, nil)
+	modelInsertConnectionTarget(t, harness, profileID, sourceModelID, connectionAID, 1, true)
+	targetID := modelLoadConnectionTargetID(t, harness, sourceModelID, connectionAID)
+
+	retargetResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, targetID), map[string]any{"target_type": "connection", "target_connection_id": connectionBID, "position": 0, "is_enabled": false}, modelHeader(profileID))
+	assertErrorResponse(t, retargetResponse, http.StatusBadRequest, modelConnectionTargetsManagedDetail())
+	assertConnectionTargetState(t, harness, sourceModelID, targetID, connectionAID, 1, true)
+	assertConnectionTargetCount(t, harness, connectionBID, 0)
+
+	toggleResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, targetID), map[string]any{"position": 1, "is_enabled": false}, modelHeader(profileID))
+	assertStatus(t, toggleResponse, http.StatusOK)
+	assertConnectionTargetState(t, harness, sourceModelID, targetID, connectionAID, 1, false)
+}
+
+func TestModelUpdatePreservesOwnedPrivateConnectionTargets(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Preserve Private Connection Strategy")
+	targetModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "preserve-model-target", nil, &strategyID, true)
+	sourceModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "preserve-source", nil, &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Preserve Private Connection Endpoint", 0)
+	connectionID := modelInsertStandaloneConnection(t, harness, profileID, "openai", endpointID, 0, true, nil)
+	modelInsertConnectionTarget(t, harness, profileID, sourceModelID, connectionID, 0, true)
+	connectionTargetID := modelLoadConnectionTargetID(t, harness, sourceModelID, connectionID)
+
+	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", sourceModelID), map[string]any{"access_targets": []map[string]any{modelAccessTarget("model", "preserve-model-target", nil, 0, true)}}, modelHeader(profileID))
+	assertStatus(t, updateResponse, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, updateResponse, &payload)
+	assertAccessTargets(t, payload, []expectedAccessTarget{{TargetType: "connection", ConnectionID: connectionID, Position: 0, IsEnabled: true}, {TargetType: "model", TargetModelID: "preserve-model-target", Position: 1, IsEnabled: true}})
+	assertConnectionTargetState(t, harness, sourceModelID, connectionTargetID, connectionID, 0, true)
+	_ = targetModelID
 }
 
 func TestModelsByEndpoints(t *testing.T) {
@@ -375,9 +536,12 @@ func TestEndpointBatchDedupe(t *testing.T) {
 	terminalID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "batch-terminal", nil, &strategyID, true)
 	facadeID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "batch-facade", nil, &strategyID, true)
 	endpointID := modelInsertEndpoint(t, harness, profileID, "Endpoint Batch Dedupe", 0)
-	connectionID := modelInsertConnection(t, harness, profileID, terminalID, endpointID, 0, true, nil)
+	terminalConnectionID := modelInsertConnection(t, harness, profileID, terminalID, endpointID, 0, true, nil)
+	facadeConnectionID := modelInsertConnection(t, harness, profileID, facadeID, endpointID, 1, true, nil)
 	modelInsertModelTarget(t, harness, profileID, facadeID, terminalID, 0, true)
-	modelInsertConnectionTarget(t, harness, profileID, facadeID, connectionID, 1, true)
+
+	assertConnectionTargetCount(t, harness, terminalConnectionID, 1)
+	assertConnectionTargetCount(t, harness, facadeConnectionID, 1)
 
 	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models/by-endpoints", map[string]any{"endpoint_ids": []int{endpointID}}, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
@@ -390,7 +554,7 @@ func TestEndpointBatchDedupe(t *testing.T) {
 	item := asMap(t, items[0])
 	assertEndpointModelsBatchItem(t, item, endpointID, []string{"batch-facade", "batch-terminal"})
 	models := item["models"].([]any)
-	assertModelListItemCounts(t, asMap(t, models[0]), facadeID, 1, 1, 0, nil)
+	assertModelListItemCounts(t, asMap(t, models[0]), facadeID, 2, 2, 0, nil)
 	assertModelListItemCounts(t, asMap(t, models[1]), terminalID, 1, 1, 0, nil)
 }
 
@@ -724,6 +888,35 @@ func modelLoadConnectionTargetID(t *testing.T, harness *contractHarness, sourceM
 	return targetID
 }
 
+func modelConnectionTargetsManagedDetail() string {
+	return "connection access targets are managed through model-scoped connection routes"
+}
+
+func assertConnectionTargetCount(t *testing.T, harness *contractHarness, connectionID int, want int) {
+	t.Helper()
+	var count int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM model_access_targets WHERE target_connection_id = $1`, connectionID).Scan(&count); err != nil {
+		t.Fatalf("count connection target rows for connection %d: %v", connectionID, err)
+	}
+	if count != want {
+		t.Fatalf("expected %d connection target rows for connection %d, got %d", want, connectionID, count)
+	}
+}
+
+func assertConnectionTargetState(t *testing.T, harness *contractHarness, sourceModelConfigID int, targetID int, connectionID int, position int, isEnabled bool) {
+	t.Helper()
+	var gotSourceID int
+	var gotConnectionID int
+	var gotPosition int
+	var gotEnabled bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT source_model_config_id, target_connection_id, position, is_enabled FROM model_access_targets WHERE id = $1`, targetID).Scan(&gotSourceID, &gotConnectionID, &gotPosition, &gotEnabled); err != nil {
+		t.Fatalf("load connection target row %d: %v", targetID, err)
+	}
+	if gotSourceID != sourceModelConfigID || gotConnectionID != connectionID || gotPosition != position || gotEnabled != isEnabled {
+		t.Fatalf("unexpected connection target row %d: got source=%d connection=%d position=%d enabled=%v", targetID, gotSourceID, gotConnectionID, gotPosition, gotEnabled)
+	}
+}
+
 func assertNoSourceAccessTargets(t *testing.T, harness *contractHarness, sourceModelConfigID int) {
 	t.Helper()
 	var count int
@@ -732,6 +925,28 @@ func assertNoSourceAccessTargets(t *testing.T, harness *contractHarness, sourceM
 	}
 	if count != 0 {
 		t.Fatalf("expected source access targets for model %d to be deleted, got %d", sourceModelConfigID, count)
+	}
+}
+
+func assertModelConfigCount(t *testing.T, harness *contractHarness, modelConfigID int, want int) {
+	t.Helper()
+	var count int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM model_configs WHERE id = $1`, modelConfigID).Scan(&count); err != nil {
+		t.Fatalf("count model %d: %v", modelConfigID, err)
+	}
+	if count != want {
+		t.Fatalf("expected model %d count %d, got %d", modelConfigID, want, count)
+	}
+}
+
+func assertEndpointCount(t *testing.T, harness *contractHarness, endpointID int, want int) {
+	t.Helper()
+	var count int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM endpoints WHERE id = $1`, endpointID).Scan(&count); err != nil {
+		t.Fatalf("count endpoint %d: %v", endpointID, err)
+	}
+	if count != want {
+		t.Fatalf("expected endpoint %d count %d, got %d", endpointID, want, count)
 	}
 }
 

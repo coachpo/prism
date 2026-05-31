@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { clearSharedReferenceData } from "@/lib/referenceData";
-import type { Connection, ModelConfig, ModelConfigListItem } from "@/lib/types";
+import type { ModelConfig, ModelConfigListItem } from "@/lib/types";
 import {
   createEditModelFormData,
   DEFAULT_MODEL_FORM_DATA,
@@ -18,7 +18,6 @@ import {
 import { patchModelListItemFromDetail } from "./useModelDetailDataSupport";
 
 interface UseModelDetailModelFormInput {
-  allConnections: Connection[];
   allModels: ModelConfigListItem[];
   model: ModelConfig | null;
   revision: number;
@@ -28,7 +27,6 @@ interface UseModelDetailModelFormInput {
 }
 
 export function useModelDetailModelForm({
-  allConnections,
   allModels,
   model,
   revision,
@@ -78,12 +76,9 @@ export function useModelDetailModelForm({
         formData.api_family,
         model.model_id,
       );
-      const targetConnectionsForApiFamily = allConnections.filter(
-        (connection) => connection.api_family === formData.api_family,
-      );
       const validationError = validateModelFormData(
         formData,
-        getAccessTargetOptionKeys(targetModelsForApiFamily, targetConnectionsForApiFamily),
+        getAccessTargetOptionKeys(targetModelsForApiFamily),
       );
 
       if (validationError === "api_family_required") {
@@ -114,7 +109,7 @@ export function useModelDetailModelForm({
         toast.error(message);
       }
     },
-    [allConnections, allModels, applyUpdatedModel, formData, model, setIsEditModelDialogOpen],
+    [allModels, applyUpdatedModel, formData, model, setIsEditModelDialogOpen],
   );
 
   return {

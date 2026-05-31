@@ -45,6 +45,7 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
 	assertPartitionedLogSchemaContract(t, testContext, conn)
 	assertSidecarSchemaContract(t, testContext, conn)
+	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
 }
 
 func TestPartitionedLogSchemaContract(t *testing.T) {
@@ -172,6 +173,77 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 	}
 
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
+}
+
+func TestModelPrivateConnectionOwnershipSchemaGuard(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+
+	t.Run("creates_missing_index_for_stamped_database", func(t *testing.T) {
+		conn := harness.openDatabase(t, testContext, "ownership_guard_clean")
+		defer func() { _ = conn.Close(testContext) }()
+
+		result, err := runner.Run(testContext, conn)
+		if err != nil {
+			t.Fatalf("run baseline before schema guard: %v", err)
+		}
+		if result.Outcome != migrate.OutcomeApply {
+			t.Fatalf("expected initial baseline to apply, got %q", result.Outcome)
+		}
+
+		profileID, connectionID := seedModelOwnershipConnection(t, testContext, conn, "clean")
+		seedModelAccessTargetConnectionOwner(t, testContext, conn, profileID, connectionID, "guard-clean-owner")
+		dropModelAccessTargetConnectionOwnerIndex(t, testContext, conn)
+		assertIndexPresence(t, testContext, conn, "model_access_targets", "uq_model_access_targets_connection_owner", false)
+
+		guardResult, err := runner.Run(testContext, conn)
+		if err != nil {
+			t.Fatalf("run schema guard on stamped clean database: %v", err)
+		}
+		if guardResult.Outcome != migrate.OutcomeNoop {
+			t.Fatalf("expected stamped schema guard run to noop, got %q", guardResult.Outcome)
+		}
+		assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
+	})
+
+	t.Run("fails_duplicate_owners_before_creating_index", func(t *testing.T) {
+		conn := harness.openDatabase(t, testContext, "ownership_guard_duplicates")
+		defer func() { _ = conn.Close(testContext) }()
+
+		result, err := runner.Run(testContext, conn)
+		if err != nil {
+			t.Fatalf("run baseline before duplicate guard check: %v", err)
+		}
+		if result.Outcome != migrate.OutcomeApply {
+			t.Fatalf("expected initial baseline to apply, got %q", result.Outcome)
+		}
+
+		dropModelAccessTargetConnectionOwnerIndex(t, testContext, conn)
+		profileID, connectionID := seedModelOwnershipConnection(t, testContext, conn, "duplicates")
+		firstSourceID := seedModelAccessTargetConnectionOwner(t, testContext, conn, profileID, connectionID, "guard-duplicate-owner-a")
+		secondSourceID := seedModelAccessTargetConnectionOwner(t, testContext, conn, profileID, connectionID, "guard-duplicate-owner-b")
+
+		_, err = runner.Run(testContext, conn)
+		if err == nil {
+			t.Fatal("expected duplicate ownership guard to fail")
+		}
+		errorText := err.Error()
+		for _, fragment := range []string{
+			"uq_model_access_targets_connection_owner",
+			fmt.Sprintf("target_connection_id=%d", connectionID),
+			"owner_count=2",
+			fmt.Sprintf("source_model_config_ids=[%d %d]", firstSourceID, secondSourceID),
+		} {
+			if !strings.Contains(errorText, fragment) {
+				t.Fatalf("expected duplicate guard error %q to contain %q", errorText, fragment)
+			}
+		}
+		assertIndexPresence(t, testContext, conn, "model_access_targets", "uq_model_access_targets_connection_owner", false)
+	})
 }
 
 func TestRuntimeCacheGenerationSchemaContract(t *testing.T) {
@@ -432,6 +504,55 @@ func assertIndexDefinitionContains(t *testing.T, ctx context.Context, conn *pgx.
 			t.Fatalf("expected index %s definition %q to contain %q", indexName, definition, fragment)
 		}
 	}
+}
+
+func assertModelAccessTargetConnectionOwnerIndexContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	assertIndexDefinitionContains(t, ctx, conn, "uq_model_access_targets_connection_owner", "CREATE UNIQUE INDEX", "target_connection_id", "target_connection_id IS NOT NULL")
+	assertIndexUniqueness(t, ctx, conn, "model_access_targets", "uq_model_access_targets_connection_owner", true)
+}
+
+func dropModelAccessTargetConnectionOwnerIndex(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	if _, err := conn.Exec(ctx, `DROP INDEX IF EXISTS uq_model_access_targets_connection_owner`); err != nil {
+		t.Fatalf("drop model access target connection owner index: %v", err)
+	}
+}
+
+func seedModelOwnershipConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, label string) (int, int) {
+	t.Helper()
+	now := time.Now().UTC()
+
+	var profileID int
+	if err := conn.QueryRow(ctx, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ($1, NULL, FALSE, FALSE, TRUE, 1, NULL, $2, $2) RETURNING id`, "ownership-guard-"+label, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed ownership profile %q: %v", label, err)
+	}
+
+	var endpointID int
+	if err := conn.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, 'plain-api-key', 0, $4, $4) RETURNING id`, profileID, "Ownership Guard Endpoint "+label, "https://ownership-guard-"+label+".invalid", now).Scan(&endpointID); err != nil {
+		t.Fatalf("seed ownership endpoint %q: %v", label, err)
+	}
+
+	var connectionID int
+	if err := conn.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, NULL, TRUE, 0, $3, NULL, NULL, 'healthy', NULL, NULL, $4, $4) RETURNING id`, profileID, endpointID, "ownership-guard-"+label, now).Scan(&connectionID); err != nil {
+		t.Fatalf("seed ownership connection %q: %v", label, err)
+	}
+
+	return profileID, connectionID
+}
+
+func seedModelAccessTargetConnectionOwner(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, connectionID int, modelID string) int {
+	t.Helper()
+	now := time.Now().UTC()
+
+	var sourceModelConfigID int
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, 'openai', $2, NULL, NULL, TRUE, $3, $3) RETURNING id`, profileID, modelID, now).Scan(&sourceModelConfigID); err != nil {
+		t.Fatalf("seed ownership source model %q: %v", modelID, err)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, sourceModelConfigID, connectionID, now); err != nil {
+		t.Fatalf("seed ownership access target for model %q connection %d: %v", modelID, connectionID, err)
+	}
+	return sourceModelConfigID
 }
 
 func assertConstraintDefinitionContains(t *testing.T, ctx context.Context, conn *pgx.Conn, constraintName string, fragments ...string) {

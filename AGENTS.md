@@ -49,11 +49,11 @@ prism/
 - `backend/internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and maintenance-job creation seams.
 - `backend/internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
 - `backend/internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registration, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
-- `backend/internal/httpapi/management/connections/AGENTS.md`: selected-profile standalone connection management, target-route attachment seams, health checks, and pricing templates.
+- `backend/internal/httpapi/management/connections/AGENTS.md`: selected-profile connection reads/references, owner-scoped model-private connection routes, health checks, and pricing templates.
 - `backend/internal/httpapi/management/configrules/AGENTS.md`: selected-profile header-blocklist and user-agent/client mapping rules under `/api/config/*`.
 - `backend/internal/httpapi/management/endpoints/AGENTS.md`: selected-profile endpoint CRUD, encrypted API keys, ordering, and connection dropdown support.
 - `backend/internal/httpapi/management/loadbalance/AGENTS.md`: selected-profile load-balance strategy CRUD, canonical defaults, current state, and event reads.
-- `backend/internal/httpapi/management/models/AGENTS.md`: selected-profile model CRUD, ordered access targets, standalone connection references, and endpoint model lookups.
+- `backend/internal/httpapi/management/models/AGENTS.md`: selected-profile model CRUD, ordered access targets, model-private connection preservation, and endpoint model lookups.
 - `backend/internal/httpapi/management/profiles/AGENTS.md`: profile lifecycle, active/bootstrap state, activation checks, and soft deletion.
 - `backend/internal/httpapi/management/stats/AGENTS.md`: selected-profile observability reads, request logs, dashboard snapshots, metrics, and invalidation.
 - `backend/internal/httpapi/management/vendors/AGENTS.md`: global vendor catalog CRUD, presentation metadata, audit preferences, and model usage lookup.
@@ -65,7 +65,7 @@ prism/
 - `frontend/src/pages/settings/{costing,dialogs,sections,startup}/AGENTS.md`: settings-shell child ownership for costing state, dialog flows, section rendering, authentication/billing-currency leaves, and the startup bootstrap UI.
 - `frontend/src/pages/settings/startup/AGENTS.md`: startup-tab field metadata, server/database/runtime/mail+secret sections, dangerous confirmations, and apply-capability rendering.
 - `frontend/src/i18n/AGENTS.md`: locale catalogs, shared formatting helpers, and static message lookup for non-hook callers.
-- `frontend/src/pages/endpoints/AGENTS.md`, `frontend/src/pages/loadbalance-strategies/AGENTS.md`, `frontend/src/pages/models/AGENTS.md`, `frontend/src/pages/pricing-templates/AGENTS.md`, and `frontend/src/pages/proxy-api-keys/AGENTS.md`: profile-scoped or global management route leaves.
+- `frontend/src/pages/endpoints/AGENTS.md`, `frontend/src/pages/loadbalance-strategies/AGENTS.md`, `frontend/src/pages/models/AGENTS.md`, `frontend/src/pages/pricing-templates/AGENTS.md`, and `frontend/src/pages/proxy-api-keys/AGENTS.md`: profile-scoped or global management route leaves, including reusable endpoints and model-private connection surfaces.
 - `frontend/src/components/AGENTS.md`: shared shell and widget handoff for `layout/app-layout`, loadbalance, statistics, and `ui/` child leaves.
 - `frontend/src/context/AGENTS.md`: provider-layer handoff for auth, selected-profile management scope, and reporting-currency readiness; `auth/` and `profile/` own helper leaves.
 - `frontend/src/hooks/AGENTS.md`: shared hook handoff for realtime subscriptions, polling, and timezone formatting.

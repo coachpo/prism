@@ -35,8 +35,8 @@ function buildStrategyPayload(overrides = {}) {
 }
 
 const coreMock = {
-  request: async (path) => {
-    requestCalls.push(path);
+  request: async (path, options = {}) => {
+    requestCalls.push({ path, options });
     if (path === "/api/loadbalance/strategies") {
       return loadbalanceStrategyPayloads;
     }
@@ -57,6 +57,31 @@ const coreMock = {
       ];
     }
 
+    if (path === "/api/models/42/connections") {
+      return options.method === "POST"
+        ? { id: 77, model_config_id: 42 }
+        : [{ id: 77, model_config_id: 42 }];
+    }
+
+    if (path === "/api/models/42/connections/77") {
+      return options.method === "DELETE" ? undefined : { id: 77, model_config_id: 42 };
+    }
+
+    if (path === "/api/models/42/connections/77/health") {
+      return { connection_id: 77, health_status: "healthy" };
+    }
+
+    if (path === "/api/connections/77/references") {
+      return {
+        connection_id: 77,
+        items: [{ target_id: 12, model_config_id: 42, model_id: "demo", api_family: "openai", position: 0, is_enabled: true }],
+      };
+    }
+
+    if (path === "/api/models/42/targets/12") {
+      return [];
+    }
+
     throw new Error(`Unexpected request path: ${path}`);
   },
 };
@@ -75,7 +100,7 @@ const { load } = createTsModuleLoader({
     "../loadbalanceRoutingPolicy": loadbalanceRoutingPolicyMock,
   },
 });
-const { loadbalanceStrategies, endpoints } = load(
+const { loadbalanceStrategies, endpoints, models, connections } = load(
   path.join(frontendDir, "src/lib/api/management.ts"),
 );
 
@@ -109,7 +134,7 @@ test("management loadbalance strategy normalization accepts explicit Ban Policy 
     },
   ]);
   assert.ok(!Object.hasOwn(strategies[0], removedRetryAttemptsKey));
-  assert.deepEqual(requestCalls, ["/api/loadbalance/strategies"]);
+  assert.deepEqual(requestCalls.map((call) => call.path), ["/api/loadbalance/strategies"]);
 });
 
 test("management loadbalance strategy normalization rejects the removed retry attempt key", async () => {
@@ -153,5 +178,45 @@ test("management endpoints contract accepts timeout-free endpoint payloads", asy
   assert.ok(!Object.hasOwn(items[0], "connect_timeout"));
   assert.ok(!Object.hasOwn(items[0], "write_timeout"));
   assert.ok(!Object.hasOwn(items[0], "read_idle_timeout"));
-  assert.deepEqual(requestCalls, ["/api/endpoints"]);
+  assert.deepEqual(requestCalls.map((call) => call.path), ["/api/endpoints"]);
+});
+
+
+test("management model connection helpers use owner-scoped route shapes", async () => {
+  requestCalls.length = 0;
+
+  await models.connections.list(42);
+  await models.connections.create(42, { endpoint_id: 11, is_active: true });
+  await models.connections.update(42, 77, { is_active: false });
+  await models.connections.healthCheck(42, 77);
+  await models.connections.delete(42, 77);
+
+  assert.deepEqual(requestCalls.map((call) => [call.path, call.options.method ?? "GET"]), [
+    ["/api/models/42/connections", "GET"],
+    ["/api/models/42/connections", "POST"],
+    ["/api/models/42/connections/77", "PATCH"],
+    ["/api/models/42/connections/77/health", "POST"],
+    ["/api/models/42/connections/77", "DELETE"],
+  ]);
+});
+
+test("management owner target helper patches position and enabled state", async () => {
+  requestCalls.length = 0;
+
+  await models.targets.update(42, 12, { position: 2, is_enabled: false });
+
+  assert.equal(requestCalls[0].path, "/api/models/42/targets/12");
+  assert.equal(requestCalls[0].options.method, "PATCH");
+  assert.equal(requestCalls[0].options.body, JSON.stringify({ position: 2, is_enabled: false }));
+});
+
+test("management connection reference helper uses the supported read route", async () => {
+  requestCalls.length = 0;
+
+  const response = await connections.references(77);
+
+  assert.equal(response.items[0].model_config_id, 42);
+  assert.deepEqual(requestCalls.map((call) => [call.path, call.options.method ?? "GET"]), [
+    ["/api/connections/77/references", "GET"],
+  ]);
 });

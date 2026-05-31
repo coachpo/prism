@@ -27,15 +27,15 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.2 Model Configuration
 - Map each model to optional `vendor_id` metadata plus a fixed runtime `api_family`
-- Models expose one ordered `access_targets` list whose entries point to same-family models or standalone connections
-- Standalone connections carry endpoint, costing, health, admission-limit, and auth metadata and can be attached as terminal access targets
+- Models expose one ordered `access_targets` list whose public entries point to same-family models
+- Model-private connections carry endpoint, costing, health, admission-limit, and auth metadata as terminal internal routing targets owned by one model
 - Select which access targets are enabled for each model; enabled models require at least one enabled target
 - CRUD operations for all configurations are available via REST API
 
 ### 4.3 Unified Model Access Routing
-- Ordered access targets resolve recursively to final standalone connections before runtime execution
+- Ordered access targets resolve recursively to final private connections before runtime execution
 - Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
-- Connection-target entries are terminal; model-target entries can compose chains while preserving deterministic order
+- Internal connection-target entries are terminal ownership and routing edges; model-target entries can compose chains while preserving deterministic order
 - Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
 - Model IDs are unique within a profile; the same model ID can exist in different profiles without collision
 - Gateway resolves the access graph before connection planning: incoming request for a public model -> final target model and connection -> upstream request
@@ -107,7 +107,7 @@ Single operator (developer/power user) running the application locally or on a l
 - View all configured models and their reachable connections
 - Add/edit/delete model configurations with ordered access targets
 - Add/edit/delete profile-scoped endpoints
-- Add/edit/delete standalone connections
+- Add/edit/delete model-private connections from model detail
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
 - Manual health check for connections with visual status indicators
@@ -127,7 +127,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file and managed through `/settings#startup`
 - The default profile exists from the first startup and remains editable after initialization
 - Config export/import uses the split-bundle contract: profile bundles are `version: 3` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 1` with `bundle_kind: vendor_catalog`
-- Profile bundles carry `vendor_refs`, `profile_settings`, encrypted `secret_payload`, top-level `loadbalance_strategies`, top-level standalone `connections`, model `access_targets`, nullable `vendor_key`, and `api_family`
+- Profile bundles carry `vendor_refs`, `profile_settings`, encrypted `secret_payload`, top-level `loadbalance_strategies`, top-level private `connections`, model `access_targets`, nullable `vendor_key`, and `api_family`
 - Profile import preview validates bundle kind, version, secret decryption, and vendor resolution before replace-mode import; unsupported versions are rejected
 - Database setup is managed by the Go backend runtime and applies the checked-in fresh-install baseline on startup
 ### 4.9 Request Statistics & Analytics

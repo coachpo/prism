@@ -226,6 +226,41 @@ export const ConfigImportSchema = z.strictObject({
   header_blocklist_rules: z.array(HeaderBlocklistRuleExportSchema).optional(),
   user_agent_client_rules: z.array(UserAgentRuleTransportSchema).optional(),
   secret_payload: SecretPayloadSchema,
+}).superRefine((bundle, context) => {
+  const connectionOwners = new Map<string, string>();
+
+  for (const [modelIndex, model] of bundle.models.entries()) {
+    for (const [targetIndex, target] of model.access_targets.entries()) {
+      if (target.target_type !== "connection" || !target.connection_ref) {
+        continue;
+      }
+
+      const existingOwner = connectionOwners.get(target.connection_ref);
+      const targetPath = ["models", modelIndex, "access_targets", targetIndex, "connection_ref"];
+      if (existingOwner && existingOwner !== model.model_id) {
+        context.addIssue({
+          code: "custom",
+          path: targetPath,
+          message: `connection_ref ${target.connection_ref} is already owned by model ${existingOwner}`,
+        });
+        continue;
+      }
+
+      connectionOwners.set(target.connection_ref, model.model_id);
+    }
+  }
+
+  for (const [connectionIndex, connection] of bundle.connections.entries()) {
+    if (connectionOwners.has(connection.ref)) {
+      continue;
+    }
+
+    context.addIssue({
+      code: "custom",
+      path: ["connections", connectionIndex, "ref"],
+      message: `private connection ref ${connection.ref} must be owned by a model access target`,
+    });
+  }
 });
 
 export const VendorCatalogImportSchema = z.strictObject({

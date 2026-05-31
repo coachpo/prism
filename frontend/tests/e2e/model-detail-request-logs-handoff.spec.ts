@@ -263,7 +263,7 @@ async function mockModelDetailRequestLogRoutes(page: Page) {
     }
     if (pathname === `/api/models/${modelConfigId}`) return fulfillJson(createModelDetail());
     if (pathname === "/api/endpoints") return fulfillJson([]);
-    if (pathname === "/api/connections") return fulfillJson([createConnection()]);
+    if (pathname === `/api/models/${modelConfigId}/connections`) return fulfillJson([createConnection()]);
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([]);
     if (pathname === "/api/pricing-templates") return fulfillJson([]);
     if (pathname === "/api/vendors") return fulfillJson([]);

@@ -20,7 +20,7 @@ import type {
   SpendingSummary,
   Vendor,
 } from "@/lib/types";
-import { getModelConnections } from "../models/modelFormState";
+import { getOwnedModelConnections } from "./useModelDetailDataSupport";
 
 interface UseModelDetailBootstrapInput {
   id: string | undefined;
@@ -95,6 +95,12 @@ export function useModelDetailBootstrap({
   const fetchModel = useCallback(async () => {
     if (!id) return;
 
+    const modelConfigId = Number.parseInt(id, 10);
+    if (!Number.isFinite(modelConfigId)) {
+      navigate("/models");
+      return;
+    }
+
     const requestId = ++modelRequestIdRef.current;
     spendingRequestIdRef.current += 1;
     setSpending(null);
@@ -109,13 +115,13 @@ export function useModelDetailBootstrap({
         vendorsList,
         connectionsList,
       ] = await Promise.all([
-        api.models.get(Number.parseInt(id, 10)),
+        api.models.get(modelConfigId),
         getSharedEndpoints(revision),
         getSharedLoadbalanceStrategies(revision),
         getSharedModels(revision),
         getSharedPricingTemplates(revision),
         getSharedVendors(revision),
-        api.connections.list(),
+        api.models.connections.list(modelConfigId),
       ]);
 
       if (requestId !== modelRequestIdRef.current) {
@@ -123,8 +129,8 @@ export function useModelDetailBootstrap({
       }
 
       setModel(data);
-      setConnections(getModelConnections(data));
-      setAllConnections(connectionsList);
+      setConnections(getOwnedModelConnections(data, modelConfigId));
+      setAllConnections(connectionsList.filter((connection) => connection.model_config_id == null || connection.model_config_id === modelConfigId));
       setGlobalEndpoints(endpointsList);
       setLoadbalanceStrategies(loadbalanceStrategiesList);
       setAllModels(modelsList);

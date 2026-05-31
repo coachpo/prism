@@ -208,6 +208,9 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if requestBody.LoadbalanceStrategyID.Set {
 			next.LoadbalanceStrategyID = requestBody.LoadbalanceStrategyID.Value
 		}
+		if requestBody.APIFamily.Set && next.APIFamily != current.APIFamily && hasConnectionAccessTargetRecords(currentAccessTargetsByModel[current.ID]) {
+			return modelConfigResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change api_family while private connections exist"}
+		}
 		if requestBody.ModelID.Set && next.ModelID != current.ModelID {
 			if err := ensureModelIDAvailable(r.Context(), tx, profile.ID, next.ModelID, &current.ID); err != nil {
 				return modelConfigResponse{}, err
@@ -219,9 +222,16 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *next.LoadbalanceStrategyID); err != nil {
 			return modelConfigResponse{}, err
 		}
-		targetInputs := accessTargetRequestsFromRecords(currentAccessTargetsByModel[current.ID])
+		currentAccessTargets := currentAccessTargetsByModel[current.ID]
+		targetInputs := accessTargetRequestsFromRecords(currentAccessTargets)
 		if requestBody.AccessTargets.Set {
 			targetInputs = requestBody.AccessTargets.Value
+		}
+		preservedConnectionTargets := preservedConnectionTargetsFromRecords(currentAccessTargets)
+		if requestBody.AccessTargets.Set {
+			targetInputs = placeModelTargetRequestsAroundPreservedConnections(targetInputs, preservedConnectionTargets)
+		} else {
+			targetInputs = modelAccessTargetRequestsFromRecords(currentAccessTargets)
 		}
 		if err := validateAccessTargetsForSourceModel(next.ModelID, targetInputs); err != nil {
 			return modelConfigResponse{}, err
@@ -230,7 +240,7 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		if next.IsEnabled && !hasEnabledResolvedAccessTarget(resolvedTargets) {
+		if next.IsEnabled && !hasEnabledResolvedOrPreservedAccessTarget(resolvedTargets, preservedConnectionTargets) {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
 		}
 		if err := ensureAccessTargetGraphAcyclic(r.Context(), tx, profile.ID, current.ID, resolvedTargets); err != nil {
@@ -241,7 +251,7 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		if err := replaceAccessTargets(r.Context(), tx, profile.ID, updated.ID, resolvedTargets, next.UpdatedAt); err != nil {
+		if err := replaceAccessTargetsPreservingConnections(r.Context(), tx, profile.ID, updated.ID, resolvedTargets, preservedConnectionTargets, next.UpdatedAt); err != nil {
 			return modelConfigResponse{}, err
 		}
 		if updated.ModelID != originalModelID {
@@ -290,7 +300,7 @@ func (s *Service) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		if len(referrers) > 0 {
 			return deletedResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot delete: models [%s] target this model", joinModelIDs(referrers))}
 		}
-		if err := deleteSourceAccessTargets(r.Context(), tx, record.ID); err != nil {
+		if err := deleteSourceAccessTargetsAndOwnedConnections(r.Context(), tx, profile.ID, record.ID); err != nil {
 			return deletedResponse{}, err
 		}
 		if err := deleteModel(r.Context(), tx, record.ID); err != nil {
@@ -395,6 +405,9 @@ func (s *Service) handleUpdateModelTarget(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return nil, err
 		}
+		if isAccessTargetMetadataOnlyUpdate(requestBody) {
+			return s.updateModelTargetMetadataFromMutationItems(r.Context(), tx, profile.ID, model, items)
+		}
 		return s.replaceModelTargetsFromMutationItems(r.Context(), tx, profile.ID, model, items)
 	})
 	if err != nil {
@@ -429,7 +442,7 @@ func (s *Service) handleMoveModelTargetPosition(w http.ResponseWriter, r *http.R
 		if err != nil {
 			return nil, err
 		}
-		return s.replaceModelTargetsFromMutationItems(r.Context(), tx, profile.ID, model, items)
+		return s.updateModelTargetMetadataFromMutationItems(r.Context(), tx, profile.ID, model, items)
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -454,6 +467,13 @@ func (s *Service) handleDeleteModelTarget(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return nil, err
 		}
+		deletedPrivateConnection, err := s.deletePrivateConnectionTargetFromMutationItems(r.Context(), tx, profile.ID, model, targetID, items)
+		if err != nil {
+			return nil, err
+		}
+		if deletedPrivateConnection {
+			return loadModelTargetResponses(r.Context(), tx, profile.ID, model.ID)
+		}
 		items, err = deleteAccessTargetMutationItem(items, targetID)
 		if err != nil {
 			return nil, err
@@ -465,6 +485,50 @@ func (s *Service) handleDeleteModelTarget(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Service) deletePrivateConnectionTargetFromMutationItems(ctx context.Context, tx pgx.Tx, profileID int, model modelRecord, targetID int, items []accessTargetMutationItem) (bool, error) {
+	index := findAccessTargetMutationIndex(items, targetID)
+	if index == -1 {
+		return false, &domainError{StatusCode: http.StatusNotFound, Detail: "Model access target not found"}
+	}
+	item := items[index]
+	if item.Request.TargetType != "connection" {
+		return false, nil
+	}
+	if item.Request.ConnectionID == nil {
+		return true, fmt.Errorf("connection access target %d is missing connection id", targetID)
+	}
+	if err := ensurePrivateConnectionTargetDeleteAllowed(ctx, tx, profileID, model, targetID); err != nil {
+		return true, err
+	}
+	if err := lockConnectionRow(ctx, tx, profileID, *item.Request.ConnectionID); err != nil {
+		return true, err
+	}
+	if err := deleteModelAccessTargetRow(ctx, tx, targetID); err != nil {
+		return true, err
+	}
+	if err := deleteConnectionRow(ctx, tx, *item.Request.ConnectionID); err != nil {
+		return true, err
+	}
+	if err := compactModelAccessTargetPositions(ctx, tx, profileID, model.ID, s.nowUTC()); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func ensurePrivateConnectionTargetDeleteAllowed(ctx context.Context, exec queryExecutor, profileID int, model modelRecord, deletingTargetID int) error {
+	if !model.IsEnabled {
+		return nil
+	}
+	enabledCount, err := countEnabledModelAccessTargetsExcluding(ctx, exec, profileID, model.ID, deletingTargetID)
+	if err != nil {
+		return err
+	}
+	if enabledCount == 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
+	}
+	return nil
 }
 
 func (s *Service) loadModelTargetMutationState(ctx context.Context, tx pgx.Tx, r *http.Request, modelConfigID int) (profiledomain.Profile, modelRecord, []accessTargetMutationItem, error) {
@@ -492,21 +556,37 @@ func (s *Service) loadModelTargetMutationState(ctx context.Context, tx pgx.Tx, r
 func (s *Service) replaceModelTargetsFromMutationItems(ctx context.Context, tx pgx.Tx, profileID int, model modelRecord, items []accessTargetMutationItem) ([]modelAccessTargetResponse, error) {
 	requests := accessTargetRequestsFromMutationItems(items)
 	requests = normalizeAccessTargets(requests)
-	if err := validateAccessTargetsForSourceModel(model.ModelID, requests); err != nil {
+	if err := validateAccessTargets(requests); err != nil {
 		return nil, err
 	}
-	resolvedTargets, err := resolveAccessTargets(ctx, tx, profileID, &model.ID, model.ModelID, model.APIFamily, requests)
+	modelRequests := modelAccessTargetRequestsOnly(requests)
+	preservedConnectionTargets := preservedConnectionTargetsFromMutationItems(items)
+	if err := validateAccessTargetsForSourceModel(model.ModelID, modelRequests); err != nil {
+		return nil, err
+	}
+	resolvedTargets, err := resolveAccessTargets(ctx, tx, profileID, &model.ID, model.ModelID, model.APIFamily, modelRequests)
 	if err != nil {
 		return nil, err
 	}
-	if model.IsEnabled && !hasEnabledResolvedAccessTarget(resolvedTargets) {
+	if model.IsEnabled && !hasEnabledResolvedOrPreservedAccessTarget(resolvedTargets, preservedConnectionTargets) {
 		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
 	}
 	if err := ensureAccessTargetGraphAcyclic(ctx, tx, profileID, model.ID, resolvedTargets); err != nil {
 		return nil, err
 	}
 	now := s.nowUTC()
-	if err := replaceAccessTargets(ctx, tx, profileID, model.ID, resolvedTargets, now); err != nil {
+	if err := replaceAccessTargetsPreservingConnections(ctx, tx, profileID, model.ID, resolvedTargets, preservedConnectionTargets, now); err != nil {
+		return nil, err
+	}
+	return loadModelTargetResponses(ctx, tx, profileID, model.ID)
+}
+
+func (s *Service) updateModelTargetMetadataFromMutationItems(ctx context.Context, tx pgx.Tx, profileID int, model modelRecord, items []accessTargetMutationItem) ([]modelAccessTargetResponse, error) {
+	normalizeMutationItemPositions(items)
+	if model.IsEnabled && !hasEnabledAccessTargetMutationItem(items) {
+		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
+	}
+	if err := updateAccessTargetMetadata(ctx, tx, profileID, model.ID, items, s.nowUTC()); err != nil {
 		return nil, err
 	}
 	return loadModelTargetResponses(ctx, tx, profileID, model.ID)
@@ -543,7 +623,11 @@ func accessTargetRequestFromCreate(input modelAccessTargetCreateRequest, existin
 	if position < 0 || position > existingCount {
 		return modelAccessTargetRequest{}, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("position must be between 0 and %d", existingCount)}
 	}
-	return modelAccessTargetRequest{TargetType: strings.ToLower(strings.TrimSpace(input.TargetType)), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, IsEnabled: input.IsEnabled}, nil
+	request := modelAccessTargetRequest{TargetType: strings.ToLower(strings.TrimSpace(input.TargetType)), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, IsEnabled: input.IsEnabled}
+	if err := validatePublicAccessTarget(request); err != nil {
+		return modelAccessTargetRequest{}, err
+	}
+	return request, nil
 }
 
 func accessTargetRequestFromRecord(record accessTargetRecord) modelAccessTargetRequest {
@@ -580,8 +664,14 @@ func updateAccessTargetMutationItem(items []accessTargetMutationItem, targetID i
 		return nil, &domainError{StatusCode: http.StatusNotFound, Detail: "Model access target not found"}
 	}
 	item := items[index]
+	if item.Request.TargetType == "connection" {
+		return updateConnectionAccessTargetMutationItem(items, targetID, index, input)
+	}
 	updated := item.Request
 	if input.TargetType.Set {
+		if input.TargetType.Value != nil && strings.ToLower(strings.TrimSpace(*input.TargetType.Value)) == "connection" {
+			return nil, connectionAccessTargetsManagedError()
+		}
 		if input.TargetType.Value == nil {
 			updated.TargetType = ""
 		} else {
@@ -601,12 +691,8 @@ func updateAccessTargetMutationItem(items []accessTargetMutationItem, targetID i
 			updated.ConnectionID = nil
 		}
 	}
-	if input.ConnectionID.Set {
-		updated.ConnectionID = copyIntPtr(input.ConnectionID.Value)
-		if !input.TargetType.Set && updated.ConnectionID != nil {
-			updated.TargetType = "connection"
-			updated.TargetModelID = nil
-		}
+	if input.ConnectionID.Set || input.TargetConnectionID.Set {
+		return nil, connectionAccessTargetsManagedError()
 	}
 	if input.IsEnabled.Set {
 		updated.IsEnabled = &input.IsEnabled.Value
@@ -647,6 +733,9 @@ func deleteAccessTargetMutationItem(items []accessTargetMutationItem, targetID i
 	if index == -1 {
 		return nil, &domainError{StatusCode: http.StatusNotFound, Detail: "Model access target not found"}
 	}
+	if items[index].Request.TargetType == "connection" {
+		return nil, connectionAccessTargetsManagedError()
+	}
 	items = append(items[:index], items[index+1:]...)
 	assignMutationItemPositions(items)
 	return items, nil
@@ -659,6 +748,137 @@ func accessTargetRequestsFromMutationItems(items []accessTargetMutationItem) []m
 		requests = append(requests, item.Request)
 	}
 	return requests
+}
+
+func updateConnectionAccessTargetMutationItem(items []accessTargetMutationItem, targetID int, index int, input modelAccessTargetUpdateRequest) ([]accessTargetMutationItem, error) {
+	if input.TargetType.Set || input.TargetModelID.Set || input.ConnectionID.Set || input.TargetConnectionID.Set {
+		return nil, connectionAccessTargetsManagedError()
+	}
+	if input.IsEnabled.Set {
+		items[index].Request.IsEnabled = &input.IsEnabled.Value
+	}
+	if input.Position.Set {
+		if input.Position.Value == nil {
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "position is required"}
+		}
+		return moveAccessTargetMutationItem(items, targetID, *input.Position.Value)
+	}
+	normalizeMutationItemPositions(items)
+	return items, nil
+}
+
+func isAccessTargetMetadataOnlyUpdate(input modelAccessTargetUpdateRequest) bool {
+	return !input.TargetType.Set && !input.TargetModelID.Set && !input.ConnectionID.Set && !input.TargetConnectionID.Set
+}
+
+func hasEnabledAccessTargetMutationItem(items []accessTargetMutationItem) bool {
+	for _, item := range items {
+		if item.Request.IsEnabled == nil || *item.Request.IsEnabled {
+			return true
+		}
+	}
+	return false
+}
+
+func modelAccessTargetRequestsOnly(values []modelAccessTargetRequest) []modelAccessTargetRequest {
+	items := make([]modelAccessTargetRequest, 0, len(values))
+	for _, value := range values {
+		if value.TargetType == "model" {
+			items = append(items, value)
+		}
+	}
+	return items
+}
+
+func modelAccessTargetRequestsFromRecords(records []accessTargetRecord) []modelAccessTargetRequest {
+	requests := accessTargetRequestsFromRecords(records)
+	return modelAccessTargetRequestsOnly(requests)
+}
+
+func preservedConnectionTargetsFromRecords(records []accessTargetRecord) []preservedConnectionAccessTarget {
+	ordered := cloneAccessTargetRecords(records)
+	sortAccessTargetRecords(ordered)
+	items := make([]preservedConnectionAccessTarget, 0)
+	for _, record := range ordered {
+		if record.TargetType != "connection" {
+			continue
+		}
+		items = append(items, preservedConnectionAccessTarget{ID: record.ID, Position: record.Position, IsEnabled: record.IsEnabled})
+	}
+	return items
+}
+
+func placeModelTargetRequestsAroundPreservedConnections(requests []modelAccessTargetRequest, preserved []preservedConnectionAccessTarget) []modelAccessTargetRequest {
+	if len(requests) == 0 || len(preserved) == 0 {
+		return requests
+	}
+	reservedPositions := map[int]struct{}{}
+	for _, target := range preserved {
+		reservedPositions[target.Position] = struct{}{}
+	}
+	placed := make([]modelAccessTargetRequest, len(requests))
+	copy(placed, requests)
+	indices := make([]int, 0, len(placed))
+	for index := range placed {
+		indices = append(indices, index)
+	}
+	sort.SliceStable(indices, func(left int, right int) bool {
+		leftRequest := placed[indices[left]]
+		rightRequest := placed[indices[right]]
+		if leftRequest.Position == rightRequest.Position {
+			return accessTargetInputKey(leftRequest) < accessTargetInputKey(rightRequest)
+		}
+		return leftRequest.Position < rightRequest.Position
+	})
+	nextPosition := 0
+	for _, index := range indices {
+		for {
+			if _, reserved := reservedPositions[nextPosition]; !reserved {
+				break
+			}
+			nextPosition++
+		}
+		placed[index].Position = nextPosition
+		nextPosition++
+	}
+	return placed
+}
+
+func preservedConnectionTargetsFromMutationItems(items []accessTargetMutationItem) []preservedConnectionAccessTarget {
+	normalizeMutationItemPositions(items)
+	preserved := make([]preservedConnectionAccessTarget, 0)
+	for _, item := range items {
+		if item.Request.TargetType != "connection" {
+			continue
+		}
+		enabled := true
+		if item.Request.IsEnabled != nil {
+			enabled = *item.Request.IsEnabled
+		}
+		preserved = append(preserved, preservedConnectionAccessTarget{ID: item.ID, Position: item.Request.Position, IsEnabled: enabled, Update: true})
+	}
+	return preserved
+}
+
+func hasConnectionAccessTargetRecords(records []accessTargetRecord) bool {
+	for _, record := range records {
+		if record.TargetType == "connection" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnabledResolvedOrPreservedAccessTarget(resolved []resolvedAccessTarget, preserved []preservedConnectionAccessTarget) bool {
+	if hasEnabledResolvedAccessTarget(resolved) {
+		return true
+	}
+	for _, target := range preserved {
+		if target.IsEnabled {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeMutationItemPositions(items []accessTargetMutationItem) {
@@ -950,7 +1170,7 @@ func validateCreateRequest(requestBody modelCreateRequest) error {
 	if requestBody.LoadbalanceStrategyID == nil {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
 	}
-	if err := validateAccessTargets(requestBody.AccessTargets); err != nil {
+	if err := validatePublicAccessTargets(requestBody.AccessTargets); err != nil {
 		return err
 	}
 	return validateAccessTargetsForSourceModel(requestBody.ModelID, requestBody.AccessTargets)
@@ -969,9 +1189,32 @@ func validateUpdateRequest(requestBody modelUpdateRequest) error {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
 	}
 	if requestBody.AccessTargets.Set {
-		return validateAccessTargets(requestBody.AccessTargets.Value)
+		return validatePublicAccessTargets(requestBody.AccessTargets.Value)
 	}
 	return nil
+}
+
+func validatePublicAccessTargets(accessTargets []modelAccessTargetRequest) error {
+	if err := validateAccessTargets(accessTargets); err != nil {
+		return err
+	}
+	for _, accessTarget := range accessTargets {
+		if err := validatePublicAccessTarget(accessTarget); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePublicAccessTarget(accessTarget modelAccessTargetRequest) error {
+	if accessTarget.TargetType == "connection" || accessTarget.ConnectionID != nil {
+		return connectionAccessTargetsManagedError()
+	}
+	return nil
+}
+
+func connectionAccessTargetsManagedError() error {
+	return &domainError{StatusCode: http.StatusBadRequest, Detail: "connection access targets are managed through model-scoped connection routes"}
 }
 
 func validateAccessTargets(accessTargets []modelAccessTargetRequest) error {

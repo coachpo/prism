@@ -166,6 +166,12 @@ export interface ConnectionUpdate {
   max_in_flight_stream?: number | null;
 }
 
+export type ModelConnectionCreate = Omit<ConnectionCreate, "api_family"> & {
+  api_family?: ApiFamily;
+};
+
+export type ModelConnectionUpdate = Omit<ConnectionUpdate, "api_family">;
+
 export interface HealthCheckResponse {
   connection_id: number;
   health_status: string;
@@ -181,14 +187,18 @@ export interface ConnectionHealthCheckPreviewResponse {
   response_time_ms: number;
 }
 
-export interface ConnectionOwnerResponse {
-  connection_id: number;
+export interface ConnectionReference {
+  target_id: number;
   model_config_id: number;
   model_id: string;
-  connection_name: string | null;
-  endpoint_id: number;
-  endpoint_name: string;
-  endpoint_base_url: string;
+  api_family: ApiFamily;
+  position: number;
+  is_enabled: boolean;
+}
+
+export interface ConnectionReferencesResponse {
+  connection_id: number;
+  items: ConnectionReference[];
 }
 
 export interface ConnectionDropdownItem {

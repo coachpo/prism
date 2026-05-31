@@ -2411,6 +2411,13 @@ CREATE INDEX idx_model_access_targets_connection ON public.model_access_targets 
 
 
 --
+-- Name: uq_model_access_targets_connection_owner; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_model_access_targets_connection_owner ON public.model_access_targets USING btree (target_connection_id) WHERE (target_connection_id IS NOT NULL);
+
+
+--
 -- Name: idx_model_access_targets_profile_source_position; Type: INDEX; Schema: public; Owner: -
 --
 

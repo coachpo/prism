@@ -210,6 +210,8 @@ func TestProfileBundleImportValidatesAccessTargets(t *testing.T) {
 		{
 			name: "unknown model target",
 			mutate: func(request *profileImportRequest) {
+				request.Connections = nil
+				request.ProfileSettings.EndpointFXMappings = nil
 				request.Models[0].AccessTargets[0] = accessTargetExport{Position: 0, IsEnabled: true, TargetType: "model", TargetModelID: stringPtr("missing-model")}
 			},
 			detail: "Model 'gpt-4o-mini' references unknown model access target 'missing-model'",
@@ -227,6 +229,33 @@ func TestProfileBundleImportValidatesAccessTargets(t *testing.T) {
 	}
 }
 
+func TestImportAcceptsPrivateConnectionRefs(t *testing.T) {
+	request := validProfileBundleV3Request()
+
+	if err := validateProfileImportRequest(request); err != nil {
+		t.Fatalf("validate private connection bundle: %v", err)
+	}
+}
+
+func TestImportRejectsDuplicateConnectionRefOwners(t *testing.T) {
+	request := validProfileBundleV3Request()
+	secondModel := request.Models[0]
+	secondModel.ModelID = "gpt-4o-alt"
+	secondModel.DisplayName = stringPtr("GPT 4o Alt")
+	request.Models = append(request.Models, secondModel)
+
+	err := validateProfileImportRequest(request)
+	requireConfigBundleDomainError(t, err, http.StatusBadRequest, "connection_ref 'openai-primary' is owned by multiple models: model_id 'gpt-4o-mini' (display_name 'GPT 4o Mini') and model_id 'gpt-4o-alt' (display_name 'GPT 4o Alt')")
+}
+
+func TestImportRejectsOwnerlessConnectionRefs(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.Models[0].AccessTargets = nil
+
+	err := validateProfileImportRequest(request)
+	requireConfigBundleDomainError(t, err, http.StatusBadRequest, "Connection ref 'openai-primary' must be owned by exactly one model access target")
+}
+
 func TestProfileBundleImportCountsTopLevelConnections(t *testing.T) {
 	request := validProfileBundleV3Request()
 	request.Connections = append(request.Connections, connectionExport{
@@ -236,6 +265,17 @@ func TestProfileBundleImportCountsTopLevelConnections(t *testing.T) {
 		PricingTemplateName: stringPtr("Default pricing"),
 		IsActive:            true,
 		Priority:            1,
+	})
+	request.Models[0].AccessTargets = append(request.Models[0].AccessTargets, accessTargetExport{
+		Position:      1,
+		IsEnabled:     true,
+		TargetType:    "connection",
+		ConnectionRef: stringPtr("openai-secondary"),
+	})
+	request.ProfileSettings.EndpointFXMappings = append(request.ProfileSettings.EndpointFXMappings, endpointFXMappingExport{
+		ModelID:       "gpt-4o-mini",
+		ConnectionRef: "openai-secondary",
+		FXRate:        "1",
 	})
 	if err := validateProfileImportRequest(request); err != nil {
 		t.Fatalf("validate top-level connections: %v", err)

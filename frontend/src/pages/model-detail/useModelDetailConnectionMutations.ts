@@ -15,16 +15,21 @@ import type {
   ModelConfigListItem,
   PricingTemplate,
 } from "@/lib/types";
-import { accessTargetToMutation, getModelConnections } from "../models/modelFormState";
 import type { HeaderRow } from "./useModelDetailDialogState";
 import {
   buildConnectionDraftPayload,
+  connectionBelongsToModel,
+  getOwnedConnectionTarget,
+  getOwnedModelConnections,
   hydrateConnectionPricingTemplate,
+  isOwnedConnectionTarget,
   patchModelListItemFromDetail,
   removeConnectionFromList,
   upsertConnectionInList,
   upsertEndpointInList,
 } from "./useModelDetailDataSupport";
+
+type ConnectionSubmitEvent = Pick<Event, "preventDefault">;
 
 interface UseModelDetailConnectionMutationsInput {
   id: string | undefined;
@@ -76,29 +81,34 @@ export function useModelDetailConnectionMutations({
       setModel((currentModel) => {
         if (!currentModel) return currentModel;
         const nextModel = { ...currentModel, access_targets: targets };
-        setConnections(getModelConnections(nextModel));
+        setConnections(getOwnedModelConnections(nextModel, modelConfigId));
         setAllModels((currentModels) => patchModelListItemFromDetail(currentModels, nextModel));
         return nextModel;
       });
       clearSharedReferenceData(undefined, revision);
       void refreshCurrentState();
     },
-    [refreshCurrentState, revision, setAllModels, setConnections, setModel],
+    [modelConfigId, refreshCurrentState, revision, setAllModels, setConnections, setModel],
   );
 
   const commitConnection = useCallback(
     (connection: Connection) => {
+      if (!connectionBelongsToModel(connection, modelConfigId)) {
+        toast.error("Connection owner does not match the current model");
+        return null;
+      }
+
       const committedConnection = hydrateConnectionPricingTemplate(connection, pricingTemplates);
       setAllConnections((current) => upsertConnectionInList(current, committedConnection));
       setConnections((current) => upsertConnectionInList(current, committedConnection));
       setGlobalEndpoints((current) => upsertEndpointInList(current, committedConnection.endpoint));
       return committedConnection;
     },
-    [pricingTemplates, setAllConnections, setConnections, setGlobalEndpoints],
+    [modelConfigId, pricingTemplates, setAllConnections, setConnections, setGlobalEndpoints],
   );
 
   const handleConnectionSubmit = useCallback(
-    async (event: React.FormEvent) => {
+    async (event: ConnectionSubmitEvent) => {
       event.preventDefault();
       if (!id || !Number.isFinite(modelConfigId)) return;
 
@@ -120,18 +130,17 @@ export function useModelDetailConnectionMutations({
 
       try {
         if (editingConnection) {
-          const updatedConnection = await api.connections.update(editingConnection.id, { ...payload });
-          commitConnection(updatedConnection);
+          if (!isOwnedConnectionTarget(model, modelConfigId, editingConnection.id)) {
+            toast.error("Connection owner does not match the current model");
+            return;
+          }
+          const updatedConnection = await api.models.connections.update(modelConfigId, editingConnection.id, { ...payload });
+          if (!commitConnection(updatedConnection)) return;
           toast.success(getStaticMessages().modelDetailData.connectionUpdated);
         } else {
-          const createdConnection = await api.connections.create(payload);
-          commitConnection(createdConnection);
-          const targets = await api.models.targets.create(modelConfigId, {
-            target_type: "connection",
-            connection_id: createdConnection.id,
-            position: 0,
-            is_enabled: true,
-          });
+          const createdConnection = await api.models.connections.create(modelConfigId, payload);
+          if (!commitConnection(createdConnection)) return;
+          const targets = await api.models.targets.list(modelConfigId);
           applyTargets(targets);
           toast.success(getStaticMessages().modelDetailData.connectionCreated);
         }
@@ -152,6 +161,7 @@ export function useModelDetailConnectionMutations({
       headerRows,
       editingConnection,
       endpointSourceDefaultName,
+      model,
       commitConnection,
       applyTargets,
       revision,
@@ -162,6 +172,10 @@ export function useModelDetailConnectionMutations({
   const handleAddAccessTarget = useCallback(
     async (target: ModelAccessTargetMutation) => {
       if (!Number.isFinite(modelConfigId)) return;
+      if (target.target_type !== "model") {
+        toast.error("Connection access targets are managed through model connections");
+        return;
+      }
       try {
         const targets = await api.models.targets.create(modelConfigId, target);
         applyTargets(targets);
@@ -176,10 +190,14 @@ export function useModelDetailConnectionMutations({
   const handleMoveAccessTarget = useCallback(
     async (index: number, toIndex: number) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const targetId = model?.access_targets[index]?.id ?? null;
-      if (!targetId) return;
+      const target = model?.access_targets[index] ?? null;
+      if (!target) return;
+      if (target.target_type === "connection" && !getOwnedConnectionTarget(model, modelConfigId, target.connection_id ?? -1)) {
+        toast.error("Connection owner does not match the current model");
+        return;
+      }
       try {
-        const targets = await api.models.targets.movePosition(modelConfigId, targetId, toIndex);
+        const targets = await api.models.targets.movePosition(modelConfigId, target.id, toIndex);
         applyTargets(targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to reorder access target");
@@ -194,10 +212,12 @@ export function useModelDetailConnectionMutations({
       if (!Number.isFinite(modelConfigId)) return;
       const target = model?.access_targets[index] ?? null;
       if (!target) return;
-      const mutation = accessTargetToMutation(target);
-      if (!mutation) return;
+      if (target.target_type === "connection" && !getOwnedConnectionTarget(model, modelConfigId, target.connection_id ?? -1)) {
+        toast.error("Connection owner does not match the current model");
+        return;
+      }
       try {
-        const targets = await api.models.targets.update(modelConfigId, target.id, { ...mutation, is_enabled: enabled });
+        const targets = await api.models.targets.update(modelConfigId, target.id, { is_enabled: enabled });
         applyTargets(targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to update access target");
@@ -210,10 +230,14 @@ export function useModelDetailConnectionMutations({
   const handleDeleteAccessTarget = useCallback(
     async (index: number) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const targetId = model?.access_targets[index]?.id ?? null;
-      if (!targetId) return;
+      const target = model?.access_targets[index] ?? null;
+      if (!target) return;
+      if (target.target_type === "connection" && !getOwnedConnectionTarget(model, modelConfigId, target.connection_id ?? -1)) {
+        toast.error("Connection owner does not match the current model");
+        return;
+      }
       try {
-        const targets = await api.models.targets.delete(modelConfigId, targetId);
+        const targets = await api.models.targets.delete(modelConfigId, target.id);
         applyTargets(targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to remove access target");
@@ -226,31 +250,43 @@ export function useModelDetailConnectionMutations({
   const handleDeleteConnection = useCallback(
     async (connectionId: number) => {
       try {
-        await api.connections.delete(connectionId);
+        if (!Number.isFinite(modelConfigId)) return;
+        if (!isOwnedConnectionTarget(model, modelConfigId, connectionId)) {
+          toast.error("Connection owner does not match the current model");
+          return;
+        }
+        await api.models.connections.delete(modelConfigId, connectionId);
         clearSharedReferenceData(undefined, revision);
         setAllConnections((current) => removeConnectionFromList(current, connectionId));
         setConnections((current) => removeConnectionFromList(current, connectionId));
+        const targets = await api.models.targets.list(modelConfigId);
+        applyTargets(targets);
         void refreshCurrentState();
         toast.success(getStaticMessages().modelDetailData.connectionDeleted);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : getStaticMessages().modelDetailData.deleteConnectionFailed);
       }
     },
-    [refreshCurrentState, revision, setAllConnections, setConnections],
+    [applyTargets, model, modelConfigId, refreshCurrentState, revision, setAllConnections, setConnections],
   );
 
   const handleToggleActive = useCallback(
     async (connection: Connection) => {
       try {
-        const updatedConnection = await api.connections.update(connection.id, { is_active: !connection.is_active });
-        commitConnection(updatedConnection);
+        if (!Number.isFinite(modelConfigId)) return;
+        if (!isOwnedConnectionTarget(model, modelConfigId, connection.id)) {
+          toast.error("Connection owner does not match the current model");
+          return;
+        }
+        const updatedConnection = await api.models.connections.update(modelConfigId, connection.id, { is_active: !connection.is_active });
+        if (!commitConnection(updatedConnection)) return;
         clearSharedReferenceData(undefined, revision);
         void refreshCurrentState();
       } catch {
         toast.error(getStaticMessages().modelDetailData.toggleConnectionFailed);
       }
     },
-    [commitConnection, refreshCurrentState, revision],
+    [commitConnection, model, modelConfigId, refreshCurrentState, revision],
   );
 
   return {

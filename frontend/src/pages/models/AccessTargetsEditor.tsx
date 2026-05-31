@@ -15,16 +15,15 @@ import {
   setAccessTargetEnabled,
 } from "./modelFormState";
 
-type TargetKind = "model" | "connection";
-
 interface AccessTargetsEditorProps {
   accessTargets: ModelAccessTargetMutation[];
   apiFamilyLabel: string;
   modelOptions: ModelConfigListItem[];
-  connectionOptions: Connection[];
+  connectionOptions?: Connection[];
   error?: string | null;
   disabled?: boolean;
   healthCheckingIds?: Set<number>;
+  isConnectionTargetMutable?: (connectionId: number) => boolean;
   onAddTarget?: (target: ModelAccessTargetMutation) => Promise<void> | void;
   onChange: (targets: ModelAccessTargetMutation[]) => void;
   onCreateConnection?: () => void;
@@ -56,14 +55,9 @@ function resolveTargetLabel(
   return connection ? getConnectionName(connection, connectionFallback) : connectionFallback(String(target.connection_id));
 }
 
-function buildDraft(kind: TargetKind, value: string, position: number): ModelAccessTargetMutation | null {
-  if (kind === "model" && value.trim()) {
+function buildDraft(value: string, position: number): ModelAccessTargetMutation | null {
+  if (value.trim()) {
     return { target_type: "model", target_model_id: value.trim(), position, is_enabled: true };
-  }
-
-  const connectionId = Number.parseInt(value, 10);
-  if (kind === "connection" && Number.isFinite(connectionId)) {
-    return { target_type: "connection", connection_id: connectionId, position, is_enabled: true };
   }
 
   return null;
@@ -73,10 +67,11 @@ export function AccessTargetsEditor({
   accessTargets,
   apiFamilyLabel,
   modelOptions,
-  connectionOptions,
+  connectionOptions = [],
   error,
   disabled = false,
   healthCheckingIds,
+  isConnectionTargetMutable,
   onAddTarget,
   onChange,
   onCreateConnection,
@@ -90,7 +85,6 @@ export function AccessTargetsEditor({
   const copy = messages.modelsUi;
   const detailCopy = messages.modelDetail;
   const connectionFallback = messages.modelDetailData.connectionFallback;
-  const [pendingKind, setPendingKind] = useState<TargetKind>("connection");
   const [pendingValue, setPendingValue] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const normalizedTargets = useMemo(() => normalizeAccessTargetMutations(accessTargets), [accessTargets]);
@@ -99,11 +93,21 @@ export function AccessTargetsEditor({
     [normalizedTargets],
   );
   const remainingModels = modelOptions.filter((model) => !selectedKeys.has(`model:${model.model_id}`));
-  const remainingConnections = connectionOptions.filter((connection) => !selectedKeys.has(`connection:${connection.id}`));
-  const selectableValues = pendingKind === "model" ? remainingModels : remainingConnections;
-  const effectivePendingValue = selectableValues.some((item) => String(pendingKind === "model" ? (item as ModelConfigListItem).model_id : (item as Connection).id) === pendingValue)
-    ? pendingValue
-    : "";
+  const effectivePendingValue = remainingModels.some((model) => model.model_id === pendingValue) ? pendingValue : "";
+  const canManageConnectionTargets = Boolean(onDeleteTarget || onMoveTarget || onToggleTarget);
+  const hasBusyAction = busyKey !== null;
+  const readOnlyConnectionIndexes = useMemo(
+    () => new Set(normalizedTargets.flatMap((target, index) => {
+      if (target.target_type !== "connection") {
+        return [];
+      }
+      if (!canManageConnectionTargets) {
+        return [index];
+      }
+      return isConnectionTargetMutable?.(target.connection_id) === false ? [index] : [];
+    })),
+    [canManageConnectionTargets, isConnectionTargetMutable, normalizedTargets],
+  );
 
   const runAction = async (key: string, action: () => Promise<void> | void) => {
     setBusyKey(key);
@@ -122,7 +126,7 @@ export function AccessTargetsEditor({
     onChange(action());
   };
   const handleAdd = async () => {
-    const draft = buildDraft(pendingKind, effectivePendingValue, normalizedTargets.length);
+    const draft = buildDraft(effectivePendingValue, normalizedTargets.length);
     if (!draft) return;
     if (onAddTarget) {
       await runAction("add", () => onAddTarget(draft));
@@ -167,8 +171,12 @@ export function AccessTargetsEditor({
             ? connectionOptions.find((candidate) => candidate.id === target.connection_id)
             : null;
           const isChecking = connection ? healthCheckingIds?.has(connection.id) ?? false : false;
+          const isReadOnlyConnection = readOnlyConnectionIndexes.has(index);
+          const canMoveUp = index > 0 && !readOnlyConnectionIndexes.has(index - 1);
+          const canMoveDown = index < normalizedTargets.length - 1 && !readOnlyConnectionIndexes.has(index + 1);
+          const canEditConnection = !isReadOnlyConnection && Boolean(connection && (onHealthCheck || onEditConnection));
           return (
-            <div key={targetKey} className="flex flex-col gap-3 rounded-md border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div key={targetKey} data-testid={`access-target-${targetKey}`} className="flex flex-col gap-3 rounded-md border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-muted/30 text-muted-foreground">
                   {target.target_type === "model" ? <GitBranch className="h-4 w-4" /> : <Cable className="h-4 w-4" />}
@@ -181,113 +189,100 @@ export function AccessTargetsEditor({
                   </p>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Switch
-                  checked={target.is_enabled !== false}
-                  disabled={disabled || busyKey === `toggle:${index}`}
-                  onCheckedChange={(checked) => {
-                    void changeOrPersist(
-                      `toggle:${index}`,
-                      () => setAccessTargetEnabled(normalizedTargets, index, checked),
-                      onToggleTarget ? () => onToggleTarget(index, checked) : undefined,
-                    );
-                  }}
-                  aria-label={copy.enableAccessTarget(formatNumber(index + 1))}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label={copy.targetMoveUp(formatNumber(index + 1))}
-                  disabled={disabled || index === 0 || busyKey === `move:${index}:up`}
-                  onClick={() => void changeOrPersist(`move:${index}:up`, () => moveAccessTarget(normalizedTargets, index, index - 1), onMoveTarget ? () => onMoveTarget(index, index - 1) : undefined)}
-                >
-                  <ArrowUp />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label={copy.targetMoveDown(formatNumber(index + 1))}
-                  disabled={disabled || index === normalizedTargets.length - 1 || busyKey === `move:${index}:down`}
-                  onClick={() => void changeOrPersist(`move:${index}:down`, () => moveAccessTarget(normalizedTargets, index, index + 1), onMoveTarget ? () => onMoveTarget(index, index + 1) : undefined)}
-                >
-                  <ArrowDown />
-                </Button>
-                {connection && onHealthCheck ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    aria-label={`${detailCopy.healthCheck} ${getConnectionName(connection, connectionFallback)}`}
-                    disabled={disabled || isChecking}
-                    onClick={() => void onHealthCheck(connection.id)}
-                  >
-                    {isChecking ? <Loader2 className="animate-spin" /> : <Activity />}
-                  </Button>
-                ) : null}
-                {connection && onEditConnection ? (
-                  <Button type="button" variant="outline" size="icon-sm" aria-label={`${detailCopy.edit} ${getConnectionName(connection, connectionFallback)}`} onClick={() => onEditConnection(connection)}>
-                    <Pencil />
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label={copy.targetRemove(formatNumber(index + 1))}
-                  disabled={disabled || busyKey === `delete:${index}`}
-                  onClick={() => void changeOrPersist(`delete:${index}`, () => removeAccessTarget(normalizedTargets, index), onDeleteTarget ? () => onDeleteTarget(index) : undefined)}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
+              {!isReadOnlyConnection || canEditConnection ? (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {!isReadOnlyConnection ? (
+                    <>
+                      <Switch
+                        checked={target.is_enabled !== false}
+                        disabled={disabled || hasBusyAction}
+                        onCheckedChange={(checked) => {
+                          void changeOrPersist(
+                            `toggle:${index}`,
+                            () => setAccessTargetEnabled(normalizedTargets, index, checked),
+                            onToggleTarget ? () => onToggleTarget(index, checked) : undefined,
+                          );
+                        }}
+                        aria-label={copy.enableAccessTarget(formatNumber(index + 1))}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        aria-label={copy.targetMoveUp(formatNumber(index + 1))}
+                        disabled={disabled || hasBusyAction || !canMoveUp}
+                        onClick={() => void changeOrPersist(`move:${index}:up`, () => moveAccessTarget(normalizedTargets, index, index - 1), onMoveTarget ? () => onMoveTarget(index, index - 1) : undefined)}
+                      >
+                        <ArrowUp />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        aria-label={copy.targetMoveDown(formatNumber(index + 1))}
+                        disabled={disabled || hasBusyAction || !canMoveDown}
+                        onClick={() => void changeOrPersist(`move:${index}:down`, () => moveAccessTarget(normalizedTargets, index, index + 1), onMoveTarget ? () => onMoveTarget(index, index + 1) : undefined)}
+                      >
+                        <ArrowDown />
+                      </Button>
+                    </>
+                  ) : null}
+                  {connection && onHealthCheck ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label={`${detailCopy.healthCheck} ${getConnectionName(connection, connectionFallback)}`}
+                      disabled={disabled || hasBusyAction || isChecking}
+                      onClick={() => void onHealthCheck(connection.id)}
+                    >
+                      {isChecking ? <Loader2 className="animate-spin" /> : <Activity />}
+                    </Button>
+                  ) : null}
+                  {connection && onEditConnection ? (
+                    <Button type="button" variant="outline" size="icon-sm" aria-label={`${detailCopy.edit} ${getConnectionName(connection, connectionFallback)}`} disabled={disabled || hasBusyAction} onClick={() => onEditConnection(connection)}>
+                      <Pencil />
+                    </Button>
+                  ) : null}
+                  {!isReadOnlyConnection ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label={copy.targetRemove(formatNumber(index + 1))}
+                      disabled={disabled || hasBusyAction}
+                      onClick={() => void changeOrPersist(`delete:${index}`, () => removeAccessTarget(normalizedTargets, index), onDeleteTarget ? () => onDeleteTarget(index) : undefined)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           );
         })}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_auto] sm:items-center">
-        <Select value={pendingKind} onValueChange={(value) => {
-          setPendingKind(value as TargetKind);
-          setPendingValue("");
-        }}>
-          <SelectTrigger id="access-target-kind">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="connection">{copy.targetKindConnection}</SelectItem>
-            <SelectItem value="model">{copy.targetKindModel}</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={pendingValue} onValueChange={setPendingValue} disabled={disabled || selectableValues.length === 0}>
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <Select value={pendingValue} onValueChange={setPendingValue} disabled={disabled || remainingModels.length === 0}>
           <SelectTrigger id="access-target-select" className="min-w-0">
-            <SelectValue placeholder={pendingKind === "model" ? copy.selectSameFamilyModel : copy.selectSameFamilyConnection} />
+            <SelectValue placeholder={copy.selectSameFamilyModel} />
           </SelectTrigger>
           <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
-            {pendingKind === "model"
-              ? remainingModels.map((model) => (
-                  <SelectItem key={model.id} value={model.model_id}>
-                    <span className="block truncate">{getModelLabel(model)}</span>
-                  </SelectItem>
-                ))
-              : remainingConnections.map((connection) => (
-                  <SelectItem key={connection.id} value={String(connection.id)}>
-                    <span className="block truncate">{getConnectionName(connection, connectionFallback)}</span>
-                  </SelectItem>
-                ))}
+            {remainingModels.map((model) => (
+              <SelectItem key={model.id} value={model.model_id}>
+                <span className="block truncate">{getModelLabel(model)}</span>
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
-        <Button type="button" variant="outline" disabled={disabled || !effectivePendingValue || busyKey === "add"} onClick={() => void handleAdd()}>
+        <Button type="button" variant="outline" disabled={disabled || hasBusyAction || !effectivePendingValue} onClick={() => void handleAdd()}>
           {busyKey === "add" ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}
           {copy.addTarget}
         </Button>
       </div>
 
-      {pendingKind === "connection" && remainingConnections.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{copy.noSameFamilyConnectionsAvailable}</p>
-      ) : null}
-      {pendingKind === "model" && remainingModels.length === 0 ? (
+      {remainingModels.length === 0 ? (
         <p className="text-xs text-muted-foreground">{copy.noSameFamilyModelsAvailable}</p>
       ) : null}
     </div>

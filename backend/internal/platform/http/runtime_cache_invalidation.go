@@ -244,7 +244,12 @@ func isHeaderBlocklistMutation(method string, segments []string) bool {
 func isModelPlanningMutation(method string, segments []string) bool {
 	return (method == http.MethodPost && matchesSegments(segments, "models")) ||
 		(method == http.MethodPut && matchesSegments(segments, "models", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "models", "*"))
+		(method == http.MethodDelete && matchesSegments(segments, "models", "*")) ||
+		(method == http.MethodPost && matchesSegments(segments, "models", "*", "targets")) ||
+		(method == http.MethodPut && matchesSegments(segments, "models", "*", "targets", "*")) ||
+		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "targets", "*")) ||
+		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "targets", "*", "position")) ||
+		(method == http.MethodDelete && matchesSegments(segments, "models", "*", "targets", "*"))
 }
 
 func isEndpointPlanningMutation(method string, segments []string) bool {
@@ -256,6 +261,8 @@ func isEndpointPlanningMutation(method string, segments []string) bool {
 
 func isConnectionPlanningMutation(method string, segments []string) bool {
 	return (method == http.MethodPost && matchesSegments(segments, "models", "*", "connections")) ||
+		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "connections", "*")) ||
+		(method == http.MethodDelete && matchesSegments(segments, "models", "*", "connections", "*")) ||
 		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "connections", "*", "priority")) ||
 		(method == http.MethodPut && matchesSegments(segments, "connections", "*")) ||
 		(method == http.MethodPut && matchesSegments(segments, "connections", "*", "pricing-template")) ||

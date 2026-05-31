@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-27T12:00:00Z";
-const disabledDraftAccessTargetCopy = "No access targets selected. This model can be saved disabled and have a target attached later. Enabled saves still require at least one enabled target.";
+const disabledDraftAccessTargetCopy = "No model targets selected. Save disabled now, or add a same-family model target before enabling.";
 const enabledTargetRequiredCopy = "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.";
 
 function createProfile() {
@@ -156,7 +156,8 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
 
   const dialog = page.getByRole("dialog", { name: "New Model" });
   await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
-  await expect(dialog.getByText("New models start disabled so you can save a draft now and attach access targets later.")).toBeVisible();
+  await expect(dialog.getByText("New models start disabled so you can save a draft now and attach model targets later.")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
   await expect(dialog.locator('[data-slot="switch"]').last()).toHaveAttribute("data-state", "unchecked");
 
   await page.getByRole("textbox", { name: "Model ID" }).fill("draft-openai");
@@ -180,7 +181,7 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
   await expect(draftRow.getByText("Disabled")).toBeVisible();
 });
 
-test("main model dialog authors ordered model access targets before save", async ({ page }) => {
+test("main model dialog keeps connection option absent while authoring ordered model access targets", async ({ page }) => {
   const routes = await mockModelRoutes(page);
 
   await page.goto("/models");
@@ -188,6 +189,7 @@ test("main model dialog authors ordered model access targets before save", async
 
   const dialog = page.getByRole("dialog", { name: "New Model" });
   await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
   const enabledSwitch = dialog.locator('[data-slot="switch"]').last();
   await expect(enabledSwitch).toHaveAttribute("data-state", "unchecked");
   await page.getByRole("textbox", { name: "Model ID" }).fill("routed-openai");
@@ -198,9 +200,8 @@ test("main model dialog authors ordered model access targets before save", async
   await expect(page.getByText(enabledTargetRequiredCopy).last()).toBeVisible();
   expect(routes.getCreatedPayloads()).toHaveLength(0);
 
-  await dialog.locator("#access-target-kind").click();
-  await page.getByRole("option", { name: "Model" }).click();
   await dialog.locator("#access-target-select").click();
+  await expect(page.getByRole("option", { name: /connection|standalone/i })).toHaveCount(0);
   await page.getByRole("option", { name: /Target Alpha/ }).click();
   await dialog.getByRole("button", { name: "Add target" }).click();
 
@@ -213,9 +214,8 @@ test("main model dialog authors ordered model access targets before save", async
   await page.getByRole("option", { name: /Anthropic/i }).click();
   await expect(page.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
 
-  await dialog.locator("#access-target-kind").click();
-  await page.getByRole("option", { name: "Model" }).click();
   await dialog.locator("#access-target-select").click();
+  await expect(page.getByRole("option", { name: /connection|standalone/i })).toHaveCount(0);
   await expect(page.getByRole("option", { name: /Claude Sonnet/ })).toBeVisible();
   await expect(page.getByRole("option", { name: /Target Alpha/ })).toHaveCount(0);
   await page.keyboard.press("Escape");

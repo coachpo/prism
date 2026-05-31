@@ -111,9 +111,9 @@ Validated again against current repo surfaces on 2026-05-10:
 **Frontend flow**
 
 1. Operators list, search, create, edit, and delete model configs.
-2. Models manage ordered access targets that point to same-family models or standalone connections.
-3. The shared Model Settings dialog is the authoritative access-target editor and save path.
-4. Model detail loads attached standalone connection KPIs, current Ban Policy retry-window state, loadbalance event history, and manual health-check actions.
+2. Public model create and edit flows author ordered targets that point only to same-family models.
+3. Model detail is the private connection management surface for the model's owned endpoint bindings.
+4. Model detail loads owned connection KPIs, current Ban Policy retry-window state, loadbalance event history, and manual health-check actions.
 5. Request-log handoff preserves the requested model while final-target fields show the terminal model reached through the access graph.
 
 **Backend touchpoints**
@@ -126,11 +126,16 @@ Validated again against current repo surfaces on 2026-05-10:
 - `GET /api/models/{model_config_id}/targets`
 - `POST /api/models/{model_config_id}/targets`
 - `PUT /api/models/{model_config_id}/targets/{target_id}`
+- `PATCH /api/models/{model_config_id}/targets/{target_id}`
+- `PATCH /api/models/{model_config_id}/targets/{target_id}/position`
 - `DELETE /api/models/{model_config_id}/targets/{target_id}`
-- `PATCH /api/models/{model_config_id}/targets/reorder`
 - `GET /api/loadbalance/current-state`
 - `GET /api/loadbalance/events`
-- `POST /api/connections/{connection_id}/health-check`
+- `GET /api/models/{model_config_id}/connections`
+- `POST /api/models/{model_config_id}/connections`
+- `PATCH /api/models/{model_config_id}/connections/{connection_id}`
+- `DELETE /api/models/{model_config_id}/connections/{connection_id}`
+- `POST /api/models/{model_config_id}/connections/{connection_id}/health`
 
 ## 5. Endpoints, Loadbalance Strategies, And Pricing Templates
 
@@ -142,9 +147,9 @@ Validated again against current repo surfaces on 2026-05-10:
 
 **Frontend flow**
 
-1. Endpoints define reusable upstream credentials and base URLs.
+1. Endpoints define reusable upstream credentials and base URLs that private connections can share.
 2. Loadbalance strategies define reusable routing plus explicit Ban Policy retry-window settings for model access.
-3. Pricing templates define reusable cost models attached to connections with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`.
+3. Pricing templates define reusable cost models attached to private connections with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`.
 4. Pricing-template management saves explicit strings for every component. Missing/null/blank inputs normalize to `"0"`; explicit `"0"` is configured free pricing, not missing pricing data.
 5. Request logs and cost math consume canonical disjoint token components: base input, cache-read input, cache-creation input, base output, and reasoning output. Aggregate `cached_tokens` is derived-only for presentation.
 6. These resources are profile-scoped and are usually managed before or alongside model-detail work.
@@ -255,6 +260,7 @@ The configuration-operations flow is explicit in both lanes:
 - secret-bearing profile export uses `POST /api/config/profile/export/with-secrets` with `X-Prism-Dangerous-Confirm: profile-export`
 - profile import uses upload, preview, then apply with `X-Prism-Preview-Token`
 - profile import replaces profile-scoped rows only, while global vendor rows, other profiles, and request logs remain untouched
+- profile import rejects `connection_ref` values used by multiple models because imported connections are model-private endpoint bindings
 - vendor catalog import mutates only the shared vendor catalog and leaves profile-scoped rows untouched
 - apply stays header-bound, and the raw bundle JSON is not rewritten in transit
 
@@ -312,7 +318,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 **Runtime flow**
 
 1. The incoming request resolves a model from the request body or Gemini path.
-2. Models resolve ordered access targets to same-family models or standalone connections before connection planning starts.
+2. Models resolve ordered access targets through same-family model links until a terminal private connection is reached.
 3. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
 4. The upstream request is rewritten as needed for the target API family, then proxied through.
 5. Request logs, audit data, and loadbalance events are recorded for later operator investigation.

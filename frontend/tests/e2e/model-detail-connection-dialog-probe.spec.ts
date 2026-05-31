@@ -164,6 +164,7 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
   };
   const previewPayloads: unknown[] = [];
   const savePayloads: unknown[] = [];
+  let accessTargets = [...model.access_targets];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -195,7 +196,7 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
     }
 
     if (pathname === `/api/models/${model.id}`) {
-      return fulfillJson(model);
+      return fulfillJson({ ...model, access_targets: accessTargets });
     }
 
     if (pathname === "/api/models") {
@@ -213,8 +214,8 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
       return fulfillJson([endpoint]);
     }
 
-    if (pathname === "/api/connections" && method === "GET") {
-      return fulfillJson(model.access_targets.map((target) => target.connection).filter(Boolean));
+    if (pathname === `/api/models/${model.id}/connections` && method === "GET") {
+      return fulfillJson(accessTargets.map((target) => target.connection).filter(Boolean));
     }
 
     if (pathname === "/api/loadbalance/strategies") {
@@ -237,17 +238,21 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
       return fulfillJson({ items: [] });
     }
 
-    if (pathname === "/api/connections" && method === "POST") {
+    if (pathname === `/api/models/${model.id}/targets` && method === "GET") {
+      return fulfillJson(accessTargets);
+    }
+
+    if (pathname === `/api/models/${model.id}/connections` && method === "POST") {
       const payload = request.postDataJSON();
       savePayloads.push(payload);
-      return fulfillJson({
+      const connection = {
         id: 101,
-        model_config_id: null,
-        endpoint_id: 11,
+        model_config_id: model.id,
+        endpoint_id: endpoint.id,
         endpoint,
-        api_family: payload.api_family,
-        is_active: true,
-        priority: 0,
+        api_family: model.api_family,
+        is_active: payload.is_active ?? true,
+        priority: accessTargets.length,
         name: payload.name ?? endpoint.name,
         auth_type: null,
         custom_headers: payload.custom_headers ?? null,
@@ -262,59 +267,40 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
         last_health_check: null,
         created_at: timestamp,
         updated_at: timestamp,
-      });
-    }
-
-    if (pathname === `/api/models/${model.id}/targets` && method === "POST") {
-      const payload = request.postDataJSON();
-      return fulfillJson([
+      };
+      accessTargets = [
+        ...accessTargets,
         {
-          id: 701,
+          id: 701 + accessTargets.length,
           target_type: "connection",
           target_model_id: null,
-          connection_id: payload.connection_id,
-          position: 0,
+          connection_id: connection.id,
+          position: accessTargets.length,
           is_enabled: true,
           target_model: null,
-          connection: {
-            id: payload.connection_id,
-            model_config_id: null,
-            endpoint_id: 11,
-            endpoint,
-            api_family: model.api_family,
-            is_active: true,
-            priority: 0,
-            name: endpoint.name,
-            auth_type: null,
-            custom_headers: null,
-            openai_probe_endpoint_variant: null,
-            pricing_template_id: null,
-            qps_limit: null,
-            max_in_flight_non_stream: null,
-            max_in_flight_stream: null,
-            pricing_template: null,
-            health_status: "unknown",
-            health_detail: null,
-            last_health_check: null,
-            created_at: timestamp,
-            updated_at: timestamp,
-          },
+          connection,
           created_at: timestamp,
           updated_at: timestamp,
         },
-      ]);
+      ];
+      return fulfillJson(connection, 201);
     }
 
-    if (pathname === "/api/connections/301" && method === "PUT") {
+    if (pathname === `/api/models/${model.id}/connections/301` && method === "PATCH") {
       const payload = request.postDataJSON();
       savePayloads.push(payload);
-      return fulfillJson({
-        ...(model.access_targets[0]?.connection ?? {}),
+      const updatedConnection = {
+        ...(accessTargets[0]?.connection ?? {}),
         ...payload,
-      });
+        model_config_id: model.id,
+      };
+      accessTargets = accessTargets.map((target) =>
+        target.connection_id === 301 ? { ...target, connection: updatedConnection } : target,
+      );
+      return fulfillJson(updatedConnection);
     }
 
-    if (pathname === "/api/connections/301/health-check" && method === "POST") {
+    if (pathname === `/api/models/${model.id}/connections/301/health` && method === "POST") {
       previewPayloads.push({ connection_id: 301 });
       return fulfillJson({
         health_status: "healthy",

@@ -85,12 +85,12 @@ Prepare seed state through API (not manual DB edits):
    - in profile B: one Anthropic endpoint
    - in profile C: one Gemini endpoint
 4. Profile-scoped models:
-   - in profile A: one OpenAI-family model with 2+ reachable standalone connection targets
+   - in profile A: one OpenAI-family model with 2+ reachable private connection targets
    - in profile B: one Anthropic-family model
    - in profile C: one Gemini-family model
 5. Unified access targets:
-   - same-`api_family` model-target chains plus standalone connection targets using ordered `access_targets` (`target_type`, `target_model_id`, `connection_ref`, `position`, `is_enabled`) in the same profile, even when vendor metadata differs
-6. Standalone connection diversity per profile:
+   - same-`api_family` model-target chains plus private connection targets using ordered `access_targets` (`target_type`, `target_model_id`, `connection_ref`, `position`, `is_enabled`) in the same profile, even when vendor metadata differs
+6. Private connection diversity per profile:
    - active + inactive
    - different model target positions
    - one connection with `custom_headers`
@@ -130,13 +130,13 @@ Prepare seed state through API (not manual DB edits):
 | `PATCH /api/endpoints/{endpoint_id}/position` | B14A, M03 |
 | `DELETE /api/endpoints/{endpoint_id}` | B15, M03 |
 | `GET /api/connections` | B18, M03 |
-| `POST /api/connections` | B16-B17, L01-L02, M03 |
-| `PUT /api/connections/{id}` | B19-B20, M03 |
+| `GET /api/connections/{id}` | B18, M03 |
 | `GET /api/connections/{id}/references` | B21B, M03 |
-| `PUT /api/connections/{id}/pricing-template` | L03, L24, M03 |
-| `DELETE /api/connections/{id}` | B21-B21A, M03 |
+| `POST /api/models/{model_config_id}/connections` | B16-B17, L01-L02, M03 |
+| `PATCH /api/models/{model_config_id}/connections/{connection_id}` | B19-B20, L03, L24, M03 |
+| `DELETE /api/models/{model_config_id}/connections/{connection_id}` | B21-B21A, M03 |
 | `GET/POST/PATCH/DELETE /api/models/{model_config_id}/targets` | B18A, B20A, M03 |
-| `POST /api/connections/{id}/health-check` | D01-D06 |
+| `POST /api/models/{model_config_id}/connections/{connection_id}/health` | D01-D06 |
 | `POST /v1/chat/completions` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/responses` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/messages` | C02, C04, E08, E10, L08-L10, M11-M13, M21 |
@@ -247,18 +247,18 @@ Prepare seed state through API (not manual DB edits):
 | B14A | P0 | Move profile-scoped endpoint | `200`, returns reordered list; no-op stays stable; out-of-range `to_index` returns `422` |
 | B15 | P0 | Delete profile-scoped endpoint in use | `409` conflict |
 | B15A | P0 | Delete profile-scoped endpoint compacts later positions | Remaining endpoints are renumbered to contiguous `0..N-1` |
-| B16 | P0 | Create standalone connection | `201`, connection stored with explicit `api_family` |
-| B16A | P0 | Attach connection target to a model | New access target appends after existing model targets |
-| B17 | P0 | Attach wrong-family connection target | `400` |
-| B18 | P1 | List standalone connections | `200`, returns profile-scoped connections with endpoint and pricing metadata |
+| B16 | P0 | Create model-private connection | `201`, connection inherits owner model `api_family` |
+| B16A | P0 | Reject public connection target assignment | `400`, no arbitrary connection ID is attached to a model |
+| B17 | P0 | Reject conflicting private connection `api_family` | `400` |
+| B18 | P1 | List private connections | `200`, returns profile-scoped connections with endpoint and pricing metadata |
 | B18A | P0 | List model access targets | `200`, returns ordered model and connection targets |
-| B19 | P0 | Update connection with `custom_headers=null/{}` | Headers removed |
-| B20 | P1 | Update connection omitting `custom_headers` | Existing headers retained |
+| B19 | P0 | Update model-private connection through owner-scoped route with `custom_headers=null/{}` | Headers removed |
+| B20 | P1 | Update model-private connection through owner-scoped route omitting `custom_headers` | Existing headers retained |
 | B20A | P0 | Reorder model access target | `200`, returns reordered targets; no-op stays stable; wrong model/profile combo returns `404`; out-of-range `to_index` returns `422` |
 | B20B | P0 | Connection payload containing access-target ordering fields | `422` validation error |
-| B21 | P1 | Delete unreferenced connection | `200`, connection removed |
-| B21A | P0 | Delete referenced connection | `409` until referencing model targets are removed |
-| B21B | P0 | Read connection references | `200`, returns model target rows that reference the connection |
+| B21 | P1 | Delete model-private connection through owner-scoped route | `200`, connection and owner target row removed together |
+| B21A | P0 | Delete final enabled private connection target from enabled model | `400` until another enabled target exists or the model is disabled |
+| B21B | P0 | Read connection references | `200`, returns the private connection owner model target row |
 
 ## C. Runtime Routing, Unified Access Targets, Headers, and Ban Policy
 
@@ -360,7 +360,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=3`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, `loadbalance_strategies`, top-level standalone `connections`, ordered model `access_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
+| H01 | P0 | Export schema and metadata | `version=3`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, `loadbalance_strategies`, top-level private `connections`, ordered model `access_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
 | H01A | P0 | Export includes endpoint position | Endpoints are ordered by `position` and each endpoint includes `position` |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Profile export excludes global vendor audit policy | Profile bundle uses `vendor_refs` only for actually referenced vendor rows; vendor audit metadata remains in the vendor-catalog bundle/global vendor rows |
@@ -398,7 +398,7 @@ Prepare seed state through API (not manual DB edits):
 | I12 | P1 | Frontend error details | Backend `detail` surfaced to user |
 | I12A | P0 | Access-target drag reorder in Model Detail | Drop updates target order immediately, persists after refresh, and rollback toast appears on API failure |
 | I12B | P0 | Access-target reorder disabled during active filter | Drag handles disable and helper text explains how to re-enable ordering |
-| I12C | P0 | Standalone connection dialog ordering UX | Dialog exposes no numeric priority field and explains that model attachment controls target order |
+| I12C | P0 | Private connection dialog ordering UX | Dialog exposes no numeric priority field and explains that owner model access-target order controls routing |
 | I13 | P0 | Settings data management custom days flow | Custom day input validates, calls API correctly |
 | I14 | P0 | Settings data management delete-all flow | Confirmation dialog shows "ALL", calls `delete_all=true` API |
 | I15 | P0 | Settings data management in-flight disable | All delete buttons disabled during active deletion |
@@ -550,7 +550,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export current format | Safe GET export returns `version: 3`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level standalone connections, ordered model access targets, pricing templates, and profile-scoped `profile_settings` |
+| L14 | P0 | Config export current format | Safe GET export returns `version: 3`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level private connections, ordered model access targets, pricing templates, and profile-scoped `profile_settings` |
 | L15 | P0 | Config export with secrets | Dangerous POST export returns the full secret-bearing bundle and requires the dangerous-confirm header |
 | L16 | P0 | Config import current format | Preview and apply restore vendors, Ban Policy strategies, access targets, templates, connections, vendorless models, and settings into the target profile only |
 | L17 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
@@ -589,7 +589,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | M13 | P0 | Access target exists only in another profile | Target resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=3`, `bundle_kind=profile_config`, top-level standalone connections, ordered model access targets, and safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
+| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=3`, `bundle_kind=profile_config`, top-level private connections, ordered model access targets, and safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
 | M17 | P0 | Config import preview/apply binding | Apply only succeeds after preview returns a token and the same token is sent in `X-Prism-Preview-Token` |
 | M18 | P0 | Config import replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
 | M19 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |

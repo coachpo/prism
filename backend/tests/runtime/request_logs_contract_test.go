@@ -933,10 +933,7 @@ func TestRuntimeRequestLogUsesManagementNormalizedComponentPricingAsZero(t *test
 		t.Fatalf("expected management-created blank/null component prices to normalize to zero strings, got %+v", createdTemplate)
 	}
 
-	generation := harness.runtimeCache.PublishedGeneration()
-	assignResponse := harness.requestJSON(t, http.MethodPut, fmt.Sprintf("/api/connections/%d/pricing-template", route.ConnectionID), map[string]any{"pricing_template_id": pricingTemplateID}, runtimeModelHeader(profileID))
-	assertStatus(t, assignResponse, http.StatusOK)
-	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(
 		t,

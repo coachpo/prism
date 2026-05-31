@@ -23,11 +23,12 @@ type modelAccessTargetCreateRequest struct {
 }
 
 type modelAccessTargetUpdateRequest struct {
-	TargetType    optionalString `json:"target_type"`
-	TargetModelID optionalString `json:"target_model_id"`
-	ConnectionID  optionalInt    `json:"connection_id"`
-	Position      optionalInt    `json:"position"`
-	IsEnabled     optionalBool   `json:"is_enabled"`
+	TargetType         optionalString `json:"target_type"`
+	TargetModelID      optionalString `json:"target_model_id"`
+	ConnectionID       optionalInt    `json:"connection_id"`
+	TargetConnectionID optionalInt    `json:"target_connection_id"`
+	Position           optionalInt    `json:"position"`
+	IsEnabled          optionalBool   `json:"is_enabled"`
 }
 
 type modelAccessTargetMoveRequest struct {

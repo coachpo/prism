@@ -5,11 +5,13 @@ import type { Connection, HealthCheckResponse } from "@/lib/types";
 import { applyConnectionHealthChecks } from "./useModelDetailDataSupport";
 
 interface UseConnectionHealthChecksInput {
+  modelConfigId?: number;
   setConnections: Dispatch<SetStateAction<Connection[]>>;
   onSuccessfulChecks?: (connectionIds: number[]) => void | Promise<void>;
 }
 
 export function useConnectionHealthChecks({
+  modelConfigId,
   setConnections,
   onSuccessfulChecks,
 }: UseConnectionHealthChecksInput) {
@@ -17,10 +19,10 @@ export function useConnectionHealthChecks({
 
   const runHealthChecks = useCallback(
     async (connectionIds: number[]) => {
-      if (connectionIds.length === 0) {
+      if (connectionIds.length === 0 || !Number.isFinite(modelConfigId)) {
         return {
           successfulChecks: new Map<number, HealthCheckResponse>(),
-          failedCount: 0,
+          failedCount: connectionIds.length,
         };
       }
 
@@ -33,7 +35,7 @@ export function useConnectionHealthChecks({
       const results = await Promise.allSettled(
         connectionIds.map(async (connectionId) => ({
           connectionId,
-          response: await api.connections.healthCheck(connectionId),
+          response: await api.models.connections.healthCheck(modelConfigId as number, connectionId),
         }))
       );
 
@@ -64,7 +66,7 @@ export function useConnectionHealthChecks({
 
       return { successfulChecks, failedCount };
     },
-    [onSuccessfulChecks, setConnections]
+    [modelConfigId, onSuccessfulChecks, setConnections]
   );
 
   return {

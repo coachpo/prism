@@ -17,10 +17,10 @@ const { isProfileScopedManagementRoute } = load(
 test("profile scope helper keeps documented management routes scoped or global", () => {
   const scopedRoutes = [
     "/api/models",
-    "/api/models/14/connections/2/priority",
+    "/api/models/14/connections/2/health",
     "/api/loadbalance/strategies/defaults",
     "/api/endpoints/connections",
-    "/api/connections/12/owner",
+    "/api/connections/12/references",
     "/api/pricing-templates/7/connections",
     "/api/stats/requests?limit=20",
     "/api/audit/logs/9",

@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
 import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolicy";
-import type { Connection, LoadbalanceStrategy, ModelConfig, ModelConfigListItem, Vendor } from "@/lib/types";
+import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem, Vendor } from "@/lib/types";
 import { AccessTargetsEditor } from "../models/AccessTargetsEditor";
 import {
   setApiFamilyOnForm,
@@ -39,7 +39,6 @@ interface ModelSettingsDialogProps {
   isOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
   model: ModelConfig | null;
-  targetConnectionsForApiFamily: Connection[];
   targetEditorError: string | null;
   targetModelsForApiFamily: ModelConfigListItem[];
   onOpenChange: (open: boolean) => void;
@@ -54,7 +53,6 @@ export function ModelSettingsDialog({
   isOpen,
   loadbalanceStrategies,
   model,
-  targetConnectionsForApiFamily,
   targetEditorError,
   targetModelsForApiFamily,
   onOpenChange,
@@ -194,7 +192,6 @@ export function ModelSettingsDialog({
                   apiFamilyLabel={formData.api_family}
                   accessTargets={formData.access_targets}
                   modelOptions={targetModelsForApiFamily}
-                  connectionOptions={targetConnectionsForApiFamily}
                   error={targetEditorError}
                   onChange={(accessTargets) => setFormData((current) => ({ ...current, access_targets: accessTargets }))}
                 />

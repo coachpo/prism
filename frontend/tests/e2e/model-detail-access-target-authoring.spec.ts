@@ -42,12 +42,68 @@ function createAccessTarget(targetModelId: string, position: number, displayName
   };
 }
 
+function createEndpoint(id = 21) {
+  return {
+    id,
+    profile_id: 1,
+    name: "Reusable OpenAI Endpoint",
+    base_url: "https://api.openai.test/v1",
+    has_api_key: true,
+    masked_api_key: "sk-...test",
+    position: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
+function createConnection(id: number, ownerModelConfigId: number, endpoint: ReturnType<typeof createEndpoint>, name: string, priority: number) {
+  return {
+    id,
+    profile_id: 1,
+    model_config_id: ownerModelConfigId,
+    api_family: "openai",
+    endpoint_id: endpoint.id,
+    endpoint,
+    is_active: true,
+    priority,
+    name,
+    auth_type: null,
+    custom_headers: null,
+    openai_probe_endpoint_variant: "responses_minimal",
+    pricing_template_id: null,
+    qps_limit: null,
+    max_in_flight_non_stream: null,
+    max_in_flight_stream: null,
+    pricing_template: null,
+    health_status: "unknown",
+    health_detail: null,
+    last_health_check: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
+function createConnectionAccessTarget(connection: ReturnType<typeof createConnection>, position: number, isEnabled = true) {
+  return {
+    id: 800 + position,
+    target_type: "connection",
+    target_model_id: null,
+    connection_id: connection.id,
+    position,
+    is_enabled: isEnabled,
+    target_model: null,
+    connection,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
 function createModelListItem(
   id: number,
   modelId: string,
   displayName: string,
   apiFamily: "openai" | "anthropic",
-  accessTargets: ReturnType<typeof createAccessTarget>[] = [],
+  accessTargets: Array<ReturnType<typeof createAccessTarget> | ReturnType<typeof createConnectionAccessTarget>> = [],
   isEnabled = true,
 ) {
   return {
@@ -85,7 +141,7 @@ function createModelListItem(
 }
 
 function createAccessTargetModelDetail(
-  accessTargets: ReturnType<typeof createAccessTarget>[],
+  accessTargets: Array<ReturnType<typeof createAccessTarget> | ReturnType<typeof createConnectionAccessTarget>>,
   isEnabled = true,
 ) {
   return createModelListItem(modelConfigId, "routed-openai", "Routed OpenAI", "openai", accessTargets, isEnabled);
@@ -142,6 +198,7 @@ async function mockModelDetailRoutes(page: Page) {
     }
     if (pathname === "/api/settings/timezone") return fulfillJson({ timezone_preference: "UTC" });
     if (pathname === "/api/endpoints") return fulfillJson([]);
+    if (pathname === `/api/models/${modelConfigId}/connections`) return fulfillJson([]);
     if (pathname === "/api/connections") return fulfillJson([]);
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([
       {
@@ -238,6 +295,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
 
   const dialog = page.getByRole("dialog", { name: "Model Settings" });
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Add target" })).toHaveCount(1);
 
   await dialog.getByRole("button", { name: "Remove target 1" }).click();
@@ -265,9 +323,9 @@ test("model detail editing supports disabled targetless drafts and later enabled
 
   await page.getByRole("button", { name: /edit model/i }).click();
   await expect(dialog).toBeVisible();
-  await dialog.locator("#access-target-kind").click();
-  await page.getByRole("option", { name: "Model" }).click();
+  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
   await dialog.locator("#access-target-select").click();
+  await expect(page.getByRole("option", { name: /connection|standalone/i })).toHaveCount(0);
   await expect(page.getByRole("option", { name: /Target Alpha/ })).toBeVisible();
   await expect(page.getByRole("option", { name: /Target Beta/ })).toBeVisible();
   await expect(page.getByRole("option", { name: /Shadow OpenAI/ })).toBeVisible();
@@ -309,4 +367,200 @@ test("model detail editing supports disabled targetless drafts and later enabled
   await expect(page.getByRole("button", { name: "Add target" })).toHaveCount(1);
   await expect(accessTargetsEditor.getByText("Target Alpha")).toBeVisible();
   await expect(accessTargetsEditor.getByText("Priority 1")).toBeVisible();
+});
+
+async function mockPrivateConnectionRoutes(page: Page) {
+  const profile = createProfile();
+  const endpoint = createEndpoint();
+  const peerModelConfigId = 99;
+  let nextConnectionId = 303;
+  let ownerConnections = [
+    createConnection(301, modelConfigId, endpoint, "Owned primary", 0),
+    createConnection(302, modelConfigId, endpoint, "Owned secondary", 1),
+  ];
+  const peerConnection = createConnection(401, peerModelConfigId, endpoint, "Peer private", 2);
+  let currentAccessTargets = [
+    createConnectionAccessTarget(ownerConnections[0], 0),
+    createConnectionAccessTarget(ownerConnections[1], 1),
+    createConnectionAccessTarget(peerConnection, 2),
+  ];
+  const requests = {
+    creates: [] as unknown[],
+    updates: [] as unknown[],
+    targetPatches: [] as unknown[],
+    targetDeletes: [] as string[],
+    healthChecks: [] as string[],
+    publicMutations: [] as string[],
+  };
+
+  const sortedTargets = () => [...currentAccessTargets].sort((left, right) => left.position - right.position);
+
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    const method = request.method();
+
+    if (!pathname.startsWith("/api/")) return route.continue();
+
+    const fulfillJson = (body: unknown, status = 200) =>
+      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+
+    if (pathname === "/api/auth/status") return fulfillJson({ auth_enabled: false });
+    if (pathname === "/api/profiles/bootstrap") {
+      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
+    }
+    if (pathname === "/api/settings/costing") {
+      return fulfillJson({ report_currency_code: "USD", report_currency_symbol: "$", endpoint_fx_mappings: [], timezone_preference: null });
+    }
+    if (pathname === "/api/settings/timezone") return fulfillJson({ timezone_preference: "UTC" });
+    if (pathname === "/api/endpoints") return fulfillJson([endpoint]);
+    if (pathname === "/api/loadbalance/strategies") return fulfillJson([]);
+    if (pathname === "/api/pricing-templates") return fulfillJson([]);
+    if (pathname === "/api/vendors") return fulfillJson([]);
+    if (pathname === "/api/loadbalance/current-state") return fulfillJson({ items: [] });
+    if (pathname === "/api/stats/spending") return fulfillJson(createSpendingResponse());
+
+    if (pathname === "/api/models" && method === "GET") {
+      return fulfillJson([
+        createModelListItem(modelConfigId, "routed-openai", "Routed OpenAI", "openai", sortedTargets()),
+        createModelListItem(peerModelConfigId, "peer-openai", "Peer OpenAI", "openai", [createConnectionAccessTarget(peerConnection, 0)]),
+      ]);
+    }
+    if (pathname === `/api/models/${modelConfigId}` && method === "GET") {
+      return fulfillJson(createAccessTargetModelDetail(sortedTargets()));
+    }
+    if (pathname === `/api/models/${modelConfigId}/connections` && method === "GET") {
+      return fulfillJson(ownerConnections);
+    }
+    if (pathname === `/api/models/${modelConfigId}/connections` && method === "POST") {
+      const payload = request.postDataJSON() as { endpoint_id?: number; name?: string | null };
+      requests.creates.push({ path: pathname, payload });
+      const connection = createConnection(nextConnectionId++, modelConfigId, endpoint, payload.name ?? "Created private", ownerConnections.length);
+      ownerConnections = [...ownerConnections, connection];
+      currentAccessTargets = [...currentAccessTargets, createConnectionAccessTarget(connection, currentAccessTargets.length)];
+      return fulfillJson(connection);
+    }
+
+    const connectionMatch = pathname.match(new RegExp(`^/api/models/${modelConfigId}/connections/(\\d+)$`));
+    if (connectionMatch && method === "PATCH") {
+      const connectionId = Number.parseInt(connectionMatch[1], 10);
+      const payload = request.postDataJSON() as { name?: string; is_active?: boolean };
+      requests.updates.push({ path: pathname, payload });
+      ownerConnections = ownerConnections.map((connection) =>
+        connection.id === connectionId ? { ...connection, ...payload, updated_at: timestamp } : connection,
+      );
+      currentAccessTargets = currentAccessTargets.map((target) =>
+        target.connection_id === connectionId
+          ? { ...target, connection: ownerConnections.find((connection) => connection.id === connectionId) ?? target.connection }
+          : target,
+      );
+      return fulfillJson(ownerConnections.find((connection) => connection.id === connectionId));
+    }
+    if (pathname.match(new RegExp(`^/api/models/${modelConfigId}/connections/\\d+/health$`)) && method === "POST") {
+      requests.healthChecks.push(pathname);
+      return fulfillJson({ connection_id: 301, health_status: "healthy", checked_at: timestamp, detail: "Owner ok", response_time_ms: 42 });
+    }
+
+    if (pathname === `/api/models/${modelConfigId}/targets` && method === "GET") return fulfillJson(sortedTargets());
+    const targetMatch = pathname.match(new RegExp(`^/api/models/${modelConfigId}/targets/(\\d+)$`));
+    if (targetMatch && method === "PATCH") {
+      const targetId = Number.parseInt(targetMatch[1], 10);
+      const payload = request.postDataJSON() as { position?: number; is_enabled?: boolean };
+      requests.targetPatches.push({ path: pathname, payload });
+      currentAccessTargets = currentAccessTargets.map((target) =>
+        target.id === targetId ? { ...target, ...payload, updated_at: timestamp } : target,
+      );
+      if (typeof payload.position === "number") {
+        const moved = currentAccessTargets.find((target) => target.id === targetId);
+        currentAccessTargets = currentAccessTargets.filter((target) => target.id !== targetId);
+        if (moved) currentAccessTargets.splice(payload.position, 0, moved);
+        currentAccessTargets = currentAccessTargets.map((target, position) => ({ ...target, position }));
+      }
+      return fulfillJson(sortedTargets());
+    }
+
+    if (targetMatch && method === "DELETE") {
+      requests.targetDeletes.push(pathname);
+      const targetId = Number.parseInt(targetMatch[1], 10);
+      const connectionId = currentAccessTargets.find((target) => target.id === targetId)?.connection_id;
+      currentAccessTargets = currentAccessTargets.filter((target) => target.id !== targetId)
+        .map((target, position) => ({ ...target, position }));
+      ownerConnections = ownerConnections.filter((connection) => connection.id !== connectionId);
+      return fulfillJson(sortedTargets());
+    }
+    if (pathname.startsWith("/api/connections") && method !== "GET") {
+      requests.publicMutations.push(`${method} ${pathname}`);
+      return fulfillJson({ error: "public mutation route should not be used" }, 500);
+    }
+    if (pathname === "/api/connections" && method === "GET") return fulfillJson([]);
+
+    return fulfillJson({ error: `Unhandled ${method} ${pathname}` }, 500);
+  });
+
+  return { endpoint, requests };
+}
+
+test("private connection owner flows use model-scoped routes and hide cross-owner controls", async ({ page }) => {
+  const { endpoint, requests } = await mockPrivateConnectionRoutes(page);
+
+  await page.goto(`/models/${modelConfigId}`);
+  await expect(page.getByRole("heading", { name: "Routed OpenAI" })).toBeVisible();
+
+  const editor = page.getByTestId("access-targets-editor").first();
+  await expect(editor.getByText("Owned primary")).toBeVisible();
+  await expect(editor.getByText("Owned secondary")).toBeVisible();
+  await expect(editor.getByText("Connection 401")).toBeVisible();
+  await expect(editor.getByRole("button", { name: /Health Check Owned primary/ })).toBeVisible();
+  await expect(editor.getByRole("button", { name: /Health Check Connection 401/ })).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: /Edit Connection 401/ })).toHaveCount(0);
+  await expect(editor.getByRole("switch", { name: "Enable access target 3" })).toHaveCount(0);
+
+  await editor.getByRole("button", { name: "New connection" }).click();
+  await page.locator("#conn-selected-endpoint").click();
+  await page.getByRole("option", { name: /Reusable OpenAI Endpoint/ }).click();
+  await page.locator("#conn-name").fill("Owner-created connection");
+  await page.getByRole("button", { name: "Save Connection" }).click();
+  await expect.poll(() => requests.creates.length).toBe(1);
+  expect(requests.creates[0]).toMatchObject({
+    path: `/api/models/${modelConfigId}/connections`,
+    payload: { endpoint_id: endpoint.id, name: "Owner-created connection" },
+  });
+
+  await expect(editor.getByText("Owner-created connection")).toBeVisible();
+
+  await editor.getByRole("button", { name: /Edit Owned primary/ }).click();
+  await page.locator("#conn-name").fill("Owner renamed");
+  await page.getByRole("button", { name: "Save Connection" }).click();
+  await expect.poll(() => requests.updates.length).toBe(1);
+  expect(requests.updates[0]).toMatchObject({
+    path: `/api/models/${modelConfigId}/connections/301`,
+    payload: { endpoint_id: endpoint.id, name: "Owner renamed" },
+  });
+  await expect(editor.getByText("Owner renamed")).toBeVisible();
+
+  await editor.getByRole("button", { name: /Health Check Owner renamed/ }).click();
+  await expect.poll(() => requests.healthChecks.length).toBe(1);
+  expect(requests.healthChecks[0]).toBe(`/api/models/${modelConfigId}/connections/301/health`);
+
+  await editor.getByRole("switch", { name: "Enable access target 1" }).click();
+  await expect.poll(() => requests.targetPatches.length).toBe(1);
+  expect(requests.targetPatches[0]).toMatchObject({
+    path: `/api/models/${modelConfigId}/targets/800`,
+    payload: { is_enabled: false },
+  });
+
+  await editor.getByRole("button", { name: "Move target 1 down" }).click();
+  await expect.poll(() => requests.targetPatches.length).toBe(2);
+  expect(requests.targetPatches[1]).toMatchObject({
+    path: `/api/models/${modelConfigId}/targets/800`,
+    payload: { position: 1 },
+  });
+  const movedOwnerTarget = editor.getByTestId("access-target-connection:301");
+  await expect(movedOwnerTarget.getByText("Priority 2")).toBeVisible();
+
+  await movedOwnerTarget.getByRole("button", { name: "Remove target 2" }).click();
+  await expect.poll(() => requests.targetDeletes.length).toBe(1);
+  expect(requests.targetDeletes[0]).toBe(`/api/models/${modelConfigId}/targets/800`);
+  await expect(editor.getByText("Owner renamed")).toHaveCount(0);
+  expect(requests.publicMutations).toEqual([]);
 });

@@ -6,6 +6,7 @@ import type {
   Endpoint,
   EndpointCreate,
   HealthCheckResponse,
+  ModelAccessTarget,
   ModelConfig,
   ModelConfigListItem,
   PricingTemplate,
@@ -324,8 +325,60 @@ export function patchModelListItemFromDetail(
   });
 }
 
-export function getSameFamilyConnections(connections: Connection[], apiFamily: ApiFamily): Connection[] {
-  return connections.filter((connection) => connection.api_family === apiFamily);
+export function connectionBelongsToModel(
+  connection: Pick<Connection, "model_config_id"> | null | undefined,
+  modelConfigId: number | undefined,
+): boolean {
+  if (!connection || !Number.isFinite(modelConfigId)) {
+    return false;
+  }
+
+  return connection.model_config_id == null || connection.model_config_id === modelConfigId;
+}
+
+export function getOwnedConnectionTarget(
+  model: Pick<ModelConfig, "access_targets"> | null | undefined,
+  modelConfigId: number | undefined,
+  connectionId: number,
+): ModelAccessTarget | null {
+  if (!model || !Number.isFinite(modelConfigId)) {
+    return null;
+  }
+
+  const target = model.access_targets.find(
+    (candidate) => candidate.target_type === "connection" && candidate.connection_id === connectionId,
+  );
+
+  if (!target) {
+    return null;
+  }
+
+  return !target.connection || connectionBelongsToModel(target.connection, modelConfigId) ? target : null;
+}
+
+export function isOwnedConnectionTarget(
+  model: Pick<ModelConfig, "access_targets"> | null | undefined,
+  modelConfigId: number | undefined,
+  connectionId: number,
+): boolean {
+  return getOwnedConnectionTarget(model, modelConfigId, connectionId) !== null;
+}
+
+export function getSameFamilyConnections(
+  connections: Connection[],
+  apiFamily: ApiFamily,
+  modelConfigId?: number,
+): Connection[] {
+  return connections.filter(
+    (connection) => connection.api_family === apiFamily && connectionBelongsToModel(connection, modelConfigId),
+  );
+}
+
+export function getOwnedModelConnections(
+  model: Pick<ModelConfig, "access_targets">,
+  modelConfigId: number | undefined,
+): Connection[] {
+  return getModelConnections(model).filter((connection) => connectionBelongsToModel(connection, modelConfigId));
 }
 
 export function buildAccessTargetSummary(model: ModelConfig | null) {

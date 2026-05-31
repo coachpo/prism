@@ -81,8 +81,7 @@ func TestEndpointCRUD(t *testing.T) {
 	dependentTargetID := modelLoadConnectionTargetID(t, harness, modelConfigID, dependentConnectionID)
 	deleteTarget := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", modelConfigID, dependentTargetID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, deleteTarget, http.StatusOK)
-	deleteConnection := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/connections/%d", dependentConnectionID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, deleteConnection, http.StatusOK)
+	assertStoredConnectionCount(t, harness, dependentConnectionID, 0)
 	deleteDependent := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/endpoints/%d", dependentID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, deleteDependent, http.StatusOK)
 	var deletedPayload map[string]any
@@ -104,6 +103,45 @@ func TestEndpointCRUD(t *testing.T) {
 	if jsonInt(t, endpoints[1]["id"]) != spareID || jsonInt(t, endpoints[1]["position"]) != 1 {
 		t.Fatalf("expected later endpoints to compact after delete, got %+v", endpoints)
 	}
+}
+
+func TestEndpointDeletePreservesReusableEndpointSemantics(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Task 5 Endpoint Reuse Strategy")
+	firstOwnerID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-endpoint-owner-a", nil, "native", &strategyID, true)
+	secondOwnerID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-endpoint-owner-b", nil, "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Task 5 Reusable Endpoint", 0)
+	firstConnectionID := modelInsertConnection(t, harness, profileID, firstOwnerID, endpointID, 0, true, nil)
+	secondConnectionID := modelInsertConnection(t, harness, profileID, secondOwnerID, endpointID, 0, true, nil)
+
+	blockedDelete := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/endpoints/%d", endpointID), nil, modelHeader(profileID))
+	assertStatus(t, blockedDelete, http.StatusConflict)
+	var blockedPayload map[string]any
+	decodeJSONResponse(t, blockedDelete, &blockedPayload)
+	blockedConnections := asMap(t, blockedPayload["detail"])["connections"].([]any)
+	assertEndpointDeleteConflictConnection(t, blockedConnections, firstConnectionID, firstOwnerID, "task5-endpoint-owner-a")
+	assertEndpointDeleteConflictConnection(t, blockedConnections, secondConnectionID, secondOwnerID, "task5-endpoint-owner-b")
+
+	deleteFirstOwner := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d", firstOwnerID), nil, modelHeader(profileID))
+	assertStatus(t, deleteFirstOwner, http.StatusOK)
+	assertStoredConnectionCount(t, harness, firstConnectionID, 0)
+	stillBlocked := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/endpoints/%d", endpointID), nil, modelHeader(profileID))
+	assertStatus(t, stillBlocked, http.StatusConflict)
+	decodeJSONResponse(t, stillBlocked, &blockedPayload)
+	remainingConnections := asMap(t, blockedPayload["detail"])["connections"].([]any)
+	if len(remainingConnections) != 1 {
+		t.Fatalf("expected one remaining endpoint usage row, got %+v", blockedPayload)
+	}
+	assertEndpointDeleteConflictConnection(t, remainingConnections, secondConnectionID, secondOwnerID, "task5-endpoint-owner-b")
+
+	deleteSecondOwner := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d", secondOwnerID), nil, modelHeader(profileID))
+	assertStatus(t, deleteSecondOwner, http.StatusOK)
+	assertStoredConnectionCount(t, harness, secondConnectionID, 0)
+	deleteEndpoint := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/endpoints/%d", endpointID), nil, modelHeader(profileID))
+	assertStatus(t, deleteEndpoint, http.StatusOK)
+	assertEndpointCount(t, harness, endpointID, 0)
 }
 
 func TestEndpointDuplicate(t *testing.T) {
@@ -184,6 +222,21 @@ func TestEndpointConnections(t *testing.T) {
 	if jsonInt(t, asMap(t, items[1])["id"]) != secondConnectionID || jsonInt(t, asMap(t, items[1])["endpoint_id"]) != defaultEndpointID {
 		t.Fatalf("expected dropdown items ordered by connection id, got %+v", helperPayload)
 	}
+}
+
+func assertEndpointDeleteConflictConnection(t *testing.T, connections []any, connectionID int, modelConfigID int, modelID string) {
+	t.Helper()
+	for _, raw := range connections {
+		item := asMap(t, raw)
+		if jsonInt(t, item["connection_id"]) != connectionID {
+			continue
+		}
+		if jsonInt(t, item["model_config_id"]) != modelConfigID || item["model_id"] != modelID {
+			t.Fatalf("unexpected endpoint delete usage for connection %d: %+v", connectionID, item)
+		}
+		return
+	}
+	t.Fatalf("expected endpoint delete conflict to include connection %d, got %+v", connectionID, connections)
 }
 
 func newEndpointConnectionContractHarness(t *testing.T) *contractHarness {

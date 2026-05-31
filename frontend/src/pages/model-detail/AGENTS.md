@@ -1,7 +1,7 @@
 # FRONTEND MODEL DETAIL DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/model-detail/` owns the heavy route logic behind `../ModelDetailPage.tsx`: bootstrap and redirect handling, family-aware strategy summary display, ordered access-target summary/editing for same-family model or standalone connection targets, connection mutation flows, manual health checks, model spending summaries, model-scoped loadbalance events, current Ban Policy retry-window state, the OpenAI probe helper split in `connectionProbeBehavior.ts`, and the parent-covered `connections-list/` UI cluster.
+`pages/model-detail/` owns the heavy route logic behind `../ModelDetailPage.tsx`: bootstrap and redirect handling, family-aware strategy summary display, ordered access-target summary/editing for same-family model targets and owned private connection targets, owner-scoped connection mutation flows, manual health checks, model spending summaries, model-scoped loadbalance events, current Ban Policy retry-window state, the OpenAI probe helper split in `connectionProbeBehavior.ts`, and the parent-covered `connections-list/` UI cluster.
 
 ## STRUCTURE
 ```

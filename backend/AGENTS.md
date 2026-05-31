@@ -35,11 +35,11 @@ backend/
 - `internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and retention-job endpoints.
 - `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
 - `internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registrations, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
-- `internal/httpapi/management/connections/AGENTS.md`: selected-profile standalone connection CRUD, model access-target attachment routes, health checks, and pricing templates.
+- `internal/httpapi/management/connections/AGENTS.md`: selected-profile connection reads/references, owner-scoped model-private connection routes, health checks, and pricing templates.
 - `internal/httpapi/management/configrules/AGENTS.md`: selected-profile header-blocklist and user-agent/client mapping rules under `/api/config/*`.
 - `internal/httpapi/management/endpoints/AGENTS.md`: selected-profile endpoint CRUD, encrypted API keys, ordering, and connection dropdown support.
 - `internal/httpapi/management/loadbalance/AGENTS.md`: selected-profile load-balance strategy CRUD, canonical defaults, current state, and event reads.
-- `internal/httpapi/management/models/AGENTS.md`: selected-profile unified model CRUD, ordered access targets, standalone connection references, and endpoint model lookups.
+- `internal/httpapi/management/models/AGENTS.md`: selected-profile unified model CRUD, public model-target authoring, private connection target preservation, and endpoint model lookups.
 - `internal/httpapi/management/profiles/AGENTS.md`: profile lifecycle, active/bootstrap state, activation checks, and soft deletion.
 - `internal/httpapi/management/stats/AGENTS.md`: selected-profile observability reads, request logs, dashboard snapshots, metrics, and invalidation.
 - `internal/httpapi/management/vendors/AGENTS.md`: global vendor catalog CRUD, presentation metadata, audit preferences, and model usage lookup.

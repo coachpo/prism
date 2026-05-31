@@ -80,7 +80,7 @@ func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 		if err != nil {
 			return profileImportPreviewResponse{}, err
 		}
-		preview, previewErr := s.previewProfileImport(r.Context(), tx, requestBody)
+		preview, previewErr := s.previewProfileImport(r.Context(), tx, profile.ID, requestBody)
 		if previewErr != nil {
 			preview = buildProfilePreviewErrorResponse(requestBody, previewErrorDetail(previewErr))
 		}

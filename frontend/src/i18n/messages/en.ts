@@ -1593,17 +1593,13 @@ export interface Messages {
     noAccessTargetsSelected: string;
     noModelsMatchSearch: string;
     noModelsConfigured: string;
-    noSameFamilyConnectionsAvailable: string;
     noSameFamilyModelsAvailable: string;
     optionalFriendlyName: string;
     priority: (value: string) => string;
     routingTypeDescription: string;
     save: string;
-    selectSameFamilyConnection: string;
     selectSameFamilyModel: string;
     strategyNotConfigured: string;
-    targetKindConnection: string;
-    targetKindModel: string;
     targetMoveDown: (id: string) => string;
     targetMoveUp: (id: string) => string;
     targetRemove: (id: string) => string;
@@ -3795,12 +3791,12 @@ export const enMessages: Messages = {
   },
   modelsUi: {
     accessTargets: "Access targets",
-    accessTargetsDescription: "Select same-family models or standalone connections. Prism tries enabled rows in this order using the selected legacy strategy.",
+    accessTargetsDescription: "Select same-family model targets. Private connection targets stay visible here but are created and managed from the model detail connection controls.",
     addTarget: "Add target",
     connectionTarget: "Connection target",
     currentApiFamily: (apiFamily) => `Current API family: ${apiFamily}`,
     deleteModel: "Delete Model",
-    deleteModelDescription: (name) => `Are you sure you want to delete "${name}"? This will also delete all associated endpoints.`,
+    deleteModelDescription: (name) => `Are you sure you want to delete "${name}"? This will also remove its owned private connections. Endpoints remain reusable.`,
     displayNameOptional: "Display Name",
     editModel: "Edit Model",
     editModelEnabledDescription: "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments.",
@@ -3810,21 +3806,17 @@ export const enMessages: Messages = {
     modelTarget: "Model target",
     needsTarget: "Needs target",
     newConnection: "New connection",
-    newModelEnabledDescription: "New models start disabled so you can save a draft now and attach access targets later. Enabled saves require at least one enabled target.",
-    noAccessTargetsSelected: "No access targets selected. This model can be saved disabled and have a target attached later. Enabled saves still require at least one enabled target.",
+    newModelEnabledDescription: "New models start disabled so you can save a draft now and attach model targets later. Enabled saves require at least one enabled target.",
+    noAccessTargetsSelected: "No model targets selected. Save disabled now, or add a same-family model target before enabling.",
     noModelsMatchSearch: "No models match search",
     noModelsConfigured: "No models configured",
-    noSameFamilyConnectionsAvailable: "No unattached same-family standalone connections are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.",
-    noSameFamilyModelsAvailable: "No other same-family models are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.",
+    noSameFamilyModelsAvailable: "No other same-family models are available. Save disabled now, or add a model target later before enabling.",
     optionalFriendlyName: "Optional friendly name",
     priority: (value) => `Priority ${value}`,
     routingTypeDescription: "Turn this model on or off",
     save: "Save",
-    selectSameFamilyConnection: "Select same-family connection",
     selectSameFamilyModel: "Select same-family model",
     strategyNotConfigured: "Strategy not configured",
-    targetKindConnection: "Connection",
-    targetKindModel: "Model",
     targetMoveDown: (id) => `Move target ${id} down`,
     targetMoveUp: (id) => `Move target ${id} up`,
     targetRemove: (id) => `Remove target ${id}`,

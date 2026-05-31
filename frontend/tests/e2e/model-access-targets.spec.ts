@@ -1,99 +1,158 @@
-import { expect, test } from "@playwright/test";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { expect, test, type Page } from "@playwright/test";
 
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(currentDir, "../../..");
-const readSource = (path: string) => readFileSync(resolve(repoRoot, path), "utf8");
+const timestamp = "2026-04-29T12:00:00Z";
+const staleConnectionTargetMessage = "connection access targets are managed through model-scoped connection routes";
 
-test("model access targets create edit reorder", async () => {
-  const appSource = readSource("frontend/src/App.tsx");
-  const modelDialogSource = readSource("frontend/src/pages/models/ModelDialog.tsx");
-  const detailSource = readSource("frontend/src/pages/ModelDetailPage.tsx");
-  const settingsSource = readSource("frontend/src/pages/model-detail/ModelSettingsDialog.tsx");
+function createProfile() {
+  return {
+    id: 1,
+    name: "Default",
+    description: null,
+    is_active: true,
+    is_default: true,
+    is_editable: true,
+    version: 1,
+    created_at: timestamp,
+    deleted_at: null,
+    updated_at: timestamp,
+  };
+}
 
-  expect(appSource).toContain('path="/models/:id"');
-  expect(appSource).not.toContain('/models/:id/proxy');
-  expect(existsSync(resolve(repoRoot, "frontend/src/pages/ProxyModelDetailPage.tsx"))).toBe(false);
-  expect(modelDialogSource).toContain("AccessTargetsEditor");
-  expect(settingsSource).toContain("AccessTargetsEditor");
-  expect(detailSource).toContain("AccessTargetsEditor");
-  expect(modelDialogSource).not.toContain("model_type");
-  expect(modelDialogSource).not.toContain("setModelType");
-});
+function createStrategy() {
+  return {
+    id: 11,
+    profile_id: 1,
+    name: "Default fill-first routing",
+    legacy_strategy_type: "fill-first",
+    failure_status_codes: [429, 500],
+    ban_mode: "off",
+    retry_base_delay_ms: 1000,
+    retry_backoff_multiplier: 2,
+    retry_jitter_ratio: 0.2,
+    retry_max_delay_ms: 8000,
+    cycle_retry_attempt_limit: 3,
+    ban_cumulative_retry_attempt_threshold: 0,
+    ban_duration_seconds: 0,
+    attached_model_count: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
 
-test("model access targets invalid target", async () => {
-  const apiSource = readSource("frontend/src/lib/api/management.ts");
-  const formSource = readSource("frontend/src/pages/models/modelFormState.ts");
-  const editorSource = readSource("frontend/src/pages/models/AccessTargetsEditor.tsx");
+function createModelListItem(id: number, modelId: string, displayName: string) {
+  return {
+    id,
+    profile_id: 1,
+    vendor_id: null,
+    vendor: null,
+    api_family: "openai",
+    model_id: modelId,
+    display_name: displayName,
+    loadbalance_strategy_id: 11,
+    loadbalance_strategy: createStrategy(),
+    access_targets: [],
+    is_enabled: true,
+    connection_count: 0,
+    active_connection_count: 0,
+    health_success_rate: null,
+    health_total_requests: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
 
-  expect(apiSource).toContain("/api/models/${modelConfigId}/targets");
-  expect(apiSource).toContain("/api/connections");
-  expect(apiSource).not.toContain("/api/models/${modelConfigId}/connections");
-  expect(apiSource).not.toContain("health-check-preview");
-  expect(formSource).toContain("getAccessTargetOptionKeys");
-  expect(editorSource).toContain('data-testid="access-targets-error"');
-});
+async function mockStaleConnectionTargetRoutes(page: Page) {
+  const profile = createProfile();
+  const stalePayloads: unknown[] = [];
+  const standaloneConnectionRequests: string[] = [];
 
-test("model target i18n copy stays in locale catalogs", async () => {
-  const modelDialogSource = readSource("frontend/src/pages/models/ModelDialog.tsx");
-  const modelsPageDataSource = readSource("frontend/src/pages/models/useModelsPageData.ts");
-  const detailFormSource = readSource("frontend/src/pages/model-detail/useModelDetailModelForm.ts");
-  const accessTargetsEditorSource = readSource("frontend/src/pages/models/AccessTargetsEditor.tsx");
-  const modelsTableSource = readSource("frontend/src/pages/models/ModelsTable.tsx");
-  const overviewCardsSource = readSource("frontend/src/pages/model-detail/OverviewCards.tsx");
-  const enMessagesSource = readSource("frontend/src/i18n/messages/en.ts");
-  const zhMessagesSource = readSource("frontend/src/i18n/messages/zh-CN.ts");
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    const method = request.method();
 
-  expect(modelDialogSource).not.toContain("Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments.");
-  expect(modelDialogSource).not.toContain("New models start disabled so you can save a draft now and attach access targets later. Enabled saves require at least one enabled target.");
-  expect(modelsPageDataSource).not.toContain("Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.");
-  expect(detailFormSource).not.toContain("Add at least one enabled same-family access target before saving an enabled model.");
-  expect(accessTargetsEditorSource).not.toContain('>Access targets<');
-  expect(accessTargetsEditorSource).not.toContain("Select same-family models or standalone connections. Prism tries enabled rows in this order using the selected legacy strategy.");
-  expect(accessTargetsEditorSource).not.toContain("Current API family:");
-  expect(accessTargetsEditorSource).not.toContain("New connection");
-  expect(accessTargetsEditorSource).not.toContain("Model target");
-  expect(accessTargetsEditorSource).not.toContain("Connection target");
-  expect(accessTargetsEditorSource).not.toContain("Select same-family model");
-  expect(accessTargetsEditorSource).not.toContain("Select same-family connection");
-  expect(accessTargetsEditorSource).not.toContain("No access targets selected. This model can be saved disabled and have a target attached later. Enabled saves still require at least one enabled target.");
-  expect(accessTargetsEditorSource).not.toContain("No unattached same-family standalone connections are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.");
-  expect(accessTargetsEditorSource).not.toContain("No other same-family models are available. This model can be saved disabled and have a target attached later; enabled saves still require a target.");
-  expect(modelsTableSource).not.toContain("Needs target");
-  expect(overviewCardsSource).not.toContain("Needs target");
-  expect(overviewCardsSource).not.toContain(">Access targets<");
+    if (!pathname.startsWith("/api/")) {
+      return route.continue();
+    }
 
-  expect(enMessagesSource).toContain("accessTargets:");
-  expect(enMessagesSource).toContain("accessTargetsDescription:");
-  expect(enMessagesSource).toContain("currentApiFamily:");
-  expect(enMessagesSource).toContain("newConnection:");
-  expect(enMessagesSource).toContain("modelTarget:");
-  expect(enMessagesSource).toContain("connectionTarget:");
-  expect(enMessagesSource).toContain("selectSameFamilyModel:");
-  expect(enMessagesSource).toContain("selectSameFamilyConnection:");
-  expect(enMessagesSource).toContain("noAccessTargetsSelected:");
-  expect(enMessagesSource).toContain("noSameFamilyConnectionsAvailable:");
-  expect(enMessagesSource).toContain("noSameFamilyModelsAvailable:");
-  expect(enMessagesSource).toContain("needsTarget:");
-  expect(enMessagesSource).toContain("newModelEnabledDescription:");
-  expect(enMessagesSource).toContain("editModelEnabledDescription:");
-  expect(enMessagesSource).toContain("enabledAccessTargetRequired:");
+    const fulfillJson = (body: unknown, status = 200) =>
+      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
-  expect(zhMessagesSource).toContain("accessTargets:");
-  expect(zhMessagesSource).toContain("accessTargetsDescription:");
-  expect(zhMessagesSource).toContain("currentApiFamily:");
-  expect(zhMessagesSource).toContain("newConnection:");
-  expect(zhMessagesSource).toContain("modelTarget:");
-  expect(zhMessagesSource).toContain("connectionTarget:");
-  expect(zhMessagesSource).toContain("selectSameFamilyModel:");
-  expect(zhMessagesSource).toContain("selectSameFamilyConnection:");
-  expect(zhMessagesSource).toContain("noAccessTargetsSelected:");
-  expect(zhMessagesSource).toContain("noSameFamilyConnectionsAvailable:");
-  expect(zhMessagesSource).toContain("noSameFamilyModelsAvailable:");
-  expect(zhMessagesSource).toContain("needsTarget:");
-  expect(zhMessagesSource).toContain("newModelEnabledDescription:");
-  expect(zhMessagesSource).toContain("editModelEnabledDescription:");
-  expect(zhMessagesSource).toContain("enabledAccessTargetRequired:");
+    if (pathname === "/api/auth/status") return fulfillJson({ auth_enabled: false });
+    if (pathname === "/api/profiles/bootstrap") {
+      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
+    }
+    if (pathname === "/api/settings/costing") {
+      return fulfillJson({ report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], timezone_preference: null });
+    }
+    if (pathname === "/api/models" && method === "GET") {
+      return fulfillJson([
+        createModelListItem(1, "target-alpha", "Target Alpha"),
+        createModelListItem(2, "target-beta", "Target Beta"),
+      ]);
+    }
+    if (pathname === "/api/vendors") return fulfillJson([]);
+    if (pathname === "/api/loadbalance/strategies") return fulfillJson([createStrategy()]);
+    if (pathname === "/api/stats/models/metrics") return fulfillJson({ items: [] });
+    if (pathname === "/api/endpoints/connections") return fulfillJson({ items: [] });
+    if (pathname === "/api/connections") {
+      standaloneConnectionRequests.push(`${method} ${pathname}`);
+      return fulfillJson([]);
+    }
+    if (pathname === "/api/models" && method === "POST") {
+      const payload = request.postDataJSON() as { access_targets?: unknown[] };
+      const stalePayload = {
+        ...payload,
+        access_targets: [
+          ...(payload.access_targets ?? []),
+          { target_type: "connection", connection_id: 77, position: payload.access_targets?.length ?? 0, is_enabled: true },
+        ],
+      };
+      stalePayloads.push(stalePayload);
+      return fulfillJson({ detail: staleConnectionTargetMessage }, 400);
+    }
+
+    return fulfillJson({ detail: `Unhandled ${method} ${pathname}` }, 500);
+  });
+
+  await page.addInitScript(() => {
+    localStorage.setItem("prism.locale", "en");
+  });
+
+  return {
+    getStalePayloads: () => stalePayloads,
+    getStandaloneConnectionRequests: () => standaloneConnectionRequests,
+  };
+}
+
+test("stale connection target payload is rejected and surfaced in the model create dialog", async ({ page }) => {
+  const routes = await mockStaleConnectionTargetRoutes(page);
+
+  await page.goto("/models");
+  await page.getByRole("button", { name: "New Model" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "New Model" });
+  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Model ID" }).fill("stale-connection-target");
+
+  await dialog.locator("#access-target-select").click();
+  await expect(page.getByRole("option", { name: /connection|standalone/i })).toHaveCount(0);
+  await page.getByRole("option", { name: /Target Alpha/ }).click();
+  await dialog.getByRole("button", { name: "Add target" }).click();
+  await expect(dialog.getByTestId("access-target-model:target-alpha")).toContainText("Target Alpha");
+
+  await dialog.locator('[data-slot="switch"]').last().click();
+  await dialog.getByRole("button", { name: "Save" }).click();
+
+  await expect(dialog.getByTestId("access-targets-error")).toContainText(staleConnectionTargetMessage);
+  await expect(page.getByText(staleConnectionTargetMessage).last()).toBeVisible();
+  expect(routes.getStandaloneConnectionRequests()).toEqual([]);
+  expect(routes.getStalePayloads()).toHaveLength(1);
+  expect(routes.getStalePayloads()[0]).toMatchObject({
+    access_targets: [
+      { target_type: "model", target_model_id: "target-alpha", position: 0, is_enabled: true },
+      { target_type: "connection", connection_id: 77, position: 1, is_enabled: true },
+    ],
+  });
+  await expect(dialog.getByTestId("access-target-connection:77")).toHaveCount(0);
 });

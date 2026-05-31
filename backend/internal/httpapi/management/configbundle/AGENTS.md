@@ -26,7 +26,7 @@ configbundle/
 
 ## CONVENTIONS
 - Keep profile bundle and vendor catalog flows separate from startup bootstrap config and from log-retention or sidecar ownership.
-- Keep profile bundles on the v3 contract with top-level standalone connections, ordered model access targets, and explicit Ban Policy fields: `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and `ban_mode` values `off`, `temporary`, or `until_reset`.
+- Keep profile bundles on the v3 contract with top-level private connections, exactly-one-owner connection refs in ordered model access targets, and explicit Ban Policy fields: `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and `ban_mode` values `off`, `temporary`, or `until_reset`.
 - Keep preview-before-import semantics explicit; validated imports should require the preview token path that the backend issued for that exact bundle fingerprint.
 - Keep bundle-secret handling explicit and transactional; do not bury encryption/decryption in page code or shared settings helpers.
 - Keep effective-profile resolution and after-import hooks inside this package.

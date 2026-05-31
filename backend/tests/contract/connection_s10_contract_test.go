@@ -56,7 +56,7 @@ func TestConnectionHealthChecks(t *testing.T) {
 	endpointID := insertContractEndpointWithBaseURL(t, harness, defaultProfileID, "Health Check Endpoint", upstream.server.URL, "health-policy-endpoint-key", 0)
 	connectionID := insertContractConnectionWithState(t, harness, defaultProfileID, modelConfigID, endpointID, nil, 0, true, map[string]string{"X-Allow-Smoke": "still-here", "X-Correlation-ID": "blocked-after-merge"}, nil, "unknown", nil, nil)
 
-	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/connections/%d/health-check", connectionID), nil, modelHeader(defaultProfileID))
+	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections/%d/health", modelConfigID, connectionID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
@@ -106,11 +106,15 @@ func TestConnectionHealthCheckRequiresAttachedTarget(t *testing.T) {
 	checkedAt := time.Date(2026, time.April, 19, 15, 0, 0, 0, time.UTC)
 	harness := newConnectionHealthContractHarness(t, upstream, checkedAt)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S10 Unattached Health Strategy")
+	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s10-unattached-health-model", nil, "native", &strategyID, true)
 	endpointID := insertContractEndpointWithBaseURL(t, harness, defaultProfileID, "Unattached Health Endpoint", upstream.server.URL, "unattached-health-key", 0)
 	connectionID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", endpointID, 0, true, nil)
 
-	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/connections/%d/health-check", connectionID), nil, modelHeader(defaultProfileID))
-	assertErrorResponse(t, response, http.StatusConflict, "Connection must be attached to a model target before health check")
+	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections/%d/health", modelConfigID, connectionID), nil, modelHeader(defaultProfileID))
+	assertErrorResponse(t, response, http.StatusNotFound, "Connection not found")
+	assertStoredConnectionCount(t, harness, connectionID, 1)
 }
 
 func TestConnectionPricingTemplates(t *testing.T) {
@@ -126,7 +130,7 @@ func TestConnectionPricingTemplates(t *testing.T) {
 	pricingTemplateID := insertContractPricingTemplate(t, harness, defaultProfileID, "S10 Assigned Template")
 	otherProfileTemplateID := insertContractPricingTemplate(t, harness, otherProfileID, "S10 Other Profile Template")
 
-	assignResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/connections/%d/pricing-template", connectionID), map[string]any{"pricing_template_id": pricingTemplateID}, modelHeader(defaultProfileID))
+	assignResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", modelConfigID, connectionID), map[string]any{"pricing_template_id": pricingTemplateID}, modelHeader(defaultProfileID))
 	assertStatus(t, assignResponse, http.StatusOK)
 	var assignedPayload map[string]any
 	decodeJSONResponse(t, assignResponse, &assignedPayload)
@@ -134,7 +138,7 @@ func TestConnectionPricingTemplates(t *testing.T) {
 		t.Fatalf("expected pricing template assignment payload, got %+v", assignedPayload)
 	}
 
-	clearResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/connections/%d/pricing-template", connectionID), map[string]any{"pricing_template_id": nil}, modelHeader(defaultProfileID))
+	clearResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", modelConfigID, connectionID), map[string]any{"pricing_template_id": nil}, modelHeader(defaultProfileID))
 	assertStatus(t, clearResponse, http.StatusOK)
 	var clearedPayload map[string]any
 	decodeJSONResponse(t, clearResponse, &clearedPayload)
@@ -142,7 +146,7 @@ func TestConnectionPricingTemplates(t *testing.T) {
 		t.Fatalf("expected clear pricing template assignment payload, got %+v", clearedPayload)
 	}
 
-	wrongProfileResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/connections/%d/pricing-template", connectionID), map[string]any{"pricing_template_id": otherProfileTemplateID}, modelHeader(defaultProfileID))
+	wrongProfileResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", modelConfigID, connectionID), map[string]any{"pricing_template_id": otherProfileTemplateID}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, wrongProfileResponse, http.StatusNotFound, "Pricing template not found")
 }
 

@@ -1,10 +1,7 @@
 import type {
   Connection,
-  ConnectionCreate,
   ConnectionDropdownResponse,
-  ConnectionOwnerResponse,
-  ConnectionPricingTemplateUpdate,
-  ConnectionUpdate,
+  ConnectionReferencesResponse,
   Endpoint,
   EndpointCreate,
   EndpointModelsBatchParams,
@@ -26,6 +23,8 @@ import type {
   ModelAccessTarget,
   ModelAccessTargetCreate,
   ModelAccessTargetUpdate,
+  ModelConnectionCreate,
+  ModelConnectionUpdate,
   PricingTemplate,
   PricingTemplateConnectionsResponse,
   PricingTemplateCreate,
@@ -320,16 +319,35 @@ export const models = {
       }),
     update: (modelConfigId: number, targetId: number, data: ModelAccessTargetUpdate) =>
       request<ModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
-        method: "PUT",
+        method: "PATCH",
         body: JSON.stringify(data),
       }),
     movePosition: (modelConfigId: number, targetId: number, toIndex: number) =>
-      request<ModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}/position`, {
+      request<ModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
         method: "PATCH",
-        body: JSON.stringify({ to_index: toIndex }),
+        body: JSON.stringify({ position: toIndex }),
       }),
     delete: (modelConfigId: number, targetId: number) =>
       request<ModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, { method: "DELETE" }),
+  },
+  connections: {
+    list: (modelConfigId: number) => request<Connection[]>(`/api/models/${modelConfigId}/connections`),
+    create: (modelConfigId: number, data: ModelConnectionCreate) =>
+      request<Connection>(`/api/models/${modelConfigId}/connections`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (modelConfigId: number, connectionId: number, data: ModelConnectionUpdate) =>
+      request<Connection>(`/api/models/${modelConfigId}/connections/${connectionId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (modelConfigId: number, connectionId: number) =>
+      request<void>(`/api/models/${modelConfigId}/connections/${connectionId}`, { method: "DELETE" }),
+    healthCheck: (modelConfigId: number, connectionId: number) =>
+      request<HealthCheckResponse>(`/api/models/${modelConfigId}/connections/${connectionId}/health`, {
+        method: "POST",
+      }),
   },
 };
 
@@ -394,27 +412,9 @@ export const endpoints = {
 
 export const connections = {
   list: () => request<Connection[]>("/api/connections"),
-  create: (data: ConnectionCreate) =>
-    request<Connection>("/api/connections", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  update: (id: number, data: ConnectionUpdate) =>
-    request<Connection>(`/api/connections/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
-  delete: (id: number) => request<void>(`/api/connections/${id}`, { method: "DELETE" }),
-  healthCheck: (id: number) =>
-    request<HealthCheckResponse>(`/api/connections/${id}/health-check`, {
-      method: "POST",
-    }),
-  owner: (id: number) => request<ConnectionOwnerResponse>(`/api/connections/${id}/owner`),
-  setPricingTemplate: (id: number, data: ConnectionPricingTemplateUpdate) =>
-    request<Connection>(`/api/connections/${id}/pricing-template`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
+  get: (id: number) => request<Connection>(`/api/connections/${id}`),
+  references: (id: number) =>
+    request<ConnectionReferencesResponse>(`/api/connections/${id}/references`),
 };
 
 export const pricingTemplates = {

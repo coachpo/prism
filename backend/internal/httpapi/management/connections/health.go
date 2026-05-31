@@ -77,13 +77,22 @@ var healthCheckAuthConfigs = map[string]apiFamilyAuthConfig{
 }
 
 func (s *Service) handleConnectionHealthCheck(w http.ResponseWriter, r *http.Request) {
+	s.writeConnectionMutationRouteError(w, r)
+}
+
+func (s *Service) handleModelConnectionHealthCheck(w http.ResponseWriter, r *http.Request) {
+	modelConfigID, err := routeInt(r, "model_config_id")
+	if err != nil {
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		return
+	}
 	connectionID, err := routeInt(r, "connection_id")
 	if err != nil {
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	value, err, _ := s.persistedHealthChecks.Do(fmt.Sprintf("connection:%d", connectionID), func() (any, error) {
-		return s.runPersistedConnectionHealthCheck(r.Context(), r, connectionID)
+	value, err, _ := s.persistedHealthChecks.Do(fmt.Sprintf("model-connection:%d:%d", modelConfigID, connectionID), func() (any, error) {
+		return s.runPersistedModelConnectionHealthCheck(r.Context(), r, modelConfigID, connectionID)
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -125,6 +134,85 @@ func (s *Service) runPersistedConnectionHealthCheck(ctx context.Context, r *http
 		Detail:         result.Detail,
 		ResponseTimeMS: result.ResponseTimeMS,
 	}, nil
+}
+
+func (s *Service) runPersistedModelConnectionHealthCheck(ctx context.Context, r *http.Request, modelConfigID int, connectionID int) (healthCheckResponse, error) {
+	probeInput, err := pgxutil.InTxValue(ctx, s.pool, "connection", func(tx pgx.Tx) (connectionHealthProbeInput, error) {
+		return s.loadPersistedModelConnectionHealthProbeInput(ctx, tx, r, modelConfigID, connectionID)
+	})
+	if err != nil {
+		return healthCheckResponse{}, err
+	}
+	if probeInput.WritebackExpectedUpdatedAt == nil {
+		return healthCheckResponse{}, fmt.Errorf("persisted health check missing writeback token")
+	}
+	checkedAt := s.nowUTC()
+	result, err := s.probeConnectionHealth(ctx, probeInput)
+	if err != nil {
+		return healthCheckResponse{}, err
+	}
+	_, err = pgxutil.InTxValue(ctx, s.pool, "connection", func(tx pgx.Tx) (bool, error) {
+		return updateConnectionHealthCheckIfUnchanged(ctx, tx, probeInput.ConnectionID, *probeInput.WritebackExpectedUpdatedAt, result.HealthStatus, stringPtr(result.Detail), checkedAt)
+	})
+	if err != nil {
+		return healthCheckResponse{}, err
+	}
+	return healthCheckResponse{
+		ConnectionID:   probeInput.ConnectionID,
+		HealthStatus:   result.HealthStatus,
+		CheckedAt:      checkedAt,
+		Detail:         result.Detail,
+		ResponseTimeMS: result.ResponseTimeMS,
+	}, nil
+}
+
+func (s *Service) loadPersistedModelConnectionHealthProbeInput(ctx context.Context, tx pgx.Tx, r *http.Request, modelConfigID int, connectionID int) (connectionHealthProbeInput, error) {
+	profile, err := resolveEffectiveProfile(ctx, tx, r)
+	if err != nil {
+		return connectionHealthProbeInput{}, err
+	}
+	owner, found, err := loadModelRecord(ctx, tx, profile.ID, modelConfigID, false)
+	if err != nil {
+		return connectionHealthProbeInput{}, err
+	}
+	if !found {
+		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
+	}
+	current, found, err := loadConnectionRecord(ctx, tx, profile.ID, connectionID, true)
+	if err != nil {
+		return connectionHealthProbeInput{}, err
+	}
+	if !found {
+		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
+	}
+	reference, found, err := loadConnectionOwnerReference(ctx, tx, profile.ID, owner.ID, current.ID, false)
+	if err != nil {
+		return connectionHealthProbeInput{}, err
+	}
+	if !found {
+		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found for owner model"}
+	}
+	if current.APIFamily != owner.APIFamily {
+		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection api_family must match owner model api_family"}
+	}
+	endpoint, found, err := loadProfileEndpointRecord(ctx, tx, profile.ID, current.EndpointID)
+	if err != nil {
+		return connectionHealthProbeInput{}, err
+	}
+	if !found {
+		return connectionHealthProbeInput{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Connection endpoint is missing"}
+	}
+	updatedAt := current.UpdatedAt
+	return s.buildConnectionHealthProbeInput(ctx, tx, profile.ID, connectionHealthProbeReadModel{
+		ConnectionID:               current.ID,
+		AuthType:                   current.AuthType,
+		CustomHeaders:              current.CustomHeaders,
+		Endpoint:                   endpoint,
+		APIFamily:                  current.APIFamily,
+		ModelID:                    reference.ModelID,
+		OpenAIProbeEndpointVariant: current.OpenAIProbeEndpointVariant,
+		WritebackExpectedUpdatedAt: &updatedAt,
+	})
 }
 
 func (s *Service) loadPersistedConnectionHealthProbeInput(ctx context.Context, tx pgx.Tx, r *http.Request, connectionID int) (connectionHealthProbeInput, error) {

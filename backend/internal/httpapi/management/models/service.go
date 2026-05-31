@@ -78,6 +78,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Get("/models/{model_config_id}/targets", s.handleListModelTargets)
 	api.Post("/models/{model_config_id}/targets", s.handleCreateModelTarget)
 	api.Put("/models/{model_config_id}/targets/{target_id}", s.handleUpdateModelTarget)
+	api.Patch("/models/{model_config_id}/targets/{target_id}", s.handleUpdateModelTarget)
 	api.Patch("/models/{model_config_id}/targets/{target_id}/position", s.handleMoveModelTargetPosition)
 	api.Delete("/models/{model_config_id}/targets/{target_id}", s.handleDeleteModelTarget)
 	api.Get("/models/{model_config_id}", s.handleGetModel)

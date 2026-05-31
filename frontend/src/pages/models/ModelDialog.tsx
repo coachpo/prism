@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Connection, LoadbalanceStrategy, ModelConfigListItem, Vendor } from "@/lib/types";
+import type { LoadbalanceStrategy, ModelConfigListItem, Vendor } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
@@ -27,7 +27,6 @@ type Props = {
   formError: string | null;
   isDialogOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
-  targetConnectionsForApiFamily: Connection[];
   targetModelsForApiFamily: ModelConfigListItem[];
   vendors: Vendor[];
   setFormData: (value: ModelFormData | ((prev: ModelFormData) => ModelFormData)) => void;
@@ -42,7 +41,6 @@ export function ModelDialog({
   formError,
   isDialogOpen,
   loadbalanceStrategies,
-  targetConnectionsForApiFamily,
   targetModelsForApiFamily,
   vendors,
   setFormData,
@@ -165,7 +163,6 @@ export function ModelDialog({
                 apiFamilyLabel={formData.api_family}
                 accessTargets={formData.access_targets}
                 modelOptions={targetModelsForApiFamily}
-                connectionOptions={targetConnectionsForApiFamily}
                 error={formError}
                 onChange={(accessTargets) => setFormData((prev) => ({ ...prev, access_targets: accessTargets }))}
               />

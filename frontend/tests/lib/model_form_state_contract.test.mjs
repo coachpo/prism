@@ -61,7 +61,7 @@ test("disabled drafts still reject invalid present targets when keys are provide
         is_enabled: false,
         last_auto_display_name: "Draft Model",
       },
-      ["connection:77"],
+      ["model:other-model"],
     ),
     "access_target_required",
   );
@@ -84,9 +84,9 @@ test("enabled models require at least one enabled valid access target", () => {
     validateModelFormData(
       {
         ...enabledDraft,
-        access_targets: [{ target_type: "connection", connection_id: 77, position: 0, is_enabled: false }],
+        access_targets: [{ target_type: "model", target_model_id: "target-model", position: 0, is_enabled: false }],
       },
-      ["connection:77"],
+      ["model:target-model"],
     ),
     "access_target_required",
   );
@@ -94,9 +94,9 @@ test("enabled models require at least one enabled valid access target", () => {
     validateModelFormData(
       {
         ...enabledDraft,
-        access_targets: [{ target_type: "connection", connection_id: 77, position: 0, is_enabled: true }],
+        access_targets: [{ target_type: "model", target_model_id: "target-model", position: 0, is_enabled: true }],
       },
-      ["connection:77"],
+      ["model:target-model"],
     ),
     null,
   );
@@ -118,7 +118,7 @@ test("enabled forms reject any stale disabled target when keys are provided", ()
         is_enabled: true,
         last_auto_display_name: "Live Model",
       },
-      ["connection:77"],
+      ["model:other-model"],
     ),
     "access_target_required",
   );
@@ -143,7 +143,7 @@ test("changing api family clears incompatible access targets", () => {
   assert.deepEqual(formData.access_targets, []);
 });
 
-test("payload shaping keeps normalized access targets and required routing fields", () => {
+test("payload shaping omits private connection targets and keeps normalized model targets", () => {
   const formData = {
     vendor_id: 11,
     api_family: "openai",
@@ -152,11 +152,16 @@ test("payload shaping keeps normalized access targets and required routing field
     loadbalance_strategy_id: 17,
     access_targets: [
       { target_type: "connection", connection_id: 77, position: 4, is_enabled: true },
-      { target_type: "connection", connection_id: 77, position: 9, is_enabled: true },
+      { target_type: "model", target_model_id: "target-model", position: 9, is_enabled: true },
+      { target_type: "model", target_model_id: "target-model", position: 10, is_enabled: false },
     ],
     is_enabled: true,
     last_auto_display_name: "Live Model",
   };
+
+  const expectedAccessTargets = [
+    { target_type: "model", target_model_id: "target-model", position: 0, is_enabled: true },
+  ];
 
   assert.deepEqual(toModelCreatePayload(formData), {
     vendor_id: 11,
@@ -165,7 +170,7 @@ test("payload shaping keeps normalized access targets and required routing field
     display_name: "Live Model",
     is_enabled: true,
     loadbalance_strategy_id: 17,
-    access_targets: [{ target_type: "connection", connection_id: 77, position: 0, is_enabled: true }],
+    access_targets: expectedAccessTargets,
   });
 
   assert.deepEqual(toModelUpdatePayload(formData), {
@@ -175,7 +180,7 @@ test("payload shaping keeps normalized access targets and required routing field
     model_id: "live-model",
     is_enabled: true,
     loadbalance_strategy_id: 17,
-    access_targets: [{ target_type: "connection", connection_id: 77, position: 0, is_enabled: true }],
+    access_targets: expectedAccessTargets,
   });
 });
 

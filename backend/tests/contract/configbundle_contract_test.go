@@ -91,6 +91,44 @@ func TestProfileBundleV3Contract(t *testing.T) {
 	assertErrorResponse(t, removedModeImport, http.StatusBadRequest, removedModeDetail)
 }
 
+func TestProfileBundleImportRejectsExistingConnectionOwnerCollision(t *testing.T) {
+	harness := newConfigBundleV3ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleV3Graph(t, harness, profileID)
+
+	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, exportResponse, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, exportResponse, &payload)
+
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", payload, modelHeader(profileID))
+	assertStatus(t, previewResponse, http.StatusOK)
+	var previewPayload map[string]any
+	decodeJSONResponse(t, previewResponse, &previewPayload)
+	if previewPayload["ready"] != true || previewPayload["preview_token"] == "" {
+		t.Fatalf("expected ready preview before injecting collision, got %+v", previewPayload)
+	}
+
+	connectionID := seedConfigBundleOwnerCollision(t, harness, profileID)
+	exportDetail := "connection_ref 'openai-primary-openai' is owned by multiple models: model_id 'gpt-4o-mini' (display_name 'GPT 4o Mini') and model_id 'gpt-4o-collision' (display_name 'Collision GPT 4o')"
+	importDetail := fmt.Sprintf("Target profile has existing connection ownership collision for connection_ref 'openai-primary-openai' (connection_id %d): model_id 'gpt-4o-collision' (display_name 'Collision GPT 4o') and model_id 'gpt-4o-mini' (display_name 'GPT 4o Mini')", connectionID)
+
+	collisionExport := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertErrorResponse(t, collisionExport, http.StatusBadRequest, exportDetail)
+
+	importHeaders := configBundleHeadersWithPreviewToken(modelHeader(profileID), previewPayload["preview_token"].(string))
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", payload, importHeaders)
+	assertErrorResponse(t, importResponse, http.StatusBadRequest, importDetail)
+
+	var ownerCount int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM model_access_targets WHERE profile_id = $1 AND target_connection_id = $2`, profileID, connectionID).Scan(&ownerCount); err != nil {
+		t.Fatalf("count collision owners after rejected import: %v", err)
+	}
+	if ownerCount != 2 {
+		t.Fatalf("expected rejected import to leave collision rows untouched, got owner count %d", ownerCount)
+	}
+}
+
 func newConfigBundleV3ContractHarness(t *testing.T) *contractHarness {
 	t.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -215,6 +253,33 @@ func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID i
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO user_agent_client_rules (profile_id, name, pattern, enabled, is_system, created_at, updated_at) VALUES ($1, 'Acme Agent', 'acme-agent', TRUE, FALSE, $2, $2)`, profileID, now); err != nil {
 		t.Fatalf("insert user-agent rule: %v", err)
 	}
+}
+
+func seedConfigBundleOwnerCollision(t *testing.T, harness *contractHarness, profileID int) int {
+	t.Helper()
+	now := configBundleFixtureTime.Add(time.Minute)
+
+	var vendorID int
+	var strategyID int
+	var connectionID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT vendor_id, loadbalance_strategy_id FROM model_configs WHERE profile_id = $1 AND model_id = 'gpt-4o-mini'`, profileID).Scan(&vendorID, &strategyID); err != nil {
+		t.Fatalf("load owner model references: %v", err)
+	}
+	if err := harness.conn.QueryRow(context.Background(), `SELECT target_connection_id FROM model_access_targets WHERE profile_id = $1 AND target_type = 'connection'`, profileID).Scan(&connectionID); err != nil {
+		t.Fatalf("load owned connection id: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `DROP INDEX IF EXISTS uq_model_access_targets_connection_owner`); err != nil {
+		t.Fatalf("drop owner uniqueness index for collision fixture: %v", err)
+	}
+
+	var collisionModelID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', 'gpt-4o-collision', 'Collision GPT 4o', $3, TRUE, $4, $4) RETURNING id`, profileID, vendorID, strategyID, now).Scan(&collisionModelID); err != nil {
+		t.Fatalf("insert collision owner model: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, collisionModelID, connectionID, now); err != nil {
+		t.Fatalf("insert collision owner target: %v", err)
+	}
+	return connectionID
 }
 
 func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {

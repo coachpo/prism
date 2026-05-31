@@ -224,3 +224,35 @@ test("config import schema rejects connection access targets without connection_
 
   assert.throws(() => ConfigImportSchema.parse(payload));
 });
+
+test("config import schema rejects duplicate connection_ref ownership across models", () => {
+  const payload = buildValidConfigImport();
+  payload.models.push({
+    vendor_key: "openai",
+    api_family: "openai",
+    model_id: "gpt-4o-mini-shadow",
+    display_name: "GPT 4o Mini Shadow",
+    loadbalance_strategy_name: "Default single",
+    is_enabled: true,
+    access_targets: [
+      {
+        position: 0,
+        is_enabled: true,
+        target_type: "connection",
+        connection_ref: "openai-primary",
+      },
+    ],
+  });
+
+  assert.throws(() => ConfigImportSchema.parse(payload), /already owned/);
+});
+
+test("config import schema rejects ownerless top-level connection refs", () => {
+  const payload = buildValidConfigImport();
+  payload.models[0].access_targets = [];
+
+  assert.throws(
+    () => ConfigImportSchema.parse(payload),
+    /private connection ref openai-primary must be owned by a model access target/
+  );
+});

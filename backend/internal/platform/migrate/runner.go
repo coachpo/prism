@@ -69,10 +69,6 @@ func (r Runner) Run(ctx context.Context, conn *pgx.Conn) (Result, error) {
 	}
 
 	pending := pendingMigrations(migrations, appliedVersions)
-	if len(pending) == 0 {
-		return Result{Outcome: OutcomeNoop}, nil
-	}
-
 	applicationTables, err := listApplicationTables(ctx, conn)
 	if err != nil {
 		return Result{}, err
@@ -92,6 +88,15 @@ func (r Runner) Run(ctx context.Context, conn *pgx.Conn) (Result, error) {
 				HistoryTable,
 			)
 		}
+	}
+
+	if len(pending) == 0 {
+		if len(applicationTables) > 0 {
+			if err := ensurePostBaselineSchemaGuards(ctx, conn); err != nil {
+				return Result{}, err
+			}
+		}
+		return Result{Outcome: OutcomeNoop}, nil
 	}
 
 	if err := pgxutil.InTx(ctx, conn, "migration", func(tx pgx.Tx) error {
@@ -182,6 +187,114 @@ func migrationVersions(migrations []fileMigration) []string {
 		versions = append(versions, migration.Version)
 	}
 	return versions
+}
+
+const modelAccessTargetsConnectionOwnerIndexName = "uq_model_access_targets_connection_owner"
+
+const modelAccessTargetsConnectionOwnerIndexSQL = `CREATE UNIQUE INDEX uq_model_access_targets_connection_owner ON public.model_access_targets USING btree (target_connection_id) WHERE (target_connection_id IS NOT NULL)`
+
+const duplicateModelAccessTargetConnectionOwnersSQL = `SELECT target_connection_id, COUNT(*) AS owner_count, ARRAY_AGG(source_model_config_id ORDER BY source_model_config_id) AS source_model_config_ids FROM model_access_targets WHERE target_connection_id IS NOT NULL GROUP BY target_connection_id HAVING COUNT(*) > 1`
+
+type duplicateModelAccessTargetConnectionOwner struct {
+	targetConnectionID   int
+	ownerCount           int64
+	sourceModelConfigIDs []int32
+}
+
+func ensurePostBaselineSchemaGuards(ctx context.Context, conn *pgx.Conn) error {
+	if err := ensureModelAccessTargetsConnectionOwnerIndex(ctx, conn); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureModelAccessTargetsConnectionOwnerIndex(ctx context.Context, conn *pgx.Conn) error {
+	exists, err := indexExists(ctx, conn, "model_access_targets", modelAccessTargetsConnectionOwnerIndexName)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	duplicates, err := loadDuplicateModelAccessTargetConnectionOwners(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if len(duplicates) > 0 {
+		return fmt.Errorf(
+			"model access target connection owner invariant violation blocks %s creation: %s",
+			modelAccessTargetsConnectionOwnerIndexName,
+			formatDuplicateModelAccessTargetConnectionOwners(duplicates),
+		)
+	}
+
+	if _, err := conn.Exec(ctx, modelAccessTargetsConnectionOwnerIndexSQL); err != nil {
+		return fmt.Errorf("create %s: %w", modelAccessTargetsConnectionOwnerIndexName, err)
+	}
+	return nil
+}
+
+func loadDuplicateModelAccessTargetConnectionOwners(ctx context.Context, conn *pgx.Conn) ([]duplicateModelAccessTargetConnectionOwner, error) {
+	rows, err := conn.Query(ctx, duplicateModelAccessTargetConnectionOwnersSQL)
+	if err != nil {
+		return nil, fmt.Errorf("query duplicate model access target connection owners: %w", err)
+	}
+	defer rows.Close()
+
+	duplicates := []duplicateModelAccessTargetConnectionOwner{}
+	for rows.Next() {
+		var duplicate duplicateModelAccessTargetConnectionOwner
+		if err := rows.Scan(&duplicate.targetConnectionID, &duplicate.ownerCount, &duplicate.sourceModelConfigIDs); err != nil {
+			return nil, fmt.Errorf("scan duplicate model access target connection owner: %w", err)
+		}
+		duplicates = append(duplicates, duplicate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate duplicate model access target connection owners: %w", err)
+	}
+
+	sort.Slice(duplicates, func(left, right int) bool {
+		return duplicates[left].targetConnectionID < duplicates[right].targetConnectionID
+	})
+	return duplicates, nil
+}
+
+func formatDuplicateModelAccessTargetConnectionOwners(duplicates []duplicateModelAccessTargetConnectionOwner) string {
+	parts := make([]string, 0, len(duplicates))
+	for _, duplicate := range duplicates {
+		parts = append(parts, fmt.Sprintf(
+			"target_connection_id=%d owner_count=%d source_model_config_ids=%s",
+			duplicate.targetConnectionID,
+			duplicate.ownerCount,
+			formatInt32List(duplicate.sourceModelConfigIDs),
+		))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatInt32List(values []int32) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, fmt.Sprintf("%d", value))
+	}
+	return "[" + strings.Join(parts, " ") + "]"
+}
+
+func indexExists(ctx context.Context, conn *pgx.Conn, tableName string, indexName string) (bool, error) {
+	var exists bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_index idx
+			JOIN pg_class index_class ON index_class.oid = idx.indexrelid
+			JOIN pg_class table_class ON table_class.oid = idx.indrelid
+			JOIN pg_namespace n ON n.oid = table_class.relnamespace
+			WHERE n.nspname = $1 AND table_class.relname = $2 AND index_class.relname = $3
+		)`, publicSchema, tableName, indexName).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check index %s on %s: %w", indexName, tableName, err)
+	}
+	return exists, nil
 }
 
 func ensureHistoryTable(ctx context.Context, execer statementExecutor) error {

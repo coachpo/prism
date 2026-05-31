@@ -67,7 +67,6 @@ export function ModelsPage() {
         formError={data.formError}
         isDialogOpen={data.isDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
-        targetConnectionsForApiFamily={data.targetConnectionsForApiFamily}
         targetModelsForApiFamily={data.targetModelsForApiFamily}
         vendors={data.vendors}
         setFormData={data.setFormData}

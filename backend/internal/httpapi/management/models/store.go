@@ -57,6 +57,13 @@ type resolvedAccessTarget struct {
 	Connection *connectionTargetSummary
 }
 
+type preservedConnectionAccessTarget struct {
+	ID        int
+	Position  int
+	IsEnabled bool
+	Update    bool
+}
+
 type vendorRecord struct {
 	ID                 int
 	Key                string
@@ -471,9 +478,6 @@ func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecuto
 
 func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int, sourceModelConfigID *int, sourceModelID string, apiFamily string, accessTargets []modelAccessTargetRequest) ([]resolvedAccessTarget, error) {
 	orderedTargets := sortAccessTargetRequestsByPosition(accessTargets)
-	if err := validateAccessTargets(orderedTargets); err != nil {
-		return nil, err
-	}
 	modelIDs := make([]string, 0)
 	connectionIDs := make([]int, 0)
 	for _, target := range orderedTargets {
@@ -587,8 +591,20 @@ func loadConnectionSummariesByIDs(ctx context.Context, exec queryExecutor, profi
 }
 
 func replaceAccessTargets(ctx context.Context, tx pgx.Tx, sourceProfileID int, sourceModelConfigID int, targets []resolvedAccessTarget, currentTime time.Time) error {
-	if _, err := tx.Exec(ctx, `DELETE FROM model_access_targets WHERE source_model_config_id = $1`, sourceModelConfigID); err != nil {
+	return replaceAccessTargetsPreservingConnections(ctx, tx, sourceProfileID, sourceModelConfigID, targets, nil, currentTime)
+}
+
+func replaceAccessTargetsPreservingConnections(ctx context.Context, tx pgx.Tx, sourceProfileID int, sourceModelConfigID int, targets []resolvedAccessTarget, preservedConnectionTargets []preservedConnectionAccessTarget, currentTime time.Time) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM model_access_targets WHERE source_model_config_id = $1 AND target_model_config_id IS NOT NULL`, sourceModelConfigID); err != nil {
 		return fmt.Errorf("delete access targets for model %d: %w", sourceModelConfigID, err)
+	}
+	for _, target := range sortPreservedConnectionAccessTargetsByPosition(preservedConnectionTargets) {
+		if !target.Update {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `UPDATE model_access_targets SET position = $3, is_enabled = $4, updated_at = $5 WHERE id = $1 AND source_model_config_id = $2 AND target_connection_id IS NOT NULL`, target.ID, sourceModelConfigID, target.Position, target.IsEnabled, currentTime); err != nil {
+			return fmt.Errorf("update preserved connection access target %d for model %d: %w", target.ID, sourceModelConfigID, err)
+		}
 	}
 	for _, target := range sortResolvedAccessTargetsByPosition(targets) {
 		if target.TargetType == "model" {
@@ -680,6 +696,102 @@ func listAccessTargetReferrers(ctx context.Context, exec queryExecutor, profileI
 func deleteSourceAccessTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM model_access_targets WHERE source_model_config_id = $1`, sourceModelConfigID); err != nil {
 		return fmt.Errorf("delete source access targets for model %d: %w", sourceModelConfigID, err)
+	}
+	return nil
+}
+
+func deleteSourceAccessTargetsAndOwnedConnections(ctx context.Context, tx pgx.Tx, profileID int, sourceModelConfigID int) error {
+	rows, err := tx.Query(ctx, `SELECT target_connection_id FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 AND target_connection_id IS NOT NULL ORDER BY target_connection_id ASC FOR UPDATE`, profileID, sourceModelConfigID)
+	if err != nil {
+		return fmt.Errorf("query owned connections for model %d: %w", sourceModelConfigID, err)
+	}
+	connectionIDs := make([]int, 0)
+	for rows.Next() {
+		var connectionID int
+		if err := rows.Scan(&connectionID); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan owned connection for model %d: %w", sourceModelConfigID, err)
+		}
+		connectionIDs = append(connectionIDs, connectionID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate owned connections for model %d: %w", sourceModelConfigID, err)
+	}
+	rows.Close()
+	if err := deleteSourceAccessTargets(ctx, tx, sourceModelConfigID); err != nil {
+		return err
+	}
+	for _, connectionID := range connectionIDs {
+		if err := deleteConnectionRowForProfile(ctx, tx, profileID, connectionID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteConnectionRowForProfile(ctx context.Context, exec queryExecutor, profileID int, connectionID int) error {
+	if _, err := exec.Exec(ctx, `DELETE FROM connections WHERE profile_id = $1 AND id = $2`, profileID, connectionID); err != nil {
+		return fmt.Errorf("delete connection %d for profile %d: %w", connectionID, profileID, err)
+	}
+	return nil
+}
+
+func countEnabledModelAccessTargetsExcluding(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, excludeTargetID int) (int, error) {
+	var count int
+	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 AND is_enabled = TRUE AND id <> $3`, profileID, modelConfigID, excludeTargetID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count enabled access targets for model %d: %w", modelConfigID, err)
+	}
+	return count, nil
+}
+
+func compactModelAccessTargetPositions(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, currentTime time.Time) error {
+	_, err := exec.Exec(ctx, `UPDATE model_access_targets AS target SET position = ordered.new_position, updated_at = $3 FROM (SELECT id, (ROW_NUMBER() OVER (ORDER BY position ASC, id ASC) - 1)::integer AS new_position FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2) AS ordered WHERE target.id = ordered.id AND target.position <> ordered.new_position`, profileID, modelConfigID, currentTime)
+	if err != nil {
+		return fmt.Errorf("compact access target positions for model %d: %w", modelConfigID, err)
+	}
+	return nil
+}
+
+func updateAccessTargetMetadata(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, items []accessTargetMutationItem, currentTime time.Time) error {
+	for _, item := range items {
+		enabled := true
+		if item.Request.IsEnabled != nil {
+			enabled = *item.Request.IsEnabled
+		}
+		commandTag, err := exec.Exec(ctx, `UPDATE model_access_targets SET position = $4, is_enabled = $5, updated_at = $6 WHERE profile_id = $1 AND source_model_config_id = $2 AND id = $3`, profileID, modelConfigID, item.ID, item.Request.Position, enabled, currentTime)
+		if err != nil {
+			return fmt.Errorf("update model access target %d metadata: %w", item.ID, err)
+		}
+		if commandTag.RowsAffected() == 0 {
+			return &domainError{StatusCode: 404, Detail: "Model access target not found"}
+		}
+	}
+	return nil
+}
+
+func lockConnectionRow(ctx context.Context, tx pgx.Tx, profileID int, connectionID int) error {
+	var existingID int
+	err := tx.QueryRow(ctx, `SELECT id FROM connections WHERE profile_id = $1 AND id = $2 FOR UPDATE`, profileID, connectionID).Scan(&existingID)
+	if err == pgx.ErrNoRows {
+		return &domainError{StatusCode: 404, Detail: "Connection not found"}
+	}
+	if err != nil {
+		return fmt.Errorf("lock connection %d for profile %d: %w", connectionID, profileID, err)
+	}
+	return nil
+}
+
+func deleteModelAccessTargetRow(ctx context.Context, exec queryExecutor, targetID int) error {
+	if _, err := exec.Exec(ctx, `DELETE FROM model_access_targets WHERE id = $1`, targetID); err != nil {
+		return fmt.Errorf("delete model access target %d: %w", targetID, err)
+	}
+	return nil
+}
+
+func deleteConnectionRow(ctx context.Context, exec queryExecutor, connectionID int) error {
+	if _, err := exec.Exec(ctx, `DELETE FROM connections WHERE id = $1`, connectionID); err != nil {
+		return fmt.Errorf("delete connection %d: %w", connectionID, err)
 	}
 	return nil
 }
@@ -1011,6 +1123,18 @@ func sortResolvedAccessTargetsByPosition(values []resolvedAccessTarget) []resolv
 	ordered := make([]resolvedAccessTarget, len(values))
 	copy(ordered, values)
 	sort.Slice(ordered, func(left int, right int) bool {
+		return ordered[left].Position < ordered[right].Position
+	})
+	return ordered
+}
+
+func sortPreservedConnectionAccessTargetsByPosition(values []preservedConnectionAccessTarget) []preservedConnectionAccessTarget {
+	ordered := make([]preservedConnectionAccessTarget, len(values))
+	copy(ordered, values)
+	sort.Slice(ordered, func(left int, right int) bool {
+		if ordered[left].Position == ordered[right].Position {
+			return ordered[left].ID < ordered[right].ID
+		}
 		return ordered[left].Position < ordered[right].Position
 	})
 	return ordered

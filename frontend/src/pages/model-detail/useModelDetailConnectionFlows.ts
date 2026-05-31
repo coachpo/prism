@@ -3,11 +3,13 @@ import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import type { Connection } from "@/lib/types";
-import { moveConnectionInList } from "./useModelDetailDataSupport";
+import type { Connection, ModelConfig } from "@/lib/types";
+import { getOwnedConnectionTarget, moveConnectionInList } from "./useModelDetailDataSupport";
 import { useConnectionHealthChecks } from "./useConnectionHealthChecks";
 
 interface UseModelDetailConnectionFlowsInput {
+  model: ModelConfig | null;
+  modelConfigId?: number;
   connections: Connection[];
   setConnections: Dispatch<SetStateAction<Connection[]>>;
   editingConnection: Connection | null;
@@ -17,6 +19,8 @@ interface UseModelDetailConnectionFlowsInput {
 }
 
 export function useModelDetailConnectionFlows({
+  model,
+  modelConfigId,
   connections,
   setConnections,
   editingConnection,
@@ -26,24 +30,39 @@ export function useModelDetailConnectionFlows({
 }: UseModelDetailConnectionFlowsInput) {
   const [reorderInFlight, setReorderInFlight] = useState(false);
   const { healthCheckingIds, runHealthChecks } = useConnectionHealthChecks({
+    modelConfigId,
     setConnections,
     onSuccessfulChecks: refreshCurrentState,
   });
 
   const handleReorderConnections = useCallback(
     async (connectionId: number, toIndex: number) => {
-      if (reorderInFlight) return;
+      if (reorderInFlight || !Number.isFinite(modelConfigId)) return;
+      const target = getOwnedConnectionTarget(model, modelConfigId, connectionId);
       const fromIndex = connections.findIndex((connection) => connection.id === connectionId);
-      if (fromIndex === -1 || toIndex < 0 || toIndex >= connections.length || fromIndex === toIndex) return;
+      if (!target || fromIndex === -1 || toIndex < 0 || toIndex >= connections.length || fromIndex === toIndex) return;
+
+      const previousConnections = connections;
       setReorderInFlight(true);
       setConnections(moveConnectionInList(connections, fromIndex, toIndex));
-      setReorderInFlight(false);
+      try {
+        await api.models.targets.movePosition(modelConfigId as number, target.id, toIndex);
+      } catch (error) {
+        setConnections(previousConnections);
+        toast.error(error instanceof Error ? error.message : getStaticMessages().modelDetailData.reorderPriorityReverted);
+      } finally {
+        setReorderInFlight(false);
+      }
     },
-    [connections, reorderInFlight, setConnections],
+    [connections, model, modelConfigId, reorderInFlight, setConnections],
   );
 
   const handleHealthCheck = useCallback(
     async (connectionId: number) => {
+      if (!getOwnedConnectionTarget(model, modelConfigId, connectionId)) {
+        toast.error("Connection owner does not match the current model");
+        return;
+      }
       const { successfulChecks, failedCount } = await runHealthChecks([connectionId]);
       const result = successfulChecks.get(connectionId);
       if (result) {
@@ -53,7 +72,7 @@ export function useModelDetailConnectionFlows({
         toast.error(getStaticMessages().modelDetailData.healthCheckFailed);
       }
     },
-    [runHealthChecks],
+    [model, modelConfigId, runHealthChecks],
   );
 
   const handleDialogTestConnection = useCallback(async () => {
@@ -64,7 +83,11 @@ export function useModelDetailConnectionFlows({
     setDialogTestingConnection(true);
     setDialogTestResult(null);
     try {
-      const result = await api.connections.healthCheck(editingConnection.id);
+      if (!getOwnedConnectionTarget(model, modelConfigId, editingConnection.id)) {
+        setDialogTestResult({ status: "error", detail: "Connection owner does not match the current model." });
+        return;
+      }
+      const result = await api.models.connections.healthCheck(modelConfigId as number, editingConnection.id);
       setDialogTestResult({ status: result.health_status, detail: result.detail });
       void refreshCurrentState();
     } catch {
@@ -72,7 +95,7 @@ export function useModelDetailConnectionFlows({
     } finally {
       setDialogTestingConnection(false);
     }
-  }, [editingConnection, refreshCurrentState, setDialogTestResult, setDialogTestingConnection]);
+  }, [editingConnection, model, modelConfigId, refreshCurrentState, setDialogTestResult, setDialogTestingConnection]);
 
   return {
     healthCheckingIds,

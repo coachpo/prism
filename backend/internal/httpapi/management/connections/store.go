@@ -25,6 +25,7 @@ type modelRecord struct {
 	ProfileID int
 	ModelID   string
 	APIFamily string
+	IsEnabled bool
 }
 
 type endpointRecord struct {
@@ -80,8 +81,13 @@ type pricingTemplateResponse struct {
 
 const pricingTemplateSelectQuery = `SELECT id, profile_id, name, description, pricing_unit, pricing_currency_code, COALESCE(input_price, '0'), COALESCE(output_price, '0'), COALESCE(cached_input_price, '0'), COALESCE(cache_creation_price, '0'), COALESCE(reasoning_price, '0'), version, created_at, updated_at FROM pricing_templates`
 
-func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) (modelRecord, bool, error) {
-	record, err := scanModelRecord(exec.QueryRow(ctx, `SELECT id, profile_id, model_id, api_family FROM model_configs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, modelConfigID))
+func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, forUpdate bool) (modelRecord, bool, error) {
+	query := `SELECT id, profile_id, model_id, api_family, is_enabled FROM model_configs WHERE profile_id = $1 AND id = $2`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
+	query += ` LIMIT 1`
+	record, err := scanModelRecord(exec.QueryRow(ctx, query, profileID, modelConfigID))
 	if err == pgx.ErrNoRows {
 		return modelRecord{}, false, nil
 	}
@@ -167,6 +173,17 @@ func nextEndpointPosition(ctx context.Context, exec queryExecutor, profileID int
 	var maxPosition sql.NullInt32
 	if err := exec.QueryRow(ctx, `SELECT MAX(position) FROM endpoints WHERE profile_id = $1`, profileID).Scan(&maxPosition); err != nil {
 		return 0, fmt.Errorf("query next endpoint position for profile %d: %w", profileID, err)
+	}
+	if !maxPosition.Valid {
+		return 0, nil
+	}
+	return int(maxPosition.Int32) + 1, nil
+}
+
+func nextModelAccessTargetPosition(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) (int, error) {
+	var maxPosition sql.NullInt32
+	if err := exec.QueryRow(ctx, `SELECT MAX(position) FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2`, profileID, modelConfigID).Scan(&maxPosition); err != nil {
+		return 0, fmt.Errorf("query next access target position for model %d: %w", modelConfigID, err)
 	}
 	if !maxPosition.Valid {
 		return 0, nil
@@ -279,7 +296,7 @@ func deletePricingTemplate(ctx context.Context, exec queryExecutor, templateID i
 }
 
 func loadConnectionRecord(ctx context.Context, exec queryExecutor, profileID int, connectionID int, forUpdate bool) (connectionResponse, bool, error) {
-	query := standaloneConnectionSelectQuery + ` WHERE connections.profile_id = $1 AND connections.id = $2`
+	query := connectionSelectQuery + ` WHERE model_access_targets.profile_id = $1 AND connections.id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE OF connections`
 	}
@@ -295,7 +312,7 @@ func loadConnectionRecord(ctx context.Context, exec queryExecutor, profileID int
 }
 
 func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]connectionResponse, error) {
-	rows, err := exec.Query(ctx, standaloneConnectionSelectQuery+` WHERE connections.profile_id = $1 ORDER BY connections.id ASC`, profileID)
+	rows, err := exec.Query(ctx, connectionSelectQuery+` WHERE model_access_targets.profile_id = $1 ORDER BY model_access_targets.position ASC, connections.id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query connections for profile %d: %w", profileID, err)
 	}
@@ -310,6 +327,63 @@ func listConnectionsForModel(ctx context.Context, exec queryExecutor, profileID 
 	}
 	defer rows.Close()
 	return scanConnectionRows(rows, fmt.Sprintf("iterate connections for model %d", modelConfigID))
+}
+
+func loadModelConnectionRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionID int) (connectionResponse, bool, error) {
+	item, err := scanConnectionResponse(exec.QueryRow(ctx, connectionSelectQuery+` WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = $2 AND connections.id = $3 LIMIT 1`, profileID, modelConfigID, connectionID))
+	if err == pgx.ErrNoRows {
+		return connectionResponse{}, false, nil
+	}
+	if err != nil {
+		return connectionResponse{}, false, fmt.Errorf("load connection %d for model %d: %w", connectionID, modelConfigID, err)
+	}
+	return item, true, nil
+}
+
+func loadConnectionOwnerReference(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionID int, forUpdate bool) (connectionReferenceRecord, bool, error) {
+	query := `SELECT model_access_targets.id, model_configs.id, model_configs.model_id, model_configs.api_family, model_access_targets.position, model_access_targets.is_enabled FROM model_access_targets JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = $2 AND model_access_targets.target_connection_id = $3`
+	if forUpdate {
+		query += ` FOR UPDATE OF model_access_targets`
+	}
+	query += ` LIMIT 1`
+	record, err := scanConnectionReferenceRecord(exec.QueryRow(ctx, query, profileID, modelConfigID, connectionID))
+	if err == pgx.ErrNoRows {
+		return connectionReferenceRecord{}, false, nil
+	}
+	if err != nil {
+		return connectionReferenceRecord{}, false, fmt.Errorf("load owner target for model %d connection %d: %w", modelConfigID, connectionID, err)
+	}
+	return record, true, nil
+}
+
+func countEnabledModelAccessTargetsExcluding(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, excludeTargetID int) (int, error) {
+	var count int
+	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 AND is_enabled = TRUE AND id <> $3`, profileID, modelConfigID, excludeTargetID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count enabled access targets for model %d: %w", modelConfigID, err)
+	}
+	return count, nil
+}
+
+func compactModelAccessTargetPositions(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, currentTime time.Time) error {
+	_, err := exec.Exec(ctx, `UPDATE model_access_targets AS target SET position = ordered.new_position, updated_at = $3 FROM (SELECT id, (ROW_NUMBER() OVER (ORDER BY position ASC, id ASC) - 1)::integer AS new_position FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2) AS ordered WHERE target.id = ordered.id AND target.position <> ordered.new_position`, profileID, modelConfigID, currentTime)
+	if err != nil {
+		return fmt.Errorf("compact access target positions for model %d: %w", modelConfigID, err)
+	}
+	return nil
+}
+
+func lockProfileAccessTargetRows(ctx context.Context, tx pgx.Tx, profileID int) error {
+	rows, err := tx.Query(ctx, `SELECT id FROM model_access_targets WHERE profile_id = $1 FOR UPDATE`, profileID)
+	if err != nil {
+		return fmt.Errorf("lock access targets for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate access target locks: %w", err)
+	}
+	return nil
 }
 
 func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileID int, modelConfigIDs []int) (map[int][]connectionResponse, error) {
@@ -351,6 +425,13 @@ func insertConnection(ctx context.Context, exec queryExecutor, item connectionRe
 	return connectionID, nil
 }
 
+func insertOwnerConnectionTarget(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionID int, position int, currentTime time.Time) error {
+	if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, $4, TRUE, $5, $5)`, profileID, modelConfigID, connectionID, position, currentTime); err != nil {
+		return fmt.Errorf("insert owner connection target for model %d connection %d: %w", modelConfigID, connectionID, err)
+	}
+	return nil
+}
+
 func updateConnectionRow(ctx context.Context, exec queryExecutor, item connectionResponse) error {
 	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_probe_endpoint_variant = $8, is_active = $9, priority = $10, name = $11, auth_type = $12, custom_headers = $13, health_status = $14, health_detail = $15, last_health_check = $16, updated_at = $17 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.UpdatedAt); err != nil {
 		return fmt.Errorf("update connection %d: %w", item.ID, err)
@@ -369,6 +450,13 @@ func updateConnectionHealthCheckIfUnchanged(ctx context.Context, exec queryExecu
 func deleteConnectionRow(ctx context.Context, exec queryExecutor, connectionID int) error {
 	if _, err := exec.Exec(ctx, `DELETE FROM connections WHERE id = $1`, connectionID); err != nil {
 		return fmt.Errorf("delete connection %d: %w", connectionID, err)
+	}
+	return nil
+}
+
+func deleteModelAccessTargetRow(ctx context.Context, exec queryExecutor, targetID int) error {
+	if _, err := exec.Exec(ctx, `DELETE FROM model_access_targets WHERE id = $1`, targetID); err != nil {
+		return fmt.Errorf("delete model access target %d: %w", targetID, err)
 	}
 	return nil
 }
@@ -425,8 +513,6 @@ func persistConnectionPriorities(ctx context.Context, exec queryExecutor, items 
 	return nil
 }
 
-const standaloneConnectionSelectQuery = `SELECT connections.id, connections.profile_id, NULL::integer AS source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM connections LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
-
 const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
 
 func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionResponse, error) {
@@ -446,7 +532,7 @@ func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionRespo
 
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &record.IsEnabled); err != nil {
 		return modelRecord{}, err
 	}
 	return record, nil

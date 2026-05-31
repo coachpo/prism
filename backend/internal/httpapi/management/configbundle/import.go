@@ -62,8 +62,11 @@ func validateVendorCatalogBundleEnvelope(data vendorCatalogImportRequest) error 
 	return nil
 }
 
-func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, data profileImportRequest) (profileImportPreviewResponse, error) {
+func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, profileID int, data profileImportRequest) (profileImportPreviewResponse, error) {
 	if err := validateProfileImportRequest(data); err != nil {
+		return profileImportPreviewResponse{}, err
+	}
+	if err := validateExistingProfileConnectionOwnership(ctx, exec, profileID); err != nil {
 		return profileImportPreviewResponse{}, err
 	}
 
@@ -158,6 +161,9 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 		return profileImportResponse{}, err
 	}
 	if err := lockImportTargetTables(ctx, exec); err != nil {
+		return profileImportResponse{}, err
+	}
+	if err := validateExistingProfileConnectionOwnership(ctx, exec, profileID); err != nil {
 		return profileImportResponse{}, err
 	}
 
@@ -476,6 +482,7 @@ type profileImportModelValidationRefs struct {
 func validateImportedModels(models []modelExport, refs profileImportModelValidationRefs, connectionRefs map[string]importedConnectionValidationRef) (map[string]string, map[string]struct{}, error) {
 	modelFamilies := map[string]string{}
 	seenModelIDs := map[string]struct{}{}
+	connectionOwners := map[string]connectionOwnerRef{}
 	importedConnectionPairs := map[string]struct{}{}
 	for _, model := range models {
 		modelID := strings.TrimSpace(model.ModelID)
@@ -497,10 +504,14 @@ func validateImportedModels(models []modelExport, refs profileImportModelValidat
 		if err := validateImportedModelStrategy(model, modelID, refs.strategyNames); err != nil {
 			return nil, nil, err
 		}
-		if err := validateImportedAccessTargets(modelID, apiFamily, model.AccessTargets, connectionRefs, importedConnectionPairs); err != nil {
+		owner := connectionOwnerRef{ModelID: modelID, DisplayName: trimmedOptionalString(model.DisplayName)}
+		if err := validateImportedAccessTargets(modelID, apiFamily, owner, model.AccessTargets, connectionRefs, connectionOwners, importedConnectionPairs); err != nil {
 			return nil, nil, err
 		}
 		modelFamilies[modelID] = apiFamily
+	}
+	if err := validateImportedConnectionOwners(connectionRefs, connectionOwners); err != nil {
+		return nil, nil, err
 	}
 	return modelFamilies, importedConnectionPairs, nil
 }
@@ -532,7 +543,12 @@ type importedConnectionValidationRef struct {
 	APIFamily    string
 }
 
-func validateImportedAccessTargets(modelID string, apiFamily string, targets []accessTargetExport, connectionRefs map[string]importedConnectionValidationRef, importedConnectionPairs map[string]struct{}) error {
+type connectionOwnerRef struct {
+	ModelID     string
+	DisplayName *string
+}
+
+func validateImportedAccessTargets(modelID string, apiFamily string, owner connectionOwnerRef, targets []accessTargetExport, connectionRefs map[string]importedConnectionValidationRef, connectionOwners map[string]connectionOwnerRef, importedConnectionPairs map[string]struct{}) error {
 	seenPositions := map[int]struct{}{}
 	seenTargets := map[string]struct{}{}
 	for _, target := range targets {
@@ -566,6 +582,10 @@ func validateImportedAccessTargets(modelID string, apiFamily string, targets []a
 				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' has duplicate connection_ref access target '%s'", modelID, *connectionRef)}
 			}
 			seenTargets[seenKey] = struct{}{}
+			if previousOwner, ok := connectionOwners[*connectionRef]; ok && previousOwner.ModelID != owner.ModelID {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: duplicateConnectionRefOwnerDetail(*connectionRef, previousOwner, owner)}
+			}
+			connectionOwners[*connectionRef] = owner
 			importedConnectionPairs[connectionPairKey(modelID, *connectionRef)] = struct{}{}
 		case "model":
 			targetModelID := trimmedOptionalString(target.TargetModelID)
@@ -590,6 +610,20 @@ func validateImportedAccessTargets(modelID string, apiFamily string, targets []a
 	for expectedPosition := 0; expectedPosition < len(targets); expectedPosition++ {
 		if _, ok := seenPositions[expectedPosition]; !ok {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access_targets positions must be contiguous starting at 0", modelID)}
+		}
+	}
+	return nil
+}
+
+func validateImportedConnectionOwners(connectionRefs map[string]importedConnectionValidationRef, connectionOwners map[string]connectionOwnerRef) error {
+	refs := make([]string, 0, len(connectionRefs))
+	for connectionRef := range connectionRefs {
+		refs = append(refs, connectionRef)
+	}
+	sort.Strings(refs)
+	for _, connectionRef := range refs {
+		if _, ok := connectionOwners[connectionRef]; !ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection ref '%s' must be owned by exactly one model access target", connectionRef)}
 		}
 	}
 	return nil
@@ -959,6 +993,55 @@ func lockImportTargetTables(ctx context.Context, exec queryExecutor) error {
 		return fmt.Errorf("lock config bundle import tables: %w", err)
 	}
 	return nil
+}
+
+func validateExistingProfileConnectionOwnership(ctx context.Context, exec queryExecutor, profileID int) error {
+	rows, err := exec.Query(ctx, `WITH collision AS (
+		SELECT target_connection_id
+		FROM model_access_targets
+		WHERE profile_id = $1 AND target_connection_id IS NOT NULL
+		GROUP BY target_connection_id
+		HAVING COUNT(*) > 1
+		ORDER BY target_connection_id ASC
+		LIMIT 1
+	)
+	SELECT connections.id, connections.api_family, endpoints.name, owner_models.model_id, owner_models.display_name
+	FROM collision
+	JOIN connections ON connections.id = collision.target_connection_id AND connections.profile_id = $1
+	JOIN endpoints ON endpoints.id = connections.endpoint_id AND endpoints.profile_id = $1
+	JOIN model_access_targets ON model_access_targets.profile_id = $1 AND model_access_targets.target_connection_id = collision.target_connection_id
+	JOIN model_configs AS owner_models ON owner_models.id = model_access_targets.source_model_config_id AND owner_models.profile_id = $1
+	ORDER BY owner_models.model_id ASC, owner_models.id ASC`, profileID)
+	if err != nil {
+		return fmt.Errorf("query existing profile connection ownership: %w", err)
+	}
+	defer rows.Close()
+
+	connectionID := 0
+	connectionRef := ""
+	owners := make([]connectionOwnerRef, 0, 2)
+	for rows.Next() {
+		var rowConnectionID int
+		var apiFamily string
+		var endpointName string
+		var modelID string
+		var displayName sql.NullString
+		if err := rows.Scan(&rowConnectionID, &apiFamily, &endpointName, &modelID, &displayName); err != nil {
+			return fmt.Errorf("scan existing profile connection ownership: %w", err)
+		}
+		if connectionID == 0 {
+			connectionID = rowConnectionID
+			connectionRef = connectionExportRef(connectionRow{ID: rowConnectionID, APIFamily: apiFamily}, endpointName, map[string]int{})
+		}
+		owners = append(owners, connectionOwnerRef{ModelID: modelID, DisplayName: nullableStringValue(displayName)})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate existing profile connection ownership: %w", err)
+	}
+	if len(owners) < 2 {
+		return nil
+	}
+	return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Target profile has existing connection ownership collision for connection_ref '%s' (connection_id %d): %s and %s", connectionRef, connectionID, formatConnectionOwnerRef(owners[0]), formatConnectionOwnerRef(owners[1]))}
 }
 
 func clearProfileImportState(ctx context.Context, exec queryExecutor, profileID int) error {
@@ -1411,6 +1494,18 @@ func sameOptionalString(left *string, right *string) bool {
 		return false
 	}
 	return *left == *right
+}
+
+func duplicateConnectionRefOwnerDetail(connectionRef string, first connectionOwnerRef, second connectionOwnerRef) string {
+	return fmt.Sprintf("connection_ref '%s' is owned by multiple models: %s and %s", connectionRef, formatConnectionOwnerRef(first), formatConnectionOwnerRef(second))
+}
+
+func formatConnectionOwnerRef(owner connectionOwnerRef) string {
+	displayName := trimmedOptionalString(owner.DisplayName)
+	if displayName == nil || *displayName == owner.ModelID {
+		return fmt.Sprintf("model_id '%s'", owner.ModelID)
+	}
+	return fmt.Sprintf("model_id '%s' (display_name '%s')", owner.ModelID, *displayName)
 }
 
 func connectionPairKey(modelID string, endpointName string) string {

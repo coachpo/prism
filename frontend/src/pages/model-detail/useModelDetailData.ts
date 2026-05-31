@@ -110,6 +110,8 @@ export function useModelDetailData(id: string | undefined) {
     handleHealthCheck,
     handleDialogTestConnection,
   } = useModelDetailConnectionFlows({
+    model,
+    modelConfigId,
     connections,
     setConnections,
     editingConnection,
@@ -157,7 +159,6 @@ export function useModelDetailData(id: string | undefined) {
     setLoadbalanceStrategyId,
     handleEditModelSubmit,
   } = useModelDetailModelForm({
-    allConnections,
     allModels,
     model,
     revision,
@@ -171,8 +172,8 @@ export function useModelDetailData(id: string | undefined) {
     [allModels, formData.api_family, model?.model_id],
   );
   const targetConnectionsForApiFamily = useMemo(
-    () => getSameFamilyConnections(allConnections, formData.api_family),
-    [allConnections, formData.api_family],
+    () => getSameFamilyConnections(allConnections, formData.api_family, modelConfigId),
+    [allConnections, formData.api_family, modelConfigId],
   );
   const accessTargetSummary = useMemo(() => buildAccessTargetSummary(model), [model]);
 

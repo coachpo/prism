@@ -2,6 +2,7 @@ import type {
   ApiFamily,
   Connection,
   ModelAccessTarget,
+  ModelAccessTargetModelMutation,
   ModelAccessTargetMutation,
   ModelConfig,
   ModelConfigListItem,
@@ -208,12 +209,8 @@ export function createNewModelFormData(_vendors: Vendor[], loadbalanceStrategyId
 
 export function getAccessTargetOptionKeys(
   modelTargets: Pick<ModelConfigListItem, "model_id">[],
-  connectionTargets: Pick<Connection, "id">[],
 ): Set<string> {
-  return new Set([
-    ...modelTargets.map((model) => `model:${model.model_id}`),
-    ...connectionTargets.map((connection) => `connection:${connection.id}`),
-  ]);
+  return new Set(modelTargets.map((model) => `model:${model.model_id}`));
 }
 
 export function validateModelFormData(
@@ -236,6 +233,9 @@ export function validateModelFormData(
   }
   const validKeys = new Set(availableAccessTargetKeys);
   return normalizedTargets.some((target) => {
+    if (target.target_type !== "model") {
+      return false;
+    }
     const key = accessTargetKey(target);
     return !key || !validKeys.has(key);
   }) ? "access_target_required" : null;
@@ -248,10 +248,18 @@ function getRequiredLoadbalanceStrategyId(formData: ModelFormData): number {
   return formData.loadbalance_strategy_id;
 }
 
+export function normalizeModelAccessTargetMutations(
+  targets: readonly ModelAccessTargetMutation[] | null | undefined,
+): ModelAccessTargetModelMutation[] {
+  return normalizeAccessTargetMutations(targets)
+    .filter((target): target is ModelAccessTargetModelMutation => target.target_type === "model")
+    .map((target, position) => ({ ...target, position }));
+}
+
 function getNormalizedRoutingState(formData: ModelFormData) {
   return {
     loadbalance_strategy_id: getRequiredLoadbalanceStrategyId(formData),
-    access_targets: normalizeAccessTargetMutations(formData.access_targets),
+    access_targets: normalizeModelAccessTargetMutations(formData.access_targets),
   };
 }
 

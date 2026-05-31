@@ -166,7 +166,7 @@ func listConnectionDropdownItems(ctx context.Context, exec queryExecutor, profil
 func listEndpointUsageRows(ctx context.Context, exec queryExecutor, profileID int, endpointID int) ([]endpointUsageConnection, error) {
 	rows, err := exec.Query(ctx, `SELECT connections.id, model_access_targets.source_model_config_id, model_configs.model_id, connections.name
 		FROM connections
-		LEFT JOIN model_access_targets ON model_access_targets.profile_id = connections.profile_id AND model_access_targets.target_connection_id = connections.id
+		LEFT JOIN model_access_targets ON model_access_targets.profile_id = connections.profile_id AND model_access_targets.target_type = 'connection' AND model_access_targets.target_connection_id = connections.id
 		LEFT JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id AND model_configs.profile_id = connections.profile_id
 		WHERE connections.profile_id = $1 AND connections.endpoint_id = $2
 		ORDER BY connections.id ASC, model_access_targets.source_model_config_id ASC`, profileID, endpointID)

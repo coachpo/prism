@@ -505,7 +505,7 @@ Response `200`: Array of model objects.
 ```
 GET /api/models/{id}
 ```
-Response `200`: Full model object with nullable vendor metadata, required `api_family`, optional `loadbalance_strategy_id`, ordered `access_targets`, and attached standalone connection summaries in the effective profile scope. Access targets reference either same-family models or standalone connections. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`.
+Response `200`: Full model object with nullable vendor metadata, required `api_family`, optional `loadbalance_strategy_id`, ordered `access_targets`, and attached private connection summaries in the effective profile scope. Public model target authoring uses only same-family model targets. Existing `target_type="connection"` rows are returned as internal ownership and runtime routing edges for the model's private connections. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`.
 
 #### Get Models by Endpoints (Batch)
 ```
@@ -517,13 +517,13 @@ Request:
   "endpoint_ids": [1, 2, 3]
 }
 ```
-Response `200`: `items[]`, where each item contains an `endpoint_id` and the models that can reach that endpoint through terminal standalone connections.
+Response `200`: `items[]`, where each item contains an `endpoint_id` and the models that can reach that endpoint through terminal private connections. Endpoints are reusable and may be referenced by private connections owned by different models.
 
 #### Get Models by Endpoint
 ```
 GET /api/models/by-endpoint/{endpoint_id}
 ```
-Response `200`: Array of models that can reach the endpoint through terminal standalone connections within the effective profile scope.
+Response `200`: Array of models that can reach the endpoint through terminal private connections within the effective profile scope.
 
 #### Create Model
 ```
@@ -539,18 +539,11 @@ Request:
   "loadbalance_strategy_id": 7,
   "access_targets": [
     {
-      "target_type": "connection",
-      "target_connection_id": 12,
+      "target_type": "model",
+      "target_model_id": "gpt-4o-backup",
       "position": 0,
       "weight": 1,
       "target_priority": 0
-    },
-    {
-      "target_type": "model",
-      "target_model_id": "gpt-4o-backup",
-      "position": 1,
-      "weight": 1,
-      "target_priority": 1
     }
   ],
   "is_enabled": true
@@ -562,10 +555,11 @@ Validation rules:
 - `model_id` must be unique within the effective profile scope.
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
 - `vendor_id` is optional metadata and may be `null`.
-- `access_targets` contains ordered same-profile, same-`api_family` model or standalone connection targets.
-- Every target requires exactly one model or connection target, `position`, `weight`, and `target_priority`; positions must stay contiguous starting at `0`; `weight` must be `>= 1`; `target_priority` must be `>= 0`.
+- Public create and update payloads may author only ordered same-profile, same-`api_family` model targets.
+- Submitted `target_type="connection"`, `connection_id`, or `target_connection_id` entries are rejected. Private connection rows are managed from model detail through model-scoped connection routes.
+- Every public model target requires `target_model_id`, `position`, `weight`, and `target_priority`; positions must stay contiguous starting at `0`; `weight` must be `>= 1`; `target_priority` must be `>= 0`.
 - Model target self-reference and target cycles are rejected.
-- Deleting a model or connection referenced by any access target returns `409` until the target rows are removed or updated.
+- Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its private connections with the owning target rows.
 
 #### Update Model
 ```
@@ -583,13 +577,13 @@ Request (all fields optional):
   "is_enabled": true
 }
 ```
-Update payloads use the same access-target validation rules as create. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if access-target validation fails.
+Update payloads use the same public model-target validation rules as create. Omitted private connection targets are preserved and remain managed by model-scoped connection routes. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if access-target validation fails.
 
 #### Delete Model
 ```
 DELETE /api/models/{id}
 ```
-Response `200`: `{ "deleted": true }`. Returns `409` if other models still reference this model through access targets.
+Response `200`: `{ "deleted": true }`. Returns `409` if other models still reference this model through model targets. When deletion succeeds, the owner model's private connection rows and their internal owning access-target rows are removed in the same operation.
 
 ---
 
@@ -669,19 +663,19 @@ After a successful delete, later endpoints in the same profile are compacted so 
 
 ### 1.4 Connections and Model Access Targets
 
-Connections are standalone profile-scoped endpoint bindings. A connection carries its own `api_family`, endpoint reference or inline endpoint create payload, health metadata, pricing template, and optional admission limits. Models reach connections through ordered `access_targets` rows rather than owning connection rows directly.
+Connections are model-private endpoint bindings within one profile. A connection carries its owner model's `api_family`, endpoint reference or inline endpoint create payload, health metadata, pricing template, and optional admission limits. Endpoints remain reusable, so many private connections may point at the same endpoint. `model_access_targets.target_type="connection"` is an internal ownership and runtime routing edge, not a public assignment surface for connection IDs.
 
 #### List Connections
 ```
 GET /api/connections
 ```
-Response `200`: Array of standalone connection objects in the effective profile.
+Response `200`: Array of private connection objects in the effective profile. This is a read surface. Public `/api/connections` mutation routes reject writes and direct operators to model detail.
 
 #### Get Connection
 ```
 GET /api/connections/{connection_id}
 ```
-Response `200`: Single standalone connection object in the effective profile. Returns `404` when the connection does not exist in that profile.
+Response `200`: Single private connection object in the effective profile. Returns `404` when the connection does not exist in that profile.
 
 #### List Connections Attached to Models
 ```
@@ -693,16 +687,15 @@ Request:
   "model_config_ids": [1, 2, 3]
 }
 ```
-Response `200`: `items[]`, where each item contains a `model_config_id` and the standalone connections attached through that model's enabled or disabled connection access targets, ordered by target position.
+Response `200`: `items[]`, where each item contains a `model_config_id` and the private connections owned by that model's enabled or disabled internal connection targets, ordered by target position.
 
-#### Create Connection
+#### Create Model-Private Connection
 ```
-POST /api/connections
+POST /api/models/{model_config_id}/connections
 ```
 Request (using existing endpoint):
 ```json
 {
-  "api_family": "openai",
   "endpoint_id": 1,
   "is_active": true,
   "name": "Primary production key",
@@ -719,7 +712,6 @@ Request (using existing endpoint):
 Request (inline endpoint creation):
 ```json
 {
-  "api_family": "openai",
   "endpoint_create": {
     "name": "New Endpoint",
     "base_url": "https://api.openai.com",
@@ -734,70 +726,63 @@ Request (inline endpoint creation):
   "max_in_flight_stream": null
 }
 ```
-Response `201`: Created standalone connection object.
+Response `201`: Created private connection object plus its owner routing edge for the model.
 
 Create semantics:
 - Exactly one of `endpoint_id` or `endpoint_create` is required.
-- `api_family` is required and is the runtime compatibility guard for later model target attachment.
+- The connection `api_family` is derived from the owner model. A conflicting request value is rejected.
 - `priority` is rejected with `422`; connection ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
 - `openai_probe_endpoint_variant` selects the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
-#### Update Connection
+#### Update Model-Private Connection
 ```
-PUT /api/connections/{connection_id}
+PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable connection metadata: `api_family`, `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
 
-`endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. Changing `api_family` is rejected while models target the connection.
+`endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
-Response `200`: Updated connection object.
+Response `200`: Updated private connection object. Public `PUT` or `PATCH /api/connections/{connection_id}` rejects mutation requests.
 
 #### List Connection References
 ```
 GET /api/connections/{connection_id}/references
 ```
-Response `200`: Array of model access-target references for the connection:
+Response `200`: Owner references for the private connection, wrapped with the requested connection id. A valid connection has one owner:
 ```json
-[
-  {
-    "target_id": 42,
-    "model_config_id": 7,
-    "model_id": "gpt-4o",
-    "api_family": "openai",
-    "position": 0,
-    "is_enabled": true
-  }
-]
+{
+  "connection_id": 15,
+  "items": [
+    {
+      "target_id": 42,
+      "model_config_id": 7,
+      "model_id": "gpt-4o",
+      "api_family": "openai",
+      "position": 0,
+      "is_enabled": true
+    }
+  ]
+}
 ```
 
 #### Update Connection Pricing Template
-```
-PUT /api/connections/{connection_id}/pricing-template
-```
-Request:
-```json
-{
-  "pricing_template_id": 2
-}
-```
-Set to `null` to detach the template from the connection.
 
-Response `200`: Updated connection object.
+Pricing templates are assigned through the model-private connection update route by setting `pricing_template_id`. Public connection-level pricing-template mutation routes reject writes.
 
-#### Delete Connection
+#### Delete Model-Private Connection
 ```
-DELETE /api/connections/{connection_id}
+DELETE /api/models/{model_config_id}/connections/{connection_id}
 ```
 Response `200`: `{ "deleted": true }`.
 
-Returns `409` while any model access target still references the connection. Detach those target rows through `/api/models/{model_config_id}/targets/{target_id}` before deleting the connection.
+Deletes the private connection and its internal owner access-target row together, subject to enabled-model target validation. Public `DELETE /api/connections/{connection_id}` rejects mutation requests.
 
-#### Health Check Connection
+#### Health Check Model-Private Connection
 ```
-POST /api/connections/{connection_id}/health-check
+POST /api/models/{model_config_id}/connections/{connection_id}/health
 ```
-Sends an api-family-specific lightweight request using a same-family model that targets this connection, then persists the connection health result. The route validates URL routing, authentication, and model availability end to end.
+Sends an api-family-specific lightweight request using the owner model and persists the connection health result. The route validates URL routing, authentication, ownership, and model availability end to end. Public connection-level health-check mutation routes reject writes.
 
 Response `200`:
 ```json
@@ -819,23 +804,27 @@ API-family-specific health-check probes:
 GET /api/models/{model_config_id}/targets
 POST /api/models/{model_config_id}/targets
 PUT /api/models/{model_config_id}/targets/{target_id}
+PATCH /api/models/{model_config_id}/targets/{target_id}
 PATCH /api/models/{model_config_id}/targets/{target_id}/position
 DELETE /api/models/{model_config_id}/targets/{target_id}
 ```
 
-Model target rows define a model's ordered access graph. Each target is either a same-family model target or a standalone connection target:
+Model target rows define a model's ordered access graph. Public authoring creates same-family model targets only:
 ```json
 {
-  "target_type": "connection",
-  "connection_id": 12,
+  "target_type": "model",
+  "target_model_id": "gpt-4o-backup",
   "position": 0,
   "is_enabled": true
 }
 ```
 
 Target semantics:
-- `target_type="connection"` requires `connection_id` and omits `target_model_id`.
-- `target_type="model"` requires `target_model_id` and omits `connection_id`.
+- Public `POST /api/models/{model_config_id}/targets` accepts `target_type="model"` with `target_model_id`.
+- Public target authoring rejects submitted `target_type="connection"`, `connection_id`, or `target_connection_id` values. Private connections are created and managed through `/api/models/{model_config_id}/connections`.
+- `PUT` and `PATCH /api/models/{model_config_id}/targets/{target_id}` update target metadata within the owning model scope. For internal connection targets, `PATCH` accepts only `position` and `is_enabled`; pointer fields remain immutable.
+- `PATCH /api/models/{model_config_id}/targets/{target_id}/position` is the dedicated move route and accepts `to_index`.
+- Existing internal `target_type="connection"` rows identify the source model that owns a private connection and provide the runtime terminal routing edge.
 - Target positions are contiguous starting at `0` and determine routing order for that source model.
 - Target validation is selected-profile scoped, same-family, enabled-target aware, and cycle-safe.
 
@@ -999,7 +988,7 @@ Profile export semantics:
 - Safe exports null reusable endpoint secret refs and do not include `secret_payload.entries[]`.
 - Dangerous exports include `secret_payload.entries[]` and reusable endpoint secret refs.
 - Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
-- Profile bundles preserve top-level standalone connections, model `access_targets`, same-family model routing, and attached loadbalance strategy references as the canonical unified-access contract.
+- Profile bundles preserve top-level private connection records, model `access_targets`, same-family model routing, and attached loadbalance strategy references. Each exported `connection_ref` must be owned by exactly one model access target.
 
 #### Preview Profile Import
 ```
@@ -1066,8 +1055,9 @@ Response `200`:
 
 Preview semantics:
 - Preview is the authoritative backend readiness check for profile import.
-- The backend validates bundle kind/version, top-level standalone connection references, ordered model access targets, vendor resolution, and secret decryption before returning `ready: true`.
-- Preview rejects profile bundle versions other than `2`; older profile bundle versions return `400`.
+- The backend validates bundle kind/version, top-level private connection references, ordered model access targets, vendor resolution, and secret decryption before returning `ready: true`.
+- Preview rejects any `connection_ref` used by multiple models or any imported connection ref that cannot be owned by exactly one model.
+- Preview rejects profile bundle versions other than `3`; older profile bundle versions return `400`.
 - Preview returns a server-issued preview token, and apply must send that token in `X-Prism-Preview-Token`.
 - Preview rejects plaintext or otherwise non-encrypted `secret_payload.entries[].ciphertext` values.
 - When bundle key validation or secret decryption fails, preview returns `ready: false` with `blocking_errors[]` and does not mutate profile state.
@@ -1100,7 +1090,7 @@ Response `200`:
 Profile import semantics:
 - Import is profile-targeted and replaces configuration in the effective profile only.
 - Other profiles are not deleted or mutated.
-- The profile import lanes replace profile-scoped rows only, including endpoints, standalone connections, model configs, model access targets, profile settings, loadbalance strategies, header blocklist rules, and user-agent client rules that belong to the effective profile.
+- The profile import lanes replace profile-scoped rows only, including endpoints, private connections, model configs, model access targets, profile settings, loadbalance strategies, header blocklist rules, and user-agent client rules that belong to the effective profile.
 - Global vendor rows, other profiles, and request logs remain untouched.
 - `models[].vendor_key` is optional; when omitted or `null`, the imported model persists with `vendor_id = null` and `vendor = null`.
 - When `models[].vendor_key` is present, the backend resolves or creates the matching shared vendor row by that key only.
@@ -1114,8 +1104,9 @@ Profile import semantics:
 - Endpoints with `api_key_secret_ref: null` import as no-auth endpoints with an empty stored endpoint secret.
 - Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and `target_model_id`.
-- Exported/imported models carry ordered `access_targets` entries with either model or standalone connection targets plus `position` and `is_enabled` metadata.
-- Exported/imported standalone connections live at the top level and include `api_family`, endpoint and pricing-template name references, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited.
+- Exported/imported models carry ordered `access_targets` entries with model targets and internally owned private connection targets plus `position` and `is_enabled` metadata.
+- Exported/imported private connections live at the top level and include `api_family`, endpoint and pricing-template name references, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited.
+- Import rejects `connection_ref` values used by multiple models, duplicate private connection ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
 - Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle v3 import normalizes missing, null, or blank pricing inputs for any of those fields to `"0"` before validation.
 - Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`.
 - Their explicit Ban Policy shape carries failure status codes, retry-window fields, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration. Import rejects removed keys and accepts only `off`, `temporary`, or `until_reset` for `ban_mode`.
@@ -2552,7 +2543,7 @@ Response `200`:
 
 Returns `404` when the model config does not exist in the effective profile.
 
-`state` is derived from the connection-global Ban Policy runtime state and is one of `available`, `retry_wait`, or `banned`. `until_reset` bans stay `banned` until the current-state reset endpoint clears them; temporary bans stay `banned` until `banned_until_at`; retry windows stay `retry_wait` until `next_retry_at`; otherwise the connection is `available`. Current-state items expose QPS and in-flight admission counters plus live retry-cycle counters for each standalone connection directly targeted by the model. They intentionally omit `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` because current state is connection-global, while policy thresholds belong to the model strategy snapshot recorded on events.
+`state` is derived from the connection-global Ban Policy runtime state and is one of `available`, `retry_wait`, or `banned`. `until_reset` bans stay `banned` until the current-state reset endpoint clears them; temporary bans stay `banned` until `banned_until_at`; retry windows stay `retry_wait` until `next_retry_at`; otherwise the connection is `available`. Current-state items expose QPS and in-flight admission counters plus live retry-cycle counters for each private connection directly owned by the model. They intentionally omit `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` because current state is connection-global, while policy thresholds belong to the model strategy snapshot recorded on events.
 
 ### 6.7 Reset Current Loadbalance State for a Connection
 ```

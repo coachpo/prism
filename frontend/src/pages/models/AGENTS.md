@@ -1,7 +1,7 @@
 # FRONTEND MODELS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/models/` owns the models list search and row-card presentation, dialog state, vendor-grouped table rendering with row-level `api_family` still visible, vendor and `api_family` form logic, ordered access-target editing for same-family model or standalone connection targets, explicit Ban Policy strategy attachment during create or edit, and separate 24-hour metric hydration behind `../ModelsPage.tsx`.
+`pages/models/` owns the models list search and row-card presentation, dialog state, vendor-grouped table rendering with row-level `api_family` still visible, vendor and `api_family` form logic, ordered same-family model target editing, explicit Ban Policy strategy attachment during create or edit, and separate 24-hour metric hydration behind `../ModelsPage.tsx`.
 
 ## STRUCTURE
 ```

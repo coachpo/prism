@@ -268,15 +268,15 @@ func describeEvent(eventType string, failureKind *string, cycleRetryAttempts int
 	case "retry_exhausted":
 		return EventSummary{Event: "Retry cycle was exhausted", Reason: fmt.Sprintf("The %s exhausted the current retry cycle after %d attempts.", failureLabel, cycleRetryAttempts), Operation: fmt.Sprintf("Prism will wait %s before opening a new retry cycle for this connection.", delayLabel), Cooldown: delayLabel}
 	case "banned":
-		return EventSummary{Event: "Connection was banned", Reason: describeBannedEventReason(failureLabel, cumulativeRetryAttempts, policyBanCumulativeRetryAttemptThreshold), Operation: "Prism removed this connection globally until the ban expires or an operator resets it.", Cooldown: delayLabel}
+		return EventSummary{Event: "Connection was banned", Reason: describeBannedEventReason(failureLabel, cumulativeRetryAttempts, policyBanCumulativeRetryAttemptThreshold), Operation: "Prism removed this model-private connection from routing until the ban expires or an operator resets it.", Cooldown: delayLabel}
 	case "unbanned":
-		return EventSummary{Event: "Connection was unbanned", Reason: "The temporary ban expired before the next runtime attempt.", Operation: "Prism returned the connection to global availability for models that share it.", Cooldown: "Ban expired"}
+		return EventSummary{Event: "Connection was unbanned", Reason: "The temporary ban expired before the next runtime attempt.", Operation: "Prism returned the model-private connection to its owner model's routing pool.", Cooldown: "Ban expired"}
 	case "recovered":
-		return EventSummary{Event: "Connection recovered", Reason: fmt.Sprintf("A successful response cleared the last %s retry state.", failureLabel), Operation: "Prism reset retry counters and cleared any retry wait or ban for the shared connection.", Cooldown: "Recovered"}
+		return EventSummary{Event: "Connection recovered", Reason: fmt.Sprintf("A successful response cleared the last %s retry state.", failureLabel), Operation: "Prism reset retry counters and cleared any retry wait or ban for the model-private connection.", Cooldown: "Recovered"}
 	case "admission_rejected":
 		return EventSummary{Event: "Admission was rejected", Reason: "The connection was rejected by QPS or in-flight admission limits.", Operation: "Prism skipped this attempt without advancing Ban Mode retry counters.", Cooldown: "Retry counters unchanged"}
 	default:
-		return EventSummary{Event: "Retry event was recorded", Reason: fmt.Sprintf("The connection has %d cycle retry attempts and %d cumulative retry attempts.", cycleRetryAttempts, cumulativeRetryAttempts), Operation: "Prism updated connection-global retry state.", Cooldown: delayLabel}
+		return EventSummary{Event: "Retry event was recorded", Reason: fmt.Sprintf("The connection has %d cycle retry attempts and %d cumulative retry attempts.", cycleRetryAttempts, cumulativeRetryAttempts), Operation: "Prism updated retry state for the model-private connection.", Cooldown: delayLabel}
 	}
 }
 

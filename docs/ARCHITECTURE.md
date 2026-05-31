@@ -139,11 +139,11 @@ Prism is proxy-first. It forwards only the provider-native operations registered
 
 The operation registry is the ingress contract for the runtime plane. Each supported operation declares an exact HTTP method, path template, API family, model-binding source, streaming classification, canonical operation name, and hook collection. The current canonical operation names are `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`. Requests that do not match that registry are rejected before body reads, planning, provider transport, telemetry, audit, or feedback side effects.
 
-After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves ordered access targets to a final standalone connection or final model target, applies the attached explicit Ban Policy strategy, claims leases, builds upstream headers, forwards to the selected provider connection, records retained request history through durable seams, and emits bounded OTLP metrics/traces through startup-owned providers when enabled. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
+After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves ordered access targets to a final model-private connection or final model target, applies the attached explicit Ban Policy strategy, claims leases, builds upstream headers, forwards to the selected provider connection, records retained request history through durable seams, and emits bounded OTLP metrics/traces through startup-owned providers when enabled. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
 
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
-### 3.1 Runtime Request With Direct Connection Target
+### 3.1 Runtime Request With Private Connection Target
 
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o"}
@@ -151,7 +151,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
   -> Shared core captures active profile snapshot at request start
   -> Gateway assigns one Prism `ingress_request_id` for the incoming runtime request
   -> Request setup resolves the requested model and its ordered access targets in active profile scope
-  -> Planner reaches a standalone connection target, applies the attached explicit Ban Policy strategy, and checks admission counters plus retry-window state
+  -> Planner reaches the model's private connection target, applies the attached explicit Ban Policy strategy, and checks admission counters plus retry-window state
   -> Executor claims the primary attempt lease and forwards the request to the selected endpoint
   -> Upstream responds with JSON
   -> Gateway returns JSON to client, releases any non-stream lease, persists one `request_logs` row for the attempt, and feeds the outcome back into runtime routing state
@@ -165,7 +165,7 @@ Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
   -> Shared core captures active profile snapshot
   -> Resolver loads ordered same-profile, same-api-family access targets
   -> Model targets can chain to another model; connection targets are terminal
-  -> Executor plans attempts against terminal standalone connections
+  -> Executor plans attempts against terminal private connections
   -> Upstream responds; request log keeps model_id as the requested model and resolved_target_model_id as the final target model for the attempt
   -> Gateway returns response to client
 ```
@@ -309,14 +309,14 @@ If all eligible candidates are unavailable inside the current retry window, the 
 
 ### 5.1 Concept
 
-Models resolve through ordered access targets. Each target points to either another same-profile, same-`api_family` model or a standalone connection. Model targets can chain until a terminal standalone connection is reached, and the runtime records both requested model and final target model for observability.
+Models resolve through ordered access targets. Public target authoring points only to other same-profile, same-`api_family` models. Private connection targets remain in `model_access_targets` as internal ownership and terminal routing edges from one source model to one connection. Model targets can chain until a terminal private connection is reached, and the runtime records both requested model and final target model for observability.
 
 ### 5.2 Rules
 
 - Access targets must stay in the same profile and same `api_family`.
 - Connection targets are terminal.
 - Model targets can chain, but cycles and self-targets are rejected.
-- Standalone connections are created under `/api/connections` and attached through model target routes.
+- Endpoints are reusable. Connections are model-private endpoint bindings created and managed from model detail through model-scoped connection routes.
 - Every access target carries explicit ordering metadata.
 - Model IDs are unique within a profile.
 - The gateway may normalize provider request payloads before forwarding, for example rewriting the requested model ID to the final target model ID for upstream compatibility.

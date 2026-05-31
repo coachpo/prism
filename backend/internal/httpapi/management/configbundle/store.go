@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -314,6 +315,9 @@ func buildModelExports(ctx context.Context, exec queryExecutor, models []modelRo
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := validateExportedConnectionOwners(models, accessTargetsByModelID, connectionRefByID); err != nil {
+		return nil, nil, err
+	}
 
 	exportedVendorRefs, err := buildVendorRefExports(vendorIDs, vendorsByID)
 	if err != nil {
@@ -328,6 +332,30 @@ func buildModelExports(ctx context.Context, exec queryExecutor, models []modelRo
 		exportedModels = append(exportedModels, exportedModel)
 	}
 	return exportedVendorRefs, exportedModels, nil
+}
+
+func validateExportedConnectionOwners(models []modelRow, accessTargetsByModelID map[int][]accessTargetRow, connectionRefByID map[int]string) error {
+	ownersByConnectionRef := map[string]connectionOwnerRef{}
+	for _, model := range models {
+		owner := connectionOwnerRef{ModelID: model.ModelID, DisplayName: model.DisplayName}
+		for _, target := range accessTargetsByModelID[model.ID] {
+			if target.TargetType != "connection" {
+				continue
+			}
+			if target.TargetConnectionID == nil {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' connection access target must resolve to a connection_ref", model.ModelID)}
+			}
+			connectionRef, ok := connectionRefByID[*target.TargetConnectionID]
+			if !ok {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' connection access target references unknown connection id %d", model.ModelID, *target.TargetConnectionID)}
+			}
+			if previousOwner, ok := ownersByConnectionRef[connectionRef]; ok {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: duplicateConnectionRefOwnerDetail(connectionRef, previousOwner, owner)}
+			}
+			ownersByConnectionRef[connectionRef] = owner
+		}
+	}
+	return nil
 }
 
 func profileModelExportIDs(models []modelRow) ([]int, []int) {

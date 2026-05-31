@@ -52,7 +52,7 @@ func TestConnectionHealthCheckDoesNotHoldTransactionDuringProbe(t *testing.T) {
 	endpointID := harness.base.seedEndpoint(t, profileID, "phase4-short-tx-endpoint-"+suffix, blockingUpstream.baseURL("/phase4/short-tx"), "phase4-short-tx-key", 0)
 	connectionID := harness.base.seedConnection(t, profileID, modelConfigID, endpointID, "phase4-short-tx-connection-"+suffix, nil, nil, 0)
 
-	resultCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+fmt.Sprintf("/api/connections/%d/health-check", connectionID), nil, runtimeModelHeader(profileID))
+	resultCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+fmt.Sprintf("/api/models/%d/connections/%d/health", modelConfigID, connectionID), nil, runtimeModelHeader(profileID))
 	blockingUpstream.waitUntilReady(t, 5*time.Second)
 
 	activeProfileResponse := performPriorityRequest(t, harness.client, time.Second, http.MethodGet, harness.url+"/api/profiles/active", nil, nil)
@@ -126,7 +126,7 @@ func TestConnectionHealthCheckWritebackSkipsOnVersionChange(t *testing.T) {
 	endpointID := harness.base.seedEndpoint(t, profileID, "phase4-writeback-endpoint-"+suffix, blockingUpstream.baseURL("/phase4/writeback"), "phase4-writeback-key", 0)
 	connectionID := harness.base.seedConnection(t, profileID, modelConfigID, endpointID, "phase4-writeback-connection-"+suffix, nil, nil, 0)
 
-	resultCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+fmt.Sprintf("/api/connections/%d/health-check", connectionID), nil, runtimeModelHeader(profileID))
+	resultCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+fmt.Sprintf("/api/models/%d/connections/%d/health", modelConfigID, connectionID), nil, runtimeModelHeader(profileID))
 	blockingUpstream.waitUntilReady(t, 5*time.Second)
 	newerCheckedAt := time.Date(2026, time.April, 26, 15, 4, 5, 0, time.UTC)
 	updatePhase4ConnectionHealthSnapshot(t, harness.base.conn, connectionID, "healthy", phase4StringPtr("newer persisted state"), &newerCheckedAt)
@@ -161,9 +161,9 @@ func TestConnectionHealthCheckDuplicateProbeSuppression(t *testing.T) {
 	endpointID := harness.base.seedEndpoint(t, profileID, "phase4-duplicate-endpoint-"+suffix, blockingUpstream.baseURL("/phase4/duplicate"), "phase4-duplicate-key", 0)
 	connectionID := harness.base.seedConnection(t, profileID, modelConfigID, endpointID, "phase4-duplicate-connection-"+suffix, nil, nil, 0)
 
-	resultOneCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+fmt.Sprintf("/api/connections/%d/health-check", connectionID), nil, runtimeModelHeader(profileID))
+	resultOneCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+fmt.Sprintf("/api/models/%d/connections/%d/health", modelConfigID, connectionID), nil, runtimeModelHeader(profileID))
 	blockingUpstream.waitUntilReady(t, 5*time.Second)
-	resultTwoCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+fmt.Sprintf("/api/connections/%d/health-check", connectionID), nil, runtimeModelHeader(profileID))
+	resultTwoCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+fmt.Sprintf("/api/models/%d/connections/%d/health", modelConfigID, connectionID), nil, runtimeModelHeader(profileID))
 	time.Sleep(100 * time.Millisecond)
 	if got := len(blockingUpstream.requestsSnapshot()); got != 1 {
 		t.Fatalf("expected duplicate persisted probe suppression to keep one inflight upstream request, got %d", got)

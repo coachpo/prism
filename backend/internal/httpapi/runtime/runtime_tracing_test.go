@@ -127,7 +127,7 @@ func TestRuntimeTracingPropagatesToOutboxAndFeedback(t *testing.T) {
 	}
 	rootSpan.End()
 
-	spans := recorder.Ended()
+	spans := waitForRuntimeTraceSpans(t, recorder, "runtime.side_effect.submit", "runtime.side_effect.commit", "runtime.outbox.enqueue", "runtime.feedback.enqueue", "runtime.feedback.write", "runtime.trace.root")
 	root := runtimeTraceSpanByName(spans, "runtime.trace.root")
 	if root == nil {
 		t.Fatalf("expected root span; got %v", runtimeTraceSpanNames(spans))
@@ -245,6 +245,27 @@ func runtimeTracingSnapshot(apiFamily string, modelID string) *planningSnapshot 
 
 func runtimeTraceSpanExists(spans []sdktrace.ReadOnlySpan, name string) bool {
 	return runtimeTraceSpanByName(spans, name) != nil
+}
+
+func waitForRuntimeTraceSpans(t *testing.T, recorder *tracetest.SpanRecorder, names ...string) []sdktrace.ReadOnlySpan {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		spans := recorder.Ended()
+		if runtimeTraceSpansInclude(spans, names) || time.Now().After(deadline) {
+			return spans
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func runtimeTraceSpansInclude(spans []sdktrace.ReadOnlySpan, names []string) bool {
+	for _, name := range names {
+		if !runtimeTraceSpanExists(spans, name) {
+			return false
+		}
+	}
+	return true
 }
 
 func runtimeTraceSpanByName(spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {

@@ -6,7 +6,7 @@ function getMessages() {
   return getStaticMessages();
 }
 
-type ConnectionOwner = Awaited<ReturnType<typeof api.connections.owner>>;
+type ConnectionReferences = Awaited<ReturnType<typeof api.connections.references>>;
 
 interface CreateConnectionNavigatorOptions {
   navigate: (to: string) => void;
@@ -25,7 +25,13 @@ export function createConnectionNavigator({
     navigating = true;
 
     try {
-      const owner: ConnectionOwner = await api.connections.owner(connectionId);
+      const references: ConnectionReferences = await api.connections.references(connectionId);
+      const owner = references.items[0];
+
+      if (!owner) {
+        toast.error(getMessages().requestLogsDetail.connectionNotFound);
+        return;
+      }
 
       navigate(`/models/${owner.model_config_id}?focus_connection_id=${connectionId}`);
     } catch {

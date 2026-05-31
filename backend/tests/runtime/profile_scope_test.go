@@ -28,6 +28,7 @@ import (
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
+	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
@@ -735,7 +736,7 @@ func TestRuntimeLoadBalancePrefersProxyTargetWithEligibleConnection(t *testing.T
 	}
 }
 
-func TestRuntimeDirectConnectionResolvedTargetPersistsRequestedAsFinal(t *testing.T) {
+func TestRuntimeRoutesThroughOwnedPrivateConnection(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
@@ -751,6 +752,10 @@ func TestRuntimeDirectConnectionResolvedTargetPersistsRequestedAsFinal(t *testin
 		"model":    modelID,
 	}, nil)
 	assertStatus(t, response, http.StatusOK)
+	upstreamRequest := harness.upstream.lastRequest(t)
+	if upstreamRequest.Path != "/direct-resolved-target/v1/chat/completions" {
+		t.Fatalf("expected owned private connection endpoint path, got %s", upstreamRequest.Path)
+	}
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, modelID, modelID)
 }
@@ -796,14 +801,14 @@ func TestRuntimeAdmissionExhaustionDoesNotIncrementRetries(t *testing.T) {
 	}
 }
 
-func TestRuntimeSharedConnectionGlobalBan(t *testing.T) {
+func TestRuntimePrivateConnectionBanDoesNotAffectPeerPrivateConnection(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	firstModelID := "shared-ban-first-" + suffix
-	secondModelID := "shared-ban-second-" + suffix
-	banStrategyID := harness.seedLegacyStrategy(t, profileID, "shared-ban-temporary-strategy-"+suffix, "fill-first")
-	offStrategyID := harness.seedLegacyStrategy(t, profileID, "shared-ban-off-strategy-"+suffix, "fill-first")
+	firstModelID := "private-ban-first-" + suffix
+	secondModelID := "private-ban-second-" + suffix
+	banStrategyID := harness.seedLegacyStrategy(t, profileID, "private-ban-temporary-strategy-"+suffix, "fill-first")
+	offStrategyID := harness.seedLegacyStrategy(t, profileID, "private-ban-off-strategy-"+suffix, "fill-first")
 	if _, err := harness.conn.Exec(
 		context.Background(),
 		`UPDATE loadbalance_strategies
@@ -812,53 +817,42 @@ func TestRuntimeSharedConnectionGlobalBan(t *testing.T) {
 		banStrategyID,
 		time.Now().UTC(),
 	); err != nil {
-		t.Fatalf("update shared-ban temporary strategy: %v", err)
+		t.Fatalf("update private-ban temporary strategy: %v", err)
 	}
 	firstConfigID := harness.seedModel(t, profileID, "openai", firstModelID, "native", &banStrategyID)
 	secondConfigID := harness.seedModel(t, profileID, "openai", secondModelID, "native", &offStrategyID)
-	sharedUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "shared ban trigger"})
-	fallbackUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-shared-ban-fallback"})
-	sharedEndpointID := harness.seedEndpoint(t, profileID, "shared-ban-primary-endpoint-"+suffix, sharedUpstream.baseURL("/shared-ban/primary"), "shared-ban-primary-key", 0)
-	fallbackEndpointID := harness.seedEndpoint(t, profileID, "shared-ban-fallback-endpoint-"+suffix, fallbackUpstream.baseURL("/shared-ban/fallback"), "shared-ban-fallback-key", 1)
-	sharedConnectionID := harness.seedConnection(t, profileID, firstConfigID, sharedEndpointID, "shared-ban-primary-connection-"+suffix, nil, nil, 0)
-	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(
-		context.Background(),
-		`INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at)
-		 VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`,
-		profileID,
-		secondConfigID,
-		sharedConnectionID,
-		now,
-	); err != nil {
-		t.Fatalf("attach shared banned connection to second model: %v", err)
-	}
-	harness.seedConnection(t, profileID, secondConfigID, fallbackEndpointID, "shared-ban-fallback-connection-"+suffix, nil, nil, 1)
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "private ban trigger"})
+	fallbackUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-private-ban-fallback"})
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "private-ban-primary-endpoint-"+suffix, primaryUpstream.baseURL("/private-ban/primary"), "private-ban-primary-key", 0)
+	fallbackEndpointID := harness.seedEndpoint(t, profileID, "private-ban-fallback-endpoint-"+suffix, fallbackUpstream.baseURL("/private-ban/fallback"), "private-ban-fallback-key", 1)
+	firstConnectionID := harness.seedConnection(t, profileID, firstConfigID, primaryEndpointID, "private-ban-first-primary-connection-"+suffix, nil, nil, 0)
+	harness.seedConnection(t, profileID, secondConfigID, primaryEndpointID, "private-ban-second-primary-connection-"+suffix, nil, nil, 0)
+	harness.seedConnection(t, profileID, secondConfigID, fallbackEndpointID, "private-ban-fallback-connection-"+suffix, nil, nil, 1)
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	for attempt := 0; attempt < 3; attempt++ {
 		response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-			"messages": []map[string]any{{"role": "user", "content": "trigger shared ban"}},
+			"messages": []map[string]any{{"role": "user", "content": "trigger private ban"}},
 			"model":    firstModelID,
 		}, nil)
 		assertStatus(t, response, http.StatusServiceUnavailable)
 	}
-	state, ok := harness.runtimeService.RuntimeState().SnapshotConnectionState(profileID, sharedConnectionID)
+	state, ok := harness.runtimeService.RuntimeState().SnapshotConnectionState(profileID, firstConnectionID)
 	if !ok || state.BanMode != "temporary" || state.BannedUntilAt == nil || state.CumulativeRetryAttempts != 3 {
-		t.Fatalf("expected first model to temporarily ban shared connection, got ok=%v state=%+v", ok, state)
+		t.Fatalf("expected first model to temporarily ban its private connection, got ok=%v state=%+v", ok, state)
 	}
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "use shared ban fallback"}},
+		"messages": []map[string]any{{"role": "user", "content": "use peer private primary then fallback"}},
 		"model":    secondModelID,
 	}, nil)
 	assertStatus(t, response, http.StatusOK)
-	if got := len(sharedUpstream.requestsSnapshot()); got != 3 {
-		t.Fatalf("expected second model to skip globally banned shared connection, got %d shared upstream requests", got)
+	if got := len(primaryUpstream.requestsSnapshot()); got != 4 {
+		t.Fatalf("expected second model to attempt its own private primary connection, got %d primary upstream requests", got)
 	}
 	fallbackRequests := fallbackUpstream.requestsSnapshot()
-	if len(fallbackRequests) != 1 || fallbackRequests[0].Path != "/shared-ban/fallback/v1/chat/completions" {
-		t.Fatalf("expected second model to use fallback connection while shared connection is banned, got %+v", fallbackRequests)
+	if len(fallbackRequests) != 1 || fallbackRequests[0].Path != "/private-ban/fallback/v1/chat/completions" {
+		t.Fatalf("expected second model to use fallback after its private primary connection failed, got %+v", fallbackRequests)
 	}
 }
 
@@ -2242,6 +2236,11 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		tb.Fatalf("build connections service: %v", err)
 	}
 	tb.Cleanup(connectionsService.Close)
+	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool})
+	if err != nil {
+		tb.Fatalf("build models service: %v", err)
+	}
+	tb.Cleanup(modelsService.Close)
 	profilesService, err := managementprofiles.NewService(settings, managementprofiles.Options{Pool: pool})
 	if err != nil {
 		tb.Fatalf("build profiles service: %v", err)
@@ -2264,6 +2263,7 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		RuntimeCache:       runtimeCache,
 		ConfigRulesService: configRulesService,
 		ConnectionsService: connectionsService,
+		ModelsService:      modelsService,
 		ProfilesService:    profilesService,
 		StatsService:       statsService,
 		RuntimeService:     runtimeService,

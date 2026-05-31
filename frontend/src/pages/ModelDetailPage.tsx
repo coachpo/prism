@@ -8,6 +8,7 @@ import { ConnectionDialog } from "./model-detail/ConnectionDialog";
 import { ModelSettingsDialog } from "./model-detail/ModelSettingsDialog";
 import { AccessTargetsEditor } from "./models/AccessTargetsEditor";
 import { accessTargetToMutation } from "./models/modelFormState";
+import { isOwnedConnectionTarget } from "./model-detail/useModelDetailDataSupport";
 
 export function ModelDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -78,6 +79,10 @@ export function ModelDetailPage() {
 
   if (!model) return null;
 
+  const modelConfigId = id ? Number.parseInt(id, 10) : undefined;
+  const isConnectionTargetMutable = (connectionId: number) =>
+    isOwnedConnectionTarget(model, modelConfigId, connectionId);
+
   return (
     <div className="space-y-[var(--density-page-gap)] pb-2">
       <ModelDetailHeader
@@ -104,6 +109,7 @@ export function ModelDetailPage() {
         connectionOptions={targetConnectionsForApiFamily}
         error={targetEditorError}
         healthCheckingIds={healthCheckingIds}
+        isConnectionTargetMutable={isConnectionTargetMutable}
         onAddTarget={handleAddAccessTarget}
         onCreateConnection={() => openConnectionDialog()}
         onDeleteTarget={handleDeleteAccessTarget}
@@ -145,7 +151,6 @@ export function ModelDetailPage() {
         isOpen={isEditModelDialogOpen}
         loadbalanceStrategies={loadbalanceStrategies}
         model={model}
-        targetConnectionsForApiFamily={targetConnectionsForApiFamily}
         targetEditorError={targetEditorError}
         targetModelsForApiFamily={targetModelsForApiFamily}
         onOpenChange={setIsEditModelDialogOpen}

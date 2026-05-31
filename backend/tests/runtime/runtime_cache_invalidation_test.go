@@ -20,6 +20,7 @@ func TestRuntimeCacheInvalidation(t *testing.T) {
 	t.Run("AuthCacheInvalidationAfterAuthDisable", runtimeAuthCacheInvalidationAfterAuthDisable)
 	t.Run("AfterActiveProfileActivation", runtimeCacheInvalidationAfterActiveProfileActivation)
 	t.Run("PlanningCacheInvalidationAfterHeaderBlocklistWrite", runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite)
+	t.Run("PlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations", runtimePlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations)
 }
 
 func runtimeAuthCacheInvalidationAfterProxyKeyRotation(t *testing.T) {
@@ -397,6 +398,142 @@ func runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite(t *testing.T) {
 	if secondRequest.Headers.Get(allowedHeaderName) != "allowed-before-and-after" {
 		t.Fatalf("expected non-blocked header %s to survive after invalidation, got %q", allowedHeaderName, secondRequest.Headers.Get(allowedHeaderName))
 	}
+}
+
+func runtimePlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations(t *testing.T) {
+	t.Run("OwnerScopedConnectionRoutes", runtimePlanningCacheInvalidationAfterOwnerScopedConnectionRoutes)
+	t.Run("ModelTargetRoutes", runtimePlanningCacheInvalidationAfterModelTargetRoutes)
+}
+
+func runtimePlanningCacheInvalidationAfterOwnerScopedConnectionRoutes(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	strategyID := harness.seedLegacyStrategy(t, profileID, "cache-owner-connections-"+suffix, "fill-first")
+	publicModelID := "cache-owner-public-" + suffix
+	ownerModelID := "cache-owner-target-" + suffix
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
+	ownerModelConfigID := harness.seedModel(t, profileID, "openai", ownerModelID, "native", &strategyID)
+	harness.seedProxyTarget(t, publicModelConfigID, ownerModelConfigID)
+
+	createUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-owner-connection-create"})
+	createEndpointID := harness.seedEndpoint(t, profileID, "cache-owner-create-endpoint-"+suffix, createUpstream.baseURL("/cache-invalidation/owner-connection-create"), "owner-create-key", 0)
+	baselineResponse := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "before owner connection create"}}, "model": publicModelID}, nil)
+	if baselineResponse.StatusCode == http.StatusOK {
+		t.Fatalf("expected runtime request before owner connection create to fail, got %d", baselineResponse.StatusCode)
+	}
+
+	generation := harness.runtimeCache.PublishedGeneration()
+	createResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": createEndpointID, "name": "cache owner created", "is_active": true}, runtimeModelHeader(profileID))
+	assertStatus(t, createResponse, http.StatusCreated)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	var createPayload map[string]any
+	decodeJSONResponse(t, createResponse, &createPayload)
+	createdConnectionID := jsonInt(t, createPayload["id"])
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, ownerModelID, createUpstream, "/cache-invalidation/owner-connection-create/v1/chat/completions")
+
+	updateUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-owner-connection-update"})
+	updateEndpointID := harness.seedEndpoint(t, profileID, "cache-owner-update-endpoint-"+suffix, updateUpstream.baseURL("/cache-invalidation/owner-connection-update"), "owner-update-key", 1)
+	generation = harness.runtimeCache.PublishedGeneration()
+	updateResponse := harness.requestJSON(t, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelConfigID, createdConnectionID), map[string]any{"endpoint_id": updateEndpointID}, runtimeModelHeader(profileID))
+	assertStatus(t, updateResponse, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, ownerModelID, updateUpstream, "/cache-invalidation/owner-connection-update/v1/chat/completions")
+
+	remainingUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-owner-connection-delete"})
+	remainingEndpointID := harness.seedEndpoint(t, profileID, "cache-owner-delete-endpoint-"+suffix, remainingUpstream.baseURL("/cache-invalidation/owner-connection-delete"), "owner-delete-key", 2)
+	generation = harness.runtimeCache.PublishedGeneration()
+	secondCreateResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": remainingEndpointID, "name": "cache owner remaining", "is_active": true}, runtimeModelHeader(profileID))
+	assertStatus(t, secondCreateResponse, http.StatusCreated)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+
+	generation = harness.runtimeCache.PublishedGeneration()
+	deleteResponse := harness.requestJSON(t, http.MethodDelete, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelConfigID, createdConnectionID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, deleteResponse, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, ownerModelID, remainingUpstream, "/cache-invalidation/owner-connection-delete/v1/chat/completions")
+}
+
+func runtimePlanningCacheInvalidationAfterModelTargetRoutes(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	strategyID := harness.seedLegacyStrategy(t, profileID, "cache-model-targets-"+suffix, "fill-first")
+	publicModelID := "cache-target-public-" + suffix
+	targetAModelID := "cache-target-a-" + suffix
+	targetBModelID := "cache-target-b-" + suffix
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
+	targetAModelConfigID := harness.seedModel(t, profileID, "openai", targetAModelID, "native", &strategyID)
+	targetBModelConfigID := harness.seedModel(t, profileID, "openai", targetBModelID, "native", &strategyID)
+	targetAUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-model-target-a"})
+	targetBUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-model-target-b"})
+	targetAEndpointID := harness.seedEndpoint(t, profileID, "cache-target-a-endpoint-"+suffix, targetAUpstream.baseURL("/cache-invalidation/model-target-a"), "target-a-key", 0)
+	targetBEndpointID := harness.seedEndpoint(t, profileID, "cache-target-b-endpoint-"+suffix, targetBUpstream.baseURL("/cache-invalidation/model-target-b"), "target-b-key", 1)
+	harness.seedConnection(t, profileID, targetAModelConfigID, targetAEndpointID, "cache-target-a-connection-"+suffix, nil, nil, 0)
+	harness.seedConnection(t, profileID, targetBModelConfigID, targetBEndpointID, "cache-target-b-connection-"+suffix, nil, nil, 0)
+
+	baselineResponse := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "before model target create"}}, "model": publicModelID}, nil)
+	if baselineResponse.StatusCode == http.StatusOK {
+		t.Fatalf("expected runtime request before model target create to fail, got %d", baselineResponse.StatusCode)
+	}
+
+	generation := harness.runtimeCache.PublishedGeneration()
+	createResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", publicModelConfigID), map[string]any{"target_type": "model", "target_model_id": targetAModelID, "position": 0, "is_enabled": true}, runtimeModelHeader(profileID))
+	assertStatus(t, createResponse, http.StatusCreated)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, targetAModelID, targetAUpstream, "/cache-invalidation/model-target-a/v1/chat/completions")
+
+	targetID := modelAccessTargetID(t, harness, publicModelConfigID, targetAModelConfigID)
+	generation = harness.runtimeCache.PublishedGeneration()
+	updateResponse := harness.requestJSON(t, http.MethodPut, fmt.Sprintf("/api/models/%d/targets/%d", publicModelConfigID, targetID), map[string]any{"target_type": "model", "target_model_id": targetBModelID, "position": 0, "is_enabled": true}, runtimeModelHeader(profileID))
+	assertStatus(t, updateResponse, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, targetBModelID, targetBUpstream, "/cache-invalidation/model-target-b/v1/chat/completions")
+
+	generation = harness.runtimeCache.PublishedGeneration()
+	secondCreateResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", publicModelConfigID), map[string]any{"target_type": "model", "target_model_id": targetAModelID, "position": 1, "is_enabled": true}, runtimeModelHeader(profileID))
+	assertStatus(t, secondCreateResponse, http.StatusCreated)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	targetATargetID := modelAccessTargetID(t, harness, publicModelConfigID, targetAModelConfigID)
+
+	generation = harness.runtimeCache.PublishedGeneration()
+	moveResponse := harness.requestJSON(t, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d/position", publicModelConfigID, targetATargetID), map[string]any{"to_index": 0}, runtimeModelHeader(profileID))
+	assertStatus(t, moveResponse, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, targetAModelID, targetAUpstream, "/cache-invalidation/model-target-a/v1/chat/completions")
+
+	generation = harness.runtimeCache.PublishedGeneration()
+	deleteResponse := harness.requestJSON(t, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", publicModelConfigID, targetATargetID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, deleteResponse, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, targetBModelID, targetBUpstream, "/cache-invalidation/model-target-b/v1/chat/completions")
+}
+
+func assertRuntimeRequestRoutesToScriptedUpstream(t *testing.T, harness *runtimeHarness, publicModelID string, targetModelID string, upstream *scriptedUpstream, wantPath string) {
+	t.Helper()
+	before := len(upstream.requestsSnapshot())
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "assert runtime planning invalidation"}}, "model": publicModelID}, nil)
+	assertStatus(t, response, http.StatusOK)
+	requests := upstream.requestsSnapshot()
+	if len(requests) != before+1 {
+		t.Fatalf("expected one new upstream request to %s, got %d new requests", wantPath, len(requests)-before)
+	}
+	request := requests[len(requests)-1]
+	if request.Path != wantPath {
+		t.Fatalf("expected upstream path %q, got %q", wantPath, request.Path)
+	}
+	if got := requestModelID(t, request.Body); got != targetModelID {
+		t.Fatalf("expected upstream model %q, got %q", targetModelID, got)
+	}
+}
+
+func modelAccessTargetID(t *testing.T, harness *runtimeHarness, sourceModelConfigID int, targetModelConfigID int) int {
+	t.Helper()
+	var targetID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_access_targets WHERE source_model_config_id = $1 AND target_model_config_id = $2`, sourceModelConfigID, targetModelConfigID).Scan(&targetID); err != nil {
+		t.Fatalf("load model access target %d -> %d: %v", sourceModelConfigID, targetModelConfigID, err)
+	}
+	return targetID
 }
 
 func assertRuntimeCacheInvalidationVisibleWithin(t *testing.T, startedAt time.Time, action string) {

@@ -166,7 +166,7 @@ func listValidConnectionPairs(ctx context.Context, exec queryExecutor, profileID
 	args := []any{profileID, toInt32Slice(endpointIDs)}
 	rows, err := exec.Query(
 		ctx,
-		`SELECT model_configs.model_id, connections.endpoint_id
+		`SELECT DISTINCT model_configs.model_id, connections.endpoint_id
 		 FROM model_configs
 		 JOIN model_access_targets ON model_access_targets.source_model_config_id = model_configs.id
 		 JOIN connections ON connections.id = model_access_targets.target_connection_id

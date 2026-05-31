@@ -44,32 +44,32 @@ export interface ModelAccessTarget {
   updated_at: string;
 }
 
-export type ModelAccessTargetMutation =
-  | {
-      target_type: "model";
-      target_model_id: string;
-      connection_id?: null;
-      position: number;
-      is_enabled?: boolean;
-    }
-  | {
-      target_type: "connection";
-      connection_id: number;
-      target_model_id?: null;
-      position: number;
-      is_enabled?: boolean;
-    };
-
-
-export type ModelAccessTargetCreate = ModelAccessTargetMutation;
-
-export type ModelAccessTargetUpdate = Partial<ModelAccessTargetMutation> & {
-  target_type?: ModelAccessTargetType;
-  target_model_id?: string | null;
-  connection_id?: number | null;
-  position?: number;
+export type ModelAccessTargetModelMutation = {
+  target_type: "model";
+  target_model_id: string;
+  connection_id?: null;
+  position: number;
   is_enabled?: boolean;
 };
+
+export type ModelAccessTargetConnectionMutation = {
+  target_type: "connection";
+  connection_id: number;
+  target_model_id?: null;
+  position: number;
+  is_enabled?: boolean;
+};
+
+export type ModelAccessTargetMutation =
+  | ModelAccessTargetModelMutation
+  | ModelAccessTargetConnectionMutation;
+
+export type ModelAccessTargetCreate = ModelAccessTargetModelMutation;
+
+export interface ModelAccessTargetUpdate {
+  position?: number;
+  is_enabled?: boolean;
+}
 
 export interface ModelConfig {
   id: number;
@@ -113,7 +113,7 @@ interface ModelConfigMutationBase {
   model_id?: string;
   display_name?: string | null;
   loadbalance_strategy_id?: number;
-  access_targets?: ModelAccessTargetMutation[];
+  access_targets?: ModelAccessTargetModelMutation[];
   is_enabled?: boolean;
 }
 
@@ -121,7 +121,7 @@ export interface ModelConfigCreate extends ModelConfigMutationBase {
   api_family: ApiFamily;
   model_id: string;
   loadbalance_strategy_id: number;
-  access_targets: ModelAccessTargetMutation[];
+  access_targets: ModelAccessTargetModelMutation[];
 }
 
 export type ModelConfigUpdate = ModelConfigMutationBase;

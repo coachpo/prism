@@ -8,7 +8,6 @@ import {
   setSharedModels,
 } from "@/lib/referenceData";
 import type {
-  Connection,
   LoadbalanceStrategy,
   ModelConfigListItem,
   Vendor,
@@ -34,7 +33,6 @@ export function useModelsPageData(revision: number) {
   const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([]);
   const [models, setModels] = useState<ModelConfigListItem[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<ModelConfigListItem | null>(null);
@@ -48,12 +46,10 @@ export function useModelsPageData(revision: number) {
     loadbalanceStrategiesData: LoadbalanceStrategy[];
     modelsData: ModelConfigListItem[];
     vendorsData: Vendor[];
-    connectionsData: Connection[];
   }) => {
     setLoadbalanceStrategies(data.loadbalanceStrategiesData);
     setModels(data.modelsData);
     setVendors(data.vendorsData);
-    setConnections(data.connectionsData);
   }, []);
 
   const fetchData = useCallback(async (currentRevision: number) => {
@@ -61,13 +57,11 @@ export function useModelsPageData(revision: number) {
       getSharedLoadbalanceStrategies(currentRevision),
       getSharedModels(currentRevision),
       getSharedVendors(currentRevision),
-      api.connections.list(),
     ]).then(
-      ([loadbalanceStrategiesData, modelsData, vendorsData, connectionsData]) => ({
+      ([loadbalanceStrategiesData, modelsData, vendorsData]) => ({
         loadbalanceStrategiesData,
         modelsData,
         vendorsData,
-        connectionsData,
       })
     );
   }, []);
@@ -135,7 +129,7 @@ export function useModelsPageData(revision: number) {
     setFormError(null);
     const validationError = validateModelFormData(
       formData,
-      getAccessTargetOptionKeys(targetModelsForApiFamily, targetConnectionsForApiFamily),
+      getAccessTargetOptionKeys(targetModelsForApiFamily),
     );
 
     if (validationError === "api_family_required") {
@@ -195,7 +189,6 @@ export function useModelsPageData(revision: number) {
     formData.api_family ?? "openai",
     editingModel ? formData.model_id : undefined,
   );
-  const targetConnectionsForApiFamily = connections.filter((connection) => connection.api_family === formData.api_family);
 
   const filtered = useMemo(
     () =>
@@ -233,7 +226,6 @@ export function useModelsPageData(revision: number) {
     modelMetrics24h,
     modelSpend30dMicros,
     models,
-    targetConnectionsForApiFamily,
     targetModelsForApiFamily,
     vendors,
     search,
