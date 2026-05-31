@@ -1,16 +1,17 @@
 # FRONTEND SETTINGS STARTUP CLUSTER KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/startup/` owns the dense bootstrap-config editing surface mounted by `../SettingsStartupTab.tsx`: field metadata, capability/effect badges, server/database/runtime/mail+secret section rendering, dangerous confirmations, validation rows, and save/apply effect copy. It renders backend-provided startup values and owns no canonical backend startup default table.
+`pages/settings/startup/` owns the dense bootstrap-config editing surface mounted by `../SettingsStartupTab.tsx`: field metadata, capability or effect badges, server or database or runtime or telemetry or mail or secret section rendering, dangerous confirmations, validation rows, and save or apply effect copy. It renders backend-provided startup values and owns no canonical backend startup default table.
 
 ## STRUCTURE
 ```text
 startup/
-├── StartupServerSection.tsx      # server/CORS, capability badges, and shared input helpers
-├── StartupDatabaseSection.tsx    # database URL, named pool lanes, and management-admission fields
-├── StartupRuntimeSection.tsx     # runtime transport and side-effects timeout fields
-├── StartupMailSecretsSection.tsx # auth/cookies, mail/SMTP, secrets, dangerous confirmations, validate/save
-└── startupFieldMetadata.ts       # field labels, secret keys, effect helpers, validation mapping
+├── StartupServerSection.tsx       # server/CORS, capability badges, and shared input helpers
+├── StartupDatabaseSection.tsx     # database URL, named pool lanes, and management-admission fields
+├── StartupRuntimeSection.tsx      # runtime transport and side-effects timeout fields
+├── StartupTelemetrySection.tsx    # telemetry exporter, auth, TLS, metrics, and traces fields
+├── StartupMailSecretsSection.tsx  # auth/cookies, mail/SMTP, secrets, dangerous confirmations, validate/save
+└── startupFieldMetadata.ts        # field labels, secret keys, effect helpers, validation mapping
 ```
 
 ## WHERE TO LOOK
@@ -19,6 +20,7 @@ startup/
 - Server/CORS section: `StartupServerSection.tsx`
 - Database URL, pool lanes, and management-admission section: `StartupDatabaseSection.tsx`
 - Runtime transport, raw `runtime.transport.requestTimeout`, and API `runtime.side_effects.attempt_timeout` section: `StartupRuntimeSection.tsx`
+- Telemetry exporter, auth mode, authorization header, TLS, metrics, and traces section: `StartupTelemetrySection.tsx`, `startupFieldMetadata.ts`
 - Auth, cookies, mail, secrets, validation, and save dialog flow: `StartupMailSecretsSection.tsx`
 - Backend bootstrap API and response contract: `../../../../../backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`
 - Backend bootstrap schema contract: `../../../../../backend/internal/platform/config/`
@@ -27,8 +29,9 @@ startup/
 ## CONVENTIONS
 - Keep field registries and effect helpers in `startupFieldMetadata.ts`; keep section components presentation-focused.
 - Keep runtime transport and side-effects timeout handling explicit. Raw file field `runtime.transport.requestTimeout` appears as API field `runtime.transport.request_timeout`, is seeded as `300s`, and is hot-applicable. Raw file field `runtime.sideEffects.attemptTimeout` appears as API field `runtime.side_effects.attempt_timeout`, is seeded as `10s`, and remains restart-required.
+- Keep telemetry field ownership in this cluster. Exporter endpoint, protocol, compression, auth mode, authorization header, TLS, metrics, and traces should stay with `StartupTelemetrySection.tsx` and `startupFieldMetadata.ts`.
 - Keep secret replacement fields and dangerous confirmations local to this cluster instead of pushing them back into `SettingsPage.tsx`.
-- Keep dangerous confirmation-token UX explicit for host, port, database URL, JWT signing key, and bundle-key changes instead of hiding those restart-sensitive edits behind generic save copy.
+- Keep dangerous confirmation-token UX explicit for host, port, database URL, JWT signing key, bundle-key, and other restart-sensitive changes instead of hiding them behind generic save copy.
 - Mirror backend apply-capability and failed-hot-apply semantics in copy and effect badges, not in bespoke page-level state.
 - Keep bootstrap config editing separate from profile-scoped settings and from config import/export.
 - Keep frontend env usage out of startup configuration ownership. This UI renders backend-provided bootstrap JSON and uses `VITE_API_BASE` only as transport wiring.
@@ -42,6 +45,6 @@ startup/
 
 ## ANTI-PATTERNS
 - Do not inflate `SettingsPage.tsx` with field-level bootstrap logic.
-- Do not duplicate capability/effect rendering outside `startupFieldMetadata.ts` and the startup section components.
+- Do not duplicate capability or effect rendering outside `startupFieldMetadata.ts` and the startup section components.
 - Do not mix startup bootstrap editing with profile-scoped settings or config-bundle flows.
-- Do not hide restart-required fields behind generic form state.
+- Do not hide restart-required or telemetry-secret fields behind generic form state.

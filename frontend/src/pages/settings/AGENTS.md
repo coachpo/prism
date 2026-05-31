@@ -35,13 +35,13 @@ settings/
 
 - `SettingsPage.tsx` renders three tabs: `Profile`, `Global`, and `Startup`.
 - The Profile tab owns selected-profile section navigation and mounts config-bundle v3 backup/import, billing and currency, timezone, and audit and privacy.
-- The Global tab mounts instance-wide authentication, retention and deletion, plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the instance bootstrap config surface through `SettingsStartupTab.tsx`, while the dense field registry and section cluster live under `startup/AGENTS.md`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
+- The Global tab mounts instance-wide authentication, retention and deletion, plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the instance bootstrap config and telemetry surface through `SettingsStartupTab.tsx`, while the dense field registry and section cluster live under `startup/AGENTS.md`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
 - `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
 ## WHERE TO LOOK
 
 - Thin route shell, tab split, startup-tab mount, section order, and dialog mounts: `../SettingsPage.tsx`, `SettingsStartupTab.tsx`
-- Startup tab field groups for secrets, named PostgreSQL pool lanes, runtime transport, auth TTL/cookie settings, mail/SMTP, state-transfer secrets, planned changes, and dangerous confirmations: `startup/AGENTS.md`, `SettingsStartupTab.tsx`
+- Startup tab field groups for secrets, named PostgreSQL pool lanes, runtime transport, telemetry exporter or auth or TLS settings, auth TTL/cookie settings, mail/SMTP, state-transfer secrets, planned changes, and dangerous confirmations: `startup/AGENTS.md`, `SettingsStartupTab.tsx`
 - Cross-section composition, selected-profile labeling, and shared save-state handoff: `useSettingsPageData.ts`
 - Active tab state, hash updates, scroll-driven focus, and section jump behavior: `useSettingsPageSectionState.ts`, `useSettingsSectionNavigation.ts`, `SettingsSectionsNav.tsx`
 - Stable helper constants and form-normalization utilities: `settingsPageHelpers.ts`
