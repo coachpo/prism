@@ -11,7 +11,7 @@ lib/
 ├── api/
 │   ├── core.ts                   # API base, X-Profile-Id injection, auth refresh, query builder
 │   ├── profileScope.ts           # Profile-scoped management route matcher
-│   ├── authSettings.ts           # Auth bootstrap, proxy keys, WebAuthn methods
+│   ├── authSettings.ts           # Auth bootstrap, session flows, and proxy keys
 │   ├── management.ts             # Profiles, vendors, models, endpoints, connections, pricing templates
 │   ├── observability.ts          # Usage snapshot, stats, bootstrap config, config import/export, audit, loadbalance, settings costing/timezone
 │   └── sidecars.ts               # Global sidecar registration, sync, inventory, mutations

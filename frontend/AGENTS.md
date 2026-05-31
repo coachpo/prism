@@ -69,7 +69,7 @@ frontend/
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, and `test:e2e`.
+- Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test:lib`, `test:config`, and `test:e2e`.
 - Treat `src/App.tsx` as the source of truth for routes and shell boundaries.
 - Keep selected profile separate from active runtime routing. `selectedProfile` scopes profile-scoped management APIs; it does not switch proxy traffic or global sidecar management.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
