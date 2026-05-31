@@ -9,7 +9,8 @@
 - `helpers/` holds shared test-only utilities such as TypeScript module loading.
 
 ## CURRENT FACTS
-- `../package.json` exposes the frontend regression entrypoint as `pnpm run test:e2e`.
+- `../package.json` exposes focused config regression entrypoints as `pnpm run test:lib` and `pnpm run test:config`, with the full browser regression entrypoint as `pnpm run test:e2e`.
+- Config import and export hardening follows this focused-to-broad validation order: focused backend configbundle tests, focused frontend seam tests, focused frontend Playwright specs, broadened backend Go suites, frontend `test:e2e`, frontend `build`, frontend `lint`, backend build.
 - `../playwright.config.ts` points Playwright at `./tests/e2e`.
 - `../playwright.config.ts` uses `http://127.0.0.1:15174` as the web server target.
 - Same-origin launcher coverage lives in `e2e/launcher-same-origin-realtime.spec.ts`; sidecar browser coverage lives in `e2e/sidecars.spec.ts`.

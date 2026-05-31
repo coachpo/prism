@@ -7,9 +7,13 @@ React 19 management dashboard for Prism. This package owns the browser UI, the t
 ```bash
 pnpm install
 pnpm run dev
+pnpm run test:lib
+pnpm run test:config
 pnpm run build
 pnpm run lint
 ```
+
+Config import and export hardening follows this focused-to-broad validation order: focused backend configbundle tests, focused frontend seam tests, focused frontend Playwright specs, broadened backend Go suites, frontend `test:e2e`, frontend `build`, frontend `lint`, backend build.
 
 Prism targets Node.js 24+ and uses the `pnpm@10.30.1` toolchain declared in `package.json`.
 
