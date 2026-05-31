@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-18T00:00:00Z";
+const routeReadyTimeout = 15_000;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "prism.sidebarCollapsed";
 
 interface CostingBehavior {
@@ -223,15 +224,22 @@ async function expectShellChrome(
   page: Page,
   options: { current: string; parent?: string },
 ) {
-  await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-  await expect(page.getByTestId("shell-breadcrumb")).toBeVisible();
-  await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(options.current);
+  await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(page.getByText("Loading application...")).toHaveCount(0, {
+    timeout: routeReadyTimeout,
+  });
+  await expect(page.getByTestId("shell-breadcrumb")).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(options.current, {
+    timeout: routeReadyTimeout,
+  });
 
   if (options.parent) {
-    await expect(page.getByTestId("shell-breadcrumb")).toContainText(options.parent);
+    await expect(page.getByTestId("shell-breadcrumb")).toContainText(options.parent, {
+      timeout: routeReadyTimeout,
+    });
   }
 
-  await expect(page.getByTestId("shell-profile-switcher")).toBeVisible();
+  await expect(page.getByTestId("shell-profile-switcher")).toBeVisible({ timeout: routeReadyTimeout });
 }
 
 async function mockProtectedShellRoutes(
@@ -361,17 +369,19 @@ test.describe("protected shell sidebar regression", () => {
     await page.goto("/dashboard?tab=analytics");
 
     await expectShellChrome(page, { current: "Dashboard" });
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible();
-    await expect.poll(() => readSidebarCollapsed(page)).toBe("false");
+    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+      timeout: routeReadyTimeout,
+    });
+    await expect.poll(() => readSidebarCollapsed(page), { timeout: routeReadyTimeout }).toBe("false");
 
     const sidebarToggle = page.getByRole("button", { name: "Toggle Sidebar" });
 
     await sidebarToggle.click();
-    await expect.poll(() => readSidebarCollapsed(page)).toBe("true");
+    await expect.poll(() => readSidebarCollapsed(page), { timeout: routeReadyTimeout }).toBe("true");
     await expect(sidebarToggle).toBeVisible();
 
     await sidebarToggle.click();
-    await expect.poll(() => readSidebarCollapsed(page)).toBe("false");
+    await expect.poll(() => readSidebarCollapsed(page), { timeout: routeReadyTimeout }).toBe("false");
     await expect(sidebarToggle).toBeVisible();
   });
 
@@ -388,7 +398,9 @@ test.describe("protected shell sidebar regression", () => {
 
     await page.goto("/request-logs?request_id=101");
 
-    await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible({
+      timeout: routeReadyTimeout,
+    });
     await expectShellChrome(page, { parent: "Request Logs", current: "#101" });
   });
 

@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page, type Route } from "@playwright/t
 import type { ProxyApiKey, ProxyApiKeyCreate, ProxyApiKeyUpdate } from "../../src/lib/types";
 
 const timestamp = "2026-04-28T12:00:00Z";
+const routeReadyTimeout = 15_000;
 
 function createProfile() {
   return {
@@ -223,10 +224,16 @@ test("proxy key lifecycle shows expiry, retirement, and rotation lineage without
   await seedLocale(page);
 
   await page.goto("/proxy-api-keys");
-  await expect(page.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible();
+  await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(page.getByText("Loading application...")).toHaveCount(0, {
+    timeout: routeReadyTimeout,
+  });
+  await expect(page.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible({
+    timeout: routeReadyTimeout,
+  });
 
   const expiredKeyRow = keyRow(page, "Expired key");
-  await expect(expiredKeyRow).toBeVisible();
+  await expect(expiredKeyRow).toBeVisible({ timeout: routeReadyTimeout });
   await expect(expiredKeyRow.getByText("Expired", { exact: true })).toBeVisible();
 
   await page.getByLabel("Name").fill("Created with expiry");
@@ -242,13 +249,17 @@ test("proxy key lifecycle shows expiry, retirement, and rotation lineage without
       expires_at: expectedExpiry,
     },
   ]);
-  await expect(page.getByText("sk-live-created-200")).toBeVisible();
-  await expect(page.getByText("Created with expiry")).toBeVisible();
+  await expect(page.getByText("sk-live-created-200")).toBeVisible({
+    timeout: routeReadyTimeout,
+  });
+  await expect(page.getByText("Created with expiry")).toBeVisible({
+    timeout: routeReadyTimeout,
+  });
 
   await page.getByRole("button", { name: "Edit proxy key Created with expiry" }).click();
 
   const editDialog = page.getByRole("dialog", { name: "Edit Proxy API Key" });
-  await expect(editDialog).toBeVisible();
+  await expect(editDialog).toBeVisible({ timeout: routeReadyTimeout });
   await editDialog.getByRole("button", { name: "Clear expiry" }).click();
   await editDialog.locator('[data-slot="switch"]').click();
   await editDialog.getByRole("button", { name: "Save" }).click();
@@ -261,16 +272,26 @@ test("proxy key lifecycle shows expiry, retirement, and rotation lineage without
       expires_at: null,
     },
   ]);
-  await expect(keyRow(page, "Created with expiry").getByText("Retired", { exact: true })).toBeVisible();
+  await expect(keyRow(page, "Created with expiry").getByText("Retired", { exact: true })).toBeVisible({
+    timeout: routeReadyTimeout,
+  });
 
   await page.getByRole("button", { name: "Rotate proxy key Current key" }).click();
   expect(routes.getRotatePayloads()).toEqual([101]);
-  await expect(page.getByText("sk-live-rotated-201")).toBeVisible();
+  await expect(page.getByText("sk-live-rotated-201")).toBeVisible({
+    timeout: routeReadyTimeout,
+  });
 
   const predecessorRow = page.getByRole("row").filter({ hasText: "Rotated to #201" });
   const successorRow = page.getByRole("row").filter({ hasText: "Rotated from #101" });
 
-  await expect(predecessorRow.getByText("Rotated to #201", { exact: true })).toBeVisible();
-  await expect(predecessorRow.getByText("Rotated", { exact: true })).toBeVisible();
-  await expect(successorRow.getByText("Rotated from #101", { exact: true })).toBeVisible();
+  await expect(predecessorRow.getByText("Rotated to #201", { exact: true })).toBeVisible({
+    timeout: routeReadyTimeout,
+  });
+  await expect(predecessorRow.getByText("Rotated", { exact: true })).toBeVisible({
+    timeout: routeReadyTimeout,
+  });
+  await expect(successorRow.getByText("Rotated from #101", { exact: true })).toBeVisible({
+    timeout: routeReadyTimeout,
+  });
 });

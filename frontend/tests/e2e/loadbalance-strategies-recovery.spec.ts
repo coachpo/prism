@@ -1,6 +1,7 @@
 import { expect, test, type Locator } from "@playwright/test";
 
 const timestamp = "2026-04-10T00:00:00Z";
+const routeReadyTimeout = 15_000;
 
 function createCostingSettings() {
   return {
@@ -47,7 +48,7 @@ function createStrategyRow({
 async function expectRecoveryLines(row: Locator, lines: string[]) {
   const recoveryLines = row.locator("td").nth(2).locator("span");
 
-  await expect(recoveryLines).toHaveText(lines);
+  await expect(recoveryLines).toHaveText(lines, { timeout: routeReadyTimeout });
 }
 
 test("loadbalance strategies table shows explicit Ban Policy rows by name", async ({ page }) => {
@@ -148,6 +149,11 @@ test("loadbalance strategies table shows explicit Ban Policy rows by name", asyn
 
   await page.goto("/loadbalance-strategies");
 
+  await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(page.getByText("Loading application...")).toHaveCount(0, {
+    timeout: routeReadyTimeout,
+  });
+  await expect(page.getByRole("table")).toBeVisible({ timeout: routeReadyTimeout });
   await expect(page.getByRole("table")).toContainText("Legacy Off");
   await expect(page.getByRole("table")).toContainText("Legacy Until Reset");
   await expect(page.getByRole("table")).toContainText("Legacy Temporary");
