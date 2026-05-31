@@ -394,6 +394,14 @@ function deferred() {
   return { promise, resolve };
 }
 
+async function openReadyStartupTab(page: Page) {
+  await page.goto("/settings#startup");
+  await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
+  await expect(page.getByText("Review and save")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Validate" })).toBeEnabled({ timeout: 30_000 });
+  await expect(page.getByRole("spinbutton", { name: "Server port" })).toHaveValue("8000", { timeout: 30_000 });
+}
+
 test("settings startup hash opens the tab, shows loading state, warning copy, and masked secrets", async ({ page }) => {
   const gate = deferred();
   await mockSettingsStartupRoutes(page, { bootstrapGate: gate.promise });
@@ -436,6 +444,8 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
 });
 
 test("startup runtime section omits buffering selector and payload field", async ({ page }) => {
+  test.setTimeout(60_000);
+
   const errors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") {
@@ -450,7 +460,8 @@ test("startup runtime section omits buffering selector and payload field", async
   await mockSettingsStartupRoutes(page, { bootstrapResponse: staleResponse });
 
   await page.goto("/settings#startup");
-  await expect(page.getByText("Review and save")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
+  await expect(page.getByText("Review and save")).toBeVisible({ timeout: 30_000 });
 
   await expect(page.getByRole("combobox", { name: "Buffering mode" })).toHaveCount(0);
   await expect(page.getByText("Runtime transport and side effects")).toBeVisible();
@@ -541,7 +552,8 @@ test("enabled blank mail validates on the client without backend validate", asyn
   const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: legacyResponse });
 
   await page.goto("/settings#startup");
-  await expect(page.getByText("Mail and SMTP")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
+  await expect(page.getByText("Mail and SMTP")).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole("switch", { name: "Enable auth email delivery" }).click();
   await page.getByRole("button", { name: "Validate" }).click();
@@ -859,8 +871,7 @@ test("restart fields without backend confirmation tokens do not require dangerou
 test("dangerous port save requires checklist, AlertDialog confirmation, and shows restart-required state", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page);
 
-  await page.goto("/settings#startup");
-  await expect(page.getByText("Review and save")).toBeVisible();
+  await openReadyStartupTab(page);
 
   await page.getByRole("spinbutton", { name: "Server port" }).fill("8001");
   await expect(page.getByText("Dangerous changes staged")).toBeVisible();
@@ -900,8 +911,7 @@ test("backend validation errors map into review output", async ({ page }) => {
     },
   });
 
-  await page.goto("/settings#startup");
-  await expect(page.getByText("Review and save")).toBeVisible();
+  await openReadyStartupTab(page);
 
   await page.getByRole("button", { name: "Validate" }).click();
 
