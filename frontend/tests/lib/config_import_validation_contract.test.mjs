@@ -114,12 +114,32 @@ test("config import schema accepts current profile bundle v3 Ban Policy payloads
   assert.equal(parsed.loadbalance_strategies[0].ban_mode, "until_reset");
   assert.equal(parsed.loadbalance_strategies[0].cycle_retry_attempt_limit, 2);
   assert.equal(parsed.loadbalance_strategies[0].ban_cumulative_retry_attempt_threshold, 4);
+  assert.equal(parsed.connections[0].ref, "openai-primary");
+  assert.equal(parsed.models[0].access_targets[0].connection_ref, "openai-primary");
   assert.ok(!Object.hasOwn(parsed.loadbalance_strategies[0], removedRetryAttemptsKey));
+  assert.ok(!Object.hasOwn(parsed.models[0], "connections"));
 });
 
 test("config import schema rejects profile bundles before v3", () => {
   const payload = buildValidConfigImport();
   payload.version = payload.version - 1;
+
+  assert.throws(() => ConfigImportSchema.parse(payload));
+});
+
+test("config import schema rejects vendor catalog bundles on the profile path", () => {
+  assert.throws(() =>
+    ConfigImportSchema.parse({
+      version: 1,
+      bundle_kind: "vendor_catalog",
+      vendors: [],
+    })
+  );
+});
+
+test("config import schema rejects removed model-local connection arrays", () => {
+  const payload = buildValidConfigImport();
+  payload.models[0].connections = [];
 
   assert.throws(() => ConfigImportSchema.parse(payload));
 });
@@ -187,6 +207,34 @@ test("vendor catalog import schema rejects profile bundles on the vendor path", 
       version: 1,
       bundle_kind: "profile_config",
       vendors: [],
+    })
+  );
+});
+
+test("vendor catalog import schema rejects non-v1 vendor bundles", () => {
+  assert.throws(() =>
+    VendorCatalogImportSchema.parse({
+      version: 2,
+      bundle_kind: "vendor_catalog",
+      vendors: [],
+    })
+  );
+});
+
+test("vendor catalog import schema requires explicit icon_key boundaries", () => {
+  assert.throws(() =>
+    VendorCatalogImportSchema.parse({
+      version: 1,
+      bundle_kind: "vendor_catalog",
+      vendors: [
+        {
+          key: "openai",
+          name: "OpenAI",
+          description: null,
+          audit_enabled: true,
+          audit_capture_bodies: false,
+        },
+      ],
     })
   );
 });

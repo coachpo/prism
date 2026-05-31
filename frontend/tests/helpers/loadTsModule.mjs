@@ -41,7 +41,7 @@ export function createTsModuleLoader({ rootDir, mocks = {} }) {
       return cache.get(resolvedFilePath);
     }
 
-    const source = readFileSync(resolvedFilePath, "utf8");
+    const source = readFileSync(resolvedFilePath, "utf8").replaceAll("import.meta.env", "({})");
     const module = { exports: {} };
     cache.set(resolvedFilePath, module.exports);
 

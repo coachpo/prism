@@ -14,7 +14,7 @@ const { isProfileScopedManagementRoute } = load(
   path.join(frontendDir, "src/lib/api/profileScope.ts"),
 );
 
-test("profile scope helper keeps documented management routes scoped or global", () => {
+test("profile scope helper marks profile config routes for X-Profile-Id attachment", () => {
   const scopedRoutes = [
     "/api/models",
     "/api/models/14/connections/2/health",
@@ -38,6 +38,12 @@ test("profile scope helper keeps documented management routes scoped or global",
     "/api/config/user-agent-client-rules/8",
   ];
 
+  for (const route of scopedRoutes) {
+    assert.equal(isProfileScopedManagementRoute(route), true, `${route} should be profile-scoped`);
+  }
+});
+
+test("profile scope helper keeps vendor config and global routes without X-Profile-Id", () => {
   const globalOrRuntimeRoutes = [
     "/api/profiles",
     "/api/profiles/bootstrap",
@@ -49,16 +55,15 @@ test("profile scope helper keeps documented management routes scoped or global",
     "/api/settings/auth/proxy-keys/4/rotate",
     "/api/settings/log-retention",
     "/api/maintenance/log-retention/jobs",
+    "/api/config/bootstrap",
     "/api/config/vendors/export",
     "/api/config/vendors/import/preview",
+    "/api/config/vendors/import",
+    "/api/config/vendors/import?dry_run=false",
     "/api/realtime/ws",
     "/v1/chat/completions",
     "/v1beta/models/gemini:generateContent",
   ];
-
-  for (const route of scopedRoutes) {
-    assert.equal(isProfileScopedManagementRoute(route), true, `${route} should be profile-scoped`);
-  }
 
   for (const route of globalOrRuntimeRoutes) {
     assert.equal(isProfileScopedManagementRoute(route), false, `${route} should stay global or runtime`);

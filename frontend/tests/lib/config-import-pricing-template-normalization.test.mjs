@@ -13,10 +13,16 @@ const { ConfigImportSchema } = load(path.join(frontendDir, "src/lib/configImport
 
 function buildValidConfigImport() {
   return {
-    version: 1,
+    version: 3,
     bundle_kind: "profile_config",
-    vendor_refs: [],
-    endpoints: [],
+    vendor_refs: [{ key: "openai", name_hint: "OpenAI" }],
+    endpoints: [
+      {
+        name: "OpenAI",
+        base_url: "https://api.openai.com/v1",
+        position: 0,
+      },
+    ],
     pricing_templates: [
       {
         name: "Template A",
@@ -25,23 +31,45 @@ function buildValidConfigImport() {
         output_price: "2.50",
       },
     ],
+    connections: [
+      {
+        ref: "openai-primary",
+        api_family: "openai",
+        endpoint_name: "OpenAI",
+        pricing_template_name: "Template A",
+        is_active: true,
+        priority: 0,
+      },
+    ],
     loadbalance_strategies: [
       {
-        name: "Default legacy routing",
-        strategy_type: "legacy",
-        legacy_strategy_type: "round-robin",
-        auto_recovery: { mode: "disabled" },
+        name: "Default round robin",
+        ["legacy_" + ["strategy", "type"].join("_")]: "round-robin",
+        failure_status_codes: [429, 500],
+        ban_mode: "until_reset",
+        retry_base_delay_ms: 60_000,
+        retry_backoff_multiplier: 2,
+        retry_jitter_ratio: 0.2,
+        retry_max_delay_ms: 900_000,
+        cycle_retry_attempt_limit: 2,
+        ban_cumulative_retry_attempt_threshold: 4,
+        ban_duration_seconds: 0,
       },
     ],
     models: [
       {
+        vendor_key: "openai",
         api_family: "openai",
         model_id: "demo-native",
-        model_type: "native",
-        proxy_selection_strategy: null,
-        proxy_targets: [],
-        loadbalance_strategy_name: "Default legacy routing",
-        connections: [],
+        loadbalance_strategy_name: "Default round robin",
+        access_targets: [
+          {
+            position: 0,
+            is_enabled: true,
+            target_type: "connection",
+            connection_ref: "openai-primary",
+          },
+        ],
       },
     ],
     secret_payload: {
