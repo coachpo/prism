@@ -287,6 +287,139 @@ func TestProfileBundleImportCountsTopLevelConnections(t *testing.T) {
 	}
 }
 
+func TestProfileBundleImportRejectsSecretPayloadEnvelope(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload secretPayloadExport
+		detail  string
+	}{
+		{
+			name:    "wrong kind",
+			payload: secretPayloadExport{Kind: "plaintext", Cipher: bundleSecretCipher},
+			detail:  "Config import secret payload kind must be 'encrypted'",
+		},
+		{
+			name:    "wrong cipher",
+			payload: secretPayloadExport{Kind: "encrypted", Cipher: "aes-gcm"},
+			detail:  "Config import secret payload cipher must be 'fernet-v1'",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateImportedSecretPayloadEnvelope(test.payload)
+			requireConfigBundleDomainError(t, err, http.StatusBadRequest, test.detail)
+		})
+	}
+}
+
+func TestProfileBundleImportRejectsMissingSecretPayloadEntries(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.Endpoints[0].APIKeySecretRef = stringPtr("endpoint:OpenAI:api_key")
+
+	err := validateProfileImportRequest(request)
+	requireConfigBundleDomainError(t, err, http.StatusBadRequest, "Import is missing encrypted secret payload entries for refs: endpoint:OpenAI:api_key")
+}
+
+func TestBundleKeyMismatchRejectedDuringSecretDecrypt(t *testing.T) {
+	service := &Service{bundleSecretKeyID: "server-kid"}
+
+	_, err := service.decryptImportSecretPayload(secretPayloadExport{KeyID: "bundle-kid"})
+	requireConfigBundleDomainError(t, err, http.StatusBadRequest, "Config import bundle key mismatch: bundle key_id 'bundle-kid' does not match server key_id 'server-kid'")
+}
+
+func TestProfileBundleImportRejectsEncryptedSecretPayloadFailures(t *testing.T) {
+	tests := []struct {
+		name      string
+		payload   secretPayloadExport
+		decrypter func(string) (string, error)
+		detail    string
+	}{
+		{
+			name: "plaintext entry rejected",
+			payload: secretPayloadExport{
+				KeyID: "kid",
+				Entries: []secretPayloadEntry{{
+					Ref:        "endpoint:OpenAI:api_key",
+					Ciphertext: "plaintext-value",
+				}},
+			},
+			detail: "Config import secret ref 'endpoint:OpenAI:api_key' must be encrypted",
+		},
+		{
+			name: "decrypt error rejected",
+			payload: secretPayloadExport{
+				KeyID: "kid",
+				Entries: []secretPayloadEntry{{
+					Ref:        "endpoint:OpenAI:api_key",
+					Ciphertext: encryptedSecretPrefix + "ciphertext",
+				}},
+			},
+			decrypter: func(string) (string, error) {
+				return "", errors.New("boom")
+			},
+			detail: "Config import could not decrypt secret ref 'endpoint:OpenAI:api_key'",
+		},
+		{
+			name: "empty decrypted value rejected",
+			payload: secretPayloadExport{
+				KeyID: "kid",
+				Entries: []secretPayloadEntry{{
+					Ref:        "endpoint:OpenAI:api_key",
+					Ciphertext: encryptedSecretPrefix + "ciphertext",
+				}},
+			},
+			decrypter: func(string) (string, error) {
+				return "   ", nil
+			},
+			detail: "Config import secret ref 'endpoint:OpenAI:api_key' resolved to an empty value",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &Service{
+				bundleSecretKeyID:     "kid",
+				bundleSecretDecrypter: test.decrypter,
+			}
+			if service.bundleSecretDecrypter == nil {
+				service.bundleSecretDecrypter = func(string) (string, error) {
+					return "live-secret", nil
+				}
+			}
+
+			_, err := service.decryptImportSecretPayload(test.payload)
+			requireConfigBundleDomainError(t, err, http.StatusBadRequest, test.detail)
+		})
+	}
+}
+
+func TestVendorCatalogBundleHelpersRejectUnsupportedEnvelope(t *testing.T) {
+	tests := []struct {
+		name   string
+		bundle vendorCatalogImportRequest
+		detail string
+	}{
+		{
+			name:   "wrong version",
+			bundle: vendorCatalogImportRequest{Version: 2, BundleKind: canonicalVendorCatalogKind},
+			detail: "Unsupported vendor catalog bundle version '2'; expected 1",
+		},
+		{
+			name:   "wrong kind",
+			bundle: vendorCatalogImportRequest{Version: canonicalVendorCatalogVersion, BundleKind: "profile_config"},
+			detail: "Unsupported vendor catalog bundle kind 'profile_config'; expected 'vendor_catalog'",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateVendorCatalogBundleEnvelope(test.bundle)
+			requireConfigBundleDomainError(t, err, http.StatusBadRequest, test.detail)
+		})
+	}
+}
+
 func validProfileBundleV3Request() profileImportRequest {
 	return profileImportRequest{
 		Version:    canonicalProfileBundleVersion,
