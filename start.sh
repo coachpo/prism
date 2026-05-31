@@ -228,17 +228,26 @@ trap cleanup EXIT INT TERM
 
 wait_for_postgres() {
     local attempts=60
+    local container_id=""
+    local health_status=""
 
     while (( attempts > 0 )); do
-        if postgres_compose exec -T prism-postgres pg_isready -U prism -d prism >/dev/null 2>&1; then
-            return
+        container_id="$(postgres_compose ps -q prism-postgres 2>/dev/null || true)"
+        if [[ -n "$container_id" ]]; then
+            health_status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
+            if [[ "$health_status" == "healthy" ]]; then
+                return
+            fi
+            if [[ "$health_status" == "running" ]] && postgres_compose exec -T prism-postgres pg_isready -U prism -d prism >/dev/null 2>&1; then
+                return
+            fi
         fi
 
         sleep 1
         attempts=$((attempts - 1))
     done
 
-    echo "Error: PostgreSQL did not become ready on localhost:${DATABASE_PORT}" >&2
+    echo "Error: PostgreSQL did not become ready on localhost:${DATABASE_PORT} (last health status: ${health_status:-unknown})" >&2
     exit 1
 }
 
