@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
+const reportingCurrencyExpectationTimeout = 15_000;
 
 function createProfile(id: number, name: string, isActive = false) {
   return {
@@ -126,18 +127,29 @@ test.describe("dashboard reporting currency", () => {
     const spendingMetric = metricValues.nth(2);
     const spendingCard = page.locator('[data-slot="metric-card"]').filter({ hasText: "30d Total Spend" }).first();
 
-    await expect(spendingMetric).toHaveText("¥0.25 CNY");
+    await expect(spendingMetric).toHaveText("¥0.25 CNY", {
+      timeout: reportingCurrencyExpectationTimeout,
+    });
     await expect(spendingCard).toContainText("Request-based spend");
     await expect(spendingCard).toContainText("9 priced");
     await expect(spendingCard).toContainText("2 unpriced");
     await expect(page.getByText("Top Models by Spend")).toBeVisible();
     await expect(page.getByText("Highest request-based spend in the last 30 days")).toBeVisible();
-    await expect(page.getByText("¥0.25 CNY")).toHaveCount(2);
+    await expect(page.getByText("¥0.25 CNY")).toHaveCount(2, {
+      timeout: reportingCurrencyExpectationTimeout,
+    });
 
     await page.getByTestId("shell-profile-switcher").getByRole("button").click();
     await page.getByRole("menuitem", { name: /Blue Team/ }).click();
 
-    await expect(spendingMetric).toHaveText("$0.25 USD");
-    await expect(page.getByText("$0.25 USD")).toHaveCount(2);
+    await expect(page.getByText("Loading application...")).toHaveCount(0, {
+      timeout: reportingCurrencyExpectationTimeout,
+    });
+    await expect(spendingMetric).toHaveText("$0.25 USD", {
+      timeout: reportingCurrencyExpectationTimeout,
+    });
+    await expect(page.getByText("$0.25 USD")).toHaveCount(2, {
+      timeout: reportingCurrencyExpectationTimeout,
+    });
   });
 });

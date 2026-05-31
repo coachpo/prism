@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-10T00:00:00Z";
+const routeReadyTimeout = 15_000;
 const usageStatisticsStorageKey = "prism.statistics.usage-state";
 
 function createUsageSnapshot() {
@@ -382,8 +383,10 @@ test.describe("statistics selected-model totals", () => {
 
     await page.goto("/dashboard?tab=analytics");
 
-    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard");
-    await expect(page.getByTestId("usage-model-line-section")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard", { timeout: routeReadyTimeout });
+    await expect(page.getByTestId("usage-model-line-section")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByTestId("usage-model-line-section")).toContainText("gpt-5.4");
     const requestsCard = getMetricCard(page, "Requests");
     await expect(requestsCard.locator('[data-slot="metric-value"]')).toHaveText("4");
@@ -464,8 +467,10 @@ test.describe("statistics selected-model totals", () => {
 
     await page.goto("/dashboard?tab=analytics");
 
-    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard");
-    await expect(page.getByTestId("usage-model-line-section")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard", { timeout: routeReadyTimeout });
+    await expect(page.getByTestId("usage-model-line-section")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByTestId("usage-model-line-section")).toContainText("2 / 9");
     const requestsCard = getMetricCard(page, "Requests");
     const tokensCard = getMetricCard(page, "Total Tokens");

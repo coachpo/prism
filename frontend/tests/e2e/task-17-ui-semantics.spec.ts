@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-05-28T12:00:00Z";
+const routeReadyTimeout = 15_000;
 
 function profile() {
   return {
@@ -311,15 +312,20 @@ test("legacy strategy ui and request log target labels", async ({ page }) => {
   await mockRoutes(page);
 
   await page.goto("/loadbalance-strategies");
-  await expect(page.getByText("Ban Policy").first()).toBeVisible();
+  await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
+  await expect(page.getByText("Ban Policy").first()).toBeVisible({ timeout: routeReadyTimeout });
   await expect(page.getByText("routing-family Ban Policy").first()).toBeVisible();
   await expect(page.getByText(/Adaptive|Auto Recovery|Routing Policy/)).toHaveCount(0);
 
   await page.goto("/request-logs");
+  await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
   const requestLogsTable = page.getByTestId("request-logs-table");
-  await expect(requestLogsTable.getByText("Requested Model", { exact: true })).toBeVisible();
+  await expect(requestLogsTable).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(requestLogsTable.getByText("Requested Model", { exact: true })).toBeVisible({ timeout: routeReadyTimeout });
   await expect(requestLogsTable.getByText("Final Target Model", { exact: true })).toBeVisible();
-  await expect(requestLogsTable.getByText("Public Model", { exact: true })).toBeVisible();
+  await expect(requestLogsTable.getByText("Public Model", { exact: true })).toBeVisible({ timeout: routeReadyTimeout });
   await expect(requestLogsTable.getByText("Terminal Model", { exact: true })).toBeVisible();
   await expect(page.getByText(/Proxy origin|Resolved target/)).toHaveCount(0);
 

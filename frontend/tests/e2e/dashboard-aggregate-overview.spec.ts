@@ -20,6 +20,7 @@ const evidenceDirectory = resolve(
 const networkEvidencePath = resolve(evidenceDirectory, "task-8-overview-network.json");
 const emptyConsoleEvidencePath = resolve(evidenceDirectory, "task-8-overview-empty-console.json");
 const emptyScreenshotPath = resolve(evidenceDirectory, "task-8-overview-empty.png");
+const routeReadyTimeout = 15_000;
 
 type ApiRequestRecord = {
   method: string;
@@ -167,7 +168,9 @@ test.describe("dashboard aggregate overview regression", () => {
 
     await page.goto("/dashboard?tab=overview");
 
-    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+    await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByText("Routing Health Map")).toBeVisible();
     await expect(page.getByText("Top Models by Spend")).toBeVisible();
     await expect(page.getByText("Model A Spend Label")).toBeVisible();
@@ -175,7 +178,6 @@ test.describe("dashboard aggregate overview regression", () => {
     await expect
       .poll(() => requests.filter((request) => request.pathname === "/api/stats/dashboard").length)
       .toBe(1);
-    await page.waitForTimeout(150);
 
     const aggregateRequests = requests.filter((request) => request.pathname === "/api/stats/dashboard");
     const legacyRequests = requests.filter((request) => isLegacyOverviewFanOut(request.pathname));

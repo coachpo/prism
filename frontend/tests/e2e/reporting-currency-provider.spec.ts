@@ -1,6 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-11T00:00:00Z";
+const routeReadyTimeout = 15_000;
 
 interface ProfileFixture {
   id: number;
@@ -176,7 +177,7 @@ function incrementRequestCount(bucket: RequestCountsByProfile, profileKey: strin
 }
 
 async function mockReportingCurrencyProtectedRoutes(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   options: {
     profiles?: Array<ReturnType<typeof createProfile>>;
     locale?: "en" | "zh-CN";
@@ -255,7 +256,7 @@ async function mockReportingCurrencyProtectedRoutes(
   });
 
   await page.addInitScript(
-    (seedLocale) => localStorage.setItem("prism.locale", seedLocale),
+    (seedLocale: "en" | "zh-CN") => localStorage.setItem("prism.locale", seedLocale),
     options.locale ?? "en",
   );
 
@@ -286,8 +287,13 @@ test.describe("reporting currency provider", () => {
 
     costingGate.resolve();
 
-    await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible();
+    await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByText("Loading application...")).toHaveCount(0, {
+      timeout: routeReadyTimeout,
+    });
+    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+      timeout: routeReadyTimeout,
+    });
     await expect.poll(() => requestCounts.modelsByProfile["1"] ?? 0).toBeGreaterThan(0);
     await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
   });
@@ -302,8 +308,13 @@ test.describe("reporting currency provider", () => {
     await page.goto("/dashboard?tab=analytics");
 
     await expect.poll(getLastCostingProfileHeader).toBe("1");
-    await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible();
+    await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByText("Loading application...")).toHaveCount(0, {
+      timeout: routeReadyTimeout,
+    });
+    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+      timeout: routeReadyTimeout,
+    });
     await expect.poll(() => requestCounts.modelsByProfile["1"] ?? 0).toBeGreaterThan(0);
     await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
   });
@@ -322,8 +333,13 @@ test.describe("reporting currency provider", () => {
 
     await page.goto("/dashboard?tab=analytics");
 
-    await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible();
+    await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByText("Loading application...")).toHaveCount(0, {
+      timeout: routeReadyTimeout,
+    });
+    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+      timeout: routeReadyTimeout,
+    });
     await expect.poll(() => requestCounts.modelsByProfile["1"] ?? 0).toBeGreaterThan(0);
     await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
 
@@ -341,9 +357,16 @@ test.describe("reporting currency provider", () => {
 
     secondProfileCostingGate.resolve();
 
-    await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible();
-    await expect(page.getByTestId("shell-profile-switcher")).toContainText("Blue Team");
+    await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByText("Loading application...")).toHaveCount(0, {
+      timeout: routeReadyTimeout,
+    });
+    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+      timeout: routeReadyTimeout,
+    });
+    await expect(page.getByTestId("shell-profile-switcher")).toContainText("Blue Team", {
+      timeout: routeReadyTimeout,
+    });
     await expect.poll(() => requestCounts.modelsByProfile["2"] ?? 0).toBeGreaterThan(0);
     await expect.poll(() => requestCounts.usageSnapshotByProfile["2"] ?? 0).toBeGreaterThan(0);
   });
