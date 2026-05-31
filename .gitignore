@@ -42,3 +42,4 @@ frontend/node_modules/
 # Binary
 backend/prism-backend
 .codegraph/*
+docs/pending-design
