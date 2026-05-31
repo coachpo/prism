@@ -2,7 +2,6 @@ import type {
   DashboardMetricSnapshot,
   DashboardRoutingHealthMap,
   DashboardSnapshot,
-  DashboardStrategyFamilySummary,
   RequestLogListItem,
   SpendingTopModel,
   StatGroup,
@@ -24,7 +23,6 @@ type DashboardSnapshotOptions = {
   metricSnapshot?: Partial<DashboardMetricSnapshot>;
   recentRequests?: RequestLogListItem[];
   routingHealthMap?: DashboardRoutingHealthMap;
-  strategyFamilySummary?: Partial<DashboardStrategyFamilySummary>;
   topSpendingModels?: SpendingTopModel[];
 };
 export function createRoutingHealthMap(): DashboardRoutingHealthMap {
@@ -133,12 +131,6 @@ export function createDashboardSnapshot(
       ...options.metricSnapshot,
     },
     api_family_rows: options.apiFamilyRows ?? [],
-    strategy_family_summary: {
-      adaptive_count: 0,
-      legacy_count: 0,
-      unassigned_count: 0,
-      ...options.strategyFamilySummary,
-    },
     recent_requests: options.recentRequests ?? [],
     top_spending_models: options.topSpendingModels ?? [
       {
@@ -169,11 +161,6 @@ export function createEmptyDashboardSnapshot(): DashboardSnapshot {
     },
     recentRequests: [],
     routingHealthMap: createEmptyRoutingHealthMap(),
-    strategyFamilySummary: {
-      adaptive_count: 0,
-      legacy_count: 0,
-      unassigned_count: 0,
-    },
     topSpendingModels: [],
   });
 }

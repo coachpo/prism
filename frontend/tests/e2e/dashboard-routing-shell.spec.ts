@@ -351,23 +351,15 @@ test.describe("dashboard routing shell", () => {
     await expect(page).toHaveURL(/\/models\/101$/);
   });
 
-  test("keeps strategy counts from the aggregate dashboard snapshot", async ({ page }) => {
-    await mockDashboardRoutes(page, {
-      dashboardSnapshot: createDashboardSnapshot({
-        strategyFamilySummary: {
-          adaptive_count: 1,
-          legacy_count: 1,
-          unassigned_count: 1,
-        },
-      }),
-    });
+  test("does not render the removed routing strategy mix card", async ({ page }) => {
+    await mockDashboardRoutes(page);
 
     await page.goto("/dashboard?tab=overview");
 
-    await expect(page.getByText("Routing strategy mix")).toBeVisible();
-    await expect(page.getByText("Legacy strategy 1")).toBeVisible();
-    await expect(page.getByText("Adaptive strategy 1")).toBeVisible();
-    await expect(page.getByText("Strategy not configured 1")).toBeVisible();
+    await expect(page.getByText("Routing strategy mix")).toHaveCount(0);
+    await expect(page.getByText("Legacy strategy 1")).toHaveCount(0);
+    await expect(page.getByText("Adaptive strategy 1")).toHaveCount(0);
+    await expect(page.getByText("Strategy not configured 1")).toHaveCount(0);
   });
 
   test("opens exact request investigation from recent activity", async ({ page }) => {

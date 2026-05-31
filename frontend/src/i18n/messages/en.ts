@@ -59,7 +59,6 @@ export interface Messages {
   dashboard: {
     activeModels: string;
     analyticsTab: string;
-    adaptiveStrategy: string;
     averageRpm: string;
     avgLatency: string;
     errorRate: string;
@@ -72,7 +71,6 @@ export interface Messages {
     noRecentActivityDescription: string;
     noSpendingData: string;
     noSpendingDataDescription: string;
-    legacyStrategy: string;
     overviewTab: string;
     performanceSnapshot: string;
     performanceSnapshotDescription: string;
@@ -81,8 +79,6 @@ export interface Messages {
     apiFamilyMixDescription: string;
     quickActions: string;
     quickActionsDescription: string;
-    routingStrategyMix: string;
-    strategyNotConfigured: string;
     recentActivity: string;
     recentActivityDescription: string;
     refreshDashboard: string;
@@ -2215,12 +2211,10 @@ export const enMessages: Messages = {
     performanceSnapshotDescription: "Current operational profile (24h)",
     routingDiagramLoadFailed:
       "Routing diagram data could not be loaded. The rest of the dashboard is still available.",
-  apiFamilyMix: "API Family Mix",
-  apiFamilyMixDescription: "Request distribution by API family (24h)",
+    apiFamilyMix: "API Family Mix",
+    apiFamilyMixDescription: "Request distribution by API family (24h)",
     quickActions: "Quick Actions",
     quickActionsDescription: "Jump to focused spending analysis",
-    routingStrategyMix: "Routing strategy mix",
-    strategyNotConfigured: "Strategy not configured",
     recentActivity: "Recent Activity",
     recentActivityDescription: "Latest requests processed by the gateway",
     refreshDashboard: "Refresh dashboard",
@@ -2265,7 +2259,6 @@ export const enMessages: Messages = {
     activeRoutes: (count) => `${count} active route${count === "1" ? "" : "s"}`,
     endpointCount: (count) => `${count} endpoint${count === "1" ? "" : "s"}`,
     modelCount: (count) => `${count} model${count === "1" ? "" : "s"}`,
-    strategyFamilyCount: (label, count) => `${label} ${count}`,
     totalConfigured: (count) => `of ${count} total configured`,
     totalRequests: (count) => `${count} total requests`,
     successRate: (rate) => `${rate}% success rate`,
@@ -4105,8 +4098,6 @@ export const enMessages: Messages = {
     tokens: "Tokens",
     triage: "Triage",
     view: "View",
-    viewConnection: "Open connection",
-    noConnectionRecorded: "No connection recorded",
     spend: "Cost",
     viewRequestInLogs: "View in Request Logs",
     viewingRequest: (id) => `Viewing request #${id}`,
@@ -4114,7 +4105,6 @@ export const enMessages: Messages = {
     zeroResults: "0 results",
   },
   requestLogsDetail: {
-    connectionNotFound: "Connection not found — it may have been deleted",
     copyFailed: (label) => `Failed to copy ${label}`,
     copied: (label) => `Copied ${label}`,
   },

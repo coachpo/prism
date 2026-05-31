@@ -1116,6 +1116,9 @@ func assertRealtimeRequestLogMatchesRESTDetail(t *testing.T, requestLog map[stri
 	request := asMapRuntime(t, detail["request"])
 	routing := asMapRuntime(t, detail["routing"])
 	usage := asMapRuntime(t, detail["usage"])
+	if _, ok := requestLog["connection_id"]; !ok {
+		t.Fatalf("expected realtime request_log to preserve internal connection_id, got %+v", requestLog)
+	}
 	costing := asMapRuntime(t, detail["costing"])
 	pricing := asMapRuntime(t, detail["pricing"])
 	fields := []struct {
@@ -1148,7 +1151,6 @@ func assertRealtimeRequestLogMatchesRESTDetail(t *testing.T, requestLog map[stri
 		{"error_detail", request, "error_detail"},
 		{"profile_id", routing, "profile_id"},
 		{"endpoint_id", routing, "endpoint_id"},
-		{"connection_id", routing, "connection_id"},
 		{"endpoint_base_url", routing, "endpoint_base_url"},
 		{"endpoint_description", routing, "endpoint_description"},
 		{"input_tokens", usage, "input_tokens"},

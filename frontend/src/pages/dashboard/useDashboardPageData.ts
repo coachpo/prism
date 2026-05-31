@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import type {
   DashboardSnapshot,
-  DashboardStrategyFamilySummary as DashboardStrategyFamilySummaryPayload,
   RequestLogListItem,
   SpendingTopModel,
   StatGroup,
@@ -31,12 +30,6 @@ export interface DashboardMetricSnapshot {
   unpricedRequestCount: number;
 }
 
-export interface DashboardStrategyFamilySummary {
-  adaptiveCount: number;
-  legacyCount: number;
-  unassignedCount: number;
-}
-
 export interface DashboardOverviewData {
   apiFamilyRows: StatGroup[];
   metricSnapshot: DashboardMetricSnapshot;
@@ -45,7 +38,6 @@ export interface DashboardOverviewData {
   routingDiagramData: RoutingDiagramData | null;
   routingDiagramError: string | null;
   routingDiagramLoading: boolean;
-  strategyFamilySummary: DashboardStrategyFamilySummary;
   topSpendingModels: SpendingTopModel[];
 }
 
@@ -63,12 +55,6 @@ const EMPTY_METRIC_SNAPSHOT: DashboardMetricSnapshot = {
   totalModels: 0,
   totalRequests: 0,
   unpricedRequestCount: 0,
-};
-
-const EMPTY_STRATEGY_FAMILY_SUMMARY: DashboardStrategyFamilySummary = {
-  adaptiveCount: 0,
-  legacyCount: 0,
-  unassignedCount: 0,
 };
 
 function toDashboardMetricSnapshot(snapshot: DashboardSnapshot | null): DashboardMetricSnapshot {
@@ -91,20 +77,6 @@ function toDashboardMetricSnapshot(snapshot: DashboardSnapshot | null): Dashboar
     totalModels: metric.total_models,
     totalRequests: metric.total_requests,
     unpricedRequestCount: metric.unpriced_request_count,
-  };
-}
-
-function toDashboardStrategyFamilySummary(
-  summary: DashboardStrategyFamilySummaryPayload | null | undefined,
-): DashboardStrategyFamilySummary {
-  if (!summary) {
-    return EMPTY_STRATEGY_FAMILY_SUMMARY;
-  }
-
-  return {
-    adaptiveCount: summary.adaptive_count,
-    legacyCount: summary.legacy_count,
-    unassignedCount: summary.unassigned_count,
   };
 }
 
@@ -149,7 +121,6 @@ function toDashboardOverviewData(
     routingDiagramData: snapshot?.routing_health_map ?? null,
     routingDiagramError,
     routingDiagramLoading,
-    strategyFamilySummary: toDashboardStrategyFamilySummary(snapshot?.strategy_family_summary),
     topSpendingModels: snapshot?.top_spending_models ?? [],
   };
 }

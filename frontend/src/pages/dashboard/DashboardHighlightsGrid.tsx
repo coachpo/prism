@@ -7,10 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { StatGroup } from "@/lib/types";
-import type {
-  DashboardMetricSnapshot,
-  DashboardStrategyFamilySummary,
-} from "./useDashboardPageData";
+import type { DashboardMetricSnapshot } from "./useDashboardPageData";
 
 interface DashboardHighlightsGridProps {
   highlighted: boolean;
@@ -19,7 +16,6 @@ interface DashboardHighlightsGridProps {
   onReviewRequests: () => void;
   apiFamilyRows: StatGroup[];
   snapshot: DashboardMetricSnapshot;
-  strategyFamilySummary: DashboardStrategyFamilySummary;
 }
 
 export function DashboardHighlightsGrid({
@@ -29,7 +25,6 @@ export function DashboardHighlightsGrid({
   onReviewRequests,
   apiFamilyRows,
   snapshot,
-  strategyFamilySummary,
 }: DashboardHighlightsGridProps) {
   const { formatNumber, messages } = useLocale();
   const performanceTiles = [
@@ -44,23 +39,9 @@ export function DashboardHighlightsGrid({
       value: `${formatNumber(snapshot.streamShare, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
     },
   ];
-  const strategyTiles = [
-    {
-      label: messages.dashboard.legacyStrategy,
-      value: formatNumber(strategyFamilySummary.legacyCount),
-    },
-    {
-      label: messages.dashboard.adaptiveStrategy,
-      value: formatNumber(strategyFamilySummary.adaptiveCount),
-    },
-    {
-      label: messages.dashboard.strategyNotConfigured,
-      value: formatNumber(strategyFamilySummary.unassignedCount),
-    },
-  ];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-4">
+    <div className="grid gap-4 lg:grid-cols-3">
       <Card>
         <CardHeader>
           <CardTitle>{messages.dashboard.performanceSnapshot}</CardTitle>
@@ -128,25 +109,6 @@ export function DashboardHighlightsGrid({
               })}
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{messages.dashboard.routingStrategyMix}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {strategyTiles.map((tile) => (
-            <div
-              key={tile.label}
-              className={cn(
-                "rounded-md border border-border/70 bg-muted/30 p-3 text-sm font-medium transition-colors duration-300",
-                highlighted && "ws-value-updated",
-              )}
-            >
-              {tile.label} <span className="tabular-nums">{tile.value}</span>
-            </div>
-          ))}
         </CardContent>
       </Card>
 

@@ -43,7 +43,6 @@ export function DashboardOverviewTab({
     routingDiagramData,
     routingDiagramError,
     routingDiagramLoading,
-    strategyFamilySummary,
     topSpendingModels,
   } = overviewData;
 
@@ -59,7 +58,6 @@ export function DashboardOverviewTab({
         snapshot={metricSnapshot}
         apiFamilyRows={apiFamilyRows}
         highlighted={metricsHighlighted}
-        strategyFamilySummary={strategyFamilySummary}
         onOpenAnalytics={onOpenAnalytics}
         onInspectSpending={onInspectSpending}
         onReviewRequests={onReviewRequests}

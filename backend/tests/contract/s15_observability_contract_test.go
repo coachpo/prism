@@ -61,6 +61,13 @@ func assertDashboardSnapshotTopLevelShape(t *testing.T, payload map[string]any) 
 	}
 }
 
+func assertDashboardSnapshotDoesNotExposeStrategyFamilySummary(t *testing.T, payload map[string]any) {
+	t.Helper()
+	if _, ok := payload["strategy_family_summary"]; ok {
+		t.Fatalf("dashboard snapshot must not expose removed strategy_family_summary, got %+v", payload)
+	}
+}
+
 func assertS15NoPolicyThresholdFields(t *testing.T, item map[string]any) {
 	t.Helper()
 	for _, key := range []string{"policy_cycle_retry_attempt_limit", "policy_ban_cumulative_retry_attempt_threshold", "cycle_retry_attempt_limit", "ban_cumulative_retry_attempt_threshold"} {
@@ -331,6 +338,7 @@ func TestManagementDashboardStatsReturnsCanonicalSnapshotWithoutWindow(t *testin
 		var payload map[string]any
 		decodeJSONResponse(t, response, &payload)
 		assertDashboardSnapshotTopLevelShape(t, payload)
+		assertDashboardSnapshotDoesNotExposeStrategyFamilySummary(t, payload)
 	}
 }
 
@@ -348,6 +356,7 @@ func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	assertDashboardSnapshotTopLevelShape(t, payload)
+	assertDashboardSnapshotDoesNotExposeStrategyFamilySummary(t, payload)
 	coverage24H := asMap(t, payload["coverage_24h"])
 	coverage30D := asMap(t, payload["coverage_30d"])
 	if coverage24H["from"] == nil || coverage24H["to"] == nil || coverage30D["from"] == nil || coverage30D["to"] == nil {
