@@ -194,6 +194,7 @@ type AuthMutationOutcome = "succeeded" | "live_not_found" | "unsafe_identity" | 
 
 const retiredAuthInventorySegment = ["auth", "snapshots"].join("-");
 const liveAuthInventorySegment = "auth-files";
+const sidecarRouteReadyTimeout = 15_000;
 
 type MockSidecarsApiOptions = {
   authFiles?: AuthFile[];
@@ -635,12 +636,17 @@ test.describe("sidecars management", () => {
   });
 
   test("authfile browser hides live field editor controls while keeping priority save", async ({ page }) => {
+    test.setTimeout(60_000);
+
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
 
     await page.goto("/sidecars");
 
+    await expect(page.getByTestId("sidecar-detail")).toContainText("CLIProxyAPI primary detail", {
+      timeout: sidecarRouteReadyTimeout,
+    });
     const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
-    await expect(primaryRow).toContainText("priority 20");
+    await expect(primaryRow).toContainText("priority 20", { timeout: sidecarRouteReadyTimeout });
     await expect(page.getByRole("button", { name: /Edit live auth fields/ })).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: "Edit live auth fields" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Apply field edits" })).toHaveCount(0);
@@ -651,7 +657,7 @@ test.describe("sidecars management", () => {
     await expect(page.getByRole("alertdialog", { name: "Confirm manual auth mutation" })).toContainText("Positive priorities are written as explicit routing priorities");
     await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
 
-    await expect.poll(() => api.fieldPatchPayloads.length).toBe(1);
+    await expect.poll(() => api.fieldPatchPayloads.length, { timeout: sidecarRouteReadyTimeout }).toBe(1);
     expect(api.fieldPatchPayloads[0]).toEqual({
       authId: "auth-primary",
       payload: { priority: 42 },
@@ -700,6 +706,8 @@ test.describe("sidecars management", () => {
   });
 
   test("authfile priority surfaces live not-found and unsafe identity failures", async ({ page }) => {
+    test.setTimeout(60_000);
+
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
       authFiles: [
         authFile({ id: 41, auth_id: "auth-priority-missing", name: "priority-missing.json", priority: 20 }),
@@ -714,6 +722,7 @@ test.describe("sidecars management", () => {
     await page.goto("/sidecars");
 
     const missingRow = page.getByRole("row").filter({ hasText: "priority-missing.json" });
+    await expect(missingRow).toContainText("priority 20", { timeout: 15_000 });
     await page.getByLabel("Priority for priority-missing.json").fill("42");
     await missingRow.getByRole("button", { name: "Save" }).click();
     const authFilesBeforeMissingSave = countCalls(api.calls, "GET /api/sidecars/1/auth-files");
@@ -724,6 +733,7 @@ test.describe("sidecars management", () => {
     await expect(missingRow).toContainText("Live auth file was not found in the current sidecar state");
 
     const unsafeRow = page.getByRole("row").filter({ hasText: "priority-unsafe.json" });
+    await expect(unsafeRow).toContainText("priority 30", { timeout: 15_000 });
     await page.getByLabel("Priority for priority-unsafe.json").fill("43");
     await unsafeRow.getByRole("button", { name: "Save" }).click();
     await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();

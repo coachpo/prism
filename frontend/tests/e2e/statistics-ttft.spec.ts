@@ -1,6 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 
 const timestamp = "2026-04-10T00:00:00Z";
+const routeReadyTimeout = 15_000;
 
 function createUsageSnapshot(endpointStatistics: Array<Record<string, unknown>>) {
   return {
@@ -59,13 +60,13 @@ function createUsageSnapshot(endpointStatistics: Array<Record<string, unknown>>)
 }
 
 async function mockStatisticsRoutes(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   options: {
     endpointModelStatisticsByEndpointId: Record<number, unknown[]>;
     usageSnapshot: ReturnType<typeof createUsageSnapshot>;
   },
 ) {
-  await page.route("**/*", async (route) => {
+  await page.route("**/*", async (route: Route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
 
@@ -299,7 +300,13 @@ test.describe("statistics endpoint TTFT percentiles", () => {
 
     await page.goto("/dashboard?tab=analytics");
 
+    await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/, {
+      timeout: routeReadyTimeout,
+    });
     const table = page.getByTestId("statistics-endpoint-table");
+    await expect(table).toBeVisible({ timeout: routeReadyTimeout });
     const unknownEndpointRow = table
       .getByText("Null TTFT unknown endpoint")
       .locator("xpath=ancestor::div[contains(@class, 'grid')][1]");
