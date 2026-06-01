@@ -468,7 +468,7 @@ func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecuto
 	for _, modelID := range modelIDs {
 		args = append(args, modelID)
 	}
-	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.default_output_token_reserve, connections.max_context_utilization, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.context_window_tokens_overridden, connections.default_output_token_reserve, connections.default_output_token_reserve_overridden, connections.max_context_utilization, connections.max_context_utilization_overridden, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query connection access targets for profile %d: %w", profileID, err)
@@ -583,7 +583,7 @@ func loadConnectionSummariesByIDs(ctx context.Context, exec queryExecutor, profi
 	for _, connectionID := range connectionIDs {
 		args = append(args, connectionID)
 	}
-	query := fmt.Sprintf(`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.default_output_token_reserve, connections.max_context_utilization, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.id IN (%s) ORDER BY connections.id ASC`, placeholders(2, len(connectionIDs)))
+	query := fmt.Sprintf(`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.context_window_tokens_overridden, connections.default_output_token_reserve, connections.default_output_token_reserve_overridden, connections.max_context_utilization, connections.max_context_utilization_overridden, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.id IN (%s) ORDER BY connections.id ASC`, placeholders(2, len(connectionIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query target connections for profile %d: %w", profileID, err)
@@ -914,6 +914,9 @@ func scanConnectionTargetSummary(scanner interface{ Scan(...any) error }) (conne
 
 func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error }, prefix []any) (connectionTargetSummary, error) {
 	var contextWindowTokens sql.NullInt32
+	var contextWindowTokensOverridden bool
+	var defaultOutputTokenReserveOverridden bool
+	var maxContextUtilizationOverridden bool
 	var endpointAPIKey sql.NullString
 	var connectionName sql.NullString
 	var authType sql.NullString
@@ -938,8 +941,11 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 		&item.APIFamily,
 		&item.EndpointID,
 		&contextWindowTokens,
+		&contextWindowTokensOverridden,
 		&item.DefaultOutputTokenReserve,
+		&defaultOutputTokenReserveOverridden,
 		&item.MaxContextUtilization,
+		&maxContextUtilizationOverridden,
 		&endpoint.ProfileID,
 		&endpoint.Name,
 		&endpoint.BaseURL,
@@ -976,6 +982,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	endpoint.MaskedAPIKey = maskedAPIKey(endpointAPIKey)
 	item.Endpoint = &endpoint
 	item.ContextWindowTokens = nullableInt32(contextWindowTokens)
+	item.ContextCapabilityOverrides = buildContextCapabilityOverridesResponse(item.ContextWindowTokens, contextWindowTokensOverridden, item.DefaultOutputTokenReserve, defaultOutputTokenReserveOverridden, item.MaxContextUtilization, maxContextUtilizationOverridden)
 	item.Name = nullableStringValue(connectionName)
 	item.AuthType = nullableStringValue(authType)
 	item.CustomHeaders = parseCustomHeaders(customHeaders)
@@ -1188,6 +1195,25 @@ func copyIntPtr(value *int) *int {
 func intPtr(value int) *int {
 	resolved := value
 	return &resolved
+}
+
+func float64Ptr(value float64) *float64 {
+	resolved := value
+	return &resolved
+}
+
+func buildContextCapabilityOverridesResponse(contextWindowTokens *int, contextWindowTokensOverridden bool, defaultOutputTokenReserve int, defaultOutputTokenReserveOverridden bool, maxContextUtilization float64, maxContextUtilizationOverridden bool) contextCapabilityOverridesResponse {
+	overrides := contextCapabilityOverridesResponse{}
+	if contextWindowTokensOverridden {
+		overrides.ContextWindowTokens = copyIntPtr(contextWindowTokens)
+	}
+	if defaultOutputTokenReserveOverridden {
+		overrides.DefaultOutputTokenReserve = intPtr(defaultOutputTokenReserve)
+	}
+	if maxContextUtilizationOverridden {
+		overrides.MaxContextUtilization = float64Ptr(maxContextUtilization)
+	}
+	return overrides
 }
 
 func cloneIntSlice(values []int) []int {

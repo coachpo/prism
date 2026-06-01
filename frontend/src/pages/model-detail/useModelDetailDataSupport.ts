@@ -15,23 +15,10 @@ import {
   getTerminalTarget,
   getTerminalTargetId,
   isTerminalTargetAccessTargetType,
-} from "@/lib/types";
+} from "@/lib/types/target-compatibility";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { getModelConnections } from "../models/modelFormState";
-import type { HeaderRow } from "./useModelDetailDialogState";
+import { getModelConnections, toModelListItem } from "../models/modelFormState";
 import { normalizeOpenAIProbeEndpointVariant } from "./connectionProbeBehavior";
-
-function resolveApiFamily(
-  model: Pick<ModelConfig, "api_family"> | Pick<ModelConfigListItem, "api_family">,
-): ApiFamily {
-  return model.api_family;
-}
-
-function resolveVendorId(
-  model: Pick<ModelConfig, "vendor_id"> | Pick<ModelConfigListItem, "vendor_id">,
-) {
-  return model.vendor_id ?? null;
-}
 
 export const createDefaultEndpointForm = (): EndpointCreate => ({
   name: "",
@@ -39,32 +26,48 @@ export const createDefaultEndpointForm = (): EndpointCreate => ({
   api_key: "",
 });
 
-export const createDefaultConnectionForm = (apiFamily: ApiFamily | null = null): ConnectionCreate => ({
-  api_family: apiFamily ?? "openai",
-  name: "",
-  is_active: true,
-  custom_headers: null,
-  openai_probe_endpoint_variant:
-    apiFamily === "openai" ? normalizeOpenAIProbeEndpointVariant(undefined) : null,
-  pricing_template_id: null,
-  qps_limit: null,
-  max_in_flight_non_stream: null,
-  max_in_flight_stream: null,
-});
+type HeaderRowLike = {
+  id: string;
+  key: string;
+  value: string;
+};
+
+type ConnectionCapabilityFieldName =
+  | "context_window_tokens"
+  | "default_output_token_reserve"
+  | "max_context_utilization";
+
+type ConnectionCapabilityDraftLike = {
+  mode: "inherit" | "override";
+  value: string;
+};
+
+interface ConnectionDialogFormLike extends Omit<ConnectionCreate, ConnectionCapabilityFieldName> {
+  context_capability_drafts?: Record<ConnectionCapabilityFieldName, ConnectionCapabilityDraftLike>;
+}
+
+const CONNECTION_CAPABILITY_FIELDS: ConnectionCapabilityFieldName[] = [
+  "context_window_tokens",
+  "default_output_token_reserve",
+  "max_context_utilization",
+];
+
+const INVALID_CONNECTION_CAPABILITY_OVERRIDE_MESSAGE =
+  "Enter valid connection capability override values before saving.";
 
 interface BuildConnectionDraftPayloadInput {
   apiFamily: ApiFamily | null;
   createMode: "select" | "new";
   selectedEndpointId: string;
   newEndpointForm: EndpointCreate;
-  connectionForm: ConnectionCreate;
-  headerRows: HeaderRow[];
+  connectionForm: ConnectionDialogFormLike;
+  headerRows: HeaderRowLike[];
   editingConnection: Connection | null;
   endpointSourceDefaultName: string | null;
 }
 
 export function normalizeConnectionHeaders(
-  headerRows: HeaderRow[],
+  headerRows: HeaderRowLike[],
 ): Record<string, string> | null {
   const customHeaders = Object.fromEntries(
     headerRows.filter((row) => row.key.trim()).map((row) => [row.key.trim(), row.value]),
@@ -96,19 +99,28 @@ export function buildConnectionDraftPayload({
         ? endpointSourceDefaultName
         : null;
 
+  const parsedContextCapabilityValues = buildContextCapabilityPayload(connectionForm);
+  if (!parsedContextCapabilityValues) {
+    return {
+      errorMessage: INVALID_CONNECTION_CAPABILITY_OVERRIDE_MESSAGE,
+      payload: null,
+    };
+  }
+
   const payload: ConnectionCreate = {
-    ...connectionForm,
     api_family: apiFamily ?? connectionForm.api_family,
     name: resolvedConnectionName,
+    is_active: connectionForm.is_active,
     custom_headers: customHeaders,
-    pricing_template_id: connectionForm.pricing_template_id,
     openai_probe_endpoint_variant:
       apiFamily === "openai"
         ? normalizeOpenAIProbeEndpointVariant(connectionForm.openai_probe_endpoint_variant)
         : undefined,
+    pricing_template_id: connectionForm.pricing_template_id,
     qps_limit: normalizeLimiterField(connectionForm.qps_limit),
     max_in_flight_non_stream: normalizeLimiterField(connectionForm.max_in_flight_non_stream),
     max_in_flight_stream: normalizeLimiterField(connectionForm.max_in_flight_stream),
+    ...parsedContextCapabilityValues,
   };
 
   if (apiFamily !== "openai") {
@@ -138,6 +150,60 @@ export function buildConnectionDraftPayload({
   payload.endpoint_create = newEndpointForm;
   delete payload.endpoint_id;
   return { errorMessage: null, payload };
+}
+
+function buildContextCapabilityPayload(connectionForm: ConnectionDialogFormLike): Pick<
+  ConnectionCreate,
+  ConnectionCapabilityFieldName
+> | null {
+  const parsedValues = {} as Pick<ConnectionCreate, ConnectionCapabilityFieldName>;
+
+  for (const field of CONNECTION_CAPABILITY_FIELDS) {
+    const parsedValue = parseContextCapabilityDraftValue(
+      field,
+      connectionForm.context_capability_drafts?.[field] ?? { mode: "inherit", value: "" },
+    );
+
+    if (parsedValue === undefined) {
+      return null;
+    }
+
+    parsedValues[field] = parsedValue;
+  }
+
+  return parsedValues;
+}
+
+function parseContextCapabilityDraftValue(
+  field: ConnectionCapabilityFieldName,
+  draft: ConnectionCapabilityDraftLike,
+): number | null | undefined {
+  if (draft.mode === "inherit") {
+    return null;
+  }
+
+  const trimmedValue = draft.value.trim();
+  if (trimmedValue.length === 0) {
+    return undefined;
+  }
+
+  switch (field) {
+    case "context_window_tokens":
+    case "default_output_token_reserve": {
+      const parsedInteger = Number(trimmedValue);
+      return Number.isInteger(parsedInteger) && parsedInteger > 0 ? parsedInteger : undefined;
+    }
+    case "max_context_utilization": {
+      const parsedUtilization = Number(trimmedValue);
+      return Number.isFinite(parsedUtilization)
+        && parsedUtilization > 0
+        && parsedUtilization <= 1
+        ? parsedUtilization
+        : undefined;
+    }
+    default:
+      return undefined;
+  }
 }
 
 function normalizeLimiterField(value: number | null | undefined): number | null {
@@ -304,30 +370,7 @@ export function patchModelListItemFromDetail(
   models: ModelConfigListItem[],
   model: ModelConfig,
 ): ModelConfigListItem[] {
-  const connections = getModelConnections(model);
-
-  return models.map((item) => {
-    if (item.id !== model.id) {
-      return item;
-    }
-
-    return {
-      ...item,
-      profile_id: model.profile_id,
-      vendor_id: resolveVendorId(model),
-      vendor: model.vendor,
-      api_family: resolveApiFamily(model),
-      model_id: model.model_id,
-      display_name: model.display_name,
-      loadbalance_strategy_id: model.loadbalance_strategy_id,
-      loadbalance_strategy: model.loadbalance_strategy,
-      access_targets: model.access_targets,
-      is_enabled: model.is_enabled,
-      connection_count: connections.length,
-      active_connection_count: connections.filter((connection) => connection.is_active).length,
-      updated_at: model.updated_at,
-    };
-  });
+  return models.map((item) => (item.id === model.id ? toModelListItem(model, item) : item));
 }
 
 export function connectionBelongsToModel(

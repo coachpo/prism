@@ -90,7 +90,7 @@ func (s *Service) handleListModelConnections(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, http.StatusOK, withOwnerScopedConnectionOverrideMetadataList(response))
 }
 
 func (s *Service) handleListConnections(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +209,30 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 			return connectionResponse{}, connectionContextCapabilityDomainError(err)
 		}
 		now := s.nowUTC()
-		item := connectionResponse{ProfileID: profile.ID, APIFamily: owner.APIFamily, EndpointID: endpoint.ID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, IsActive: resolvedBool(requestBody.IsActive, true), Priority: position, Name: normalizeOptionalString(requestBody.Name), AuthType: authType, CustomHeaders: normalizeHeaders(requestBody.CustomHeaders), OpenAIProbeEndpointVariant: openAIProbeVariant, PricingTemplateID: pricingTemplateID, QPSLimit: requestBody.QPSLimit, MaxInFlightNonStream: requestBody.MaxInFlightNonStream, MaxInFlightStream: requestBody.MaxInFlightStream, HealthStatus: "unknown", CreatedAt: now, UpdatedAt: now}
+		item := connectionResponse{
+			ProfileID:                           profile.ID,
+			APIFamily:                           owner.APIFamily,
+			EndpointID:                          endpoint.ID,
+			ContextWindowTokens:                 capabilitySettings.ContextWindowTokens,
+			ContextWindowTokensOverridden:       requestBody.ContextWindowTokens != nil,
+			DefaultOutputTokenReserve:           capabilitySettings.DefaultOutputTokenReserve,
+			DefaultOutputTokenReserveOverridden: requestBody.DefaultOutputTokenReserve != nil,
+			MaxContextUtilization:               capabilitySettings.MaxContextUtilization,
+			MaxContextUtilizationOverridden:     requestBody.MaxContextUtilization != nil,
+			IsActive:                            resolvedBool(requestBody.IsActive, true),
+			Priority:                            position,
+			Name:                                normalizeOptionalString(requestBody.Name),
+			AuthType:                            authType,
+			CustomHeaders:                       normalizeHeaders(requestBody.CustomHeaders),
+			OpenAIProbeEndpointVariant:          openAIProbeVariant,
+			PricingTemplateID:                   pricingTemplateID,
+			QPSLimit:                            requestBody.QPSLimit,
+			MaxInFlightNonStream:                requestBody.MaxInFlightNonStream,
+			MaxInFlightStream:                   requestBody.MaxInFlightStream,
+			HealthStatus:                        "unknown",
+			CreatedAt:                           now,
+			UpdatedAt:                           now,
+		}
 		connectionID, err := insertConnection(r.Context(), tx, item)
 		if err != nil {
 			return connectionResponse{}, err
@@ -230,7 +253,7 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, response)
+	writeJSON(w, http.StatusCreated, withOwnerScopedConnectionOverrideMetadata(response))
 }
 
 func (s *Service) handleCreateConnection(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +332,7 @@ func (s *Service) handleUpdateModelConnection(w http.ResponseWriter, r *http.Req
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, http.StatusOK, withOwnerScopedConnectionOverrideMetadata(response))
 }
 
 func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.Tx, profileID int, owner modelRecord, current connectionResponse, requestBody connectionUpdateRequest) (connectionResponse, error) {
@@ -357,34 +380,40 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	if requestBody.ContextWindowTokens.Set {
 		if requestBody.ContextWindowTokens.Value == nil {
 			next.ContextWindowTokens = contextcapability.CopyIntPtr(owner.ContextWindowTokens)
+			next.ContextWindowTokensOverridden = false
 		} else {
 			resolvedContextWindowTokens, normalizeErr := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens.Value)
 			if normalizeErr != nil {
 				return connectionResponse{}, connectionContextCapabilityFieldError("context_window_tokens", normalizeErr)
 			}
 			next.ContextWindowTokens = resolvedContextWindowTokens
+			next.ContextWindowTokensOverridden = true
 		}
 	}
 	if requestBody.DefaultOutputTokenReserve.Set {
 		if requestBody.DefaultOutputTokenReserve.Value == nil {
 			next.DefaultOutputTokenReserve = owner.DefaultOutputTokenReserve
+			next.DefaultOutputTokenReserveOverridden = false
 		} else {
 			resolvedOutputTokenReserve, normalizeErr := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve.Value)
 			if normalizeErr != nil {
 				return connectionResponse{}, connectionContextCapabilityFieldError("default_output_token_reserve", normalizeErr)
 			}
 			next.DefaultOutputTokenReserve = resolvedOutputTokenReserve
+			next.DefaultOutputTokenReserveOverridden = true
 		}
 	}
 	if requestBody.MaxContextUtilization.Set {
 		if requestBody.MaxContextUtilization.Value == nil {
 			next.MaxContextUtilization = owner.MaxContextUtilization
+			next.MaxContextUtilizationOverridden = false
 		} else {
 			resolvedMaxContextUtilization, normalizeErr := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization.Value)
 			if normalizeErr != nil {
 				return connectionResponse{}, connectionContextCapabilityFieldError("max_context_utilization", normalizeErr)
 			}
 			next.MaxContextUtilization = resolvedMaxContextUtilization
+			next.MaxContextUtilizationOverridden = true
 		}
 	}
 	if requestBody.IsActive.Set {
@@ -628,6 +657,30 @@ func normalizeConnectionPriorities(items []connectionResponse, currentTime time.
 		changed = true
 	}
 	return changed
+}
+
+func withOwnerScopedConnectionOverrideMetadata(item connectionResponse) connectionResponse {
+	overrides := &contextCapabilityOverridesResponse{}
+	if item.ContextWindowTokensOverridden {
+		overrides.ContextWindowTokens = contextcapability.CopyIntPtr(item.ContextWindowTokens)
+	}
+	if item.DefaultOutputTokenReserveOverridden {
+		reserve := item.DefaultOutputTokenReserve
+		overrides.DefaultOutputTokenReserve = &reserve
+	}
+	if item.MaxContextUtilizationOverridden {
+		maxContextUtilization := item.MaxContextUtilization
+		overrides.MaxContextUtilization = &maxContextUtilization
+	}
+	item.ContextCapabilityOverrides = overrides
+	return item
+}
+
+func withOwnerScopedConnectionOverrideMetadataList(items []connectionResponse) []connectionResponse {
+	for index := range items {
+		items[index] = withOwnerScopedConnectionOverrideMetadata(items[index])
+	}
+	return items
 }
 
 func connectionContextCapabilityDomainError(err error) error {

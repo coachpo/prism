@@ -206,41 +206,15 @@ function normalizeLoadbalanceStrategy(strategy: RawLoadbalanceStrategy): Loadbal
 
 function normalizeModelConfigListItem(model: RawModelConfigListItem): ModelConfigListItem {
   return {
-    id: model.id,
-    profile_id: model.profile_id,
-    vendor_id: model.vendor_id,
-    vendor: model.vendor,
-    api_family: model.api_family,
-    model_id: model.model_id,
-    display_name: model.display_name,
-    loadbalance_strategy_id: model.loadbalance_strategy_id,
+    ...model,
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(model.loadbalance_strategy),
-    access_targets: model.access_targets,
-    is_enabled: model.is_enabled,
-    connection_count: model.connection_count,
-    active_connection_count: model.active_connection_count,
-    health_success_rate: model.health_success_rate,
-    health_total_requests: model.health_total_requests,
-    created_at: model.created_at,
-    updated_at: model.updated_at,
   };
 }
 
 function normalizeModelConfig(model: RawModelConfig): ModelConfig {
   return {
-    id: model.id,
-    profile_id: model.profile_id,
-    vendor_id: model.vendor_id,
-    vendor: model.vendor,
-    api_family: model.api_family,
-    model_id: model.model_id,
-    display_name: model.display_name,
-    loadbalance_strategy_id: model.loadbalance_strategy_id,
+    ...model,
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(model.loadbalance_strategy),
-    access_targets: model.access_targets,
-    is_enabled: model.is_enabled,
-    created_at: model.created_at,
-    updated_at: model.updated_at,
   };
 }
 

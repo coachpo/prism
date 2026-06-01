@@ -15,6 +15,11 @@ const { ConfigImportSchema, VendorCatalogImportSchema } = load(
 );
 const removedRetryAttemptsKey = ["retry", "max", "attempts"].join("_");
 const removedBanMode = ["man", "ual"].join("");
+const liveAuthoringCapabilityDefaults = {
+  context_window_tokens: null,
+  default_output_token_reserve: 4096,
+  max_context_utilization: 0.9,
+};
 
 function buildValidConfigImport() {
   return {
@@ -46,6 +51,7 @@ function buildValidConfigImport() {
         ref: "openai-primary",
         api_family: "openai",
         endpoint_name: "OpenAI",
+        ...liveAuthoringCapabilityDefaults,
         pricing_template_name: "Default pricing",
         is_active: true,
         priority: 0,
@@ -73,6 +79,7 @@ function buildValidConfigImport() {
         model_id: "gpt-4o-mini",
         display_name: "GPT 4o Mini",
         loadbalance_strategy_name: "Default single",
+        ...liveAuthoringCapabilityDefaults,
         is_enabled: true,
         access_targets: [
           {
@@ -115,6 +122,22 @@ test("config import schema accepts current profile bundle v3 Ban Policy payloads
   assert.equal(parsed.loadbalance_strategies[0].cycle_retry_attempt_limit, 2);
   assert.equal(parsed.loadbalance_strategies[0].ban_cumulative_retry_attempt_threshold, 4);
   assert.equal(parsed.connections[0].ref, "openai-primary");
+  assert.deepEqual(
+    {
+      context_window_tokens: parsed.connections[0].context_window_tokens,
+      default_output_token_reserve: parsed.connections[0].default_output_token_reserve,
+      max_context_utilization: parsed.connections[0].max_context_utilization,
+    },
+    liveAuthoringCapabilityDefaults
+  );
+  assert.deepEqual(
+    {
+      context_window_tokens: parsed.models[0].context_window_tokens,
+      default_output_token_reserve: parsed.models[0].default_output_token_reserve,
+      max_context_utilization: parsed.models[0].max_context_utilization,
+    },
+    liveAuthoringCapabilityDefaults
+  );
   assert.equal(parsed.models[0].access_targets[0].connection_ref, "openai-primary");
   assert.ok(!Object.hasOwn(parsed.loadbalance_strategies[0], removedRetryAttemptsKey));
   assert.ok(!Object.hasOwn(parsed.models[0], "connections"));

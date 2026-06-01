@@ -142,6 +142,11 @@ export function ModelDetailPage() {
         clearDialogTestResult={clearDialogTestResult}
         handleDialogTestConnection={handleDialogTestConnection}
         endpointSourceDefaultName={endpointSourceDefaultName}
+        ownerCapabilityDefaults={{
+          context_window_tokens: model.context_window_tokens,
+          default_output_token_reserve: model.default_output_token_reserve,
+          max_context_utilization: model.max_context_utilization,
+        }}
         pricingTemplates={pricingTemplates}
       />
 

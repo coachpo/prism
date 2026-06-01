@@ -1,5 +1,5 @@
 import type { ApiFamily, Vendor } from "./vendor";
-import type { Connection } from "./routing";
+import type { Connection, ContextCapabilityFields } from "./routing";
 import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
 import type {
@@ -78,7 +78,7 @@ export interface ModelAccessTargetUpdate {
   is_enabled?: boolean;
 }
 
-export interface ModelConfig {
+export interface ModelConfig extends ContextCapabilityFields {
   id: number;
   profile_id: number;
   vendor_id: number | null;
@@ -94,7 +94,7 @@ export interface ModelConfig {
   updated_at: string;
 }
 
-export interface ModelConfigListItem {
+export interface ModelConfigListItem extends ContextCapabilityFields {
   id: number;
   profile_id: number;
   vendor_id: number | null;
@@ -120,6 +120,9 @@ interface ModelConfigMutationBase {
   model_id?: string;
   display_name?: string | null;
   loadbalance_strategy_id?: number;
+  context_window_tokens?: number | null;
+  default_output_token_reserve?: number | null;
+  max_context_utilization?: number | null;
   access_targets?: ModelAccessTargetModelMutation[];
   is_enabled?: boolean;
 }

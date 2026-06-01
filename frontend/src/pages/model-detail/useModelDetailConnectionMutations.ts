@@ -6,7 +6,6 @@ import { clearSharedReferenceData } from "@/lib/referenceData";
 import type {
   ApiFamily,
   Connection,
-  ConnectionCreate,
   Endpoint,
   EndpointCreate,
   ModelAccessTarget,
@@ -19,7 +18,7 @@ import {
   getTerminalTargetId,
   isTerminalTargetAccessTargetType,
 } from "@/lib/types";
-import type { HeaderRow } from "./useModelDetailDialogState";
+import type { ConnectionDialogForm, HeaderRow } from "./useModelDetailDialogState";
 import {
   buildConnectionDraftPayload,
   connectionBelongsToModel,
@@ -43,7 +42,7 @@ interface UseModelDetailConnectionMutationsInput {
   createMode: "select" | "new";
   selectedEndpointId: string;
   newEndpointForm: EndpointCreate;
-  connectionForm: ConnectionCreate;
+  connectionForm: ConnectionDialogForm;
   headerRows: HeaderRow[];
   editingConnection: Connection | null;
   pricingTemplates: PricingTemplate[];

@@ -1413,6 +1413,9 @@ export interface Messages {
     connectionDialogDescription: string;
     connectionDisplayNamePlaceholder: string;
     connectionHealthy: string;
+    contextRoutingOverrides: string;
+    contextRoutingOverridesDescription: string;
+    inheritedFromModel: (value: string) => string;
     connectionNameOptional: string;
     connectionNameSummaryLabel: string;
     connectionUnhealthy: string;
@@ -1498,6 +1501,7 @@ export interface Messages {
     noLoadbalanceStrategiesAvailable: string;
     noProfileEndpointsFound: string;
     notCheckedYet: string;
+    notSet: string;
     orderedPriorityRouting: string;
     pricingOff: string;
     pricingOn: string;
@@ -1514,6 +1518,7 @@ export interface Messages {
     probeBehaviorDescription: string;
     probeBehaviorSummaryLabel: string;
     qpsLimit: string;
+    overrideSetting: string;
     removeHeader: string;
     retryWindowBlocked: string;
     retryWindowCounting: string;
@@ -1524,6 +1529,7 @@ export interface Messages {
     reasoningHandlingDisabledHint: string;
     resolvedProbeVariant: string;
     resetBanPolicyState: string;
+    resetToModelDefault: string;
     requests24h: string;
     requestsLabel: string;
     routingPriorityHint: string;
@@ -1575,13 +1581,18 @@ export interface Messages {
     accessTargetsDescription: string;
     addTarget: string;
     connectionTarget: string;
+    contextRoutingDefaults: string;
+    contextWindowTokens: string;
+    contextWindowTokensHelper: string;
     currentApiFamily: (apiFamily: string) => string;
+    defaultOutputTokenReserve: string;
     deleteModel: string;
     deleteModelDescription: (name: string) => string;
     displayNameOptional: string;
     editModel: string;
     editModelEnabledDescription: string;
     enableAccessTarget: (value: string) => string;
+    maxContextUtilization: string;
     modelId: string;
     modelIdPlaceholder: string;
     modelTarget: string;
@@ -1613,11 +1624,15 @@ export interface Messages {
     modelCount: (count: string) => string;
   };
   modelsData: {
+    contextWindowTokensInvalid: string;
     created: string;
+    defaultOutputTokenReserveInvalid: string;
     deleted: string;
     deleteFailed: string;
     enabledAccessTargetRequired: string;
     fetchFailed: string;
+    maxContextUtilizationInvalid: string;
+    modelIdRequired: string;
     saveFailed: string;
     selectApiFamily: string;
     selectLoadbalanceStrategy: string;
@@ -3564,6 +3579,10 @@ export const enMessages: Messages = {
       "Configure endpoint source and optional pricing template for this terminal target. Routing priority is managed from the terminal target list by dragging cards.",
     connectionDisplayNamePlaceholder: "Connection display name",
     connectionHealthy: "Connection Healthy",
+    contextRoutingOverrides: "Context routing overrides",
+    contextRoutingOverridesDescription:
+      "Choose which context routing values this terminal target inherits from the model and which ones it overrides explicitly.",
+    inheritedFromModel: (value) => `Inherited from model: ${value}`,
     connectionNameOptional: "Name (Optional)",
     connectionNameSummaryLabel: "Resolved Name",
     connectionUnhealthy: "Connection Unhealthy",
@@ -3650,6 +3669,7 @@ export const enMessages: Messages = {
       "No loadbalance strategies are available for this profile. Create one on the Loadbalance Strategies page first.",
     noProfileEndpointsFound: "No profile endpoints found.",
     notCheckedYet: "Not checked yet",
+    notSet: "Not set",
     orderedPriorityRouting: "Ordered priority routing",
     pricingOff: "Pricing Off",
     pricingOn: "Pricing On",
@@ -3666,10 +3686,12 @@ export const enMessages: Messages = {
     probeBehaviorDescription: "Used for health checks only. Routed model traffic is unchanged.",
     probeBehaviorSummaryLabel: "Probe Behavior",
     qpsLimit: "QPS Limit",
+    overrideSetting: "Override",
     removeHeader: "Remove header",
     retryWindowBlocked: "Retry Window Open",
     retryWindowCounting: "Ban Policy Counting",
     resetBanPolicyState: "Reset Ban Policy State",
+    resetToModelDefault: "Reset to model default",
     requests24h: "Requests (24h)",
     requestsLabel: "Requests",
     routingPriorityHint:
@@ -3802,13 +3824,18 @@ export const enMessages: Messages = {
     accessTargetsDescription: "Select same-family model targets. Private terminal targets stay visible here but are created and managed from the model detail terminal target controls.",
     addTarget: "Add target",
     connectionTarget: "Terminal target",
+    contextRoutingDefaults: "Context routing defaults",
+    contextWindowTokens: "Context window tokens",
+    contextWindowTokensHelper: "Leave blank when the model context window is unknown.",
     currentApiFamily: (apiFamily) => `Current API family: ${apiFamily}`,
+    defaultOutputTokenReserve: "Default output token reserve",
     deleteModel: "Delete Model",
     deleteModelDescription: (name) => `Are you sure you want to delete "${name}"? This will also remove its owned private connections. Endpoints remain reusable.`,
     displayNameOptional: "Display Name",
     editModel: "Edit Model",
     editModelEnabledDescription: "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments.",
     enableAccessTarget: (value) => `Enable access target ${value}`,
+    maxContextUtilization: "Max context utilization",
     modelId: "Model ID",
     modelIdPlaceholder: "e.g. gpt-4o",
     modelTarget: "Model target",
@@ -3840,11 +3867,15 @@ export const enMessages: Messages = {
     modelCount: (count) => `${count} ${count === "1" ? "model" : "models"}`,
   },
   modelsData: {
+    contextWindowTokensInvalid: "Context window tokens must be a positive integer or blank.",
     created: "Model created",
+    defaultOutputTokenReserveInvalid: "Default output token reserve must be a positive integer.",
     deleted: "Model deleted",
     deleteFailed: "Failed to delete model",
     enabledAccessTargetRequired: "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.",
     fetchFailed: "Failed to fetch data",
+    maxContextUtilizationInvalid: "Max context utilization must be a decimal greater than 0 and less than or equal to 1.",
+    modelIdRequired: "Model ID is required.",
     saveFailed: "Failed to save model",
     selectApiFamily: "Please select an API family",
     selectLoadbalanceStrategy: "Please select a loadbalance strategy for enabled models",

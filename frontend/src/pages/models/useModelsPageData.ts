@@ -20,6 +20,7 @@ import {
   getAccessTargetModelsForApiFamily,
   getAccessTargetOptionKeys,
   type ModelFormData,
+  type ModelFormValidationError,
   setLoadbalanceStrategyIdOnForm,
   toModelCreatePayload,
   toModelListItem,
@@ -28,6 +29,24 @@ import {
   validateModelFormData,
 } from "./modelFormState";
 import { useModelMetrics24h } from "./useModelMetrics24h";
+
+function getModelValidationMessage(
+  messages: ReturnType<typeof getStaticMessages>,
+  validationError: ModelFormValidationError,
+): string | null {
+  switch (validationError) {
+    case "model_id_required":
+      return messages.modelsData.modelIdRequired;
+    case "context_window_tokens_invalid":
+      return messages.modelsData.contextWindowTokensInvalid;
+    case "default_output_token_reserve_invalid":
+      return messages.modelsData.defaultOutputTokenReserveInvalid;
+    case "max_context_utilization_invalid":
+      return messages.modelsData.maxContextUtilizationInvalid;
+    default:
+      return null;
+  }
+}
 
 export function useModelsPageData(revision: number) {
   const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([]);
@@ -152,6 +171,15 @@ export function useModelsPageData(revision: number) {
       toast.error(message);
       return;
     }
+
+    if (validationError) {
+      const message = getModelValidationMessage(messages, validationError);
+      if (message) {
+        setFormError(message);
+        return;
+      }
+    }
+
     try {
       if (editingModel) {
         const updated = await api.models.update(editingModel.id, toModelUpdatePayload(formData));

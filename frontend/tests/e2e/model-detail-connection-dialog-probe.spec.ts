@@ -1,6 +1,24 @@
 import { expect, test, type Page } from "@playwright/test";
+import type {
+  Connection,
+  Endpoint,
+  OpenAIProbeEndpointVariant,
+} from "../../src/lib/types";
 
 const timestamp = "2026-04-09T00:00:00Z";
+
+type TestAccessTarget = {
+  id: number;
+  target_type: "connection";
+  target_model_id: null;
+  connection_id: number;
+  position: number;
+  is_enabled: boolean;
+  target_model: null;
+  connection: Connection;
+  created_at: string;
+  updated_at: string;
+};
 
 function createModelResponse({
   id,
@@ -8,12 +26,18 @@ function createModelResponse({
   modelId,
   displayName,
   connections = [],
+  contextWindowTokens = 16384,
+  defaultOutputTokenReserve = 4096,
+  maxContextUtilization = 0.9,
 }: {
   id: number;
   apiFamily: "openai" | "anthropic";
   modelId: string;
   displayName: string;
-  connections?: Array<ReturnType<typeof createConnection>>;
+  connections?: Connection[];
+  contextWindowTokens?: number | null;
+  defaultOutputTokenReserve?: number;
+  maxContextUtilization?: number;
 }) {
   return {
     id,
@@ -25,7 +49,10 @@ function createModelResponse({
     display_name: displayName,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
-    access_targets: connections.map((connection, index) => ({
+    context_window_tokens: contextWindowTokens,
+    default_output_token_reserve: defaultOutputTokenReserve,
+    max_context_utilization: maxContextUtilization,
+    access_targets: connections.map<TestAccessTarget>((connection, index) => ({
       id: 700 + index,
       target_type: "connection",
       target_model_id: null,
@@ -49,15 +76,32 @@ function createConnection({
   endpoint,
   name,
   openaiProbeEndpointVariant,
+  contextWindowTokens = 16384,
+  defaultOutputTokenReserve = 4096,
+  maxContextUtilization = 0.9,
+  contextCapabilityOverrides = {
+    context_window_tokens: null,
+    default_output_token_reserve: null,
+    max_context_utilization: null,
+  },
 }: {
   id: number;
   modelConfigId: number;
-  endpoint: { id: number; name: string; base_url: string };
-  name: string;
-  openaiProbeEndpointVariant: string | null;
-}) {
+  endpoint: Endpoint;
+  name: string | null;
+  openaiProbeEndpointVariant: OpenAIProbeEndpointVariant | null;
+  contextWindowTokens?: number | null;
+  defaultOutputTokenReserve?: number;
+  maxContextUtilization?: number;
+  contextCapabilityOverrides?: {
+    context_window_tokens: number | null;
+    default_output_token_reserve: number | null;
+    max_context_utilization: number | null;
+  };
+}): Connection {
   return {
     id,
+    profile_id: 1,
     model_config_id: modelConfigId,
     endpoint_id: endpoint.id,
     endpoint,
@@ -68,6 +112,10 @@ function createConnection({
     auth_type: null,
     custom_headers: null,
     openai_probe_endpoint_variant: openaiProbeEndpointVariant,
+    context_window_tokens: contextWindowTokens,
+    default_output_token_reserve: defaultOutputTokenReserve,
+    max_context_utilization: maxContextUtilization,
+    context_capability_overrides: contextCapabilityOverrides,
     pricing_template_id: null,
     qps_limit: null,
     max_in_flight_non_stream: null,
@@ -86,11 +134,17 @@ function createModelListItem({
   apiFamily,
   modelId,
   displayName,
+  contextWindowTokens = 16384,
+  defaultOutputTokenReserve = 4096,
+  maxContextUtilization = 0.9,
 }: {
   id: number;
   apiFamily: "openai" | "anthropic";
   modelId: string;
   displayName: string;
+  contextWindowTokens?: number | null;
+  defaultOutputTokenReserve?: number;
+  maxContextUtilization?: number;
 }) {
   return {
     id,
@@ -102,6 +156,9 @@ function createModelListItem({
     display_name: displayName,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
+    context_window_tokens: contextWindowTokens,
+    default_output_token_reserve: defaultOutputTokenReserve,
+    max_context_utilization: maxContextUtilization,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -138,6 +195,61 @@ function createSpendingResponse() {
   };
 }
 
+type ConnectionMutationPayload = {
+  name?: string | null;
+  is_active?: boolean;
+  custom_headers?: Record<string, string> | null;
+  openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
+  pricing_template_id?: number | null;
+  qps_limit?: number | null;
+  max_in_flight_non_stream?: number | null;
+  max_in_flight_stream?: number | null;
+  context_window_tokens?: number | null;
+  default_output_token_reserve?: number | null;
+  max_context_utilization?: number | null;
+};
+
+function applyConnectionPayload(
+  connection: Connection,
+  payload: ConnectionMutationPayload,
+  model: ReturnType<typeof createModelResponse>,
+): Connection {
+  const nextContextWindowTokens =
+    payload.context_window_tokens === undefined
+      ? connection.context_window_tokens
+      : payload.context_window_tokens ?? model.context_window_tokens ?? null;
+  const nextDefaultOutputTokenReserve =
+    payload.default_output_token_reserve === undefined
+      ? connection.default_output_token_reserve
+      : payload.default_output_token_reserve ?? model.default_output_token_reserve;
+  const nextMaxContextUtilization =
+    payload.max_context_utilization === undefined
+      ? connection.max_context_utilization
+      : payload.max_context_utilization ?? model.max_context_utilization;
+
+  return {
+    ...connection,
+    ...payload,
+    context_window_tokens: nextContextWindowTokens,
+    default_output_token_reserve: nextDefaultOutputTokenReserve,
+    max_context_utilization: nextMaxContextUtilization,
+    context_capability_overrides: {
+      context_window_tokens:
+        payload.context_window_tokens === undefined
+          ? connection.context_capability_overrides?.context_window_tokens ?? null
+          : payload.context_window_tokens,
+      default_output_token_reserve:
+        payload.default_output_token_reserve === undefined
+          ? connection.context_capability_overrides?.default_output_token_reserve ?? null
+          : payload.default_output_token_reserve,
+      max_context_utilization:
+        payload.max_context_utilization === undefined
+          ? connection.context_capability_overrides?.max_context_utilization ?? null
+          : payload.max_context_utilization,
+    },
+  };
+}
+
 async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof createModelResponse>) {
   const endpoint = {
     id: 11,
@@ -164,7 +276,7 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
   };
   const previewPayloads: unknown[] = [];
   const savePayloads: unknown[] = [];
-  let accessTargets = [...model.access_targets];
+  let accessTargets: TestAccessTarget[] = [...model.access_targets];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -206,6 +318,9 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
           apiFamily: model.api_family,
           modelId: model.model_id,
           displayName: model.display_name ?? model.model_id,
+          contextWindowTokens: model.context_window_tokens,
+          defaultOutputTokenReserve: model.default_output_token_reserve,
+          maxContextUtilization: model.max_context_utilization,
         }),
       ]);
     }
@@ -243,31 +358,22 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
     }
 
     if (pathname === `/api/models/${model.id}/connections` && method === "POST") {
-      const payload = request.postDataJSON();
+      const payload = request.postDataJSON() as ConnectionMutationPayload;
       savePayloads.push(payload);
-      const connection = {
-        id: 101,
-        model_config_id: model.id,
-        endpoint_id: endpoint.id,
-        endpoint,
-        api_family: model.api_family,
-        is_active: payload.is_active ?? true,
-        priority: accessTargets.length,
-        name: payload.name ?? endpoint.name,
-        auth_type: null,
-        custom_headers: payload.custom_headers ?? null,
-        openai_probe_endpoint_variant: payload.openai_probe_endpoint_variant ?? null,
-        pricing_template_id: payload.pricing_template_id ?? null,
-        qps_limit: payload.qps_limit ?? null,
-        max_in_flight_non_stream: payload.max_in_flight_non_stream ?? null,
-        max_in_flight_stream: payload.max_in_flight_stream ?? null,
-        pricing_template: null,
-        health_status: "unknown",
-        health_detail: null,
-        last_health_check: null,
-        created_at: timestamp,
-        updated_at: timestamp,
-      };
+      const connection = applyConnectionPayload(
+        createConnection({
+          id: 101,
+          modelConfigId: model.id,
+          endpoint,
+          name: payload.name ?? endpoint.name,
+          openaiProbeEndpointVariant: payload.openai_probe_endpoint_variant ?? null,
+          contextWindowTokens: model.context_window_tokens,
+          defaultOutputTokenReserve: model.default_output_token_reserve,
+          maxContextUtilization: model.max_context_utilization,
+        }),
+        payload,
+        model,
+      );
       accessTargets = [
         ...accessTargets,
         {
@@ -287,15 +393,16 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
     }
 
     if (pathname === `/api/models/${model.id}/connections/301` && method === "PATCH") {
-      const payload = request.postDataJSON();
+      const payload = request.postDataJSON() as ConnectionMutationPayload;
       savePayloads.push(payload);
-      const updatedConnection = {
-        ...(accessTargets[0]?.connection ?? {}),
-        ...payload,
-        model_config_id: model.id,
-      };
+      const currentConnection = accessTargets[0]?.connection;
+      const updatedConnection = currentConnection
+        ? applyConnectionPayload(currentConnection, payload, model)
+        : currentConnection;
       accessTargets = accessTargets.map((target) =>
-        target.connection_id === 301 ? { ...target, connection: updatedConnection } : target,
+        target.connection_id === 301 && updatedConnection
+          ? { ...target, connection: updatedConnection }
+          : target,
       );
       return fulfillJson(updatedConnection);
     }
@@ -359,10 +466,16 @@ test("non-OpenAI connection dialog hides the probe section", async ({ page }) =>
 });
 
 test("editing an OpenAI connection hydrates the saved probe settings into both selectors", async ({ page }) => {
-  const endpoint = {
+  const endpoint: Endpoint = {
     id: 11,
+    profile_id: 1,
     name: "OpenAI Primary",
     base_url: "https://api.openai.com/v1",
+    has_api_key: true,
+    masked_api_key: "••••demo",
+    position: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
   };
   const model = createModelResponse({
     id: 3,
@@ -387,4 +500,109 @@ test("editing an OpenAI connection hydrates the saved probe settings into both s
   await expect(page.getByTestId("connection-dialog-probe-section")).toBeVisible();
   await expect(page.locator("#conn-probe-api")).toContainText("Chat Completions API");
   await expect(page.locator("#conn-probe-reasoning-mode")).toContainText("Disable reasoning");
+});
+
+test("context-capability-authoring: connection dialog submits mixed inherit and override payloads", async ({ page }) => {
+  const model = createModelResponse({
+    id: 4,
+    apiFamily: "openai",
+    modelId: "gpt-4.1-context-create",
+    displayName: "GPT 4.1 Context Create",
+    contextWindowTokens: null,
+    defaultOutputTokenReserve: 4096,
+    maxContextUtilization: 0.9,
+  });
+  const { savePayloads } = await stubModelDetailRoutes(page, model);
+
+  await page.goto("/models/4");
+  await page.getByRole("button", { name: "New terminal target" }).first().click();
+
+  const contextWindowField = page.getByTestId("conn-context-window-tokens-field");
+  await expect(contextWindowField).toContainText("Inherited from model: Not set");
+  await page.locator("#conn-selected-endpoint").click();
+  await page.getByRole("option", { name: /OpenAI Primary/ }).click();
+
+  await contextWindowField.getByRole("button", { name: "Override" }).click();
+  await page.locator("#conn-context-window-tokens").fill("32768");
+  await contextWindowField.getByRole("button", { name: "Reset to model default" }).click();
+  await expect(contextWindowField).toContainText("Inherited from model: Not set");
+
+  const reserveField = page.getByTestId("conn-default-output-token-reserve-field");
+  await reserveField.getByRole("button", { name: "Override" }).click();
+  await page.locator("#conn-default-output-token-reserve").fill("8192");
+
+  const utilizationField = page.getByTestId("conn-max-context-utilization-field");
+  await utilizationField.getByRole("button", { name: "Override" }).click();
+  await page.locator("#conn-max-context-utilization").fill("0.75");
+
+  await page.getByRole("button", { name: "Save Connection" }).click();
+  await expect.poll(() => savePayloads.length).toBe(1);
+  expect(savePayloads[0]).toMatchObject({
+    context_window_tokens: null,
+    default_output_token_reserve: 8192,
+    max_context_utilization: 0.75,
+  });
+});
+
+test("context-capability-authoring: connection dialog reopens same-as-owner explicit overrides in override mode", async ({ page }) => {
+  const endpoint: Endpoint = {
+    id: 11,
+    profile_id: 1,
+    name: "OpenAI Primary",
+    base_url: "https://api.openai.com/v1",
+    has_api_key: true,
+    masked_api_key: "••••demo",
+    position: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  const model = createModelResponse({
+    id: 5,
+    apiFamily: "openai",
+    modelId: "gpt-4.1-context-edit",
+    displayName: "GPT 4.1 Context Edit",
+    contextWindowTokens: 16384,
+    defaultOutputTokenReserve: 4096,
+    maxContextUtilization: 0.9,
+    connections: [
+      createConnection({
+        id: 301,
+        modelConfigId: 5,
+        endpoint,
+        name: "Saved Connection",
+        openaiProbeEndpointVariant: "responses_minimal",
+        contextWindowTokens: 16384,
+        defaultOutputTokenReserve: 4096,
+        maxContextUtilization: 0.9,
+        contextCapabilityOverrides: {
+          context_window_tokens: 16384,
+          default_output_token_reserve: null,
+          max_context_utilization: 0.9,
+        },
+      }),
+    ],
+  });
+  const { savePayloads } = await stubModelDetailRoutes(page, model);
+
+  await page.goto("/models/5");
+  await page.getByRole("button", { name: "Edit Saved Connection" }).first().click();
+
+  await expect(page.locator("#conn-context-window-tokens")).toHaveValue("16384");
+  await expect(page.locator("#conn-max-context-utilization")).toHaveValue("0.9");
+  await expect(page.getByTestId("conn-context-window-tokens-field")).not.toContainText("Inherited from model: 16384");
+  await expect(page.getByTestId("conn-context-window-tokens-field")).toContainText("Reset to model default");
+
+  await page.locator("#conn-name").fill("Saved Connection Renamed");
+  await page.getByRole("button", { name: "Save Connection" }).click();
+  await expect.poll(() => savePayloads.length).toBe(1);
+  expect(savePayloads[0]).toMatchObject({
+    context_window_tokens: 16384,
+    default_output_token_reserve: null,
+    max_context_utilization: 0.9,
+  });
+
+  await page.getByRole("button", { name: "Edit Saved Connection Renamed" }).first().click();
+  await expect(page.locator("#conn-context-window-tokens")).toHaveValue("16384");
+  await expect(page.locator("#conn-max-context-utilization")).toHaveValue("0.9");
+  await expect(page.getByTestId("conn-context-window-tokens-field")).toContainText("Reset to model default");
 });

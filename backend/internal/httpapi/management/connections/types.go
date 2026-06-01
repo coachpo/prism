@@ -210,32 +210,42 @@ type connectionPricingTemplateSummary struct {
 	Version             int    `json:"version"`
 }
 
+type contextCapabilityOverridesResponse struct {
+	ContextWindowTokens       *int     `json:"context_window_tokens"`
+	DefaultOutputTokenReserve *int     `json:"default_output_token_reserve"`
+	MaxContextUtilization     *float64 `json:"max_context_utilization"`
+}
+
 type connectionResponse struct {
-	ID                         int                               `json:"id"`
-	ProfileID                  int                               `json:"profile_id"`
-	ModelConfigID              *int                              `json:"model_config_id,omitempty"`
-	APIFamily                  string                            `json:"api_family"`
-	EndpointID                 int                               `json:"endpoint_id"`
-	Endpoint                   *endpointResponse                 `json:"endpoint"`
-	ContextWindowTokens        *int                              `json:"context_window_tokens"`
-	DefaultOutputTokenReserve  int                               `json:"default_output_token_reserve"`
-	MaxContextUtilization      float64                           `json:"max_context_utilization"`
-	IsActive                   bool                              `json:"is_active"`
-	Priority                   int                               `json:"priority"`
-	Name                       *string                           `json:"name"`
-	AuthType                   *string                           `json:"auth_type"`
-	CustomHeaders              map[string]string                 `json:"custom_headers"`
-	OpenAIProbeEndpointVariant *string                           `json:"openai_probe_endpoint_variant"`
-	PricingTemplateID          *int                              `json:"pricing_template_id"`
-	QPSLimit                   *int                              `json:"qps_limit"`
-	MaxInFlightNonStream       *int                              `json:"max_in_flight_non_stream"`
-	MaxInFlightStream          *int                              `json:"max_in_flight_stream"`
-	PricingTemplate            *connectionPricingTemplateSummary `json:"pricing_template"`
-	HealthStatus               string                            `json:"health_status"`
-	HealthDetail               *string                           `json:"health_detail"`
-	LastHealthCheck            *time.Time                        `json:"last_health_check"`
-	CreatedAt                  time.Time                         `json:"created_at"`
-	UpdatedAt                  time.Time                         `json:"updated_at"`
+	ID                                  int                                 `json:"id"`
+	ProfileID                           int                                 `json:"profile_id"`
+	ModelConfigID                       *int                                `json:"model_config_id,omitempty"`
+	APIFamily                           string                              `json:"api_family"`
+	EndpointID                          int                                 `json:"endpoint_id"`
+	Endpoint                            *endpointResponse                   `json:"endpoint"`
+	ContextWindowTokens                 *int                                `json:"context_window_tokens"`
+	ContextWindowTokensOverridden       bool                                `json:"-"`
+	DefaultOutputTokenReserve           int                                 `json:"default_output_token_reserve"`
+	DefaultOutputTokenReserveOverridden bool                                `json:"-"`
+	MaxContextUtilization               float64                             `json:"max_context_utilization"`
+	MaxContextUtilizationOverridden     bool                                `json:"-"`
+	ContextCapabilityOverrides          *contextCapabilityOverridesResponse `json:"context_capability_overrides,omitempty"`
+	IsActive                            bool                                `json:"is_active"`
+	Priority                            int                                 `json:"priority"`
+	Name                                *string                             `json:"name"`
+	AuthType                            *string                             `json:"auth_type"`
+	CustomHeaders                       map[string]string                   `json:"custom_headers"`
+	OpenAIProbeEndpointVariant          *string                             `json:"openai_probe_endpoint_variant"`
+	PricingTemplateID                   *int                                `json:"pricing_template_id"`
+	QPSLimit                            *int                                `json:"qps_limit"`
+	MaxInFlightNonStream                *int                                `json:"max_in_flight_non_stream"`
+	MaxInFlightStream                   *int                                `json:"max_in_flight_stream"`
+	PricingTemplate                     *connectionPricingTemplateSummary   `json:"pricing_template"`
+	HealthStatus                        string                              `json:"health_status"`
+	HealthDetail                        *string                             `json:"health_detail"`
+	LastHealthCheck                     *time.Time                          `json:"last_health_check"`
+	CreatedAt                           time.Time                           `json:"created_at"`
+	UpdatedAt                           time.Time                           `json:"updated_at"`
 }
 
 type connectionReferenceResponse struct {

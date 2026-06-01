@@ -245,6 +245,9 @@ func assertContextCapabilityColumnContracts(t *testing.T, ctx context.Context, c
 		assertContextCapabilityColumn(t, ctx, conn, tableName, "default_output_token_reserve", "integer", "NO", "4096")
 		assertContextCapabilityColumn(t, ctx, conn, tableName, "max_context_utilization", "double precision", "NO", "0.9")
 	}
+	assertContextCapabilityColumn(t, ctx, conn, "connections", "context_window_tokens_overridden", "boolean", "NO", "false")
+	assertContextCapabilityColumn(t, ctx, conn, "connections", "default_output_token_reserve_overridden", "boolean", "NO", "false")
+	assertContextCapabilityColumn(t, ctx, conn, "connections", "max_context_utilization_overridden", "boolean", "NO", "false")
 }
 
 func assertContextCapabilityColumn(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string, dataType string, isNullable string, defaultContains string) {

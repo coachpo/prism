@@ -111,7 +111,19 @@ export type OpenAIProbeEndpointVariant =
   | "chat_completions_minimal"
   | "chat_completions_reasoning_none";
 
-export interface Connection {
+export interface ContextCapabilityFields {
+  context_window_tokens: number | null;
+  default_output_token_reserve: number;
+  max_context_utilization: number;
+}
+
+export interface ContextCapabilityOverrides {
+  context_window_tokens: number | null;
+  default_output_token_reserve: number | null;
+  max_context_utilization: number | null;
+}
+
+export interface Connection extends ContextCapabilityFields {
   id: number;
   profile_id: number;
   model_config_id?: number | null;
@@ -124,6 +136,7 @@ export interface Connection {
   auth_type: string | null;
   custom_headers: Record<string, string> | null;
   openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | null;
+  context_capability_overrides?: ContextCapabilityOverrides;
   pricing_template_id: number | null;
   qps_limit: number | null;
   max_in_flight_non_stream: number | null;
@@ -147,6 +160,9 @@ export interface ConnectionCreate {
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
   openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
+  context_window_tokens?: number | null;
+  default_output_token_reserve?: number | null;
+  max_context_utilization?: number | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;
@@ -162,6 +178,9 @@ export interface ConnectionUpdate {
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
   openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
+  context_window_tokens?: number | null;
+  default_output_token_reserve?: number | null;
+  max_context_utilization?: number | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;

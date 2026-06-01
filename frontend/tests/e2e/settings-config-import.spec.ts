@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const fixedTimestamp = "2026-04-28T12:00:00Z";
+const liveAuthoringCapabilityDefaults = {
+  context_window_tokens: null,
+  default_output_token_reserve: 4_096,
+  max_context_utilization: 0.9,
+};
 
 type ProfileImportBundle = ReturnType<typeof buildProfileImportBundle>;
 
@@ -78,6 +83,7 @@ function createModelListItem() {
     display_name: "GPT-4o mini",
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
+    ...liveAuthoringCapabilityDefaults,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -116,6 +122,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
           ref: "alpha-connection",
           endpoint_name: "Alpha endpoint",
           api_family: "openai" as const,
+          ...liveAuthoringCapabilityDefaults,
           pricing_template_name: null,
           is_active: true,
           name: "Alpha connection",
@@ -149,6 +156,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
           model_id: "alpha-model",
           display_name: "Alpha model",
           loadbalance_strategy_name: "Alpha legacy routing",
+          ...liveAuthoringCapabilityDefaults,
           is_enabled: true,
           access_targets: [
             { position: 0, is_enabled: true, target_type: "connection" as const, connection_ref: "alpha-connection" },
@@ -216,6 +224,9 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
         ref: "beta-connection-a",
         endpoint_name: "Beta endpoint A",
         api_family: "anthropic" as const,
+        context_window_tokens: 200_000,
+        default_output_token_reserve: 8_192,
+        max_context_utilization: 0.92,
         pricing_template_name: null,
         is_active: true,
         name: "Beta connection A",
@@ -230,6 +241,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
         ref: "beta-connection-b",
         endpoint_name: "Beta endpoint B",
         api_family: "anthropic" as const,
+        ...liveAuthoringCapabilityDefaults,
         pricing_template_name: null,
         is_active: true,
         name: "Beta connection B",
@@ -263,6 +275,9 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
         model_id: "beta-model",
         display_name: "Beta model",
         loadbalance_strategy_name: "Beta legacy routing",
+        context_window_tokens: 262_144,
+        default_output_token_reserve: 12_288,
+        max_context_utilization: 0.95,
         is_enabled: true,
         access_targets: [
           { position: 0, is_enabled: true, target_type: "connection" as const, connection_ref: "beta-connection-a" },
@@ -480,7 +495,7 @@ async function mockSettingsRoutes(page: Page, options: MockSettingsRoutesOptions
   };
 }
 
-test("profile import requires an explicit preview before apply", async ({ page }) => {
+test("context-capability-authoring: config import requires an explicit preview before apply", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
   const importBundle = buildProfileImportBundle("alpha");
 
@@ -529,7 +544,7 @@ test("profile import requires an explicit preview before apply", async ({ page }
   expect(routes.getAppliedProfileHeaders()).toEqual(["1"]);
 });
 
-test("profile import keeps apply disabled and surfaces the first blocking preview error", async ({ page }) => {
+test("context-capability-authoring: config import keeps apply disabled and surfaces the first blocking preview error", async ({ page }) => {
   const routes = await mockSettingsRoutes(page, {
     previewResponseFactory: (bundle, previewToken) => ({
       ...buildPreviewResponse(bundle, previewToken),
@@ -565,7 +580,7 @@ test("profile import keeps apply disabled and surfaces the first blocking previe
   expect(routes.getAppliedPreviewTokens()).toEqual([]);
 });
 
-test("profile import invalidates a stale preview when the bundle changes", async ({ page }) => {
+test("context-capability-authoring: config import invalidates a stale preview when the bundle changes", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
   const firstBundle = buildProfileImportBundle("alpha");
   const secondBundle = buildProfileImportBundle("beta");
@@ -618,7 +633,7 @@ test("profile import invalidates a stale preview when the bundle changes", async
   expect(routes.getAppliedProfileHeaders()).toEqual(["1"]);
 });
 
-test("profile import invalidates a stale preview when the selected profile changes", async ({ page }) => {
+test("context-capability-authoring: config import invalidates a stale preview when the selected profile changes", async ({ page }) => {
   const routes = await mockSettingsRoutes(page, {
     profiles: [createProfile(), createSecondaryProfile()],
   });

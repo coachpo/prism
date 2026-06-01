@@ -56,6 +56,9 @@ function createModelListItem(
     display_name: displayName,
     loadbalance_strategy_id: 11,
     loadbalance_strategy: createStrategy(),
+    context_window_tokens: null,
+    default_output_token_reserve: 4096,
+    max_context_utilization: 0.9,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -134,6 +137,9 @@ async function mockModelRoutes(
         display_name: payload.display_name,
         loadbalance_strategy_id: payload.loadbalance_strategy_id ?? null,
         loadbalance_strategy: createStrategy(),
+        context_window_tokens: payload.context_window_tokens ?? null,
+        default_output_token_reserve: payload.default_output_token_reserve ?? 4096,
+        max_context_utilization: payload.max_context_utilization ?? 0.9,
         access_targets: payload.access_targets ?? [],
         is_enabled: payload.is_enabled ?? true,
         connections: [],
@@ -200,6 +206,9 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
       access_targets: [],
       loadbalance_strategy_id: 11,
       is_enabled: false,
+      context_window_tokens: null,
+      default_output_token_reserve: 4096,
+      max_context_utilization: 0.9,
     },
   ]);
 
@@ -267,6 +276,10 @@ test("main model dialog keeps connection option absent while authoring ordered m
       access_targets: [{ target_type: "model", target_model_id: "claude-sonnet", position: 0, is_enabled: true }],
       loadbalance_strategy_id: 11,
       is_enabled: true,
+      context_window_tokens: null,
+      default_output_token_reserve: 4096,
+      max_context_utilization: 0.9,
     },
   ]);
 });
+

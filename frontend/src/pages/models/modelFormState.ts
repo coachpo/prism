@@ -19,6 +19,9 @@ export interface ModelFormData {
   model_id: string;
   display_name: string;
   loadbalance_strategy_id: number | null;
+  context_window_tokens: string;
+  default_output_token_reserve: string;
+  max_context_utilization: string;
   access_targets: ModelAccessTargetMutation[];
   is_enabled: boolean;
   last_auto_display_name?: string | null;
@@ -26,10 +29,17 @@ export interface ModelFormData {
 
 export type ModelFormValidationError =
   | "api_family_required"
+  | "model_id_required"
   | "loadbalance_strategy_required"
-  | "access_target_required";
+  | "access_target_required"
+  | "context_window_tokens_invalid"
+  | "default_output_token_reserve_invalid"
+  | "max_context_utilization_invalid";
 
 const DEFAULT_API_FAMILY: ApiFamily = "openai";
+const DEFAULT_CONTEXT_WINDOW_TOKENS = "";
+const DEFAULT_OUTPUT_TOKEN_RESERVE = "4096";
+const DEFAULT_MAX_CONTEXT_UTILIZATION = "0.90";
 
 export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   vendor_id: null,
@@ -37,6 +47,9 @@ export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   model_id: "",
   display_name: "",
   loadbalance_strategy_id: null,
+  context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
+  default_output_token_reserve: DEFAULT_OUTPUT_TOKEN_RESERVE,
+  max_context_utilization: DEFAULT_MAX_CONTEXT_UTILIZATION,
   access_targets: [],
   is_enabled: false,
   last_auto_display_name: "",
@@ -57,6 +70,31 @@ function resolveModelVendorId(
 function shouldAutoSyncDisplayName(formData: ModelFormData): boolean {
   const displayName = formData.display_name ?? "";
   return displayName.trim() === "" || displayName === (formData.last_auto_display_name ?? "");
+}
+
+function stringifyCapabilityValue(value: number | null): string {
+  return value === null ? "" : String(value);
+}
+
+function parsePositiveIntegerField(value: string): number | null {
+  if (value.trim() === "") {
+    return null;
+  }
+  const parsedValue = Number(value);
+  return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
+}
+
+function parseRequiredPositiveIntegerField(value: string): number | null {
+  const parsedValue = parsePositiveIntegerField(value);
+  return parsedValue === null ? null : parsedValue;
+}
+
+function parseRequiredUtilizationField(value: string): number | null {
+  if (value.trim() === "") {
+    return null;
+  }
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) && parsedValue > 0 && parsedValue <= 1 ? parsedValue : null;
 }
 
 export function accessTargetKey(target: Pick<ModelAccessTargetMutation, "target_type" | "target_model_id" | "connection_id">): string | null {
@@ -169,10 +207,35 @@ export function setAccessTargetEnabled(
   );
 }
 
-type EditableModelFormSource = Pick<
-  ModelConfig,
-  "vendor_id" | "api_family" | "model_id" | "display_name" | "loadbalance_strategy_id" | "access_targets" | "is_enabled"
->;
+type EditableModelFormSource =
+  | Pick<
+      ModelConfig,
+      |
+        "vendor_id"
+        | "api_family"
+        | "model_id"
+        | "display_name"
+        | "loadbalance_strategy_id"
+        | "context_window_tokens"
+        | "default_output_token_reserve"
+        | "max_context_utilization"
+        | "access_targets"
+        | "is_enabled"
+    >
+  | Pick<
+      ModelConfigListItem,
+      |
+        "vendor_id"
+        | "api_family"
+        | "model_id"
+        | "display_name"
+        | "loadbalance_strategy_id"
+        | "context_window_tokens"
+        | "default_output_token_reserve"
+        | "max_context_utilization"
+        | "access_targets"
+        | "is_enabled"
+    >;
 
 export function getModelConnections(
   model: Pick<ModelConfig, "access_targets"> | Pick<ModelConfigListItem, "access_targets">,
@@ -192,6 +255,9 @@ export function createEditModelFormData(model: EditableModelFormSource): ModelFo
     model_id: model.model_id,
     display_name: displayName,
     loadbalance_strategy_id: model.loadbalance_strategy_id,
+    context_window_tokens: stringifyCapabilityValue(model.context_window_tokens),
+    default_output_token_reserve: stringifyCapabilityValue(model.default_output_token_reserve),
+    max_context_utilization: stringifyCapabilityValue(model.max_context_utilization),
     access_targets: normalizeAccessTargetMutations(
       model.access_targets.map(accessTargetToMutation).filter((target): target is ModelAccessTargetMutation => target !== null),
     ),
@@ -202,8 +268,17 @@ export function createEditModelFormData(model: EditableModelFormSource): ModelFo
 
 export function createNewModelFormData(_vendors: Vendor[], loadbalanceStrategyId: number | null): ModelFormData {
   return {
-    ...DEFAULT_MODEL_FORM_DATA,
+    vendor_id: DEFAULT_MODEL_FORM_DATA.vendor_id,
+    api_family: DEFAULT_MODEL_FORM_DATA.api_family,
+    model_id: DEFAULT_MODEL_FORM_DATA.model_id,
+    display_name: DEFAULT_MODEL_FORM_DATA.display_name,
     loadbalance_strategy_id: loadbalanceStrategyId,
+    context_window_tokens: DEFAULT_MODEL_FORM_DATA.context_window_tokens,
+    default_output_token_reserve: DEFAULT_MODEL_FORM_DATA.default_output_token_reserve,
+    max_context_utilization: DEFAULT_MODEL_FORM_DATA.max_context_utilization,
+    access_targets: [...DEFAULT_MODEL_FORM_DATA.access_targets],
+    is_enabled: DEFAULT_MODEL_FORM_DATA.is_enabled,
+    last_auto_display_name: DEFAULT_MODEL_FORM_DATA.last_auto_display_name,
   };
 }
 
@@ -220,8 +295,20 @@ export function validateModelFormData(
   if (!formData.api_family) {
     return "api_family_required";
   }
+  if (formData.model_id.trim() === "") {
+    return "model_id_required";
+  }
   if (formData.loadbalance_strategy_id === null) {
     return "loadbalance_strategy_required";
+  }
+  if (formData.context_window_tokens.trim() !== "" && parsePositiveIntegerField(formData.context_window_tokens) === null) {
+    return "context_window_tokens_invalid";
+  }
+  if (parseRequiredPositiveIntegerField(formData.default_output_token_reserve) === null) {
+    return "default_output_token_reserve_invalid";
+  }
+  if (parseRequiredUtilizationField(formData.max_context_utilization) === null) {
+    return "max_context_utilization_invalid";
   }
   const normalizedTargets = normalizeAccessTargetMutations(formData.access_targets);
   const enabledTargets = normalizedTargets.filter((target) => target.is_enabled !== false);
@@ -263,6 +350,28 @@ function getNormalizedRoutingState(formData: ModelFormData) {
   };
 }
 
+function getNormalizedCapabilityState(formData: ModelFormData) {
+  const contextWindowTokens = parsePositiveIntegerField(formData.context_window_tokens);
+  const defaultOutputTokenReserve = parseRequiredPositiveIntegerField(formData.default_output_token_reserve);
+  const maxContextUtilization = parseRequiredUtilizationField(formData.max_context_utilization);
+
+  if (formData.context_window_tokens.trim() !== "" && contextWindowTokens === null) {
+    throw new Error("context_window_tokens is invalid");
+  }
+  if (defaultOutputTokenReserve === null) {
+    throw new Error("default_output_token_reserve is invalid");
+  }
+  if (maxContextUtilization === null) {
+    throw new Error("max_context_utilization is invalid");
+  }
+
+  return {
+    context_window_tokens: contextWindowTokens,
+    default_output_token_reserve: defaultOutputTokenReserve,
+    max_context_utilization: maxContextUtilization,
+  };
+}
+
 export function toModelCreatePayload(formData: ModelFormData): ModelConfigCreate {
   const normalizedDisplayName = formData.display_name?.trim() || formData.model_id.trim();
   return {
@@ -272,6 +381,7 @@ export function toModelCreatePayload(formData: ModelFormData): ModelConfigCreate
     display_name: normalizedDisplayName,
     is_enabled: formData.is_enabled,
     ...getNormalizedRoutingState(formData),
+    ...getNormalizedCapabilityState(formData),
   };
 }
 
@@ -283,6 +393,7 @@ export function toModelUpdatePayload(formData: ModelFormData): ModelConfigUpdate
     model_id: formData.model_id,
     is_enabled: formData.is_enabled,
     ...getNormalizedRoutingState(formData),
+    ...getNormalizedCapabilityState(formData),
   };
 }
 
@@ -337,6 +448,9 @@ export function toModelListItem(model: ModelConfig, existing?: ModelConfigListIt
     display_name: model.display_name,
     loadbalance_strategy_id: model.loadbalance_strategy_id,
     loadbalance_strategy: model.loadbalance_strategy,
+    context_window_tokens: model.context_window_tokens,
+    default_output_token_reserve: model.default_output_token_reserve,
+    max_context_utilization: model.max_context_utilization,
     access_targets: model.access_targets,
     is_enabled: model.is_enabled,
     connection_count: connections.length,

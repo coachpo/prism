@@ -376,7 +376,7 @@ async function openRequestLogDetail(
 }
 
 test.describe("request log detail copy regression", () => {
-  test("overview error detail copy button writes the formatted block text", async ({ page, context }) => {
+  test("context-capability-authoring: request-log detail overview error detail copy button writes the formatted block text", async ({ page, context }) => {
     const { drawer, ownerRouteRequests } = await openRequestLogDetail(page, context);
     const overviewCopyButton = drawer.getByRole("button", { name: /^Copy$/ });
     const routingContext = drawer.getByText("Routing context", { exact: true }).locator("xpath=..");
@@ -389,9 +389,17 @@ test.describe("request log detail copy regression", () => {
     await expect(routingContext).toContainText("Context-routing decision");
     await expect(routingContext).toContainText("cheapest_eligible_context");
     await expect(routingContext).toContainText("openai_chat_heuristic_v1");
+    await expect(routingContext).toContainText("Usable context window");
+    await expect(routingContext).toContainText("115,200");
     await expect(routingContext).toContainText("estimated_blended_request_cost_then_access_target_position_then_terminal_target_id");
     await expect(routingContext).toContainText("Selected estimated blended cost");
     await expect(routingContext).toContainText("1,250 micros");
+    await expect(routingContext).toContainText("Estimated input tokens");
+    await expect(routingContext).toContainText("120");
+    await expect(routingContext).toContainText("Reserved output tokens");
+    await expect(routingContext).toContainText("4,096");
+    await expect(routingContext).toContainText("Estimated total context tokens");
+    await expect(routingContext).toContainText("4,216");
     await expect(routingContext).toContainText("Skipped terminal targets");
     await expect(routingContext).toContainText("#502");
     await expect(routingContext).toContainText("Estimated context exceeds usable context window");
@@ -407,7 +415,7 @@ test.describe("request log detail copy regression", () => {
     await expectCopyWithoutDownload(page, () => overviewCopyButton.click(), formattedErrorDetail);
   });
 
-  test("legacy request-log rows do not collapse executed terminal targets into selected targets", async ({ page, context }) => {
+  test("context-capability-authoring: request-log detail legacy rows do not collapse executed terminal targets into selected targets", async ({ page, context }) => {
     const legacyDetail = createRequestLogDetail({
       selected_terminal_target_id: undefined,
       context_routing: null,
@@ -420,7 +428,7 @@ test.describe("request log detail copy regression", () => {
     await expect(routingContext).not.toContainText("#501");
   });
 
-  test("audit payload copy buttons write their corresponding payload blocks", async ({ page, context }) => {
+  test("context-capability-authoring: request-log detail audit payload copy buttons write their corresponding payload blocks", async ({ page, context }) => {
     const { drawer, ownerRouteRequests } = await openRequestLogDetail(page, context);
 
     await drawer.getByRole("tab", { name: "Audit" }).click();

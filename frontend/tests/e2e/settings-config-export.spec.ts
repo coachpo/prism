@@ -1,7 +1,13 @@
-import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { expect, test, type Download, type Page } from "@playwright/test";
 
 const fixedTimestamp = "2026-04-18T12:00:00Z";
 const fixedDate = "2026-04-18";
+const liveAuthoringCapabilityDefaults = {
+  context_window_tokens: null,
+  default_output_token_reserve: 4_096,
+  max_context_utilization: 0.9,
+};
 
 type DownloadCapture = {
   download: string;
@@ -64,6 +70,7 @@ function createModelListItem() {
     display_name: "GPT-4o mini",
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
+    ...liveAuthoringCapabilityDefaults,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -75,12 +82,86 @@ function createModelListItem() {
   };
 }
 
+function createExportVendorRef() {
+  return {
+    key: "openai",
+    name_hint: "OpenAI",
+    description_hint: "Primary vendor",
+    icon_key_hint: "openai",
+  };
+}
+
+function createExportLoadbalanceStrategy(name = "Default export routing") {
+  return {
+    name,
+    legacy_strategy_type: "single" as const,
+    failure_status_codes: [429, 500],
+    ban_mode: "off" as const,
+    retry_base_delay_ms: 1000,
+    retry_backoff_multiplier: 2,
+    retry_jitter_ratio: 0.2,
+    retry_max_delay_ms: 8000,
+    cycle_retry_attempt_limit: 3,
+    ban_cumulative_retry_attempt_threshold: 0,
+    ban_duration_seconds: 0,
+  };
+}
+
+function createExportConnection(overrides = {}) {
+  return {
+    ref: "default-connection",
+    endpoint_name: "Default endpoint",
+    api_family: "openai" as const,
+    ...liveAuthoringCapabilityDefaults,
+    pricing_template_name: null,
+    is_active: true,
+    name: "Default connection",
+    auth_type: "openai" as const,
+    custom_headers: null,
+    openai_probe_endpoint_variant: null,
+    qps_limit: null,
+    max_in_flight_non_stream: null,
+    max_in_flight_stream: null,
+    ...overrides,
+  };
+}
+
+function createExportModel(overrides = {}) {
+  return {
+    vendor_key: "openai",
+    api_family: "openai" as const,
+    model_id: "gpt-4o-mini",
+    display_name: "GPT-4o mini",
+    loadbalance_strategy_name: "Default export routing",
+    ...liveAuthoringCapabilityDefaults,
+    is_enabled: true,
+    access_targets: [
+      {
+        position: 0,
+        is_enabled: true,
+        target_type: "connection" as const,
+        connection_ref: "default-connection",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+async function readDownloadedBundle(download: Download) {
+  const downloadPath = await download.path();
+  if (downloadPath === null) {
+    throw new Error("Expected Playwright to persist the downloaded export bundle");
+  }
+
+  return JSON.parse(await readFile(downloadPath, "utf8"));
+}
+
 function createSafeExportBundle() {
   return {
     version: 3 as const,
     bundle_kind: "profile_config" as const,
     exported_at: `${fixedDate}T12:00:00Z`,
-    vendor_refs: [],
+    vendor_refs: [createExportVendorRef()],
     endpoints: [
       {
         name: "Default endpoint",
@@ -90,9 +171,9 @@ function createSafeExportBundle() {
       },
     ],
     pricing_templates: [],
-    connections: [],
-    loadbalance_strategies: [],
-    models: [],
+    connections: [createExportConnection()],
+    loadbalance_strategies: [createExportLoadbalanceStrategy()],
+    models: [createExportModel()],
     profile_settings: {
       timezone_preference: null,
       report_currency_code: "EUR",
@@ -115,7 +196,7 @@ function createDangerousExportBundle() {
     version: 3 as const,
     bundle_kind: "profile_config" as const,
     exported_at: `${fixedDate}T12:00:00Z`,
-    vendor_refs: [],
+    vendor_refs: [createExportVendorRef()],
     endpoints: [
       {
         name: "Default endpoint",
@@ -125,9 +206,34 @@ function createDangerousExportBundle() {
       },
     ],
     pricing_templates: [],
-    connections: [],
-    loadbalance_strategies: [],
-    models: [],
+    connections: [
+      createExportConnection({
+        ref: "dangerous-connection",
+        context_window_tokens: 200_000,
+        default_output_token_reserve: 8_192,
+        max_context_utilization: 0.92,
+        name: "Dangerous connection",
+      }),
+    ],
+    loadbalance_strategies: [createExportLoadbalanceStrategy("Dangerous export routing")],
+    models: [
+      createExportModel({
+        model_id: "gpt-4.1",
+        display_name: "GPT-4.1",
+        loadbalance_strategy_name: "Dangerous export routing",
+        context_window_tokens: 262_144,
+        default_output_token_reserve: 12_288,
+        max_context_utilization: 0.95,
+        access_targets: [
+          {
+            position: 0,
+            is_enabled: true,
+            target_type: "connection" as const,
+            connection_ref: "dangerous-connection",
+          },
+        ],
+      }),
+    ],
     profile_settings: {
       timezone_preference: null,
       report_currency_code: "EUR",
@@ -261,8 +367,9 @@ async function mockSettingsRoutes(page: Page) {
   };
 }
 
-test("profile safe export uses the redacted route and synthesizes the filename locally", async ({ page }) => {
+test("context-capability-authoring: config export safe export uses the redacted route and synthesizes the filename locally", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
+  const expectedBundle = createSafeExportBundle();
 
   await page.goto("/settings#backup");
   const backupSection = page.locator("section#backup");
@@ -272,10 +379,12 @@ test("profile safe export uses the redacted route and synthesizes the filename l
   await backupSection.getByTestId("profile-export-safe").click();
   const download = await downloadPromise;
   const suggestedFilename = download.suggestedFilename();
+  const downloadedBundle = await readDownloadedBundle(download);
 
   await expect(page.getByText("Configuration exported successfully")).toBeVisible();
   expect(routes.getSafeExportRequestCount()).toBe(1);
   expect(routes.getDangerousExportRequestCount()).toBe(0);
+  expect(downloadedBundle).toEqual(expectedBundle);
 
   const capture = await page.evaluate(
     () => (window as Window & { __downloadCapture?: DownloadCapture }).__downloadCapture ?? null,
@@ -288,8 +397,9 @@ test("profile safe export uses the redacted route and synthesizes the filename l
   expect(capture?.href.startsWith("blob:")).toBe(true);
 });
 
-test("profile dangerous export stays disabled until acknowledged and uses the dangerous route", async ({ page }) => {
+test("context-capability-authoring: config export dangerous export stays disabled until acknowledged and uses the dangerous route", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
+  const expectedBundle = createDangerousExportBundle();
 
   await page.goto("/settings#backup");
   const backupSection = page.locator("section#backup");
@@ -306,11 +416,13 @@ test("profile dangerous export stays disabled until acknowledged and uses the da
   await dangerousButton.click();
   const download = await downloadPromise;
   const suggestedFilename = download.suggestedFilename();
+  const downloadedBundle = await readDownloadedBundle(download);
 
   await expect(page.getByText("Configuration exported successfully")).toBeVisible();
   expect(routes.getSafeExportRequestCount()).toBe(0);
   expect(routes.getDangerousExportRequestCount()).toBe(1);
   expect(routes.getDangerousConfirmHeaders()).toEqual(["profile-export"]);
+  expect(downloadedBundle).toEqual(expectedBundle);
 
   const capture = await page.evaluate(
     () => (window as Window & { __downloadCapture?: DownloadCapture }).__downloadCapture ?? null,

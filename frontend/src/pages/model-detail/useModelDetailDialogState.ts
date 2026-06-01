@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
-import type { ApiFamily, Connection, ConnectionCreate, Endpoint, EndpointCreate } from "@/lib/types";
-import { createDefaultConnectionForm, createDefaultEndpointForm, getSelectedEndpoint } from "./useModelDetailDataSupport";
+import type {
+  ApiFamily,
+  Connection,
+  ConnectionCreate,
+  ContextCapabilityFields,
+  ContextCapabilityOverrides,
+  Endpoint,
+  EndpointCreate,
+} from "@/lib/types";
+import { createDefaultEndpointForm, getSelectedEndpoint } from "./useModelDetailDataSupport";
 import { normalizeOpenAIProbeEndpointVariant } from "./connectionProbeBehavior";
 
 export interface HeaderRow {
@@ -8,6 +16,28 @@ export interface HeaderRow {
   key: string;
   value: string;
 }
+
+export type ConnectionCapabilityFieldName = keyof ContextCapabilityOverrides;
+
+export interface ConnectionCapabilityDraft {
+  mode: "inherit" | "override";
+  value: string;
+}
+
+export interface ConnectionDialogForm
+  extends Omit<ConnectionCreate, ConnectionCapabilityFieldName> {
+  context_capability_drafts: Record<ConnectionCapabilityFieldName, ConnectionCapabilityDraft>;
+}
+
+export type OwnerContextCapabilityDefaults = Pick<ContextCapabilityFields, ConnectionCapabilityFieldName>;
+
+type ConnectionCapabilityInheritedValues = Partial<Record<ConnectionCapabilityFieldName, number | null>>;
+
+const CONNECTION_CAPABILITY_FIELDS: ConnectionCapabilityFieldName[] = [
+  "context_window_tokens",
+  "default_output_token_reserve",
+  "max_context_utilization",
+];
 
 let headerRowIdCounter = 0;
 
@@ -21,12 +51,113 @@ export function createHeaderRow(overrides?: Partial<Pick<HeaderRow, "key" | "val
   };
 }
 
+function stringifyCapabilityDraftValue(value: number | null | undefined): string {
+  return value == null ? "" : String(value);
+}
+
+function createConnectionCapabilityDraft(
+  overrideValue: number | null | undefined,
+  inheritedValue: number | null | undefined,
+): ConnectionCapabilityDraft {
+  if (typeof overrideValue === "number") {
+    return {
+      mode: "override",
+      value: stringifyCapabilityDraftValue(overrideValue),
+    };
+  }
+
+  return {
+    mode: "inherit",
+    value: stringifyCapabilityDraftValue(inheritedValue),
+  };
+}
+
+function createConnectionCapabilityDrafts(
+  overrides?: ContextCapabilityOverrides,
+  inheritedValues?: ConnectionCapabilityInheritedValues,
+): Record<ConnectionCapabilityFieldName, ConnectionCapabilityDraft> {
+  return {
+    context_window_tokens: createConnectionCapabilityDraft(
+      overrides?.context_window_tokens,
+      inheritedValues?.context_window_tokens,
+    ),
+    default_output_token_reserve: createConnectionCapabilityDraft(
+      overrides?.default_output_token_reserve,
+      inheritedValues?.default_output_token_reserve,
+    ),
+    max_context_utilization: createConnectionCapabilityDraft(
+      overrides?.max_context_utilization,
+      inheritedValues?.max_context_utilization,
+    ),
+  };
+}
+
+export function createDefaultConnectionForm(
+  apiFamily: ApiFamily | null = null,
+  ownerCapabilityDefaults?: Partial<OwnerContextCapabilityDefaults>,
+): ConnectionDialogForm {
+  return {
+    api_family: apiFamily ?? "openai",
+    name: "",
+    is_active: true,
+    custom_headers: null,
+    openai_probe_endpoint_variant:
+      apiFamily === "openai" ? normalizeOpenAIProbeEndpointVariant(undefined) : null,
+    pricing_template_id: null,
+    qps_limit: null,
+    max_in_flight_non_stream: null,
+    max_in_flight_stream: null,
+    context_capability_drafts: createConnectionCapabilityDrafts(undefined, ownerCapabilityDefaults),
+  };
+}
+
+export function createEditConnectionForm(
+  connection: Connection,
+  options?: {
+    apiFamily?: ApiFamily | null;
+    ownerCapabilityDefaults?: Partial<OwnerContextCapabilityDefaults>;
+  },
+): ConnectionDialogForm {
+  const inheritedValues = CONNECTION_CAPABILITY_FIELDS.reduce<ConnectionCapabilityInheritedValues>(
+    (drafts, field) => {
+      drafts[field] = options?.ownerCapabilityDefaults?.[field] ?? connection[field];
+      return drafts;
+    },
+    {},
+  );
+
+  return {
+    api_family: options?.apiFamily ?? connection.api_family,
+    endpoint_id: connection.endpoint_id,
+    name: connection.name ?? "",
+    is_active: connection.is_active,
+    custom_headers: connection.custom_headers,
+    openai_probe_endpoint_variant:
+      options?.apiFamily === "openai"
+        ? normalizeOpenAIProbeEndpointVariant(connection.openai_probe_endpoint_variant)
+        : null,
+    pricing_template_id: connection.pricing_template_id,
+    qps_limit: connection.qps_limit,
+    max_in_flight_non_stream: connection.max_in_flight_non_stream,
+    max_in_flight_stream: connection.max_in_flight_stream,
+    context_capability_drafts: createConnectionCapabilityDrafts(
+      connection.context_capability_overrides,
+      inheritedValues,
+    ),
+  };
+}
+
 interface UseModelDetailDialogStateInput {
   apiFamily: ApiFamily | null;
   globalEndpoints: Endpoint[];
+  ownerCapabilityDefaults?: Partial<OwnerContextCapabilityDefaults>;
 }
 
-export function useModelDetailDialogState({ apiFamily, globalEndpoints }: UseModelDetailDialogStateInput) {
+export function useModelDetailDialogState({
+  apiFamily,
+  globalEndpoints,
+  ownerCapabilityDefaults,
+}: UseModelDetailDialogStateInput) {
   const [isEditModelDialogOpen, setIsEditModelDialogOpen] = useState(false);
   const [editRedirectTo, setEditRedirectTo] = useState("");
 
@@ -43,14 +174,14 @@ export function useModelDetailDialogState({ apiFamily, globalEndpoints }: UseMod
   const [newEndpointForm, setNewEndpointForm] = useState<EndpointCreate>(() => ({
     ...createDefaultEndpointForm(),
   }));
-  const [connectionForm, setConnectionForm] = useState<ConnectionCreate>(() => ({
-    ...createDefaultConnectionForm(apiFamily),
+  const [connectionFormState, setConnectionFormState] = useState<ConnectionDialogForm>(() => ({
+    ...createDefaultConnectionForm(apiFamily, ownerCapabilityDefaults),
   }));
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
 
   const selectedEndpoint = useMemo(
     () => getSelectedEndpoint(globalEndpoints, selectedEndpointId),
-    [globalEndpoints, selectedEndpointId]
+    [globalEndpoints, selectedEndpointId],
   );
 
   const endpointSourceDefaultName = useMemo(() => {
@@ -63,6 +194,17 @@ export function useModelDetailDialogState({ apiFamily, globalEndpoints }: UseMod
     return inlineEndpointName.length > 0 ? inlineEndpointName : null;
   }, [createMode, newEndpointForm.name, selectedEndpoint]);
 
+  const setConnectionForm = (nextForm: ConnectionCreate | ConnectionDialogForm) => {
+    setConnectionFormState((currentForm) => ({
+      ...currentForm,
+      ...nextForm,
+      context_capability_drafts:
+        "context_capability_drafts" in nextForm && nextForm.context_capability_drafts
+          ? nextForm.context_capability_drafts
+          : currentForm.context_capability_drafts,
+    }));
+  };
+
   const openConnectionDialog = (connection?: Connection) => {
     if (connection) {
       setEditingConnection(connection);
@@ -70,28 +212,19 @@ export function useModelDetailDialogState({ apiFamily, globalEndpoints }: UseMod
         ? Object.entries(connection.custom_headers).map(([key, value]) => createHeaderRow({ key, value }))
         : [];
       setHeaderRows(headers);
-      setConnectionForm({
-        api_family: apiFamily ?? connection.api_family,
-        endpoint_id: connection.endpoint_id,
-        name: connection.name ?? "",
-        is_active: connection.is_active,
-        custom_headers: connection.custom_headers,
-        openai_probe_endpoint_variant:
-          apiFamily === "openai"
-            ? normalizeOpenAIProbeEndpointVariant(connection.openai_probe_endpoint_variant)
-            : null,
-        pricing_template_id: connection.pricing_template_id,
-        qps_limit: connection.qps_limit,
-        max_in_flight_non_stream: connection.max_in_flight_non_stream,
-        max_in_flight_stream: connection.max_in_flight_stream,
-      });
+      setConnectionFormState(
+        createEditConnectionForm(connection, {
+          apiFamily: apiFamily ?? connection.api_family,
+          ownerCapabilityDefaults,
+        }),
+      );
       setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
       setSelectedEndpointId(String(connection.endpoint_id));
     } else {
       setEditingConnection(null);
       setHeaderRows([]);
-      setConnectionForm({ ...createDefaultConnectionForm(apiFamily) });
+      setConnectionFormState({ ...createDefaultConnectionForm(apiFamily, ownerCapabilityDefaults) });
       setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
       setSelectedEndpointId("");
@@ -119,7 +252,7 @@ export function useModelDetailDialogState({ apiFamily, globalEndpoints }: UseMod
     setSelectedEndpointId,
     newEndpointForm,
     setNewEndpointForm,
-    connectionForm,
+    connectionForm: connectionFormState,
     setConnectionForm,
     headerRows,
     setHeaderRows,

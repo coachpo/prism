@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { ApiFamilySelect } from "@/components/ApiFamilySelect";
 import { SwitchController } from "@/components/SwitchController";
 import { VendorSelect } from "@/components/VendorSelect";
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
 import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolicy";
+import { cn } from "@/lib/utils";
 import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem, Vendor } from "@/lib/types";
 import { AccessTargetsEditor } from "../models/AccessTargetsEditor";
 import {
@@ -47,6 +48,28 @@ interface ModelSettingsDialogProps {
   vendors: Vendor[];
 }
 
+type CapabilityFieldProps = {
+  children: ReactNode;
+  description?: string;
+  error?: string | null;
+  id: string;
+  label: string;
+};
+
+function CapabilityField({ children, description, error, id, label }: CapabilityFieldProps) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      {children}
+      {description ? (
+        <p className={cn("text-xs", error ? "text-destructive" : "text-muted-foreground")}>
+          {error ?? description}
+        </p>
+      ) : error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
 export function ModelSettingsDialog({
   formData,
   handleEditModelSubmit,
@@ -62,6 +85,8 @@ export function ModelSettingsDialog({
 }: ModelSettingsDialogProps) {
   const { messages } = useLocale();
   const copy = messages.modelDetail;
+  const modelsUiCopy = messages.modelsUi;
+  const modelsDataCopy = messages.modelsData;
   const strategyCopy = messages.loadbalanceStrategyCopy;
   const fieldCopy = messages.common;
 
@@ -76,6 +101,19 @@ export function ModelSettingsDialog({
   const selectedLoadbalanceStrategy = loadbalanceStrategies.find(
     (strategy) => strategy.id === formData.loadbalance_strategy_id,
   );
+  const contextWindowTokensError = targetEditorError === modelsDataCopy.contextWindowTokensInvalid
+    ? targetEditorError
+    : null;
+  const defaultOutputTokenReserveError = targetEditorError === modelsDataCopy.defaultOutputTokenReserveInvalid
+    ? targetEditorError
+    : null;
+  const maxContextUtilizationError = targetEditorError === modelsDataCopy.maxContextUtilizationInvalid
+    ? targetEditorError
+    : null;
+  const hasCapabilityValidationError = Boolean(
+    contextWindowTokensError || defaultOutputTokenReserveError || maxContextUtilizationError,
+  );
+  const accessTargetsError = hasCapabilityValidationError ? null : targetEditorError;
 
   if (!model) {
     return null;
@@ -89,7 +127,7 @@ export function ModelSettingsDialog({
           <DialogDescription>{copy.modelSettingsDescription}</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleEditModelSubmit} className="flex min-h-0 flex-1 flex-col">
+        <form onSubmit={handleEditModelSubmit} className="flex min-h-0 flex-1 flex-col" noValidate>
           <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
           <DialogBody className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7" data-testid="model-settings-scroll-body">
             <section
@@ -158,6 +196,70 @@ export function ModelSettingsDialog({
             </section>
 
             <section
+              className="flex flex-col gap-4 rounded-2xl border bg-muted/15 p-4 sm:p-5"
+              data-testid="model-settings-context-routing-section"
+            >
+              <div className="flex flex-col gap-1">
+                <h2 className="text-sm font-semibold tracking-tight text-foreground">{modelsUiCopy.contextRoutingDefaults}</h2>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <CapabilityField
+                  id="edit-context-window-tokens"
+                  label={modelsUiCopy.contextWindowTokens}
+                  description={modelsUiCopy.contextWindowTokensHelper}
+                  error={contextWindowTokensError}
+                >
+                  <Input
+                    id="edit-context-window-tokens"
+                    name="context_window_tokens"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={formData.context_window_tokens}
+                    onChange={(event) => setFormData((current) => ({ ...current, context_window_tokens: event.target.value }))}
+                    aria-invalid={Boolean(contextWindowTokensError) || undefined}
+                  />
+                </CapabilityField>
+
+                <CapabilityField
+                  id="edit-default-output-token-reserve"
+                  label={modelsUiCopy.defaultOutputTokenReserve}
+                  error={defaultOutputTokenReserveError}
+                >
+                  <Input
+                    id="edit-default-output-token-reserve"
+                    name="default_output_token_reserve"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={formData.default_output_token_reserve}
+                    onChange={(event) => setFormData((current) => ({ ...current, default_output_token_reserve: event.target.value }))}
+                    aria-invalid={Boolean(defaultOutputTokenReserveError) || undefined}
+                  />
+                </CapabilityField>
+
+                <CapabilityField
+                  id="edit-max-context-utilization"
+                  label={modelsUiCopy.maxContextUtilization}
+                  error={maxContextUtilizationError}
+                >
+                  <Input
+                    id="edit-max-context-utilization"
+                    name="max_context_utilization"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={formData.max_context_utilization}
+                    onChange={(event) => setFormData((current) => ({ ...current, max_context_utilization: event.target.value }))}
+                    aria-invalid={Boolean(maxContextUtilizationError) || undefined}
+                  />
+                </CapabilityField>
+              </div>
+            </section>
+
+            <section
               className="flex flex-col gap-4 rounded-2xl border p-4 sm:p-5"
               data-testid="model-settings-routing-section"
             >
@@ -192,7 +294,7 @@ export function ModelSettingsDialog({
                   apiFamilyLabel={formData.api_family}
                   accessTargets={formData.access_targets}
                   modelOptions={targetModelsForApiFamily}
-                  error={targetEditorError}
+                  error={accessTargetsError}
                   onChange={(accessTargets) => setFormData((current) => ({ ...current, access_targets: accessTargets }))}
                 />
 

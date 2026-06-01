@@ -71,6 +71,13 @@ export function useModelDetailData(id: string | undefined) {
   } = useModelDetailDialogState({
     apiFamily: model?.api_family ?? null,
     globalEndpoints,
+    ownerCapabilityDefaults: model
+      ? {
+          context_window_tokens: model.context_window_tokens,
+          default_output_token_reserve: model.default_output_token_reserve,
+          max_context_utilization: model.max_context_utilization,
+        }
+      : undefined,
   });
 
   useModelDetailBootstrap({
