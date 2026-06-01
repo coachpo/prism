@@ -334,7 +334,7 @@ func TestManagementDashboardStatsRouteReturnsAggregateSnapshot(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode dashboard aggregate response: %v", err)
 	}
-	for _, key := range []string{"generated_at", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "recent_requests", "top_spending_models", "routing_health_map"} {
+	for _, key := range []string{"generated_at", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "recent_requests", "top_spending_models", "routing_health_map", "topology_graph"} {
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("expected aggregate dashboard field %q, got %+v", key, payload)
 		}
@@ -347,6 +347,133 @@ func TestManagementDashboardStatsRouteReturnsAggregateSnapshot(t *testing.T) {
 	metricSnapshot := payload["metric_snapshot"].(map[string]any)
 	if metricSnapshot["total_requests"] != float64(1) || metricSnapshot["success_rate"] != float64(100) {
 		t.Fatalf("expected aggregate dashboard metrics from seeded activity, got %+v", metricSnapshot)
+	}
+}
+
+func TestManagementAuditStatsTopologyGraphDistinguishesTerminalRouteAndEndpointBinding(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	databaseName := "stats_dashboard_topology_graph"
+	conn := harness.openDatabase(t, ctx, databaseName)
+	if _, err := runner.Run(ctx, conn); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+	profileID := phase7InsertProfile(t, ctx, conn)
+	now := phase7Now.UTC()
+
+	var entryModelID int
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, 'openai', 'phase7-entry', 'Phase 7 Entry', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&entryModelID); err != nil {
+		t.Fatalf("insert entry model: %v", err)
+	}
+	var terminalModelID int
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, 'openai', 'phase7-terminal', 'Phase 7 Terminal', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&terminalModelID); err != nil {
+		t.Fatalf("insert terminal model: %v", err)
+	}
+	var disabledModelID int
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, 'openai', 'phase7-disabled', 'Phase 7 Disabled', NULL, FALSE, $2, $2) RETURNING id`, profileID, now).Scan(&disabledModelID); err != nil {
+		t.Fatalf("insert disabled model: %v", err)
+	}
+	var endpointID int
+	if err := conn.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, 'Phase 7 Topology Endpoint', 'https://phase7-topology.invalid', 'phase7-key', 0, $2, $2) RETURNING id`, profileID, now).Scan(&endpointID); err != nil {
+		t.Fatalf("insert topology endpoint: %v", err)
+	}
+	var terminalTargetID int
+	if err := conn.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, NULL, FALSE, 0, 'Phase 7 Terminal Target', NULL, NULL, 'unhealthy', 'probe failure', $3, $4, $4) RETURNING id`, profileID, endpointID, now.Add(-5*time.Minute), now).Scan(&terminalTargetID); err != nil {
+		t.Fatalf("insert topology terminal target: %v", err)
+	}
+	var modelToModelEdgeID int
+	if err := conn.QueryRow(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, 1, 0, TRUE, $4, $4) RETURNING id`, profileID, entryModelID, terminalModelID, now).Scan(&modelToModelEdgeID); err != nil {
+		t.Fatalf("insert model-to-model access target: %v", err)
+	}
+	var modelToTerminalEdgeID int
+	if err := conn.QueryRow(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4) RETURNING id`, profileID, terminalModelID, terminalTargetID, now).Scan(&modelToTerminalEdgeID); err != nil {
+		t.Fatalf("insert model-to-terminal access target: %v", err)
+	}
+	firstUsageAt := now.Add(-20 * time.Minute)
+	secondUsageAt := now.Add(-5 * time.Minute)
+	phase7EnsureLogPartition(t, ctx, conn, "usage_request_events", firstUsageAt)
+	phase7EnsureLogPartition(t, ctx, conn, "usage_request_events", secondUsageAt)
+	if _, err := conn.Exec(ctx, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, 'phase7-terminal', 'openai', $4, $5, 200, TRUE, TRUE, TRUE, 3, 5, 8, 750, 'USD', '$', 1, '/v1/chat/completions', $6, 100)`, 2001, profileID, "phase7-topology-1", endpointID, terminalTargetID, firstUsageAt); err != nil {
+		t.Fatalf("insert first topology usage event: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, 'phase7-terminal', 'openai', $4, $5, 503, FALSE, FALSE, FALSE, 2, 1, 3, 0, 'USD', '$', 1, '/v1/chat/completions', $6, 120)`, 2002, profileID, "phase7-topology-2", endpointID, terminalTargetID, secondUsageAt); err != nil {
+		t.Fatalf("insert second topology usage event: %v", err)
+	}
+	if err := conn.Close(ctx); err != nil {
+		t.Fatalf("close topology setup conn: %v", err)
+	}
+
+	pool, err := pgxpool.New(ctx, harness.connectionString(databaseName))
+	if err != nil {
+		t.Fatalf("open topology stats pool: %v", err)
+	}
+	defer pool.Close()
+	service, err := managementstats.NewService(config.Settings{}, managementstats.Options{Pool: pool, Now: func() time.Time { return phase7Now }})
+	if err != nil {
+		t.Fatalf("create topology stats service: %v", err)
+	}
+	defer service.Close()
+	router := chiRouterForStats(service)
+	request := httptest.NewRequest(http.MethodGet, "/stats/dashboard", nil)
+	request.Header.Set("X-Profile-Id", fmt.Sprintf("%d", profileID))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /stats/dashboard topology status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode topology dashboard response: %v", err)
+	}
+	topologyGraph, ok := payload["topology_graph"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected topology_graph payload, got %+v", payload)
+	}
+	topologyStats := topologyGraph["stats"].(map[string]any)
+	if topologyStats["model_count"] != float64(3) || topologyStats["disabled_model_count"] != float64(1) || topologyStats["terminal_target_count"] != float64(1) || topologyStats["inactive_terminal_target_count"] != float64(1) || topologyStats["endpoint_count"] != float64(1) || topologyStats["edge_count"] != float64(3) {
+		t.Fatalf("expected topology stats counts, got %+v", topologyStats)
+	}
+	var terminalNode map[string]any
+	var disabledNode map[string]any
+	for _, raw := range topologyGraph["nodes"].([]any) {
+		node := raw.(map[string]any)
+		if node["id"] == fmt.Sprintf("terminal-target-%d", terminalTargetID) {
+			terminalNode = node
+		}
+		if node["id"] == fmt.Sprintf("model-%d", disabledModelID) {
+			disabledNode = node
+		}
+	}
+	if disabledNode == nil || disabledNode["status"] != "disabled" {
+		t.Fatalf("expected disabled model node in topology graph, got %+v", topologyGraph["nodes"])
+	}
+	if terminalNode == nil || terminalNode["kind"] != "connection" || terminalNode["product_kind"] != "terminal_target" || terminalNode["active"] != false || terminalNode["health_status"] != "unhealthy" || terminalNode["recent_request_count"] != float64(2) || terminalNode["recent_success_rate"] != float64(50) || terminalNode["last_request_at"] == nil {
+		t.Fatalf("expected backend-derived inactive terminal-target telemetry, got %+v", terminalNode)
+	}
+	var modelToModelEdge map[string]any
+	var modelToTerminalEdge map[string]any
+	var bindingEdge map[string]any
+	for _, raw := range topologyGraph["edges"].([]any) {
+		edge := raw.(map[string]any)
+		switch edge["id"] {
+		case fmt.Sprintf("access-target-%d", modelToModelEdgeID):
+			modelToModelEdge = edge
+		case fmt.Sprintf("access-target-%d", modelToTerminalEdgeID):
+			modelToTerminalEdge = edge
+		case fmt.Sprintf("terminal-target-binding-%d", terminalTargetID):
+			bindingEdge = edge
+		}
+	}
+	if modelToModelEdge == nil || modelToModelEdge["kind"] != "model_to_model" || modelToModelEdge["source_node_id"] != fmt.Sprintf("model-%d", entryModelID) || modelToModelEdge["target_node_id"] != fmt.Sprintf("model-%d", terminalModelID) {
+		t.Fatalf("expected distinct model-to-model topology edge, got %+v", modelToModelEdge)
+	}
+	if modelToTerminalEdge == nil || modelToTerminalEdge["kind"] != "model_to_connection" || modelToTerminalEdge["product_kind"] != "model_to_terminal_target" || modelToTerminalEdge["source_node_id"] != fmt.Sprintf("model-%d", terminalModelID) || modelToTerminalEdge["target_node_id"] != fmt.Sprintf("terminal-target-%d", terminalTargetID) {
+		t.Fatalf("expected distinct model-to-terminal-target topology edge, got %+v", modelToTerminalEdge)
+	}
+	if bindingEdge == nil || bindingEdge["kind"] != "connection_to_endpoint" || bindingEdge["product_kind"] != "terminal_target_to_endpoint" || bindingEdge["source_node_id"] != fmt.Sprintf("terminal-target-%d", terminalTargetID) || bindingEdge["target_node_id"] != fmt.Sprintf("endpoint-%d", endpointID) {
+		t.Fatalf("expected terminal-target endpoint binding edge, got %+v", bindingEdge)
 	}
 }
 

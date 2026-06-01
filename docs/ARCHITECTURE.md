@@ -268,7 +268,7 @@ Proxy request completes
   -> Dashboard publisher gathers request_log plus the canonical DashboardSnapshot
   -> Broadcast {type: "dashboard.update", request_log, snapshot} to dashboard subscribers for that profile
   -> REST bootstrap reads the same shape from GET /api/stats/dashboard
-  -> Overview and Routing Health Map state reconcile against that shared snapshot shape
+  -> Overview and backend-owned topology graph state reconcile against that shared snapshot shape
 
 Dashboard analytics tab -> WebSocket connect /api/realtime/ws
   -> Client sends {type: "subscribe", profile_id, channel: "analytics", preset}
@@ -287,11 +287,12 @@ The realtime API has two supported channels. `dashboard.update` is the overview 
 ### 4.1 Routing policy contract
 
 - Models attach one profile-scoped explicit loadbalance strategy.
-- Strategies carry the routing family field `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`).
+- Strategies carry the routing family field `legacy_strategy_type` (`single`, `fill-first`, `round-robin`, or `cheapest_eligible_context`).
+- `cheapest_eligible_context` is labelled in the UI as `Cheapest target that fits context` and keeps the existing strategy shape plus the new policy value.
 - Strategies also carry explicit Ban Policy fields for failure status codes, retry delay, backoff, jitter, retry-window limits, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration.
 - Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.
 - Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; the runtime never derives this threshold from the cycle limit.
-- `ban_mode` accepts `off`, `temporary`, and `until_reset`. The `until_reset` mode keeps a connection banned until the current-state reset endpoint clears it.
+- `ban_mode` accepts `off`, `temporary`, and `until_reset`. The `until_reset` mode keeps a terminal target's current connection row banned until the current-state reset endpoint clears it.
 - The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for that profile.
 - Upstream request timing is controlled by shared backend timeout settings, not by per-strategy timeout documents.
 
@@ -299,22 +300,24 @@ The realtime API has two supported channels. `dashboard.update` is the overview 
 
 1. The operation registry resolves the exact runtime operation and hook collection before the request body is consumed.
 2. Request setup resolves the active-profile model, ordered access targets, attached strategy, and one immutable effective strategy snapshot for the request.
-3. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from admission counters and Ban Policy retry-window state.
-4. The shared execution core claims per-attempt leases and uses shared upstream timeout behavior from the backend runtime before any client-visible bytes are committed.
-5. Operation request, response, stream, and media hooks interpret provider-native payload details by canonical operation name. Token-count hooks are attached to `anthropic.count_tokens` and `gemini.count_tokens`, media hooks are attached to `openai.images.generations` and `openai.images.edits`, and the Gemini SSE hook is attached to `gemini.stream_generate_content`; passive outcomes feed back into connection-global runtime state while durable transition history persists model-policy snapshots and exposes them on event APIs as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.
+3. OpenAI Chat Completions and Responses requests that use `cheapest_eligible_context` run local preflight context estimation before terminal-target choice. The deterministic methods are `openai_chat_heuristic_v1` and `openai_responses_heuristic_v1`; unsafe shapes such as external retrieval, remote file or image references, or prior conversation carryover are rejected before provider transport.
+4. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from admission counters and Ban Policy retry-window state.
+5. For `cheapest_eligible_context`, the planner filters terminal targets whose `estimated_total_context_tokens` exceed the target's usable context window, then ranks fitting candidates by estimated blended request cost, access-target position, then terminal target ID.
+6. The shared execution core claims per-attempt leases and uses shared upstream timeout behavior from the backend runtime before any client-visible bytes are committed.
+7. Operation request, response, stream, and media hooks interpret provider-native payload details by canonical operation name. Token-count hooks are attached to `anthropic.count_tokens` and `gemini.count_tokens`, media hooks are attached to `openai.images.generations` and `openai.images.edits`, and the Gemini SSE hook is attached to `gemini.stream_generate_content`; passive outcomes feed back into connection-global runtime state while durable transition history persists model-policy snapshots and exposes them on event APIs as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.
 
-If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail.
+If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail. If context fit is evaluated and no terminal target fits, the gateway returns HTTP `413` before provider transport with `error="context_window_exceeded"` and context-routing detail for skipped terminal targets.
 
 ## 5. Unified Model Access
 
 ### 5.1 Concept
 
-Models resolve through ordered access targets. Public target authoring points only to other same-profile, same-`api_family` models. Private connection targets remain in `model_access_targets` as internal ownership and terminal routing edges from one source model to one connection. Model targets can chain until a terminal private connection is reached, and the runtime records both requested model and final target model for observability.
+Models resolve through ordered access targets. Public target authoring points only to other same-profile, same-`api_family` models. Private connection targets remain in `model_access_targets` as internal ownership and terminal routing edges from one source model to one terminal target backed by a connection row. Model targets can chain until a terminal private connection is reached, and the runtime records requested model, final target model, selected terminal target, endpoint, and context-routing metadata for observability.
 
 ### 5.2 Rules
 
 - Access targets must stay in the same profile and same `api_family`.
-- Connection targets are terminal.
+- Connection targets are terminal and are presented as terminal targets in product-facing routing surfaces.
 - Model targets can chain, but cycles and self-targets are rejected.
 - Endpoints are reusable. Connections are model-private endpoint bindings created and managed from model detail through model-scoped connection routes.
 - Every access target carries explicit ordering metadata.
@@ -335,6 +338,14 @@ resolve_access(profile_id, model_id):
       return resolve_access(profile_id, target.model_id)
   return no_eligible_target
 ```
+
+### 5.4 Selected profile and active runtime separation
+
+Selected-profile management APIs use `X-Profile-Id` to read and edit profile-scoped configuration. Runtime proxy traffic ignores that management header and always resolves through the active runtime profile snapshot. Changing the selected profile in the frontend changes management scope only; activating a profile is the separate operation that changes runtime routing.
+
+### 5.5 Dashboard topology graph
+
+`GET /api/stats/dashboard` and realtime `dashboard.update.snapshot` include a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from selected-profile configuration and recent telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
 
 ## 6. Connection Health Detection
 
@@ -394,7 +405,7 @@ All proxy attempts are automatically logged as retained, product-facing request 
 ### 7.2 Logging Flow
 
 ```
-Client → Proxy Router → LoadBalancer → ProxyService → Upstream (via Connection)
+Client -> Operation registry -> Router / Planner -> Terminal target -> Endpoint -> Upstream
                                                          ↓
                                               Response received
                                                          ↓
@@ -407,10 +418,11 @@ Client → Proxy Router → LoadBalancer → ProxyService → Upstream (via Conn
 
 ### 7.3 Data Captured
 
-- Profile ID attribution, model ID, api family, vendor snapshot, and connection used (ID, endpoint base URL, description)
+- Profile ID attribution, requested model ID, final target model ID, api family, vendor snapshot, terminal-target compatibility ID, endpoint base URL, and endpoint description
 - Prism `ingress_request_id`, per-request `attempt_number`, persisted `operation_name`, and best-effort `upstream_correlation_id`
 - HTTP status code, response time (ms)
 - Token usage (input, output, total), extracted by operation response or stream hooks
+- Context-routing metadata when preflight routing ran, including policy, selected terminal target, estimator method, estimated token totals, ranking method, and skipped terminal-target reasons
 - Stream flag, request path, error details
 
 Request-log semantics are per-attempt: one incoming runtime request can create multiple request-log rows when failover or retries occur. `ingress_request_id` groups those rows while `request_id` remains the unique identifier for one stored attempt row.

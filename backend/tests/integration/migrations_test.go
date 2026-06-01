@@ -46,6 +46,7 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertPartitionedLogSchemaContract(t, testContext, conn)
 	assertSidecarSchemaContract(t, testContext, conn)
 	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
+	assertContextCapabilityColumnContracts(t, testContext, conn)
 }
 
 func TestPartitionedLogSchemaContract(t *testing.T) {

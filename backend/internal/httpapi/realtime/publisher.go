@@ -77,7 +77,7 @@ func (s *Service) InvalidateDashboardSnapshot(profileID int) {
 	if s == nil || s.dashboardSnapshots == nil {
 		return
 	}
-	s.dashboardSnapshots.InvalidateProfile(profileID)
+	s.dashboardSnapshots.InvalidateProfileSilently(profileID)
 }
 
 func (s *Service) HasDashboardSubscribers(profileID int) bool {
@@ -103,9 +103,35 @@ func (s *Service) BuildDashboardUpdate(ctx context.Context, requestLogID int, pr
 	})
 }
 
+func (s *Service) handleDashboardAggregateInvalidation(invalidation statsdomain.DashboardAggregateInvalidation) {
+	if s == nil {
+		return
+	}
+	if invalidation.All {
+		for _, profileID := range s.manager.ActiveProfileIDs(dashboardChannel) {
+			s.schedulePendingDashboardReplay(profileID)
+		}
+		return
+	}
+	s.schedulePendingDashboardReplay(invalidation.ProfileID)
+}
+
+func (s *Service) schedulePendingDashboardReplay(profileID int) {
+	if s == nil || profileID <= 0 || !s.HasDashboardSubscribers(profileID) {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultAsyncDashboardTimeout)
+		defer cancel()
+		_, _ = s.publishPendingDashboardUpdate(ctx, profileID)
+	}()
+}
+
 func (s *Service) loadOrBuildDashboardAggregateSnapshot(ctx context.Context, tx pgx.Tx, profileID int, referenceNow time.Time) (statsdomain.DashboardAggregateSnapshot, error) {
 	referenceNow = referenceNow.UTC()
-	if snapshot, ok := s.dashboardSnapshots.LoadProfile(profileID); ok && !snapshot.GeneratedAt.Before(referenceNow) {
+	if snapshot, ok := s.dashboardSnapshots.LoadFreshProfile(profileID, func(snapshot statsdomain.DashboardAggregateSnapshot) bool {
+		return !snapshot.GeneratedAt.Before(referenceNow)
+	}); ok {
 		return snapshot, nil
 	}
 	snapshot, err := statsdomain.BuildDashboardAggregateSnapshot(ctx, tx, profileID, referenceNow)
@@ -117,12 +143,19 @@ func (s *Service) loadOrBuildDashboardAggregateSnapshot(ctx context.Context, tx 
 }
 
 func (s *Service) refreshDashboardAggregateForRequestLog(ctx context.Context, requestLogID int, profileID int) error {
+	referenceNow, err := pgxutil.InReadOnlyTxValue(ctx, s.pool, "realtime dashboard refresh timestamp", func(tx pgx.Tx) (time.Time, error) {
+		return loadRequestLogCreatedAt(ctx, tx, requestLogID, profileID)
+	})
+	if err != nil {
+		return err
+	}
+	if _, ok := s.dashboardSnapshots.LoadFreshProfile(profileID, func(snapshot statsdomain.DashboardAggregateSnapshot) bool {
+		return !snapshot.GeneratedAt.Before(referenceNow)
+	}); ok {
+		return nil
+	}
 	snapshot, err := pgxutil.InReadOnlyTxValue(ctx, s.pool, "realtime dashboard refresh", func(tx pgx.Tx) (statsdomain.DashboardAggregateSnapshot, error) {
-		createdAt, timestampErr := loadRequestLogCreatedAt(ctx, tx, requestLogID, profileID)
-		if timestampErr != nil {
-			return statsdomain.DashboardAggregateSnapshot{}, timestampErr
-		}
-		return statsdomain.BuildDashboardAggregateSnapshot(ctx, tx, profileID, createdAt)
+		return statsdomain.BuildDashboardAggregateSnapshot(ctx, tx, profileID, referenceNow)
 	})
 	if err != nil {
 		return err
@@ -151,17 +184,10 @@ func loadRequestLogEntry(ctx context.Context, tx pgx.Tx, requestLogID int, profi
 	if detail == nil {
 		return RequestLogEntry{}, fmt.Errorf("%w: request log %d not found for profile %d", errDashboardRequestLogNotFound, requestLogID, profileID)
 	}
-	var connectionID *int
-	if err := tx.QueryRow(ctx, `SELECT connection_id FROM request_logs WHERE profile_id = $1 AND id = $2`, profileID, requestLogID).Scan(&connectionID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return RequestLogEntry{}, fmt.Errorf("%w: request log %d not found for profile %d", errDashboardRequestLogNotFound, requestLogID, profileID)
-		}
-		return RequestLogEntry{}, fmt.Errorf("load request log %d connection for profile %d: %w", requestLogID, profileID, err)
-	}
-	return requestLogEntryFromDetail(*detail, connectionID), nil
+	return requestLogEntryFromDetail(*detail), nil
 }
 
-func requestLogEntryFromDetail(detail statsdomain.RequestLogDetailResponse, connectionID *int) RequestLogEntry {
+func requestLogEntryFromDetail(detail statsdomain.RequestLogDetailResponse) RequestLogEntry {
 	return RequestLogEntry{
 		ID:                                detail.Summary.ID,
 		ProfileID:                         detail.Routing.ProfileID,
@@ -174,7 +200,8 @@ func requestLogEntryFromDetail(detail statsdomain.RequestLogDetailResponse, conn
 		VendorKey:                         detail.Summary.VendorKey,
 		VendorName:                        detail.Summary.VendorName,
 		EndpointID:                        detail.Routing.EndpointID,
-		ConnectionID:                      connectionID,
+		ConnectionID:                      detail.Routing.TerminalTargetID,
+		TerminalTargetID:                  detail.Routing.TerminalTargetID,
 		ProxyAPIKeyID:                     detail.Request.ProxyAPIKeyID,
 		ProxyAPIKeyNameSnapshot:           detail.Request.ProxyAPIKeyNameSnapshot,
 		IngressRequestID:                  detail.Request.IngressRequestID,

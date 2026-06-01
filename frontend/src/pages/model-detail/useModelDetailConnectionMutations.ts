@@ -15,6 +15,10 @@ import type {
   ModelConfigListItem,
   PricingTemplate,
 } from "@/lib/types";
+import {
+  getTerminalTargetId,
+  isTerminalTargetAccessTargetType,
+} from "@/lib/types";
 import type { HeaderRow } from "./useModelDetailDialogState";
 import {
   buildConnectionDraftPayload,
@@ -192,7 +196,8 @@ export function useModelDetailConnectionMutations({
       if (!Number.isFinite(modelConfigId)) return;
       const target = model?.access_targets[index] ?? null;
       if (!target) return;
-      if (target.target_type === "connection" && !getOwnedConnectionTarget(model, modelConfigId, target.connection_id ?? -1)) {
+      if (isTerminalTargetAccessTargetType(target.target_type)
+        && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
         toast.error("Connection owner does not match the current model");
         return;
       }
@@ -212,7 +217,8 @@ export function useModelDetailConnectionMutations({
       if (!Number.isFinite(modelConfigId)) return;
       const target = model?.access_targets[index] ?? null;
       if (!target) return;
-      if (target.target_type === "connection" && !getOwnedConnectionTarget(model, modelConfigId, target.connection_id ?? -1)) {
+      if (isTerminalTargetAccessTargetType(target.target_type)
+        && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
         toast.error("Connection owner does not match the current model");
         return;
       }
@@ -232,7 +238,8 @@ export function useModelDetailConnectionMutations({
       if (!Number.isFinite(modelConfigId)) return;
       const target = model?.access_targets[index] ?? null;
       if (!target) return;
-      if (target.target_type === "connection" && !getOwnedConnectionTarget(model, modelConfigId, target.connection_id ?? -1)) {
+      if (isTerminalTargetAccessTargetType(target.target_type)
+        && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
         toast.error("Connection owner does not match the current model");
         return;
       }

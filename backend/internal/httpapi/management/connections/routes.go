@@ -13,16 +13,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/contextcapability"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/coachpo/prism/backend/internal/targetcompat"
 )
 
 const defaultOpenAIProbeEndpointVariant = "responses_minimal"
 
-const ownerScopedConnectionMutationDetail = "connection mutations must use owner-scoped routes under /api/models/{model_config_id}/connections"
+const ownerScopedConnectionMutationDetail = "terminal target mutations must use owner-scoped routes under " + targetcompat.OwnerScopedConnectionRoutePath
 
 func (s *Service) handleListConnectionsBatch(w http.ResponseWriter, r *http.Request) {
 	var requestBody modelConnectionsBatchRequest
@@ -191,6 +193,9 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
+		if err := validateConnectionContextCapabilitiesCreate(requestBody); err != nil {
+			return connectionResponse{}, err
+		}
 		endpoint, err := s.resolveCreateEndpoint(r.Context(), tx, profile.ID, requestBody.EndpointID, requestBody.EndpointCreate)
 		if err != nil {
 			return connectionResponse{}, err
@@ -199,8 +204,12 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
+		capabilitySettings, err := contextcapability.NormalizeConnectionSettings(contextcapability.Settings{ContextWindowTokens: contextcapability.CopyIntPtr(owner.ContextWindowTokens), DefaultOutputTokenReserve: owner.DefaultOutputTokenReserve, MaxContextUtilization: owner.MaxContextUtilization}, requestBody.ContextWindowTokens, requestBody.DefaultOutputTokenReserve, requestBody.MaxContextUtilization)
+		if err != nil {
+			return connectionResponse{}, connectionContextCapabilityDomainError(err)
+		}
 		now := s.nowUTC()
-		item := connectionResponse{ProfileID: profile.ID, APIFamily: owner.APIFamily, EndpointID: endpoint.ID, IsActive: resolvedBool(requestBody.IsActive, true), Priority: position, Name: normalizeOptionalString(requestBody.Name), AuthType: authType, CustomHeaders: normalizeHeaders(requestBody.CustomHeaders), OpenAIProbeEndpointVariant: openAIProbeVariant, PricingTemplateID: pricingTemplateID, QPSLimit: requestBody.QPSLimit, MaxInFlightNonStream: requestBody.MaxInFlightNonStream, MaxInFlightStream: requestBody.MaxInFlightStream, HealthStatus: "unknown", CreatedAt: now, UpdatedAt: now}
+		item := connectionResponse{ProfileID: profile.ID, APIFamily: owner.APIFamily, EndpointID: endpoint.ID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, IsActive: resolvedBool(requestBody.IsActive, true), Priority: position, Name: normalizeOptionalString(requestBody.Name), AuthType: authType, CustomHeaders: normalizeHeaders(requestBody.CustomHeaders), OpenAIProbeEndpointVariant: openAIProbeVariant, PricingTemplateID: pricingTemplateID, QPSLimit: requestBody.QPSLimit, MaxInFlightNonStream: requestBody.MaxInFlightNonStream, MaxInFlightStream: requestBody.MaxInFlightStream, HealthStatus: "unknown", CreatedAt: now, UpdatedAt: now}
 		connectionID, err := insertConnection(r.Context(), tx, item)
 		if err != nil {
 			return connectionResponse{}, err
@@ -344,6 +353,39 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 			return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
 		}
 		next.EndpointID = endpoint.ID
+	}
+	if requestBody.ContextWindowTokens.Set {
+		if requestBody.ContextWindowTokens.Value == nil {
+			next.ContextWindowTokens = contextcapability.CopyIntPtr(owner.ContextWindowTokens)
+		} else {
+			resolvedContextWindowTokens, normalizeErr := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens.Value)
+			if normalizeErr != nil {
+				return connectionResponse{}, connectionContextCapabilityFieldError("context_window_tokens", normalizeErr)
+			}
+			next.ContextWindowTokens = resolvedContextWindowTokens
+		}
+	}
+	if requestBody.DefaultOutputTokenReserve.Set {
+		if requestBody.DefaultOutputTokenReserve.Value == nil {
+			next.DefaultOutputTokenReserve = owner.DefaultOutputTokenReserve
+		} else {
+			resolvedOutputTokenReserve, normalizeErr := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve.Value)
+			if normalizeErr != nil {
+				return connectionResponse{}, connectionContextCapabilityFieldError("default_output_token_reserve", normalizeErr)
+			}
+			next.DefaultOutputTokenReserve = resolvedOutputTokenReserve
+		}
+	}
+	if requestBody.MaxContextUtilization.Set {
+		if requestBody.MaxContextUtilization.Value == nil {
+			next.MaxContextUtilization = owner.MaxContextUtilization
+		} else {
+			resolvedMaxContextUtilization, normalizeErr := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization.Value)
+			if normalizeErr != nil {
+				return connectionResponse{}, connectionContextCapabilityFieldError("max_context_utilization", normalizeErr)
+			}
+			next.MaxContextUtilization = resolvedMaxContextUtilization
+		}
 	}
 	if requestBody.IsActive.Set {
 		next.IsActive = requestBody.IsActive.Value
@@ -586,6 +628,31 @@ func normalizeConnectionPriorities(items []connectionResponse, currentTime time.
 		changed = true
 	}
 	return changed
+}
+
+func connectionContextCapabilityDomainError(err error) error {
+	return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: err.Error()}
+}
+
+func connectionContextCapabilityFieldError(fieldName string, err error) error {
+	return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s %s", fieldName, err.Error())}
+}
+
+func validateConnectionContextCapabilitiesCreate(requestBody connectionCreateRequest) error {
+	if _, err := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens); err != nil {
+		return connectionContextCapabilityFieldError("context_window_tokens", err)
+	}
+	if requestBody.DefaultOutputTokenReserve != nil {
+		if _, err := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve); err != nil {
+			return connectionContextCapabilityFieldError("default_output_token_reserve", err)
+		}
+	}
+	if requestBody.MaxContextUtilization != nil {
+		if _, err := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization); err != nil {
+			return connectionContextCapabilityFieldError("max_context_utilization", err)
+		}
+	}
+	return nil
 }
 
 func validateLimiter(fieldName string, value *int) error {

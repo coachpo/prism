@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -107,6 +108,87 @@ func TestBuildRequestPlanClassifiesGeminiStreamingByOperation(t *testing.T) {
 				t.Fatalf("expected IsStreamingRequest=%v for %s, got %v", test.wantStream, plan.RuntimeOperation.Name, plan.IsStreamingRequest)
 			}
 		})
+	}
+}
+
+func TestBuildRequestPlanCarriesRequestContextEstimation(t *testing.T) {
+	service := newRequestPlanUnitService()
+	contextWindowTokens := 10_000
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o", ContextWindowTokens: &contextWindowTokens})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build request plan with estimation: %v", err)
+	}
+	if plan.RequestContextEstimation == nil {
+		t.Fatal("expected request context estimation on plan")
+	}
+	if plan.RequestContextEstimation.Method != openAIChatContextEstimationMethod {
+		t.Fatalf("expected chat heuristic method, got %+v", plan.RequestContextEstimation)
+	}
+	if plan.RequestContextEstimation.ReservedOutputTokens != defaultOutputTokenReserve {
+		t.Fatalf("expected hard fallback output reserve %d, got %+v", defaultOutputTokenReserve, plan.RequestContextEstimation)
+	}
+	if plan.RequestContextEstimation.UsableContextWindowTokens == nil || *plan.RequestContextEstimation.UsableContextWindowTokens != 9000 {
+		t.Fatalf("expected usable context window 9000, got %+v", plan.RequestContextEstimation)
+	}
+	if plan.RequestContextEstimation.EstimatedTotalContextTokens != plan.RequestContextEstimation.EstimatedInputTokens+defaultOutputTokenReserve {
+		t.Fatalf("expected estimated total context to include fallback reserve, got %+v", plan.RequestContextEstimation)
+	}
+}
+
+func TestBuildRequestPlan_ContextEstimationUnavailableReturns400(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o","previous_response_id":"resp_123","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected domain error, got %v", err)
+	}
+	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != contextEstimationUnavailableErrorCode || domainErr.Detail != contextEstimationUnavailableDetail {
+		t.Fatalf("expected pinned context-estimation error, got %+v", domainErr)
+	}
+	responseRecorder := httptest.NewRecorder()
+	writeDomainError(responseRecorder, err)
+	response := responseRecorder.Result()
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.StatusCode)
+	}
+	var payload struct {
+		Error  string `json:"error"`
+		Detail string `json:"detail"`
+	}
+	if decodeErr := json.NewDecoder(response.Body).Decode(&payload); decodeErr != nil {
+		t.Fatalf("decode context-estimation error response: %v", decodeErr)
+	}
+	if payload.Error != contextEstimationUnavailableErrorCode || payload.Detail != contextEstimationUnavailableDetail {
+		t.Fatalf("expected pinned 400 contract, got %+v", payload)
+	}
+}
+
+func TestBuildRequestPlan_DoesNotCallTransportForPreflightEstimation(t *testing.T) {
+	service := newRequestPlanUnitService()
+	transport := &ingressRoundTripRecorder{}
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png","detail":"high"}}]}]}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected domain error, got %v", err)
+	}
+	if domainErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 context-estimation failure, got %+v", domainErr)
+	}
+	if got := transport.calls.Load(); got != 0 {
+		t.Fatalf("expected preflight estimation to avoid transport calls, got %d", got)
 	}
 }
 
@@ -372,6 +454,402 @@ func TestRuntimePlanningDepthOverflowFailsDeterministically(t *testing.T) {
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"depth-00","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "exceeded maximum depth of 32")
+}
+
+func TestBuildRequestPlan_CheapestEligibleContextChoosesCheaperTarget(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "cheap-openai"})
+	model := snapshot.ModelsByID["cheap-openai"]
+	setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	contextWindowTokens := 20_000
+	maxContextUtilization := 1.0
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_001, 9_001, 0, requestPlanConnectionTargetOptions{
+		contextWindowTokens:   &contextWindowTokens,
+		maxContextUtilization: maxContextUtilization,
+		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+			PricingUnit:         runtimePricingUnitPerMillion,
+			PricingCurrencyCode: "USD",
+			InputPrice:          "5",
+			OutputPrice:         "4",
+		},
+	})
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_002, 9_002, 1, requestPlanConnectionTargetOptions{
+		contextWindowTokens:   &contextWindowTokens,
+		maxContextUtilization: maxContextUtilization,
+		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+			PricingUnit:         runtimePricingUnitPerMillion,
+			PricingCurrencyCode: "USD",
+			InputPrice:          "1",
+			OutputPrice:         "1",
+		},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"cheap-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build cheapest-eligible-context request plan: %v", err)
+	}
+	if len(plan.Connections) == 0 || plan.Connections[0].ID != 2_002 {
+		t.Fatalf("expected cheaper fitting terminal target 2002 to be first, got %+v", plan.Connections)
+	}
+	if len(plan.TerminalAttempts) == 0 || plan.TerminalAttempts[0].Connection.ID != 2_002 {
+		t.Fatalf("expected cheaper fitting terminal attempt 2002 to lead plan, got %+v", plan.TerminalAttempts)
+	}
+}
+
+func TestBuildRequestPlan_CheapestEligibleContextRanksUnpricedTargetsLast(t *testing.T) {
+	t.Run("priced targets rank before unpriced targets", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "priced-openai"})
+		model := snapshot.ModelsByID["priced-openai"]
+		setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		contextWindowTokens := 20_000
+		maxContextUtilization := 1.0
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_101, 9_101, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization})
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_102, 9_102, 1, requestPlanConnectionTargetOptions{
+			contextWindowTokens:   &contextWindowTokens,
+			maxContextUtilization: maxContextUtilization,
+			pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+				PricingUnit:         runtimePricingUnitPerMillion,
+				PricingCurrencyCode: "USD",
+				InputPrice:          "2",
+				OutputPrice:         "2",
+			},
+		})
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+		plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"priced-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		if err != nil {
+			t.Fatalf("build priced-vs-unpriced request plan: %v", err)
+		}
+		if len(plan.Connections) == 0 || plan.Connections[0].ID != 2_102 {
+			t.Fatalf("expected priced terminal target 2102 ahead of unpriced target, got %+v", plan.Connections)
+		}
+	})
+
+	t.Run("all unpriced ties fall back to access-target order", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "unpriced-openai"})
+		model := snapshot.ModelsByID["unpriced-openai"]
+		setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		contextWindowTokens := 20_000
+		maxContextUtilization := 1.0
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_201, 9_201, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization})
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_202, 9_202, 1, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization})
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+		plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"unpriced-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		if err != nil {
+			t.Fatalf("build all-unpriced request plan: %v", err)
+		}
+		if len(plan.Connections) == 0 || plan.Connections[0].ID != 2_201 {
+			t.Fatalf("expected all-unpriced ordering to fall back to first access-target position, got %+v", plan.Connections)
+		}
+	})
+}
+
+func TestBuildRequestPlan_NoContextEligibleTargetReturns413WithoutBanMutation(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "no-fit-openai"})
+	model := snapshot.ModelsByID["no-fit-openai"]
+	setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	smallContextWindowTokens := 200
+	largeContextWindowTokens := 400
+	maxContextUtilization := 1.0
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_301, 9_301, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &smallContextWindowTokens, maxContextUtilization: maxContextUtilization})
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_302, 9_302, 1, requestPlanConnectionTargetOptions{contextWindowTokens: &largeContextWindowTokens, maxContextUtilization: maxContextUtilization})
+	seededAt := service.nowUTC().Add(-time.Minute)
+	service.runtimeState.SeedConnectionState(requestPlanTestProfileID, model.ID, 2_301, loadbalance.RuntimeConnectionState{ConnectionID: 2_301, CycleRetryAttempts: 2, CumulativeRetryAttempts: 5, BanMode: "off"}, seededAt, seededAt)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"no-fit-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
+	if err != nil {
+		t.Fatalf("estimate no-fit request context: %v", err)
+	}
+	_, err = service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected domain error, got %v", err)
+	}
+	if domainErr.StatusCode != http.StatusRequestEntityTooLarge || domainErr.ErrorCode != contextWindowExceededErrorCode || domainErr.Detail != contextWindowExceededDetail {
+		t.Fatalf("expected exact pinned 413 context-window error, got %+v", domainErr)
+	}
+	if got, ok := domainErr.Fields["estimated_total_context_tokens"].(int); !ok || got != estimation.EstimatedTotalContextTokens {
+		t.Fatalf("expected estimated_total_context_tokens=%d, got %+v", estimation.EstimatedTotalContextTokens, domainErr.Fields)
+	}
+	if got, ok := domainErr.Fields["largest_usable_context_window_tokens"].(int); !ok || got != largeContextWindowTokens {
+		t.Fatalf("expected largest_usable_context_window_tokens=%d, got %+v", largeContextWindowTokens, domainErr.Fields)
+	}
+	responseRecorder := httptest.NewRecorder()
+	writeDomainError(responseRecorder, err)
+	response := responseRecorder.Result()
+	defer func() { _ = response.Body.Close() }()
+	var payload struct {
+		Error                           string `json:"error"`
+		Detail                          string `json:"detail"`
+		EstimatedTotalContextTokens     int    `json:"estimated_total_context_tokens"`
+		LargestUsableContextWindowTokens int   `json:"largest_usable_context_window_tokens"`
+	}
+	if decodeErr := json.NewDecoder(response.Body).Decode(&payload); decodeErr != nil {
+		t.Fatalf("decode 413 context-window response: %v", decodeErr)
+	}
+	if response.StatusCode != http.StatusRequestEntityTooLarge || payload.Error != contextWindowExceededErrorCode || payload.Detail != contextWindowExceededDetail || payload.EstimatedTotalContextTokens != estimation.EstimatedTotalContextTokens || payload.LargestUsableContextWindowTokens != largeContextWindowTokens {
+		t.Fatalf("expected exact pinned 413 response payload, got status=%d payload=%+v", response.StatusCode, payload)
+	}
+	state, ok := service.runtimeState.SnapshotConnectionState(requestPlanTestProfileID, 2_301)
+	if !ok {
+		t.Fatal("expected seeded runtime state to remain available after no-fit rejection")
+	}
+	if state.CycleRetryAttempts != 2 || state.CumulativeRetryAttempts != 5 || state.BanMode != "off" || state.NextRetryAt != nil {
+		t.Fatalf("expected planning-time 413 to leave runtime failure state untouched, got %+v", state)
+	}
+}
+
+func TestBuildRequestPlan_RewritesResolvedTargetModel(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "mid-openai"},
+		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "target-openai"},
+	)
+	addRequestPlanProxyTarget(snapshot, "public-openai", "mid-openai")
+	addRequestPlanProxyTarget(snapshot, "mid-openai", "target-openai")
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Profile-Id", "9999")
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	input := requestPlanningInput{
+		Request:         request,
+		RawBody:         []byte(`{"model":"public-openai","messages":[]}`),
+		RuntimeConfig:   RuntimeProxyConfigSnapshot{},
+		OperationMatch:  operationMatch,
+		ActiveProfileID: requestPlanTestProfileID,
+		Snapshot:        snapshot,
+	}
+
+	operation, err := resolveRequestOperation(input)
+	if err != nil {
+		t.Fatalf("resolve request operation: %v", err)
+	}
+	if operation.RequestedModelID != "public-openai" {
+		t.Fatalf("expected requested model public-openai, got %q", operation.RequestedModelID)
+	}
+	requestedModel, err := resolveRequestedModel(input, operation)
+	if err != nil {
+		t.Fatalf("resolve requested model: %v", err)
+	}
+
+	target, err := service.resolveRequestPlanTarget(input, operation, requestedModel, nil)
+	if err != nil {
+		t.Fatalf("resolve request plan target: %v", err)
+	}
+	if target.RequestedModel.ModelID != "public-openai" {
+		t.Fatalf("expected requested model record public-openai, got %q", target.RequestedModel.ModelID)
+	}
+	if target.TargetModel.ModelID != "target-openai" {
+		t.Fatalf("expected resolved target model target-openai, got %q", target.TargetModel.ModelID)
+	}
+
+	plan, err := assembleRequestPlan(input, operation, target, nil)
+	if err != nil {
+		t.Fatalf("assemble request plan: %v", err)
+	}
+	if plan.RequestedModelID != "public-openai" {
+		t.Fatalf("expected plan requested model public-openai, got %q", plan.RequestedModelID)
+	}
+	if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "target-openai" {
+		t.Fatalf("expected plan resolved target model target-openai, got %+v", plan.ResolvedTargetModelID)
+	}
+	if got := extractModelFromBody(plan.UpstreamBody); got != "target-openai" {
+		t.Fatalf("expected rewritten upstream model target-openai, got %q", got)
+	}
+	if plan.ProfileID != requestPlanTestProfileID {
+		t.Fatalf("expected plan profile %d from active runtime state, got %d", requestPlanTestProfileID, plan.ProfileID)
+	}
+	if len(plan.Connections) != 1 {
+		t.Fatalf("expected one terminal connection, got %d", len(plan.Connections))
+	}
+	if got := plan.Connections[0].ProfileID; got != requestPlanTestProfileID {
+		t.Fatalf("expected terminal connection profile %d, got %d", requestPlanTestProfileID, got)
+	}
+}
+
+func TestBuildRequestPlan_PreservesRecursiveModelStrategy(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "child-openai"},
+	)
+	addRequestPlanProxyTarget(snapshot, "public-openai", "child-openai")
+
+	childModel := snapshot.ModelsByID["child-openai"]
+	snapshot.AccessTargetsBySourceModelID[childModel.ID] = nil
+	childStrategyID := requestPlanTestStrategyID + 1
+	roundRobin := "round-robin"
+	snapshot.StrategiesByModelID[childModel.ID] = loadbalance.RuntimeStrategy{ID: childStrategyID, Name: "child round robin", LegacyStrategyType: &roundRobin}
+	addRequestPlanConnectionTarget(snapshot, childModel, 2_001, 2_101, 0)
+	addRequestPlanConnectionTarget(snapshot, childModel, 2_002, 2_102, 1)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	request.Header.Set("Content-Type", "application/json")
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	input := requestPlanningInput{
+		Request:         request,
+		RawBody:         []byte(`{"model":"public-openai","messages":[]}`),
+		RuntimeConfig:   RuntimeProxyConfigSnapshot{},
+		OperationMatch:  operationMatch,
+		ActiveProfileID: requestPlanTestProfileID,
+		Snapshot:        snapshot,
+	}
+
+	operation, err := resolveRequestOperation(input)
+	if err != nil {
+		t.Fatalf("resolve request operation: %v", err)
+	}
+	requestedModel, err := resolveRequestedModel(input, operation)
+	if err != nil {
+		t.Fatalf("resolve requested model: %v", err)
+	}
+
+	firstTarget, err := service.resolveRequestPlanTarget(input, operation, requestedModel, nil)
+	if err != nil {
+		t.Fatalf("resolve first recursive target: %v", err)
+	}
+	secondTarget, err := service.resolveRequestPlanTarget(input, operation, requestedModel, nil)
+	if err != nil {
+		t.Fatalf("resolve second recursive target: %v", err)
+	}
+	if firstTarget.Strategy.ID != childStrategyID || secondTarget.Strategy.ID != childStrategyID {
+		t.Fatalf("expected recursive child strategy %d to own terminal attempts, got first=%d second=%d", childStrategyID, firstTarget.Strategy.ID, secondTarget.Strategy.ID)
+	}
+	if len(firstTarget.TerminalAttempts) != 2 || len(secondTarget.TerminalAttempts) != 2 {
+		t.Fatalf("expected two recursive terminal attempts on both resolutions, got first=%d second=%d", len(firstTarget.TerminalAttempts), len(secondTarget.TerminalAttempts))
+	}
+	if firstTarget.TerminalAttempts[0].Connection.ID == secondTarget.TerminalAttempts[0].Connection.ID {
+		t.Fatalf("expected recursive child round-robin strategy to rotate terminal attempts, got %d twice", firstTarget.TerminalAttempts[0].Connection.ID)
+	}
+
+	firstAttempts, firstUpstream, err := buildPlannedTerminalAttempts(input, operation, firstTarget.TerminalAttempts)
+	if err != nil {
+		t.Fatalf("build first planned terminal attempts: %v", err)
+	}
+	secondAttempts, secondUpstream, err := buildPlannedTerminalAttempts(input, operation, secondTarget.TerminalAttempts)
+	if err != nil {
+		t.Fatalf("build second planned terminal attempts: %v", err)
+	}
+	if firstAttempts[0].Connection.ID != firstTarget.TerminalAttempts[0].Connection.ID {
+		t.Fatalf("expected compiled attempts to preserve first recursive terminal order %d, got %d", firstTarget.TerminalAttempts[0].Connection.ID, firstAttempts[0].Connection.ID)
+	}
+	if secondAttempts[0].Connection.ID != secondTarget.TerminalAttempts[0].Connection.ID {
+		t.Fatalf("expected compiled attempts to preserve second recursive terminal order %d, got %d", secondTarget.TerminalAttempts[0].Connection.ID, secondAttempts[0].Connection.ID)
+	}
+	if firstAttempts[0].Strategy.ID != childStrategyID || secondAttempts[0].Strategy.ID != childStrategyID {
+		t.Fatalf("expected compiled attempts to retain recursive child strategy %d, got first=%d second=%d", childStrategyID, firstAttempts[0].Strategy.ID, secondAttempts[0].Strategy.ID)
+	}
+	if got := extractModelFromBody(firstUpstream.UpstreamBody); got != "child-openai" {
+		t.Fatalf("expected first recursive upstream model child-openai, got %q", got)
+	}
+	if got := extractModelFromBody(secondUpstream.UpstreamBody); got != "child-openai" {
+		t.Fatalf("expected second recursive upstream model child-openai, got %q", got)
+	}
+	if !bytes.Equal(firstAttempts[0].UpstreamBody, firstUpstream.UpstreamBody) {
+		t.Fatalf("expected first compiled attempt body to match first upstream request")
+	}
+	if !bytes.Equal(secondAttempts[0].UpstreamBody, secondUpstream.UpstreamBody) {
+		t.Fatalf("expected second compiled attempt body to match second upstream request")
+	}
+}
+
+func TestResolveExecutionTarget_NoEligibleTargetsReturns503(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "empty-openai"})
+	snapshot.AccessTargetsBySourceModelID[1] = nil
+
+	_, err := service.resolveExecutionTargetFromSnapshot(requestPlanTestProfileID, snapshot, snapshot.ModelsByID["empty-openai"], nil, service.nowUTC())
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'empty-openai'.")
+}
+
+func TestResolveModelAccess_UsesRecursiveChildStrategy(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "child-openai"},
+	)
+	addRequestPlanProxyTarget(snapshot, "public-openai", "child-openai")
+
+	childModel := snapshot.ModelsByID["child-openai"]
+	snapshot.AccessTargetsBySourceModelID[childModel.ID] = nil
+	childStrategyID := requestPlanTestStrategyID + 2
+	roundRobin := "round-robin"
+	snapshot.StrategiesByModelID[childModel.ID] = loadbalance.RuntimeStrategy{ID: childStrategyID, Name: "child round robin", LegacyStrategyType: &roundRobin}
+	addRequestPlanConnectionTarget(snapshot, childModel, 2_101, 2_201, 0)
+	addRequestPlanConnectionTarget(snapshot, childModel, 2_102, 2_202, 1)
+
+	requestedModel := snapshot.ModelsByID["public-openai"]
+	first, err := service.resolveModelAccessFromSnapshot(requestPlanTestProfileID, snapshot, requestedModel, runtimeAccessResolutionContext{
+		RequestedModelID:   requestedModel.ModelID,
+		RequestedAPIFamily: requestedModel.APIFamily,
+		VisitedModelIDs:    map[int]struct{}{},
+		ReferenceNow:       service.nowUTC(),
+	})
+	if err != nil {
+		t.Fatalf("resolve first recursive model access: %v", err)
+	}
+	second, err := service.resolveModelAccessFromSnapshot(requestPlanTestProfileID, snapshot, requestedModel, runtimeAccessResolutionContext{
+		RequestedModelID:   requestedModel.ModelID,
+		RequestedAPIFamily: requestedModel.APIFamily,
+		VisitedModelIDs:    map[int]struct{}{},
+		ReferenceNow:       service.nowUTC(),
+	})
+	if err != nil {
+		t.Fatalf("resolve second recursive model access: %v", err)
+	}
+	if first.TargetModel.ModelID != "child-openai" || second.TargetModel.ModelID != "child-openai" {
+		t.Fatalf("expected recursive access to resolve child-openai, got first=%q second=%q", first.TargetModel.ModelID, second.TargetModel.ModelID)
+	}
+	if first.Strategy.ID != childStrategyID || second.Strategy.ID != childStrategyID {
+		t.Fatalf("expected recursive child strategy %d, got first=%d second=%d", childStrategyID, first.Strategy.ID, second.Strategy.ID)
+	}
+	if len(first.TerminalAttempts) != 2 || len(second.TerminalAttempts) != 2 {
+		t.Fatalf("expected recursive child to expose two terminal attempts, got first=%d second=%d", len(first.TerminalAttempts), len(second.TerminalAttempts))
+	}
+	if first.TerminalAttempts[0].Connection.ID == second.TerminalAttempts[0].Connection.ID {
+		t.Fatalf("expected recursive child strategy to rotate first terminal attempt, got %d twice", first.TerminalAttempts[0].Connection.ID)
+	}
+}
+
+func TestResolveModelAccess_NoEligibleTargetsUsesRequestedModelID(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "child-openai"},
+	)
+	addRequestPlanProxyTarget(snapshot, "public-openai", "child-openai")
+	snapshot.AccessTargetsBySourceModelID[snapshot.ModelsByID["child-openai"].ID] = nil
+	requestedModel := snapshot.ModelsByID["public-openai"]
+
+	_, err := service.resolveModelAccessFromSnapshot(requestPlanTestProfileID, snapshot, requestedModel, runtimeAccessResolutionContext{
+		RequestedModelID:   requestedModel.ModelID,
+		RequestedAPIFamily: requestedModel.APIFamily,
+		VisitedModelIDs:    map[int]struct{}{},
+		ReferenceNow:       service.nowUTC(),
+	})
+	var noEligible *noEligibleTargetsError
+	if !errors.As(err, &noEligible) {
+		t.Fatalf("expected noEligibleTargetsError, got %v", err)
+	}
+	if noEligible.requestedModelID != "public-openai" {
+		t.Fatalf("expected requested model id public-openai, got %q", noEligible.requestedModelID)
+	}
+	if noEligible.Error() != "No eligible targets available for model 'public-openai'." {
+		t.Fatalf("expected no-eligible error detail for requested model, got %q", noEligible.Error())
+	}
 }
 
 func TestHeaderHelpers(t *testing.T) {
@@ -1371,15 +1849,30 @@ func addRequestPlanModelTargetAtPosition(snapshot *planningSnapshot, proxyModelI
 	})
 }
 
+type requestPlanConnectionTargetOptions struct {
+	contextWindowTokens       *int
+	defaultOutputTokenReserve int
+	maxContextUtilization     float64
+	pricingTemplateSnapshot   *runtimePricingTemplateSnapshot
+}
+
 func addRequestPlanConnectionTarget(snapshot *planningSnapshot, model runtimeModelRecord, connectionID int, targetID int, position int) {
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, connectionID, targetID, position, requestPlanConnectionTargetOptions{})
+}
+
+func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model runtimeModelRecord, connectionID int, targetID int, position int, options requestPlanConnectionTargetOptions) {
 	snapshot.ConnectionsByID[connectionID] = runtimeConnection{
-		ID:            connectionID,
-		ProfileID:     model.ProfileID,
-		APIFamily:     model.APIFamily,
-		ModelConfigID: model.ID,
-		EndpointID:    1,
-		Priority:      position,
-		Endpoint:      runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
+		ID:                        connectionID,
+		ProfileID:                 model.ProfileID,
+		APIFamily:                 model.APIFamily,
+		ModelConfigID:             model.ID,
+		EndpointID:                1,
+		Priority:                  position,
+		PricingTemplateSnapshot:   options.pricingTemplateSnapshot,
+		ContextWindowTokens:       options.contextWindowTokens,
+		DefaultOutputTokenReserve: options.defaultOutputTokenReserve,
+		MaxContextUtilization:     options.maxContextUtilization,
+		Endpoint:                  runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
 	}
 	snapshot.AccessTargetsBySourceModelID[model.ID] = append(snapshot.AccessTargetsBySourceModelID[model.ID], runtimeAccessTargetRecord{
 		ID:                        targetID,
@@ -1392,6 +1885,13 @@ func addRequestPlanConnectionTarget(snapshot *planningSnapshot, model runtimeMod
 		Position:                  position,
 		IsEnabled:                 true,
 	})
+}
+
+func setRequestPlanStrategyType(snapshot *planningSnapshot, model runtimeModelRecord, strategyType string) {
+	legacyStrategyType := strings.TrimSpace(strategyType)
+	strategy := snapshot.StrategiesByModelID[model.ID]
+	strategy.LegacyStrategyType = &legacyStrategyType
+	snapshot.StrategiesByModelID[model.ID] = strategy
 }
 
 func mustResolveRuntimeOperation(t *testing.T, method string, requestPath string) RuntimeOperationMatch {

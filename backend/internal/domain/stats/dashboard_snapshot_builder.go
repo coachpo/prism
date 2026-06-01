@@ -266,20 +266,21 @@ func buildDashboardRoutingDiagramData(edgeMap map[string]*dashboardRoutingEdgeAc
 	links := make([]DashboardRoutingLink, 0, len(edgeMap))
 	for _, edge := range edgeMap {
 		links = append(links, DashboardRoutingLink{
-			ID:                     dashboardRoutingEdgeKey(edge.ModelID, edge.EndpointID),
-			SourceNodeID:           dashboardEndpointNodeID(edge.EndpointID),
-			TargetNodeID:           dashboardModelNodeID(edge.ModelConfigID),
-			ModelID:                edge.ModelID,
-			ModelLabel:             edge.ModelLabel,
-			ModelConfigID:          edge.ModelConfigID,
-			EndpointID:             edge.EndpointID,
-			EndpointLabel:          edge.EndpointLabel,
-			ActiveConnectionCount:  edge.ActiveConnectionCount,
-			TrafficRequestCount24H: edge.TrafficRequestCount24H,
-			RequestCount24H:        edge.RequestCount24H,
-			SuccessCount24H:        edge.SuccessCount24H,
-			ErrorCount24H:          edge.ErrorCount24H,
-			SuccessRate24H:         dashboardSuccessRate(edge.SuccessCount24H, edge.RequestCount24H),
+			ID:                        dashboardRoutingEdgeKey(edge.ModelID, edge.EndpointID),
+			SourceNodeID:              dashboardEndpointNodeID(edge.EndpointID),
+			TargetNodeID:              dashboardModelNodeID(edge.ModelConfigID),
+			ModelID:                   edge.ModelID,
+			ModelLabel:                edge.ModelLabel,
+			ModelConfigID:             edge.ModelConfigID,
+			EndpointID:                edge.EndpointID,
+			EndpointLabel:             edge.EndpointLabel,
+			ActiveConnectionCount:     edge.ActiveConnectionCount,
+			ActiveTerminalTargetCount: edge.ActiveConnectionCount,
+			TrafficRequestCount24H:    edge.TrafficRequestCount24H,
+			RequestCount24H:           edge.RequestCount24H,
+			SuccessCount24H:           edge.SuccessCount24H,
+			ErrorCount24H:             edge.ErrorCount24H,
+			SuccessRate24H:            dashboardSuccessRate(edge.SuccessCount24H, edge.RequestCount24H),
 		})
 	}
 	sort.Slice(links, func(i int, j int) bool {
@@ -318,13 +319,15 @@ func buildDashboardRoutingDataFromLinks(links []DashboardRoutingLink) DashboardR
 
 	endpointNodes := buildDashboardEndpointNodes(endpointTotals)
 	modelNodes := buildDashboardModelNodes(modelTotals)
+	activeConnectionTotal := dashboardActiveConnectionTotal(links)
 	return DashboardRoutingHealthMap{
-		Nodes:                  append(endpointNodes, modelNodes...),
-		Links:                  links,
-		EndpointCount:          len(endpointNodes),
-		ModelCount:             len(modelNodes),
-		ActiveConnectionTotal:  dashboardActiveConnectionTotal(links),
-		TrafficRequestTotal24H: dashboardTrafficRequestTotal(links),
+		Nodes:                     append(endpointNodes, modelNodes...),
+		Links:                     links,
+		EndpointCount:             len(endpointNodes),
+		ModelCount:                len(modelNodes),
+		ActiveConnectionTotal:     activeConnectionTotal,
+		ActiveTerminalTargetTotal: activeConnectionTotal,
+		TrafficRequestTotal24H:    dashboardTrafficRequestTotal(links),
 	}
 }
 
@@ -342,20 +345,21 @@ func buildDashboardEndpointNodes(totals map[int]dashboardRoutingTotals) []Dashbo
 		total := totals[endpointID]
 		endpointIDValue := endpointID
 		nodes = append(nodes, DashboardRoutingNode{
-			ID:                     dashboardEndpointNodeID(endpointID),
-			Name:                   total.Label,
-			Kind:                   "endpoint",
-			Label:                  total.Label,
-			Sublabel:               statsStringPtr(fmt.Sprintf("Endpoint %d", endpointID)),
-			EndpointID:             &endpointIDValue,
-			ModelID:                nil,
-			ModelConfigID:          nil,
-			ActiveConnectionCount:  total.ActiveConnectionCount,
-			TrafficRequestCount24H: total.TrafficRequestCount24H,
-			RequestCount24H:        total.RequestCount24H,
-			SuccessCount24H:        total.SuccessCount24H,
-			ErrorCount24H:          total.ErrorCount24H,
-			SuccessRate24H:         dashboardSuccessRate(total.SuccessCount24H, total.RequestCount24H),
+			ID:                        dashboardEndpointNodeID(endpointID),
+			Name:                      total.Label,
+			Kind:                      "endpoint",
+			Label:                     total.Label,
+			Sublabel:                  statsStringPtr(fmt.Sprintf("Endpoint %d", endpointID)),
+			EndpointID:                &endpointIDValue,
+			ModelID:                   nil,
+			ModelConfigID:             nil,
+			ActiveConnectionCount:     total.ActiveConnectionCount,
+			ActiveTerminalTargetCount: total.ActiveConnectionCount,
+			TrafficRequestCount24H:    total.TrafficRequestCount24H,
+			RequestCount24H:           total.RequestCount24H,
+			SuccessCount24H:           total.SuccessCount24H,
+			ErrorCount24H:             total.ErrorCount24H,
+			SuccessRate24H:            dashboardSuccessRate(total.SuccessCount24H, total.RequestCount24H),
 		})
 	}
 	return nodes
@@ -378,19 +382,20 @@ func buildDashboardModelNodes(totals map[int]dashboardRoutingModelTotals) []Dash
 		modelID := total.ModelID
 		modelConfigIDValue := modelConfigID
 		node := DashboardRoutingNode{
-			ID:                     dashboardModelNodeID(modelConfigID),
-			Name:                   total.Label,
-			Kind:                   "model",
-			Label:                  total.Label,
-			EndpointID:             nil,
-			ModelID:                &modelID,
-			ModelConfigID:          &modelConfigIDValue,
-			ActiveConnectionCount:  total.ActiveConnectionCount,
-			TrafficRequestCount24H: total.TrafficRequestCount24H,
-			RequestCount24H:        total.RequestCount24H,
-			SuccessCount24H:        total.SuccessCount24H,
-			ErrorCount24H:          total.ErrorCount24H,
-			SuccessRate24H:         dashboardSuccessRate(total.SuccessCount24H, total.RequestCount24H),
+			ID:                        dashboardModelNodeID(modelConfigID),
+			Name:                      total.Label,
+			Kind:                      "model",
+			Label:                     total.Label,
+			EndpointID:                nil,
+			ModelID:                   &modelID,
+			ModelConfigID:             &modelConfigIDValue,
+			ActiveConnectionCount:     total.ActiveConnectionCount,
+			ActiveTerminalTargetCount: total.ActiveConnectionCount,
+			TrafficRequestCount24H:    total.TrafficRequestCount24H,
+			RequestCount24H:           total.RequestCount24H,
+			SuccessCount24H:           total.SuccessCount24H,
+			ErrorCount24H:             total.ErrorCount24H,
+			SuccessRate24H:            dashboardSuccessRate(total.SuccessCount24H, total.RequestCount24H),
 		}
 		if total.Label != modelID {
 			node.Sublabel = &modelID

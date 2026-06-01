@@ -18,6 +18,7 @@ type DashboardAggregateSnapshot struct {
 	UsageSnapshotPreset1 UsageSnapshotResponse
 	RecentRequests       []RequestLogListItem
 	RoutingHealthMap     DashboardRoutingHealthMap
+	TopologyGraph        DashboardTopologyGraph
 	TotalModelCount      int
 	ActiveModelCount     int
 }
@@ -32,6 +33,7 @@ type DashboardSnapshot struct {
 	RecentRequests    []RequestLogListItem      `json:"recent_requests"`
 	TopSpendingModels []SpendingTopModel        `json:"top_spending_models"`
 	RoutingHealthMap  DashboardRoutingHealthMap `json:"routing_health_map"`
+	TopologyGraph     DashboardTopologyGraph    `json:"topology_graph"`
 }
 
 type DashboardMetricSnapshot struct {
@@ -51,46 +53,49 @@ type DashboardMetricSnapshot struct {
 }
 
 type DashboardRoutingHealthMap struct {
-	Nodes                  []DashboardRoutingNode `json:"nodes"`
-	Links                  []DashboardRoutingLink `json:"links"`
-	EndpointCount          int                    `json:"endpointCount"`
-	ModelCount             int                    `json:"modelCount"`
-	ActiveConnectionTotal  int                    `json:"activeConnectionTotal"`
-	TrafficRequestTotal24H int                    `json:"trafficRequestTotal24h"`
+	Nodes                     []DashboardRoutingNode `json:"nodes"`
+	Links                     []DashboardRoutingLink `json:"links"`
+	EndpointCount             int                    `json:"endpointCount"`
+	ModelCount                int                    `json:"modelCount"`
+	ActiveConnectionTotal     int                    `json:"activeConnectionTotal"`
+	ActiveTerminalTargetTotal int                    `json:"activeTerminalTargetTotal"`
+	TrafficRequestTotal24H    int                    `json:"trafficRequestTotal24h"`
 }
 
 type DashboardRoutingNode struct {
-	ID                     string   `json:"id"`
-	Name                   string   `json:"name"`
-	Kind                   string   `json:"kind"`
-	Label                  string   `json:"label"`
-	Sublabel               *string  `json:"sublabel"`
-	EndpointID             *int     `json:"endpointId"`
-	ModelID                *string  `json:"modelId"`
-	ModelConfigID          *int     `json:"modelConfigId"`
-	ActiveConnectionCount  int      `json:"activeConnectionCount"`
-	TrafficRequestCount24H int      `json:"trafficRequestCount24h"`
-	RequestCount24H        int      `json:"requestCount24h"`
-	SuccessCount24H        int      `json:"successCount24h"`
-	ErrorCount24H          int      `json:"errorCount24h"`
-	SuccessRate24H         *float64 `json:"successRate24h"`
+	ID                        string   `json:"id"`
+	Name                      string   `json:"name"`
+	Kind                      string   `json:"kind"`
+	Label                     string   `json:"label"`
+	Sublabel                  *string  `json:"sublabel"`
+	EndpointID                *int     `json:"endpointId"`
+	ModelID                   *string  `json:"modelId"`
+	ModelConfigID             *int     `json:"modelConfigId"`
+	ActiveConnectionCount     int      `json:"activeConnectionCount"`
+	ActiveTerminalTargetCount int      `json:"activeTerminalTargetCount"`
+	TrafficRequestCount24H    int      `json:"trafficRequestCount24h"`
+	RequestCount24H           int      `json:"requestCount24h"`
+	SuccessCount24H           int      `json:"successCount24h"`
+	ErrorCount24H             int      `json:"errorCount24h"`
+	SuccessRate24H            *float64 `json:"successRate24h"`
 }
 
 type DashboardRoutingLink struct {
-	ID                     string   `json:"id"`
-	SourceNodeID           string   `json:"sourceNodeId"`
-	TargetNodeID           string   `json:"targetNodeId"`
-	ModelID                string   `json:"modelId"`
-	ModelLabel             string   `json:"modelLabel"`
-	ModelConfigID          int      `json:"modelConfigId"`
-	EndpointID             int      `json:"endpointId"`
-	EndpointLabel          string   `json:"endpointLabel"`
-	ActiveConnectionCount  int      `json:"activeConnectionCount"`
-	TrafficRequestCount24H int      `json:"trafficRequestCount24h"`
-	RequestCount24H        int      `json:"requestCount24h"`
-	SuccessCount24H        int      `json:"successCount24h"`
-	ErrorCount24H          int      `json:"errorCount24h"`
-	SuccessRate24H         *float64 `json:"successRate24h"`
+	ID                        string   `json:"id"`
+	SourceNodeID              string   `json:"sourceNodeId"`
+	TargetNodeID              string   `json:"targetNodeId"`
+	ModelID                   string   `json:"modelId"`
+	ModelLabel                string   `json:"modelLabel"`
+	ModelConfigID             int      `json:"modelConfigId"`
+	EndpointID                int      `json:"endpointId"`
+	EndpointLabel             string   `json:"endpointLabel"`
+	ActiveConnectionCount     int      `json:"activeConnectionCount"`
+	ActiveTerminalTargetCount int      `json:"activeTerminalTargetCount"`
+	TrafficRequestCount24H    int      `json:"trafficRequestCount24h"`
+	RequestCount24H           int      `json:"requestCount24h"`
+	SuccessCount24H           int      `json:"successCount24h"`
+	ErrorCount24H             int      `json:"errorCount24h"`
+	SuccessRate24H            *float64 `json:"successRate24h"`
 }
 
 func NewDashboardSnapshot(aggregate DashboardAggregateSnapshot, referenceNow time.Time) DashboardSnapshot {
@@ -111,6 +116,7 @@ func NewDashboardSnapshot(aggregate DashboardAggregateSnapshot, referenceNow tim
 		RecentRequests:    recentRequests,
 		TopSpendingModels: topSpendingModels,
 		RoutingHealthMap:  cloneDashboardRoutingHealthMap(aggregate.RoutingHealthMap),
+		TopologyGraph:     cloneDashboardTopologyGraph(aggregate.TopologyGraph),
 	}
 }
 
@@ -146,13 +152,30 @@ func newDashboardMetricSnapshot(aggregate DashboardAggregateSnapshot, recentRequ
 	}
 }
 
+type DashboardAggregateInvalidation struct {
+	ProfileID int
+	All       bool
+}
+
+type DashboardAggregateInvalidationListener func(DashboardAggregateInvalidation)
+
 type DashboardAggregateStore struct {
 	mu        sync.RWMutex
 	snapshots map[int]DashboardAggregateSnapshot
+	listeners []DashboardAggregateInvalidationListener
 }
 
 func NewDashboardAggregateStore() *DashboardAggregateStore {
 	return &DashboardAggregateStore{snapshots: map[int]DashboardAggregateSnapshot{}}
+}
+
+func (s *DashboardAggregateStore) RegisterInvalidationListener(listener DashboardAggregateInvalidationListener) {
+	if s == nil || listener == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listeners = append(s.listeners, listener)
 }
 
 func (s *DashboardAggregateStore) LoadProfile(profileID int) (DashboardAggregateSnapshot, bool) {
@@ -165,6 +188,17 @@ func (s *DashboardAggregateStore) LoadProfile(profileID int) (DashboardAggregate
 	return snapshot, ok
 }
 
+func (s *DashboardAggregateStore) LoadFreshProfile(profileID int, isFresh func(DashboardAggregateSnapshot) bool) (DashboardAggregateSnapshot, bool) {
+	snapshot, ok := s.LoadProfile(profileID)
+	if !ok {
+		return DashboardAggregateSnapshot{}, false
+	}
+	if isFresh != nil && !isFresh(snapshot) {
+		return DashboardAggregateSnapshot{}, false
+	}
+	return snapshot, true
+}
+
 func (s *DashboardAggregateStore) StoreProfile(snapshot DashboardAggregateSnapshot) {
 	if s == nil || snapshot.ProfileID <= 0 {
 		return
@@ -175,21 +209,54 @@ func (s *DashboardAggregateStore) StoreProfile(snapshot DashboardAggregateSnapsh
 }
 
 func (s *DashboardAggregateStore) InvalidateProfile(profileID int) {
+	s.invalidateProfile(profileID, true)
+}
+
+func (s *DashboardAggregateStore) InvalidateProfileSilently(profileID int) {
+	s.invalidateProfile(profileID, false)
+}
+
+func (s *DashboardAggregateStore) InvalidateAll() {
+	s.invalidateAll(true)
+}
+
+func (s *DashboardAggregateStore) InvalidateAllSilently() {
+	s.invalidateAll(false)
+}
+
+func (s *DashboardAggregateStore) invalidateProfile(profileID int, notify bool) {
 	if s == nil || profileID <= 0 {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.snapshots, profileID)
+	listeners := s.invalidationListenersLocked(notify)
+	s.mu.Unlock()
+	notifyDashboardAggregateInvalidation(listeners, DashboardAggregateInvalidation{ProfileID: profileID})
 }
 
-func (s *DashboardAggregateStore) InvalidateAll() {
+func (s *DashboardAggregateStore) invalidateAll(notify bool) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.snapshots = map[int]DashboardAggregateSnapshot{}
+	listeners := s.invalidationListenersLocked(notify)
+	s.mu.Unlock()
+	notifyDashboardAggregateInvalidation(listeners, DashboardAggregateInvalidation{All: true})
+}
+
+func (s *DashboardAggregateStore) invalidationListenersLocked(notify bool) []DashboardAggregateInvalidationListener {
+	if !notify || len(s.listeners) == 0 {
+		return nil
+	}
+	return append([]DashboardAggregateInvalidationListener{}, s.listeners...)
+}
+
+func notifyDashboardAggregateInvalidation(listeners []DashboardAggregateInvalidationListener, invalidation DashboardAggregateInvalidation) {
+	for _, listener := range listeners {
+		listener(invalidation)
+	}
 }
 
 func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, profileID int, referenceNow time.Time) (DashboardAggregateSnapshot, error) {
@@ -228,6 +295,10 @@ func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, pr
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
+	topologyGraph, err := buildDashboardTopologyGraph(ctx, exec, profileID, models, windowStart24H, generatedAt)
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
 	return DashboardAggregateSnapshot{
 		ProfileID:            profileID,
 		GeneratedAt:          generatedAt,
@@ -238,6 +309,7 @@ func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, pr
 		UsageSnapshotPreset1: usageSnapshot,
 		RecentRequests:       recentRequests.Items,
 		RoutingHealthMap:     routingHealthMap,
+		TopologyGraph:        topologyGraph,
 		TotalModelCount:      len(models),
 		ActiveModelCount:     countDashboardActiveModels(models),
 	}, nil

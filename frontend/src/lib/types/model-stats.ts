@@ -2,6 +2,11 @@ import type { ApiFamily, Vendor } from "./vendor";
 import type { Connection } from "./routing";
 import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
+import type {
+  CompatibilityTerminalTargetKind,
+  PersistedTerminalTargetType,
+  TerminalTargetProductKind,
+} from "./target-compatibility";
 
 export type StreamOutcome =
   | "not_streaming"
@@ -18,7 +23,7 @@ export type StreamErrorKind =
   | "upstream_read_failed"
   | "missing_terminal_event";
 
-export type ModelAccessTargetType = "model" | "connection";
+export type ModelAccessTargetType = "model" | PersistedTerminalTargetType;
 
 export interface ModelAccessTargetModelSummary {
   id: number;
@@ -36,10 +41,12 @@ export interface ModelAccessTarget {
   target_type: ModelAccessTargetType;
   target_model_id: string | null;
   connection_id: number | null;
+  terminal_target_id?: number | null;
   position: number;
   is_enabled: boolean;
   target_model: ModelAccessTargetModelSummary | null;
   connection: Connection | null;
+  terminal_target?: Connection | null;
   created_at: string;
   updated_at: string;
 }
@@ -53,7 +60,7 @@ export type ModelAccessTargetModelMutation = {
 };
 
 export type ModelAccessTargetConnectionMutation = {
-  target_type: "connection";
+  target_type: PersistedTerminalTargetType;
   connection_id: number;
   target_model_id?: null;
   position: number;
@@ -139,6 +146,7 @@ export interface RequestLogEntry {
   vendor_name?: string | null;
   endpoint_id: number | null;
   connection_id: number | null;
+  terminal_target_id?: number | null;
   ingress_request_id: string | null;
   attempt_number: number | null;
   provider_correlation_id: string | null;
@@ -207,6 +215,7 @@ export interface RequestLogListItem {
   endpoint_id: number | null;
   endpoint_label: string;
   connection_id: number | null;
+  terminal_target_id?: number | null;
   ttft_ms: number | null;
   completion_duration_ms: number | null;
   status_code: number;
@@ -279,10 +288,34 @@ export interface RequestLogDetailRequest {
   error_detail: string | null;
 }
 
+export interface RequestLogContextRoutingSkippedTerminalTarget {
+  terminal_target_id?: number | null;
+  endpoint_id?: number | null;
+  reason: string;
+  usable_context_window_tokens?: number | null;
+  estimated_total_context_tokens?: number | null;
+}
+
+export interface RequestLogContextRouting {
+  policy: string;
+  selected_terminal_target_id?: number | null;
+  estimation_method?: string | null;
+  estimated_input_tokens?: number | null;
+  reserved_output_tokens?: number | null;
+  estimated_total_context_tokens?: number | null;
+  usable_context_window_tokens?: number | null;
+  cost_ranking_method?: string | null;
+  selected_estimated_blended_cost_micros?: number | null;
+  skipped_terminal_targets?: RequestLogContextRoutingSkippedTerminalTarget[];
+}
+
 export interface RequestLogDetailRouting {
   profile_id: number;
   endpoint_label: string;
   endpoint_id: number | null;
+  terminal_target_id?: number | null;
+  selected_terminal_target_id?: number | null;
+  context_routing?: RequestLogContextRouting | null;
   endpoint_base_url: string | null;
   endpoint_description: string | null;
   audit_enabled_at_request: boolean;
@@ -560,6 +593,82 @@ export interface DashboardMetricSnapshot {
   unpriced_request_count: number;
 }
 
+export type DashboardTopologyNodeKind =
+  | "endpoint"
+  | "model"
+  | CompatibilityTerminalTargetKind;
+
+export type DashboardTopologyNodeProductKind =
+  | "endpoint"
+  | "model"
+  | TerminalTargetProductKind;
+
+export type DashboardTopologyEdgeKind =
+  | "model_to_model"
+  | "model_to_endpoint"
+  | "model_to_connection"
+  | "model_to_terminal_target"
+  | "connection_to_endpoint"
+  | "terminal_target_to_endpoint";
+
+export type DashboardTopologyEdgeProductKind =
+  | "model_to_model"
+  | "model_to_terminal_target"
+  | "terminal_target_to_endpoint";
+
+export interface DashboardTopologyStats {
+  model_count: number;
+  active_model_count: number;
+  disabled_model_count: number;
+  terminal_target_count: number;
+  active_terminal_target_count: number;
+  inactive_terminal_target_count: number;
+  endpoint_count: number;
+  edge_count: number;
+}
+
+export interface DashboardTopologyNode {
+  id: string;
+  kind: DashboardTopologyNodeKind;
+  product_kind?: DashboardTopologyNodeProductKind;
+  label: string;
+  sublabel?: string | null;
+  status: string;
+  model_config_id?: number | null;
+  model_id?: string | null;
+  terminal_target_id?: number | null;
+  connection_id?: number | null;
+  endpoint_id?: number | null;
+  active?: boolean | null;
+  health_status?: string | null;
+  recent_request_count?: number | null;
+  recent_success_rate?: number | null;
+  last_request_at?: string | null;
+}
+
+export interface DashboardTopologyEdge {
+  id: string;
+  kind: DashboardTopologyEdgeKind;
+  product_kind?: DashboardTopologyEdgeProductKind;
+  source_node_id: string;
+  target_node_id: string;
+  position?: number | null;
+  enabled?: boolean | null;
+  source_model_config_id?: number | null;
+  source_model_id?: string | null;
+  target_model_config_id?: number | null;
+  target_model_id?: string | null;
+  terminal_target_id?: number | null;
+  connection_id?: number | null;
+  endpoint_id?: number | null;
+}
+
+export interface DashboardTopologyGraph {
+  nodes: DashboardTopologyNode[];
+  edges: DashboardTopologyEdge[];
+  stats: DashboardTopologyStats;
+}
+
 export interface DashboardRoutingNode {
   id: string;
   name: string;
@@ -570,6 +679,7 @@ export interface DashboardRoutingNode {
   modelId: string | null;
   modelConfigId: number | null;
   activeConnectionCount: number;
+  activeTerminalTargetCount?: number;
   trafficRequestCount24h: number;
   requestCount24h: number;
   successCount24h: number;
@@ -587,6 +697,7 @@ export interface DashboardRoutingLink {
   endpointId: number;
   endpointLabel: string;
   activeConnectionCount: number;
+  activeTerminalTargetCount?: number;
   trafficRequestCount24h: number;
   requestCount24h: number;
   successCount24h: number;
@@ -600,6 +711,7 @@ export interface DashboardRoutingHealthMap {
   endpointCount: number;
   modelCount: number;
   activeConnectionTotal: number;
+  activeTerminalTargetTotal?: number;
   trafficRequestTotal24h: number;
 }
 
@@ -613,6 +725,7 @@ export interface DashboardSnapshot {
   recent_requests: RequestLogListItem[];
   top_spending_models: SpendingTopModel[];
   routing_health_map: DashboardRoutingHealthMap;
+  topology_graph?: DashboardTopologyGraph;
 }
 
 export interface DashboardRealtimeUpdatePayload {

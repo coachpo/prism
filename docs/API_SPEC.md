@@ -536,6 +536,9 @@ Request:
   "api_family": "openai",
   "model_id": "gpt-4o",
   "display_name": "GPT-4o",
+  "context_window_tokens": 128000,
+  "default_output_token_reserve": 4096,
+  "max_context_utilization": 0.90,
   "loadbalance_strategy_id": 7,
   "access_targets": [
     {
@@ -558,6 +561,7 @@ Validation rules:
 - Public create and update payloads may author only ordered same-profile, same-`api_family` model targets.
 - Submitted `target_type="connection"`, `connection_id`, or `target_connection_id` entries are rejected. Private connection rows are managed from model detail through model-scoped connection routes.
 - Every public model target requires `target_model_id`, `position`, `weight`, and `target_priority`; positions must stay contiguous starting at `0`; `weight` must be `>= 1`; `target_priority` must be `>= 0`.
+- Context capability fields are validated on create and update. `default_output_token_reserve` defaults to `4096`, `max_context_utilization` defaults to `0.90`, utilization must be greater than `0` and less than or equal to `1`, and reserve must be at least `1` when supplied.
 - Model target self-reference and target cycles are rejected.
 - Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its private connections with the owning target rows.
 
@@ -572,6 +576,9 @@ Request (all fields optional):
   "api_family": "anthropic",
   "model_id": "gpt-4o-updated",
   "display_name": "GPT-4o (Updated)",
+  "context_window_tokens": 256000,
+  "default_output_token_reserve": 2048,
+  "max_context_utilization": 0.85,
   "loadbalance_strategy_id": 9,
   "access_targets": [],
   "is_enabled": true
@@ -703,6 +710,9 @@ Request (using existing endpoint):
     "X-Custom-Org": "org-123"
   },
   "openai_probe_endpoint_variant": "responses_minimal",
+  "context_window_tokens": 128000,
+  "default_output_token_reserve": 4096,
+  "max_context_utilization": 0.90,
   "pricing_template_id": 2,
   "qps_limit": 3,
   "max_in_flight_non_stream": 6,
@@ -733,13 +743,14 @@ Create semantics:
 - The connection `api_family` is derived from the owner model. A conflicting request value is rejected.
 - `priority` is rejected with `422`; connection ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
+- Context capability fields inherit the owner model's effective values when omitted or reset to `null`, so terminal-target rows persist explicit request-time capability values.
 - `openai_probe_endpoint_variant` selects the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
 #### Update Model-Private Connection
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `context_window_tokens`, `default_output_token_reserve`, `max_context_utilization`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
 
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
@@ -931,6 +942,9 @@ Response `200`:
       "connection_ref": "openai-primary",
       "endpoint_name": "Primary OpenAI",
       "api_family": "openai",
+      "context_window_tokens": 128000,
+      "default_output_token_reserve": 4096,
+      "max_context_utilization": 0.90,
       "is_active": true,
       "name": "Primary production key",
       "auth_type": null,
@@ -948,6 +962,9 @@ Response `200`:
       "vendor_key": "openai",
       "api_family": "openai",
       "display_name": "GPT-4o",
+      "context_window_tokens": 128000,
+      "default_output_token_reserve": 4096,
+      "max_context_utilization": 0.90,
       "loadbalance_strategy_name": "Default fill-first routing",
       "is_enabled": true,
       "access_targets": [
@@ -989,6 +1006,7 @@ Profile export semantics:
 - Dangerous exports include `secret_payload.entries[]` and reusable endpoint secret refs.
 - Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
 - Profile bundles preserve top-level private connection records, model `access_targets`, same-family model routing, and attached loadbalance strategy references. Each exported `connection_ref` must be owned by exactly one model access target.
+- Export and preview always serialize effective context capability defaults explicitly: omitted model or connection reserves become `default_output_token_reserve: 4096`, and omitted utilization becomes `max_context_utilization: 0.90`. Import may accept legacy omissions, but it normalizes them before persistence and any later export.
 
 #### Preview Profile Import
 ```
@@ -1105,10 +1123,10 @@ Profile import semantics:
 - Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and `target_model_id`.
 - Exported/imported models carry ordered `access_targets` entries with model targets and internally owned private connection targets plus `position` and `is_enabled` metadata.
-- Exported/imported private connections live at the top level and include `api_family`, endpoint and pricing-template name references, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited.
+- Exported/imported private connections live at the top level and include `api_family`, endpoint and pricing-template name references, context capability fields, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields.
 - Import rejects `connection_ref` values used by multiple models, duplicate private connection ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
 - Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle v3 import normalizes missing, null, or blank pricing inputs for any of those fields to `"0"` before validation.
-- Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`.
+- Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`, including `cheapest_eligible_context`.
 - Their explicit Ban Policy shape carries failure status codes, retry-window fields, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration. Import rejects removed keys and accepts only `off`, `temporary`, or `until_reset` for `ban_mode`.
 - Other profile config version numbers are unsupported.
 
@@ -1520,7 +1538,7 @@ Authfile priority has two context-specific zero semantics. In CLIProxyAPI live `
 
 Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It forwards only the operations listed in this section through the active profile. Other vendor routes, including stored-object, list, retrieve, delete, cancel, compact, embedding, model-list, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
 
-Runtime proxy routes ignore management `X-Profile-Id` overrides and always use the active runtime profile.
+Runtime proxy routes ignore management `X-Profile-Id` overrides and always use the active runtime profile. Selected-profile management scope changes configuration reads and writes only; it does not switch proxy traffic.
 
 ### 2.1 Supported Runtime Operations
 
@@ -1543,6 +1561,32 @@ Each allowlisted row maps to one canonical operation name persisted as `operatio
 Unsupported runtime routes return a Prism JSON `404` response before Prism reads the request body, resolves a model, contacts a provider, creates runtime admission state, submits runtime side effects, or writes runtime persistence rows. The current error detail is `Runtime operation not found`.
 
 Wrong methods on supported runtime paths return a Prism JSON `405` response before the same downstream seams run. The response includes `Allow: POST`, and the current error detail is `Method not allowed for runtime operation`.
+
+### 2.2A Context-aware routing failures
+
+When the attached strategy is `cheapest_eligible_context`, Prism performs local preflight context estimation before provider transport for OpenAI Chat Completions and OpenAI Responses requests that have deterministic request-local input. The estimator methods are `openai_chat_heuristic_v1` and `openai_responses_heuristic_v1`. They add estimated input tokens plus an explicit request output limit when present, then `default_output_token_reserve`, then fallback `4096`. Usable context is `floor(context_window_tokens * max_context_utilization)`, with the default utilization normalized to `0.90`.
+
+Unsafe request shapes that cannot be bounded locally return HTTP `400` with:
+
+```json
+{
+  "error": "context_estimation_unavailable",
+  "detail": "Preflight context estimation is unavailable for this request shape."
+}
+```
+
+When context fit is evaluated and no terminal target fits, Prism returns HTTP `413` before provider transport with:
+
+```json
+{
+  "error": "context_window_exceeded",
+  "detail": "No configured target can fit the estimated request context.",
+  "estimated_total_context_tokens": 4216,
+  "largest_usable_context_window_tokens": 4096
+}
+```
+
+The matching request-log detail can include `routing.context_routing` with `policy`, `estimation_method`, `estimated_input_tokens`, `reserved_output_tokens`, `estimated_total_context_tokens`, `usable_context_window_tokens`, `cost_ranking_method`, `selected_terminal_target_id`, `selected_estimated_blended_cost_micros`, and `skipped_terminal_targets[]`. Candidate ranking is by estimated blended request cost, then access-target position, then terminal target ID.
 
 ### 2.3 OpenAI Operations
 
@@ -1678,7 +1722,7 @@ The gateway accumulates SSE chunks during streaming and extracts usage from oper
 | `anthropic.messages` | `message_start` usage plus cumulative `message_delta.usage.output_tokens` | Base input, cache-read input, cache-creation input, and final base output stay separate |
 | `gemini.stream_generate_content` | Stream terminal or final chunk carrying `usageMetadata` | Same canonical disjoint fields as Gemini non-stream `usageMetadata` |
 
-If token data cannot be extracted, all token fields are logged as `null`. Prism does not estimate tokens or cost. Completed streams that lack required usage keep `MISSING_TOKEN_USAGE`; interrupted or no-terminal streams with missing required tokens use `STREAM_USAGE_UNAVAILABLE` when their classified stream outcome made terminal usage unavailable. Aggregate `cached_tokens` is derived-only from cache-read plus cache-creation input tokens and is not a persisted runtime component.
+If token data cannot be extracted from the provider response, runtime usage token fields are logged as `null`. Preflight context estimation for `cheapest_eligible_context` is routing metadata only and does not replace provider usage extraction or post-response costing. Completed streams that lack required usage keep `MISSING_TOKEN_USAGE`; interrupted or no-terminal streams with missing required tokens use `STREAM_USAGE_UNAVAILABLE` when their classified stream outcome made terminal usage unavailable. Aggregate `cached_tokens` is derived-only from cache-read plus cache-creation input tokens and is not a persisted runtime component.
 
 ---
 
@@ -1710,7 +1754,7 @@ Stats APIs are profile-scoped and require `X-Profile-Id`.
 ```
 GET /api/stats/dashboard
 ```
-This is the canonical overview dashboard read path. It returns one backend-computed aggregate snapshot for the effective profile, including overview metrics, API-family rows, recent requests, top-spending models, strategy-family counts, and the Routing Health Map. The same `DashboardSnapshot` shape is nested under realtime `dashboard.update.snapshot`, so REST bootstrap and websocket updates share one schema.
+This is the canonical overview dashboard read path. It returns one backend-computed aggregate snapshot for the effective profile, including overview metrics, API-family rows, recent requests, top-spending models, strategy-family counts, the legacy Routing Health Map, and the backend-owned topology graph. The same `DashboardSnapshot` shape is nested under realtime `dashboard.update.snapshot`, so REST bootstrap and websocket updates share one schema.
 
 Query parameters: none. Legacy `window` query values are ignored. The endpoint always returns the canonical aggregate snapshot and does not expose the old top-level `window`, `covers`, `freshness`, or `metrics` shape.
 
@@ -1761,12 +1805,54 @@ Response `200`:
     "endpointCount": 0,
     "modelCount": 0,
     "activeConnectionTotal": 0,
+    "activeTerminalTargetTotal": 0,
     "trafficRequestTotal24h": 0
+  },
+  "topology_graph": {
+    "nodes": [
+      {
+        "id": "terminal-target-1",
+        "kind": "connection",
+        "product_kind": "terminal_target",
+        "label": "Primary production key",
+        "status": "inactive",
+        "terminal_target_id": 1,
+        "connection_id": 1,
+        "endpoint_id": 12,
+        "active": false,
+        "health_status": "healthy",
+        "recent_request_count": 2,
+        "recent_success_rate": 100,
+        "last_request_at": "2026-04-19T11:55:00Z"
+      }
+    ],
+    "edges": [
+      {
+        "id": "terminal-target-binding-1",
+        "kind": "connection_to_endpoint",
+        "product_kind": "terminal_target_to_endpoint",
+        "source_node_id": "terminal-target-1",
+        "target_node_id": "endpoint-12",
+        "terminal_target_id": 1,
+        "connection_id": 1,
+        "endpoint_id": 12
+      }
+    ],
+    "stats": {
+      "model_count": 1,
+      "active_model_count": 1,
+      "disabled_model_count": 0,
+      "terminal_target_count": 1,
+      "active_terminal_target_count": 0,
+      "inactive_terminal_target_count": 1,
+      "endpoint_count": 1,
+      "edge_count": 1
+    }
   }
 }
 ```
 
-`routing_health_map` is assembled by the backend from model, endpoint, connection, request-log, and usage-event data. API clients should treat it as the canonical Routing Health Map payload rather than rebuilding route edges from separate stats endpoints.
+`routing_health_map` and `topology_graph` are assembled by the backend from selected-profile model, access-target, endpoint, connection, request-log, and usage-event data. API clients must not rebuild route edges from separate management reads. Disabled models remain as muted `status="disabled"` model nodes, inactive terminal targets remain as muted `status="inactive"` nodes with `active=false`, and terminal-target nodes retain `connection_id` as the persisted compatibility identifier. During the additive compatibility wave, the backend keeps topology compatibility kinds (`kind="connection"`, `kind="model_to_connection"`, and `kind="connection_to_endpoint"`) while exposing product-facing terminal-target meaning through `product_kind`.
 
 ### 4.1 Usage Snapshot
 ```
@@ -1844,6 +1930,7 @@ Response `200`:
       "endpoint_id": 12,
       "endpoint_label": "Primary OpenAI",
       "connection_id": 1,
+      "terminal_target_id": 1,
       "status_code": 200,
       "response_time_ms": 1234,
       "ttft_ms": 320,
@@ -1921,10 +2008,24 @@ Response `200`:
     "profile_id": 2,
     "endpoint_label": "Primary OpenAI",
     "endpoint_id": 12,
-    "connection_id": 1,
+    "terminal_target_id": 1,
+    "selected_terminal_target_id": 1,
+    "context_routing": {
+      "policy": "cheapest_eligible_context",
+      "selected_terminal_target_id": 1,
+      "estimation_method": "openai_chat_heuristic_v1",
+      "estimated_input_tokens": 15,
+      "reserved_output_tokens": 4096,
+      "estimated_total_context_tokens": 4111,
+      "usable_context_window_tokens": 115200,
+      "cost_ranking_method": "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id",
+      "selected_estimated_blended_cost_micros": 1250,
+      "skipped_terminal_targets": []
+    },
     "endpoint_base_url": "https://api.openai.com",
     "endpoint_description": "Primary production key",
-    "audit_enabled_at_request": false
+    "audit_enabled_at_request": false,
+    "audit_capture_bodies_at_request": false
   },
   "usage": {
     "input_tokens": 15,
@@ -1964,7 +2065,7 @@ Response `200`:
 }
 ```
 
-Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five concrete pricing strings used for the attempt. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced.
+Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five concrete pricing strings used for the attempt. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced. Public request-log detail routing exposes `terminal_target_id` and `selected_terminal_target_id`; it does not expose `routing.connection_id` on the detail surface.
 
 Response `404`: returned when the request ID is missing or out of scope for the effective profile.
 
@@ -2456,7 +2557,7 @@ Response `201`: Created strategy object.
 
 Validation rules:
 - `name` must be unique within the effective profile scope.
-- `legacy_strategy_type` must be `single`, `fill-first`, or `round-robin`.
+- `legacy_strategy_type` must be `single`, `fill-first`, `round-robin`, or `cheapest_eligible_context`.
 - `failure_status_codes` must be a unique, sorted list of valid HTTP status integers (`100..599`).
 - Retry-window delay, backoff, jitter, max delay, and cycle retry attempt limit must stay within backend bounds.
 - `cycle_retry_attempt_limit` is required and valid from `1` to `50`.

@@ -29,7 +29,7 @@ export function RoutingDiagramLinkShape({ props }: { props: RoutingLinkShapeProp
       strokeLinecap="butt"
       aria-label={
         payload
-          ? messages.dashboard.routingLinkAria(payload.endpointLabel, payload.modelLabel)
+          ? messages.dashboard.routingLinkAria(payload.sourceLabel, payload.targetLabel)
           : messages.dashboard.routingLink
       }
     />

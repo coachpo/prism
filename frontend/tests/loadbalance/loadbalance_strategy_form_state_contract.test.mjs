@@ -99,6 +99,30 @@ test("strategy form state maps canonical Ban Policy fields from strategy respons
   assert.ok(!Object.hasOwn(form, removedRetryAttemptsKey));
 });
 
+test("strategy form state accepts cheapest_eligible_context strategy responses", () => {
+  const form = loadbalanceStrategyFormStateFromStrategy({
+    id: 43,
+    profile_id: 7,
+    name: "Cheapest",
+    legacy_strategy_type: "cheapest_eligible_context",
+    failure_status_codes: [500, 429],
+    ban_mode: "temporary",
+    retry_base_delay_ms: 1000,
+    retry_backoff_multiplier: 2,
+    retry_jitter_ratio: 0.1,
+    retry_max_delay_ms: 30000,
+    cycle_retry_attempt_limit: 2,
+    ban_cumulative_retry_attempt_threshold: 4,
+    ban_duration_seconds: 60,
+    attached_model_count: 0,
+    created_at: "2026-05-29T00:00:00Z",
+    updated_at: "2026-05-29T00:00:00Z",
+  });
+
+  assert.equal(form.legacy_strategy_type, "cheapest_eligible_context");
+  assert.deepEqual(form.failure_status_codes, [429, 500]);
+});
+
 test("form payload emits canonical cycle and threshold fields only", () => {
   const payload = toLoadbalanceStrategyPayload(buildForm({
     name: "  Until reset routing  ",

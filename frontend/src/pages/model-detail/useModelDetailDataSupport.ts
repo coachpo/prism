@@ -11,6 +11,11 @@ import type {
   ModelConfigListItem,
   PricingTemplate,
 } from "@/lib/types";
+import {
+  getTerminalTarget,
+  getTerminalTargetId,
+  isTerminalTargetAccessTargetType,
+} from "@/lib/types";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { getModelConnections } from "../models/modelFormState";
 import type { HeaderRow } from "./useModelDetailDialogState";
@@ -346,14 +351,18 @@ export function getOwnedConnectionTarget(
   }
 
   const target = model.access_targets.find(
-    (candidate) => candidate.target_type === "connection" && candidate.connection_id === connectionId,
+    (candidate) => isTerminalTargetAccessTargetType(candidate.target_type)
+      && getTerminalTargetId(candidate) === connectionId,
   );
 
   if (!target) {
     return null;
   }
 
-  return !target.connection || connectionBelongsToModel(target.connection, modelConfigId) ? target : null;
+  const terminalTarget = getTerminalTarget(target);
+  return !terminalTarget || connectionBelongsToModel(terminalTarget, modelConfigId)
+    ? target
+    : null;
 }
 
 export function isOwnedConnectionTarget(
@@ -385,9 +394,15 @@ export function buildAccessTargetSummary(model: ModelConfig | null) {
   const targets = model?.access_targets ?? [];
   const enabledTargets = targets.filter((target) => target.is_enabled);
   const firstTarget = targets[0] ?? null;
+  const firstTerminalTarget = firstTarget ? getTerminalTarget(firstTarget) : null;
+  const firstTerminalTargetId = firstTarget ? getTerminalTargetId(firstTarget) : null;
   const firstTargetLabel = firstTarget?.target_type === "model"
     ? firstTarget.target_model?.display_name || firstTarget.target_model_id
-    : firstTarget?.connection?.name || firstTarget?.connection?.endpoint?.name || (firstTarget?.connection_id ? getStaticMessages().modelDetail.connectionFallback(firstTarget.connection_id) : null);
+    : firstTerminalTarget?.name
+      || firstTerminalTarget?.endpoint?.name
+      || (firstTerminalTargetId != null
+        ? getStaticMessages().modelDetail.connectionFallback(firstTerminalTargetId)
+        : null);
 
   return {
     targetCount: targets.length,

@@ -41,6 +41,19 @@ interface UseModelDetailBootstrapInput {
   setSpendingCurrencyCode: Dispatch<SetStateAction<string>>;
 }
 
+function resolveOptionalBootstrapValue<T>(
+  result: PromiseSettledResult<T>,
+  fallback: T,
+  label: string,
+): T {
+  if (result.status === "fulfilled") {
+    return result.value;
+  }
+
+  console.error(`Failed to load ${label}`, result.reason);
+  return fallback;
+}
+
 export function useModelDetailBootstrap({
   id,
   revision,
@@ -106,22 +119,22 @@ export function useModelDetailBootstrap({
     setSpending(null);
 
     try {
-      const [
-        data,
-        endpointsList,
-        loadbalanceStrategiesList,
-        modelsList,
-        pricingTemplatesList,
-        vendorsList,
-        connectionsList,
-      ] = await Promise.all([
+      const [data, connectionsList] = await Promise.all([
         api.models.get(modelConfigId),
+        api.models.connections.list(modelConfigId),
+      ]);
+      const [
+        endpointsResult,
+        loadbalanceStrategiesResult,
+        modelsResult,
+        pricingTemplatesResult,
+        vendorsResult,
+      ] = await Promise.allSettled([
         getSharedEndpoints(revision),
         getSharedLoadbalanceStrategies(revision),
         getSharedModels(revision),
         getSharedPricingTemplates(revision),
         getSharedVendors(revision),
-        api.models.connections.list(modelConfigId),
       ]);
 
       if (requestId !== modelRequestIdRef.current) {
@@ -131,11 +144,11 @@ export function useModelDetailBootstrap({
       setModel(data);
       setConnections(getOwnedModelConnections(data, modelConfigId));
       setAllConnections(connectionsList.filter((connection) => connection.model_config_id == null || connection.model_config_id === modelConfigId));
-      setGlobalEndpoints(endpointsList);
-      setLoadbalanceStrategies(loadbalanceStrategiesList);
-      setAllModels(modelsList);
-      setPricingTemplates(pricingTemplatesList);
-      setVendors(vendorsList);
+      setGlobalEndpoints(resolveOptionalBootstrapValue(endpointsResult, [], "model-detail endpoints"));
+      setLoadbalanceStrategies(resolveOptionalBootstrapValue(loadbalanceStrategiesResult, [], "model-detail loadbalance strategies"));
+      setAllModels(resolveOptionalBootstrapValue(modelsResult, [], "model-detail models"));
+      setPricingTemplates(resolveOptionalBootstrapValue(pricingTemplatesResult, [], "model-detail pricing templates"));
+      setVendors(resolveOptionalBootstrapValue(vendorsResult, [], "model-detail vendors"));
 
       void fetchSpending(data.model_id);
     } catch (error) {

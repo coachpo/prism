@@ -120,6 +120,18 @@ test("config import schema accepts current profile bundle v3 Ban Policy payloads
   assert.ok(!Object.hasOwn(parsed.models[0], "connections"));
 });
 
+test("config import schema accepts cheapest_eligible_context loadbalance strategies", () => {
+  const payload = buildValidConfigImport();
+  payload.loadbalance_strategies[0].legacy_strategy_type = "cheapest_eligible_context";
+
+  const parsed = ConfigImportSchema.parse(payload);
+
+  assert.equal(
+    parsed.loadbalance_strategies[0].legacy_strategy_type,
+    "cheapest_eligible_context"
+  );
+});
+
 test("config import schema rejects profile bundles before v3", () => {
   const payload = buildValidConfigImport();
   payload.version = payload.version - 1;

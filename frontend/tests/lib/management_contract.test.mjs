@@ -137,6 +137,22 @@ test("management loadbalance strategy normalization accepts explicit Ban Policy 
   assert.deepEqual(requestCalls.map((call) => call.path), ["/api/loadbalance/strategies"]);
 });
 
+test("management loadbalance strategy normalization accepts cheapest_eligible_context payloads", async () => {
+  requestCalls.length = 0;
+  loadbalanceStrategyPayloads = [
+    buildStrategyPayload({
+      id: 2,
+      name: "Cheapest eligible context",
+      legacy_strategy_type: "cheapest_eligible_context",
+    }),
+  ];
+
+  const [strategy] = await loadbalanceStrategies.list();
+
+  assert.equal(strategy.legacy_strategy_type, "cheapest_eligible_context");
+  assert.equal(strategy.name, "Cheapest eligible context");
+});
+
 test("management loadbalance strategy normalization rejects the removed retry attempt key", async () => {
   requestCalls.length = 0;
   loadbalanceStrategyPayloads = [buildStrategyPayload({ [removedRetryAttemptsKey]: 3 })];

@@ -36,13 +36,16 @@ type modelAccessTargetMoveRequest struct {
 }
 
 type modelCreateRequest struct {
-	VendorID              *int                       `json:"vendor_id"`
-	APIFamily             string                     `json:"api_family"`
-	ModelID               string                     `json:"model_id"`
-	DisplayName           *string                    `json:"display_name"`
-	LoadbalanceStrategyID *int                       `json:"loadbalance_strategy_id"`
-	AccessTargets         []modelAccessTargetRequest `json:"access_targets"`
-	IsEnabled             *bool                      `json:"is_enabled"`
+	VendorID                  *int                       `json:"vendor_id"`
+	APIFamily                 string                     `json:"api_family"`
+	ModelID                   string                     `json:"model_id"`
+	DisplayName               *string                    `json:"display_name"`
+	LoadbalanceStrategyID     *int                       `json:"loadbalance_strategy_id"`
+	ContextWindowTokens       *int                       `json:"context_window_tokens"`
+	DefaultOutputTokenReserve *int                       `json:"default_output_token_reserve"`
+	MaxContextUtilization     *float64                   `json:"max_context_utilization"`
+	AccessTargets             []modelAccessTargetRequest `json:"access_targets"`
+	IsEnabled                 *bool                      `json:"is_enabled"`
 }
 
 type optionalString struct {
@@ -85,6 +88,26 @@ func (value *optionalInt) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type optionalFloat struct {
+	Set   bool
+	Value *float64
+}
+
+func (value *optionalFloat) UnmarshalJSON(data []byte) error {
+	value.Set = true
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		value.Value = nil
+		return nil
+	}
+	var parsed float64
+	if err := json.Unmarshal(trimmed, &parsed); err != nil {
+		return err
+	}
+	value.Value = &parsed
+	return nil
+}
+
 type optionalBool struct {
 	Set   bool
 	Value bool
@@ -116,13 +139,16 @@ func (value *optionalAccessTargets) UnmarshalJSON(data []byte) error {
 }
 
 type modelUpdateRequest struct {
-	VendorID              optionalInt           `json:"vendor_id"`
-	APIFamily             optionalString        `json:"api_family"`
-	ModelID               optionalString        `json:"model_id"`
-	DisplayName           optionalString        `json:"display_name"`
-	LoadbalanceStrategyID optionalInt           `json:"loadbalance_strategy_id"`
-	AccessTargets         optionalAccessTargets `json:"access_targets"`
-	IsEnabled             optionalBool          `json:"is_enabled"`
+	VendorID                  optionalInt           `json:"vendor_id"`
+	APIFamily                 optionalString        `json:"api_family"`
+	ModelID                   optionalString        `json:"model_id"`
+	DisplayName               optionalString        `json:"display_name"`
+	LoadbalanceStrategyID     optionalInt           `json:"loadbalance_strategy_id"`
+	ContextWindowTokens       optionalInt           `json:"context_window_tokens"`
+	DefaultOutputTokenReserve optionalInt           `json:"default_output_token_reserve"`
+	MaxContextUtilization     optionalFloat         `json:"max_context_utilization"`
+	AccessTargets             optionalAccessTargets `json:"access_targets"`
+	IsEnabled                 optionalBool          `json:"is_enabled"`
 }
 
 type vendorResponse struct {
@@ -180,6 +206,9 @@ type connectionTargetSummary struct {
 	APIFamily                  string                            `json:"api_family"`
 	EndpointID                 int                               `json:"endpoint_id"`
 	Endpoint                   *endpointResponse                 `json:"endpoint"`
+	ContextWindowTokens        *int                              `json:"context_window_tokens"`
+	DefaultOutputTokenReserve  int                               `json:"default_output_token_reserve"`
+	MaxContextUtilization      float64                           `json:"max_context_utilization"`
 	IsActive                   bool                              `json:"is_active"`
 	Priority                   int                               `json:"priority"`
 	Name                       *string                           `json:"name"`
@@ -198,64 +227,77 @@ type connectionTargetSummary struct {
 	UpdatedAt                  time.Time                         `json:"updated_at"`
 }
 
+type terminalTargetSummary = connectionTargetSummary
+
 type modelTargetSummary struct {
-	ID                    int     `json:"id"`
-	ProfileID             int     `json:"profile_id"`
-	VendorID              *int    `json:"vendor_id"`
-	APIFamily             string  `json:"api_family"`
-	ModelID               string  `json:"model_id"`
-	DisplayName           *string `json:"display_name"`
-	LoadbalanceStrategyID *int    `json:"loadbalance_strategy_id"`
-	IsEnabled             bool    `json:"is_enabled"`
+	ID                        int     `json:"id"`
+	ProfileID                 int     `json:"profile_id"`
+	VendorID                  *int    `json:"vendor_id"`
+	APIFamily                 string  `json:"api_family"`
+	ModelID                   string  `json:"model_id"`
+	DisplayName               *string `json:"display_name"`
+	LoadbalanceStrategyID     *int    `json:"loadbalance_strategy_id"`
+	ContextWindowTokens       *int    `json:"context_window_tokens"`
+	DefaultOutputTokenReserve int     `json:"default_output_token_reserve"`
+	MaxContextUtilization     float64 `json:"max_context_utilization"`
+	IsEnabled                 bool    `json:"is_enabled"`
 }
 
 type modelAccessTargetResponse struct {
-	ID            int                      `json:"id"`
-	TargetType    string                   `json:"target_type"`
-	TargetModelID *string                  `json:"target_model_id"`
-	ConnectionID  *int                     `json:"connection_id"`
-	Position      int                      `json:"position"`
-	IsEnabled     bool                     `json:"is_enabled"`
-	TargetModel   *modelTargetSummary      `json:"target_model"`
-	Connection    *connectionTargetSummary `json:"connection"`
-	CreatedAt     time.Time                `json:"created_at"`
-	UpdatedAt     time.Time                `json:"updated_at"`
+	ID               int                      `json:"id"`
+	TargetType       string                   `json:"target_type"`
+	TargetModelID    *string                  `json:"target_model_id"`
+	ConnectionID     *int                     `json:"connection_id"`
+	TerminalTargetID *int                     `json:"terminal_target_id"`
+	Position         int                      `json:"position"`
+	IsEnabled        bool                     `json:"is_enabled"`
+	TargetModel      *modelTargetSummary      `json:"target_model"`
+	Connection       *connectionTargetSummary `json:"connection"`
+	TerminalTarget   *terminalTargetSummary   `json:"terminal_target"`
+	CreatedAt        time.Time                `json:"created_at"`
+	UpdatedAt        time.Time                `json:"updated_at"`
 }
 
 type modelConfigListResponse struct {
-	ID                    int                         `json:"id"`
-	ProfileID             int                         `json:"profile_id"`
-	VendorID              *int                        `json:"vendor_id"`
-	Vendor                *vendorResponse             `json:"vendor"`
-	APIFamily             string                      `json:"api_family"`
-	ModelID               string                      `json:"model_id"`
-	DisplayName           *string                     `json:"display_name"`
-	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	AccessTargets         []modelAccessTargetResponse `json:"access_targets"`
-	IsEnabled             bool                        `json:"is_enabled"`
-	ConnectionCount       int                         `json:"connection_count"`
-	ActiveConnectionCount int                         `json:"active_connection_count"`
-	HealthSuccessRate     *float64                    `json:"health_success_rate"`
-	HealthTotalRequests   int                         `json:"health_total_requests"`
-	CreatedAt             time.Time                   `json:"created_at"`
-	UpdatedAt             time.Time                   `json:"updated_at"`
+	ID                        int                         `json:"id"`
+	ProfileID                 int                         `json:"profile_id"`
+	VendorID                  *int                        `json:"vendor_id"`
+	Vendor                    *vendorResponse             `json:"vendor"`
+	APIFamily                 string                      `json:"api_family"`
+	ModelID                   string                      `json:"model_id"`
+	DisplayName               *string                     `json:"display_name"`
+	LoadbalanceStrategyID     *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy       *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	ContextWindowTokens       *int                        `json:"context_window_tokens"`
+	DefaultOutputTokenReserve int                         `json:"default_output_token_reserve"`
+	MaxContextUtilization     float64                     `json:"max_context_utilization"`
+	AccessTargets             []modelAccessTargetResponse `json:"access_targets"`
+	IsEnabled                 bool                        `json:"is_enabled"`
+	ConnectionCount           int                         `json:"connection_count"`
+	ActiveConnectionCount     int                         `json:"active_connection_count"`
+	HealthSuccessRate         *float64                    `json:"health_success_rate"`
+	HealthTotalRequests       int                         `json:"health_total_requests"`
+	CreatedAt                 time.Time                   `json:"created_at"`
+	UpdatedAt                 time.Time                   `json:"updated_at"`
 }
 
 type modelConfigResponse struct {
-	ID                    int                         `json:"id"`
-	ProfileID             int                         `json:"profile_id"`
-	VendorID              *int                        `json:"vendor_id"`
-	Vendor                *vendorResponse             `json:"vendor"`
-	APIFamily             string                      `json:"api_family"`
-	ModelID               string                      `json:"model_id"`
-	DisplayName           *string                     `json:"display_name"`
-	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	AccessTargets         []modelAccessTargetResponse `json:"access_targets"`
-	IsEnabled             bool                        `json:"is_enabled"`
-	CreatedAt             time.Time                   `json:"created_at"`
-	UpdatedAt             time.Time                   `json:"updated_at"`
+	ID                        int                         `json:"id"`
+	ProfileID                 int                         `json:"profile_id"`
+	VendorID                  *int                        `json:"vendor_id"`
+	Vendor                    *vendorResponse             `json:"vendor"`
+	APIFamily                 string                      `json:"api_family"`
+	ModelID                   string                      `json:"model_id"`
+	DisplayName               *string                     `json:"display_name"`
+	LoadbalanceStrategyID     *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy       *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	ContextWindowTokens       *int                        `json:"context_window_tokens"`
+	DefaultOutputTokenReserve int                         `json:"default_output_token_reserve"`
+	MaxContextUtilization     float64                     `json:"max_context_utilization"`
+	AccessTargets             []modelAccessTargetResponse `json:"access_targets"`
+	IsEnabled                 bool                        `json:"is_enabled"`
+	CreatedAt                 time.Time                   `json:"created_at"`
+	UpdatedAt                 time.Time                   `json:"updated_at"`
 }
 
 type endpointModelsBatchItem struct {

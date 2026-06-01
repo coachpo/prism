@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getRoutingDiagramChartData,
   getRoutingDiagramEmptyState,
+  getRoutingDiagramSummary,
   type RoutingDiagramData,
   type RoutingDiagramNode,
 } from "./routingDiagram";
@@ -54,6 +55,10 @@ export function RoutingDiagramCard({
     return data ? getRoutingDiagramChartData(data) : { nodes: [], links: [] };
   }, [data]);
 
+  const summary = useMemo(() => {
+    return data ? getRoutingDiagramSummary(data) : null;
+  }, [data]);
+
   const emptyState = useMemo(() => {
     if (!data) {
       return null;
@@ -71,7 +76,15 @@ export function RoutingDiagramCard({
       title: messages.dashboard.routingNoRecentTraffic,
       description: messages.dashboard.routingNoRecentTrafficDescription,
     };
-  }, [data, messages.dashboard.routingNoActiveRoutes, messages.dashboard.routingNoActiveRoutesDescription, messages.dashboard.routingNoRecentTraffic, messages.dashboard.routingNoRecentTrafficDescription]);
+  }, [
+    data,
+    messages.dashboard.routingNoActiveRoutes,
+    messages.dashboard.routingNoActiveRoutesDescription,
+    messages.dashboard.routingNoRecentTraffic,
+    messages.dashboard.routingNoRecentTrafficDescription,
+  ]);
+
+  const hasChartContent = chartData.nodes.length > 0 && chartData.links.length > 0;
 
   const activateNode = (node: RoutingDiagramNode) => {
     if (node.kind === "model" && node.modelConfigId !== null) {
@@ -86,7 +99,7 @@ export function RoutingDiagramCard({
     <div ref={containerRef}>
       <RoutingDiagramShell
         chartContent={
-          data && chartData.links.length > 0 ? (
+          data && hasChartContent ? (
             <RoutingDiagramChart
               chartData={chartData}
               chartHeight={chartHeight}
@@ -105,20 +118,20 @@ export function RoutingDiagramCard({
         }
         error={error}
         headerContent={
-          data ? (
+          summary ? (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
               <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.endpointCount(formatNumber(data.endpointCount))}
+                {messages.dashboard.endpointCount(formatNumber(summary.endpointCount))}
               </span>
               <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.modelCount(formatNumber(data.modelCount))}
+                {messages.dashboard.modelCount(formatNumber(summary.modelCount))}
               </span>
               <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.activeRoutes(formatNumber(data.activeConnectionTotal))}
+                {messages.dashboard.activeTargets(formatNumber(summary.activeTargetCount))}
               </span>
               <span className="rounded-full border bg-muted/40 px-2.5 py-1">
                 {messages.dashboard.successfulRequests24h(
-                  formatNumber(data.trafficRequestTotal24h),
+                  formatNumber(summary.recentRequestTotal24h),
                 )}
               </span>
             </div>

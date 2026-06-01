@@ -21,11 +21,14 @@ type queryExecutor interface {
 }
 
 type modelRecord struct {
-	ID        int
-	ProfileID int
-	ModelID   string
-	APIFamily string
-	IsEnabled bool
+	ID                        int
+	ProfileID                 int
+	ModelID                   string
+	APIFamily                 string
+	ContextWindowTokens       *int
+	DefaultOutputTokenReserve int
+	MaxContextUtilization     float64
+	IsEnabled                 bool
 }
 
 type endpointRecord struct {
@@ -82,7 +85,7 @@ type pricingTemplateResponse struct {
 const pricingTemplateSelectQuery = `SELECT id, profile_id, name, description, pricing_unit, pricing_currency_code, COALESCE(input_price, '0'), COALESCE(output_price, '0'), COALESCE(cached_input_price, '0'), COALESCE(cache_creation_price, '0'), COALESCE(reasoning_price, '0'), version, created_at, updated_at FROM pricing_templates`
 
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, forUpdate bool) (modelRecord, bool, error) {
-	query := `SELECT id, profile_id, model_id, api_family, is_enabled FROM model_configs WHERE profile_id = $1 AND id = $2`
+	query := `SELECT id, profile_id, model_id, api_family, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled FROM model_configs WHERE profile_id = $1 AND id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -418,7 +421,7 @@ func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileI
 
 func insertConnection(ctx context.Context, exec queryExecutor, item connectionResponse) (int, error) {
 	var connectionID int
-	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.CreatedAt, item.UpdatedAt).Scan(&connectionID)
+	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.ContextWindowTokens), item.DefaultOutputTokenReserve, item.MaxContextUtilization, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.CreatedAt, item.UpdatedAt).Scan(&connectionID)
 	if err != nil {
 		return 0, fmt.Errorf("insert connection: %w", err)
 	}
@@ -433,7 +436,7 @@ func insertOwnerConnectionTarget(ctx context.Context, exec queryExecutor, profil
 }
 
 func updateConnectionRow(ctx context.Context, exec queryExecutor, item connectionResponse) error {
-	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_probe_endpoint_variant = $8, is_active = $9, priority = $10, name = $11, auth_type = $12, custom_headers = $13, health_status = $14, health_detail = $15, last_health_check = $16, updated_at = $17 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.UpdatedAt); err != nil {
+	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, context_window_tokens = $4, default_output_token_reserve = $5, max_context_utilization = $6, pricing_template_id = $7, qps_limit = $8, max_in_flight_non_stream = $9, max_in_flight_stream = $10, openai_probe_endpoint_variant = $11, is_active = $12, priority = $13, name = $14, auth_type = $15, custom_headers = $16, health_status = $17, health_detail = $18, last_health_check = $19, updated_at = $20 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.ContextWindowTokens), item.DefaultOutputTokenReserve, item.MaxContextUtilization, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.UpdatedAt); err != nil {
 		return fmt.Errorf("update connection %d: %w", item.ID, err)
 	}
 	return nil
@@ -513,7 +516,7 @@ func persistConnectionPriorities(ctx context.Context, exec queryExecutor, items 
 	return nil
 }
 
-const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
+const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.default_output_token_reserve, connections.max_context_utilization, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
 
 func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionResponse, error) {
 	items := make([]connectionResponse, 0)
@@ -531,10 +534,12 @@ func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionRespo
 }
 
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
+	var contextWindowTokens sql.NullInt32
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &record.IsEnabled); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &contextWindowTokens, &record.DefaultOutputTokenReserve, &record.MaxContextUtilization, &record.IsEnabled); err != nil {
 		return modelRecord{}, err
 	}
+	record.ContextWindowTokens = nullableInt32(contextWindowTokens)
 	return record, nil
 }
 
@@ -548,6 +553,7 @@ func scanEndpointRecord(scanner interface{ Scan(...any) error }) (endpointRecord
 
 func scanConnectionResponse(scanner interface{ Scan(...any) error }) (connectionResponse, error) {
 	var modelConfigID sql.NullInt32
+	var contextWindowTokens sql.NullInt32
 	var joinedEndpointID sql.NullInt32
 	var endpointProfileID sql.NullInt32
 	var endpointName sql.NullString
@@ -572,10 +578,11 @@ func scanConnectionResponse(scanner interface{ Scan(...any) error }) (connection
 	var healthDetail sql.NullString
 	var lastHealthCheck sql.NullTime
 	item := connectionResponse{}
-	if err := scanner.Scan(&item.ID, &item.ProfileID, &modelConfigID, &item.APIFamily, &item.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &item.IsActive, &item.Priority, &connectionName, &authType, &customHeaders, &openAIProbeEndpointVariant, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &item.HealthStatus, &healthDetail, &lastHealthCheck, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &item.ProfileID, &modelConfigID, &item.APIFamily, &item.EndpointID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &item.IsActive, &item.Priority, &connectionName, &authType, &customHeaders, &openAIProbeEndpointVariant, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &item.HealthStatus, &healthDetail, &lastHealthCheck, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return connectionResponse{}, err
 	}
 	item.ModelConfigID = nullableInt32(modelConfigID)
+	item.ContextWindowTokens = nullableInt32(contextWindowTokens)
 	item.Name = nullableStringValue(connectionName)
 	item.AuthType = nullableStringValue(authType)
 	item.CustomHeaders = parseCustomHeaders(customHeaders)

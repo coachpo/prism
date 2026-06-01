@@ -1,4 +1,4 @@
-import type { Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
+import type { Dispatch, FormEventHandler, ReactNode, SetStateAction } from "react";
 import { Plus, X } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  getLegacyLoadbalanceStrategyLabel,
   getLegacyLoadbalanceStrategySummary,
   LOADBALANCE_BAN_MODES,
   LOADBALANCE_LEGACY_STRATEGY_TYPES,
@@ -142,7 +143,7 @@ export function LoadbalanceStrategyDialog({
         ? dialogMessages.banModeUntilResetOption
         : dialogMessages.banModeTemporaryOption;
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit: FormEventHandler<HTMLFormElement> = (event) => {
     event.preventDefault();
     void onSave();
   };
@@ -206,9 +207,11 @@ export function LoadbalanceStrategyDialog({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="single">{strategyCopy.singleLabel}</SelectItem>
-                          <SelectItem value="fill-first">{strategyCopy.fillFirstLabel}</SelectItem>
-                          <SelectItem value="round-robin">{strategyCopy.roundRobinLabel}</SelectItem>
+                          {LOADBALANCE_LEGACY_STRATEGY_TYPES.map((strategyType) => (
+                            <SelectItem key={strategyType} value={strategyType}>
+                              {getLegacyLoadbalanceStrategyLabel(strategyType, strategyCopy)}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <p className="text-xs text-muted-foreground">{legacyStrategySummary}</p>

@@ -59,13 +59,16 @@ type strategyRow struct {
 }
 
 type modelRow struct {
-	ID                    int
-	VendorID              *int
-	APIFamily             string
-	ModelID               string
-	DisplayName           *string
-	LoadbalanceStrategyID *int
-	IsEnabled             bool
+	ID                        int
+	VendorID                  *int
+	APIFamily                 string
+	ModelID                   string
+	DisplayName               *string
+	LoadbalanceStrategyID     *int
+	ContextWindowTokens       *int
+	DefaultOutputTokenReserve int
+	MaxContextUtilization     float64
+	IsEnabled                 bool
 }
 
 type accessTargetRow struct {
@@ -81,6 +84,9 @@ type connectionRow struct {
 	ID                         int
 	APIFamily                  string
 	EndpointID                 int
+	ContextWindowTokens        *int
+	DefaultOutputTokenReserve  int
+	MaxContextUtilization      float64
 	PricingTemplateID          *int
 	IsActive                   bool
 	Priority                   int
@@ -405,13 +411,16 @@ func buildModelExport(model modelRow, vendorsByID map[int]vendorRow, strategyNam
 		return modelExport{}, err
 	}
 	return modelExport{
-		VendorKey:               vendorKey,
-		APIFamily:               model.APIFamily,
-		ModelID:                 model.ModelID,
-		DisplayName:             model.DisplayName,
-		LoadbalanceStrategyName: strategyName,
-		IsEnabled:               model.IsEnabled,
-		AccessTargets:           exportedTargets,
+		VendorKey:                 vendorKey,
+		APIFamily:                 model.APIFamily,
+		ModelID:                   model.ModelID,
+		DisplayName:               model.DisplayName,
+		LoadbalanceStrategyName:   strategyName,
+		ContextWindowTokens:       intPtrFromOptional(model.ContextWindowTokens),
+		DefaultOutputTokenReserve: intPtr(model.DefaultOutputTokenReserve),
+		MaxContextUtilization:     float64Ptr(model.MaxContextUtilization),
+		IsEnabled:                 model.IsEnabled,
+		AccessTargets:             exportedTargets,
 	}, nil
 }
 
@@ -484,6 +493,9 @@ func buildConnectionExports(connections []connectionRow, endpointByID map[int]en
 			Ref:                        ref,
 			APIFamily:                  connection.APIFamily,
 			EndpointName:               endpoint.Name,
+			ContextWindowTokens:        intPtrFromOptional(connection.ContextWindowTokens),
+			DefaultOutputTokenReserve:  intPtr(connection.DefaultOutputTokenReserve),
+			MaxContextUtilization:      float64Ptr(connection.MaxContextUtilization),
 			PricingTemplateName:        pricingTemplateName,
 			IsActive:                   connection.IsActive,
 			Priority:                   connection.Priority,
@@ -646,7 +658,7 @@ func listStrategies(ctx context.Context, exec queryExecutor, profileID int) ([]s
 }
 
 func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]modelRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query models for profile %d: %w", profileID, err)
 	}
@@ -657,13 +669,15 @@ func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]model
 		var vendorID sql.NullInt32
 		var displayName sql.NullString
 		var strategyID sql.NullInt32
+		var contextWindowTokens sql.NullInt32
 		item := modelRow{}
-		if err := rows.Scan(&item.ID, &vendorID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &item.IsEnabled); err != nil {
+		if err := rows.Scan(&item.ID, &vendorID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &item.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan model row: %w", err)
 		}
 		item.VendorID = nullableInt32(vendorID)
 		item.DisplayName = nullableStringValue(displayName)
 		item.LoadbalanceStrategyID = nullableInt32(strategyID)
+		item.ContextWindowTokens = nullableInt32(contextWindowTokens)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -701,7 +715,7 @@ func listAccessTargetsByModelIDs(ctx context.Context, exec queryExecutor, modelI
 }
 
 func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]connectionRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, api_family, endpoint_id, pricing_template_id, is_active, priority, name, auth_type, custom_headers, openai_probe_endpoint_variant, qps_limit, max_in_flight_non_stream, max_in_flight_stream FROM connections WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, is_active, priority, name, auth_type, custom_headers, openai_probe_endpoint_variant, qps_limit, max_in_flight_non_stream, max_in_flight_stream FROM connections WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query connections for profile %d: %w", profileID, err)
 	}
@@ -709,6 +723,7 @@ func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]
 
 	items := make([]connectionRow, 0)
 	for rows.Next() {
+		var contextWindowTokens sql.NullInt32
 		var pricingTemplateID sql.NullInt32
 		var name sql.NullString
 		var authType sql.NullString
@@ -718,9 +733,10 @@ func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]
 		var maxNonStream sql.NullInt32
 		var maxStream sql.NullInt32
 		item := connectionRow{}
-		if err := rows.Scan(&item.ID, &item.APIFamily, &item.EndpointID, &pricingTemplateID, &item.IsActive, &item.Priority, &name, &authType, &customHeaders, &probeVariant, &qpsLimit, &maxNonStream, &maxStream); err != nil {
+		if err := rows.Scan(&item.ID, &item.APIFamily, &item.EndpointID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &pricingTemplateID, &item.IsActive, &item.Priority, &name, &authType, &customHeaders, &probeVariant, &qpsLimit, &maxNonStream, &maxStream); err != nil {
 			return nil, fmt.Errorf("scan connection row: %w", err)
 		}
+		item.ContextWindowTokens = nullableInt32(contextWindowTokens)
 		item.PricingTemplateID = nullableInt32(pricingTemplateID)
 		item.Name = nullableStringValue(name)
 		item.AuthType = nullableStringValue(authType)
@@ -912,6 +928,14 @@ func intSliceFromInt32(values []int32) []int {
 
 func intPtr(value int) *int {
 	resolved := value
+	return &resolved
+}
+
+func intPtrFromOptional(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	resolved := *value
 	return &resolved
 }
 

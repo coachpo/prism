@@ -46,6 +46,7 @@ type RequestLogListItem struct {
 	EndpointID                  *int      `json:"endpoint_id"`
 	EndpointLabel               string    `json:"endpoint_label"`
 	ConnectionID                *int      `json:"connection_id"`
+	TerminalTargetID            *int      `json:"terminal_target_id"`
 	StatusCode                  int       `json:"status_code"`
 	ResponseTimeMS              int       `json:"response_time_ms"`
 	TTFTMS                      *int      `json:"ttft_ms"`
@@ -111,14 +112,38 @@ type RequestLogDetailRequest struct {
 	RequestGenerationParamsStatus *string          `json:"request_generation_params_status"`
 }
 
+type RequestLogContextRoutingSkippedTerminalTarget struct {
+	TerminalTargetID            *int   `json:"terminal_target_id,omitempty"`
+	EndpointID                  *int   `json:"endpoint_id,omitempty"`
+	Reason                      string `json:"reason"`
+	UsableContextWindowTokens   *int   `json:"usable_context_window_tokens,omitempty"`
+	EstimatedTotalContextTokens *int   `json:"estimated_total_context_tokens,omitempty"`
+}
+
+type RequestLogContextRouting struct {
+	Policy                             string                                          `json:"policy"`
+	SelectedTerminalTargetID           *int                                            `json:"selected_terminal_target_id,omitempty"`
+	EstimationMethod                   *string                                         `json:"estimation_method,omitempty"`
+	EstimatedInputTokens               *int                                            `json:"estimated_input_tokens,omitempty"`
+	ReservedOutputTokens               *int                                            `json:"reserved_output_tokens,omitempty"`
+	EstimatedTotalContextTokens        *int                                            `json:"estimated_total_context_tokens,omitempty"`
+	UsableContextWindowTokens          *int                                            `json:"usable_context_window_tokens,omitempty"`
+	CostRankingMethod                  *string                                         `json:"cost_ranking_method,omitempty"`
+	SelectedEstimatedBlendedCostMicros *int64                                          `json:"selected_estimated_blended_cost_micros,omitempty"`
+	SkippedTerminalTargets             []RequestLogContextRoutingSkippedTerminalTarget `json:"skipped_terminal_targets,omitempty"`
+}
+
 type RequestLogDetailRouting struct {
-	ProfileID                   int     `json:"profile_id"`
-	EndpointLabel               string  `json:"endpoint_label"`
-	EndpointID                  *int    `json:"endpoint_id"`
-	EndpointBaseURL             *string `json:"endpoint_base_url"`
-	EndpointDescription         *string `json:"endpoint_description"`
-	AuditEnabledAtRequest       bool    `json:"audit_enabled_at_request"`
-	AuditCaptureBodiesAtRequest bool    `json:"audit_capture_bodies_at_request"`
+	ProfileID                   int                       `json:"profile_id"`
+	EndpointLabel               string                    `json:"endpoint_label"`
+	EndpointID                  *int                      `json:"endpoint_id"`
+	TerminalTargetID            *int                      `json:"terminal_target_id"`
+	SelectedTerminalTargetID    *int                      `json:"selected_terminal_target_id"`
+	ContextRouting              *RequestLogContextRouting `json:"context_routing,omitempty"`
+	EndpointBaseURL             *string                   `json:"endpoint_base_url"`
+	EndpointDescription         *string                   `json:"endpoint_description"`
+	AuditEnabledAtRequest       bool                      `json:"audit_enabled_at_request"`
+	AuditCaptureBodiesAtRequest bool                      `json:"audit_capture_bodies_at_request"`
 }
 
 type RequestLogDetailUsage struct {

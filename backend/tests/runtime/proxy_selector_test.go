@@ -14,6 +14,52 @@ type proxySelectorExpectedRequest struct {
 	ModelID string
 }
 
+func TestRuntimeCheapestEligibleContextNoFitReturns413WithoutUpstreamAttemptOrBanMutation(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "cheapest-no-fit-public-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "cheapest-no-fit-"+suffix, "cheapest_eligible_context")
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
+	smallEndpointID := harness.seedEndpoint(t, profileID, "cheapest-no-fit-small-"+suffix, harness.upstream.baseURL("/cheapest/no-fit/small"), "cheapest-no-fit-small-key", 0)
+	largeEndpointID := harness.seedEndpoint(t, profileID, "cheapest-no-fit-large-"+suffix, harness.upstream.baseURL("/cheapest/no-fit/large"), "cheapest-no-fit-large-key", 1)
+	smallConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, smallEndpointID, "cheapest-no-fit-small-connection-"+suffix, nil, nil, 0)
+	largeConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, largeEndpointID, "cheapest-no-fit-large-connection-"+suffix, nil, nil, 1)
+	now := time.Now().UTC()
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, smallConnectionID, 200, 4096, 1.0, now); err != nil {
+		t.Fatalf("update small cheapest-context connection capabilities: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, largeConnectionID, 400, 4096, 1.0, now); err != nil {
+		t.Fatalf("update large cheapest-context connection capabilities: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	seededAt := time.Now().UTC().Add(-time.Minute)
+	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: smallConnectionID, CycleRetryAttempts: 2, CumulativeRetryAttempts: 5, BanMode: "off", UpdatedAt: seededAt, CreatedAt: seededAt})
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
+	assertStatus(t, response, http.StatusRequestEntityTooLarge)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	if got, _ := payload["error"].(string); got != "context_window_exceeded" {
+		t.Fatalf("expected context_window_exceeded error, got %+v", payload)
+	}
+	if got, _ := payload["detail"].(string); got != "No configured target can fit the estimated request context." {
+		t.Fatalf("expected pinned 413 detail, got %+v", payload)
+	}
+	if got, ok := payload["largest_usable_context_window_tokens"].(float64); !ok || int(got) != 400 {
+		t.Fatalf("expected largest usable context window 400, got %+v", payload)
+	}
+	if got, ok := payload["estimated_total_context_tokens"].(float64); !ok || int(got) <= 400 {
+		t.Fatalf("expected estimated total context tokens to exceed 400, got %+v", payload)
+	}
+	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected no upstream requests for planner-side 413, got %d", got)
+	}
+	state := loadRuntimeState(t, harness, profileID, smallConnectionID)
+	if state.CycleRetryAttempts != 2 || state.CumulativeRetryAttempts != 5 || state.BanMode != "off" || state.NextRetryAt.Valid {
+		t.Fatalf("expected no-fit planner rejection to leave runtime failure state untouched, got %+v", state)
+	}
+}
+
 func TestRuntimeProxySelectorOrderedFallbackUsesPositionOrderAndSkipsUnroutableTarget(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)

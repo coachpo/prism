@@ -10,7 +10,7 @@ import (
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 )
 
-func TestRuntimeHotPathUsesPublishedPlanningSnapshotOnly(t *testing.T) {
+func TestRuntimePhase1Snapshot_HotPathUsesPublishedPlanningSnapshotOnly(t *testing.T) {
 	harness := newRuntimePhase0Harness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()

@@ -67,13 +67,16 @@ type loadbalanceStrategyExport struct {
 }
 
 type modelExport struct {
-	VendorKey               *string              `json:"vendor_key"`
-	APIFamily               string               `json:"api_family"`
-	ModelID                 string               `json:"model_id"`
-	DisplayName             *string              `json:"display_name"`
-	LoadbalanceStrategyName *string              `json:"loadbalance_strategy_name"`
-	IsEnabled               bool                 `json:"is_enabled"`
-	AccessTargets           []accessTargetExport `json:"access_targets"`
+	VendorKey                 *string              `json:"vendor_key"`
+	APIFamily                 string               `json:"api_family"`
+	ModelID                   string               `json:"model_id"`
+	DisplayName               *string              `json:"display_name"`
+	LoadbalanceStrategyName   *string              `json:"loadbalance_strategy_name"`
+	ContextWindowTokens       *int                 `json:"context_window_tokens"`
+	DefaultOutputTokenReserve *int                 `json:"default_output_token_reserve"`
+	MaxContextUtilization     *float64             `json:"max_context_utilization"`
+	IsEnabled                 bool                 `json:"is_enabled"`
+	AccessTargets             []accessTargetExport `json:"access_targets"`
 }
 
 type accessTargetExport struct {
@@ -88,6 +91,9 @@ type connectionExport struct {
 	Ref                        string            `json:"ref"`
 	APIFamily                  string            `json:"api_family"`
 	EndpointName               string            `json:"endpoint_name"`
+	ContextWindowTokens        *int              `json:"context_window_tokens"`
+	DefaultOutputTokenReserve  *int              `json:"default_output_token_reserve"`
+	MaxContextUtilization      *float64          `json:"max_context_utilization"`
 	PricingTemplateName        *string           `json:"pricing_template_name"`
 	IsActive                   bool              `json:"is_active"`
 	Priority                   int               `json:"priority"`

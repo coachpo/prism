@@ -70,7 +70,7 @@ func TestRuntimeMetricsDoNotLeakSensitiveFields(t *testing.T) {
 	event.IngressRequestID = "ingress-request-secret"
 	event.ProxyAPIKeyID = &sensitiveProxyKeyID
 	event.ProxyAPIKeyNameSnapshot = &sensitiveProxyKeyName
-	event.EndpointID = 42
+	event.EndpointID = intPtr(42)
 	event.RequestPath = "/v1/chat/completions"
 	event.StreamErrorKind = &sensitiveStreamError
 
@@ -190,8 +190,8 @@ func runtimeMetricUsageEvent(operationName string, statusCode int, streamOutcome
 		ModelID:              "public-model",
 		APIFamily:            "openai",
 		OperationName:        operationName,
-		EndpointID:           7,
-		ConnectionID:         8,
+		EndpointID:           intPtr(7),
+		ConnectionID:         intPtr(8),
 		StatusCode:           statusCode,
 		SuccessFlag:          statusCode >= 200 && statusCode <= 299,
 		AttemptCount:         3,

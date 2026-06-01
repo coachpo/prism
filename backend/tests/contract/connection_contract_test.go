@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"testing"
@@ -306,6 +307,52 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	}
 }
 
+func TestConnectionContextCapabilities(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Connection Context Capability Strategy")
+	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "connection-context-owner", nil, "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Context Capability Endpoint", 0)
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET context_window_tokens = 128000, default_output_token_reserve = 2048, max_context_utilization = 0.80 WHERE id = $1`, ownerModelID); err != nil {
+		t.Fatalf("seed owner model context capabilities: %v", err)
+	}
+
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "name": "Inherited Capability Connection"}, modelHeader(defaultProfileID))
+	assertStatus(t, createResponse, http.StatusCreated)
+	var created map[string]any
+	decodeJSONResponse(t, createResponse, &created)
+	connectionID := jsonInt(t, created["id"])
+	if jsonInt(t, created["context_window_tokens"]) != 128000 || jsonInt(t, created["default_output_token_reserve"]) != 2048 || jsonFloat(t, created["max_context_utilization"]) != 0.8 {
+		t.Fatalf("expected owner defaults to hydrate created connection, got %+v", created)
+	}
+	assertStoredConnectionContextCapabilities(t, harness, connectionID, intPtr(128000), 2048, 0.8)
+
+	updateResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"context_window_tokens": 256000, "default_output_token_reserve": 1024, "max_context_utilization": 0.75}, modelHeader(defaultProfileID))
+	assertStatus(t, updateResponse, http.StatusOK)
+	var updated map[string]any
+	decodeJSONResponse(t, updateResponse, &updated)
+	if jsonInt(t, updated["context_window_tokens"]) != 256000 || jsonInt(t, updated["default_output_token_reserve"]) != 1024 || jsonFloat(t, updated["max_context_utilization"]) != 0.75 {
+		t.Fatalf("expected explicit connection overrides to persist, got %+v", updated)
+	}
+	assertStoredConnectionContextCapabilities(t, harness, connectionID, intPtr(256000), 1024, 0.75)
+
+	resetResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"context_window_tokens": nil, "default_output_token_reserve": nil, "max_context_utilization": nil}, modelHeader(defaultProfileID))
+	assertStatus(t, resetResponse, http.StatusOK)
+	var reset map[string]any
+	decodeJSONResponse(t, resetResponse, &reset)
+	if jsonInt(t, reset["context_window_tokens"]) != 128000 || jsonInt(t, reset["default_output_token_reserve"]) != 2048 || jsonFloat(t, reset["max_context_utilization"]) != 0.8 {
+		t.Fatalf("expected null connection capability updates to restore owner defaults, got %+v", reset)
+	}
+	assertStoredConnectionContextCapabilities(t, harness, connectionID, intPtr(128000), 2048, 0.8)
+
+	invalidReserve := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "default_output_token_reserve": 0}, modelHeader(defaultProfileID))
+	assertErrorResponse(t, invalidReserve, http.StatusUnprocessableEntity, "default_output_token_reserve must be greater than or equal to 1 when provided")
+
+	invalidUtilization := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "max_context_utilization": 1.1}, modelHeader(defaultProfileID))
+	assertErrorResponse(t, invalidUtilization, http.StatusUnprocessableEntity, "max_context_utilization must be greater than 0 and less than or equal to 1 when provided")
+}
+
 func TestModelScopedConnectionCreateRejectsConflictingAPIFamily(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
@@ -461,7 +508,7 @@ func assertStoredConnectionAPIFamily(t *testing.T, harness *contractHarness, con
 }
 
 func connectionOwnerScopedMutationDetail() string {
-	return "connection mutations must use owner-scoped routes under /api/models/{model_config_id}/connections"
+	return "terminal target mutations must use owner-scoped routes under /api/models/{model_config_id}/connections"
 }
 
 func assertStoredConnectionCount(t *testing.T, harness *contractHarness, connectionID int, want int) {
@@ -483,6 +530,26 @@ func assertStoredModelAPIFamily(t *testing.T, harness *contractHarness, modelCon
 	}
 	if apiFamily != wantAPIFamily {
 		t.Fatalf("expected model %d api_family %q, got %q", modelConfigID, wantAPIFamily, apiFamily)
+	}
+}
+
+func assertStoredConnectionContextCapabilities(t *testing.T, harness *contractHarness, connectionID int, wantContextWindowTokens *int, wantDefaultOutputTokenReserve int, wantMaxContextUtilization float64) {
+	t.Helper()
+	var contextWindowTokens sql.NullInt32
+	var defaultOutputTokenReserve int
+	var maxContextUtilization float64
+	if err := harness.conn.QueryRow(context.Background(), `SELECT context_window_tokens, default_output_token_reserve, max_context_utilization FROM connections WHERE id = $1`, connectionID).Scan(&contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization); err != nil {
+		t.Fatalf("load connection %d context capabilities: %v", connectionID, err)
+	}
+	if wantContextWindowTokens == nil {
+		if contextWindowTokens.Valid {
+			t.Fatalf("expected connection %d context_window_tokens to be NULL, got %d", connectionID, contextWindowTokens.Int32)
+		}
+	} else if !contextWindowTokens.Valid || int(contextWindowTokens.Int32) != *wantContextWindowTokens {
+		t.Fatalf("expected connection %d context_window_tokens %d, got %+v", connectionID, *wantContextWindowTokens, contextWindowTokens)
+	}
+	if defaultOutputTokenReserve != wantDefaultOutputTokenReserve || maxContextUtilization != wantMaxContextUtilization {
+		t.Fatalf("expected connection %d reserve/utilization %d/%0.2f, got %d/%0.2f", connectionID, wantDefaultOutputTokenReserve, wantMaxContextUtilization, defaultOutputTokenReserve, maxContextUtilization)
 	}
 }
 

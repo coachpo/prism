@@ -287,7 +287,7 @@ async function mockDashboardRoutes(
       return fulfillJson([]);
     }
 
-    if (pathname === "/api/loadbalance-strategies") {
+    if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson([]);
     }
 
@@ -310,7 +310,7 @@ async function mockDashboardRoutes(
 }
 
 test.describe("dashboard routing shell", () => {
-  test("keeps the routing shell chrome and model-node activation behavior", async ({ page }) => {
+  test("keeps the routing shell chrome and graph drill-down behavior", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") {
@@ -322,19 +322,19 @@ test.describe("dashboard routing shell", () => {
 
     await page.goto("/dashboard?tab=overview");
 
-    const routingCard = page.locator('[data-slot="card"]').filter({ hasText: "Routing Health Map" }).first();
+    const routingCard = page.locator('[data-slot="card"]').filter({ hasText: "Routing Target Health" }).first();
 
     await expect(routingCard).toBeVisible();
-    await expect(routingCard.getByText("Link width reflects active connection count. Color reflects 24h route success rate.")).toBeVisible();
-    await expect(routingCard.getByText("Click model nodes to open details")).toBeVisible();
+    await expect(routingCard.getByText(/configured model-to-target-to-endpoint paths/i)).toBeVisible();
     await expect(routingCard.getByText("1 endpoint")).toBeVisible();
-    await expect(routingCard.getByText("1 model")).toBeVisible();
-    await expect(routingCard.getByText("1 active route")).toBeVisible();
+    await expect(routingCard.getByText("2 models")).toBeVisible();
+    await expect(routingCard.getByText("1 active target")).toBeVisible();
     await expect(routingCard.getByText("42 successful requests in 24h")).toBeVisible();
-    await expect(routingCard.getByText("Healthy")).toBeVisible();
-    await expect(routingCard.getByText("Degraded")).toBeVisible();
-    await expect(routingCard.getByText("Failing")).toBeVisible();
-    await expect(routingCard.getByText("No data")).toBeVisible();
+    await expect(routingCard.getByText("Model", { exact: true })).toBeVisible();
+    await expect(routingCard.getByText("Terminal Targets", { exact: true })).toBeVisible();
+    await expect(routingCard.getByText("Endpoint", { exact: true })).toBeVisible();
+    await expect(routingCard.getByText("Disabled", { exact: true })).toBeVisible();
+    await expect(routingCard.getByText("Inactive", { exact: true })).toBeVisible();
     expect(
       consoleErrors.filter(
         (message) =>
@@ -343,12 +343,17 @@ test.describe("dashboard routing shell", () => {
     ).toEqual([]);
     await expect(routingCard.getByText("Endpoint A")).toBeVisible();
     await expect(routingCard.getByText("Model A")).toBeVisible();
-
-    await routingCard.getByText("Endpoint A").click();
-    await expect(page).toHaveURL(/\/dashboard\?tab=overview$/);
+    await expect(routingCard.getByText("Disabled Model", { exact: true })).toBeVisible();
+    await expect(routingCard.getByText("Primary Target", { exact: true })).toBeVisible();
+    await expect(routingCard.getByText("Backup Target", { exact: true })).toBeVisible();
 
     await routingCard.getByText("Model A").click();
     await expect(page).toHaveURL(/\/models\/101$/);
+
+    await page.goto("/dashboard?tab=overview");
+    const refreshedRoutingCard = page.locator('[data-slot="card"]').filter({ hasText: "Routing Target Health" }).first();
+    await refreshedRoutingCard.getByText("Endpoint A").click();
+    await expect(page).toHaveURL(/\/request-logs\?endpoint_id=201$/);
   });
 
   test("does not render the removed routing strategy mix card", async ({ page }) => {

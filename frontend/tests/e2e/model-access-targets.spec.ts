@@ -132,7 +132,7 @@ test("stale connection target payload is rejected and surfaced in the model crea
   await page.getByRole("button", { name: "New Model" }).click();
 
   const dialog = page.getByRole("dialog", { name: "New Model" });
-  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
   await page.getByRole("textbox", { name: "Model ID" }).fill("stale-connection-target");
 
   await dialog.locator("#access-target-select").click();

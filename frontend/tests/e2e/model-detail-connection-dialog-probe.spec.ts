@@ -326,7 +326,7 @@ test("OpenAI connection dialog exposes probe controls and sends the resolved raw
   const { savePayloads } = await stubModelDetailRoutes(page, model);
 
   await page.goto("/models/1");
-  await page.getByRole("button", { name: "New connection" }).first().click();
+  await page.getByRole("button", { name: "New terminal target" }).first().click();
 
   await expect(page.getByTestId("connection-dialog-probe-section")).toBeVisible();
   await page.locator("#conn-selected-endpoint").click();
@@ -353,7 +353,7 @@ test("non-OpenAI connection dialog hides the probe section", async ({ page }) =>
   await stubModelDetailRoutes(page, model);
 
   await page.goto("/models/2");
-  await page.getByRole("button", { name: "New connection" }).first().click();
+  await page.getByRole("button", { name: "New terminal target" }).first().click();
 
   await expect(page.getByTestId("connection-dialog-probe-section")).toHaveCount(0);
 });

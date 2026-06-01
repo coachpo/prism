@@ -114,6 +114,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		now:                        now,
 		dashboardSnapshots:         dashboardSnapshots,
 	}
+	dashboardSnapshots.RegisterInvalidationListener(service.handleDashboardAggregateInvalidation)
 	service.upgrader = websocket.Upgrader{CheckOrigin: service.checkOrigin}
 	return service, nil
 }

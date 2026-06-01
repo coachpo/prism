@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -181,6 +183,354 @@ func (snapshot requestGenerationParamsSnapshot) clone() requestGenerationParamsS
 	}
 	cloned.Params = &params
 	return cloned
+}
+
+const (
+	openAIChatContextEstimationMethod      = "openai_chat_heuristic_v1"
+	openAIResponsesContextEstimationMethod = "openai_responses_heuristic_v1"
+	contextEstimationUnavailableErrorCode  = "context_estimation_unavailable"
+	contextEstimationUnavailableDetail     = "Preflight context estimation is unavailable for this request shape."
+	defaultOutputTokenReserve              = 4096
+	defaultMaxContextUtilization           = 0.90
+)
+
+type requestContextEstimation struct {
+	Method                      string `json:"method"`
+	EstimatedInputTokens        int    `json:"estimated_input_tokens"`
+	ReservedOutputTokens        int    `json:"reserved_output_tokens"`
+	EstimatedTotalContextTokens int    `json:"estimated_total_context_tokens"`
+	UsableContextWindowTokens   *int   `json:"usable_context_window_tokens,omitempty"`
+}
+
+type requestContextEstimationOptions struct {
+	DefaultOutputTokenReserve *int
+	ContextWindowTokens       *int
+	MaxContextUtilization     *float64
+}
+
+func estimatePreflightRequestContext(operation RuntimeOperation, rawBody []byte, requestedModel runtimeModelRecord) (*requestContextEstimation, error) {
+	options := requestContextEstimationOptions{
+		DefaultOutputTokenReserve: requestedModel.DefaultOutputTokenReserve,
+		ContextWindowTokens:       requestedModel.ContextWindowTokens,
+		MaxContextUtilization:     requestedModel.MaxContextUtilization,
+	}
+	switch strings.TrimSpace(operation.Name) {
+	case "openai.chat_completions":
+		return estimateOpenAIChatCompletionsRequestTokens(rawBody, options)
+	case "openai.responses":
+		return estimateOpenAIResponsesRequestTokens(rawBody, options)
+	default:
+		return nil, nil
+	}
+}
+
+func estimateOpenAIChatCompletionsRequestTokens(rawBody []byte, options requestContextEstimationOptions) (*requestContextEstimation, error) {
+	payload, err := decodeRequestContextEstimationPayload(rawBody)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateOpenAIChatMessagesShape(payload["messages"]); err != nil {
+		return nil, err
+	}
+	if err := validateOpenAIToolsShape(payload["tools"]); err != nil {
+		return nil, err
+	}
+	params := &requestGenerationParams{Provider: "openai"}
+	extractOpenAIChatGenerationParams(payload, params)
+	estimatedInputTokens := heuristicTokensForSerializedValue(payload["messages"])
+	estimatedInputTokens += heuristicTokensForSerializedValue(payload["tools"])
+	estimatedInputTokens += heuristicTokensForSerializedValue(payload["response_format"])
+	return buildRequestContextEstimation(openAIChatContextEstimationMethod, estimatedInputTokens, params.MaxOutputTokens, options), nil
+}
+
+func estimateOpenAIResponsesRequestTokens(rawBody []byte, options requestContextEstimationOptions) (*requestContextEstimation, error) {
+	payload, err := decodeRequestContextEstimationPayload(rawBody)
+	if err != nil {
+		return nil, err
+	}
+	if trimmedStringFromAny(payload["previous_response_id"]) != nil || payload["conversation"] != nil {
+		return nil, contextEstimationUnavailableDomainError()
+	}
+	if err := validateOpenAIResponsesInputShape(payload["input"]); err != nil {
+		return nil, err
+	}
+	if err := validateOpenAIToolsShape(payload["tools"]); err != nil {
+		return nil, err
+	}
+	params := &requestGenerationParams{Provider: "openai"}
+	extractOpenAIResponsesGenerationParams(payload, params)
+	estimatedInputTokens := heuristicTokensForSerializedValue(payload["input"])
+	estimatedInputTokens += heuristicTokensForSerializedValue(payload["instructions"])
+	estimatedInputTokens += heuristicTokensForSerializedValue(payload["tools"])
+	estimatedInputTokens += heuristicTokensForSerializedValue(payload["text"])
+	return buildRequestContextEstimation(openAIResponsesContextEstimationMethod, estimatedInputTokens, params.MaxOutputTokens, options), nil
+}
+
+func buildRequestContextEstimation(method string, estimatedInputTokens int, explicitMaxOutputTokens *int, options requestContextEstimationOptions) *requestContextEstimation {
+	if estimatedInputTokens < 0 {
+		estimatedInputTokens = 0
+	}
+	reservedOutputTokens := resolveReservedOutputTokens(explicitMaxOutputTokens, options.DefaultOutputTokenReserve)
+	return &requestContextEstimation{
+		Method:                      method,
+		EstimatedInputTokens:        estimatedInputTokens,
+		ReservedOutputTokens:        reservedOutputTokens,
+		EstimatedTotalContextTokens: estimatedInputTokens + reservedOutputTokens,
+		UsableContextWindowTokens:   computeUsableContextWindowTokens(options.ContextWindowTokens, options.MaxContextUtilization),
+	}
+}
+
+func decodeRequestContextEstimationPayload(rawBody []byte) (map[string]any, error) {
+	payload := map[string]any{}
+	if len(bytes.TrimSpace(rawBody)) == 0 {
+		return payload, nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(rawBody))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, contextEstimationUnavailableDomainError()
+	}
+	return payload, nil
+}
+
+func contextEstimationUnavailableDomainError() error {
+	return &domainError{StatusCode: http.StatusBadRequest, ErrorCode: contextEstimationUnavailableErrorCode, Detail: contextEstimationUnavailableDetail}
+}
+
+func resolveReservedOutputTokens(explicitMaxOutputTokens *int, defaultOutputReserve *int) int {
+	if explicitMaxOutputTokens != nil && *explicitMaxOutputTokens > 0 {
+		return *explicitMaxOutputTokens
+	}
+	if defaultOutputReserve != nil && *defaultOutputReserve > 0 {
+		return *defaultOutputReserve
+	}
+	return defaultOutputTokenReserve
+}
+
+func computeUsableContextWindowTokens(contextWindowTokens *int, maxContextUtilization *float64) *int {
+	if contextWindowTokens == nil || *contextWindowTokens <= 0 {
+		return nil
+	}
+	utilization := defaultMaxContextUtilization
+	if maxContextUtilization != nil && *maxContextUtilization > 0 && *maxContextUtilization <= 1 {
+		utilization = *maxContextUtilization
+	}
+	usable := int(math.Floor(float64(*contextWindowTokens) * utilization))
+	return &usable
+}
+
+func heuristicTokensForSerializedValue(value any) int {
+	if value == nil {
+		return 0
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return 0
+	}
+	return heuristicTokensForByteCount(len(raw))
+}
+
+func heuristicTokensForByteCount(byteCount int) int {
+	if byteCount <= 0 {
+		return 0
+	}
+	return int(math.Ceil(float64(byteCount) / 4.0))
+}
+
+func validateOpenAIChatMessagesShape(value any) error {
+	if value == nil {
+		return nil
+	}
+	messages, ok := value.([]any)
+	if !ok {
+		return contextEstimationUnavailableDomainError()
+	}
+	for _, message := range messages {
+		messageMap, ok := message.(map[string]any)
+		if !ok {
+			return contextEstimationUnavailableDomainError()
+		}
+		if err := validateOpenAIChatMessageContent(messageMap["content"]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateOpenAIChatMessageContent(value any) error {
+	switch typed := value.(type) {
+	case nil, string:
+		return nil
+	case []any:
+		for _, part := range typed {
+			partMap, ok := part.(map[string]any)
+			if !ok {
+				return contextEstimationUnavailableDomainError()
+			}
+			switch strings.ToLower(strings.TrimSpace(stringValue(partMap["type"]))) {
+			case "", "text":
+				continue
+			case "image_url":
+				if err := validateOpenAIChatImagePart(partMap); err != nil {
+					return err
+				}
+			case "input_audio":
+				continue
+			case "file":
+				if err := validateInlineFileShape(partMap, "file"); err != nil {
+					return err
+				}
+			default:
+				return contextEstimationUnavailableDomainError()
+			}
+		}
+		return nil
+	default:
+		return contextEstimationUnavailableDomainError()
+	}
+}
+
+func validateOpenAIChatImagePart(part map[string]any) error {
+	imageURL := part["image_url"]
+	detail := stringValue(part["detail"])
+	switch typed := imageURL.(type) {
+	case string:
+		return validateInlineImageReference(typed, detail)
+	case map[string]any:
+		return validateInlineImageReference(stringValue(typed["url"]), stringValue(typed["detail"]))
+	default:
+		return contextEstimationUnavailableDomainError()
+	}
+}
+
+func validateOpenAIResponsesInputShape(value any) error {
+	switch typed := value.(type) {
+	case nil, string:
+		return nil
+	case []any:
+		for _, item := range typed {
+			if err := validateOpenAIResponsesInputItem(item); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return contextEstimationUnavailableDomainError()
+	}
+}
+
+func validateOpenAIResponsesInputItem(value any) error {
+	item, ok := value.(map[string]any)
+	if !ok {
+		return contextEstimationUnavailableDomainError()
+	}
+	switch strings.ToLower(strings.TrimSpace(stringValue(item["type"]))) {
+	case "message":
+		return validateOpenAIResponsesMessageItem(item)
+	case "input_text":
+		return nil
+	case "input_image":
+		return validateOpenAIResponsesImageItem(item)
+	case "input_file":
+		return validateInlineFileShape(item, "")
+	default:
+		return contextEstimationUnavailableDomainError()
+	}
+}
+
+func validateOpenAIResponsesMessageItem(item map[string]any) error {
+	switch typed := item["content"].(type) {
+	case nil, string:
+		return nil
+	case []any:
+		for _, part := range typed {
+			if err := validateOpenAIResponsesInputItem(part); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return contextEstimationUnavailableDomainError()
+	}
+}
+
+func validateOpenAIResponsesImageItem(item map[string]any) error {
+	if trimmedStringFromAny(item["file_id"]) != nil {
+		return contextEstimationUnavailableDomainError()
+	}
+	return validateInlineImageReference(stringValue(item["image_url"]), stringValue(item["detail"]))
+}
+
+func validateOpenAIToolsShape(value any) error {
+	if value == nil {
+		return nil
+	}
+	tools, ok := value.([]any)
+	if !ok {
+		return contextEstimationUnavailableDomainError()
+	}
+	for _, tool := range tools {
+		toolMap, ok := tool.(map[string]any)
+		if !ok {
+			return contextEstimationUnavailableDomainError()
+		}
+		if isContextUnsafeToolType(stringValue(toolMap["type"])) {
+			return contextEstimationUnavailableDomainError()
+		}
+	}
+	return nil
+}
+
+func validateInlineImageReference(imageReference string, detail string) error {
+	trimmedReference := strings.TrimSpace(imageReference)
+	if trimmedReference == "" || isRemoteReference(trimmedReference) || !isInlineDataReference(trimmedReference) {
+		return contextEstimationUnavailableDomainError()
+	}
+	if detailUsesModelDefault(detail) {
+		return contextEstimationUnavailableDomainError()
+	}
+	return nil
+}
+
+func validateInlineFileShape(value map[string]any, nestedKey string) error {
+	fileShape := value
+	if nestedKey != "" {
+		nested, ok := value[nestedKey].(map[string]any)
+		if !ok {
+			return contextEstimationUnavailableDomainError()
+		}
+		fileShape = nested
+	}
+	if trimmedStringFromAny(fileShape["file_id"]) != nil || isRemoteReference(stringValue(fileShape["file_url"])) {
+		return contextEstimationUnavailableDomainError()
+	}
+	if trimmedStringFromAny(fileShape["file_data"]) == nil {
+		return contextEstimationUnavailableDomainError()
+	}
+	return nil
+}
+
+func detailUsesModelDefault(detail string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(detail))
+	return normalized == "" || normalized == "auto"
+}
+
+func isContextUnsafeToolType(toolType string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolType)) {
+	case "web_search", "web_search_preview", "file_search", "mcp", "code_interpreter", "computer_use", "computer_use_preview":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRemoteReference(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	return strings.HasPrefix(normalized, "http://") || strings.HasPrefix(normalized, "https://")
+}
+
+func isInlineDataReference(value string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "data:")
 }
 
 type geminiGenerationParamsStreamingObserver struct {

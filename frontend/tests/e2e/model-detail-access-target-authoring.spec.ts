@@ -295,7 +295,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
 
   const dialog = page.getByRole("dialog", { name: "Model Settings" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Add target" })).toHaveCount(1);
 
   await dialog.getByRole("button", { name: "Remove target 1" }).click();
@@ -323,7 +323,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
 
   await page.getByRole("button", { name: /edit model/i }).click();
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
   await dialog.locator("#access-target-select").click();
   await expect(page.getByRole("option", { name: /connection|standalone/i })).toHaveCount(0);
   await expect(page.getByRole("option", { name: /Target Alpha/ })).toBeVisible();
@@ -509,13 +509,13 @@ test("private connection owner flows use model-scoped routes and hide cross-owne
   const editor = page.getByTestId("access-targets-editor").first();
   await expect(editor.getByText("Owned primary")).toBeVisible();
   await expect(editor.getByText("Owned secondary")).toBeVisible();
-  await expect(editor.getByText("Connection 401")).toBeVisible();
+  await expect(editor.getByText("Terminal target 401")).toBeVisible();
   await expect(editor.getByRole("button", { name: /Health Check Owned primary/ })).toBeVisible();
-  await expect(editor.getByRole("button", { name: /Health Check Connection 401/ })).toHaveCount(0);
-  await expect(editor.getByRole("button", { name: /Edit Connection 401/ })).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: /Health Check Terminal target 401/ })).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: /Edit Terminal target 401/ })).toHaveCount(0);
   await expect(editor.getByRole("switch", { name: "Enable access target 3" })).toHaveCount(0);
 
-  await editor.getByRole("button", { name: "New connection" }).click();
+  await editor.getByRole("button", { name: "New terminal target" }).click();
   await page.locator("#conn-selected-endpoint").click();
   await page.getByRole("option", { name: /Reusable OpenAI Endpoint/ }).click();
   await page.locator("#conn-name").fill("Owner-created connection");

@@ -19,6 +19,7 @@ type RequestLogEntry struct {
 	VendorName                        *string   `json:"vendor_name"`
 	EndpointID                        *int      `json:"endpoint_id"`
 	ConnectionID                      *int      `json:"connection_id"`
+	TerminalTargetID                  *int      `json:"terminal_target_id"`
 	ProxyAPIKeyID                     *int      `json:"proxy_api_key_id"`
 	ProxyAPIKeyNameSnapshot           *string   `json:"proxy_api_key_name_snapshot"`
 	IngressRequestID                  *string   `json:"ingress_request_id"`

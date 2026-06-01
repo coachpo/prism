@@ -19,7 +19,7 @@ type runtimeRejectedRoutePersistenceCounts struct {
 	OutboxRows  int
 }
 
-func TestRuntimeRejectedRoutesStayOutsideTransportAdmissionSideEffectsAndPersistence(t *testing.T) {
+func TestRejectedRouteIsolation_StaysOutsideTransportAdmissionSideEffectsAndPersistence(t *testing.T) {
 	var sideEffectSubmits atomic.Int32
 	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
 		RuntimeOptions: runtimeapi.Options{

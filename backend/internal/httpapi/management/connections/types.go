@@ -56,6 +56,26 @@ func (value *optionalInt) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type optionalFloat struct {
+	Set   bool
+	Value *float64
+}
+
+func (value *optionalFloat) UnmarshalJSON(data []byte) error {
+	value.Set = true
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		value.Value = nil
+		return nil
+	}
+	var parsed float64
+	if err := json.Unmarshal(trimmed, &parsed); err != nil {
+		return err
+	}
+	value.Value = &parsed
+	return nil
+}
+
 type optionalBool struct {
 	Set   bool
 	Value bool
@@ -116,6 +136,9 @@ type connectionCreateRequest struct {
 	APIFamily                  string                 `json:"api_family"`
 	EndpointID                 *int                   `json:"endpoint_id"`
 	EndpointCreate             *endpointCreateRequest `json:"endpoint_create"`
+	ContextWindowTokens        *int                   `json:"context_window_tokens"`
+	DefaultOutputTokenReserve  *int                   `json:"default_output_token_reserve"`
+	MaxContextUtilization      *float64               `json:"max_context_utilization"`
 	IsActive                   *bool                  `json:"is_active"`
 	Name                       *string                `json:"name"`
 	AuthType                   *string                `json:"auth_type"`
@@ -132,6 +155,9 @@ type connectionUpdateRequest struct {
 	APIFamily                  optionalString         `json:"api_family"`
 	EndpointID                 optionalInt            `json:"endpoint_id"`
 	EndpointCreate             optionalEndpointCreate `json:"endpoint_create"`
+	ContextWindowTokens        optionalInt            `json:"context_window_tokens"`
+	DefaultOutputTokenReserve  optionalInt            `json:"default_output_token_reserve"`
+	MaxContextUtilization      optionalFloat          `json:"max_context_utilization"`
 	IsActive                   optionalBool           `json:"is_active"`
 	Name                       optionalString         `json:"name"`
 	AuthType                   optionalString         `json:"auth_type"`
@@ -191,6 +217,9 @@ type connectionResponse struct {
 	APIFamily                  string                            `json:"api_family"`
 	EndpointID                 int                               `json:"endpoint_id"`
 	Endpoint                   *endpointResponse                 `json:"endpoint"`
+	ContextWindowTokens        *int                              `json:"context_window_tokens"`
+	DefaultOutputTokenReserve  int                               `json:"default_output_token_reserve"`
+	MaxContextUtilization      float64                           `json:"max_context_utilization"`
 	IsActive                   bool                              `json:"is_active"`
 	Priority                   int                               `json:"priority"`
 	Name                       *string                           `json:"name"`

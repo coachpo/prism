@@ -2,6 +2,7 @@ import type {
   DashboardMetricSnapshot,
   DashboardRoutingHealthMap,
   DashboardSnapshot,
+  DashboardTopologyGraph,
   RequestLogListItem,
   SpendingTopModel,
   StatGroup,
@@ -23,6 +24,7 @@ type DashboardSnapshotOptions = {
   metricSnapshot?: Partial<DashboardMetricSnapshot>;
   recentRequests?: RequestLogListItem[];
   routingHealthMap?: DashboardRoutingHealthMap;
+  topologyGraph?: DashboardTopologyGraph;
   topSpendingModels?: SpendingTopModel[];
 };
 export function createRoutingHealthMap(): DashboardRoutingHealthMap {
@@ -96,6 +98,156 @@ export function createEmptyRoutingHealthMap(): DashboardRoutingHealthMap {
     trafficRequestTotal24h: 0,
   };
 }
+
+export function createTopologyGraph(): DashboardTopologyGraph {
+  return {
+    nodes: [
+      {
+        id: "model-101",
+        kind: "model",
+        label: "Model A",
+        sublabel: "model-a",
+        status: "enabled",
+        model_config_id: 101,
+        model_id: "model-a",
+      },
+      {
+        id: "model-102",
+        kind: "model",
+        label: "Disabled Model",
+        sublabel: "disabled-model",
+        status: "disabled",
+        model_config_id: 102,
+        model_id: "disabled-model",
+      },
+      {
+        id: "terminal-target-501",
+        kind: "connection",
+        product_kind: "terminal_target",
+        label: "Primary Target",
+        sublabel: "Endpoint A",
+        status: "active",
+        terminal_target_id: 501,
+        connection_id: 501,
+        active: true,
+        health_status: "healthy",
+        recent_request_count: 42,
+        recent_success_rate: 97.6,
+        last_request_at: dashboardAggregateTimestamp,
+      },
+      {
+        id: "terminal-target-502",
+        kind: "connection",
+        product_kind: "terminal_target",
+        label: "Backup Target",
+        sublabel: "Endpoint A",
+        status: "inactive",
+        terminal_target_id: 502,
+        connection_id: 502,
+        active: false,
+        health_status: "unknown",
+        recent_request_count: 0,
+        recent_success_rate: null,
+        last_request_at: null,
+      },
+      {
+        id: "endpoint-201",
+        kind: "endpoint",
+        label: "Endpoint A",
+        sublabel: "Endpoint 201",
+        status: "configured",
+        endpoint_id: 201,
+      },
+    ],
+    edges: [
+      {
+        id: "access-target-1001",
+        kind: "model_to_model",
+        source_node_id: "model-101",
+        target_node_id: "model-102",
+        position: 0,
+        enabled: true,
+        source_model_config_id: 101,
+        source_model_id: "model-a",
+        target_model_config_id: 102,
+        target_model_id: "disabled-model",
+      },
+      {
+        id: "access-target-1002",
+        kind: "model_to_connection",
+        product_kind: "model_to_terminal_target",
+        source_node_id: "model-101",
+        target_node_id: "terminal-target-501",
+        position: 1,
+        enabled: true,
+        source_model_config_id: 101,
+        source_model_id: "model-a",
+        terminal_target_id: 501,
+        connection_id: 501,
+      },
+      {
+        id: "access-target-1003",
+        kind: "model_to_connection",
+        product_kind: "model_to_terminal_target",
+        source_node_id: "model-101",
+        target_node_id: "terminal-target-502",
+        position: 2,
+        enabled: true,
+        source_model_config_id: 101,
+        source_model_id: "model-a",
+        terminal_target_id: 502,
+        connection_id: 502,
+      },
+      {
+        id: "terminal-target-binding-501",
+        kind: "connection_to_endpoint",
+        product_kind: "terminal_target_to_endpoint",
+        source_node_id: "terminal-target-501",
+        target_node_id: "endpoint-201",
+        terminal_target_id: 501,
+        connection_id: 501,
+        endpoint_id: 201,
+      },
+      {
+        id: "terminal-target-binding-502",
+        kind: "connection_to_endpoint",
+        product_kind: "terminal_target_to_endpoint",
+        source_node_id: "terminal-target-502",
+        target_node_id: "endpoint-201",
+        terminal_target_id: 502,
+        connection_id: 502,
+        endpoint_id: 201,
+      },
+    ],
+    stats: {
+      model_count: 2,
+      active_model_count: 1,
+      disabled_model_count: 1,
+      terminal_target_count: 2,
+      active_terminal_target_count: 1,
+      inactive_terminal_target_count: 1,
+      endpoint_count: 1,
+      edge_count: 5,
+    },
+  };
+}
+
+export function createEmptyTopologyGraph(): DashboardTopologyGraph {
+  return {
+    nodes: [],
+    edges: [],
+    stats: {
+      model_count: 0,
+      active_model_count: 0,
+      disabled_model_count: 0,
+      terminal_target_count: 0,
+      active_terminal_target_count: 0,
+      inactive_terminal_target_count: 0,
+      endpoint_count: 0,
+      edge_count: 0,
+    },
+  };
+}
 export function createDashboardSnapshot(
   options: DashboardSnapshotOptions = {},
 ): DashboardSnapshot {
@@ -140,6 +292,7 @@ export function createDashboardSnapshot(
       },
     ],
     routing_health_map: options.routingHealthMap ?? createRoutingHealthMap(),
+    topology_graph: options.topologyGraph ?? createTopologyGraph(),
   };
 }
 export function createEmptyDashboardSnapshot(): DashboardSnapshot {
@@ -161,6 +314,7 @@ export function createEmptyDashboardSnapshot(): DashboardSnapshot {
     },
     recentRequests: [],
     routingHealthMap: createEmptyRoutingHealthMap(),
+    topologyGraph: createEmptyTopologyGraph(),
     topSpendingModels: [],
   });
 }

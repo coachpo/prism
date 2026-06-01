@@ -48,6 +48,27 @@
   "routing": {
     "profile_id": 2,
     "endpoint_id": 12,
+    "terminal_target_id": 34,
+    "selected_terminal_target_id": 34,
+    "context_routing": {
+      "policy": "cheapest_eligible_context",
+      "selected_terminal_target_id": 34,
+      "estimation_method": "openai_chat_heuristic_v1",
+      "estimated_input_tokens": 15,
+      "reserved_output_tokens": 1024,
+      "estimated_total_context_tokens": 1039,
+      "usable_context_window_tokens": 8192,
+      "cost_ranking_method": "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id",
+      "skipped_terminal_targets": [
+        {
+          "terminal_target_id": 35,
+          "endpoint_id": 13,
+          "reason": "estimated_context_exceeds_usable_window",
+          "usable_context_window_tokens": 512,
+          "estimated_total_context_tokens": 1039
+        }
+      ]
+    },
     "endpoint_label": "Primary OpenAI",
     "endpoint_base_url": "https://api.openai.com",
     "endpoint_description": "Primary production key",

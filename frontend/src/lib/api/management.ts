@@ -110,7 +110,12 @@ function normalizeNumber(value: unknown, field: string) {
 }
 
 function normalizeLegacyStrategyType(value: unknown): LegacyLoadbalanceStrategyType {
-  if (value === "single" || value === "fill-first" || value === "round-robin") {
+  if (
+    value === "single" ||
+    value === "fill-first" ||
+    value === "round-robin" ||
+    value === "cheapest_eligible_context"
+  ) {
     return value;
   }
 

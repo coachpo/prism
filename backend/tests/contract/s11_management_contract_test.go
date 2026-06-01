@@ -281,6 +281,87 @@ func TestLoadbalanceStrategyGet(t *testing.T) {
 	assertNoLegacyRemovedStrategyFields(t, detail)
 }
 
+func TestLoadbalanceStrategyCheapestEligibleContext(t *testing.T) {
+	harness := newS11ContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+
+	createResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/loadbalance/strategies",
+		map[string]any{
+			"name":                                   "S11 Cheapest Eligible Context",
+			"legacy_strategy_type":                   "cheapest_eligible_context",
+			"failure_status_codes":                   []int{503, 429, 500},
+			"ban_mode":                               "temporary",
+			"retry_base_delay_ms":                    1500,
+			"retry_backoff_multiplier":               2.5,
+			"retry_jitter_ratio":                     0.15,
+			"retry_max_delay_ms":                     600000,
+			"cycle_retry_attempt_limit":              3,
+			"ban_cumulative_retry_attempt_threshold": 5,
+			"ban_duration_seconds":                   120,
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, createResponse, http.StatusCreated)
+	var created map[string]any
+	decodeJSONResponse(t, createResponse, &created)
+	strategyID := jsonInt(t, created["id"])
+	if created["name"] != "S11 Cheapest Eligible Context" || created["legacy_strategy_type"] != "cheapest_eligible_context" {
+		t.Fatalf("expected cheapest_eligible_context create payload, got %+v", created)
+	}
+	assertIntList(t, created["failure_status_codes"], []int{429, 500, 503})
+	assertNoLegacyRemovedStrategyFields(t, created)
+
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/strategies", nil, modelHeader(defaultProfileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listed []map[string]any
+	decodeJSONResponse(t, listResponse, &listed)
+	if len(listed) != 1 || listed[0]["legacy_strategy_type"] != "cheapest_eligible_context" || listed[0]["name"] != "S11 Cheapest Eligible Context" {
+		t.Fatalf("expected cheapest_eligible_context list payload, got %+v", listed)
+	}
+
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detail map[string]any
+	decodeJSONResponse(t, detailResponse, &detail)
+	if detail["legacy_strategy_type"] != "cheapest_eligible_context" || detail["name"] != "S11 Cheapest Eligible Context" {
+		t.Fatalf("expected cheapest_eligible_context detail payload, got %+v", detail)
+	}
+	assertIntList(t, detail["failure_status_codes"], []int{429, 500, 503})
+
+	updateResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID),
+		map[string]any{
+			"name":                                   "S11 Cheapest Eligible Context Updated",
+			"legacy_strategy_type":                   "cheapest_eligible_context",
+			"failure_status_codes":                   []int{422, 500},
+			"ban_mode":                               "until_reset",
+			"retry_base_delay_ms":                    0,
+			"retry_backoff_multiplier":               2.0,
+			"retry_jitter_ratio":                     0.05,
+			"retry_max_delay_ms":                     240000,
+			"cycle_retry_attempt_limit":              2,
+			"ban_cumulative_retry_attempt_threshold": 2,
+			"ban_duration_seconds":                   0,
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, updateResponse, http.StatusOK)
+	var updated map[string]any
+	decodeJSONResponse(t, updateResponse, &updated)
+	if updated["name"] != "S11 Cheapest Eligible Context Updated" || updated["legacy_strategy_type"] != "cheapest_eligible_context" || updated["ban_mode"] != "until_reset" {
+		t.Fatalf("expected cheapest_eligible_context update payload, got %+v", updated)
+	}
+	assertIntList(t, updated["failure_status_codes"], []int{422, 500})
+	assertNoLegacyRemovedStrategyFields(t, updated)
+}
+
 func TestLoadbalanceAdaptiveRejected(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)

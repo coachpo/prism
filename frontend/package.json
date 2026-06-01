@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "test:lib": "node --test tests/lib/config_import_validation_contract.test.mjs tests/lib/config-import-pricing-template-normalization.test.mjs tests/lib/profile_scope_header_contract.test.mjs tests/lib/config_api_contract.test.mjs",
     "test:config": "playwright test tests/e2e/settings-config-export.spec.ts tests/e2e/settings-config-import.spec.ts tests/e2e/settings-vendor-catalog.spec.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; playwright test \"$@\"' --"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

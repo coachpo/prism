@@ -65,7 +65,7 @@ const PricingTemplateImportSchema = z.strictObject({
 
 const LoadbalanceStrategyImportSchema = z.strictObject({
   name: z.string(),
-  legacy_strategy_type: z.enum(["single", "fill-first", "round-robin"]).nullable(),
+  legacy_strategy_type: z.enum(["single", "fill-first", "round-robin", "cheapest_eligible_context"]).nullable(),
   failure_status_codes: z.array(z.number().int().min(100).max(599)),
   ban_mode: z.enum(["off", "temporary", "until_reset"]).nullable(),
   retry_base_delay_ms: z.number().int().min(0).nullable(),
@@ -77,10 +77,17 @@ const LoadbalanceStrategyImportSchema = z.strictObject({
   ban_duration_seconds: z.number().int().min(0).nullable(),
 });
 
+const ContextWindowTokensImportSchema = z.number().int().min(1).nullable().optional();
+const DefaultOutputTokenReserveImportSchema = z.number().int().min(1).nullable().optional();
+const MaxContextUtilizationImportSchema = z.number().gt(0).max(1).nullable().optional();
+
 const ConnectionImportSchema = z.strictObject({
   ref: z.string(),
   api_family: z.enum(["openai", "anthropic", "gemini"]),
   endpoint_name: z.string(),
+  context_window_tokens: ContextWindowTokensImportSchema,
+  default_output_token_reserve: DefaultOutputTokenReserveImportSchema,
+  max_context_utilization: MaxContextUtilizationImportSchema,
   pricing_template_name: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
   priority: z.number().int().min(0).optional(),
@@ -107,6 +114,9 @@ const ModelImportSchema = z.strictObject({
   model_id: z.string(),
   display_name: z.string().nullable().optional(),
   loadbalance_strategy_name: z.string(),
+  context_window_tokens: ContextWindowTokensImportSchema,
+  default_output_token_reserve: DefaultOutputTokenReserveImportSchema,
+  max_context_utilization: MaxContextUtilizationImportSchema,
   is_enabled: z.boolean().optional(),
   access_targets: z.array(AccessTargetImportSchema),
 }).superRefine((model, context) => {

@@ -9,7 +9,6 @@ import type {
   RoutingLinkShapeProps,
   RoutingNodeShapeProps,
 } from "./routingDiagramChartTypes";
-import { getChartPayload, isRoutingDiagramNode } from "./routingDiagramChartUtils";
 import {
   Card,
   CardAction,
@@ -65,14 +64,6 @@ export function RoutingDiagramChartShell({
                 left: isCompact ? 84 : 148,
               }}
               sort={false}
-              onClick={(item: unknown, elementType: unknown) => {
-                if (elementType === "node") {
-                  const node = getChartPayload(item);
-                  if (isRoutingDiagramNode(node) && node.kind === "model") {
-                    onActivateNode(node);
-                  }
-                }
-              }}
               node={(props: RoutingNodeShapeProps) => (
                 <RoutingDiagramNodeShape compact={isCompact} onActivate={onActivateNode} props={props} />
               )}

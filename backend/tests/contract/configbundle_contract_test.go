@@ -488,11 +488,11 @@ func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID i
 	}
 
 	var modelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $3, TRUE, $4, $4) RETURNING id`, profileID, openaiVendorID, strategyID, now).Scan(&modelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $3, 128000, 4096, 0.90, TRUE, $4, $4) RETURNING id`, profileID, openaiVendorID, strategyID, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert model: %v", err)
 	}
 	var connectionID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, $3, 60, 8, 4, 'responses_minimal', TRUE, 0, 'Primary OpenAI connection', 'openai', $4, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, endpointID, pricingID, `{"X-Prism-Trace":"v3-contract"}`, now).Scan(&connectionID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, 200000, 2048, 0.85, $3, 60, 8, 4, 'responses_minimal', TRUE, 0, 'Primary OpenAI connection', 'openai', $4, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, endpointID, pricingID, `{"X-Prism-Trace":"v3-contract"}`, now).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, modelConfigID, connectionID, now); err != nil {
@@ -551,6 +551,9 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	if !strings.HasPrefix(connectionRef, "openai-primary-openai") || connection["api_family"] != "openai" || connection["endpoint_name"] != "Primary OpenAI" {
 		t.Fatalf("expected v3 standalone OpenAI connection export, got %+v", connection)
 	}
+	if jsonInt(t, connection["context_window_tokens"]) != 200000 || jsonInt(t, connection["default_output_token_reserve"]) != 2048 || jsonFloat(t, connection["max_context_utilization"]) != 0.85 {
+		t.Fatalf("expected v3 connection capability export, got %+v", connection)
+	}
 	strategies := payload["loadbalance_strategies"].([]any)
 	if len(strategies) != 1 {
 		t.Fatalf("expected one exported loadbalance strategy, got %+v", strategies)
@@ -572,6 +575,9 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 		if _, ok := model[removedKey]; ok {
 			t.Fatalf("model export must not include removed key %q: %+v", removedKey, model)
 		}
+	}
+	if jsonInt(t, model["context_window_tokens"]) != 128000 || jsonInt(t, model["default_output_token_reserve"]) != 4096 || jsonFloat(t, model["max_context_utilization"]) != 0.9 {
+		t.Fatalf("expected v3 model capability export, got %+v", model)
 	}
 	targets := model["access_targets"].([]any)
 	if len(targets) != 1 {

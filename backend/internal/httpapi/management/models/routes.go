@@ -14,10 +14,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/contextcapability"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/coachpo/prism/backend/internal/targetcompat"
 )
 
 type endpointModelsBatchRequest struct {
@@ -113,8 +115,12 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *requestBody.LoadbalanceStrategyID); err != nil {
 			return modelConfigResponse{}, err
 		}
+		capabilitySettings, err := contextcapability.NormalizeModelSettings(requestBody.ContextWindowTokens, requestBody.DefaultOutputTokenReserve, requestBody.MaxContextUtilization)
+		if err != nil {
+			return modelConfigResponse{}, contextCapabilityDomainError(err)
+		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, VendorID: requestBody.VendorID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
+		record := modelRecord{ProfileID: profile.ID, VendorID: requestBody.VendorID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
 		created, err := insertModel(r.Context(), tx, record)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -207,6 +213,37 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		}
 		if requestBody.LoadbalanceStrategyID.Set {
 			next.LoadbalanceStrategyID = requestBody.LoadbalanceStrategyID.Value
+		}
+		if requestBody.ContextWindowTokens.Set {
+			if requestBody.ContextWindowTokens.Value == nil {
+				next.ContextWindowTokens = nil
+			} else {
+				resolvedContextWindowTokens, normalizeErr := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens.Value)
+				if normalizeErr != nil {
+					return modelConfigResponse{}, contextCapabilityFieldDomainError("context_window_tokens", normalizeErr)
+				}
+				next.ContextWindowTokens = resolvedContextWindowTokens
+			}
+		}
+		if requestBody.DefaultOutputTokenReserve.Set {
+			if requestBody.DefaultOutputTokenReserve.Value == nil {
+				return modelConfigResponse{}, requiredContextCapabilityFieldError("default_output_token_reserve")
+			}
+			resolvedOutputTokenReserve, normalizeErr := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve.Value)
+			if normalizeErr != nil {
+				return modelConfigResponse{}, contextCapabilityFieldDomainError("default_output_token_reserve", normalizeErr)
+			}
+			next.DefaultOutputTokenReserve = resolvedOutputTokenReserve
+		}
+		if requestBody.MaxContextUtilization.Set {
+			if requestBody.MaxContextUtilization.Value == nil {
+				return modelConfigResponse{}, requiredContextCapabilityFieldError("max_context_utilization")
+			}
+			resolvedMaxContextUtilization, normalizeErr := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization.Value)
+			if normalizeErr != nil {
+				return modelConfigResponse{}, contextCapabilityFieldDomainError("max_context_utilization", normalizeErr)
+			}
+			next.MaxContextUtilization = resolvedMaxContextUtilization
 		}
 		if requestBody.APIFamily.Set && next.APIFamily != current.APIFamily && hasConnectionAccessTargetRecords(currentAccessTargetsByModel[current.ID]) {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change api_family while private connections exist"}
@@ -493,7 +530,7 @@ func (s *Service) deletePrivateConnectionTargetFromMutationItems(ctx context.Con
 		return false, &domainError{StatusCode: http.StatusNotFound, Detail: "Model access target not found"}
 	}
 	item := items[index]
-	if item.Request.TargetType != "connection" {
+	if !targetcompat.IsTerminalTargetAccessTargetType(item.Request.TargetType) {
 		return false, nil
 	}
 	if item.Request.ConnectionID == nil {
@@ -623,7 +660,7 @@ func accessTargetRequestFromCreate(input modelAccessTargetCreateRequest, existin
 	if position < 0 || position > existingCount {
 		return modelAccessTargetRequest{}, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("position must be between 0 and %d", existingCount)}
 	}
-	request := modelAccessTargetRequest{TargetType: strings.ToLower(strings.TrimSpace(input.TargetType)), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, IsEnabled: input.IsEnabled}
+	request := modelAccessTargetRequest{TargetType: targetcompat.NormalizeAccessTargetType(input.TargetType), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, IsEnabled: input.IsEnabled}
 	if err := validatePublicAccessTarget(request); err != nil {
 		return modelAccessTargetRequest{}, err
 	}
@@ -633,10 +670,10 @@ func accessTargetRequestFromCreate(input modelAccessTargetCreateRequest, existin
 func accessTargetRequestFromRecord(record accessTargetRecord) modelAccessTargetRequest {
 	enabled := record.IsEnabled
 	request := modelAccessTargetRequest{TargetType: record.TargetType, Position: record.Position, IsEnabled: &enabled}
-	if record.TargetType == "model" && record.TargetModel != nil {
+	if targetcompat.IsModelAccessTargetType(record.TargetType) && record.TargetModel != nil {
 		request.TargetModelID = stringPtr(record.TargetModel.ModelID)
 	}
-	if record.TargetType == "connection" {
+	if targetcompat.IsTerminalTargetAccessTargetType(record.TargetType) {
 		request.ConnectionID = copyIntPtr(record.TargetConnectionID)
 	}
 	return request
@@ -664,30 +701,30 @@ func updateAccessTargetMutationItem(items []accessTargetMutationItem, targetID i
 		return nil, &domainError{StatusCode: http.StatusNotFound, Detail: "Model access target not found"}
 	}
 	item := items[index]
-	if item.Request.TargetType == "connection" {
+	if targetcompat.IsTerminalTargetAccessTargetType(item.Request.TargetType) {
 		return updateConnectionAccessTargetMutationItem(items, targetID, index, input)
 	}
 	updated := item.Request
 	if input.TargetType.Set {
-		if input.TargetType.Value != nil && strings.ToLower(strings.TrimSpace(*input.TargetType.Value)) == "connection" {
+		if input.TargetType.Value != nil && targetcompat.IsTerminalTargetAccessTargetType(*input.TargetType.Value) {
 			return nil, connectionAccessTargetsManagedError()
 		}
 		if input.TargetType.Value == nil {
 			updated.TargetType = ""
 		} else {
-			updated.TargetType = strings.ToLower(strings.TrimSpace(*input.TargetType.Value))
+			updated.TargetType = targetcompat.NormalizeAccessTargetType(*input.TargetType.Value)
 		}
-		if updated.TargetType == "model" {
+		if targetcompat.IsModelAccessTargetType(updated.TargetType) {
 			updated.ConnectionID = nil
 		}
-		if updated.TargetType == "connection" {
+		if targetcompat.IsTerminalTargetAccessTargetType(updated.TargetType) {
 			updated.TargetModelID = nil
 		}
 	}
 	if input.TargetModelID.Set {
 		updated.TargetModelID = normalizeOptionalString(input.TargetModelID.Value, false, false)
 		if !input.TargetType.Set && updated.TargetModelID != nil && strings.TrimSpace(*updated.TargetModelID) != "" {
-			updated.TargetType = "model"
+			updated.TargetType = targetcompat.AccessTargetTypeModel
 			updated.ConnectionID = nil
 		}
 	}
@@ -733,7 +770,7 @@ func deleteAccessTargetMutationItem(items []accessTargetMutationItem, targetID i
 	if index == -1 {
 		return nil, &domainError{StatusCode: http.StatusNotFound, Detail: "Model access target not found"}
 	}
-	if items[index].Request.TargetType == "connection" {
+	if targetcompat.IsTerminalTargetAccessTargetType(items[index].Request.TargetType) {
 		return nil, connectionAccessTargetsManagedError()
 	}
 	items = append(items[:index], items[index+1:]...)
@@ -783,7 +820,7 @@ func hasEnabledAccessTargetMutationItem(items []accessTargetMutationItem) bool {
 func modelAccessTargetRequestsOnly(values []modelAccessTargetRequest) []modelAccessTargetRequest {
 	items := make([]modelAccessTargetRequest, 0, len(values))
 	for _, value := range values {
-		if value.TargetType == "model" {
+		if targetcompat.IsModelAccessTargetType(value.TargetType) {
 			items = append(items, value)
 		}
 	}
@@ -800,7 +837,7 @@ func preservedConnectionTargetsFromRecords(records []accessTargetRecord) []prese
 	sortAccessTargetRecords(ordered)
 	items := make([]preservedConnectionAccessTarget, 0)
 	for _, record := range ordered {
-		if record.TargetType != "connection" {
+		if !targetcompat.IsTerminalTargetAccessTargetType(record.TargetType) {
 			continue
 		}
 		items = append(items, preservedConnectionAccessTarget{ID: record.ID, Position: record.Position, IsEnabled: record.IsEnabled})
@@ -848,7 +885,7 @@ func preservedConnectionTargetsFromMutationItems(items []accessTargetMutationIte
 	normalizeMutationItemPositions(items)
 	preserved := make([]preservedConnectionAccessTarget, 0)
 	for _, item := range items {
-		if item.Request.TargetType != "connection" {
+		if !targetcompat.IsTerminalTargetAccessTargetType(item.Request.TargetType) {
 			continue
 		}
 		enabled := true
@@ -862,7 +899,7 @@ func preservedConnectionTargetsFromMutationItems(items []accessTargetMutationIte
 
 func hasConnectionAccessTargetRecords(records []accessTargetRecord) bool {
 	for _, record := range records {
-		if record.TargetType == "connection" {
+		if targetcompat.IsTerminalTargetAccessTargetType(record.TargetType) {
 			return true
 		}
 	}
@@ -1150,7 +1187,7 @@ func normalizeAccessTargets(values []modelAccessTargetRequest) []modelAccessTarg
 	normalized := make([]modelAccessTargetRequest, 0, len(values))
 	for _, value := range values {
 		normalizedTarget := value
-		normalizedTarget.TargetType = strings.ToLower(strings.TrimSpace(value.TargetType))
+		normalizedTarget.TargetType = targetcompat.NormalizeAccessTargetType(value.TargetType)
 		normalizedTarget.TargetModelID = normalizeOptionalString(value.TargetModelID, false, false)
 		normalized = append(normalized, normalizedTarget)
 	}
@@ -1170,6 +1207,9 @@ func validateCreateRequest(requestBody modelCreateRequest) error {
 	if requestBody.LoadbalanceStrategyID == nil {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
 	}
+	if err := validateModelContextCapabilitiesCreate(requestBody); err != nil {
+		return err
+	}
 	if err := validatePublicAccessTargets(requestBody.AccessTargets); err != nil {
 		return err
 	}
@@ -1188,10 +1228,63 @@ func validateUpdateRequest(requestBody modelUpdateRequest) error {
 	if requestBody.LoadbalanceStrategyID.Set && requestBody.LoadbalanceStrategyID.Value == nil {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
 	}
+	if err := validateModelContextCapabilitiesUpdate(requestBody); err != nil {
+		return err
+	}
 	if requestBody.AccessTargets.Set {
 		return validatePublicAccessTargets(requestBody.AccessTargets.Value)
 	}
 	return nil
+}
+
+func validateModelContextCapabilitiesCreate(requestBody modelCreateRequest) error {
+	if _, err := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens); err != nil {
+		return contextCapabilityFieldDomainError("context_window_tokens", err)
+	}
+	if _, err := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve); err != nil {
+		return contextCapabilityFieldDomainError("default_output_token_reserve", err)
+	}
+	if _, err := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization); err != nil {
+		return contextCapabilityFieldDomainError("max_context_utilization", err)
+	}
+	return nil
+}
+
+func validateModelContextCapabilitiesUpdate(requestBody modelUpdateRequest) error {
+	if requestBody.ContextWindowTokens.Set && requestBody.ContextWindowTokens.Value != nil {
+		if _, err := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens.Value); err != nil {
+			return contextCapabilityFieldDomainError("context_window_tokens", err)
+		}
+	}
+	if requestBody.DefaultOutputTokenReserve.Set {
+		if requestBody.DefaultOutputTokenReserve.Value == nil {
+			return requiredContextCapabilityFieldError("default_output_token_reserve")
+		}
+		if _, err := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve.Value); err != nil {
+			return contextCapabilityFieldDomainError("default_output_token_reserve", err)
+		}
+	}
+	if requestBody.MaxContextUtilization.Set {
+		if requestBody.MaxContextUtilization.Value == nil {
+			return requiredContextCapabilityFieldError("max_context_utilization")
+		}
+		if _, err := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization.Value); err != nil {
+			return contextCapabilityFieldDomainError("max_context_utilization", err)
+		}
+	}
+	return nil
+}
+
+func contextCapabilityDomainError(err error) error {
+	return &domainError{StatusCode: http.StatusBadRequest, Detail: err.Error()}
+}
+
+func contextCapabilityFieldDomainError(fieldName string, err error) error {
+	return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("%s %s", fieldName, err.Error())}
+}
+
+func requiredContextCapabilityFieldError(fieldName string) error {
+	return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("%s is required", fieldName)}
 }
 
 func validatePublicAccessTargets(accessTargets []modelAccessTargetRequest) error {
@@ -1207,21 +1300,21 @@ func validatePublicAccessTargets(accessTargets []modelAccessTargetRequest) error
 }
 
 func validatePublicAccessTarget(accessTarget modelAccessTargetRequest) error {
-	if accessTarget.TargetType == "connection" || accessTarget.ConnectionID != nil {
+	if targetcompat.IsTerminalTargetAccessTargetType(accessTarget.TargetType) || accessTarget.ConnectionID != nil {
 		return connectionAccessTargetsManagedError()
 	}
 	return nil
 }
 
 func connectionAccessTargetsManagedError() error {
-	return &domainError{StatusCode: http.StatusBadRequest, Detail: "connection access targets are managed through model-scoped connection routes"}
+	return &domainError{StatusCode: http.StatusBadRequest, Detail: "terminal targets are managed through model-scoped connection routes"}
 }
 
 func validateAccessTargets(accessTargets []modelAccessTargetRequest) error {
 	seenTargets := map[string]struct{}{}
 	seenPositions := map[int]struct{}{}
 	for _, accessTarget := range accessTargets {
-		if accessTarget.TargetType != "model" && accessTarget.TargetType != "connection" {
+		if !targetcompat.IsSupportedAccessTargetType(accessTarget.TargetType) {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_type must be 'model' or 'connection'"}
 		}
 		if accessTarget.Position < 0 {
@@ -1254,7 +1347,7 @@ func validateAccessTargetsForSourceModel(sourceModelID string, accessTargets []m
 		return nil
 	}
 	for _, accessTarget := range accessTargets {
-		if accessTarget.TargetType != "model" || accessTarget.TargetModelID == nil {
+		if !targetcompat.IsModelAccessTargetType(accessTarget.TargetType) || accessTarget.TargetModelID == nil {
 			continue
 		}
 		if strings.TrimSpace(*accessTarget.TargetModelID) == sourceModelID {
@@ -1265,7 +1358,7 @@ func validateAccessTargetsForSourceModel(sourceModelID string, accessTargets []m
 }
 
 func validateAccessTargetPointerContract(accessTarget modelAccessTargetRequest) (string, error) {
-	if accessTarget.TargetType == "model" {
+	if targetcompat.IsModelAccessTargetType(accessTarget.TargetType) {
 		if accessTarget.TargetModelID == nil || strings.TrimSpace(*accessTarget.TargetModelID) == "" {
 			return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "target_model_id is required for model access targets"}
 		}
@@ -1275,10 +1368,10 @@ func validateAccessTargetPointerContract(accessTarget modelAccessTargetRequest) 
 		return "model:" + strings.TrimSpace(*accessTarget.TargetModelID), nil
 	}
 	if accessTarget.ConnectionID == nil || *accessTarget.ConnectionID <= 0 {
-		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "connection_id is required for connection access targets"}
+		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "connection_id is required for terminal targets"}
 	}
 	if accessTarget.TargetModelID != nil && strings.TrimSpace(*accessTarget.TargetModelID) != "" {
-		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "target_model_id must be omitted for connection access targets"}
+		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "target_model_id must be omitted for terminal targets"}
 	}
 	return fmt.Sprintf("connection:%d", *accessTarget.ConnectionID), nil
 }

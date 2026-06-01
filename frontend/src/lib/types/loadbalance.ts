@@ -6,7 +6,11 @@ export type LoadbalanceEventType =
   | "recovered"
   | "admission_rejected";
 
-export type LegacyLoadbalanceStrategyType = "single" | "fill-first" | "round-robin";
+export type LegacyLoadbalanceStrategyType =
+  | "single"
+  | "fill-first"
+  | "round-robin"
+  | "cheapest_eligible_context";
 export type LoadbalanceBanMode = "off" | "temporary" | "until_reset";
 
 export type LoadbalanceFailureKind =

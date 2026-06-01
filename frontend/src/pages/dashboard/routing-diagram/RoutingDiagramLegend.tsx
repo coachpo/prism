@@ -1,4 +1,3 @@
-import { ROUTE_HEALTH_COLOR } from "./routingDiagramChartUtils";
 import { useLocale } from "@/i18n/useLocale";
 
 export function RoutingDiagramLegend() {
@@ -6,44 +5,36 @@ export function RoutingDiagramLegend() {
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-      <HealthLegendPill
-        label={messages.dashboard.routingLegendHealthy}
-        description="99%+"
-        color={ROUTE_HEALTH_COLOR.healthy}
-      />
-      <HealthLegendPill
-        label={messages.dashboard.routingLegendDegraded}
-        description="95-98.99%"
-        color={ROUTE_HEALTH_COLOR.degraded}
-      />
-      <HealthLegendPill
-        label={messages.dashboard.routingLegendFailing}
-        description="<95%"
-        color={ROUTE_HEALTH_COLOR.failing}
-      />
-      <HealthLegendPill
-        label={messages.dashboard.routingLegendNoData}
-        description={messages.dashboard.routingLegendNoRecentRequests}
-        color={ROUTE_HEALTH_COLOR.noData}
-      />
+      <LegendPill label={messages.dashboard.routingModelNodeType} color="var(--chart-1)" />
+      <LegendPill label={messages.modelDetail.connections} color="var(--chart-4)" />
+      <LegendPill label={messages.dashboard.routingEndpointNodeType} color="var(--chart-2)" />
+      <LegendPill label={messages.modelDetail.disabled} color="var(--muted-foreground)" muted />
+      <LegendPill label={messages.modelDetail.inactive} color="var(--muted-foreground)" muted />
     </div>
   );
 }
 
-function HealthLegendPill({
+function LegendPill({
   color,
-  description,
   label,
+  muted = false,
 }: {
   color: string;
-  description: string;
   label: string;
+  muted?: boolean;
 }) {
   return (
     <span className="inline-flex items-center gap-2 rounded-full border bg-background/80 px-2.5 py-1">
-      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+      <span
+        className="h-2.5 w-2.5 rounded-full border"
+        style={{
+          backgroundColor: color,
+          borderColor: muted ? "var(--border)" : "transparent",
+          opacity: muted ? 0.45 : 0.9,
+        }}
+        aria-hidden="true"
+      />
       <span className="font-medium text-foreground">{label}</span>
-      <span>{description}</span>
     </span>
   );
 }

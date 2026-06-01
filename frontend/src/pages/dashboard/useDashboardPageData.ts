@@ -118,7 +118,7 @@ function toDashboardOverviewData(
     metricSnapshot: toDashboardMetricSnapshot(snapshot),
     modelDisplayNames: buildModelDisplayNames(snapshot),
     recentRequests: snapshot?.recent_requests ?? [],
-    routingDiagramData: snapshot?.routing_health_map ?? null,
+    routingDiagramData: snapshot?.topology_graph ?? null,
     routingDiagramError,
     routingDiagramLoading,
     topSpendingModels: snapshot?.top_spending_models ?? [],

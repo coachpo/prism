@@ -23,6 +23,7 @@ model_configs (profile-scoped)
   model_id
   display_name
   loadbalance_strategy_id FK -> loadbalance_strategies.id
+  context_window_tokens, default_output_token_reserve, max_context_utilization
   is_enabled
   created_at, updated_at
   UNIQUE(profile_id, model_id)
@@ -54,6 +55,7 @@ connections (profile-scoped private endpoint bindings)
   api_family
   endpoint_id FK -> endpoints.id
   pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
+  context_window_tokens, default_output_token_reserve, max_context_utilization
   qps_limit, max_in_flight_non_stream, max_in_flight_stream
   is_active, priority
   name, auth_type, custom_headers, openai_probe_endpoint_variant
@@ -333,6 +335,9 @@ Maps a model ID to optional vendor metadata, fixed api family, and routing behav
 | model_id | VARCHAR(200) | NOT NULL | Model identifier (scoped by profile) |
 | display_name | VARCHAR(200) | NULLABLE | Human-readable name |
 | loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Strategy used while planning this model's targets |
+| context_window_tokens | INTEGER | NULLABLE | Model default context window for preflight routing |
+| default_output_token_reserve | INTEGER | NOT NULL, DEFAULT 4096 | Output reserve used when request output budget is omitted |
+| max_context_utilization | DOUBLE PRECISION | NOT NULL, DEFAULT 0.9 | Usable-window multiplier for preflight routing |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -341,6 +346,7 @@ Constraints:
 - `UNIQUE(profile_id, model_id)`.
 - Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to model-private endpoint bindings.
 - Runtime compatibility is checked against `api_family`.
+- Context capability defaults are normalized by management and config-bundle imports. Missing reserves become `4096`, missing utilization becomes `0.90`, and utilization must be greater than `0` and less than or equal to `1`.
 
 ### 2.3A `model_access_targets` (profile-scoped model access metadata)
 
@@ -372,7 +378,7 @@ Reusable explicit Ban Policy strategy objects attached by models within one prof
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | name | VARCHAR(200) | NOT NULL | Strategy name (profile-unique) |
-| legacy_strategy_type | VARCHAR(20) | NOT NULL, CHECK IN (`single`, `fill-first`, `round-robin`) | Routing subtype |
+| legacy_strategy_type | VARCHAR(40) | NOT NULL, CHECK IN (`single`, `fill-first`, `round-robin`, `cheapest_eligible_context`) | Routing subtype |
 | failure_status_codes | INTEGER[] | NOT NULL | Status codes that count as retry-window failures |
 | ban_mode | VARCHAR(20) | NOT NULL | `off`, `temporary`, or `until_reset` |
 | retry_base_delay_ms | INTEGER | NOT NULL | First retry-window delay in milliseconds |
@@ -388,6 +394,7 @@ Reusable explicit Ban Policy strategy objects attached by models within one prof
 Constraints and lifecycle rules:
 - `UNIQUE(profile_id, name)`.
 - Effective runtime policy resolves once per request from the attached strategy row.
+- `cheapest_eligible_context` filters terminal targets by preflight context fit, then ranks fitting candidates by estimated blended request cost, access-target position, and terminal target ID.
 - Ban Policy fields carry failure status codes, retry-window delay/backoff/jitter tuning, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and ban duration semantics.
 - Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.
 - Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; Prism does not derive the ban threshold from the cycle limit.
@@ -427,6 +434,9 @@ Private endpoint bindings within one profile. Each connection is owned by exactl
 | api_family | VARCHAR(50) | NOT NULL | Runtime compatibility family used for same-family target validation |
 | endpoint_id | INTEGER | FK -> endpoints.id, NOT NULL | Referenced endpoint |
 | pricing_template_id | INTEGER | FK -> pricing_templates.id, NULLABLE, ON DELETE RESTRICT | Assigned pricing template |
+| context_window_tokens | INTEGER | NULLABLE | Terminal-target context window override or inherited model default |
+| default_output_token_reserve | INTEGER | NOT NULL, DEFAULT 4096 | Output reserve used when request output budget is omitted |
+| max_context_utilization | DOUBLE PRECISION | NOT NULL, DEFAULT 0.9 | Usable-window multiplier for preflight routing |
 | qps_limit | INTEGER | NULLABLE | Per-connection QPS cap; `NULL` means unlimited |
 | max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
 | max_in_flight_stream | INTEGER | NULLABLE | Concurrent stream request cap; `NULL` means unlimited |
@@ -447,6 +457,7 @@ Indexes include `idx_connections_profile_family_active_priority` for family-scop
 
 Connection invariants:
 - `api_family` is the compatibility source for access-target validation and runtime planning.
+- Product-facing routing surfaces present these rows as terminal targets while persisted compatibility remains `connections` and `target_type = "connection"`.
 - A connection can be referenced by exactly one model access target in the same profile.
 - The partial unique index `uq_model_access_targets_connection_owner` enforces one owner for every non-null `target_connection_id`.
 - Public model target authoring cannot attach private connections by ID. Model detail creates, updates, health-checks, and deletes private connections through model-scoped routes.
@@ -546,7 +557,9 @@ Telemetry rows for every proxy attempt with immutable profile attribution captur
 | ingress_request_id | VARCHAR(36) | NULLABLE | Prism-generated incoming request grouping ID |
 | attempt_number | INTEGER | NULLABLE | Per-ingress attempt order, starting at 1 |
 | provider_correlation_id | VARCHAR(255) | NULLABLE | Best-effort provider-visible correlation ID |
-| connection_id | INTEGER | NULLABLE | Connection used |
+| connection_id | INTEGER | NULLABLE | Executed connection snapshot |
+| selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target before execution or no-fit rejection |
+| context_routing | JSONB | NULLABLE | Preflight context-routing metadata and skipped-target reasons |
 | proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot used for the request |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Display-name snapshot for the proxy key at request time |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
@@ -567,6 +580,7 @@ Request-log semantics:
 - `ingress_request_id` groups the rows created by one incoming runtime request.
 - `attempt_number` preserves retry/failover ordering within that group.
 - `model_id` records the requested model ID while `resolved_target_model_id` records the final target model ID selected for that attempt.
+- `selected_terminal_target_id` can differ from `connection_id` when the planner selected one terminal target but execution later failed over to another attempt. No-fit `413` rows keep executed target fields null and preserve skipped-target detail in `context_routing`.
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 - Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
@@ -585,7 +599,9 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | resolved_target_model_id | VARCHAR(200) | NULLABLE | Final target model selected for the request |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
-| connection_id | INTEGER | NULLABLE | Connection snapshot |
+| connection_id | INTEGER | NULLABLE | Executed connection snapshot |
+| selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target for the finalized request |
+| context_routing | JSONB | NULLABLE | Preflight context-routing metadata copied from runtime planning |
 | proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Proxy key name at event time |
 | attempt_count | INTEGER | NOT NULL | Number of upstream attempts that contributed to the finalized event |
@@ -601,7 +617,7 @@ Usage-event semantics:
 - `ingress_request_id` preserves the stable request-group identifier shared with the attempt-level `request_logs` rows for the same incoming runtime request.
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
 - Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
-- Usage events copy canonical disjoint token totals and runtime pricing results. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
+- Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, and context-routing metadata when it exists. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
 - Explicit `"0"` pricing contributes zero-cost component micros on priced events. Rows with absent or invalid pricing snapshots, or missing FX data, remain unpriced with `MISSING_PRICE_DATA`.
 
 ### 2.12 `audit_logs` (partitioned immutable profile attribution)
@@ -974,7 +990,7 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 - `profiles` own all scoped entities: `model_configs`, `endpoints`, `connections`, `user_settings`, `endpoint_fx_rate_settings`, user `header_blocklist_rules`.
 - `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, and `password_reset_challenges`; retained `webauthn_credentials` rows remain schema-level historical state rather than an active supported workflow surface.
 - `sidecar_instances` is a global control-plane root for sidecar snapshots; it is not owned by a profile.
-- `request_logs`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
+- `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
 - `routing_connection_runtime_state` and `routing_connection_runtime_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
 - Cross-profile resource lookups are treated as not found (`404`) under effective profile scope.
@@ -1006,7 +1022,7 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 
 - Canonical profile export format is Go-era config version `3` with `bundle_kind = profile_config`, top-level private `connections`, `models[].access_targets[]`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable model `vendor_key`, and model `api_family`.
 - Canonical global vendor export format is Go-era config version `1` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts version-3 profile bundles only and validates top-level private connections, ordered model access targets, explicit Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, five concrete pricing fields, and encrypted `secret_payload` entries. Version-3 profile import rejects any `connection_ref` used by multiple models or colliding with existing private ownership, then normalizes missing/null/blank pricing inputs to `"0"` before validation.
+- Profile import accepts version-3 profile bundles only and validates top-level private connections, ordered model access targets, explicit Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, context capability fields, five concrete pricing fields, and encrypted `secret_payload` entries. Version-3 profile import rejects any `connection_ref` used by multiple models or colliding with existing private ownership, normalizes missing/null/blank pricing inputs to `"0"`, and serializes effective context defaults explicitly as `default_output_token_reserve = 4096` and `max_context_utilization = 0.90` before validation/export.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
 - Persisted rows created by import always receive fresh database IDs; the version-3 profile bundle contract omits internal IDs entirely and relies on name-based references.

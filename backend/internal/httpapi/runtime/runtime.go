@@ -75,16 +75,19 @@ type apiFamilyAuthConfig struct {
 }
 
 type runtimeModelRecord struct {
-	ID                    int
-	ProfileID             int
-	APIFamily             string
-	ModelID               string
-	VendorID              *int
-	VendorKey             *string
-	VendorName            *string
-	AuditEnabled          bool
-	AuditCaptureBodies    bool
-	LoadbalanceStrategyID *int
+	ID                        int
+	ProfileID                 int
+	APIFamily                 string
+	ModelID                   string
+	VendorID                  *int
+	VendorKey                 *string
+	VendorName                *string
+	AuditEnabled              bool
+	AuditCaptureBodies        bool
+	LoadbalanceStrategyID     *int
+	ContextWindowTokens       *int
+	DefaultOutputTokenReserve *int
+	MaxContextUtilization     *float64
 }
 
 type runtimeEndpoint struct {
@@ -124,24 +127,115 @@ type runtimeConnectionUpstreamAuthSnapshot struct {
 }
 
 type runtimeConnection struct {
-	ID                      int
-	ProfileID               int
-	APIFamily               string
-	ModelConfigID           int
-	EndpointID              int
-	Priority                int
-	QPSLimit                *int
-	MaxInFlightNonStream    *int
-	MaxInFlightStream       *int
-	Name                    *string
-	AuthType                *string
-	EncryptedEndpointAPIKey string
-	CustomHeaders           map[string]any
-	PricingTemplateID       *int
-	PricingTemplateSnapshot *runtimePricingTemplateSnapshot
-	EndpointFXSnapshot      *runtimeEndpointFXSnapshot
-	UpstreamAuth            *runtimeConnectionUpstreamAuthSnapshot
-	Endpoint                runtimeEndpoint
+	ID                        int
+	ProfileID                 int
+	APIFamily                 string
+	ModelConfigID             int
+	EndpointID                int
+	Priority                  int
+	QPSLimit                  *int
+	MaxInFlightNonStream      *int
+	MaxInFlightStream         *int
+	Name                      *string
+	AuthType                  *string
+	EncryptedEndpointAPIKey   string
+	CustomHeaders             map[string]any
+	PricingTemplateID         *int
+	PricingTemplateSnapshot   *runtimePricingTemplateSnapshot
+	ContextWindowTokens       *int
+	DefaultOutputTokenReserve int
+	MaxContextUtilization     float64
+	EndpointFXSnapshot        *runtimeEndpointFXSnapshot
+	UpstreamAuth              *runtimeConnectionUpstreamAuthSnapshot
+	Endpoint                  runtimeEndpoint
+}
+
+const (
+	runtimeContextRoutingCostRankingMethod = "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id"
+
+	runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow = "estimated_context_exceeds_usable_window"
+	runtimeContextRoutingSkipReasonUsableContextWindowUnavailable      = "usable_context_window_unavailable"
+)
+
+type runtimeContextRoutingSkippedTerminalTarget struct {
+	TerminalTargetID            *int   `json:"terminal_target_id,omitempty"`
+	EndpointID                  *int   `json:"endpoint_id,omitempty"`
+	Reason                      string `json:"reason"`
+	UsableContextWindowTokens   *int   `json:"usable_context_window_tokens,omitempty"`
+	EstimatedTotalContextTokens *int   `json:"estimated_total_context_tokens,omitempty"`
+}
+
+type runtimeContextRoutingDecision struct {
+	Policy                             string                                      `json:"policy"`
+	SelectedTerminalTargetID           *int                                        `json:"selected_terminal_target_id,omitempty"`
+	EstimationMethod                   *string                                     `json:"estimation_method,omitempty"`
+	EstimatedInputTokens               *int                                        `json:"estimated_input_tokens,omitempty"`
+	ReservedOutputTokens               *int                                        `json:"reserved_output_tokens,omitempty"`
+	EstimatedTotalContextTokens        *int                                        `json:"estimated_total_context_tokens,omitempty"`
+	UsableContextWindowTokens          *int                                        `json:"usable_context_window_tokens,omitempty"`
+	CostRankingMethod                  *string                                     `json:"cost_ranking_method,omitempty"`
+	SelectedEstimatedBlendedCostMicros *int64                                      `json:"selected_estimated_blended_cost_micros,omitempty"`
+	SkippedTerminalTargets             []runtimeContextRoutingSkippedTerminalTarget `json:"skipped_terminal_targets,omitempty"`
+}
+
+func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *runtimeContextRoutingDecision {
+	if source == nil {
+		return nil
+	}
+	cloned := &runtimeContextRoutingDecision{
+		Policy:                             source.Policy,
+		SelectedTerminalTargetID:           cloneRuntimeIntPointer(source.SelectedTerminalTargetID),
+		EstimationMethod:                   cloneRuntimeStringPointer(source.EstimationMethod),
+		EstimatedInputTokens:               cloneRuntimeIntPointer(source.EstimatedInputTokens),
+		ReservedOutputTokens:               cloneRuntimeIntPointer(source.ReservedOutputTokens),
+		EstimatedTotalContextTokens:        cloneRuntimeIntPointer(source.EstimatedTotalContextTokens),
+		UsableContextWindowTokens:          cloneRuntimeIntPointer(source.UsableContextWindowTokens),
+		CostRankingMethod:                  cloneRuntimeStringPointer(source.CostRankingMethod),
+		SelectedEstimatedBlendedCostMicros: cloneRuntimeInt64Pointer(source.SelectedEstimatedBlendedCostMicros),
+		SkippedTerminalTargets:             cloneRuntimeContextRoutingSkippedTerminalTargets(source.SkippedTerminalTargets),
+	}
+	if cloned.Policy == "" {
+		cloned.Policy = source.Policy
+	}
+	return cloned
+}
+
+func cloneRuntimeContextRoutingSkippedTerminalTargets(source []runtimeContextRoutingSkippedTerminalTarget) []runtimeContextRoutingSkippedTerminalTarget {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make([]runtimeContextRoutingSkippedTerminalTarget, 0, len(source))
+	for _, item := range source {
+		cloned = append(cloned, runtimeContextRoutingSkippedTerminalTarget{
+			TerminalTargetID:            cloneRuntimeIntPointer(item.TerminalTargetID),
+			EndpointID:                  cloneRuntimeIntPointer(item.EndpointID),
+			Reason:                      item.Reason,
+			UsableContextWindowTokens:   cloneRuntimeIntPointer(item.UsableContextWindowTokens),
+			EstimatedTotalContextTokens: cloneRuntimeIntPointer(item.EstimatedTotalContextTokens),
+		})
+	}
+	return cloned
+}
+
+func cloneRuntimeIntPointer(source *int) *int {
+	if source == nil {
+		return nil
+	}
+	return intPtr(*source)
+}
+
+func cloneRuntimeInt64Pointer(source *int64) *int64 {
+	if source == nil {
+		return nil
+	}
+	return int64Ptr(*source)
+}
+
+func cloneRuntimeStringPointer(source *string) *string {
+	if source == nil {
+		return nil
+	}
+	return stringPtr(*source)
 }
 
 type headerBlocklistRule struct {
@@ -167,6 +261,8 @@ type requestPlan struct {
 	RawRequestBody              []byte
 	UpstreamBody                []byte
 	IsStreamingRequest          bool
+	SelectedTerminalTargetID    *int
+	ContextRouting              *runtimeContextRoutingDecision
 	TerminalAttempts            []runtimeTerminalAttempt
 	Connections                 []runtimeConnection
 	RuntimeStates               map[int]loadbalance.RuntimeConnectionState
@@ -175,12 +271,24 @@ type requestPlan struct {
 	FailoverStatusCodes         []int
 	Strategy                    loadbalance.RuntimeStrategy
 	RequestGenerationParams     requestGenerationParamsSnapshot
+	RequestContextEstimation    *requestContextEstimation
 	RequestGenerationSnapshot   func() requestGenerationParamsSnapshot
 	HTTPClient                  *http.Client
 }
 
 func (plan requestPlan) requiresReplayableRequestBody() bool {
 	return len(plan.orderedTerminalAttempts()) > 1
+}
+
+func (plan requestPlan) selectedTerminalTargetID() *int {
+	if plan.SelectedTerminalTargetID != nil {
+		return cloneRuntimeIntPointer(plan.SelectedTerminalTargetID)
+	}
+	attempts := plan.orderedTerminalAttempts()
+	if len(attempts) == 0 {
+		return nil
+	}
+	return intPtr(attempts[0].Connection.ID)
 }
 
 func (plan requestPlan) orderedTerminalAttempts() []runtimeTerminalAttempt {
@@ -218,6 +326,23 @@ type requestPlanningInput struct {
 	Snapshot        *planningSnapshot
 }
 
+type runtimePlanningFailureTelemetry struct {
+	ProfileID                   int
+	RequestedModelID            string
+	RequestedVendorID           *int
+	RequestedVendorKey          *string
+	RequestedVendorName         *string
+	APIFamily                   string
+	RuntimeOperation            RuntimeOperation
+	RequestPath                 string
+	IsStreamingRequest          bool
+	AuditEnabledAtRequest       bool
+	AuditCaptureBodiesAtRequest bool
+	ReportCurrencySnapshot      runtimeReportCurrencySnapshot
+	RequestGenerationParams     requestGenerationParamsSnapshot
+	ContextRouting              *runtimeContextRoutingDecision
+}
+
 type resolvedRequestOperation struct {
 	Match            RuntimeOperationMatch
 	ContentType      string
@@ -225,12 +350,14 @@ type resolvedRequestOperation struct {
 }
 
 type resolvedExecutionTarget struct {
-	RequestedModel   runtimeModelRecord
-	TargetModel      runtimeModelRecord
-	Connections      []runtimeConnection
-	TerminalAttempts []runtimeTerminalAttempt
-	RuntimeStates    map[int]loadbalance.RuntimeConnectionState
-	Strategy         loadbalance.RuntimeStrategy
+	RequestedModel           runtimeModelRecord
+	TargetModel              runtimeModelRecord
+	SelectedTerminalTargetID *int
+	ContextRouting           *runtimeContextRoutingDecision
+	Connections              []runtimeConnection
+	TerminalAttempts         []runtimeTerminalAttempt
+	RuntimeStates            map[int]loadbalance.RuntimeConnectionState
+	Strategy                 loadbalance.RuntimeStrategy
 }
 
 type plannedUpstreamRequest struct {
@@ -424,12 +551,22 @@ func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []
 		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, err
 	}
-	target, err := s.resolveRequestPlanTarget(input, operation)
+	requestedModel, err := resolveRequestedModel(input, operation)
 	if err != nil {
 		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, err
 	}
-	plan, err := assembleRequestPlan(input, operation, target)
+	contextEstimation, err := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
+	if err != nil {
+		runtimeTraceMarkError(span, "request_plan_failed")
+		return requestPlan{}, err
+	}
+	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
+	if err != nil {
+		runtimeTraceMarkError(span, "request_plan_failed")
+		return requestPlan{}, attachRuntimePlanningFailureTelemetry(err, input, operation, requestedModel)
+	}
+	plan, err := assembleRequestPlan(input, operation, target, contextEstimation)
 	if err != nil {
 		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, err
@@ -451,16 +588,44 @@ func resolveRequestOperation(input requestPlanningInput) (resolvedRequestOperati
 	return resolvedRequestOperation{Match: operationMatch, ContentType: requestContentType, RequestedModelID: requestedModelID}, nil
 }
 
-func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation resolvedRequestOperation) (resolvedExecutionTarget, error) {
+func resolveRequestedModel(input requestPlanningInput, operation resolvedRequestOperation) (runtimeModelRecord, error) {
 	requestedModel, found := input.Snapshot.ModelsByID[operation.RequestedModelID]
 	if !found {
-		return resolvedExecutionTarget{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", operation.RequestedModelID)}
+		return runtimeModelRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", operation.RequestedModelID)}
 	}
-
 	if err := validateOperationAPIFamily(operation.Match.Operation, requestedModel); err != nil {
-		return resolvedExecutionTarget{}, err
+		return runtimeModelRecord{}, err
 	}
-	resolved, err := s.resolveExecutionTargetFromSnapshot(input.ActiveProfileID, input.Snapshot, requestedModel, s.nowUTC())
+	return requestedModel, nil
+}
+
+func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput, operation resolvedRequestOperation, requestedModel runtimeModelRecord) error {
+	var runtimeErr *domainError
+	if !errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.ErrorCode != contextWindowExceededErrorCode {
+		return err
+	}
+	generationParams := extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody)
+	runtimeErr.PlanningFailure = &runtimePlanningFailureTelemetry{
+		ProfileID:                   input.ActiveProfileID,
+		RequestedModelID:            requestedModel.ModelID,
+		RequestedVendorID:           requestedModel.VendorID,
+		RequestedVendorKey:          requestedModel.VendorKey,
+		RequestedVendorName:         requestedModel.VendorName,
+		APIFamily:                   requestedModel.APIFamily,
+		RuntimeOperation:            operation.Match.Operation,
+		RequestPath:                 input.Request.URL.Path,
+		IsStreamingRequest:          requestWantsStreamForOperation(operation.Match.Operation, input.RawBody, input.Request.URL.Path),
+		AuditEnabledAtRequest:       requestedModel.AuditEnabled,
+		AuditCaptureBodiesAtRequest: requestedModel.AuditEnabled && requestedModel.AuditCaptureBodies,
+		ReportCurrencySnapshot:      input.Snapshot.ReportCurrency,
+		RequestGenerationParams:     generationParams,
+		ContextRouting:              cloneRuntimeContextRoutingDecision(runtimeErr.ContextRouting),
+	}
+	return err
+}
+
+func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation resolvedRequestOperation, requestedModel runtimeModelRecord, contextEstimation *requestContextEstimation) (resolvedExecutionTarget, error) {
+	resolved, err := s.resolveExecutionTargetFromSnapshot(input.ActiveProfileID, input.Snapshot, requestedModel, contextEstimation, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
@@ -471,13 +636,20 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 		return resolvedExecutionTarget{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No eligible targets available for model '%s'.", operation.RequestedModelID)}
 	}
 
+	selectedTerminalTargetID := intPtr(resolved.TerminalAttempts[0].Connection.ID)
+	if resolved.ContextRouting != nil && resolved.ContextRouting.SelectedTerminalTargetID != nil {
+		selectedTerminalTargetID = cloneRuntimeIntPointer(resolved.ContextRouting.SelectedTerminalTargetID)
+	}
+
 	return resolvedExecutionTarget{
-		RequestedModel:   requestedModel,
-		TargetModel:      resolved.TargetModel,
-		Connections:      resolved.Connections,
-		TerminalAttempts: resolved.TerminalAttempts,
-		RuntimeStates:    resolved.RuntimeStates,
-		Strategy:         resolved.Strategy,
+		RequestedModel:           requestedModel,
+		TargetModel:              resolved.TargetModel,
+		SelectedTerminalTargetID: selectedTerminalTargetID,
+		ContextRouting:           cloneRuntimeContextRoutingDecision(resolved.ContextRouting),
+		Connections:              resolved.Connections,
+		TerminalAttempts:         resolved.TerminalAttempts,
+		RuntimeStates:            resolved.RuntimeStates,
+		Strategy:                 resolved.Strategy,
 	}, nil
 }
 
@@ -508,7 +680,7 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 	}, nil
 }
 
-func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOperation, target resolvedExecutionTarget) (requestPlan, error) {
+func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOperation, target resolvedExecutionTarget, contextEstimation *requestContextEstimation) (requestPlan, error) {
 	terminalAttempts, upstreamRequest, err := buildPlannedTerminalAttempts(input, operation, target.TerminalAttempts)
 	if err != nil {
 		return requestPlan{}, err
@@ -533,6 +705,8 @@ func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOp
 		RawRequestBody:              upstreamRequest.RawRequestBody,
 		UpstreamBody:                upstreamRequest.UpstreamBody,
 		IsStreamingRequest:          upstreamRequest.IsStreamingRequest,
+		SelectedTerminalTargetID:    cloneRuntimeIntPointer(target.SelectedTerminalTargetID),
+		ContextRouting:              cloneRuntimeContextRoutingDecision(target.ContextRouting),
 		TerminalAttempts:            terminalAttempts,
 		Connections:                 connections,
 		RuntimeStates:               target.RuntimeStates,
@@ -541,6 +715,7 @@ func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOp
 		FailoverStatusCodes:         firstAttempt.Strategy.FailoverStatusCodes(),
 		Strategy:                    firstAttempt.Strategy,
 		RequestGenerationParams:     upstreamRequest.RequestGenerationParams,
+		RequestContextEstimation:    contextEstimation,
 		HTTPClient:                  input.RuntimeConfig.HTTPClient,
 	}, nil
 }
@@ -1471,6 +1646,14 @@ func nullableInt32(value sql.NullInt32) *int {
 		return nil
 	}
 	resolved := int(value.Int32)
+	return &resolved
+}
+
+func nullableFloat64(value sql.NullFloat64) *float64 {
+	if !value.Valid {
+		return nil
+	}
+	resolved := value.Float64
 	return &resolved
 }
 

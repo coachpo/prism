@@ -17,15 +17,44 @@ function normalizeClipboardText(value: string) {
   return value.split("\r\n").join("\n");
 }
 
-function createRequestLogDetail() {
-  const routing = {
+function createRequestLogDetail(routingOverrides: Partial<RequestLogDetailRouting> = {}) {
+  const baseRouting = {
     profile_id: 1,
     endpoint_label: "Primary endpoint",
     endpoint_id: 1,
+    terminal_target_id: 501,
+    selected_terminal_target_id: 501,
+    context_routing: {
+      policy: "cheapest_eligible_context",
+      selected_terminal_target_id: 501,
+      estimation_method: "openai_chat_heuristic_v1",
+      estimated_input_tokens: 120,
+      reserved_output_tokens: 4096,
+      estimated_total_context_tokens: 4216,
+      usable_context_window_tokens: 115200,
+      cost_ranking_method: "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id",
+      selected_estimated_blended_cost_micros: 1250,
+      skipped_terminal_targets: [
+        {
+          terminal_target_id: 502,
+          endpoint_id: 2,
+          reason: "estimated_context_exceeds_usable_window",
+          usable_context_window_tokens: 4096,
+          estimated_total_context_tokens: 4216,
+        },
+      ],
+    },
     endpoint_base_url: "https://api.example.test",
     endpoint_description: "Primary endpoint",
     audit_enabled_at_request: true,
     audit_capture_bodies_at_request: true,
+  } satisfies RequestLogDetailRouting;
+  const routing = {
+    ...baseRouting,
+    ...routingOverrides,
+    context_routing: "context_routing" in routingOverrides
+      ? routingOverrides.context_routing
+      : baseRouting.context_routing,
   } satisfies RequestLogDetailRouting;
 
   return {
@@ -180,8 +209,10 @@ async function expectCopyWithoutDownload(page: Page, trigger: () => Promise<void
   expect(await downloadTriggeredPromise).toBe(false);
 }
 
-async function mockRequestLogDetailRoutes(page: Page) {
-  const detail = createRequestLogDetail();
+async function mockRequestLogDetailRoutes(
+  page: Page,
+  detail: ReturnType<typeof createRequestLogDetail> = createRequestLogDetail(),
+) {
   const auditListItem = createAuditListItem();
   const auditDetail = createAuditDetail();
 
@@ -236,8 +267,27 @@ async function mockRequestLogDetailRoutes(page: Page) {
       });
     }
 
+    if (pathname === "/api/settings/costing") {
+      return fulfillJson({
+        report_currency_code: "USD",
+        report_currency_symbol: "$",
+        endpoint_fx_mappings: [],
+        timezone_preference: null,
+      });
+    }
+
     if (pathname === "/api/settings/timezone") {
       return fulfillJson({ timezone_preference: "UTC" });
+    }
+
+    if (pathname === "/api/stats/requests") {
+      return fulfillJson({
+        items: [],
+        total: 0,
+        limit: 20,
+        offset: 0,
+        filter_options: { models: [], endpoints: [] },
+      });
     }
 
     if (pathname === "/api/stats/requests/101") {
@@ -263,7 +313,11 @@ async function mockRequestLogDetailRoutes(page: Page) {
   await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
-async function openRequestLogDetail(page: Page, context: BrowserContext) {
+async function openRequestLogDetail(
+  page: Page,
+  context: BrowserContext,
+  detail: ReturnType<typeof createRequestLogDetail> = createRequestLogDetail(),
+) {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const ownerRouteRequests: string[] = [];
   page.on("request", (request) => {
@@ -272,7 +326,7 @@ async function openRequestLogDetail(page: Page, context: BrowserContext) {
       ownerRouteRequests.push(request.url());
     }
   });
-  await mockRequestLogDetailRoutes(page);
+  await mockRequestLogDetailRoutes(page, detail);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
       value: {
@@ -330,6 +384,17 @@ test.describe("request log detail copy regression", () => {
     await expect(routingContext).toBeVisible();
     await expect(routingContext.locator("span").filter({ hasText: /^Connection$/ })).toHaveCount(0);
     await expect(routingContext.getByRole("link", { name: "Open connection" })).toHaveCount(0);
+    await expect(routingContext).toContainText("Selected Terminal Target");
+    await expect(routingContext).toContainText("#501");
+    await expect(routingContext).toContainText("Context-routing decision");
+    await expect(routingContext).toContainText("cheapest_eligible_context");
+    await expect(routingContext).toContainText("openai_chat_heuristic_v1");
+    await expect(routingContext).toContainText("estimated_blended_request_cost_then_access_target_position_then_terminal_target_id");
+    await expect(routingContext).toContainText("Selected estimated blended cost");
+    await expect(routingContext).toContainText("1,250 micros");
+    await expect(routingContext).toContainText("Skipped terminal targets");
+    await expect(routingContext).toContainText("#502");
+    await expect(routingContext).toContainText("Estimated context exceeds usable context window");
     expect(ownerRouteRequests).toEqual([]);
     await expect(overviewCopyButton).toHaveCount(1);
 
@@ -340,6 +405,19 @@ test.describe("request log detail copy regression", () => {
     });
 
     await expectCopyWithoutDownload(page, () => overviewCopyButton.click(), formattedErrorDetail);
+  });
+
+  test("legacy request-log rows do not collapse executed terminal targets into selected targets", async ({ page, context }) => {
+    const legacyDetail = createRequestLogDetail({
+      selected_terminal_target_id: undefined,
+      context_routing: null,
+    });
+    const { drawer } = await openRequestLogDetail(page, context, legacyDetail);
+    const routingContext = drawer.getByText("Routing context", { exact: true }).locator("xpath=..");
+
+    await expect(routingContext).toContainText("Selected Terminal Target");
+    await expect(routingContext).toContainText("No terminal target selected");
+    await expect(routingContext).not.toContainText("#501");
   });
 
   test("audit payload copy buttons write their corresponding payload blocks", async ({ page, context }) => {

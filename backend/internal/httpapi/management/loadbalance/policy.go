@@ -83,10 +83,10 @@ func defaultStrategyPayload(spec canonicalDefaultStrategySpec) strategyPersisted
 func normalizeLegacyStrategyType(value string) (string, error) {
 	resolved := strings.ToLower(strings.TrimSpace(value))
 	switch resolved {
-	case "single", "fill-first", "round-robin":
+	case "single", "fill-first", "round-robin", "cheapest_eligible_context":
 		return resolved, nil
 	default:
-		return "", &domainError{StatusCode: 400, Detail: "legacy_strategy_type must be one of 'single', 'fill-first', or 'round-robin'"}
+		return "", &domainError{StatusCode: 400, Detail: "legacy_strategy_type must be one of 'single', 'fill-first', 'round-robin', or 'cheapest_eligible_context'"}
 	}
 }
 

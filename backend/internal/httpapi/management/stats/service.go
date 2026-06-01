@@ -88,7 +88,9 @@ func (s *Service) resolveEffectiveProfile(ctx context.Context, request *http.Req
 }
 
 func (s *Service) loadOrBuildDashboardAggregateSnapshot(ctx context.Context, profileID int, referenceNow time.Time) (statsdomain.DashboardAggregateSnapshot, error) {
-	if snapshot, ok := s.dashboardSnapshots.LoadProfile(profileID); ok && dashboardAggregateSnapshotFresh(snapshot, referenceNow) {
+	if snapshot, ok := s.dashboardSnapshots.LoadFreshProfile(profileID, func(snapshot statsdomain.DashboardAggregateSnapshot) bool {
+		return dashboardAggregateSnapshotFresh(snapshot, referenceNow)
+	}); ok {
 		return snapshot, nil
 	}
 	return pgxutil.InReadOnlyTxValue(ctx, s.pool, "stats dashboard snapshot", func(tx pgx.Tx) (statsdomain.DashboardAggregateSnapshot, error) {
@@ -97,7 +99,9 @@ func (s *Service) loadOrBuildDashboardAggregateSnapshot(ctx context.Context, pro
 }
 
 func (s *Service) loadOrBuildDashboardAggregateSnapshotInTx(ctx context.Context, tx pgx.Tx, profileID int, referenceNow time.Time) (statsdomain.DashboardAggregateSnapshot, error) {
-	if snapshot, ok := s.dashboardSnapshots.LoadProfile(profileID); ok && dashboardAggregateSnapshotFresh(snapshot, referenceNow) {
+	if snapshot, ok := s.dashboardSnapshots.LoadFreshProfile(profileID, func(snapshot statsdomain.DashboardAggregateSnapshot) bool {
+		return dashboardAggregateSnapshotFresh(snapshot, referenceNow)
+	}); ok {
 		return snapshot, nil
 	}
 	snapshot, err := statsdomain.BuildDashboardAggregateSnapshot(ctx, tx, profileID, referenceNow)

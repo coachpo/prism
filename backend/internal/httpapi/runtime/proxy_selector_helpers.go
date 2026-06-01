@@ -8,11 +8,12 @@ import (
 	"strings"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/targetcompat"
 )
 
 const (
-	runtimeAccessTargetTypeConnection = "connection"
-	runtimeAccessTargetTypeModel      = "model"
+	runtimeAccessTargetTypeConnection = targetcompat.PersistedTerminalTargetType
+	runtimeAccessTargetTypeModel      = targetcompat.AccessTargetTypeModel
 )
 
 type runtimeRoundRobinTargetCursor interface {

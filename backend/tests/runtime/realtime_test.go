@@ -599,7 +599,7 @@ func TestManagementAuthSettingsSnapshotInvalidation(t *testing.T) {
 	_ = freshConn.Close()
 }
 
-func TestDashboardSnapshotConsistencyBetweenRESTAndRealtime(t *testing.T) {
+func TestRealtimeDashboardTopologyParity(t *testing.T) {
 	harness := newRealtimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "consistency")
@@ -639,6 +639,9 @@ func TestDashboardSnapshotConsistencyBetweenRESTAndRealtime(t *testing.T) {
 	if !reflect.DeepEqual(dashboardSnapshot, message.Snapshot) {
 		t.Fatalf("expected /api/stats/dashboard to match realtime snapshot, got rest=%+v realtime=%+v", dashboardSnapshot, message.Snapshot)
 	}
+	if !reflect.DeepEqual(dashboardSnapshot.TopologyGraph, message.Snapshot.TopologyGraph) {
+		t.Fatalf("expected topology graph parity between REST and realtime, got rest=%+v realtime=%+v", dashboardSnapshot.TopologyGraph, message.Snapshot.TopologyGraph)
+	}
 	if summary.TotalRequests != message.Snapshot.MetricSnapshot.TotalRequests || summary.SuccessRate != message.Snapshot.MetricSnapshot.SuccessRate {
 		t.Fatalf("expected /api/stats/summary to stay coherent with realtime metric_snapshot, got rest=%+v realtime=%+v", summary, message.Snapshot.MetricSnapshot)
 	}
@@ -664,36 +667,47 @@ func TestDashboardSnapshotConsistencyBetweenRESTAndRealtime(t *testing.T) {
 	if !delivered {
 		t.Fatal("expected warmed dashboard aggregate publish to deliver while subscribed")
 	}
-	assertNestedRequestLogProfileID(t, readWebSocketJSON(t, conn), profileID)
+	realtimeSnapshot := decodeRealtimeDashboardSnapshot(t, readWebSocketJSON(t, conn))
+	if !reflect.DeepEqual(dashboardSnapshot.TopologyGraph, realtimeSnapshot.TopologyGraph) {
+		t.Fatalf("expected websocket topology graph to match REST snapshot, got rest=%+v realtime=%+v", dashboardSnapshot.TopologyGraph, realtimeSnapshot.TopologyGraph)
+	}
 	_ = conn.Close()
 }
 
-func TestDashboardSnapshotInvalidatesAfterModelMutation(t *testing.T) {
-	harness := newRealtimeHarness(t)
+func TestRuntimeDashboardTopologyRepublishAfterModelMutation(t *testing.T) {
+	harness := newRealtimeHarnessWithConfig(t, realtimeHarnessConfig{UseAsyncDashboardPublisher: true})
 	profileID := harness.activeProfileID(t)
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "invalidation")
-	harness.insertDashboardActivity(t, route, profileID, 8351, 9351, harness.fixedNow)
-
-	linkForModelID := func(links []statsdomain.DashboardRoutingLink, modelID string) *statsdomain.DashboardRoutingLink {
-		for index := range links {
-			if links[index].ModelID == modelID {
-				return &links[index]
-			}
-		}
-		return nil
-	}
+	requestLogID := harness.insertDashboardActivity(t, route, profileID, 8351, 9351, harness.fixedNow)
 
 	baselineResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/dashboard", nil, runtimeModelHeader(profileID))
 	assertStatus(t, baselineResponse, http.StatusOK)
 	var baseline statsdomain.DashboardSnapshot
 	decodeJSONResponse(t, baselineResponse, &baseline)
-	baselinePublicLink := linkForModelID(baseline.RoutingHealthMap.Links, route.PublicModelID)
-	if baselinePublicLink == nil || baselinePublicLink.ModelLabel != route.PublicModelLabel {
-		t.Fatalf("expected warmed dashboard snapshot to include requested model label %q, got %+v", route.PublicModelLabel, baseline.RoutingHealthMap.Links)
+	baselinePublicNode := dashboardTopologyNodeForModelID(baseline.TopologyGraph, route.PublicModelID)
+	if baselinePublicNode == nil || baselinePublicNode.Label != route.PublicModelLabel {
+		t.Fatalf("expected warmed dashboard topology to include requested model label %q, got %+v", route.PublicModelLabel, baseline.TopologyGraph.Nodes)
 	}
-	baselineTargetLink := linkForModelID(baseline.RoutingHealthMap.Links, route.TargetModelID)
-	if baselineTargetLink == nil || baselineTargetLink.ModelLabel != route.TargetModelLabel {
-		t.Fatalf("expected warmed dashboard snapshot to include final target model label %q, got %+v", route.TargetModelLabel, baseline.RoutingHealthMap.Links)
+	baselineTargetNode := dashboardTopologyNodeForModelID(baseline.TopologyGraph, route.TargetModelID)
+	if baselineTargetNode == nil || baselineTargetNode.Label != route.TargetModelLabel {
+		t.Fatalf("expected warmed dashboard topology to include final target model label %q, got %+v", route.TargetModelLabel, baseline.TopologyGraph.Nodes)
+	}
+
+	conn := harness.dialWebSocket(t, false)
+	assertRealtimeMessageType(t, conn, "authenticated")
+	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "dashboard"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "dashboard"})
+	delivered, err := harness.realtimeService.PublishDashboardUpdate(context.Background(), requestLogID, profileID)
+	if err != nil {
+		t.Fatalf("publish warmed dashboard update before model mutation: %v", err)
+	}
+	if !delivered {
+		t.Fatal("expected initial dashboard update delivery while subscribed")
+	}
+	initialRealtimeSnapshot := decodeRealtimeDashboardSnapshot(t, readWebSocketJSON(t, conn))
+	if !reflect.DeepEqual(baseline.TopologyGraph, initialRealtimeSnapshot.TopologyGraph) {
+		t.Fatalf("expected initial realtime topology graph to match REST snapshot, got rest=%+v realtime=%+v", baseline.TopologyGraph, initialRealtimeSnapshot.TopologyGraph)
 	}
 
 	var targetModelConfigID int
@@ -704,18 +718,23 @@ func TestDashboardSnapshotInvalidatesAfterModelMutation(t *testing.T) {
 	updateResponse := harness.requestJSON(t, http.MethodPut, fmt.Sprintf("/api/models/%d", targetModelConfigID), map[string]any{"display_name": updatedLabel}, runtimeModelHeader(profileID))
 	assertStatus(t, updateResponse, http.StatusOK)
 
+	mutatedRealtimeSnapshot := decodeRealtimeDashboardSnapshot(t, readWebSocketJSON(t, conn))
 	freshResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/dashboard", nil, runtimeModelHeader(profileID))
 	assertStatus(t, freshResponse, http.StatusOK)
 	var fresh statsdomain.DashboardSnapshot
 	decodeJSONResponse(t, freshResponse, &fresh)
-	freshTargetLink := linkForModelID(fresh.RoutingHealthMap.Links, route.TargetModelID)
-	if freshTargetLink == nil || freshTargetLink.ModelLabel != updatedLabel {
-		t.Fatalf("expected dashboard snapshot cache to invalidate final target label to %q, got %+v", updatedLabel, fresh.RoutingHealthMap.Links)
+	if !reflect.DeepEqual(fresh.TopologyGraph, mutatedRealtimeSnapshot.TopologyGraph) {
+		t.Fatalf("expected invalidated realtime topology graph to match fresh REST snapshot, got rest=%+v realtime=%+v", fresh.TopologyGraph, mutatedRealtimeSnapshot.TopologyGraph)
 	}
-	freshPublicLink := linkForModelID(fresh.RoutingHealthMap.Links, route.PublicModelID)
-	if freshPublicLink == nil || freshPublicLink.ModelLabel != route.PublicModelLabel {
-		t.Fatalf("expected requested model link to remain labeled %q after target mutation, got %+v", route.PublicModelLabel, fresh.RoutingHealthMap.Links)
+	freshTargetNode := dashboardTopologyNodeForModelID(fresh.TopologyGraph, route.TargetModelID)
+	if freshTargetNode == nil || freshTargetNode.Label != updatedLabel {
+		t.Fatalf("expected dashboard topology cache to invalidate final target label to %q, got %+v", updatedLabel, fresh.TopologyGraph.Nodes)
 	}
+	freshPublicNode := dashboardTopologyNodeForModelID(fresh.TopologyGraph, route.PublicModelID)
+	if freshPublicNode == nil || freshPublicNode.Label != route.PublicModelLabel {
+		t.Fatalf("expected requested model node to remain labeled %q after target mutation, got %+v", route.PublicModelLabel, fresh.TopologyGraph.Nodes)
+	}
+	_ = conn.Close()
 }
 
 func TestAsyncDashboardPublisherRefreshesWarmedSnapshotWithoutSubscribers(t *testing.T) {
@@ -1025,6 +1044,28 @@ func assertNestedRequestLogProfileID(t *testing.T, message map[string]any, profi
 	if requestLog["profile_id"] != float64(profileID) {
 		t.Fatalf("expected realtime request_log.profile_id=%d, got %+v", profileID, requestLog)
 	}
+}
+
+func decodeRealtimeDashboardSnapshot(t *testing.T, message map[string]any) statsdomain.DashboardSnapshot {
+	t.Helper()
+	raw, err := json.Marshal(message["snapshot"])
+	if err != nil {
+		t.Fatalf("marshal realtime dashboard snapshot: %v", err)
+	}
+	var snapshot statsdomain.DashboardSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatalf("decode realtime dashboard snapshot: %v", err)
+	}
+	return snapshot
+}
+
+func dashboardTopologyNodeForModelID(graph statsdomain.DashboardTopologyGraph, modelID string) *statsdomain.DashboardTopologyNode {
+	for index := range graph.Nodes {
+		if graph.Nodes[index].ModelID != nil && *graph.Nodes[index].ModelID == modelID {
+			return &graph.Nodes[index]
+		}
+	}
+	return nil
 }
 
 func assertRealtimeRequestLogTokenPointers(t *testing.T, entry realtimeapi.RequestLogEntry, wantInput int, wantOutput int, wantTotal int, wantCacheRead int, wantCacheCreation int, wantReasoning int) {

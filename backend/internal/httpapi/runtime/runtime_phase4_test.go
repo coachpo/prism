@@ -142,7 +142,7 @@ func TestRuntimeFeedbackWorkerAccountsStoreFailure(t *testing.T) {
 func validRuntimeActivityIntent() RuntimeActivityIntent {
 	createdAt := time.Now().UTC()
 	return RuntimeActivityIntent{Envelope: runtimeTelemetryEnvelope{
-		RequestLogs: []requestLogInsert{{ProfileID: 1, ModelID: "model", APIFamily: "openai", EndpointID: 1, ConnectionID: 1, IngressRequestID: "request-1", AttemptNumber: 1, EndpointBaseURL: "http://upstream", StatusCode: 200, ResponseTimeMS: 1, SuccessFlag: true, CreatedAt: createdAt}},
-		UsageEvent:  usageEventInsert{ProfileID: 1, IngressRequestID: "request-1", ModelID: "model", APIFamily: "openai", EndpointID: 1, ConnectionID: 1, StatusCode: 200, SuccessFlag: true, CreatedAt: createdAt},
+		RequestLogs: []requestLogInsert{{ProfileID: 1, ModelID: "model", APIFamily: "openai", EndpointID: intPtr(1), ConnectionID: intPtr(1), IngressRequestID: "request-1", AttemptNumber: 1, EndpointBaseURL: stringPtr("http://upstream"), StatusCode: 200, ResponseTimeMS: 1, SuccessFlag: true, CreatedAt: createdAt}},
+		UsageEvent:  usageEventInsert{ProfileID: 1, IngressRequestID: "request-1", ModelID: "model", APIFamily: "openai", EndpointID: intPtr(1), ConnectionID: intPtr(1), StatusCode: 200, SuccessFlag: true, CreatedAt: createdAt},
 	}}
 }

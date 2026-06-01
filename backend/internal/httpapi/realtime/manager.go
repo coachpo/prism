@@ -213,6 +213,25 @@ func (m *ConnectionManager) ActiveScopes(profileID int, channel string) []string
 	return scopes
 }
 
+func (m *ConnectionManager) ActiveProfileIDs(channel string) []int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	profileIDsByValue := map[int]struct{}{}
+	for key, members := range m.rooms {
+		if key.Channel != strings.TrimSpace(channel) || len(members) == 0 {
+			continue
+		}
+		profileIDsByValue[key.ProfileID] = struct{}{}
+	}
+	profileIDs := make([]int, 0, len(profileIDsByValue))
+	for profileID := range profileIDsByValue {
+		profileIDs = append(profileIDs, profileID)
+	}
+	sort.Ints(profileIDs)
+	return profileIDs
+}
+
 func (m *ConnectionManager) Stats() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

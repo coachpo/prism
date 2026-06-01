@@ -80,8 +80,12 @@ type Service struct {
 }
 
 type domainError struct {
-	StatusCode int
-	Detail     string
+	StatusCode      int
+	ErrorCode       string
+	Detail          string
+	Fields          map[string]any
+	ContextRouting  *runtimeContextRoutingDecision
+	PlanningFailure *runtimePlanningFailureTelemetry
 }
 
 func (err *domainError) Error() string {
@@ -345,14 +349,14 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 		resolveSpan.End()
 		runtimeTraceMarkError(requestSpan, "method_not_allowed")
 		w.Header().Set("Allow", strings.Join(allowedMethods, ", "))
-		writeError(w, http.StatusMethodNotAllowed, runtimeOperationMethodNotAllowedDetail)
+		writeError(w, http.StatusMethodNotAllowed, "", runtimeOperationMethodNotAllowedDetail, nil)
 		return
 	}
 	if operationMatch == nil {
 		runtimeTraceMarkError(resolveSpan, "operation_not_found")
 		resolveSpan.End()
 		runtimeTraceMarkError(requestSpan, "operation_not_found")
-		writeError(w, http.StatusNotFound, runtimeOperationNotFoundDetail)
+		writeError(w, http.StatusNotFound, "", runtimeOperationNotFoundDetail, nil)
 		return
 	}
 	resolveSpan.SetAttributes(runtimeTraceOperationAttributes(operationMatch.Operation)...)
@@ -360,9 +364,11 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	resolveSpan.End()
 
 	runtimeConfig := s.runtimeProxyConfigSnapshot()
+	planningStartedAt := s.nowUTC()
 	if canBuildStreamingRequestPlan(operationMatch.Operation) {
 		plan, err := s.buildProxyRequestPlan(r, nil, runtimeConfig, *operationMatch)
 		if err != nil {
+			s.recordRuntimePlanningFailure(r, planningStartedAt, err)
 			runtimeTraceMarkError(requestSpan, "request_plan_failed")
 			writeDomainError(w, err)
 			return
@@ -379,11 +385,12 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	rawBody, err := readBufferedRequestBody(r.Body)
 	if err != nil {
 		runtimeTraceMarkError(requestSpan, "request_plan_failed")
-		writeError(w, http.StatusBadRequest, "Invalid request body")
+		writeError(w, http.StatusBadRequest, "", "Invalid request body", nil)
 		return
 	}
 	plan, err := s.buildProxyRequestPlan(r, rawBody, runtimeConfig, *operationMatch)
 	if err != nil {
+		s.recordRuntimePlanningFailure(r, planningStartedAt, err)
 		runtimeTraceMarkError(requestSpan, "request_plan_failed")
 		writeDomainError(w, err)
 		return
@@ -469,7 +476,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	if err != nil {
 		runtimeTraceMarkError(responseSpan, "response_handle_failed")
 		if !proxyWriter.Committed() {
-			writeError(w, http.StatusBadGateway, "Failed to read upstream response")
+			writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
 		}
 		return
 	}
@@ -1167,14 +1174,24 @@ func stringValue(value any) string {
 func writeDomainError(w http.ResponseWriter, err error) {
 	var runtimeErr *domainError
 	if errors.As(err, &runtimeErr) {
-		writeError(w, runtimeErr.StatusCode, runtimeErr.Detail)
+		writeError(w, runtimeErr.StatusCode, runtimeErr.ErrorCode, runtimeErr.Detail, runtimeErr.Fields)
 		return
 	}
-	writeError(w, http.StatusInternalServerError, "Internal server error")
+	writeError(w, http.StatusInternalServerError, "", "Internal server error", nil)
 }
 
-func writeError(w http.ResponseWriter, statusCode int, detail string) {
-	writeJSON(w, statusCode, map[string]string{"detail": detail})
+func writeError(w http.ResponseWriter, statusCode int, errorCode string, detail string, fields map[string]any) {
+	payload := map[string]any{"detail": detail}
+	if strings.TrimSpace(errorCode) != "" {
+		payload["error"] = strings.TrimSpace(errorCode)
+	}
+	for key, value := range fields {
+		if strings.TrimSpace(key) == "" || value == nil {
+			continue
+		}
+		payload[key] = value
+	}
+	writeJSON(w, statusCode, payload)
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {

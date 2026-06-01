@@ -121,6 +121,9 @@ CREATE TABLE public.connections (
     profile_id integer NOT NULL,
     api_family character varying(50) NOT NULL,
     endpoint_id integer NOT NULL,
+    context_window_tokens integer,
+    default_output_token_reserve integer DEFAULT 4096 NOT NULL,
+    max_context_utilization double precision DEFAULT 0.90 NOT NULL,
     pricing_template_id integer,
     qps_limit integer,
     max_in_flight_non_stream integer,
@@ -137,6 +140,9 @@ CREATE TABLE public.connections (
     updated_at timestamp with time zone NOT NULL,
     openai_probe_endpoint_variant character varying(40),
     monitoring_probe_interval_seconds integer DEFAULT 300 NOT NULL,
+    CONSTRAINT ck_connections_context_window_tokens CHECK (((context_window_tokens IS NULL) OR (context_window_tokens >= 1))),
+    CONSTRAINT ck_connections_default_output_token_reserve CHECK ((default_output_token_reserve >= 1)),
+    CONSTRAINT ck_connections_max_context_utilization CHECK (((max_context_utilization > (0)::double precision) AND (max_context_utilization <= (1)::double precision))),
     CONSTRAINT ck_connections_openai_probe_endpoint_variant CHECK (((openai_probe_endpoint_variant IS NULL) OR ((openai_probe_endpoint_variant)::text = ANY ((ARRAY['responses_minimal'::character varying, 'responses_reasoning_none'::character varying, 'chat_completions_minimal'::character varying, 'chat_completions_reasoning_none'::character varying])::text[]))))
 );
 
@@ -398,7 +404,7 @@ CREATE TABLE public.loadbalance_strategies (
     name character varying(200) NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
-    legacy_strategy_type character varying(20) NOT NULL,
+    legacy_strategy_type character varying(32) NOT NULL,
     failure_status_codes integer[] DEFAULT ARRAY[403, 422, 429, 500, 502, 503, 504, 529]::integer[] NOT NULL,
     ban_mode character varying(20) DEFAULT 'off'::character varying NOT NULL,
     retry_base_delay_ms integer DEFAULT 60000 NOT NULL,
@@ -413,7 +419,7 @@ CREATE TABLE public.loadbalance_strategies (
     CONSTRAINT chk_loadbalance_strategies_ban_mode CHECK (((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'temporary'::character varying, 'until_reset'::character varying])::text[]))),
     CONSTRAINT chk_loadbalance_strategies_ban_threshold_gte_cycle_limit CHECK ((((ban_mode)::text = 'off'::text) OR (ban_cumulative_retry_attempt_threshold >= cycle_retry_attempt_limit))),
     CONSTRAINT chk_loadbalance_strategies_cycle_retry_attempt_limit CHECK (((cycle_retry_attempt_limit >= 1) AND (cycle_retry_attempt_limit <= 50))),
-    CONSTRAINT chk_loadbalance_strategies_legacy_strategy_type CHECK (((legacy_strategy_type)::text = ANY ((ARRAY['single'::character varying, 'fill-first'::character varying, 'round-robin'::character varying])::text[]))),
+    CONSTRAINT chk_loadbalance_strategies_legacy_strategy_type CHECK (((legacy_strategy_type)::text = ANY ((ARRAY['single'::character varying, 'fill-first'::character varying, 'round-robin'::character varying, 'cheapest_eligible_context'::character varying])::text[]))),
     CONSTRAINT chk_loadbalance_strategies_retry_backoff_multiplier CHECK (((retry_backoff_multiplier >= (1.0)::double precision) AND (retry_backoff_multiplier <= (10.0)::double precision))),
     CONSTRAINT chk_loadbalance_strategies_retry_base_delay_ms CHECK (((retry_base_delay_ms >= 0) AND (retry_base_delay_ms <= 86400000))),
     CONSTRAINT chk_loadbalance_strategies_retry_jitter_ratio CHECK (((retry_jitter_ratio >= (0.0)::double precision) AND (retry_jitter_ratio <= (1.0)::double precision))),
@@ -619,9 +625,15 @@ CREATE TABLE public.model_configs (
     model_id character varying(200) NOT NULL,
     display_name character varying(200),
     loadbalance_strategy_id integer,
+    context_window_tokens integer,
+    default_output_token_reserve integer DEFAULT 4096 NOT NULL,
+    max_context_utilization double precision DEFAULT 0.90 NOT NULL,
     is_enabled boolean NOT NULL,
     created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT ck_model_configs_context_window_tokens CHECK (((context_window_tokens IS NULL) OR (context_window_tokens >= 1))),
+    CONSTRAINT ck_model_configs_default_output_token_reserve CHECK ((default_output_token_reserve >= 1)),
+    CONSTRAINT ck_model_configs_max_context_utilization CHECK (((max_context_utilization > (0)::double precision) AND (max_context_utilization <= (1)::double precision)))
 );
 
 
@@ -902,6 +914,7 @@ CREATE TABLE public.request_logs (
     resolved_target_model_id character varying(200),
     endpoint_id integer,
     connection_id integer,
+    selected_terminal_target_id integer,
     proxy_api_key_id integer,
     proxy_api_key_name_snapshot character varying(200),
     ingress_request_id character varying(36),
@@ -952,6 +965,7 @@ CREATE TABLE public.request_logs (
     audit_capture_bodies_at_request boolean DEFAULT false NOT NULL,
     request_generation_params jsonb,
     request_generation_params_status character varying(40),
+    context_routing jsonb,
     stream_outcome character varying(50) DEFAULT 'not_streaming'::character varying NOT NULL,
     stream_error_kind character varying(50),
     stream_error_detail text
@@ -1203,6 +1217,7 @@ CREATE TABLE public.usage_request_events (
     operation_name character varying(120),
     endpoint_id integer,
     connection_id integer,
+    selected_terminal_target_id integer,
     proxy_api_key_id integer,
     proxy_api_key_name_snapshot character varying(200),
     status_code integer NOT NULL,
@@ -1243,6 +1258,7 @@ CREATE TABLE public.usage_request_events (
     unpriced_reason character varying(50),
     stream_outcome character varying(50) DEFAULT 'not_streaming'::character varying NOT NULL,
     stream_error_kind character varying(50),
+    context_routing jsonb,
     CONSTRAINT ck_usage_request_events_attempt_count_positive CHECK ((attempt_count >= 1))
 )
 PARTITION BY RANGE (created_at);

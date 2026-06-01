@@ -22,8 +22,8 @@ export function RoutingDiagramTooltip({ active, payload }: RoutingDiagramTooltip
         <p className="text-sm font-semibold">{chartPayload.label}</p>
         {chartPayload.sublabel ? <p className="mt-1 text-muted-foreground">{chartPayload.sublabel}</p> : null}
         <div className="mt-3 space-y-1.5">
-          <TooltipRow label={messages.dashboard.routingNodeType} value={chartPayload.kind === "endpoint" ? messages.dashboard.routingEndpointNodeType : messages.dashboard.routingModelNodeType} />
-          <TooltipRow label={messages.dashboard.routingActiveConnections} value={formatNumber(chartPayload.activeConnectionCount)} />
+          <TooltipRow label={messages.dashboard.routingNodeType} value={getNodeTypeLabel(chartPayload.kind, messages)} />
+          <TooltipRow label={messages.dashboard.routingActiveConnections} value={formatNumber(chartPayload.activeTerminalTargetCount)} />
           <TooltipRow
             label={messages.dashboard.routing24hSuccessRate}
             value={
@@ -32,12 +32,17 @@ export function RoutingDiagramTooltip({ active, payload }: RoutingDiagramTooltip
             }
           />
           <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(chartPayload.requestCount24h)} />
-          <TooltipRow
-            label={messages.dashboard.routing24hSuccessfulRequests}
-            value={formatNumber(chartPayload.successCount24h)}
-          />
+          {chartPayload.kind === "terminal_target" ? (
+            <TooltipRow
+              label={messages.dashboard.routing24hHealth}
+              value={getHealthLabel(chartPayload.healthStatus, chartPayload.requestCount24h, messages)}
+            />
+          ) : null}
           {chartPayload.kind === "model" ? (
             <TooltipRow label={messages.requestLogs.view} value={messages.dashboard.routingActionOpenModelDetail} />
+          ) : null}
+          {chartPayload.kind === "endpoint" ? (
+            <TooltipRow label={messages.requestLogs.view} value={messages.dashboard.reviewRequests} />
           ) : null}
         </div>
       </div>
@@ -63,25 +68,13 @@ export function RoutingDiagramTooltip({ active, payload }: RoutingDiagramTooltip
 
     return (
       <div className="min-w-[16rem] rounded-xl border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-xl">
-        <p className="text-sm font-semibold">{chartPayload.endpointLabel}</p>
-        <p className="mt-1 text-muted-foreground">{chartPayload.modelLabel}</p>
+        <p className="text-sm font-semibold">{chartPayload.sourceLabel} → {chartPayload.targetLabel}</p>
         <div className="mt-3 space-y-1.5">
-          <TooltipRow label={messages.dashboard.routingEndpoint} value={chartPayload.endpointLabel} />
-          <TooltipRow label={messages.dashboard.routingModel} value={chartPayload.modelId} />
-          <TooltipRow
-            label={messages.dashboard.routing24hHealth}
-            value={routeHealthLabel}
-          />
-          <TooltipRow
-            label={messages.dashboard.routing24hSuccessRate}
-            value={formattedSuccessRate}
-          />
+          <TooltipRow label={messages.dashboard.routing24hHealth} value={routeHealthLabel} />
+          <TooltipRow label={messages.dashboard.routing24hSuccessRate} value={formattedSuccessRate} />
           <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(chartPayload.requestCount24h)} />
-          <TooltipRow label={messages.dashboard.routingActiveConnections} value={formatNumber(chartPayload.activeConnectionCount)} />
-          <TooltipRow
-            label={messages.dashboard.routing24hSuccessfulRequests}
-            value={formatNumber(chartPayload.successCount24h)}
-          />
+          <TooltipRow label={messages.dashboard.routingActiveConnections} value={formatNumber(chartPayload.activeTerminalTargetCount)} />
+          <TooltipRow label={messages.dashboard.routing24hSuccessfulRequests} value={formatNumber(chartPayload.successCount24h)} />
           <TooltipRow label={messages.dashboard.routing24hErrors} value={formatNumber(chartPayload.errorCount24h)} />
         </div>
       </div>
@@ -89,6 +82,41 @@ export function RoutingDiagramTooltip({ active, payload }: RoutingDiagramTooltip
   }
 
   return null;
+}
+
+function getNodeTypeLabel(
+  kind: "endpoint" | "model" | "terminal_target",
+  messages: ReturnType<typeof useLocale>["messages"],
+): string {
+  if (kind === "endpoint") {
+    return messages.dashboard.routingEndpointNodeType;
+  }
+
+  if (kind === "terminal_target") {
+    return messages.modelDetail.connections;
+  }
+
+  return messages.dashboard.routingModelNodeType;
+}
+
+function getHealthLabel(
+  healthStatus: string | null,
+  requestCount: number,
+  messages: ReturnType<typeof useLocale>["messages"],
+): string {
+  if (!healthStatus || requestCount <= 0) {
+    return messages.dashboard.routingLegendNoData;
+  }
+
+  if (healthStatus === "healthy") {
+    return messages.modelDetail.healthHealthy;
+  }
+
+  if (healthStatus === "unknown") {
+    return messages.modelDetail.healthUnknown;
+  }
+
+  return messages.modelDetail.healthUnhealthy;
 }
 
 function TooltipRow({ label, value }: { label: string; value: string }) {

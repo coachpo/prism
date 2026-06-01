@@ -49,7 +49,7 @@ func assertErrorCode(t *testing.T, payload map[string]any, want string) {
 
 func assertDashboardSnapshotTopLevelShape(t *testing.T, payload map[string]any) {
 	t.Helper()
-	for _, key := range []string{"generated_at", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "recent_requests", "top_spending_models", "routing_health_map"} {
+	for _, key := range []string{"generated_at", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "recent_requests", "top_spending_models", "routing_health_map", "topology_graph"} {
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("expected dashboard snapshot field %q, got %+v", key, payload)
 		}
@@ -388,6 +388,83 @@ func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 	routingHealthMap := asMap(t, payload["routing_health_map"])
 	if len(routingHealthMap["nodes"].([]any)) != 0 || len(routingHealthMap["links"].([]any)) != 0 || jsonInt(t, routingHealthMap["endpointCount"]) != 0 || jsonInt(t, routingHealthMap["modelCount"]) != 0 {
 		t.Fatalf("expected task-1 empty routing health map shell, got %+v", routingHealthMap)
+	}
+}
+
+func TestObservabilityDashboardTopologyGraphIncludesDisabledAndInactiveNodes(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Dashboard Topology Strategy")
+	entryModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "entry-model", stringPtr("Entry Model"), "native", &strategyID, true)
+	terminalModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "terminal-model", stringPtr("Terminal Model"), "native", &strategyID, true)
+	disabledModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "disabled-model", stringPtr("Disabled Model"), "native", &strategyID, false)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Topology Endpoint", 0)
+	terminalTargetID := modelInsertConnection(t, harness, profileID, terminalModelID, endpointID, 0, false, nil)
+	modelInsertModelTarget(t, harness, profileID, entryModelID, terminalModelID, 0, true)
+	insertUsageEvent(t, harness, usageEventSeed{ID: 80, ProfileID: profileID, IngressRequestID: "topology-1", ModelID: "terminal-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &terminalTargetID, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-20 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 81, ProfileID: profileID, IngressRequestID: "topology-2", ModelID: "terminal-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &terminalTargetID, StatusCode: 503, SuccessFlag: false, BillableFlag: boolPtr(false), PricedFlag: boolPtr(false), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
+
+	var modelToModelEdgeID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 AND target_model_config_id = $3`, profileID, entryModelID, terminalModelID).Scan(&modelToModelEdgeID); err != nil {
+		t.Fatalf("load topology model edge id: %v", err)
+	}
+	var modelToTerminalEdgeID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 AND target_connection_id = $3`, profileID, terminalModelID, terminalTargetID).Scan(&modelToTerminalEdgeID); err != nil {
+		t.Fatalf("load topology terminal edge id: %v", err)
+	}
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	assertDashboardSnapshotTopLevelShape(t, payload)
+
+	topologyGraph := asMap(t, payload["topology_graph"])
+	topologyStats := asMap(t, topologyGraph["stats"])
+	if jsonInt(t, topologyStats["model_count"]) != 3 || jsonInt(t, topologyStats["active_model_count"]) != 2 || jsonInt(t, topologyStats["disabled_model_count"]) != 1 || jsonInt(t, topologyStats["terminal_target_count"]) != 1 || jsonInt(t, topologyStats["active_terminal_target_count"]) != 0 || jsonInt(t, topologyStats["inactive_terminal_target_count"]) != 1 || jsonInt(t, topologyStats["endpoint_count"]) != 1 || jsonInt(t, topologyStats["edge_count"]) != 3 {
+		t.Fatalf("expected topology graph stats for disabled/inactive graph, got %+v", topologyStats)
+	}
+
+	nodes := topologyGraph["nodes"].([]any)
+	nodesByID := make(map[string]map[string]any, len(nodes))
+	for _, raw := range nodes {
+		node := asMap(t, raw)
+		nodesByID[node["id"].(string)] = node
+	}
+	disabledNode := nodesByID[fmt.Sprintf("model-%d", disabledModelID)]
+	if disabledNode == nil || disabledNode["status"] != "disabled" || disabledNode["kind"] != "model" || jsonInt(t, disabledNode["model_config_id"]) != disabledModelID || disabledNode["model_id"] != "disabled-model" {
+		t.Fatalf("expected disabled model node semantics, got %+v", disabledNode)
+	}
+	terminalNode := nodesByID[fmt.Sprintf("terminal-target-%d", terminalTargetID)]
+	if terminalNode == nil || terminalNode["kind"] != "connection" || terminalNode["product_kind"] != "terminal_target" || terminalNode["status"] != "inactive" || terminalNode["active"] != false || jsonInt(t, terminalNode["terminal_target_id"]) != terminalTargetID || jsonInt(t, terminalNode["connection_id"]) != terminalTargetID || terminalNode["health_status"] != "healthy" || jsonInt(t, terminalNode["recent_request_count"]) != 2 || terminalNode["last_request_at"] == nil {
+		t.Fatalf("expected inactive terminal target node semantics, got %+v", terminalNode)
+	}
+	if math.Abs(terminalNode["recent_success_rate"].(float64)-50) > 0.001 {
+		t.Fatalf("expected backend-derived terminal target success rate, got %+v", terminalNode)
+	}
+	endpointNode := nodesByID[fmt.Sprintf("endpoint-%d", endpointID)]
+	if endpointNode == nil || endpointNode["kind"] != "endpoint" || jsonInt(t, endpointNode["endpoint_id"]) != endpointID {
+		t.Fatalf("expected endpoint node for terminal target binding, got %+v", endpointNode)
+	}
+
+	edges := topologyGraph["edges"].([]any)
+	edgesByID := make(map[string]map[string]any, len(edges))
+	for _, raw := range edges {
+		edge := asMap(t, raw)
+		edgesByID[edge["id"].(string)] = edge
+	}
+	modelToModelEdge := edgesByID[fmt.Sprintf("access-target-%d", modelToModelEdgeID)]
+	if modelToModelEdge == nil || modelToModelEdge["kind"] != "model_to_model" || modelToModelEdge["source_node_id"] != fmt.Sprintf("model-%d", entryModelID) || modelToModelEdge["target_node_id"] != fmt.Sprintf("model-%d", terminalModelID) {
+		t.Fatalf("expected stable model-to-model edge, got %+v", modelToModelEdge)
+	}
+	modelToTerminalEdge := edgesByID[fmt.Sprintf("access-target-%d", modelToTerminalEdgeID)]
+	if modelToTerminalEdge == nil || modelToTerminalEdge["kind"] != "model_to_connection" || modelToTerminalEdge["product_kind"] != "model_to_terminal_target" || modelToTerminalEdge["source_node_id"] != fmt.Sprintf("model-%d", terminalModelID) || modelToTerminalEdge["target_node_id"] != fmt.Sprintf("terminal-target-%d", terminalTargetID) || jsonInt(t, modelToTerminalEdge["terminal_target_id"]) != terminalTargetID {
+		t.Fatalf("expected stable model-to-terminal-target edge, got %+v", modelToTerminalEdge)
+	}
+	bindingEdge := edgesByID[fmt.Sprintf("terminal-target-binding-%d", terminalTargetID)]
+	if bindingEdge == nil || bindingEdge["kind"] != "connection_to_endpoint" || bindingEdge["product_kind"] != "terminal_target_to_endpoint" || bindingEdge["source_node_id"] != fmt.Sprintf("terminal-target-%d", terminalTargetID) || bindingEdge["target_node_id"] != fmt.Sprintf("endpoint-%d", endpointID) || jsonInt(t, bindingEdge["endpoint_id"]) != endpointID {
+		t.Fatalf("expected stable terminal-target-to-endpoint binding edge, got %+v", bindingEdge)
 	}
 }
 

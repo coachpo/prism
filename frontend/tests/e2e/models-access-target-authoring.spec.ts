@@ -67,9 +67,12 @@ function createModelListItem(
   };
 }
 
-async function mockModelRoutes(page: Page) {
+async function mockModelRoutes(
+  page: Page,
+  options: { strategies?: ReturnType<typeof createStrategy>[] } = {},
+) {
   const profile = createProfile();
-  const strategies = [createStrategy()];
+  const strategies = options.strategies ?? [createStrategy()];
   const models = [
     createModelListItem(1, "target-alpha", "Target Alpha", "openai"),
     createModelListItem(2, "target-beta", "Target Beta", "openai"),
@@ -96,6 +99,9 @@ async function mockModelRoutes(page: Page) {
     }
     if (pathname === "/api/settings/costing") {
       return fulfillJson({ report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], timezone_preference: null });
+    }
+    if (pathname === "/api/settings/timezone") {
+      return fulfillJson({ timezone_preference: "UTC" });
     }
     if (pathname === "/api/models" && request.method() === "GET") {
       return fulfillJson(models);
@@ -136,7 +142,7 @@ async function mockModelRoutes(page: Page) {
       });
     }
 
-    throw new Error(`Unhandled API request: ${request.method()} ${pathname}`);
+    return fulfillJson({});
   });
 
   await page.addInitScript(() => {
@@ -148,6 +154,27 @@ async function mockModelRoutes(page: Page) {
   };
 }
 
+test("main model dialog disables save when no loadbalance strategies exist", async ({ page }) => {
+  const routes = await mockModelRoutes(page, { strategies: [] });
+
+  await page.goto("/models");
+  await page.getByRole("button", { name: "New Model" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "New Model" });
+  const saveButton = dialog.getByRole("button", { name: "Save" });
+  const noStrategiesCopy = "No loadbalance strategies are available for this profile. Create one on the Loadbalance Strategies page first.";
+
+  await expect(dialog.getByText(noStrategiesCopy)).toBeVisible();
+  await expect(saveButton).toBeDisabled();
+
+  await page.getByRole("textbox", { name: "Model ID" }).fill("zero-strategy-model");
+  await page.getByRole("textbox", { name: "Display Name" }).fill("Zero Strategy Model");
+  await expect(saveButton).toBeDisabled();
+
+  await page.getByRole("textbox", { name: "Display Name" }).press("Enter");
+  expect(routes.getCreatedPayloads()).toHaveLength(0);
+});
+
 test("main model dialog saves targetless disabled drafts", async ({ page }) => {
   const routes = await mockModelRoutes(page);
 
@@ -157,7 +184,7 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "New Model" });
   await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
   await expect(dialog.getByText("New models start disabled so you can save a draft now and attach model targets later.")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
   await expect(dialog.locator('[data-slot="switch"]').last()).toHaveAttribute("data-state", "unchecked");
 
   await page.getByRole("textbox", { name: "Model ID" }).fill("draft-openai");
@@ -189,7 +216,7 @@ test("main model dialog keeps connection option absent while authoring ordered m
 
   const dialog = page.getByRole("dialog", { name: "New Model" });
   await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "New connection" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
   const enabledSwitch = dialog.locator('[data-slot="switch"]').last();
   await expect(enabledSwitch).toHaveAttribute("data-state", "unchecked");
   await page.getByRole("textbox", { name: "Model ID" }).fill("routed-openai");

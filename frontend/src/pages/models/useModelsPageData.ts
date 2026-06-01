@@ -138,7 +138,11 @@ export function useModelsPageData(revision: number) {
     }
 
     if (validationError === "loadbalance_strategy_required") {
-      toast.error(messages.modelsData.selectLoadbalanceStrategy);
+      const message = loadbalanceStrategies.length === 0
+        ? messages.modelDetail.noLoadbalanceStrategiesAvailable
+        : messages.modelsData.selectLoadbalanceStrategy;
+      setFormError(message);
+      toast.error(message);
       return;
     }
 

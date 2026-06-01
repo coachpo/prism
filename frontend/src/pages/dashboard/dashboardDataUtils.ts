@@ -3,10 +3,16 @@ import type { RoutingDiagramData } from "./routingDiagram";
 export function getEmptyRoutingDiagramData(): RoutingDiagramData {
   return {
     nodes: [],
-    links: [],
-    endpointCount: 0,
-    modelCount: 0,
-    activeConnectionTotal: 0,
-    trafficRequestTotal24h: 0,
+    edges: [],
+    stats: {
+      model_count: 0,
+      active_model_count: 0,
+      disabled_model_count: 0,
+      terminal_target_count: 0,
+      active_terminal_target_count: 0,
+      inactive_terminal_target_count: 0,
+      endpoint_count: 0,
+      edge_count: 0,
+    },
   };
 }

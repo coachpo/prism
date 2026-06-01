@@ -34,17 +34,17 @@ import {
   filterAndSortConnections,
   normalizeConnectionSearch,
 } from "./connections-list/connectionListUtils";
-import type { Connection, ModelConfig } from "@/lib/types";
+import type { Connection, ModelConfig, TerminalTarget } from "@/lib/types";
 
 interface ConnectionsListProps {
   model: ModelConfig;
-  connections: Connection[];
+  connections: TerminalTarget[];
   connectionSearch: string;
   setConnectionSearch: (search: string) => void;
   openConnectionDialog: (connection?: Connection) => void;
   handleDeleteConnection: (id: number) => void;
   handleHealthCheck: (id: number) => void;
-  handleToggleActive: (connection: Connection) => void;
+  handleToggleActive: (connection: TerminalTarget) => void;
   handleReorderConnections: (connectionId: number, toIndex: number) => Promise<void>;
   currentStateByConnectionId: Map<number, LoadbalanceCurrentStateItem>;
   resettingConnectionIds: Set<number>;

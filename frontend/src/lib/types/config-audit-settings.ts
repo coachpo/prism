@@ -43,7 +43,12 @@ export interface ConfigPricingTemplateImport {
 
 export interface ConfigLoadbalanceStrategyExport {
   name: string;
-  legacy_strategy_type: "single" | "fill-first" | "round-robin" | null;
+  legacy_strategy_type:
+    | "single"
+    | "fill-first"
+    | "round-robin"
+    | "cheapest_eligible_context"
+    | null;
   failure_status_codes: number[];
   ban_mode: "off" | "temporary" | "until_reset" | null;
   retry_base_delay_ms: number | null;
@@ -61,6 +66,9 @@ export interface ConfigConnectionExport {
   ref: string;
   api_family: ApiFamily;
   endpoint_name: string;
+  context_window_tokens: number | null;
+  default_output_token_reserve: number;
+  max_context_utilization: number;
   pricing_template_name: string | null;
   is_active: boolean;
   priority: number;
@@ -77,6 +85,9 @@ export interface ConfigConnectionImport {
   ref: string;
   api_family: ApiFamily;
   endpoint_name: string;
+  context_window_tokens?: number | null;
+  default_output_token_reserve?: number | null;
+  max_context_utilization?: number | null;
   pricing_template_name?: string | null;
   is_active?: boolean;
   priority?: number;
@@ -103,6 +114,9 @@ export interface ConfigModelExport {
   model_id: string;
   display_name: string | null;
   loadbalance_strategy_name: string | null;
+  context_window_tokens: number | null;
+  default_output_token_reserve: number;
+  max_context_utilization: number;
   is_enabled: boolean;
   access_targets: ConfigAccessTargetExport[];
 }
@@ -113,6 +127,9 @@ export interface ConfigModelImport {
   model_id: string;
   display_name?: string | null;
   loadbalance_strategy_name: string;
+  context_window_tokens?: number | null;
+  default_output_token_reserve?: number | null;
+  max_context_utilization?: number | null;
   is_enabled?: boolean;
   access_targets: ConfigAccessTargetExport[];
 }

@@ -1,6 +1,10 @@
 import type { RoutingDiagramNode } from "../routingDiagram";
 import { useLocale } from "@/i18n/useLocale";
-import { truncateLabel } from "./routingDiagramChartUtils";
+import {
+  isRoutingDiagramInteractiveNode,
+  isRoutingDiagramMutedNode,
+  truncateLabel,
+} from "./routingDiagramChartUtils";
 import type { RoutingNodeShapeProps } from "./routingDiagramChartTypes";
 
 interface RoutingDiagramNodeShapeProps {
@@ -11,25 +15,34 @@ interface RoutingDiagramNodeShapeProps {
 
 export function RoutingDiagramNodeShape({
   compact,
+  onActivate,
   props,
 }: RoutingDiagramNodeShapeProps) {
-  const { formatNumber, messages } = useLocale();
+  const { messages } = useLocale();
   const { x = 0, y = 0, width = 0, height = 0, payload } = props;
 
   if (!payload) {
     return null;
   }
 
-  const rectFill = payload.kind === "endpoint" ? "var(--chart-2)" : "var(--chart-1)";
+  const interactive = isRoutingDiagramInteractiveNode(payload);
+  const muted = isRoutingDiagramMutedNode(payload);
+  const rectFill =
+    payload.kind === "endpoint"
+      ? "var(--chart-2)"
+      : payload.kind === "terminal_target"
+        ? "var(--chart-4)"
+        : "var(--chart-1)";
   const labelText = truncateLabel(payload.label, compact ? 12 : 22);
-  const secondaryText =
-    payload.kind === "endpoint" ? `${formatNumber(payload.activeConnectionCount)} ${messages.profiles.active}` : payload.sublabel;
+  const secondaryText = getSecondaryText(payload, messages);
   const textAnchor = payload.kind === "endpoint" ? "end" : "start";
   const textX = payload.kind === "endpoint" ? x - 10 : x + width + 10;
-  const interactive = payload.kind === "model";
 
   return (
-    <g className={interactive ? "cursor-pointer" : undefined}>
+    <g
+      className={interactive ? "cursor-pointer" : undefined}
+      onClick={interactive ? () => onActivate(payload) : undefined}
+    >
       <rect
         x={x}
         y={y}
@@ -37,8 +50,9 @@ export function RoutingDiagramNodeShape({
         height={height}
         rx={Math.min(6, height / 3)}
         fill={rectFill}
-        fillOpacity={0.88}
-        stroke="var(--background)"
+        fillOpacity={muted ? 0.3 : 0.88}
+        stroke={muted ? "var(--border)" : "var(--background)"}
+        strokeDasharray={muted ? "4 2" : undefined}
         strokeWidth={1.5}
       />
       <text
@@ -47,7 +61,7 @@ export function RoutingDiagramNodeShape({
         textAnchor={textAnchor}
         fontSize={compact ? 10 : 11}
         fontWeight={600}
-        fill="var(--foreground)"
+        fill={muted ? "var(--muted-foreground)" : "var(--foreground)"}
       >
         {labelText}
       </text>
@@ -59,9 +73,26 @@ export function RoutingDiagramNodeShape({
           fontSize={compact ? 9 : 10}
           fill="var(--muted-foreground)"
         >
-          {truncateLabel(secondaryText, compact ? 14 : 24)}
+          {truncateLabel(secondaryText, compact ? 16 : 28)}
         </text>
       ) : null}
     </g>
   );
+}
+
+function getSecondaryText(
+  payload: RoutingDiagramNode,
+  messages: ReturnType<typeof useLocale>["messages"],
+): string | null {
+  if (payload.kind === "terminal_target") {
+    return `${messages.modelDetail.connections} · ${payload.active === false ? messages.modelDetail.inactive : messages.modelDetail.active}`;
+  }
+
+  if (payload.kind === "model" && payload.status === "disabled") {
+    return payload.sublabel
+      ? `${payload.sublabel} · ${messages.modelDetail.disabled}`
+      : messages.modelDetail.disabled;
+  }
+
+  return payload.sublabel;
 }

@@ -176,6 +176,104 @@ func TestRequestLogDetailContract(t *testing.T) {
 	}
 }
 
+func TestRequestLogsDetailContractIncludesContextRoutingMetadata(t *testing.T) {
+	harness := newRequestLogContractHarness(t)
+	profileID := loadRuntimeDefaultProfileID(t, harness)
+	seedRequestLogEndpoints(t, harness, profileID)
+	seedRequestLogUserAgentRules(t, harness, profileID)
+	seedFixtureRequestLog(t, harness, profileID)
+
+	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/101", nil, runtimeModelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	routing := asMapRuntime(t, payload["routing"])
+	if got, ok := routing["selected_terminal_target_id"].(float64); !ok || int(got) != 34 {
+		t.Fatalf("expected selected_terminal_target_id=34, got %+v", routing)
+	}
+	contextRouting := asMapRuntime(t, routing["context_routing"])
+	if contextRouting["policy"] != "cheapest_eligible_context" || contextRouting["estimation_method"] != "openai_chat_heuristic_v1" {
+		t.Fatalf("expected context routing policy and estimation method, got %+v", contextRouting)
+	}
+	if contextRouting["cost_ranking_method"] != "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id" {
+		t.Fatalf("expected pinned cost ranking method, got %+v", contextRouting)
+	}
+	if got, ok := contextRouting["usable_context_window_tokens"].(float64); !ok || int(got) != 8192 {
+		t.Fatalf("expected usable_context_window_tokens=8192, got %+v", contextRouting)
+	}
+	skippedTargets, ok := contextRouting["skipped_terminal_targets"].([]any)
+	if !ok || len(skippedTargets) != 1 {
+		t.Fatalf("expected one skipped terminal target, got %+v", contextRouting)
+	}
+	firstSkipped := asMapRuntime(t, skippedTargets[0])
+	if firstSkipped["reason"] != "estimated_context_exceeds_usable_window" {
+		t.Fatalf("expected skipped target reason to stay persisted, got %+v", firstSkipped)
+	}
+	usage := asMapRuntime(t, payload["usage"])
+	if got, ok := usage["input_tokens"].(float64); !ok || int(got) != 15 {
+		t.Fatalf("expected provider usage input_tokens=15 to remain authoritative, got %+v", usage)
+	}
+	if got, ok := usage["output_tokens"].(float64); !ok || int(got) != 42 {
+		t.Fatalf("expected provider usage output_tokens=42 to remain authoritative, got %+v", usage)
+	}
+}
+
+func TestRequestLogsNoFitPlanningFailurePersistsContextRoutingMetadata(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "request-logs-no-fit-public-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "request-logs-no-fit-"+suffix, "cheapest_eligible_context")
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
+	smallEndpointID := harness.seedEndpoint(t, profileID, "request-logs-no-fit-small-"+suffix, harness.upstream.baseURL("/request-logs/no-fit/small"), "request-logs-no-fit-small-key", 0)
+	largeEndpointID := harness.seedEndpoint(t, profileID, "request-logs-no-fit-large-"+suffix, harness.upstream.baseURL("/request-logs/no-fit/large"), "request-logs-no-fit-large-key", 1)
+	smallConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, smallEndpointID, "request-logs-no-fit-small-connection-"+suffix, nil, nil, 0)
+	largeConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, largeEndpointID, "request-logs-no-fit-large-connection-"+suffix, nil, nil, 1)
+	now := time.Now().UTC()
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, smallConnectionID, 200, 4096, 1.0, now); err != nil {
+		t.Fatalf("update small no-fit connection capabilities: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, largeConnectionID, 400, 4096, 1.0, now); err != nil {
+		t.Fatalf("update large no-fit connection capabilities: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
+	assertStatus(t, response, http.StatusRequestEntityTooLarge)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	var requestLogID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestLogID); err != nil {
+		t.Fatalf("load no-fit request log id: %v", err)
+	}
+	detailResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, detailResponse, &payload)
+	routing := asMapRuntime(t, payload["routing"])
+	if got, ok := routing["selected_terminal_target_id"]; !ok || got != nil {
+		t.Fatalf("expected selected_terminal_target_id=null for no-fit rejection, got %+v", routing)
+	}
+	if got, ok := routing["terminal_target_id"]; !ok || got != nil {
+		t.Fatalf("expected terminal_target_id=null for no-fit rejection detail, got %+v", routing)
+	}
+	contextRouting := asMapRuntime(t, routing["context_routing"])
+	if contextRouting["policy"] != "cheapest_eligible_context" || contextRouting["estimation_method"] != "openai_chat_heuristic_v1" {
+		t.Fatalf("expected persisted no-fit context routing metadata, got %+v", contextRouting)
+	}
+	if got, ok := contextRouting["estimated_total_context_tokens"].(float64); !ok || int(got) <= 400 {
+		t.Fatalf("expected estimated_total_context_tokens to exceed 400, got %+v", contextRouting)
+	}
+	skippedTargets, ok := contextRouting["skipped_terminal_targets"].([]any)
+	if !ok || len(skippedTargets) != 2 {
+		t.Fatalf("expected two skipped terminal targets for no-fit rejection, got %+v", contextRouting)
+	}
+	usage := asMapRuntime(t, payload["usage"])
+	if got, ok := usage["input_tokens"]; !ok || got != nil {
+		t.Fatalf("expected no-fit usage.input_tokens=null without provider truth, got %+v", usage)
+	}
+}
+
 func TestRequestLogStreamErrorDetailContract(t *testing.T) {
 	harness := newRequestLogContractHarness(t)
 	profileID := loadRuntimeDefaultProfileID(t, harness)
@@ -2406,7 +2504,7 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, vendor_id, vendor_key, vendor_name, resolved_target_model_id, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, reasoning_tokens, input_cost_micros, output_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_reasoning, cache_read_input_tokens, cache_creation_input_tokens, cache_read_input_cost_micros, cache_creation_input_cost_micros, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NULL, $24, $25, $26, $27, $28, $29, $30, $31, $32, NULL, NULL, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, NULL, $45, $46, $47, $48, $49, $50, $51, $52)`, 101, profileID, "gpt-4o", "openai", 1, "openai", "OpenAI", "gpt-4o-native", 12, 34, "ingress_req_42", 2, "req_upstream_abc123", "https://api.openai.com", 200, 1234, false, 15, 42, 57, true, true, true, 0, 500, 750, 0, 1250, 1250, "USD", "USD", "$", "1M tokens", "2.500000", "10.000000", "0.000000", 0, 0, 0, 0, "1.250000", "0.000000", 1, "/v1/chat/completions", "Primary production key", createdAt, "codex/1.0", "OpenAI/Python 1.0", 914, 320, false, false); err != nil {
 		t.Fatalf("seed fixture request log: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET request_generation_params = $1::jsonb, request_generation_params_status = 'complete' WHERE profile_id = $2 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, profileID); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET request_generation_params = $1::jsonb, request_generation_params_status = 'complete', selected_terminal_target_id = 34, context_routing = $2::jsonb WHERE profile_id = $3 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, `{"policy":"cheapest_eligible_context","selected_terminal_target_id":34,"estimation_method":"openai_chat_heuristic_v1","estimated_input_tokens":15,"reserved_output_tokens":1024,"estimated_total_context_tokens":1039,"usable_context_window_tokens":8192,"cost_ranking_method":"estimated_blended_request_cost_then_access_target_position_then_terminal_target_id","skipped_terminal_targets":[{"terminal_target_id":35,"endpoint_id":13,"reason":"estimated_context_exceeds_usable_window","usable_context_window_tokens":512,"estimated_total_context_tokens":1039}]}`, profileID); err != nil {
 		t.Fatalf("seed fixture request generation params: %v", err)
 	}
 }

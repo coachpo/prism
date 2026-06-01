@@ -118,6 +118,7 @@ export interface Messages {
     streamingShare: string;
     successfulRequests24h: (count: string) => string;
     activeRoutes: (count: string) => string;
+    activeTargets: (count: string) => string;
     endpointCount: (count: string) => string;
     modelCount: (count: string) => string;
     totalConfigured: (count: string) => string;
@@ -365,6 +366,8 @@ export interface Messages {
     strategyBehaviorSectionTitle: string;
   };
   loadbalanceStrategyCopy: {
+    cheapestEligibleContextLabel: string;
+    cheapestEligibleContextSummary: string;
     fillFirstLabel: string;
     fillFirstSummary: string;
     legacyFamilyLabel: string;
@@ -1857,6 +1860,20 @@ export interface Messages {
     requestDetails: string;
     requestedModel: string;
     finalTargetModel: string;
+    selectedTerminalTarget: string;
+    noTerminalTargetSelected: string;
+    estimationMethod: string;
+    usableContextWindow: string;
+    costRankingMethod: string;
+    selectedEstimatedBlendedCost: string;
+    contextRoutingDecision: string;
+    routingPolicy: string;
+    estimatedInputTokens: string;
+    reservedOutputTokens: string;
+    estimatedTotalContextTokens: string;
+    skippedTerminalTargets: string;
+    skippedTargetReasonContextWindowExceeded: string;
+    skippedTargetReasonUsableContextWindowUnavailable: string;
     time: string;
     totalCost: string;
     totalTokens: string;
@@ -2226,9 +2243,9 @@ export const enMessages: Messages = {
     routing24hSuccessfulRequests: "24h successful requests",
     routing24hTotalRequests: "24h total requests",
     routingActionOpenModelDetail: "Open model detail",
-    routingActiveConnections: "Active connections",
+    routingActiveConnections: "Active terminal targets",
     routingChartActionHint: "Click model nodes to open details",
-    routingChartHint: "Link width reflects active connection count. Color reflects 24h route success rate.",
+    routingChartHint: "Link width reflects active terminal target count. Color reflects 24h route success rate.",
     routingEndpoint: "Endpoint",
     routingEndpointNodeType: "Endpoint",
     routingLegendDegraded: "Degraded",
@@ -2242,21 +2259,22 @@ export const enMessages: Messages = {
     routingModelNodeType: "Model",
     routingNoActiveRoutes: "No active routes",
     routingNoActiveRoutesDescription:
-      "Activate at least one model connection to map live routing paths across endpoints and models.",
+      "Activate at least one model terminal target to map live routing paths across endpoints and models.",
     routingNoData: "No routing data",
     routingNoDataDescription: "No routing diagram data is available for this profile.",
     routingNoRecentTraffic: "No routed traffic in the last 24h",
     routingNoRecentTrafficDescription:
       "Active routes are configured, but no successful request traffic was recorded for the current profile in the last 24 hours.",
     routingNodeType: "Node type",
-    routingTitle: "Routing Health Map",
+    routingTitle: "Routing Target Health",
     routingDescription:
-      "Trace active endpoint-to-model paths in one view. Link width reflects active route count, while color reflects 24-hour route health.",
-    routingLoadingDescription: "Loading live routing volume and 24-hour health data",
+      "Trace configured model-to-target-to-endpoint paths in one view. Muted nodes mark disabled models and inactive terminal targets.",
+    routingLoadingDescription: "Loading backend-owned routing topology and recent target telemetry",
     spending30d: "30d Total Spend",
     streamingShare: "Streaming Share",
     successfulRequests24h: (count) => `${count} successful requests in 24h`,
     activeRoutes: (count) => `${count} active route${count === "1" ? "" : "s"}`,
+    activeTargets: (count) => `${count} active target${count === "1" ? "" : "s"}`,
     endpointCount: (count) => `${count} endpoint${count === "1" ? "" : "s"}`,
     modelCount: (count) => `${count} model${count === "1" ? "" : "s"}`,
     totalConfigured: (count) => `of ${count} total configured`,
@@ -2516,6 +2534,9 @@ export const enMessages: Messages = {
     strategyBehaviorSectionTitle: "Legacy Routing",
   },
   loadbalanceStrategyCopy: {
+    cheapestEligibleContextLabel: "Cheapest target that fits context",
+    cheapestEligibleContextSummary:
+      "Prefer the lowest-cost eligible target that can satisfy the request context.",
     fillFirstLabel: "Fill first",
     fillFirstSummary: "Keep using the first eligible connection until it is unavailable.",
     legacyFamilyLabel: "Legacy routing",
@@ -3527,8 +3548,8 @@ export const enMessages: Messages = {
   },
   modelDetail: {
     active: "Active",
-    addConnection: "Add Connection",
-    addConnectionToStartRouting: "Add a connection to start routing requests",
+    addConnection: "Add Terminal Target",
+    addConnectionToStartRouting: "Add a terminal target to start routing requests",
     addHeader: "Add Header",
     avgCostPerRequest: "Avg Cost / Request",
     backToModels: "Back to models",
@@ -3536,20 +3557,20 @@ export const enMessages: Messages = {
     cancel: "Cancel",
     checkedAt: (time) => `Checked ${time}`,
     checkingNow: "Checking now...",
-    connectionActions: "Connection actions",
-    connectionFallback: (id) => `Connection ${id}`,
-    currentTargetLabel: (targetId) => `${targetId} (current target)`,
+    connectionActions: "Terminal target actions",
+    connectionFallback: (id) => `Terminal target ${id}`,
+    currentTargetLabel: (targetId) => `${targetId} (current terminal target)`,
     connectionDialogDescription:
-      "Configure endpoint source and optional pricing template for this connection. Routing priority is managed from the connection list by dragging cards.",
+      "Configure endpoint source and optional pricing template for this terminal target. Routing priority is managed from the terminal target list by dragging cards.",
     connectionDisplayNamePlaceholder: "Connection display name",
     connectionHealthy: "Connection Healthy",
     connectionNameOptional: "Name (Optional)",
     connectionNameSummaryLabel: "Resolved Name",
     connectionUnhealthy: "Connection Unhealthy",
     configuration: "Configuration",
-    connections: "Connections",
+    connections: "Terminal Targets",
     connectionsLoadOnDemandDescription:
-      "Connection metrics and health checks load on demand to avoid large page-open bursts.",
+      "Terminal target metrics and health checks load on demand to avoid large page-open bursts.",
     consecutiveFailures: (count) => `${count} consecutive failure${count === 1 ? "" : "s"}`,
     cooldownMinutes: (minutes) => `${minutes}m`,
     cooldownMinutesSeconds: (minutes, seconds) => `${minutes}m ${seconds}s`,
@@ -3575,10 +3596,10 @@ export const enMessages: Messages = {
     disabled: "Disabled",
     displayName: "Display Name",
     displayNamePlaceholder: "Friendly name",
-    dragToReorderConnection: (name) => `Drag to reorder connection ${name}`,
+    dragToReorderConnection: (name) => `Drag to reorder terminal target ${name}`,
     edit: "Edit",
     editable: "Editable",
-    editConnection: "Edit Connection",
+    editConnection: "Edit Terminal Target",
     editModel: "Edit model",
     enabled: "Enabled",
     endpointApiKey: "API Key",
@@ -3600,7 +3621,7 @@ export const enMessages: Messages = {
     failureKindTransientHttp: "a transient HTTP failure",
     failureKindUnknown: "an unknown failure",
     firstTarget: (targetId) => `First ${targetId}`,
-    filterConnections: "Filter connections...",
+    filterConnections: "Filter terminal targets...",
     healthCheck: "Health Check",
     healthChecking: "Checking",
     healthHealthy: "Healthy",
@@ -3616,13 +3637,13 @@ export const enMessages: Messages = {
     loadbalanceStrategyLabel: "Loadbalance Strategy",
     maxInFlightNonStream: "Max In-Flight (Non-Stream)",
     maxInFlightStream: "Max In-Flight (Stream)",
-    modelConfigurationAndConnectionRouting: "Model configuration and connection routing",
+    modelConfigurationAndConnectionRouting: "Model configuration and terminal target routing",
     modelIdLabel: "Model ID",
     modelSettingsDescription:
       "Update model identity, vendor metadata, and API family compatibility for this profile.",
     modelSettingsTitle: "Model Settings",
-    noConnectionsConfigured: "No connections configured",
-    noConnectionsMatchFilter: "No connections match your filter",
+    noConnectionsConfigured: "No terminal targets configured",
+    noConnectionsMatchFilter: "No terminal targets match your filter",
     noCustomHeadersConfigured: "No custom headers configured.",
     noCostDataAvailable: "No cost data available",
     noLoadbalanceStrategiesAvailable:
@@ -3696,7 +3717,7 @@ export const enMessages: Messages = {
     viewRequestLogs: "View Request Logs",
   },
   modelDetailData: {
-    connectionFallback: (id) => `Connection ${id}`,
+    connectionFallback: (id) => `Terminal target ${id}`,
     connectionCreated: "Connection created",
     connectionDeleted: "Connection deleted",
     connectionTestFailed: "Connection test failed",
@@ -3720,7 +3741,7 @@ export const enMessages: Messages = {
     updateModelFailed: "Failed to update model",
   },
   modelDetailTabs: {
-    connections: "Connections",
+    connections: "Terminal Targets",
     loadbalanceEvents: "Loadbalance Events",
   },
   endpointsPage: {
@@ -3778,9 +3799,9 @@ export const enMessages: Messages = {
   },
   modelsUi: {
     accessTargets: "Access targets",
-    accessTargetsDescription: "Select same-family model targets. Private connection targets stay visible here but are created and managed from the model detail connection controls.",
+    accessTargetsDescription: "Select same-family model targets. Private terminal targets stay visible here but are created and managed from the model detail terminal target controls.",
     addTarget: "Add target",
-    connectionTarget: "Connection target",
+    connectionTarget: "Terminal target",
     currentApiFamily: (apiFamily) => `Current API family: ${apiFamily}`,
     deleteModel: "Delete Model",
     deleteModelDescription: (name) => `Are you sure you want to delete "${name}"? This will also remove its owned private connections. Endpoints remain reusable.`,
@@ -3792,7 +3813,7 @@ export const enMessages: Messages = {
     modelIdPlaceholder: "e.g. gpt-4o",
     modelTarget: "Model target",
     needsTarget: "Needs target",
-    newConnection: "New connection",
+    newConnection: "New terminal target",
     newModelEnabledDescription: "New models start disabled so you can save a draft now and attach model targets later. Enabled saves require at least one enabled target.",
     noAccessTargetsSelected: "No model targets selected. Save disabled now, or add a same-family model target before enabling.",
     noModelsMatchSearch: "No models match search",
@@ -4043,6 +4064,20 @@ export const enMessages: Messages = {
     requestDetails: "Request details",
     requestedModel: "Requested Model",
     finalTargetModel: "Final Target Model",
+    selectedTerminalTarget: "Selected Terminal Target",
+    noTerminalTargetSelected: "No terminal target selected",
+    estimationMethod: "Estimation method",
+    usableContextWindow: "Usable context window",
+    costRankingMethod: "Cost ranking method",
+    selectedEstimatedBlendedCost: "Selected estimated blended cost",
+    contextRoutingDecision: "Context-routing decision",
+    routingPolicy: "Routing policy",
+    estimatedInputTokens: "Estimated input tokens",
+    reservedOutputTokens: "Reserved output tokens",
+    estimatedTotalContextTokens: "Estimated total context tokens",
+    skippedTerminalTargets: "Skipped terminal targets",
+    skippedTargetReasonContextWindowExceeded: "Estimated context exceeds usable context window",
+    skippedTargetReasonUsableContextWindowUnavailable: "Usable context window unavailable",
     time: "Time",
     totalCost: "Total cost",
     totalTokens: "Total tokens",

@@ -63,6 +63,7 @@ export function ModelDialog({
   const enabledDescription = editingModel
     ? copy.editModelEnabledDescription
     : copy.newModelEnabledDescription;
+  const saveDisabled = loadbalanceStrategies.length === 0;
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -77,6 +78,11 @@ export function ModelDialog({
           <input type="hidden" name="loadbalance_strategy_id" value={loadbalanceStrategyValue} />
           <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
           <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
+            {formError ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {formError}
+              </div>
+            ) : null}
             <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="min-w-0 flex flex-col gap-2">
@@ -178,7 +184,7 @@ export function ModelDialog({
 
           <DialogFooter className="sm:justify-between">
             <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>{messages.settingsDialogs.cancel}</Button>
-            <Button type="submit">{copy.save}</Button>
+            <Button type="submit" disabled={saveDisabled}>{copy.save}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

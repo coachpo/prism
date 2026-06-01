@@ -136,6 +136,8 @@ export interface Connection {
   updated_at: string;
 }
 
+export type TerminalTarget = Connection;
+
 export interface ConnectionCreate {
   api_family: ApiFamily;
   endpoint_id?: number;
@@ -170,7 +172,11 @@ export type ModelConnectionCreate = Omit<ConnectionCreate, "api_family"> & {
   api_family?: ApiFamily;
 };
 
+export type ModelTerminalTargetCreate = ModelConnectionCreate;
+
 export type ModelConnectionUpdate = Omit<ConnectionUpdate, "api_family">;
+
+export type ModelTerminalTargetUpdate = ModelConnectionUpdate;
 
 export interface HealthCheckResponse {
   connection_id: number;

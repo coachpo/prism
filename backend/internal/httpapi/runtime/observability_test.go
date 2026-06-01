@@ -108,9 +108,11 @@ func TestRuntimeResponseTelemetryEnvelopeCharacterizesFinalAttemptRows(t *testin
 	}
 	firstLog := envelope.RequestLogs[0]
 	finalLog := envelope.RequestLogs[1]
-	if firstLog.AttemptNumber != 1 || firstLog.ConnectionID != primaryConnection.ID || firstLog.EndpointID != primaryConnection.Endpoint.ID || firstLog.StatusCode != http.StatusServiceUnavailable || firstLog.ResponseTimeMS != 333 || !firstLog.CreatedAt.Equal(primaryCompletedAt) {
+	if firstLog.AttemptNumber != 1 || firstLog.StatusCode != http.StatusServiceUnavailable || firstLog.ResponseTimeMS != 333 || !firstLog.CreatedAt.Equal(primaryCompletedAt) {
 		t.Fatalf("unexpected first attempt request log: %+v", firstLog)
 	}
+	assertRuntimeIntPtr(t, firstLog.ConnectionID, primaryConnection.ID, "first attempt connection id")
+	assertRuntimeIntPtr(t, firstLog.EndpointID, primaryConnection.Endpoint.ID, "first attempt endpoint id")
 	if firstLog.InputTokens != nil || firstLog.OutputTokens != nil || firstLog.TotalTokens != nil || firstLog.TotalCostUserCurrencyMicros != nil || firstLog.CompletionDurationMS != nil || firstLog.TTFTMS != nil || firstLog.StreamErrorKind != nil || firstLog.StreamErrorDetail != nil {
 		t.Fatalf("expected non-final request log to omit final usage, pricing, and timing attribution, got %+v", firstLog)
 	}
@@ -119,9 +121,11 @@ func TestRuntimeResponseTelemetryEnvelopeCharacterizesFinalAttemptRows(t *testin
 	if firstLog.UnpricedReason != nil || firstLog.StreamOutcome != runtimeStreamOutcomeNotStreaming || !firstLog.IsStream {
 		t.Fatalf("expected non-final stream row to keep attempt-local failure state, got %+v", firstLog)
 	}
-	if finalLog.AttemptNumber != 2 || finalLog.ConnectionID != secondaryConnection.ID || finalLog.EndpointID != secondaryConnection.Endpoint.ID || finalLog.StatusCode != http.StatusOK || finalLog.ResponseTimeMS != 1500 || !finalLog.CreatedAt.Equal(completedAt) {
+	if finalLog.AttemptNumber != 2 || finalLog.StatusCode != http.StatusOK || finalLog.ResponseTimeMS != 1500 || !finalLog.CreatedAt.Equal(completedAt) {
 		t.Fatalf("unexpected final attempt request log: %+v", finalLog)
 	}
+	assertRuntimeIntPtr(t, finalLog.ConnectionID, secondaryConnection.ID, "final attempt connection id")
+	assertRuntimeIntPtr(t, finalLog.EndpointID, secondaryConnection.Endpoint.ID, "final attempt endpoint id")
 	assertRuntimeIntPtr(t, finalLog.InputTokens, 10, "final input tokens")
 	assertRuntimeIntPtr(t, finalLog.OutputTokens, 6, "final output tokens")
 	assertRuntimeIntPtr(t, finalLog.TotalTokens, 16, "final total tokens")
@@ -153,9 +157,11 @@ func TestRuntimeResponseTelemetryEnvelopeCharacterizesFinalAttemptRows(t *testin
 	}
 
 	usageEvent := envelope.UsageEvent
-	if usageEvent.AttemptCount != 2 || usageEvent.ConnectionID != secondaryConnection.ID || usageEvent.EndpointID != secondaryConnection.Endpoint.ID || usageEvent.StatusCode != http.StatusOK || usageEvent.OperationName != "openai.chat_completions" || usageEvent.RequestPath != "/v1/chat/completions" {
+	if usageEvent.AttemptCount != 2 || usageEvent.StatusCode != http.StatusOK || usageEvent.OperationName != "openai.chat_completions" || usageEvent.RequestPath != "/v1/chat/completions" {
 		t.Fatalf("unexpected usage event identity: %+v", usageEvent)
 	}
+	assertRuntimeIntPtr(t, usageEvent.ConnectionID, secondaryConnection.ID, "usage event connection id")
+	assertRuntimeIntPtr(t, usageEvent.EndpointID, secondaryConnection.Endpoint.ID, "usage event endpoint id")
 	assertRuntimeIntPtr(t, usageEvent.InputTokens, 10, "usage event input tokens")
 	assertRuntimeIntPtr(t, usageEvent.OutputTokens, 6, "usage event output tokens")
 	assertRuntimeInt64Ptr(t, usageEvent.TotalCostUserCurrencyMicros, 50, "usage event cost")
@@ -169,6 +175,141 @@ func TestRuntimeResponseTelemetryEnvelopeCharacterizesFinalAttemptRows(t *testin
 	}
 	if envelope.ProxyKeyUsage == nil || envelope.ProxyKeyUsage.KeyID != 77 || envelope.ProxyKeyUsage.LastUsedIP != "198.51.100.10" || !envelope.ProxyKeyUsage.LastUsedAt.Equal(proxyKeyLastUsedAt) {
 		t.Fatalf("expected proxy key usage signal to survive durable envelope construction, got %+v", envelope.ProxyKeyUsage)
+	}
+}
+
+func TestObservability_PreservesProviderUsageTruthWithContextRoutingMetadata(t *testing.T) {
+	startedAt := time.Date(2026, 5, 29, 10, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(2 * time.Second)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	selectedEndpointName := "selected endpoint"
+	finalEndpointName := "final endpoint"
+	selectedConnection := runtimeConnection{ID: 11, Endpoint: runtimeEndpoint{ID: 101, BaseURL: "https://selected.example", Name: &selectedEndpointName}}
+	finalConnection := runtimeConnection{ID: 22, Endpoint: runtimeEndpoint{ID: 202, BaseURL: "https://final.example", Name: &finalEndpointName}}
+	selectedTerminalTargetID := intPtr(selectedConnection.ID)
+	contextRouting := &runtimeContextRoutingDecision{
+		Policy:                      "cheapest_eligible_context",
+		SelectedTerminalTargetID:    selectedTerminalTargetID,
+		EstimationMethod:            stringPtr("openai_chat_heuristic_v1"),
+		EstimatedInputTokens:        intPtr(12),
+		ReservedOutputTokens:        intPtr(256),
+		EstimatedTotalContextTokens: intPtr(268),
+		UsableContextWindowTokens:   intPtr(4096),
+		CostRankingMethod:           stringPtr(runtimeContextRoutingCostRankingMethod),
+		SkippedTerminalTargets: []runtimeContextRoutingSkippedTerminalTarget{{
+			TerminalTargetID:            intPtr(33),
+			EndpointID:                  intPtr(303),
+			Reason:                      runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow,
+			UsableContextWindowTokens:   intPtr(128),
+			EstimatedTotalContextTokens: intPtr(268),
+		}},
+	}
+	plan := requestPlan{
+		ProfileID:                7,
+		RequestedModelID:         "public-model",
+		ResolvedTargetModelID:    stringPtr("native-model"),
+		RequestedVendorID:        intPtr(1),
+		RequestedVendorKey:       stringPtr("openai"),
+		RequestedVendorName:      stringPtr("OpenAI"),
+		APIFamily:                "openai",
+		RuntimeOperation:         RuntimeOperation{Name: "openai.chat_completions"},
+		ReportCurrencySnapshot:   runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		UpstreamBody:             []byte(`{"model":"native-model"}`),
+		SelectedTerminalTargetID: selectedTerminalTargetID,
+		ContextRouting:           contextRouting,
+	}
+	result := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusOK},
+		Connection:            finalConnection,
+		ResolvedTargetModelID: stringPtr("native-model"),
+		Attempts: []executionAttempt{
+			{Connection: selectedConnection, ResolvedTargetModelID: "native-model", RequestHeaders: map[string]string{"User-Agent": "selected-upstream"}, ResponseHeaders: http.Header{"X-Request-Id": []string{"selected-correlation"}}, StatusCode: http.StatusServiceUnavailable, ResponseTimeMS: 300, CompletedAt: startedAt.Add(300 * time.Millisecond)},
+			{Connection: finalConnection, ResolvedTargetModelID: "native-model", RequestHeaders: map[string]string{"User-Agent": "final-upstream"}, ResponseHeaders: http.Header{"X-Request-Id": []string{"final-correlation"}}, StatusCode: http.StatusOK, ResponseTimeMS: 1200, CompletedAt: completedAt},
+		},
+	}
+	capture := runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(30)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
+
+	envelope := service.buildRuntimeTelemetryEnvelope(plan, result, request, startedAt, capture)
+	if len(envelope.RequestLogs) != 2 {
+		t.Fatalf("expected two request-log rows, got %d", len(envelope.RequestLogs))
+	}
+	firstLog := envelope.RequestLogs[0]
+	finalLog := envelope.RequestLogs[1]
+	assertRuntimeIntPtr(t, firstLog.SelectedTerminalTargetID, selectedConnection.ID, "first selected terminal target")
+	assertRuntimeIntPtr(t, finalLog.SelectedTerminalTargetID, selectedConnection.ID, "final selected terminal target")
+	assertRuntimeIntPtr(t, firstLog.ConnectionID, selectedConnection.ID, "first connection")
+	assertRuntimeIntPtr(t, finalLog.ConnectionID, finalConnection.ID, "final connection")
+	if finalLog.ContextRouting == nil || finalLog.ContextRouting.EstimationMethod == nil || *finalLog.ContextRouting.EstimationMethod != "openai_chat_heuristic_v1" {
+		t.Fatalf("expected final request log context routing metadata, got %+v", finalLog.ContextRouting)
+	}
+	assertRuntimeIntPtr(t, finalLog.InputTokens, 10, "final provider input tokens")
+	assertRuntimeIntPtr(t, finalLog.OutputTokens, 20, "final provider output tokens")
+	assertRuntimeIntPtr(t, finalLog.TotalTokens, 30, "final provider total tokens")
+	assertRuntimeIntPtr(t, finalLog.ContextRouting.EstimatedInputTokens, 12, "estimated input tokens")
+	assertRuntimeIntPtr(t, finalLog.ContextRouting.ReservedOutputTokens, 256, "reserved output tokens")
+	assertRuntimeIntPtr(t, finalLog.ContextRouting.EstimatedTotalContextTokens, 268, "estimated total context tokens")
+	assertRuntimeIntPtr(t, envelope.UsageEvent.SelectedTerminalTargetID, selectedConnection.ID, "usage event selected terminal target")
+	assertRuntimeIntPtr(t, envelope.UsageEvent.ConnectionID, finalConnection.ID, "usage event final connection")
+	assertRuntimeIntPtr(t, envelope.UsageEvent.InputTokens, 10, "usage event provider input tokens")
+	if envelope.UsageEvent.ContextRouting == nil || len(envelope.UsageEvent.ContextRouting.SkippedTerminalTargets) != 1 {
+		t.Fatalf("expected usage event context routing metadata, got %+v", envelope.UsageEvent.ContextRouting)
+	}
+}
+
+func TestObservability_NoFitRoutingLeavesSelectedTerminalTargetNil(t *testing.T) {
+	startedAt := time.Date(2026, 5, 29, 11, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(250 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	contextRouting := &runtimeContextRoutingDecision{
+		Policy:                      "cheapest_eligible_context",
+		SelectedTerminalTargetID:    nil,
+		EstimationMethod:            stringPtr("openai_chat_heuristic_v1"),
+		EstimatedInputTokens:        intPtr(14),
+		ReservedOutputTokens:        intPtr(600),
+		EstimatedTotalContextTokens: intPtr(614),
+		UsableContextWindowTokens:   intPtr(400),
+		CostRankingMethod:           stringPtr(runtimeContextRoutingCostRankingMethod),
+		SkippedTerminalTargets: []runtimeContextRoutingSkippedTerminalTarget{{
+			TerminalTargetID:            intPtr(44),
+			EndpointID:                  intPtr(404),
+			Reason:                      runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow,
+			UsableContextWindowTokens:   intPtr(400),
+			EstimatedTotalContextTokens: intPtr(614),
+		}},
+	}
+	failure := runtimePlanningFailureTelemetry{
+		ProfileID:               8,
+		RequestedModelID:        "no-fit-model",
+		RequestedVendorID:       intPtr(1),
+		RequestedVendorKey:      stringPtr("openai"),
+		RequestedVendorName:     stringPtr("OpenAI"),
+		APIFamily:               "openai",
+		RuntimeOperation:        RuntimeOperation{Name: "openai.chat_completions"},
+		RequestPath:             "/v1/chat/completions",
+		ReportCurrencySnapshot:  runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		RequestGenerationParams: requestGenerationParamsSnapshot{Status: requestGenerationParamsStatusMissing},
+		ContextRouting:          contextRouting,
+	}
+	runtimeErr := &domainError{StatusCode: http.StatusRequestEntityTooLarge, ErrorCode: contextWindowExceededErrorCode, Detail: contextWindowExceededDetail, PlanningFailure: &failure, ContextRouting: contextRouting}
+
+	envelope := service.buildRuntimePlanningFailureTelemetryEnvelope(failure, request, startedAt, runtimeErr)
+	if len(envelope.RequestLogs) != 1 {
+		t.Fatalf("expected one planning-failure request log row, got %d", len(envelope.RequestLogs))
+	}
+	requestLog := envelope.RequestLogs[0]
+	if requestLog.ConnectionID != nil || requestLog.EndpointID != nil || requestLog.SelectedTerminalTargetID != nil {
+		t.Fatalf("expected planning-failure row to keep connection and selected target nil, got %+v", requestLog)
+	}
+	if requestLog.ContextRouting == nil || len(requestLog.ContextRouting.SkippedTerminalTargets) != 1 {
+		t.Fatalf("expected skipped-target context routing metadata, got %+v", requestLog.ContextRouting)
+	}
+	assertRuntimeBoolPtr(t, requestLog.BillableFlag, false, "planning failure billable")
+	assertRuntimeBoolPtr(t, requestLog.PricedFlag, false, "planning failure priced")
+	if envelope.UsageEvent.SelectedTerminalTargetID != nil || envelope.UsageEvent.ConnectionID != nil {
+		t.Fatalf("expected usage event selected/final terminal target ids to stay nil on no-fit rejection, got %+v", envelope.UsageEvent)
 	}
 }
 

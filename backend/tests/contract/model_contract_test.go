@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -245,6 +246,54 @@ func TestModelCRUD(t *testing.T) {
 	assertNoSourceAccessTargets(t, harness, sourceModelConfigID)
 	deleteTarget := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d", targetModelID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, deleteTarget, http.StatusOK)
+}
+
+func TestModelContextCapabilities(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Context Capability Strategy")
+	targetModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "context-capability-target", nil, &strategyID, true)
+	_ = targetModelID
+
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "openai",
+		"model_id":                "context-capability-model",
+		"loadbalance_strategy_id": strategyID,
+		"context_window_tokens":   128000,
+		"access_targets":          []map[string]any{modelAccessTarget("model", "context-capability-target", nil, 0, true)},
+	}, modelHeader(profileID))
+	assertStatus(t, createResponse, http.StatusCreated)
+	var created map[string]any
+	decodeJSONResponse(t, createResponse, &created)
+	modelConfigID := jsonInt(t, created["id"])
+	if jsonInt(t, created["context_window_tokens"]) != 128000 || jsonInt(t, created["default_output_token_reserve"]) != 4096 || jsonFloat(t, created["max_context_utilization"]) != 0.9 {
+		t.Fatalf("expected created model context capability defaults, got %+v", created)
+	}
+	assertStoredModelContextCapabilities(t, harness, modelConfigID, intPtr(128000), 4096, 0.9)
+
+	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{
+		"context_window_tokens":        256000,
+		"default_output_token_reserve": 2048,
+		"max_context_utilization":      0.75,
+	}, modelHeader(profileID))
+	assertStatus(t, updateResponse, http.StatusOK)
+	var updated map[string]any
+	decodeJSONResponse(t, updateResponse, &updated)
+	if jsonInt(t, updated["context_window_tokens"]) != 256000 || jsonInt(t, updated["default_output_token_reserve"]) != 2048 || jsonFloat(t, updated["max_context_utilization"]) != 0.75 {
+		t.Fatalf("expected updated model context capability values, got %+v", updated)
+	}
+	assertStoredModelContextCapabilities(t, harness, modelConfigID, intPtr(256000), 2048, 0.75)
+
+	invalidContextWindow := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"vendor_id": vendorID, "api_family": "openai", "model_id": "invalid-context-window-model", "loadbalance_strategy_id": strategyID, "context_window_tokens": 0, "access_targets": []map[string]any{modelAccessTarget("model", "context-capability-target", nil, 0, true)}}, modelHeader(profileID))
+	assertErrorResponse(t, invalidContextWindow, http.StatusBadRequest, "context_window_tokens must be greater than or equal to 1 when provided")
+
+	invalidReserve := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"vendor_id": vendorID, "api_family": "openai", "model_id": "invalid-context-reserve-model", "loadbalance_strategy_id": strategyID, "default_output_token_reserve": 0, "access_targets": []map[string]any{modelAccessTarget("model", "context-capability-target", nil, 0, true)}}, modelHeader(profileID))
+	assertErrorResponse(t, invalidReserve, http.StatusBadRequest, "default_output_token_reserve must be greater than or equal to 1 when provided")
+
+	invalidUtilization := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"vendor_id": vendorID, "api_family": "openai", "model_id": "invalid-context-utilization-model", "loadbalance_strategy_id": strategyID, "max_context_utilization": 1.1, "access_targets": []map[string]any{modelAccessTarget("model", "context-capability-target", nil, 0, true)}}, modelHeader(profileID))
+	assertErrorResponse(t, invalidUtilization, http.StatusBadRequest, "max_context_utilization must be greater than 0 and less than or equal to 1 when provided")
 }
 
 func TestDeleteReferencedModel(t *testing.T) {
@@ -803,6 +852,26 @@ func modelLoadFXRateModelID(t *testing.T, harness *contractHarness, profileID in
 	return modelID
 }
 
+func assertStoredModelContextCapabilities(t *testing.T, harness *contractHarness, modelConfigID int, wantContextWindowTokens *int, wantDefaultOutputTokenReserve int, wantMaxContextUtilization float64) {
+	t.Helper()
+	var contextWindowTokens sql.NullInt32
+	var defaultOutputTokenReserve int
+	var maxContextUtilization float64
+	if err := harness.conn.QueryRow(context.Background(), `SELECT context_window_tokens, default_output_token_reserve, max_context_utilization FROM model_configs WHERE id = $1`, modelConfigID).Scan(&contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization); err != nil {
+		t.Fatalf("load model %d context capabilities: %v", modelConfigID, err)
+	}
+	if wantContextWindowTokens == nil {
+		if contextWindowTokens.Valid {
+			t.Fatalf("expected model %d context_window_tokens to be NULL, got %d", modelConfigID, contextWindowTokens.Int32)
+		}
+	} else if !contextWindowTokens.Valid || int(contextWindowTokens.Int32) != *wantContextWindowTokens {
+		t.Fatalf("expected model %d context_window_tokens %d, got %+v", modelConfigID, *wantContextWindowTokens, contextWindowTokens)
+	}
+	if defaultOutputTokenReserve != wantDefaultOutputTokenReserve || maxContextUtilization != wantMaxContextUtilization {
+		t.Fatalf("expected model %d reserve/utilization %d/%0.2f, got %d/%0.2f", modelConfigID, wantDefaultOutputTokenReserve, wantMaxContextUtilization, defaultOutputTokenReserve, maxContextUtilization)
+	}
+}
+
 type expectedAccessTarget struct {
 	TargetType    string
 	TargetModelID string
@@ -889,7 +958,7 @@ func modelLoadConnectionTargetID(t *testing.T, harness *contractHarness, sourceM
 }
 
 func modelConnectionTargetsManagedDetail() string {
-	return "connection access targets are managed through model-scoped connection routes"
+	return "terminal targets are managed through model-scoped connection routes"
 }
 
 func assertConnectionTargetCount(t *testing.T, harness *contractHarness, connectionID int, want int) {

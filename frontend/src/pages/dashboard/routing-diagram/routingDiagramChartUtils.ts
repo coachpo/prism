@@ -60,7 +60,20 @@ export function formatSuccessRate(
     return null;
   }
 
-  return `${formatNumber(successRate, getCurrentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  return `${formatNumber(successRate, getCurrentLocale(), {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+export function isRoutingDiagramInteractiveNode(node: RoutingDiagramNode): boolean {
+  return node.kind === "model" || node.kind === "endpoint";
+}
+
+export function isRoutingDiagramMutedNode(node: RoutingDiagramNode): boolean {
+  return node.kind === "terminal_target"
+    ? node.active === false || node.status === "inactive"
+    : node.status === "disabled";
 }
 
 export function isRoutingDiagramNode(value: unknown): value is RoutingDiagramNode {
@@ -68,7 +81,7 @@ export function isRoutingDiagramNode(value: unknown): value is RoutingDiagramNod
     isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.label === "string" &&
-    (value.kind === "endpoint" || value.kind === "model")
+    (value.kind === "endpoint" || value.kind === "model" || value.kind === "terminal_target")
   );
 }
 
@@ -76,9 +89,10 @@ export function isRoutingDiagramLink(value: unknown): value is RoutingDiagramLin
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    typeof value.modelId === "string" &&
-    typeof value.modelConfigId === "number" &&
-    typeof value.endpointId === "number"
+    typeof value.sourceNodeId === "string" &&
+    typeof value.targetNodeId === "string" &&
+    typeof value.sourceLabel === "string" &&
+    typeof value.targetLabel === "string"
   );
 }
 

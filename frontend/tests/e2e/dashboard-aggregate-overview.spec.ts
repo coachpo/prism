@@ -171,7 +171,10 @@ test.describe("dashboard aggregate overview regression", () => {
     await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({ timeout: routeReadyTimeout });
-    await expect(page.getByText("Routing Health Map")).toBeVisible();
+    await expect(page.getByText("Routing Target Health")).toBeVisible();
+    await expect(page.getByText("2 models")).toBeVisible();
+    await expect(page.getByText("1 active target")).toBeVisible();
+    await expect(page.getByText("Disabled Model", { exact: true })).toBeVisible();
     await expect(page.getByText("Top Models by Spend")).toBeVisible();
     await expect(page.getByText("Model A Spend Label")).toBeVisible();
 

@@ -39,6 +39,60 @@ func TestRequestGenerationParamsByOperation(t *testing.T) {
 	}
 }
 
+func TestEstimateOpenAIChatCompletionsRequestTokens(t *testing.T) {
+	contextWindowTokens := 10_000
+	estimation, err := estimateOpenAIChatCompletionsRequestTokens([]byte(`{"model":"gpt-4o","messages":[{"role":"system","content":"You are terse."},{"role":"user","content":[{"type":"text","text":"Summarize this request."}]}],"response_format":{"type":"json_schema","json_schema":{"name":"summary","schema":{"type":"object"}}},"max_completion_tokens":512}`), requestContextEstimationOptions{ContextWindowTokens: &contextWindowTokens})
+	if err != nil {
+		t.Fatalf("estimate chat request tokens: %v", err)
+	}
+	if estimation == nil {
+		t.Fatal("expected chat estimation metadata")
+	}
+	if estimation.Method != openAIChatContextEstimationMethod {
+		t.Fatalf("expected method %q, got %+v", openAIChatContextEstimationMethod, estimation)
+	}
+	if estimation.ReservedOutputTokens != 512 {
+		t.Fatalf("expected explicit chat output reserve 512, got %+v", estimation)
+	}
+	if estimation.UsableContextWindowTokens == nil || *estimation.UsableContextWindowTokens != 9000 {
+		t.Fatalf("expected default usable chat context 9000, got %+v", estimation)
+	}
+	if estimation.EstimatedInputTokens <= 0 {
+		t.Fatalf("expected positive chat input estimate, got %+v", estimation)
+	}
+	if estimation.EstimatedTotalContextTokens != estimation.EstimatedInputTokens+512 {
+		t.Fatalf("expected chat total context to include explicit reserve, got %+v", estimation)
+	}
+}
+
+func TestEstimateOpenAIResponsesRequestTokens(t *testing.T) {
+	defaultOutputReserve := 2048
+	contextWindowTokens := 20_000
+	maxContextUtilization := 0.75
+	estimation, err := estimateOpenAIResponsesRequestTokens([]byte(`{"model":"gpt-4o","instructions":"Be concise.","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Summarize this request."}]}],"text":{"format":{"type":"text"}}}`), requestContextEstimationOptions{DefaultOutputTokenReserve: &defaultOutputReserve, ContextWindowTokens: &contextWindowTokens, MaxContextUtilization: &maxContextUtilization})
+	if err != nil {
+		t.Fatalf("estimate responses request tokens: %v", err)
+	}
+	if estimation == nil {
+		t.Fatal("expected responses estimation metadata")
+	}
+	if estimation.Method != openAIResponsesContextEstimationMethod {
+		t.Fatalf("expected method %q, got %+v", openAIResponsesContextEstimationMethod, estimation)
+	}
+	if estimation.ReservedOutputTokens != defaultOutputReserve {
+		t.Fatalf("expected default output reserve %d, got %+v", defaultOutputReserve, estimation)
+	}
+	if estimation.UsableContextWindowTokens == nil || *estimation.UsableContextWindowTokens != 15_000 {
+		t.Fatalf("expected override usable context 15000, got %+v", estimation)
+	}
+	if estimation.EstimatedInputTokens <= 0 {
+		t.Fatalf("expected positive responses input estimate, got %+v", estimation)
+	}
+	if estimation.EstimatedTotalContextTokens != estimation.EstimatedInputTokens+defaultOutputReserve {
+		t.Fatalf("expected responses total context to include default reserve, got %+v", estimation)
+	}
+}
+
 func TestGeminiStreamingObserverByOperation(t *testing.T) {
 	streamOperation := mustResolveRequestGenerationOperation(t, "/v1beta/models/gemini:streamGenerateContent").Operation
 	generateOperation := mustResolveRequestGenerationOperation(t, "/v1beta/models/gemini:generateContent").Operation
