@@ -97,6 +97,22 @@ func TestRequestGenerationParams_TranslatedResponsesRejectionPreservesIngressAtt
 	assertLatestTranslatedIngressPlanningAttribution(t, harness.conn, profileID, "/v1/responses", route.ConnectionID, "openai_responses_heuristic_v1")
 }
 
+func TestFacadeRequestGenerationParams_TranslatedResponsesRejectionPreservesIngressAttribution(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "generation-facade-translated-rejection"})
+	route := seedTranslatedOpenAIFacadeRoute(t, harness, profileID, "generation-facade-rejection-public", "generation-facade-rejection-target", upstream.baseURL("/generation/facade/translated/rejection"), "generation-facade-rejection-key", "chat_completions_reasoning_none")
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "hidden facade translated rejection prompt", "text": map[string]any{"format": "json_schema"}, "max_output_tokens": 64}, nil)
+	assertStatus(t, response, http.StatusBadRequest)
+	if got := len(upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected facade translated rejection to avoid upstream calls, got %d", got)
+	}
+	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
+	assertLatestRequestGenerationParams(t, harness.conn, profileID, "complete", map[string]any{"provider": "openai", "max_output_tokens": float64(64), "max_output_tokens_source": "max_output_tokens"})
+	assertLatestTranslatedIngressPlanningAttribution(t, harness.conn, profileID, "/v1/responses", route.ConnectionID, "openai_responses_heuristic_v1")
+}
+
 func TestRequestGenerationParams_TranslatedChatRejectionPreservesIngressAttribution(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -466,6 +482,31 @@ func newRuntimeImageEditMultipartBody(t *testing.T, model string) ([]byte, strin
 		t.Fatalf("close image edit multipart writer: %v", err)
 	}
 	return body.Bytes(), writer.FormDataContentType()
+}
+
+func seedTranslatedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAIProbeEndpointVariant string) seededRuntimeRoute {
+	t.Helper()
+	suffix := randomSuffix()
+	publicModelID := publicModelPrefix + "-" + suffix
+	targetModelID := targetModelPrefix + "-" + suffix
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-facade-public-"+suffix, "fill-first")
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &publicStrategyID)
+	now := time.Now().UTC()
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET facade_enabled = TRUE, facade_selection_policy = 'weighted_eligible_context', facade_fallback_policy = 'redistribute_ineligible_weight', updated_at = $2 WHERE id = $1`, publicModelConfigID, now); err != nil {
+		t.Fatalf("enable translated OpenAI facade model %d: %v", publicModelConfigID, err)
+	}
+	targetStrategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-facade-target-"+suffix, "cheapest_eligible_context")
+	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &targetStrategyID)
+	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, targetModelConfigID, 0, 1, 0)
+	endpointID := harness.seedEndpoint(t, profileID, publicModelPrefix+"-endpoint-"+suffix, endpointBaseURL, endpointAPIKey, 0)
+	connectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAIProbeEndpointVariant)
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, 16_384, 1_024, 1.0, now); err != nil {
+		t.Fatalf("update translated OpenAI facade connection context capabilities: %v", err)
+	}
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	return seededRuntimeRoute{PublicModelID: publicModelID, TargetModelID: targetModelID, ConnectionID: connectionID}
 }
 
 func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAIProbeEndpointVariant string) seededRuntimeRoute {

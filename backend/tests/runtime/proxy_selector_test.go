@@ -61,6 +61,147 @@ func TestRuntimeCheapestEligibleContextNoFitReturns413WithoutUpstreamAttemptOrBa
 	}
 }
 
+func TestFacadeWeightedEligibleContextExcludesIneligibleTargetsFromWeight(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "facade-weighted-public-" + suffix
+	firstTargetModelID := "facade-weighted-first-" + suffix
+	blockedTargetModelID := "facade-weighted-blocked-" + suffix
+	secondTargetModelID := "facade-weighted-second-" + suffix
+	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
+		{ModelID: firstTargetModelID, EndpointBaseURL: harness.upstream.baseURL("/facade/weighted/first"), EndpointAPIKey: "facade-weighted-first-key", Weight: 1},
+		{ModelID: blockedTargetModelID, EndpointBaseURL: harness.upstream.baseURL("/facade/weighted/blocked"), EndpointAPIKey: "facade-weighted-blocked-key", Weight: 100},
+		{ModelID: secondTargetModelID, EndpointBaseURL: harness.upstream.baseURL("/facade/weighted/second"), EndpointAPIKey: "facade-weighted-second-key", Weight: 1},
+	})
+	harness.runtimeService.RuntimeState().ResetProfile(profileID)
+	blockedUntilAt := time.Now().UTC().Add(10 * time.Minute)
+	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: route.ConnectionIDs[1], BlockedUntilAt: &blockedUntilAt, CircuitState: "open"})
+
+	for requestIndex := 0; requestIndex < 4; requestIndex++ {
+		response := performProxySelectorChatRequest(t, harness, publicModelID, "facade weighted eligible-only routing")
+		assertStatus(t, response, http.StatusOK)
+	}
+	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{
+		{Path: "/facade/weighted/first/v1/chat/completions", ModelID: firstTargetModelID},
+		{Path: "/facade/weighted/second/v1/chat/completions", ModelID: secondTargetModelID},
+		{Path: "/facade/weighted/first/v1/chat/completions", ModelID: firstTargetModelID},
+		{Path: "/facade/weighted/second/v1/chat/completions", ModelID: secondTargetModelID},
+	})
+}
+
+func TestFacadeWeightedEligibleContextDoesNotRetryAlternateTargetAfterUpstreamFailure(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "facade-no-retry-public-" + suffix
+	primaryTargetModelID := "facade-no-retry-primary-" + suffix
+	alternateTargetModelID := "facade-no-retry-alternate-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "selected facade target failed"})
+	alternateUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "facade-no-retry-alternate"})
+	seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
+		{ModelID: primaryTargetModelID, EndpointBaseURL: primaryUpstream.baseURL("/facade/no-retry/primary"), EndpointAPIKey: "facade-no-retry-primary-key", Weight: 1},
+		{ModelID: alternateTargetModelID, EndpointBaseURL: alternateUpstream.baseURL("/facade/no-retry/alternate"), EndpointAPIKey: "facade-no-retry-alternate-key", Weight: 1},
+	})
+	harness.runtimeService.RuntimeState().ResetProfile(profileID)
+
+	response := performProxySelectorChatRequest(t, harness, publicModelID, "facade selected target failure should not retry sibling")
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	primaryRequests := primaryUpstream.requestsSnapshot()
+	if len(primaryRequests) != 1 {
+		t.Fatalf("expected selected facade target to receive one upstream attempt, got %d", len(primaryRequests))
+	}
+	if got := requestModelID(t, primaryRequests[0].Body); got != primaryTargetModelID {
+		t.Fatalf("expected failed facade upstream request model %q, got %q", primaryTargetModelID, got)
+	}
+	if got := len(alternateUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected alternate facade target to remain unattempted after selected target failure, got %d requests", got)
+	}
+}
+
+func TestFacadeWeightedEligibleContextNoContextFitReturns413WithoutUpstreamAttempt(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "facade-no-fit-public-" + suffix
+	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
+		{ModelID: "facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/small"), EndpointAPIKey: "facade-no-fit-small-key", Weight: 1},
+		{ModelID: "facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/large"), EndpointAPIKey: "facade-no-fit-large-key", Weight: 1},
+	})
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[0], 200, 4_096, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[1], 400, 4_096, 1.0)
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	harness.runtimeService.RuntimeState().ResetProfile(profileID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized facade request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
+	assertStatus(t, response, http.StatusRequestEntityTooLarge)
+	payload := runtimeResponsePayload(t, response)
+	if got, _ := payload["error"].(string); got != "context_window_exceeded" {
+		t.Fatalf("expected facade context_window_exceeded error, got %+v", payload)
+	}
+	if got, _ := payload["detail"].(string); got != "No configured target can fit the estimated request context." {
+		t.Fatalf("expected pinned facade 413 detail, got %+v", payload)
+	}
+	if got, ok := payload["largest_usable_context_window_tokens"].(float64); !ok || int(got) != 400 {
+		t.Fatalf("expected facade largest usable context window 400, got %+v", payload)
+	}
+	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected no upstream requests for facade planner-side 413, got %d", got)
+	}
+}
+
+func TestFacadeWeightedEligibleContextTranslationRejectionReturns400WithoutUpstreamAttempt(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "facade-translation-public-" + suffix
+	chatOnlyVariant := "chat_completions_reasoning_none"
+	seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{{
+		ModelID:                    "facade-translation-target-" + suffix,
+		EndpointBaseURL:            harness.upstream.baseURL("/facade/translation/chat-only"),
+		EndpointAPIKey:             "facade-translation-key",
+		Weight:                     1,
+		OpenAIProbeEndpointVariant: &chatOnlyVariant,
+	}})
+	harness.runtimeService.RuntimeState().ResetProfile(profileID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": publicModelID, "input": "facade translated rejection", "text": map[string]any{"format": "json_schema"}, "max_output_tokens": 64}, nil)
+	assertStatus(t, response, http.StatusBadRequest)
+	payload := runtimeResponsePayload(t, response)
+	if payload["unsupported_reason"] != "responses_text" {
+		t.Fatalf("expected facade translated rejection unsupported_reason responses_text, got %+v", payload)
+	}
+	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected facade translated rejection to avoid upstream calls, got %d", got)
+	}
+}
+
+func TestFacadeWeightedEligibleContextNoEligibleTargetsReturns503(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "facade-no-eligible-public-" + suffix
+	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
+		{ModelID: "facade-no-eligible-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-eligible/first"), EndpointAPIKey: "facade-no-eligible-first-key", Weight: 1},
+		{ModelID: "facade-no-eligible-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-eligible/second"), EndpointAPIKey: "facade-no-eligible-second-key", Weight: 1},
+	})
+	harness.runtimeService.RuntimeState().ResetProfile(profileID)
+	blockedUntilAt := time.Now().UTC().Add(10 * time.Minute)
+	for _, connectionID := range route.ConnectionIDs {
+		harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: connectionID, BlockedUntilAt: &blockedUntilAt, CircuitState: "open"})
+	}
+
+	response := performProxySelectorChatRequest(t, harness, publicModelID, "all facade targets unroutable")
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	payload := runtimeResponsePayload(t, response)
+	if got, _ := payload["detail"].(string); got != "No eligible targets available for model '"+publicModelID+"'." {
+		t.Fatalf("expected facade no-eligible 503 detail, got %+v", payload)
+	}
+	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected no upstream requests for facade 503, got %d", got)
+	}
+}
+
 func TestProxySelectorPreferredContextPreferredBandWinsOverCheaperDiscretionaryTarget(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -473,6 +614,62 @@ func TestRuntimeRequestLogsPreserveProxySelectorResolvedTargetIdentity(t *testin
 	}
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, publicModelID, selectedTargetModelID)
+}
+
+type facadeTargetSeed struct {
+	ModelID                    string
+	EndpointBaseURL            string
+	EndpointAPIKey             string
+	Weight                     int
+	OpenAIProbeEndpointVariant *string
+}
+
+type seededFacadeRoute struct {
+	PublicModelID  string
+	TargetModelIDs []string
+	ConnectionIDs  []int
+}
+
+func seedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelID string, targets []facadeTargetSeed) seededFacadeRoute {
+	t.Helper()
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "facade-public-"+randomSuffix(), "fill-first")
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &publicStrategyID)
+	enableRuntimeHarnessFacadeModel(t, harness, publicModelConfigID)
+	route := seededFacadeRoute{PublicModelID: publicModelID, TargetModelIDs: make([]string, 0, len(targets)), ConnectionIDs: make([]int, 0, len(targets))}
+	for index, target := range targets {
+		targetStrategyID := harness.seedLegacyStrategy(t, profileID, "facade-target-"+randomSuffix(), "fill-first")
+		targetModelConfigID := harness.seedModel(t, profileID, "openai", target.ModelID, "native", &targetStrategyID)
+		weight := target.Weight
+		if weight <= 0 {
+			weight = 1
+		}
+		harness.seedProxyTargetWithMetadata(t, publicModelConfigID, targetModelConfigID, index, weight, index)
+		endpointID := harness.seedEndpoint(t, profileID, "facade-endpoint-"+target.ModelID, target.EndpointBaseURL, target.EndpointAPIKey, index)
+		connectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, targetModelConfigID, endpointID, "facade-connection-"+target.ModelID, nil, nil, 0, target.OpenAIProbeEndpointVariant)
+		setRuntimeHarnessConnectionContextCapabilities(t, harness, connectionID, 16_384, 1_024, 1.0)
+		route.TargetModelIDs = append(route.TargetModelIDs, target.ModelID)
+		route.ConnectionIDs = append(route.ConnectionIDs, connectionID)
+	}
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	return route
+}
+
+func enableRuntimeHarnessFacadeModel(t *testing.T, harness *runtimeHarness, modelConfigID int) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET facade_enabled = TRUE, facade_selection_policy = 'weighted_eligible_context', facade_fallback_policy = 'redistribute_ineligible_weight', updated_at = $2 WHERE id = $1`, modelConfigID, now); err != nil {
+		t.Fatalf("enable runtime facade model %d: %v", modelConfigID, err)
+	}
+}
+
+func setRuntimeHarnessConnectionContextCapabilities(t *testing.T, harness *runtimeHarness, connectionID int, contextWindowTokens int, defaultOutputTokenReserve int, maxContextUtilization float64) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, contextWindowTokens, defaultOutputTokenReserve, maxContextUtilization, now); err != nil {
+		t.Fatalf("update runtime facade connection %d context capabilities: %v", connectionID, err)
+	}
 }
 
 func performProxySelectorChatRequest(t *testing.T, harness *runtimeHarness, modelID string, content string) *http.Response {

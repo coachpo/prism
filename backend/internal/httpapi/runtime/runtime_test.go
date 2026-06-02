@@ -1987,6 +1987,400 @@ func TestConnectionCapabilityPlanningPreservesPreferredThresholdAndOpenAIUpstrea
 	}
 }
 
+func TestRuntimeFacadeRequestedModelLookupCarriesModelsByIDMetadata(t *testing.T) {
+	service := newRequestPlanUnitService()
+	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "router-target-openai"},
+	)
+	targetModel := snapshot.ModelsByID["router-target-openai"]
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "router-target-openai", 0, 1, 0)
+	snapshot.AccessTargetsBySourceModelID[targetModel.ID] = nil
+	contextWindowTokens := 16_384
+	addRequestPlanConnectionTargetWithOptions(snapshot, targetModel, 2_801, 9_801, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, defaultOutputTokenReserve: 1_024, maxContextUtilization: 1.0})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	input := requestPlanningInput{
+		Request:         request,
+		RawBody:         []byte(`{"model":"router-openai","messages":[]}`),
+		RuntimeConfig:   RuntimeProxyConfigSnapshot{},
+		OperationMatch:  mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path),
+		ActiveProfileID: requestPlanTestProfileID,
+		Snapshot:        snapshot,
+	}
+
+	operation, err := resolveRequestOperation(input)
+	if err != nil {
+		t.Fatalf("resolve request operation: %v", err)
+	}
+	requestedModel, err := resolveRequestedModel(input, operation)
+	if err != nil {
+		t.Fatalf("resolve requested model: %v", err)
+	}
+	if !requestedModel.FacadeEnabled || requestedModel.FacadeSelectionPolicy == nil || *requestedModel.FacadeSelectionPolicy != selectionPolicy || requestedModel.FacadeFallbackPolicy == nil || *requestedModel.FacadeFallbackPolicy != fallbackPolicy {
+		t.Fatalf("expected ModelsByID lookup to preserve facade metadata, got %+v", requestedModel)
+	}
+	contextEstimation, err := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
+	if err != nil {
+		t.Fatalf("estimate request plan target context: %v", err)
+	}
+	resolvedTarget, err := service.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
+	if err != nil {
+		t.Fatalf("resolve request plan target: %v", err)
+	}
+	if !resolvedTarget.RequestedModel.FacadeEnabled || resolvedTarget.RequestedModel.FacadeSelectionPolicy == nil || *resolvedTarget.RequestedModel.FacadeSelectionPolicy != selectionPolicy || resolvedTarget.RequestedModel.FacadeFallbackPolicy == nil || *resolvedTarget.RequestedModel.FacadeFallbackPolicy != fallbackPolicy {
+		t.Fatalf("expected resolved request target to keep requested model facade metadata, got %+v", resolvedTarget.RequestedModel)
+	}
+}
+
+func TestRuntimeFacadeRejectsInvalidRequestedModelPolicies(t *testing.T) {
+	service := newRequestPlanUnitService()
+	invalidSelectionPolicy := "invalid"
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{
+		ID:                    1,
+		APIFamily:             "openai",
+		ModelID:               "router-openai",
+		FacadeEnabled:         true,
+		FacadeSelectionPolicy: &invalidSelectionPolicy,
+		FacadeFallbackPolicy:  &fallbackPolicy,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "facade_selection_policy must be 'weighted_eligible_context'")
+}
+
+func TestRuntimeFacadeRejectsInvalidRecursiveTargetPolicies(t *testing.T) {
+	service := newRequestPlanUnitService()
+	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "facade-child-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy},
+	)
+	addRequestPlanProxyTarget(snapshot, "public-openai", "facade-child-openai")
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"public-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, runtimeNestedFacadesNotSupportedDetail)
+}
+
+func TestRuntimeFacadeCandidateEvaluationReusesTranslatedRejection(t *testing.T) {
+	service := newRequestPlanUnitService()
+	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-target-model"},
+	)
+	router := snapshot.ModelsByID["router-openai"]
+	child := snapshot.ModelsByID["chat-target-model"]
+	addRequestPlanProxyTarget(snapshot, "router-openai", "chat-target-model")
+	setRequestPlanStrategyType(snapshot, child, "cheapest_eligible_context")
+	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
+	contextWindowTokens := 8_192
+	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_841, 9_841, 0, requestPlanConnectionTargetOptions{
+		contextWindowTokens:        &contextWindowTokens,
+		maxContextUtilization:      1.0,
+		openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
+		openAIUpstreamOperation:    stringPtr(openAIUpstreamOperationChatCompletions),
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"router-openai","input":"hello","text":{"format":"json_schema"},"max_output_tokens":48}`)
+	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, router)
+	if err != nil {
+		t.Fatalf("estimate facade translation rejection request context: %v", err)
+	}
+
+	evaluation, err := service.evaluateAccessTargetCandidateFromSnapshot(
+		requestPlanTestProfileID,
+		snapshot,
+		router,
+		snapshot.StrategiesByModelID[router.ID],
+		snapshot.AccessTargetsBySourceModelID[router.ID][0],
+		newRuntimeAccessResolutionContextForTest(service, router, operationMatch.Operation, rawBody, estimation),
+	)
+	if err != nil {
+		t.Fatalf("evaluate facade translated rejection candidate: %v", err)
+	}
+	if evaluation.eligibleCandidate != nil {
+		t.Fatalf("expected no eligible candidate for translated rejection, got %+v", evaluation.eligibleCandidate)
+	}
+	if evaluation.translatedRejectedCandidate != nil {
+		t.Fatalf("expected recursive translated rejection to reuse child decoration instead of local rejection ranking, got %+v", evaluation.translatedRejectedCandidate)
+	}
+	if evaluation.translationRejection == nil {
+		t.Fatal("expected translated rejection to be preserved on facade candidate evaluation")
+	}
+	if got := stringValue(evaluation.translationRejection.Fields["unsupported_reason"]); got != "responses_text" {
+		t.Fatalf("expected translated rejection reason responses_text, got %+v", evaluation.translationRejection.Fields)
+	}
+	if evaluation.translationRejection.StatusCode != http.StatusBadRequest || evaluation.translationRejection.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
+		t.Fatalf("expected pinned translated rejection contract, got %+v", evaluation.translationRejection)
+	}
+	if evaluation.translationRejection.SelectedTerminalTargetID == nil || *evaluation.translationRejection.SelectedTerminalTargetID != 2_841 {
+		t.Fatalf("expected selected terminal target 2841 on reused facade translation rejection, got %+v", evaluation.translationRejection.SelectedTerminalTargetID)
+	}
+	if evaluation.translationRejection.ContextRouting == nil || evaluation.translationRejection.ContextRouting.EstimationMethod == nil || *evaluation.translationRejection.ContextRouting.EstimationMethod != openAIResponsesContextEstimationMethod {
+		t.Fatalf("expected ingress responses estimation metadata on reused facade translation rejection, got %+v", evaluation.translationRejection.ContextRouting)
+	}
+	if evaluation.translationRejection.ContextRouting.ReservedOutputTokens == nil || *evaluation.translationRejection.ContextRouting.ReservedOutputTokens != 48 {
+		t.Fatalf("expected reused facade translation rejection to keep reserved output tokens 48, got %+v", evaluation.translationRejection.ContextRouting)
+	}
+}
+
+func TestRuntimeFacadeCandidateEvaluationReusesHardContextFiltering(t *testing.T) {
+	service := newRequestPlanUnitService()
+	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "small-context-child"},
+	)
+	router := snapshot.ModelsByID["router-openai"]
+	child := snapshot.ModelsByID["small-context-child"]
+	addRequestPlanProxyTarget(snapshot, "router-openai", "small-context-child")
+	setRequestPlanStrategyType(snapshot, child, "cheapest_eligible_context")
+	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
+	smallContextWindowTokens := 400
+	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_851, 9_851, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &smallContextWindowTokens, maxContextUtilization: 1.0})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"router-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, router)
+	if err != nil {
+		t.Fatalf("estimate facade hard-context request context: %v", err)
+	}
+
+	evaluation, err := service.evaluateAccessTargetCandidateFromSnapshot(
+		requestPlanTestProfileID,
+		snapshot,
+		router,
+		snapshot.StrategiesByModelID[router.ID],
+		snapshot.AccessTargetsBySourceModelID[router.ID][0],
+		newRuntimeAccessResolutionContextForTest(service, router, operationMatch.Operation, rawBody, estimation),
+	)
+	if err != nil {
+		t.Fatalf("evaluate facade hard-context candidate: %v", err)
+	}
+	if evaluation.eligibleCandidate != nil || evaluation.translatedRejectedCandidate != nil || evaluation.translationRejection != nil {
+		t.Fatalf("expected no eligible or translated candidate for hard-context facade rejection, got eligible=%+v translated=%+v rejection=%+v", evaluation.eligibleCandidate, evaluation.translatedRejectedCandidate, evaluation.translationRejection)
+	}
+	if !evaluation.contextFitEvaluated || evaluation.largestUsableContextWindowTokens != smallContextWindowTokens {
+		t.Fatalf("expected facade hard-context evaluation to preserve largest usable window %d, got evaluated=%t usable=%d", smallContextWindowTokens, evaluation.contextFitEvaluated, evaluation.largestUsableContextWindowTokens)
+	}
+	if len(evaluation.skippedTerminalTargets) != 1 {
+		t.Fatalf("expected one skipped terminal target from reused child no-fit path, got %+v", evaluation.skippedTerminalTargets)
+	}
+	skipped := evaluation.skippedTerminalTargets[0]
+	if skipped.TerminalTargetID == nil || *skipped.TerminalTargetID != 2_851 {
+		t.Fatalf("expected skipped terminal target 2851, got %+v", skipped)
+	}
+	if skipped.ContextBand == nil || *skipped.ContextBand != runtimeContextBandIneligible || skipped.Reason != runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow {
+		t.Fatalf("expected reused hard-context skip metadata, got %+v", skipped)
+	}
+	if skipped.EstimatedTotalContextTokens == nil || *skipped.EstimatedTotalContextTokens != estimation.EstimatedTotalContextTokens {
+		t.Fatalf("expected skipped target to preserve estimated total context tokens %d, got %+v", estimation.EstimatedTotalContextTokens, skipped)
+	}
+	if skipped.UsableContextWindowTokens == nil || *skipped.UsableContextWindowTokens != smallContextWindowTokens {
+		t.Fatalf("expected skipped target to preserve usable context window %d, got %+v", smallContextWindowTokens, skipped)
+	}
+}
+
+func TestRuntimeFacadeCandidateEvaluationReusesPreferredContextCostAndRuntimeStateFiltering(t *testing.T) {
+	service := newRequestPlanUnitService()
+	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "preferred-child"},
+	)
+	router := snapshot.ModelsByID["router-openai"]
+	child := snapshot.ModelsByID["preferred-child"]
+	addRequestPlanProxyTarget(snapshot, "router-openai", "preferred-child")
+	setRequestPlanStrategyType(snapshot, child, "cheapest_eligible_context")
+	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"router-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, router)
+	if err != nil {
+		t.Fatalf("estimate facade preferred-context request context: %v", err)
+	}
+	contextWindowTokens := estimation.EstimatedTotalContextTokens + 100
+	preferredThreshold := 1.0
+	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_861, 9_861, 0, requestPlanConnectionTargetOptions{
+		contextWindowTokens:                  &contextWindowTokens,
+		maxContextUtilization:                1.0,
+		preferredContextUtilizationThreshold: &preferredThreshold,
+		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+			PricingUnit:         runtimePricingUnitPerMillion,
+			PricingCurrencyCode: "USD",
+			InputPrice:          "1",
+			OutputPrice:         "1",
+		},
+	})
+	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_862, 9_862, 1, requestPlanConnectionTargetOptions{
+		contextWindowTokens:                  &contextWindowTokens,
+		maxContextUtilization:                1.0,
+		preferredContextUtilizationThreshold: &preferredThreshold,
+		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+			PricingUnit:         runtimePricingUnitPerMillion,
+			PricingCurrencyCode: "USD",
+			InputPrice:          "5",
+			OutputPrice:         "5",
+		},
+	})
+	seededAt := service.nowUTC().Add(-time.Minute)
+	bannedUntil := service.nowUTC().Add(time.Minute)
+	service.runtimeState.SeedConnectionState(requestPlanTestProfileID, child.ID, 2_861, loadbalance.RuntimeConnectionState{ConnectionID: 2_861, BanMode: "temporary", BannedUntilAt: &bannedUntil}, seededAt, seededAt)
+	selectedConnection := snapshot.ConnectionsByID[2_862]
+	expectedCostMicros, expectedPriced := estimateRuntimeBlendedRequestCost(selectedConnection, estimation)
+
+	evaluation, err := service.evaluateAccessTargetCandidateFromSnapshot(
+		requestPlanTestProfileID,
+		snapshot,
+		router,
+		snapshot.StrategiesByModelID[router.ID],
+		snapshot.AccessTargetsBySourceModelID[router.ID][0],
+		newRuntimeAccessResolutionContextForTest(service, router, operationMatch.Operation, rawBody, estimation),
+	)
+	if err != nil {
+		t.Fatalf("evaluate facade preferred-context candidate: %v", err)
+	}
+	if evaluation.translationRejection != nil || evaluation.translatedRejectedCandidate != nil || evaluation.eligibleCandidate == nil {
+		t.Fatalf("expected one eligible facade candidate with no translation rejection, got eligible=%+v translated=%+v rejection=%+v", evaluation.eligibleCandidate, evaluation.translatedRejectedCandidate, evaluation.translationRejection)
+	}
+	candidate := evaluation.eligibleCandidate
+	if candidate.contextBand != runtimeContextEligibilityBandPreferred {
+		t.Fatalf("expected preferred context band after reused candidate evaluation, got %v", candidate.contextBand)
+	}
+	if candidate.priced != expectedPriced || candidate.costMicros != expectedCostMicros {
+		t.Fatalf("expected reused candidate cost priced=%t micros=%d, got priced=%t micros=%d", expectedPriced, expectedCostMicros, candidate.priced, candidate.costMicros)
+	}
+	if len(candidate.resolved.TerminalAttempts) != 1 || candidate.resolved.TerminalAttempts[0].Connection.ID != 2_862 {
+		t.Fatalf("expected runtime-state filtering to preserve only connection 2862, got %+v", candidate.resolved.TerminalAttempts)
+	}
+	if candidate.resolved.SelectedTerminalTargetID == nil || *candidate.resolved.SelectedTerminalTargetID != 2_862 {
+		t.Fatalf("expected selected terminal target 2862 after runtime-state filtering, got %+v", candidate.resolved.SelectedTerminalTargetID)
+	}
+	if candidate.resolved.ContextRouting == nil || candidate.resolved.ContextRouting.SelectedTerminalTargetID == nil || *candidate.resolved.ContextRouting.SelectedTerminalTargetID != 2_862 {
+		t.Fatalf("expected reused preferred-context routing attribution to point at 2862, got %+v", candidate.resolved.ContextRouting)
+	}
+	if candidate.resolved.ContextRouting.SelectedContextBand == nil || *candidate.resolved.ContextRouting.SelectedContextBand != runtimeContextBandPreferred {
+		t.Fatalf("expected reused preferred-context routing band to be preferred, got %+v", candidate.resolved.ContextRouting)
+	}
+	if _, exists := candidate.resolved.RuntimeStates[2_861]; exists {
+		t.Fatalf("expected banned connection 2861 to stay filtered out of runtime states, got %+v", candidate.resolved.RuntimeStates)
+	}
+}
+
+func TestBuildRequestPlan_ExactOpenAIFacadeWeightedEligibleContextRedistributesEligibleWeights(t *testing.T) {
+	service := newRequestPlanUnitService()
+	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "eligible-first-openai"},
+		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "blocked-openai"},
+		runtimeModelRecord{ID: 4, APIFamily: "openai", ModelID: "eligible-second-openai"},
+	)
+	facadeModel := snapshot.ModelsByID["facade-router-openai"]
+	firstTarget := snapshot.ModelsByID["eligible-first-openai"]
+	blockedTarget := snapshot.ModelsByID["blocked-openai"]
+	secondTarget := snapshot.ModelsByID["eligible-second-openai"]
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, firstTarget.ModelID, 0, 1, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, blockedTarget.ModelID, 1, 100, 1)
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, secondTarget.ModelID, 2, 1, 2)
+	snapshot.AccessTargetsBySourceModelID[firstTarget.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[blockedTarget.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[secondTarget.ID] = nil
+	contextWindowTokens := 16_384
+	for _, child := range []struct {
+		model      runtimeModelRecord
+		connection int
+		targetID   int
+	}{
+		{model: firstTarget, connection: 2_901, targetID: 9_901},
+		{model: blockedTarget, connection: 2_902, targetID: 9_902},
+		{model: secondTarget, connection: 2_903, targetID: 9_903},
+	} {
+		addRequestPlanConnectionTargetWithOptions(snapshot, child.model, child.connection, child.targetID, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, defaultOutputTokenReserve: 1_024, maxContextUtilization: 1.0})
+	}
+	seededAt := service.nowUTC().Add(-time.Minute)
+	blockedUntil := service.nowUTC().Add(time.Minute)
+	service.runtimeState.SeedConnectionState(requestPlanTestProfileID, blockedTarget.ID, 2_902, loadbalance.RuntimeConnectionState{ConnectionID: 2_902, BanMode: "temporary", BannedUntilAt: &blockedUntil}, seededAt, seededAt)
+
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
+	rawBody := []byte(`{"model":"facade-router-openai","messages":[{"role":"user","content":"eligible-only weighted facade selection"}],"max_completion_tokens":128}`)
+	wantModels := []string{"eligible-first-openai", "eligible-second-openai", "eligible-first-openai", "eligible-second-openai"}
+	for index, wantModelID := range wantModels {
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		if err != nil {
+			t.Fatalf("build request plan iteration %d: %v", index, err)
+		}
+		attempts := plan.orderedTerminalAttempts()
+		if len(attempts) != 1 {
+			t.Fatalf("expected one facade-selected terminal attempt on iteration %d, got %+v", index, attempts)
+		}
+		if got := attempts[0].TargetModel.ModelID; got != wantModelID {
+			t.Fatalf("expected iteration %d selected target model %q, got %q", index, wantModelID, got)
+		}
+		if attempts[0].Connection.ID == 2_902 {
+			t.Fatalf("expected ineligible weighted target 2902 to stay excluded on iteration %d, got %+v", index, attempts[0])
+		}
+	}
+}
+
+func TestRuntimeExactOpenAIFacadeRequiresContextEstimation(t *testing.T) {
+	service := newRequestPlanUnitService()
+	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "target-openai"},
+	)
+	facadeModel := snapshot.ModelsByID["facade-router-openai"]
+	targetModel := snapshot.ModelsByID["target-openai"]
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, targetModel.ModelID, 0, 1, 0)
+	contextWindowTokens := 16_384
+	addRequestPlanConnectionTargetWithOptions(snapshot, targetModel, 2_911, 9_911, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, defaultOutputTokenReserve: 1_024, maxContextUtilization: 1.0})
+
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
+	rawBody := []byte(`{"model":"facade-router-openai","messages":[{"role":"user","content":"missing estimation should fail closed"}]}`)
+	_, err := service.resolveExecutionTargetFromSnapshot(
+		requestPlanTestProfileID,
+		snapshot,
+		facadeModel,
+		operationMatch.Operation,
+		buildRequestTranslationEligibilitySummary(operationMatch.Operation, rawBody),
+		nil,
+		service.nowUTC(),
+	)
+	assertPlanDomainError(t, err, http.StatusBadRequest, contextEstimationUnavailableDetail)
+}
+
+func TestBuildRequestPlan_ExactOpenAIFacadeRejectsNestedFacades(t *testing.T) {
+	service := newRequestPlanUnitService()
+	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "nested-facade-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+	)
+	addRequestPlanModelTargetWithMetadata(snapshot, "facade-router-openai", "nested-facade-openai", 0, 1, 0)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"facade-router-openai","messages":[{"role":"user","content":"nested facades should reject"}]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, runtimeNestedFacadesNotSupportedDetail)
+}
+
 func newRequestPlanUnitService() *Service {
 	return &Service{
 		runtimeState: loadbalance.NewLocalRuntimeStateStore(),
@@ -2038,6 +2432,8 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 			TargetConnectionProfileID: model.ProfileID,
 			TargetConnectionAPIFamily: model.APIFamily,
 			Position:                  0,
+			Weight:                    runtimeActiveModelTargetDefaultWeight,
+			TargetPriority:            0,
 			IsEnabled:                 true,
 		}}
 	}
@@ -2051,6 +2447,10 @@ func addRequestPlanProxyTarget(snapshot *planningSnapshot, proxyModelID string, 
 }
 
 func addRequestPlanModelTargetAtPosition(snapshot *planningSnapshot, proxyModelID string, targetModelID string, position int) {
+	addRequestPlanModelTargetWithMetadata(snapshot, proxyModelID, targetModelID, position, runtimeActiveModelTargetDefaultWeight, position)
+}
+
+func addRequestPlanModelTargetWithMetadata(snapshot *planningSnapshot, proxyModelID string, targetModelID string, position int, weight int, targetPriority int) {
 	proxyModel := snapshot.ModelsByID[proxyModelID]
 	targetModel := snapshot.ModelsByID[targetModelID]
 	snapshot.AccessTargetsBySourceModelID[proxyModel.ID] = append(snapshot.AccessTargetsBySourceModelID[proxyModel.ID], runtimeAccessTargetRecord{
@@ -2064,6 +2464,8 @@ func addRequestPlanModelTargetAtPosition(snapshot *planningSnapshot, proxyModelI
 		TargetModelAPIFamily: targetModel.APIFamily,
 		TargetModelEnabled:   true,
 		Position:             position,
+		Weight:               weight,
+		TargetPriority:       targetPriority,
 		IsEnabled:            true,
 	})
 }
@@ -2108,6 +2510,8 @@ func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model
 		TargetConnectionProfileID: model.ProfileID,
 		TargetConnectionAPIFamily: model.APIFamily,
 		Position:                  position,
+		Weight:                    runtimeActiveModelTargetDefaultWeight,
+		TargetPriority:            position,
 		IsEnabled:                 true,
 	})
 }
@@ -2117,6 +2521,19 @@ func setRequestPlanStrategyType(snapshot *planningSnapshot, model runtimeModelRe
 	strategy := snapshot.StrategiesByModelID[model.ID]
 	strategy.LegacyStrategyType = &legacyStrategyType
 	snapshot.StrategiesByModelID[model.ID] = strategy
+}
+
+func newRuntimeAccessResolutionContextForTest(service *Service, model runtimeModelRecord, operation RuntimeOperation, rawBody []byte, estimation *requestContextEstimation) runtimeAccessResolutionContext {
+	return runtimeAccessResolutionContext{
+		RequestedModelID:         model.ModelID,
+		RequestedAPIFamily:       model.APIFamily,
+		RequestOperation:         operation,
+		TranslationEligibility:   buildRequestTranslationEligibilitySummary(operation, rawBody),
+		RequestContextEstimation: estimation,
+		VisitedModelIDs:          map[int]struct{}{model.ID: struct{}{}},
+		Depth:                    1,
+		ReferenceNow:             service.nowUTC(),
+	}
 }
 
 func mustResolveRuntimeOperation(t *testing.T, method string, requestPath string) RuntimeOperationMatch {
