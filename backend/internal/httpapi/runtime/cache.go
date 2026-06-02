@@ -248,6 +248,9 @@ func (c *SharedCache) LoadFreshActiveRuntimePlan(ctx context.Context) (profiledo
 	if !ok || planning == nil {
 		return zero, nil, fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, activeProfile.ID)
 	}
+	if err := validateRuntimePlanningSnapshotFacadePolicies(planning); err != nil {
+		return zero, nil, err
+	}
 	return activeProfile, planning, nil
 }
 
@@ -259,6 +262,9 @@ func (c *SharedCache) LoadPublishedPlanningSnapshot(profileID int) (*planningSna
 	planning, ok := snapshot.PlanningByProfileID[profileID]
 	if !ok {
 		return nil, fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, profileID)
+	}
+	if err := validateRuntimePlanningSnapshotFacadePolicies(planning); err != nil {
+		return nil, err
 	}
 	return planning, nil
 }

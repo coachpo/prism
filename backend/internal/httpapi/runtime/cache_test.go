@@ -105,6 +105,98 @@ func TestSharedCachePublishedSnapshotsCloneProfilesAndProxyKeysButSharePlanningS
 	}
 }
 
+func TestSharedCachePublishedCachePlanningSnapshotCarriesFacadeMetadata(t *testing.T) {
+	t.Parallel()
+
+	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	cache := NewSharedCache(0)
+	cache.published.Store(&publishedRuntimeSnapshot{
+		PlanningByProfileID: map[int]*planningSnapshot{
+			42: {
+				ModelsByID: map[string]runtimeModelRecord{
+					"router-openai": {
+						ID:                    1,
+						ProfileID:             42,
+						APIFamily:             "openai",
+						ModelID:               "router-openai",
+						FacadeEnabled:         true,
+						FacadeSelectionPolicy: &selectionPolicy,
+						FacadeFallbackPolicy:  &fallbackPolicy,
+					},
+					"child-openai": {
+						ID:        2,
+						ProfileID: 42,
+						APIFamily: "openai",
+						ModelID:   "child-openai",
+					},
+				},
+				AccessTargetsBySourceModelID: map[int][]runtimeAccessTargetRecord{
+					1: {{
+						ID:                   17,
+						ProfileID:            42,
+						SourceModelConfigID:  1,
+						TargetType:           runtimeAccessTargetTypeModel,
+						TargetModelConfigID:  intPtr(2),
+						TargetModelID:        "child-openai",
+						TargetModelProfileID: 42,
+						TargetModelAPIFamily: "openai",
+						TargetModelEnabled:   true,
+						Position:             0,
+						Weight:               7,
+						TargetPriority:       11,
+						IsEnabled:            true,
+					}},
+				},
+			},
+		},
+	})
+
+	planning, err := cache.LoadPublishedPlanningSnapshot(42)
+	if err != nil {
+		t.Fatalf("load published planning snapshot: %v", err)
+	}
+	model := planning.ModelsByID["router-openai"]
+	if !model.FacadeEnabled || model.FacadeSelectionPolicy == nil || *model.FacadeSelectionPolicy != selectionPolicy || model.FacadeFallbackPolicy == nil || *model.FacadeFallbackPolicy != fallbackPolicy {
+		t.Fatalf("expected published model facade metadata to survive cache reads, got %+v", model)
+	}
+	targets := planning.AccessTargetsBySourceModelID[1]
+	if len(targets) != 1 {
+		t.Fatalf("expected one published model target, got %+v", targets)
+	}
+	if targets[0].Weight != 7 || targets[0].TargetPriority != 11 {
+		t.Fatalf("expected published model target weight/priority 7/11, got %+v", targets[0])
+	}
+}
+
+func TestSharedCachePublishedCacheRejectsInvalidFacadeMetadata(t *testing.T) {
+	t.Parallel()
+
+	invalidSelectionPolicy := "invalid"
+	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	cache := NewSharedCache(0)
+	cache.published.Store(&publishedRuntimeSnapshot{
+		PlanningByProfileID: map[int]*planningSnapshot{
+			42: {
+				ModelsByID: map[string]runtimeModelRecord{
+					"router-openai": {
+						ID:                    1,
+						ProfileID:             42,
+						APIFamily:             "openai",
+						ModelID:               "router-openai",
+						FacadeEnabled:         true,
+						FacadeSelectionPolicy: &invalidSelectionPolicy,
+						FacadeFallbackPolicy:  &fallbackPolicy,
+					},
+				},
+			},
+		},
+	})
+
+	_, err := cache.LoadPublishedPlanningSnapshot(42)
+	assertPlanDomainError(t, err, 503, "facade_selection_policy must be 'weighted_eligible_context'")
+}
+
 func TestSharedCachePublishedGenerationTracksStores(t *testing.T) {
 	t.Parallel()
 
