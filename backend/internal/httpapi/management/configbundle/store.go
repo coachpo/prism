@@ -69,6 +69,9 @@ type modelRow struct {
 	DefaultOutputTokenReserve            int
 	MaxContextUtilization                float64
 	PreferredContextUtilizationThreshold *float64
+	FacadeEnabled                        bool
+	FacadeSelectionPolicy                *string
+	FacadeFallbackPolicy                 *string
 	IsEnabled                            bool
 }
 
@@ -78,6 +81,8 @@ type accessTargetRow struct {
 	TargetModelID       *string
 	TargetConnectionID  *int
 	Position            int
+	Weight              *int
+	TargetPriority      *int
 	IsEnabled           bool
 }
 
@@ -422,6 +427,9 @@ func buildModelExport(model modelRow, vendorsByID map[int]vendorRow, strategyNam
 		DefaultOutputTokenReserve:            intPtr(model.DefaultOutputTokenReserve),
 		MaxContextUtilization:                float64Ptr(model.MaxContextUtilization),
 		PreferredContextUtilizationThreshold: float64PtrFromOptional(model.PreferredContextUtilizationThreshold),
+		FacadeEnabled:                        model.FacadeEnabled,
+		FacadeSelectionPolicy:                model.FacadeSelectionPolicy,
+		FacadeFallbackPolicy:                 model.FacadeFallbackPolicy,
 		IsEnabled:                            model.IsEnabled,
 		AccessTargets:                        exportedTargets,
 	}, nil
@@ -469,6 +477,16 @@ func buildAccessTargetExports(model modelRow, accessTargets []accessTargetRow, c
 				return nil, fmt.Errorf("load model target for model %q", model.ModelID)
 			}
 			exportedTarget.TargetModelID = target.TargetModelID
+			weight := intPtrFromOptional(target.Weight)
+			if weight == nil {
+				weight = intPtr(1)
+			}
+			exportedTarget.Weight = weight
+			targetPriority := intPtrFromOptional(target.TargetPriority)
+			if targetPriority == nil {
+				targetPriority = intPtr(target.Position)
+			}
+			exportedTarget.TargetPriority = targetPriority
 		default:
 			return nil, fmt.Errorf("load access target type %q for model %q", target.TargetType, model.ModelID)
 		}
@@ -662,7 +680,7 @@ func listStrategies(ctx context.Context, exec queryExecutor, profileID int) ([]s
 }
 
 func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]modelRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query models for profile %d: %w", profileID, err)
 	}
@@ -675,8 +693,10 @@ func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]model
 		var strategyID sql.NullInt32
 		var contextWindowTokens sql.NullInt32
 		var preferredContextUtilizationThreshold sql.NullFloat64
+		var facadeSelectionPolicy sql.NullString
+		var facadeFallbackPolicy sql.NullString
 		item := modelRow{}
-		if err := rows.Scan(&item.ID, &vendorID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &preferredContextUtilizationThreshold, &item.IsEnabled); err != nil {
+		if err := rows.Scan(&item.ID, &vendorID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &preferredContextUtilizationThreshold, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &item.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan model row: %w", err)
 		}
 		item.VendorID = nullableInt32(vendorID)
@@ -684,6 +704,8 @@ func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]model
 		item.LoadbalanceStrategyID = nullableInt32(strategyID)
 		item.ContextWindowTokens = nullableInt32(contextWindowTokens)
 		item.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
+		item.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
+		item.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -697,7 +719,7 @@ func listAccessTargetsByModelIDs(ctx context.Context, exec queryExecutor, modelI
 	if len(modelIDs) == 0 {
 		return items, nil
 	}
-	rows, err := exec.Query(ctx, `SELECT model_access_targets.source_model_config_id, model_access_targets.target_type, target_models.model_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled FROM model_access_targets LEFT JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.source_model_config_id = ANY($1) ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, toInt32Slice(modelIDs))
+	rows, err := exec.Query(ctx, `SELECT model_access_targets.source_model_config_id, model_access_targets.target_type, target_models.model_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.weight, model_access_targets.target_priority, model_access_targets.is_enabled FROM model_access_targets LEFT JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.source_model_config_id = ANY($1) ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, toInt32Slice(modelIDs))
 	if err != nil {
 		return nil, fmt.Errorf("query access targets: %w", err)
 	}
@@ -706,12 +728,16 @@ func listAccessTargetsByModelIDs(ctx context.Context, exec queryExecutor, modelI
 	for rows.Next() {
 		var targetModelID sql.NullString
 		var targetConnectionID sql.NullInt32
+		var weight sql.NullInt32
+		var targetPriority sql.NullInt32
 		item := accessTargetRow{}
-		if err := rows.Scan(&item.SourceModelConfigID, &item.TargetType, &targetModelID, &targetConnectionID, &item.Position, &item.IsEnabled); err != nil {
+		if err := rows.Scan(&item.SourceModelConfigID, &item.TargetType, &targetModelID, &targetConnectionID, &item.Position, &weight, &targetPriority, &item.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan access target row: %w", err)
 		}
 		item.TargetModelID = nullableStringValue(targetModelID)
 		item.TargetConnectionID = nullableInt32(targetConnectionID)
+		item.Weight = nullableInt32(weight)
+		item.TargetPriority = nullableInt32(targetPriority)
 		items[item.SourceModelConfigID] = append(items[item.SourceModelConfigID], item)
 	}
 	if err := rows.Err(); err != nil {

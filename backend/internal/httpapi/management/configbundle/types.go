@@ -76,16 +76,21 @@ type modelExport struct {
 	DefaultOutputTokenReserve            *int                 `json:"default_output_token_reserve"`
 	MaxContextUtilization                *float64             `json:"max_context_utilization"`
 	PreferredContextUtilizationThreshold *float64             `json:"preferred_context_utilization_threshold"`
+	FacadeEnabled                        bool                 `json:"facade_enabled"`
+	FacadeSelectionPolicy                *string              `json:"facade_selection_policy"`
+	FacadeFallbackPolicy                 *string              `json:"facade_fallback_policy"`
 	IsEnabled                            bool                 `json:"is_enabled"`
 	AccessTargets                        []accessTargetExport `json:"access_targets"`
 }
 
 type accessTargetExport struct {
-	Position      int     `json:"position"`
-	IsEnabled     bool    `json:"is_enabled"`
-	TargetType    string  `json:"target_type"`
-	ConnectionRef *string `json:"connection_ref"`
-	TargetModelID *string `json:"target_model_id"`
+	Position       int     `json:"position"`
+	IsEnabled      bool    `json:"is_enabled"`
+	TargetType     string  `json:"target_type"`
+	ConnectionRef  *string `json:"connection_ref"`
+	TargetModelID  *string `json:"target_model_id"`
+	Weight         *int    `json:"weight"`
+	TargetPriority *int    `json:"target_priority"`
 }
 
 type connectionExport struct {

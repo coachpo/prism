@@ -96,4 +96,33 @@ type importedStrategyPayload struct {
 	BanDurationSeconds                 int
 }
 
+type importedModelPayload struct {
+	VendorKey                            *string
+	APIFamily                            string
+	ModelID                              string
+	DisplayName                          *string
+	LoadbalanceStrategyName              *string
+	ContextWindowTokens                  *int
+	DefaultOutputTokenReserve            *int
+	MaxContextUtilization                *float64
+	PreferredContextUtilizationThreshold *float64
+	FacadeEnabled                        bool
+	FacadeSelectionPolicy                *string
+	FacadeFallbackPolicy                 *string
+	IsEnabled                            bool
+	AccessTargets                        []importedAccessTargetPayload
+}
+
+type importedAccessTargetPayload struct {
+	Position               int
+	IsEnabled              bool
+	TargetType             string
+	ConnectionRef          *string
+	TargetModelID          *string
+	Weight                 *int
+	ResolvedWeight         int
+	TargetPriority         *int
+	ResolvedTargetPriority int
+}
+
 type secretPayloadEntryMap map[string]string
