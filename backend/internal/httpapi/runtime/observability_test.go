@@ -313,6 +313,147 @@ func TestObservability_NoFitRoutingLeavesSelectedTerminalTargetNil(t *testing.T)
 	}
 }
 
+func TestObservability_FacadeSuccessPersistsDecisionMetadataAndTraceAttributes(t *testing.T) {
+	startedAt := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(1200 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	selectedTerminalTargetID := intPtr(11)
+	facadeSelection := &runtimeFacadeSelectionDecision{
+		FacadeModelID:         "facade-public-model",
+		SelectedTargetModelID: stringPtr("native-target-model"),
+		SelectedWeight:        intPtr(1),
+		EligibleTotalWeight:   intPtr(2),
+		ExclusionReasons:      []runtimeFacadeExclusionReason{{Reason: runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow, Count: 1}},
+		ExclusionSummary:      stringPtr("estimated_context_exceeds_usable_window=1"),
+	}
+	contextRouting := &runtimeContextRoutingDecision{
+		Policy:                   runtimeFacadeSelectionPolicyWeightedEligibleContext,
+		SelectedTerminalTargetID: selectedTerminalTargetID,
+		FacadeSelection:          facadeSelection,
+	}
+	resolvedTargetModelID := "native-target-model"
+	connection := runtimeConnection{ID: 11, Endpoint: runtimeEndpoint{ID: 101, BaseURL: "https://facade-success.example"}}
+	plan := requestPlan{
+		ProfileID:                7,
+		RequestedModelID:         "facade-public-model",
+		ResolvedTargetModelID:    &resolvedTargetModelID,
+		RequestedVendorID:        intPtr(1),
+		RequestedVendorKey:       stringPtr("openai"),
+		RequestedVendorName:      stringPtr("OpenAI"),
+		APIFamily:                "openai",
+		RuntimeOperation:         RuntimeOperation{Name: "openai.chat_completions", PathTemplate: "/v1/chat/completions"},
+		ReportCurrencySnapshot:   runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		SelectedTerminalTargetID: selectedTerminalTargetID,
+		ContextRouting:           contextRouting,
+	}
+	result := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusOK},
+		Connection:            connection,
+		ResolvedTargetModelID: &resolvedTargetModelID,
+		Attempts: []executionAttempt{{
+			Connection:            connection,
+			ResolvedTargetModelID: resolvedTargetModelID,
+			ResponseHeaders:       http.Header{"X-Request-Id": []string{"facade-success-request"}},
+			StatusCode:            http.StatusOK,
+			ResponseTimeMS:        1200,
+			CompletedAt:           completedAt,
+			UpstreamOperationName: openAIUpstreamOperationChatCompletions,
+			UpstreamRequestPath:   "/v1/chat/completions",
+		}},
+	}
+	capture := runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(8), OutputTokens: intPtr(4), TotalTokens: intPtr(12)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
+
+	envelope := service.buildRuntimeTelemetryEnvelope(plan, result, request, startedAt, capture)
+	assertRuntimeFacadeSelectionDecision(t, envelope.RequestLogs[0].ContextRouting.FacadeSelection, "facade-public-model", stringPtr("native-target-model"), intPtr(1), intPtr(2), stringPtr("estimated_context_exceeds_usable_window=1"))
+	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-public-model", stringPtr("native-target-model"), intPtr(1), intPtr(2), stringPtr("estimated_context_exceeds_usable_window=1"))
+
+	planAttrs := attributesByKey(runtimeTracePlanAttributes(plan))
+	if planAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || planAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != "native-target-model" || planAttrs[runtimeTraceAttrFacadeSelectedWeight].AsInt64() != 1 || planAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 2 || planAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" {
+		t.Fatalf("expected facade plan trace attrs, got %+v", planAttrs)
+	}
+	envelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(envelope))
+	if envelopeAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || envelopeAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != "native-target-model" || envelopeAttrs[runtimeTraceAttrFacadeSelectedWeight].AsInt64() != 1 || envelopeAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 2 || envelopeAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" {
+		t.Fatalf("expected facade envelope trace attrs, got %+v", envelopeAttrs)
+	}
+}
+
+func TestObservability_FacadeNoFitPlanningFailurePersistsDecisionMetadataAndTraceAttributes(t *testing.T) {
+	startedAt := time.Date(2026, 6, 2, 12, 15, 0, 0, time.UTC)
+	completedAt := startedAt.Add(250 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	facadeSelection := &runtimeFacadeSelectionDecision{
+		FacadeModelID:       "facade-no-fit-model",
+		EligibleTotalWeight: intPtr(0),
+		ExclusionReasons:    []runtimeFacadeExclusionReason{{Reason: runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow, Count: 2}},
+		ExclusionSummary:    stringPtr("estimated_context_exceeds_usable_window=2"),
+	}
+	contextRouting := &runtimeContextRoutingDecision{
+		Policy:                      runtimeFacadeSelectionPolicyWeightedEligibleContext,
+		EstimatedInputTokens:        intPtr(14),
+		ReservedOutputTokens:        intPtr(600),
+		EstimatedTotalContextTokens: intPtr(614),
+		FacadeSelection:             facadeSelection,
+	}
+	failure := runtimePlanningFailureTelemetry{
+		ProfileID:              8,
+		RequestedModelID:       "facade-no-fit-model",
+		RequestedVendorID:      intPtr(1),
+		RequestedVendorKey:     stringPtr("openai"),
+		RequestedVendorName:    stringPtr("OpenAI"),
+		APIFamily:              "openai",
+		RuntimeOperation:       RuntimeOperation{Name: "openai.chat_completions", PathTemplate: "/v1/chat/completions"},
+		RequestPath:            "/v1/chat/completions",
+		ReportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		ContextRouting:         contextRouting,
+	}
+	runtimeErr := &domainError{StatusCode: http.StatusRequestEntityTooLarge, ErrorCode: contextWindowExceededErrorCode, Detail: contextWindowExceededDetail, PlanningFailure: &failure, ContextRouting: contextRouting}
+
+	envelope := service.buildRuntimePlanningFailureTelemetryEnvelope(failure, request, startedAt, runtimeErr)
+	assertRuntimeFacadeSelectionDecision(t, envelope.RequestLogs[0].ContextRouting.FacadeSelection, "facade-no-fit-model", nil, nil, intPtr(0), stringPtr("estimated_context_exceeds_usable_window=2"))
+	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-no-fit-model", nil, nil, intPtr(0), stringPtr("estimated_context_exceeds_usable_window=2"))
+
+	planningFailureAttrs := attributesByKey(runtimeTracePlanningFailureAttributes(failure))
+	if planningFailureAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-no-fit-model" || planningFailureAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 0 || planningFailureAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=2" {
+		t.Fatalf("expected facade no-fit planning failure trace attrs, got %+v", planningFailureAttrs)
+	}
+}
+
+func TestObservability_FacadeNoEligiblePlanningFailurePersistsDecisionMetadataAndTraceAttributes(t *testing.T) {
+	startedAt := time.Date(2026, 6, 2, 12, 30, 0, 0, time.UTC)
+	completedAt := startedAt.Add(150 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	facadeSelection := &runtimeFacadeSelectionDecision{FacadeModelID: "facade-no-eligible-model", EligibleTotalWeight: intPtr(0)}
+	contextRouting := &runtimeContextRoutingDecision{Policy: runtimeFacadeSelectionPolicyWeightedEligibleContext, FacadeSelection: facadeSelection}
+	failure := runtimePlanningFailureTelemetry{
+		ProfileID:              9,
+		RequestedModelID:       "facade-no-eligible-model",
+		RequestedVendorID:      intPtr(1),
+		RequestedVendorKey:     stringPtr("openai"),
+		RequestedVendorName:    stringPtr("OpenAI"),
+		APIFamily:              "openai",
+		RuntimeOperation:       RuntimeOperation{Name: "openai.chat_completions", PathTemplate: "/v1/chat/completions"},
+		RequestPath:            "/v1/chat/completions",
+		ReportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		ContextRouting:         contextRouting,
+	}
+	runtimeErr := &domainError{StatusCode: http.StatusServiceUnavailable, Detail: "No eligible targets available for model 'facade-no-eligible-model'.", PlanningFailure: &failure, ContextRouting: contextRouting}
+
+	envelope := service.buildRuntimePlanningFailureTelemetryEnvelope(failure, request, startedAt, runtimeErr)
+	assertRuntimeFacadeSelectionDecision(t, envelope.RequestLogs[0].ContextRouting.FacadeSelection, "facade-no-eligible-model", nil, nil, intPtr(0), nil)
+	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-no-eligible-model", nil, nil, intPtr(0), nil)
+
+	planningFailureAttrs := attributesByKey(runtimeTracePlanningFailureAttributes(failure))
+	if planningFailureAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-no-eligible-model" || planningFailureAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 0 {
+		t.Fatalf("expected facade no-eligible planning failure trace attrs, got %+v", planningFailureAttrs)
+	}
+	if _, ok := planningFailureAttrs[runtimeTraceAttrFacadeExclusionSummary]; ok {
+		t.Fatalf("expected no facade exclusion summary attr on no-eligible planning failure, got %+v", planningFailureAttrs)
+	}
+}
+
 func newRuntimeTelemetryEnvelopeRequest(proxyKeyLastUsedAt time.Time) *http.Request {
 	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, "runtime-envelope-characterization")
 	ctx = requestcontext.WithRuntimeProxyKey(ctx, requestcontext.RuntimeProxyKeySnapshot{
@@ -324,6 +465,31 @@ func newRuntimeTelemetryEnvelopeRequest(proxyKeyLastUsedAt time.Time) *http.Requ
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?characterization=true", nil).WithContext(ctx)
 	request.Header.Set("User-Agent", " telemetry-characterization-client ")
 	return request
+}
+
+func assertRuntimeFacadeSelectionDecision(t *testing.T, got *runtimeFacadeSelectionDecision, wantFacadeModelID string, wantSelectedTargetModelID *string, wantSelectedWeight *int, wantEligibleTotalWeight *int, wantExclusionSummary *string) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("expected facade selection decision, got nil")
+	}
+	if got.FacadeModelID != wantFacadeModelID {
+		t.Fatalf("expected facade_model_id=%q, got %+v", wantFacadeModelID, got)
+	}
+	if dereferenceString(got.SelectedTargetModelID) != dereferenceString(wantSelectedTargetModelID) {
+		t.Fatalf("expected selected_target_model_id=%q, got %+v", dereferenceString(wantSelectedTargetModelID), got)
+	}
+	if intValue(got.SelectedWeight) != intValue(wantSelectedWeight) || (got.SelectedWeight == nil) != (wantSelectedWeight == nil) {
+		t.Fatalf("expected selected_weight=%+v, got %+v", wantSelectedWeight, got)
+	}
+	if intValue(got.EligibleTotalWeight) != intValue(wantEligibleTotalWeight) || (got.EligibleTotalWeight == nil) != (wantEligibleTotalWeight == nil) {
+		t.Fatalf("expected eligible_total_weight=%+v, got %+v", wantEligibleTotalWeight, got)
+	}
+	if dereferenceString(got.ExclusionSummary) != dereferenceString(wantExclusionSummary) {
+		t.Fatalf("expected exclusion_summary=%q, got %+v", dereferenceString(wantExclusionSummary), got)
+	}
+	if wantExclusionSummary != nil && len(got.ExclusionReasons) == 0 {
+		t.Fatalf("expected exclusion reasons for summary %q, got %+v", *wantExclusionSummary, got)
+	}
 }
 
 func assertRuntimeIntPtr(t *testing.T, got *int, want int, label string) {

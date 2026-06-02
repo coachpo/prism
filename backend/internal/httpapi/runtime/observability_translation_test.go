@@ -7,6 +7,57 @@ import (
 	"time"
 )
 
+func TestObservability_FacadeTranslatedRejectionPersistsDecisionMetadataAndTraceAttributes(t *testing.T) {
+	startedAt := time.Date(2026, 6, 2, 9, 45, 0, 0, time.UTC)
+	completedAt := startedAt.Add(350 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	selectedTerminalTargetID := intPtr(101)
+	facadeSelection := &runtimeFacadeSelectionDecision{
+		FacadeModelID:         "facade-translated-public",
+		SelectedTargetModelID: stringPtr("facade-translated-target"),
+		SelectedWeight:        intPtr(1),
+		EligibleTotalWeight:   intPtr(0),
+		ExclusionReasons:      []runtimeFacadeExclusionReason{{Reason: runtimeFacadeExclusionReasonTranslationRejection, Count: 1}},
+		ExclusionSummary:      stringPtr("translation_rejection=1"),
+	}
+	contextRouting := &runtimeContextRoutingDecision{
+		Policy:                      runtimeFacadeSelectionPolicyWeightedEligibleContext,
+		SelectedTerminalTargetID:    selectedTerminalTargetID,
+		SelectedEndpointID:          intPtr(201),
+		SelectedContextBand:         stringPtr(runtimeContextBandPreferred),
+		EstimatedInputTokens:        intPtr(6),
+		ReservedOutputTokens:        intPtr(64),
+		EstimatedTotalContextTokens: intPtr(70),
+		FacadeSelection:             facadeSelection,
+	}
+	failure := runtimePlanningFailureTelemetry{
+		ProfileID:                10,
+		RequestedModelID:         "facade-translated-public",
+		RequestedVendorID:        intPtr(1),
+		RequestedVendorKey:       stringPtr("openai"),
+		RequestedVendorName:      stringPtr("OpenAI"),
+		APIFamily:                "openai",
+		RuntimeOperation:         RuntimeOperation{Name: "openai.responses", PathTemplate: "/v1/responses"},
+		UpstreamOperationName:    stringPtr(openAIUpstreamOperationChatCompletions),
+		RequestPath:              "/v1/responses",
+		UpstreamRequestPath:      stringPtr("/v1/chat/completions"),
+		OperationTranslationMode: stringPtr(string(TranslationModeOpenAIResponsesToChatCompletions)),
+		ReportCurrencySnapshot:   runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		ContextRouting:           contextRouting,
+	}
+	runtimeErr := &domainError{StatusCode: http.StatusBadRequest, ErrorCode: openAIRequestTranslationUnsupportedErrorCode, Detail: "translated rejection", PlanningFailure: &failure, SelectedTerminalTargetID: selectedTerminalTargetID, ContextRouting: contextRouting}
+
+	envelope := service.buildRuntimePlanningFailureTelemetryEnvelope(failure, request, startedAt, runtimeErr)
+	assertRuntimeFacadeSelectionDecision(t, envelope.RequestLogs[0].ContextRouting.FacadeSelection, "facade-translated-public", stringPtr("facade-translated-target"), intPtr(1), intPtr(0), stringPtr("translation_rejection=1"))
+	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-translated-public", stringPtr("facade-translated-target"), intPtr(1), intPtr(0), stringPtr("translation_rejection=1"))
+
+	planningFailureAttrs := attributesByKey(runtimeTracePlanningFailureAttributes(failure))
+	if planningFailureAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-translated-public" || planningFailureAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != "facade-translated-target" || planningFailureAttrs[runtimeTraceAttrFacadeSelectedWeight].AsInt64() != 1 || planningFailureAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 0 || planningFailureAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "translation_rejection=1" {
+		t.Fatalf("expected facade translated rejection trace attrs, got %+v", planningFailureAttrs)
+	}
+}
+
 func TestObservability_TranslatedResponseAuditUsesUpstreamBody(t *testing.T) {
 	startedAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
 	completedAt := startedAt.Add(900 * time.Millisecond)
