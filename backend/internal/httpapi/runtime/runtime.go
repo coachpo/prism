@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -44,8 +45,12 @@ var apiFamilyAuthConfigs = map[string]apiFamilyAuthConfig{
 }
 
 const (
-	openAIUpstreamOperationResponses       = "openai.responses"
-	openAIUpstreamOperationChatCompletions = "openai.chat_completions"
+	openAIUpstreamOperationResponses                        = "openai.responses"
+	openAIUpstreamOperationChatCompletions                  = "openai.chat_completions"
+	runtimeFacadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
+	runtimeFacadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
+	runtimeNestedFacadesNotSupportedDetail                  = "nested facades are not supported"
+	runtimeActiveModelTargetDefaultWeight                   = 1
 )
 
 type runtimeFeedbackStore struct {
@@ -101,10 +106,72 @@ type runtimeModelRecord struct {
 	AuditEnabled                         bool
 	AuditCaptureBodies                   bool
 	LoadbalanceStrategyID                *int
+	FacadeEnabled                        bool
+	FacadeSelectionPolicy                *string
+	FacadeFallbackPolicy                 *string
 	ContextWindowTokens                  *int
 	DefaultOutputTokenReserve            *int
 	MaxContextUtilization                *float64
 	PreferredContextUtilizationThreshold *float64
+}
+
+func validateRuntimePlanningSnapshotFacadePolicies(snapshot *planningSnapshot) error {
+	if snapshot == nil || len(snapshot.ModelsByID) == 0 {
+		return nil
+	}
+	modelIDs := make([]string, 0, len(snapshot.ModelsByID))
+	for modelID := range snapshot.ModelsByID {
+		modelIDs = append(modelIDs, modelID)
+	}
+	sort.Strings(modelIDs)
+	for _, modelID := range modelIDs {
+		if err := validateRuntimeModelFacadePolicies(snapshot.ModelsByID[modelID]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRuntimeModelFacadePolicies(model runtimeModelRecord) error {
+	if err := validateRuntimeFacadePolicyValues(model.FacadeSelectionPolicy, model.FacadeFallbackPolicy); err != nil {
+		return invalidRuntimeFacadePolicyError(model.ModelID, err.Error())
+	}
+	if !model.FacadeEnabled {
+		return nil
+	}
+	if model.FacadeSelectionPolicy == nil {
+		return invalidRuntimeFacadePolicyError(model.ModelID, "facade_selection_policy is required when facade_enabled is true")
+	}
+	if model.FacadeFallbackPolicy == nil {
+		return invalidRuntimeFacadePolicyError(model.ModelID, "facade_fallback_policy is required when facade_enabled is true")
+	}
+	return nil
+}
+
+func validateRuntimeFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
+	if selectionPolicy != nil && *selectionPolicy != runtimeFacadeSelectionPolicyWeightedEligibleContext {
+		return fmt.Errorf("facade_selection_policy must be '%s'", runtimeFacadeSelectionPolicyWeightedEligibleContext)
+	}
+	if fallbackPolicy != nil && *fallbackPolicy != runtimeFacadeFallbackPolicyRedistributeIneligibleWeight {
+		return fmt.Errorf("facade_fallback_policy must be '%s'", runtimeFacadeFallbackPolicyRedistributeIneligibleWeight)
+	}
+	return nil
+}
+
+func invalidRuntimeFacadePolicyError(modelID string, detail string) error {
+	return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Model '%s' has invalid persisted facade policy data: %s", modelID, detail)}
+}
+
+func isRuntimeExactOpenAIFacadeModel(model runtimeModelRecord) bool {
+	return model.FacadeEnabled && sameRuntimeAPIFamily(model.APIFamily, "openai") && model.FacadeSelectionPolicy != nil && *model.FacadeSelectionPolicy == runtimeFacadeSelectionPolicyWeightedEligibleContext
+}
+
+func runtimeFacadeSelectionStrategy() loadbalance.RuntimeStrategy {
+	return loadbalance.RuntimeStrategy{LegacyStrategyType: stringPtr(runtimeFacadeSelectionPolicyWeightedEligibleContext)}
+}
+
+func nestedRuntimeFacadeTargetError() error {
+	return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: runtimeNestedFacadesNotSupportedDetail}
 }
 
 type runtimeEndpoint struct {
@@ -190,6 +257,20 @@ type runtimeContextRoutingSkippedTerminalTarget struct {
 	EstimatedTotalContextTokens *int    `json:"estimated_total_context_tokens,omitempty"`
 }
 
+type runtimeFacadeExclusionReason struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
+}
+
+type runtimeFacadeSelectionDecision struct {
+	FacadeModelID         string                         `json:"facade_model_id"`
+	SelectedTargetModelID *string                        `json:"selected_target_model_id,omitempty"`
+	SelectedWeight        *int                           `json:"selected_weight,omitempty"`
+	EligibleTotalWeight   *int                           `json:"eligible_total_weight,omitempty"`
+	ExclusionReasons      []runtimeFacadeExclusionReason `json:"exclusion_reasons,omitempty"`
+	ExclusionSummary      *string                        `json:"exclusion_summary,omitempty"`
+}
+
 type runtimeContextRoutingDecision struct {
 	Policy                             string                                       `json:"policy"`
 	SelectedTerminalTargetID           *int                                         `json:"selected_terminal_target_id,omitempty"`
@@ -204,6 +285,7 @@ type runtimeContextRoutingDecision struct {
 	CostRankingMethod                  *string                                      `json:"cost_ranking_method,omitempty"`
 	SelectedEstimatedBlendedCostMicros *int64                                       `json:"selected_estimated_blended_cost_micros,omitempty"`
 	SkippedTerminalTargets             []runtimeContextRoutingSkippedTerminalTarget `json:"skipped_terminal_targets,omitempty"`
+	FacadeSelection                    *runtimeFacadeSelectionDecision              `json:"facade_selection,omitempty"`
 }
 
 func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *runtimeContextRoutingDecision {
@@ -224,6 +306,7 @@ func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *
 		CostRankingMethod:                  cloneRuntimeStringPointer(source.CostRankingMethod),
 		SelectedEstimatedBlendedCostMicros: cloneRuntimeInt64Pointer(source.SelectedEstimatedBlendedCostMicros),
 		SkippedTerminalTargets:             cloneRuntimeContextRoutingSkippedTerminalTargets(source.SkippedTerminalTargets),
+		FacadeSelection:                    cloneRuntimeFacadeSelectionDecision(source.FacadeSelection),
 	}
 	if cloned.Policy == "" {
 		cloned.Policy = source.Policy
@@ -245,6 +328,35 @@ func cloneRuntimeContextRoutingSkippedTerminalTargets(source []runtimeContextRou
 			UsableContextWindowTokens:   cloneRuntimeIntPointer(item.UsableContextWindowTokens),
 			EstimatedTotalContextTokens: cloneRuntimeIntPointer(item.EstimatedTotalContextTokens),
 		})
+	}
+	return cloned
+}
+
+func cloneRuntimeFacadeSelectionDecision(source *runtimeFacadeSelectionDecision) *runtimeFacadeSelectionDecision {
+	if source == nil {
+		return nil
+	}
+	cloned := &runtimeFacadeSelectionDecision{
+		FacadeModelID:         source.FacadeModelID,
+		SelectedTargetModelID: cloneRuntimeStringPointer(source.SelectedTargetModelID),
+		SelectedWeight:        cloneRuntimeIntPointer(source.SelectedWeight),
+		EligibleTotalWeight:   cloneRuntimeIntPointer(source.EligibleTotalWeight),
+		ExclusionReasons:      cloneRuntimeFacadeExclusionReasons(source.ExclusionReasons),
+		ExclusionSummary:      cloneRuntimeStringPointer(source.ExclusionSummary),
+	}
+	if cloned.FacadeModelID == "" {
+		cloned.FacadeModelID = source.FacadeModelID
+	}
+	return cloned
+}
+
+func cloneRuntimeFacadeExclusionReasons(source []runtimeFacadeExclusionReason) []runtimeFacadeExclusionReason {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make([]runtimeFacadeExclusionReason, 0, len(source))
+	for _, item := range source {
+		cloned = append(cloned, runtimeFacadeExclusionReason{Reason: item.Reason, Count: item.Count})
 	}
 	return cloned
 }
@@ -713,6 +825,9 @@ func resolveRequestedModel(input requestPlanningInput, operation resolvedRequest
 	if !found {
 		return runtimeModelRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", operation.RequestedModelID)}
 	}
+	if err := validateRuntimeModelFacadePolicies(requestedModel); err != nil {
+		return runtimeModelRecord{}, err
+	}
 	if err := validateOperationAPIFamily(operation.Match.Operation, requestedModel); err != nil {
 		return runtimeModelRecord{}, err
 	}
@@ -725,7 +840,9 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 		return err
 	}
 	if runtimeErr.ErrorCode != contextWindowExceededErrorCode && runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
-		return err
+		if runtimeErr.StatusCode != http.StatusServiceUnavailable || runtimeErr.ContextRouting == nil || runtimeErr.ContextRouting.FacadeSelection == nil {
+			return err
+		}
 	}
 	generationParams := extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody)
 	selectedTerminalTargetID := cloneRuntimeIntPointer(runtimeErr.SelectedTerminalTargetID)

@@ -125,8 +125,14 @@ func decorateRequestTranslationRejection(err *domainError, selectedTerminalTarge
 	if decorated.SelectedTerminalTargetID == nil {
 		decorated.SelectedTerminalTargetID = cloneRuntimeIntPointer(selectedTerminalTargetID)
 	}
-	if decorated.ContextRouting == nil && contextRouting != nil {
-		decorated.ContextRouting = cloneRuntimeContextRoutingDecision(contextRouting)
+	if contextRouting != nil {
+		if decorated.ContextRouting == nil {
+			decorated.ContextRouting = cloneRuntimeContextRoutingDecision(contextRouting)
+		} else if contextRouting.FacadeSelection != nil && decorated.ContextRouting.FacadeSelection == nil {
+			mergedContextRouting := cloneRuntimeContextRoutingDecision(decorated.ContextRouting)
+			mergedContextRouting.FacadeSelection = cloneRuntimeFacadeSelectionDecision(contextRouting.FacadeSelection)
+			decorated.ContextRouting = mergedContextRouting
+		}
 	}
 	if decorated.SelectedTerminalTargetID == nil && decorated.ContextRouting != nil {
 		decorated.SelectedTerminalTargetID = cloneRuntimeIntPointer(decorated.ContextRouting.SelectedTerminalTargetID)
