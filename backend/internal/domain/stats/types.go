@@ -96,7 +96,11 @@ type RequestLogDetailSummary struct {
 }
 
 type RequestLogDetailRequest struct {
+	OperationName                 *string          `json:"operation_name"`
+	UpstreamOperationName         *string          `json:"upstream_operation_name"`
+	OperationTranslationMode      *string          `json:"operation_translation_mode"`
 	RequestPath                   string           `json:"request_path"`
+	UpstreamRequestPath           *string          `json:"upstream_request_path"`
 	IngressRequestID              *string          `json:"ingress_request_id"`
 	AttemptNumber                 *int             `json:"attempt_number"`
 	ProviderCorrelationID         *string          `json:"provider_correlation_id"`
@@ -113,16 +117,20 @@ type RequestLogDetailRequest struct {
 }
 
 type RequestLogContextRoutingSkippedTerminalTarget struct {
-	TerminalTargetID            *int   `json:"terminal_target_id,omitempty"`
-	EndpointID                  *int   `json:"endpoint_id,omitempty"`
-	Reason                      string `json:"reason"`
-	UsableContextWindowTokens   *int   `json:"usable_context_window_tokens,omitempty"`
-	EstimatedTotalContextTokens *int   `json:"estimated_total_context_tokens,omitempty"`
+	TerminalTargetID            *int    `json:"terminal_target_id,omitempty"`
+	EndpointID                  *int    `json:"endpoint_id,omitempty"`
+	ContextBand                 *string `json:"context_band,omitempty"`
+	Reason                      string  `json:"reason"`
+	UsableContextWindowTokens   *int    `json:"usable_context_window_tokens,omitempty"`
+	EstimatedTotalContextTokens *int    `json:"estimated_total_context_tokens,omitempty"`
 }
 
 type RequestLogContextRouting struct {
 	Policy                             string                                          `json:"policy"`
 	SelectedTerminalTargetID           *int                                            `json:"selected_terminal_target_id,omitempty"`
+	SelectedEndpointID                 *int                                            `json:"selected_endpoint_id,omitempty"`
+	SelectedContextBand                *string                                         `json:"selected_context_band,omitempty"`
+	SelectedUsableContextWindowTokens  *int                                            `json:"selected_usable_context_window_tokens,omitempty"`
 	EstimationMethod                   *string                                         `json:"estimation_method,omitempty"`
 	EstimatedInputTokens               *int                                            `json:"estimated_input_tokens,omitempty"`
 	ReservedOutputTokens               *int                                            `json:"reserved_output_tokens,omitempty"`

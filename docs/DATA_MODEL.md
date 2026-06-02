@@ -337,7 +337,8 @@ Maps a model ID to optional vendor metadata, fixed api family, and routing behav
 | loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Strategy used while planning this model's targets |
 | context_window_tokens | INTEGER | NULLABLE | Model default context window for preflight routing |
 | default_output_token_reserve | INTEGER | NOT NULL, DEFAULT 4096 | Output reserve used when request output budget is omitted |
-| max_context_utilization | DOUBLE PRECISION | NOT NULL, DEFAULT 0.9 | Usable-window multiplier for preflight routing |
+| max_context_utilization | DOUBLE PRECISION | NOT NULL, DEFAULT 0.9 | Hard-fit usable-window multiplier for preflight routing |
+| preferred_context_utilization_threshold | DOUBLE PRECISION | NULLABLE | Optional preferred-band multiplier for cheapest eligible context routing |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -346,7 +347,7 @@ Constraints:
 - `UNIQUE(profile_id, model_id)`.
 - Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to model-private endpoint bindings.
 - Runtime compatibility is checked against `api_family`.
-- Context capability defaults are normalized by management and config-bundle imports. Missing reserves become `4096`, missing utilization becomes `0.90`, and utilization must be greater than `0` and less than or equal to `1`.
+- Context capability defaults are normalized by management and config-bundle imports. Missing reserves become `4096`, missing utilization becomes `0.90`, and missing `preferred_context_utilization_threshold` becomes `null`. Utilization values must be greater than `0` and less than or equal to `1`; the preferred threshold must be less than or equal to `max_context_utilization` when provided.
 
 ### 2.3A `model_access_targets` (profile-scoped model access metadata)
 
@@ -394,7 +395,7 @@ Reusable explicit Ban Policy strategy objects attached by models within one prof
 Constraints and lifecycle rules:
 - `UNIQUE(profile_id, name)`.
 - Effective runtime policy resolves once per request from the attached strategy row.
-- `cheapest_eligible_context` filters terminal targets by preflight context fit, then ranks fitting candidates by estimated blended request cost, access-target position, and terminal target ID.
+- `cheapest_eligible_context` filters terminal targets by hard preflight context fit, labels fitting targets as preferred or discretionary from `preferred_context_utilization_threshold`, labels hard-fit rejects as ineligible, then ranks preferred candidates before discretionary candidates. Within a band, ranking is priced first, then estimated blended request cost, access-target position, terminal target ID, and target ID.
 - Ban Policy fields carry failure status codes, retry-window delay/backoff/jitter tuning, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and ban duration semantics.
 - Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.
 - Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; Prism does not derive the ban threshold from the cycle limit.
@@ -436,7 +437,9 @@ Private endpoint bindings within one profile. Each connection is owned by exactl
 | pricing_template_id | INTEGER | FK -> pricing_templates.id, NULLABLE, ON DELETE RESTRICT | Assigned pricing template |
 | context_window_tokens | INTEGER | NULLABLE | Terminal-target context window override or inherited model default |
 | default_output_token_reserve | INTEGER | NOT NULL, DEFAULT 4096 | Output reserve used when request output budget is omitted |
-| max_context_utilization | DOUBLE PRECISION | NOT NULL, DEFAULT 0.9 | Usable-window multiplier for preflight routing |
+| max_context_utilization | DOUBLE PRECISION | NOT NULL, DEFAULT 0.9 | Hard-fit usable-window multiplier for preflight routing |
+| preferred_context_utilization_threshold | DOUBLE PRECISION | NULLABLE | Effective terminal-target preferred-band multiplier or inherited null |
+| preferred_context_utilization_threshold_overridden | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether the preferred threshold is explicitly overridden from the owner model |
 | qps_limit | INTEGER | NULLABLE | Per-connection QPS cap; `NULL` means unlimited |
 | max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
 | max_in_flight_stream | INTEGER | NULLABLE | Concurrent stream request cap; `NULL` means unlimited |
@@ -463,6 +466,8 @@ Connection invariants:
 - Public model target authoring cannot attach private connections by ID. Model detail creates, updates, health-checks, and deletes private connections through model-scoped routes.
 - Deleting a private connection removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
+- `preferred_context_utilization_threshold` is owner-scoped. A non-overridden connection inherits the owner model value, explicit `null` resets inheritance, and an overridden value must stay less than or equal to the effective `max_context_utilization`.
+- `openai_probe_endpoint_variant` derives OpenAI terminal-target operation capability for planning: blank or `responses_*` variants map to `openai.responses`, while `chat_completions_*` variants map to `openai.chat_completions`.
 
 ### 2.6 `pricing_templates` (profile-scoped reusable token pricing)
 
@@ -556,6 +561,10 @@ Telemetry rows for every proxy attempt with immutable profile attribution captur
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | ingress_request_id | VARCHAR(36) | NULLABLE | Prism-generated incoming request grouping ID |
 | attempt_number | INTEGER | NULLABLE | Per-ingress attempt order, starting at 1 |
+| operation_name | VARCHAR(100) | NOT NULL | Ingress canonical operation name |
+| upstream_operation_name | VARCHAR(100) | NULLABLE | Provider-facing operation name used for the attempt |
+| operation_translation_mode | VARCHAR(80) | NOT NULL, DEFAULT `none` | `none`, `openai_responses_to_chat_completions`, or `openai_chat_completions_to_responses` |
+| upstream_request_path | VARCHAR(500) | NULLABLE | Sanitized provider-facing operation path |
 | provider_correlation_id | VARCHAR(255) | NULLABLE | Best-effort provider-visible correlation ID |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target before execution or no-fit rejection |
@@ -580,6 +589,7 @@ Request-log semantics:
 - `ingress_request_id` groups the rows created by one incoming runtime request.
 - `attempt_number` preserves retry/failover ordering within that group.
 - `model_id` records the requested model ID while `resolved_target_model_id` records the final target model ID selected for that attempt.
+- `operation_name` and `request_path` remain ingress-led. `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` are additive upstream attribution for native or translated attempts.
 - `selected_terminal_target_id` can differ from `connection_id` when the planner selected one terminal target but execution later failed over to another attempt. No-fit `413` rows keep executed target fields null and preserve skipped-target detail in `context_routing`.
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
@@ -598,6 +608,10 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | model_id | VARCHAR(200) | NOT NULL | Requested model ID |
 | resolved_target_model_id | VARCHAR(200) | NULLABLE | Final target model selected for the request |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
+| operation_name | VARCHAR(100) | NOT NULL | Ingress canonical operation name |
+| upstream_operation_name | VARCHAR(100) | NULLABLE | Provider-facing operation name for finalized attribution |
+| operation_translation_mode | VARCHAR(80) | NOT NULL, DEFAULT `none` | Translation mode copied from the finalized attempt |
+| upstream_request_path | VARCHAR(500) | NULLABLE | Sanitized provider-facing operation path |
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target for the finalized request |
@@ -617,7 +631,7 @@ Usage-event semantics:
 - `ingress_request_id` preserves the stable request-group identifier shared with the attempt-level `request_logs` rows for the same incoming runtime request.
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
 - Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
-- Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, and context-routing metadata when it exists. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
+- Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, context-routing metadata when it exists, and additive ingress/upstream operation attribution. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
 - Explicit `"0"` pricing contributes zero-cost component micros on priced events. Rows with absent or invalid pricing snapshots, or missing FX data, remain unpriced with `MISSING_PRICE_DATA`.
 
 ### 2.12 `audit_logs` (partitioned immutable profile attribution)
@@ -650,6 +664,7 @@ Audit-link semantics:
 - `request_log_id`, `request_log_created_at`, and `ingress_request_id` are retained as weak metadata.
 - Request detail linkage can be absent after request-log retention expires before audit-log retention.
 - Audit retention and request-log retention are independent global jobs.
+- Translated OpenAI attempts store upstream-native request and response bodies when body capture is enabled. Audit rows do not store the translated client-facing body shape.
 
 ### 2.13 `loadbalance_events` (partitioned immutable profile attribution)
 

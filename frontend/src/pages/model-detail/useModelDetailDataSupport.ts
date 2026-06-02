@@ -35,7 +35,8 @@ type HeaderRowLike = {
 type ConnectionCapabilityFieldName =
   | "context_window_tokens"
   | "default_output_token_reserve"
-  | "max_context_utilization";
+  | "max_context_utilization"
+  | "preferred_context_utilization_threshold";
 
 type ConnectionCapabilityDraftLike = {
   mode: "inherit" | "override";
@@ -50,10 +51,10 @@ const CONNECTION_CAPABILITY_FIELDS: ConnectionCapabilityFieldName[] = [
   "context_window_tokens",
   "default_output_token_reserve",
   "max_context_utilization",
+  "preferred_context_utilization_threshold",
 ];
 
-const INVALID_CONNECTION_CAPABILITY_OVERRIDE_MESSAGE =
-  "Enter valid connection capability override values before saving.";
+type OwnerContextCapabilityDefaultsLike = Partial<Record<ConnectionCapabilityFieldName, number | null>>;
 
 interface BuildConnectionDraftPayloadInput {
   apiFamily: ApiFamily | null;
@@ -64,6 +65,7 @@ interface BuildConnectionDraftPayloadInput {
   headerRows: HeaderRowLike[];
   editingConnection: Connection | null;
   endpointSourceDefaultName: string | null;
+  ownerCapabilityDefaults?: OwnerContextCapabilityDefaultsLike;
 }
 
 export function normalizeConnectionHeaders(
@@ -85,10 +87,12 @@ export function buildConnectionDraftPayload({
   headerRows,
   editingConnection,
   endpointSourceDefaultName,
+  ownerCapabilityDefaults,
 }: BuildConnectionDraftPayloadInput): {
   errorMessage: string | null;
   payload: ConnectionCreate | null;
 } {
+  const messages = getStaticMessages();
   const customHeaders = normalizeConnectionHeaders(headerRows);
 
   const typedConnectionName = (connectionForm.name ?? "").trim();
@@ -99,10 +103,10 @@ export function buildConnectionDraftPayload({
         ? endpointSourceDefaultName
         : null;
 
-  const parsedContextCapabilityValues = buildContextCapabilityPayload(connectionForm);
-  if (!parsedContextCapabilityValues) {
+  const parsedContextCapabilityValues = buildContextCapabilityPayload(connectionForm, ownerCapabilityDefaults);
+  if (!parsedContextCapabilityValues.payload) {
     return {
-      errorMessage: INVALID_CONNECTION_CAPABILITY_OVERRIDE_MESSAGE,
+      errorMessage: parsedContextCapabilityValues.errorMessage,
       payload: null,
     };
   }
@@ -120,7 +124,7 @@ export function buildConnectionDraftPayload({
     qps_limit: normalizeLimiterField(connectionForm.qps_limit),
     max_in_flight_non_stream: normalizeLimiterField(connectionForm.max_in_flight_non_stream),
     max_in_flight_stream: normalizeLimiterField(connectionForm.max_in_flight_stream),
-    ...parsedContextCapabilityValues,
+    ...parsedContextCapabilityValues.payload,
   };
 
   if (apiFamily !== "openai") {
@@ -130,7 +134,7 @@ export function buildConnectionDraftPayload({
   if (createMode === "select") {
     if (!selectedEndpointId) {
       return {
-        errorMessage: getStaticMessages().modelDetailData.selectEndpoint,
+        errorMessage: messages.modelDetailData.selectEndpoint,
         payload: null,
       };
     }
@@ -142,7 +146,7 @@ export function buildConnectionDraftPayload({
 
   if (!newEndpointForm.name || !newEndpointForm.base_url || !newEndpointForm.api_key) {
     return {
-      errorMessage: getStaticMessages().modelDetailData.fillEndpointFields,
+      errorMessage: messages.modelDetailData.fillEndpointFields,
       payload: null,
     };
   }
@@ -152,11 +156,32 @@ export function buildConnectionDraftPayload({
   return { errorMessage: null, payload };
 }
 
-function buildContextCapabilityPayload(connectionForm: ConnectionDialogFormLike): Pick<
-  ConnectionCreate,
-  ConnectionCapabilityFieldName
-> | null {
+function getContextCapabilityInvalidMessage(field: ConnectionCapabilityFieldName): string {
+  const messages = getStaticMessages();
+
+  switch (field) {
+    case "context_window_tokens":
+      return messages.modelsData.contextWindowTokensInvalid;
+    case "default_output_token_reserve":
+      return messages.modelsData.defaultOutputTokenReserveInvalid;
+    case "max_context_utilization":
+      return messages.modelsData.maxContextUtilizationInvalid;
+    case "preferred_context_utilization_threshold":
+      return messages.modelsData.preferredContextUtilizationThresholdInvalid;
+    default:
+      return messages.modelDetailData.saveConnectionFailed;
+  }
+}
+
+function buildContextCapabilityPayload(
+  connectionForm: ConnectionDialogFormLike,
+  ownerCapabilityDefaults?: OwnerContextCapabilityDefaultsLike,
+): {
+  errorMessage: string | null;
+  payload: Pick<ConnectionCreate, ConnectionCapabilityFieldName> | null;
+} {
   const parsedValues = {} as Pick<ConnectionCreate, ConnectionCapabilityFieldName>;
+  const effectiveValues = {} as Record<ConnectionCapabilityFieldName, number | null>;
 
   for (const field of CONNECTION_CAPABILITY_FIELDS) {
     const parsedValue = parseContextCapabilityDraftValue(
@@ -165,13 +190,31 @@ function buildContextCapabilityPayload(connectionForm: ConnectionDialogFormLike)
     );
 
     if (parsedValue === undefined) {
-      return null;
+      return {
+        errorMessage: getContextCapabilityInvalidMessage(field),
+        payload: null,
+      };
     }
 
     parsedValues[field] = parsedValue;
+    effectiveValues[field] = parsedValue ?? ownerCapabilityDefaults?.[field] ?? null;
   }
 
-  return parsedValues;
+  if (
+    typeof effectiveValues.preferred_context_utilization_threshold === "number"
+    && typeof effectiveValues.max_context_utilization === "number"
+    && effectiveValues.preferred_context_utilization_threshold > effectiveValues.max_context_utilization
+  ) {
+    return {
+      errorMessage: getStaticMessages().modelsData.preferredContextUtilizationThresholdExceedsMaxContextUtilization,
+      payload: null,
+    };
+  }
+
+  return {
+    errorMessage: null,
+    payload: parsedValues,
+  };
 }
 
 function parseContextCapabilityDraftValue(
@@ -184,7 +227,7 @@ function parseContextCapabilityDraftValue(
 
   const trimmedValue = draft.value.trim();
   if (trimmedValue.length === 0) {
-    return undefined;
+    return null;
   }
 
   switch (field) {
@@ -193,7 +236,8 @@ function parseContextCapabilityDraftValue(
       const parsedInteger = Number(trimmedValue);
       return Number.isInteger(parsedInteger) && parsedInteger > 0 ? parsedInteger : undefined;
     }
-    case "max_context_utilization": {
+    case "max_context_utilization":
+    case "preferred_context_utilization_threshold": {
       const parsedUtilization = Number(trimmedValue);
       return Number.isFinite(parsedUtilization)
         && parsedUtilization > 0

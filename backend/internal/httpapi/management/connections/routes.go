@@ -24,6 +24,11 @@ import (
 
 const defaultOpenAIProbeEndpointVariant = "responses_minimal"
 
+const (
+	openAIUpstreamOperationResponses       = "openai.responses"
+	openAIUpstreamOperationChatCompletions = "openai.chat_completions"
+)
+
 const ownerScopedConnectionMutationDetail = "terminal target mutations must use owner-scoped routes under " + targetcompat.OwnerScopedConnectionRoutePath
 
 func (s *Service) handleListConnectionsBatch(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +198,7 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		if err := validateConnectionContextCapabilitiesCreate(requestBody); err != nil {
+		if err := validateConnectionContextCapabilitiesCreate(owner, requestBody); err != nil {
 			return connectionResponse{}, err
 		}
 		endpoint, err := s.resolveCreateEndpoint(r.Context(), tx, profile.ID, requestBody.EndpointID, requestBody.EndpointCreate)
@@ -204,34 +209,36 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		capabilitySettings, err := contextcapability.NormalizeConnectionSettings(contextcapability.Settings{ContextWindowTokens: contextcapability.CopyIntPtr(owner.ContextWindowTokens), DefaultOutputTokenReserve: owner.DefaultOutputTokenReserve, MaxContextUtilization: owner.MaxContextUtilization}, requestBody.ContextWindowTokens, requestBody.DefaultOutputTokenReserve, requestBody.MaxContextUtilization)
+		capabilitySettings, err := contextcapability.NormalizeConnectionSettings(contextcapability.Settings{ContextWindowTokens: contextcapability.CopyIntPtr(owner.ContextWindowTokens), DefaultOutputTokenReserve: owner.DefaultOutputTokenReserve, MaxContextUtilization: owner.MaxContextUtilization, PreferredContextUtilizationThreshold: contextcapability.CopyFloat64Ptr(owner.PreferredContextUtilizationThreshold)}, requestBody.ContextWindowTokens, requestBody.DefaultOutputTokenReserve, requestBody.MaxContextUtilization, requestBody.PreferredContextUtilizationThreshold)
 		if err != nil {
 			return connectionResponse{}, connectionContextCapabilityDomainError(err)
 		}
 		now := s.nowUTC()
 		item := connectionResponse{
-			ProfileID:                           profile.ID,
-			APIFamily:                           owner.APIFamily,
-			EndpointID:                          endpoint.ID,
-			ContextWindowTokens:                 capabilitySettings.ContextWindowTokens,
-			ContextWindowTokensOverridden:       requestBody.ContextWindowTokens != nil,
-			DefaultOutputTokenReserve:           capabilitySettings.DefaultOutputTokenReserve,
-			DefaultOutputTokenReserveOverridden: requestBody.DefaultOutputTokenReserve != nil,
-			MaxContextUtilization:               capabilitySettings.MaxContextUtilization,
-			MaxContextUtilizationOverridden:     requestBody.MaxContextUtilization != nil,
-			IsActive:                            resolvedBool(requestBody.IsActive, true),
-			Priority:                            position,
-			Name:                                normalizeOptionalString(requestBody.Name),
-			AuthType:                            authType,
-			CustomHeaders:                       normalizeHeaders(requestBody.CustomHeaders),
-			OpenAIProbeEndpointVariant:          openAIProbeVariant,
-			PricingTemplateID:                   pricingTemplateID,
-			QPSLimit:                            requestBody.QPSLimit,
-			MaxInFlightNonStream:                requestBody.MaxInFlightNonStream,
-			MaxInFlightStream:                   requestBody.MaxInFlightStream,
-			HealthStatus:                        "unknown",
-			CreatedAt:                           now,
-			UpdatedAt:                           now,
+			ProfileID:                                      profile.ID,
+			APIFamily:                                      owner.APIFamily,
+			EndpointID:                                     endpoint.ID,
+			ContextWindowTokens:                            capabilitySettings.ContextWindowTokens,
+			ContextWindowTokensOverridden:                  requestBody.ContextWindowTokens != nil,
+			DefaultOutputTokenReserve:                      capabilitySettings.DefaultOutputTokenReserve,
+			DefaultOutputTokenReserveOverridden:            requestBody.DefaultOutputTokenReserve != nil,
+			MaxContextUtilization:                          capabilitySettings.MaxContextUtilization,
+			MaxContextUtilizationOverridden:                requestBody.MaxContextUtilization != nil,
+			PreferredContextUtilizationThreshold:           capabilitySettings.PreferredContextUtilizationThreshold,
+			PreferredContextUtilizationThresholdOverridden: requestBody.PreferredContextUtilizationThreshold != nil,
+			IsActive:                   resolvedBool(requestBody.IsActive, true),
+			Priority:                   position,
+			Name:                       normalizeOptionalString(requestBody.Name),
+			AuthType:                   authType,
+			CustomHeaders:              normalizeHeaders(requestBody.CustomHeaders),
+			OpenAIProbeEndpointVariant: openAIProbeVariant,
+			PricingTemplateID:          pricingTemplateID,
+			QPSLimit:                   requestBody.QPSLimit,
+			MaxInFlightNonStream:       requestBody.MaxInFlightNonStream,
+			MaxInFlightStream:          requestBody.MaxInFlightStream,
+			HealthStatus:               "unknown",
+			CreatedAt:                  now,
+			UpdatedAt:                  now,
 		}
 		connectionID, err := insertConnection(r.Context(), tx, item)
 		if err != nil {
@@ -416,6 +423,24 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 			next.MaxContextUtilizationOverridden = true
 		}
 	}
+	if requestBody.PreferredContextUtilizationThreshold.Set {
+		if requestBody.PreferredContextUtilizationThreshold.Value == nil {
+			next.PreferredContextUtilizationThreshold = contextcapability.CopyFloat64Ptr(owner.PreferredContextUtilizationThreshold)
+			next.PreferredContextUtilizationThresholdOverridden = false
+		} else {
+			resolvedPreferredContextUtilizationThreshold, normalizeErr := contextcapability.NormalizePreferredContextUtilizationThreshold(requestBody.PreferredContextUtilizationThreshold.Value, next.MaxContextUtilization)
+			if normalizeErr != nil {
+				return connectionResponse{}, connectionContextCapabilityFieldError("preferred_context_utilization_threshold", normalizeErr)
+			}
+			next.PreferredContextUtilizationThreshold = resolvedPreferredContextUtilizationThreshold
+			next.PreferredContextUtilizationThresholdOverridden = true
+		}
+	}
+	resolvedPreferredContextUtilizationThreshold, normalizeErr := contextcapability.NormalizePreferredContextUtilizationThreshold(next.PreferredContextUtilizationThreshold, next.MaxContextUtilization)
+	if normalizeErr != nil {
+		return connectionResponse{}, connectionContextCapabilityFieldError("preferred_context_utilization_threshold", normalizeErr)
+	}
+	next.PreferredContextUtilizationThreshold = resolvedPreferredContextUtilizationThreshold
 	if requestBody.IsActive.Set {
 		next.IsActive = requestBody.IsActive.Value
 	}
@@ -672,6 +697,9 @@ func withOwnerScopedConnectionOverrideMetadata(item connectionResponse) connecti
 		maxContextUtilization := item.MaxContextUtilization
 		overrides.MaxContextUtilization = &maxContextUtilization
 	}
+	if item.PreferredContextUtilizationThresholdOverridden {
+		overrides.PreferredContextUtilizationThreshold = contextcapability.CopyFloat64Ptr(item.PreferredContextUtilizationThreshold)
+	}
 	item.ContextCapabilityOverrides = overrides
 	return item
 }
@@ -691,7 +719,7 @@ func connectionContextCapabilityFieldError(fieldName string, err error) error {
 	return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s %s", fieldName, err.Error())}
 }
 
-func validateConnectionContextCapabilitiesCreate(requestBody connectionCreateRequest) error {
+func validateConnectionContextCapabilitiesCreate(owner modelRecord, requestBody connectionCreateRequest) error {
 	if _, err := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens); err != nil {
 		return connectionContextCapabilityFieldError("context_window_tokens", err)
 	}
@@ -700,10 +728,16 @@ func validateConnectionContextCapabilitiesCreate(requestBody connectionCreateReq
 			return connectionContextCapabilityFieldError("default_output_token_reserve", err)
 		}
 	}
+	resolvedMaxContextUtilization := owner.MaxContextUtilization
 	if requestBody.MaxContextUtilization != nil {
-		if _, err := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization); err != nil {
+		var err error
+		resolvedMaxContextUtilization, err = contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization)
+		if err != nil {
 			return connectionContextCapabilityFieldError("max_context_utilization", err)
 		}
+	}
+	if _, err := contextcapability.NormalizePreferredContextUtilizationThreshold(requestBody.PreferredContextUtilizationThreshold, resolvedMaxContextUtilization); err != nil {
+		return connectionContextCapabilityFieldError("preferred_context_utilization_threshold", err)
 	}
 	return nil
 }
@@ -804,6 +838,22 @@ func resolveOpenAIProbeEndpointVariant(apiFamily string, value *string) (*string
 		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_probe_endpoint_variant is invalid"}
 	}
 	return &normalized, nil
+}
+
+func deriveOpenAIUpstreamOperation(apiFamily string, probeEndpointVariant *string) *string {
+	if !strings.EqualFold(strings.TrimSpace(apiFamily), "openai") {
+		return nil
+	}
+	variant := defaultOpenAIProbeEndpointVariant
+	if probeEndpointVariant != nil && strings.TrimSpace(*probeEndpointVariant) != "" {
+		variant = strings.TrimSpace(*probeEndpointVariant)
+	}
+	switch variant {
+	case "chat_completions_minimal", "chat_completions_reasoning_none":
+		return stringPtr(openAIUpstreamOperationChatCompletions)
+	default:
+		return stringPtr(openAIUpstreamOperationResponses)
+	}
 }
 
 func normalizeHeaders(value map[string]string) map[string]string {

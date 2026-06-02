@@ -110,8 +110,16 @@ export function ModelSettingsDialog({
   const maxContextUtilizationError = targetEditorError === modelsDataCopy.maxContextUtilizationInvalid
     ? targetEditorError
     : null;
+  const preferredContextUtilizationThresholdError =
+    targetEditorError === modelsDataCopy.preferredContextUtilizationThresholdInvalid
+      || targetEditorError === modelsDataCopy.preferredContextUtilizationThresholdExceedsMaxContextUtilization
+      ? targetEditorError
+      : null;
   const hasCapabilityValidationError = Boolean(
-    contextWindowTokensError || defaultOutputTokenReserveError || maxContextUtilizationError,
+    contextWindowTokensError
+      || defaultOutputTokenReserveError
+      || maxContextUtilizationError
+      || preferredContextUtilizationThresholdError,
   );
   const accessTargetsError = hasCapabilityValidationError ? null : targetEditorError;
 
@@ -203,7 +211,7 @@ export function ModelSettingsDialog({
                 <h2 className="text-sm font-semibold tracking-tight text-foreground">{modelsUiCopy.contextRoutingDefaults}</h2>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <CapabilityField
                   id="edit-context-window-tokens"
                   label={modelsUiCopy.contextWindowTokens}
@@ -254,6 +262,25 @@ export function ModelSettingsDialog({
                     value={formData.max_context_utilization}
                     onChange={(event) => setFormData((current) => ({ ...current, max_context_utilization: event.target.value }))}
                     aria-invalid={Boolean(maxContextUtilizationError) || undefined}
+                  />
+                </CapabilityField>
+
+                <CapabilityField
+                  id="edit-preferred-context-utilization-threshold"
+                  label={modelsUiCopy.preferredContextUtilizationThreshold}
+                  description={modelsUiCopy.preferredContextUtilizationThresholdHelper}
+                  error={preferredContextUtilizationThresholdError}
+                >
+                  <Input
+                    id="edit-preferred-context-utilization-threshold"
+                    name="preferred_context_utilization_threshold"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={formData.preferred_context_utilization_threshold}
+                    onChange={(event) => setFormData((current) => ({ ...current, preferred_context_utilization_threshold: event.target.value }))}
+                    aria-invalid={Boolean(preferredContextUtilizationThresholdError) || undefined}
                   />
                 </CapabilityField>
               </div>

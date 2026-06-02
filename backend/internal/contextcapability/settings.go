@@ -8,12 +8,13 @@ const (
 )
 
 type Settings struct {
-	ContextWindowTokens       *int
-	DefaultOutputTokenReserve int
-	MaxContextUtilization     float64
+	ContextWindowTokens                  *int
+	DefaultOutputTokenReserve            int
+	MaxContextUtilization                float64
+	PreferredContextUtilizationThreshold *float64
 }
 
-func NormalizeModelSettings(contextWindowTokens *int, defaultOutputTokenReserve *int, maxContextUtilization *float64) (Settings, error) {
+func NormalizeModelSettings(contextWindowTokens *int, defaultOutputTokenReserve *int, maxContextUtilization *float64, preferredContextUtilizationThreshold *float64) (Settings, error) {
 	resolvedContextWindowTokens, err := NormalizeContextWindowTokens(contextWindowTokens)
 	if err != nil {
 		return Settings{}, err
@@ -26,13 +27,19 @@ func NormalizeModelSettings(contextWindowTokens *int, defaultOutputTokenReserve 
 	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{ContextWindowTokens: resolvedContextWindowTokens,
-		DefaultOutputTokenReserve: resolvedOutputTokenReserve,
-		MaxContextUtilization:     resolvedMaxContextUtilization,
+	resolvedPreferredContextUtilizationThreshold, err := NormalizePreferredContextUtilizationThreshold(preferredContextUtilizationThreshold, resolvedMaxContextUtilization)
+	if err != nil {
+		return Settings{}, err
+	}
+	return Settings{
+		ContextWindowTokens:                  resolvedContextWindowTokens,
+		DefaultOutputTokenReserve:            resolvedOutputTokenReserve,
+		MaxContextUtilization:                resolvedMaxContextUtilization,
+		PreferredContextUtilizationThreshold: resolvedPreferredContextUtilizationThreshold,
 	}, nil
 }
 
-func NormalizeConnectionSettings(base Settings, contextWindowTokens *int, defaultOutputTokenReserve *int, maxContextUtilization *float64) (Settings, error) {
+func NormalizeConnectionSettings(base Settings, contextWindowTokens *int, defaultOutputTokenReserve *int, maxContextUtilization *float64, preferredContextUtilizationThreshold *float64) (Settings, error) {
 	resolvedContextWindowTokens := CopyIntPtr(base.ContextWindowTokens)
 	if contextWindowTokens != nil {
 		var err error
@@ -49,9 +56,15 @@ func NormalizeConnectionSettings(base Settings, contextWindowTokens *int, defaul
 	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{ContextWindowTokens: resolvedContextWindowTokens,
-		DefaultOutputTokenReserve: resolvedOutputTokenReserve,
-		MaxContextUtilization:     resolvedMaxContextUtilization,
+	resolvedPreferredContextUtilizationThreshold, err := NormalizePreferredContextUtilizationThresholdWithFallback(preferredContextUtilizationThreshold, base.PreferredContextUtilizationThreshold, resolvedMaxContextUtilization)
+	if err != nil {
+		return Settings{}, err
+	}
+	return Settings{
+		ContextWindowTokens:                  resolvedContextWindowTokens,
+		DefaultOutputTokenReserve:            resolvedOutputTokenReserve,
+		MaxContextUtilization:                resolvedMaxContextUtilization,
+		PreferredContextUtilizationThreshold: resolvedPreferredContextUtilizationThreshold,
 	}, nil
 }
 
@@ -94,7 +107,36 @@ func NormalizeMaxContextUtilizationWithFallback(value *float64, fallback float64
 	return *value, nil
 }
 
+func NormalizePreferredContextUtilizationThreshold(value *float64, maxContextUtilization float64) (*float64, error) {
+	return NormalizePreferredContextUtilizationThresholdWithFallback(value, nil, maxContextUtilization)
+}
+
+func NormalizePreferredContextUtilizationThresholdWithFallback(value *float64, fallback *float64, maxContextUtilization float64) (*float64, error) {
+	if value == nil {
+		if fallback == nil {
+			return nil, nil
+		}
+		value = fallback
+	}
+	if *value <= 0 || *value > 1 {
+		return nil, fmt.Errorf("must be greater than 0 and less than or equal to 1 when provided")
+	}
+	if *value > maxContextUtilization {
+		return nil, fmt.Errorf("must be less than or equal to max_context_utilization when provided")
+	}
+	resolved := *value
+	return &resolved, nil
+}
+
 func CopyIntPtr(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	resolved := *value
+	return &resolved
+}
+
+func CopyFloat64Ptr(value *float64) *float64 {
 	if value == nil {
 		return nil
 	}

@@ -50,6 +50,7 @@ function buildContextCapabilityOverrides(overrides = {}) {
     context_window_tokens: null,
     default_output_token_reserve: null,
     max_context_utilization: null,
+    preferred_context_utilization_threshold: null,
     ...overrides,
   };
 }
@@ -71,6 +72,7 @@ function buildOwnedConnection(overrides = {}) {
     context_window_tokens: 131_072,
     default_output_token_reserve: 4_096,
     max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: 0.72,
     context_capability_overrides: buildContextCapabilityOverrides({
       default_output_token_reserve: 4_096,
     }),
@@ -108,6 +110,7 @@ function buildAccessTarget(overrides = {}) {
       context_capability_overrides: buildContextCapabilityOverrides({
         context_window_tokens: 65_536,
         max_context_utilization: 0.95,
+        preferred_context_utilization_threshold: 0.8,
       }),
     }),
     created_at: timestamp,
@@ -130,6 +133,7 @@ function buildModelListItemPayload(overrides = {}) {
     context_window_tokens: 200_000,
     default_output_token_reserve: 4_096,
     max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: 0.74,
     access_targets: [buildAccessTarget()],
     is_enabled: true,
     connection_count: 1,
@@ -159,6 +163,7 @@ function pickCapabilityFields(payload) {
     context_window_tokens: payload.context_window_tokens,
     default_output_token_reserve: payload.default_output_token_reserve,
     max_context_utilization: payload.max_context_utilization,
+    preferred_context_utilization_threshold: payload.preferred_context_utilization_threshold,
   };
 }
 
@@ -230,17 +235,20 @@ test("management model normalization preserves snake_case capability fields", as
     context_window_tokens: 200_000,
     default_output_token_reserve: 4_096,
     max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: 0.74,
   });
   assert.ok(!Object.hasOwn(listItem, "contextWindowTokens"));
   assert.deepEqual(detail.access_targets[0].connection.context_capability_overrides, {
     context_window_tokens: null,
     default_output_token_reserve: 4_096,
     max_context_utilization: null,
+    preferred_context_utilization_threshold: null,
   });
   assert.deepEqual(detail.access_targets[0].terminal_target.context_capability_overrides, {
     context_window_tokens: 65_536,
     default_output_token_reserve: null,
     max_context_utilization: 0.95,
+    preferred_context_utilization_threshold: 0.8,
   });
   assert.deepEqual(detail.loadbalance_strategy.failure_status_codes, [429, 503]);
   assert.deepEqual(requestCalls.map((call) => call.requestPath), ["/api/models", "/api/models/42"]);
@@ -256,11 +264,13 @@ test("management connection reads preserve owner-scoped overrides and keep publi
     context_window_tokens: 131_072,
     default_output_token_reserve: 4_096,
     max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: 0.72,
   });
   assert.deepEqual(ownedConnection.context_capability_overrides, {
     context_window_tokens: null,
     default_output_token_reserve: 4_096,
     max_context_utilization: null,
+    preferred_context_utilization_threshold: null,
   });
   assert.equal(publicConnection.context_capability_overrides, undefined);
   assert.ok(!Object.hasOwn(ownedConnection, "contextCapabilityOverrides"));
@@ -275,6 +285,7 @@ test("model list cache helpers keep capability fields during detail hydration", 
     context_window_tokens: 16_384,
     default_output_token_reserve: 1_024,
     max_context_utilization: 0.75,
+    preferred_context_utilization_threshold: 0.65,
     health_success_rate: 88,
     health_total_requests: 25,
   });
@@ -282,6 +293,7 @@ test("model list cache helpers keep capability fields during detail hydration", 
     context_window_tokens: null,
     default_output_token_reserve: 8_192,
     max_context_utilization: 0.92,
+    preferred_context_utilization_threshold: null,
   });
 
   const listItem = toModelListItem(updatedModel, existing);
@@ -291,6 +303,7 @@ test("model list cache helpers keep capability fields during detail hydration", 
     context_window_tokens: null,
     default_output_token_reserve: 8_192,
     max_context_utilization: 0.92,
+    preferred_context_utilization_threshold: null,
   });
   assert.deepEqual(pickCapabilityFields(patchedItem), pickCapabilityFields(listItem));
   assert.equal(patchedItem.health_success_rate, 88);

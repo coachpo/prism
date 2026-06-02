@@ -97,12 +97,43 @@ func TestManagementCORSPreflight(t *testing.T) {
 }
 
 func TestNormativeDocsParity(t *testing.T) {
-	assertFileContains(t, docsPath(t, "API_SPEC.md"), []string{
+	translationModeNeedles := []string{
+		"openai_responses_to_chat_completions",
+		"openai_chat_completions_to_responses",
+	}
+	retiredTranslationModeNeedles := []string{
+		"openai.responses_to_chat_completions",
+		"openai.chat_completions_to_responses",
+	}
+
+	apiSpecPath := docsPath(t, "API_SPEC.md")
+	assertFileContains(t, apiSpecPath, append([]string{
 		"Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.",
-	})
-	assertFileContains(t, docsPath(t, "ARCHITECTURE.md"), []string{
+		"preferred_context_utilization_threshold",
+		"operation_translation_mode",
+		"upstream_operation_name",
+		"upstream_request_path",
+	}, translationModeNeedles...))
+	assertFileNotContains(t, apiSpecPath, retiredTranslationModeNeedles)
+
+	architecturePath := docsPath(t, "ARCHITECTURE.md")
+	assertFileContains(t, architecturePath, append([]string{
 		"Supported runtime operations always use active profile and ignore override headers.",
-	})
+		"preferred_context_utilization_threshold",
+		"operation_translation_mode",
+		"upstream_operation_name",
+		"upstream_request_path",
+	}, translationModeNeedles...))
+	assertFileNotContains(t, architecturePath, retiredTranslationModeNeedles)
+
+	dataModelPath := docsPath(t, "DATA_MODEL.md")
+	assertFileContains(t, dataModelPath, append([]string{
+		"preferred_context_utilization_threshold",
+		"operation_translation_mode",
+		"upstream_operation_name",
+		"upstream_request_path",
+	}, translationModeNeedles...))
+	assertFileNotContains(t, dataModelPath, retiredTranslationModeNeedles)
 	assertFileContains(t, docsPath(t, "WORKFLOWS.md"), []string{
 		"Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.",
 	})
@@ -133,6 +164,20 @@ func assertFileContains(t *testing.T, path string, needles []string) {
 	for _, needle := range needles {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("expected %s to contain %q", path, needle)
+		}
+	}
+}
+
+func assertFileNotContains(t *testing.T, path string, needles []string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	content := string(raw)
+	for _, needle := range needles {
+		if strings.Contains(content, needle) {
+			t.Fatalf("expected %s not to contain %q", path, needle)
 		}
 	}
 }

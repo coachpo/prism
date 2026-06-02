@@ -195,6 +195,12 @@ func TestRequestLogsDetailContractIncludesContextRoutingMetadata(t *testing.T) {
 	if contextRouting["policy"] != "cheapest_eligible_context" || contextRouting["estimation_method"] != "openai_chat_heuristic_v1" {
 		t.Fatalf("expected context routing policy and estimation method, got %+v", contextRouting)
 	}
+	if got, ok := contextRouting["selected_endpoint_id"].(float64); !ok || int(got) != 12 {
+		t.Fatalf("expected selected_endpoint_id=12, got %+v", contextRouting)
+	}
+	if contextRouting["selected_context_band"] != "preferred" {
+		t.Fatalf("expected selected_context_band=preferred, got %+v", contextRouting)
+	}
 	if contextRouting["cost_ranking_method"] != "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id" {
 		t.Fatalf("expected pinned cost ranking method, got %+v", contextRouting)
 	}
@@ -206,6 +212,9 @@ func TestRequestLogsDetailContractIncludesContextRoutingMetadata(t *testing.T) {
 		t.Fatalf("expected one skipped terminal target, got %+v", contextRouting)
 	}
 	firstSkipped := asMapRuntime(t, skippedTargets[0])
+	if firstSkipped["context_band"] != "ineligible" {
+		t.Fatalf("expected skipped target context_band=ineligible, got %+v", firstSkipped)
+	}
 	if firstSkipped["reason"] != "estimated_context_exceeds_usable_window" {
 		t.Fatalf("expected skipped target reason to stay persisted, got %+v", firstSkipped)
 	}
@@ -215,6 +224,101 @@ func TestRequestLogsDetailContractIncludesContextRoutingMetadata(t *testing.T) {
 	}
 	if got, ok := usage["output_tokens"].(float64); !ok || int(got) != 42 {
 		t.Fatalf("expected provider usage output_tokens=42 to remain authoritative, got %+v", usage)
+	}
+}
+
+func TestRequestLogsTranslatedOpenAIDetailPreservesIngressAndUpstreamAttribution(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl-request-log-translation-" + suffix,
+		"object": "chat.completion",
+		"choices": []map[string]any{{
+			"index":         0,
+			"message":       map[string]any{"role": "assistant", "content": "translated detail"},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{"prompt_tokens": 6, "completion_tokens": 3, "total_tokens": 9},
+	})
+	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "request-logs-translated-public", "request-logs-translated-target", upstream.baseURL("/request-logs/translated-openai-detail"), "translated-request-logs-key", "chat_completions_reasoning_none")
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "translated request-log detail"}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	var requestLogID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestLogID); err != nil {
+		t.Fatalf("load translated request log id: %v", err)
+	}
+	detailResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, detailResponse, &payload)
+	requestPayload := asMapRuntime(t, payload["request"])
+	if requestPayload["operation_name"] != "openai.responses" || requestPayload["upstream_operation_name"] != "openai.chat_completions" || requestPayload["operation_translation_mode"] != "openai_responses_to_chat_completions" || requestPayload["request_path"] != "/v1/responses" || requestPayload["upstream_request_path"] != "/v1/chat/completions" {
+		t.Fatalf("expected translated request-log request attribution, got %+v", requestPayload)
+	}
+	routing := asMapRuntime(t, payload["routing"])
+	if got, ok := routing["selected_terminal_target_id"].(float64); !ok || int(got) != route.ConnectionID {
+		t.Fatalf("expected selected_terminal_target_id=%d, got %+v", route.ConnectionID, routing)
+	}
+	contextRouting := asMapRuntime(t, routing["context_routing"])
+	if contextRouting["selected_context_band"] != "preferred" {
+		t.Fatalf("expected selected_context_band=preferred, got %+v", contextRouting)
+	}
+	if got, ok := contextRouting["selected_endpoint_id"].(float64); !ok || int(got) <= 0 {
+		t.Fatalf("expected translated detail to expose selected_endpoint_id, got %+v", contextRouting)
+	}
+}
+
+func TestRequestLogsTranslatedOpenAIRejectedDetailPreservesIngressAndUpstreamAttribution(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "request-logs-translated-rejected-should-not-run"})
+	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "request-logs-translated-rejected-public", "request-logs-translated-rejected-target", upstream.baseURL("/request-logs/translated-openai-rejected-detail"), "translated-request-logs-rejected-key", "chat_completions_reasoning_none")
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"model":             route.PublicModelID,
+		"input":             "translated rejected request-log detail",
+		"text":              map[string]any{"format": "json_schema"},
+		"max_output_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusBadRequest)
+	if got := len(upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected translated rejected detail request to avoid upstream calls, got %d", got)
+	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	var requestLogID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestLogID); err != nil {
+		t.Fatalf("load translated rejected request log id: %v", err)
+	}
+	detailResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, detailResponse, &payload)
+	requestPayload := asMapRuntime(t, payload["request"])
+	if requestPayload["operation_name"] != "openai.responses" || requestPayload["upstream_operation_name"] != "openai.chat_completions" || requestPayload["operation_translation_mode"] != "openai_responses_to_chat_completions" || requestPayload["request_path"] != "/v1/responses" || requestPayload["upstream_request_path"] != "/v1/chat/completions" {
+		t.Fatalf("expected translated rejected request-log request attribution, got %+v", requestPayload)
+	}
+	if got, ok := requestPayload["error_detail"]; !ok || got != nil {
+		t.Fatalf("expected translated rejected request-log detail to keep request.error_detail null while persisting additive attribution, got %+v", requestPayload)
+	}
+	if got, ok := asMapRuntime(t, payload["summary"])["status_code"].(float64); !ok || int(got) != http.StatusBadRequest {
+		t.Fatalf("expected translated rejected request-log status 400, got %+v", payload)
+	}
+	routing := asMapRuntime(t, payload["routing"])
+	if got, ok := routing["selected_terminal_target_id"].(float64); !ok || int(got) != route.ConnectionID {
+		t.Fatalf("expected rejected selected_terminal_target_id=%d, got %+v", route.ConnectionID, routing)
+	}
+	contextRouting := asMapRuntime(t, routing["context_routing"])
+	if got, ok := contextRouting["selected_terminal_target_id"].(float64); !ok || int(got) != route.ConnectionID {
+		t.Fatalf("expected rejected context_routing.selected_terminal_target_id=%d, got %+v", route.ConnectionID, contextRouting)
+	}
+	usage := asMapRuntime(t, payload["usage"])
+	if got, ok := usage["input_tokens"]; !ok || got != nil {
+		t.Fatalf("expected rejected translated detail usage.input_tokens=null without provider truth, got %+v", usage)
 	}
 }
 
@@ -2504,7 +2608,7 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, vendor_id, vendor_key, vendor_name, resolved_target_model_id, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, reasoning_tokens, input_cost_micros, output_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_reasoning, cache_read_input_tokens, cache_creation_input_tokens, cache_read_input_cost_micros, cache_creation_input_cost_micros, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NULL, $24, $25, $26, $27, $28, $29, $30, $31, $32, NULL, NULL, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, NULL, $45, $46, $47, $48, $49, $50, $51, $52)`, 101, profileID, "gpt-4o", "openai", 1, "openai", "OpenAI", "gpt-4o-native", 12, 34, "ingress_req_42", 2, "req_upstream_abc123", "https://api.openai.com", 200, 1234, false, 15, 42, 57, true, true, true, 0, 500, 750, 0, 1250, 1250, "USD", "USD", "$", "1M tokens", "2.500000", "10.000000", "0.000000", 0, 0, 0, 0, "1.250000", "0.000000", 1, "/v1/chat/completions", "Primary production key", createdAt, "codex/1.0", "OpenAI/Python 1.0", 914, 320, false, false); err != nil {
 		t.Fatalf("seed fixture request log: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET request_generation_params = $1::jsonb, request_generation_params_status = 'complete', selected_terminal_target_id = 34, context_routing = $2::jsonb WHERE profile_id = $3 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, `{"policy":"cheapest_eligible_context","selected_terminal_target_id":34,"estimation_method":"openai_chat_heuristic_v1","estimated_input_tokens":15,"reserved_output_tokens":1024,"estimated_total_context_tokens":1039,"usable_context_window_tokens":8192,"cost_ranking_method":"estimated_blended_request_cost_then_access_target_position_then_terminal_target_id","skipped_terminal_targets":[{"terminal_target_id":35,"endpoint_id":13,"reason":"estimated_context_exceeds_usable_window","usable_context_window_tokens":512,"estimated_total_context_tokens":1039}]}`, profileID); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET operation_name = 'openai.chat_completions', upstream_operation_name = 'openai.chat_completions', operation_translation_mode = 'none', upstream_request_path = '/v1/chat/completions', request_generation_params = $1::jsonb, request_generation_params_status = 'complete', selected_terminal_target_id = 34, context_routing = $2::jsonb WHERE profile_id = $3 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, `{"policy":"cheapest_eligible_context","selected_terminal_target_id":34,"selected_endpoint_id":12,"selected_context_band":"preferred","selected_usable_context_window_tokens":8192,"estimation_method":"openai_chat_heuristic_v1","estimated_input_tokens":15,"reserved_output_tokens":1024,"estimated_total_context_tokens":1039,"usable_context_window_tokens":8192,"cost_ranking_method":"estimated_blended_request_cost_then_access_target_position_then_terminal_target_id","skipped_terminal_targets":[{"terminal_target_id":35,"endpoint_id":13,"context_band":"ineligible","reason":"estimated_context_exceeds_usable_window","usable_context_window_tokens":512,"estimated_total_context_tokens":1039}]}`, profileID); err != nil {
 		t.Fatalf("seed fixture request generation params: %v", err)
 	}
 }

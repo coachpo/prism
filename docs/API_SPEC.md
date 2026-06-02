@@ -539,6 +539,7 @@ Request:
   "context_window_tokens": 128000,
   "default_output_token_reserve": 4096,
   "max_context_utilization": 0.90,
+  "preferred_context_utilization_threshold": 0.70,
   "loadbalance_strategy_id": 7,
   "access_targets": [
     {
@@ -561,7 +562,7 @@ Validation rules:
 - Public create and update payloads may author only ordered same-profile, same-`api_family` model targets.
 - Submitted `target_type="connection"`, `connection_id`, or `target_connection_id` entries are rejected. Private connection rows are managed from model detail through model-scoped connection routes.
 - Every public model target requires `target_model_id`, `position`, `weight`, and `target_priority`; positions must stay contiguous starting at `0`; `weight` must be `>= 1`; `target_priority` must be `>= 0`.
-- Context capability fields are validated on create and update. `default_output_token_reserve` defaults to `4096`, `max_context_utilization` defaults to `0.90`, utilization must be greater than `0` and less than or equal to `1`, and reserve must be at least `1` when supplied.
+- Context capability fields are validated on create and update. `default_output_token_reserve` defaults to `4096`, `max_context_utilization` defaults to `0.90`, utilization values must be greater than `0` and less than or equal to `1`, and reserve must be at least `1` when supplied. `preferred_context_utilization_threshold` is nullable; `null` means no preferred band, while a supplied value must be less than or equal to `max_context_utilization`.
 - Model target self-reference and target cycles are rejected.
 - Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its private connections with the owning target rows.
 
@@ -579,6 +580,7 @@ Request (all fields optional):
   "context_window_tokens": 256000,
   "default_output_token_reserve": 2048,
   "max_context_utilization": 0.85,
+  "preferred_context_utilization_threshold": null,
   "loadbalance_strategy_id": 9,
   "access_targets": [],
   "is_enabled": true
@@ -713,6 +715,7 @@ Request (using existing endpoint):
   "context_window_tokens": 128000,
   "default_output_token_reserve": 4096,
   "max_context_utilization": 0.90,
+  "preferred_context_utilization_threshold": 0.70,
   "pricing_template_id": 2,
   "qps_limit": 3,
   "max_in_flight_non_stream": 6,
@@ -743,14 +746,14 @@ Create semantics:
 - The connection `api_family` is derived from the owner model. A conflicting request value is rejected.
 - `priority` is rejected with `422`; connection ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
-- Context capability fields inherit the owner model's effective values when omitted or reset to `null`, so terminal-target rows persist explicit request-time capability values.
-- `openai_probe_endpoint_variant` selects the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
+- Context capability fields inherit the owner model's effective values when omitted or reset to `null`, so terminal-target rows persist explicit request-time capability values. `preferred_context_utilization_threshold` follows the same owner-scoped override shape; inherited and explicit values must stay less than or equal to the effective `max_context_utilization`, and `null` means the terminal target has no preferred band.
+- `openai_probe_endpoint_variant` selects the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. The derived `openai_upstream_operation` capability is `openai.responses` for blank or `responses_*` variants and `openai.chat_completions` for `chat_completions_*` variants. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
 #### Update Model-Private Connection
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `context_window_tokens`, `default_output_token_reserve`, `max_context_utilization`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `context_window_tokens`, `default_output_token_reserve`, `max_context_utilization`, `preferred_context_utilization_threshold`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
 
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
@@ -945,6 +948,7 @@ Response `200`:
       "context_window_tokens": 128000,
       "default_output_token_reserve": 4096,
       "max_context_utilization": 0.90,
+      "preferred_context_utilization_threshold": 0.70,
       "is_active": true,
       "name": "Primary production key",
       "auth_type": null,
@@ -965,6 +969,7 @@ Response `200`:
       "context_window_tokens": 128000,
       "default_output_token_reserve": 4096,
       "max_context_utilization": 0.90,
+      "preferred_context_utilization_threshold": 0.70,
       "loadbalance_strategy_name": "Default fill-first routing",
       "is_enabled": true,
       "access_targets": [
@@ -1123,7 +1128,7 @@ Profile import semantics:
 - Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and `target_model_id`.
 - Exported/imported models carry ordered `access_targets` entries with model targets and internally owned private connection targets plus `position` and `is_enabled` metadata.
-- Exported/imported private connections live at the top level and include `api_family`, endpoint and pricing-template name references, context capability fields, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields.
+- Exported/imported private connections live at the top level and include `api_family`, endpoint and pricing-template name references, context capability fields including `preferred_context_utilization_threshold`, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields and no preferred band for the preferred-threshold field.
 - Import rejects `connection_ref` values used by multiple models, duplicate private connection ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
 - Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle v3 import normalizes missing, null, or blank pricing inputs for any of those fields to `"0"` before validation.
 - Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`, including `cheapest_eligible_context`.
@@ -1564,7 +1569,7 @@ Wrong methods on supported runtime paths return a Prism JSON `405` response befo
 
 ### 2.2A Context-aware routing failures
 
-When the attached strategy is `cheapest_eligible_context`, Prism performs local preflight context estimation before provider transport for OpenAI Chat Completions and OpenAI Responses requests that have deterministic request-local input. The estimator methods are `openai_chat_heuristic_v1` and `openai_responses_heuristic_v1`. They add estimated input tokens plus an explicit request output limit when present, then `default_output_token_reserve`, then fallback `4096`. Usable context is `floor(context_window_tokens * max_context_utilization)`, with the default utilization normalized to `0.90`.
+When the attached strategy is `cheapest_eligible_context`, Prism performs local preflight context estimation before provider transport for OpenAI Chat Completions and OpenAI Responses requests that have deterministic request-local input. The estimator methods are `openai_chat_heuristic_v1` and `openai_responses_heuristic_v1`. They add estimated input tokens plus an explicit request output limit when present, then `default_output_token_reserve`, then fallback `4096`. Hard-fit legality uses `floor(context_window_tokens * max_context_utilization)`, with the default utilization normalized to `0.90`. The nullable `preferred_context_utilization_threshold` creates an optional preferred band at `floor(context_window_tokens * preferred_context_utilization_threshold)`; `null` means no preferred band. Fitting candidates above the preferred band but within hard fit are discretionary, and candidates above hard fit are ineligible.
 
 Unsafe request shapes that cannot be bounded locally return HTTP `400` with:
 
@@ -1586,7 +1591,17 @@ When context fit is evaluated and no terminal target fits, Prism returns HTTP `4
 }
 ```
 
-The matching request-log detail can include `routing.context_routing` with `policy`, `estimation_method`, `estimated_input_tokens`, `reserved_output_tokens`, `estimated_total_context_tokens`, `usable_context_window_tokens`, `cost_ranking_method`, `selected_terminal_target_id`, `selected_estimated_blended_cost_micros`, and `skipped_terminal_targets[]`. Candidate ranking is by estimated blended request cost, then access-target position, then terminal target ID.
+The matching request-log detail can include `routing.context_routing` with `policy`, `estimation_method`, `estimated_input_tokens`, `reserved_output_tokens`, `estimated_total_context_tokens`, `usable_context_window_tokens`, `cost_ranking_method`, `selected_terminal_target_id`, `selected_endpoint_id`, `selected_context_band`, `selected_usable_context_window_tokens`, `selected_estimated_blended_cost_micros`, and `skipped_terminal_targets[]`. Skipped targets include `context_band`, with hard-fit rejects reported as `ineligible`. Candidate ranking is band-first: preferred candidates sort before discretionary candidates, then within each band Prism ranks priced candidates before unpriced candidates by estimated blended request cost, access-target position, terminal target ID, and target ID.
+
+### 2.2B OpenAI sibling-operation translation
+
+OpenAI Chat Completions and Responses targets can be siblings for runtime planning. Translation eligibility is explicit and terminal-target based: native-capable targets keep `operation_translation_mode = "none"`, while compatible sibling targets may use `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses` only when the selected connection's `openai_upstream_operation` differs from ingress and the request shape is in Prism's supported subset. Blank or default probe metadata resolves request-side translation as native Responses capability, not as a translated Chat target.
+
+Unsupported translated request shapes reject before provider transport with `openai_request_translation_unsupported` when translation compatibility is the blocker. Public Responses requests with `previous_response_id` still reject earlier as `context_estimation_unavailable` because preflight context estimation cannot bound that stateful shape before the translated-shape checker runs.
+
+Translated non-stream and stream responses are rewritten back to the ingress operation shape for the client. Runtime usage remains canonical from the raw upstream payload or terminal stream event, translated responses strip unsafe entity headers before writing to the client, and audit body capture stays upstream-native rather than translated.
+
+Ingress observability remains stable: `operation_name` is always the client-visible operation. Additive upstream fields use `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` for request logs, usage events, and request-log detail. `upstream_request_path` is the sanitized operation path Prism sent upstream, not an unbounded raw URL.
 
 ### 2.3 OpenAI Operations
 
@@ -2019,6 +2034,9 @@ Response `200`:
       "estimated_total_context_tokens": 4111,
       "usable_context_window_tokens": 115200,
       "cost_ranking_method": "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id",
+      "selected_endpoint_id": 12,
+      "selected_context_band": "preferred",
+      "selected_usable_context_window_tokens": 115200,
       "selected_estimated_blended_cost_micros": 1250,
       "skipped_terminal_targets": []
     },
@@ -2066,6 +2084,8 @@ Response `200`:
 ```
 
 Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five concrete pricing strings used for the attempt. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced. Public request-log detail routing exposes `terminal_target_id` and `selected_terminal_target_id`; it does not expose `routing.connection_id` on the detail surface.
+
+Request-log detail keeps ingress and upstream attribution separate. `request.operation_name` and `request.request_path` are ingress-led. `request.upstream_operation_name`, `request.operation_translation_mode`, and `request.upstream_request_path` describe the provider-facing operation selected for the attempt. Native attempts use `operation_translation_mode = "none"` and usually keep ingress and upstream fields equal; translated attempts keep canonical usage from the upstream payload while presenting the client-visible operation in `operation_name`.
 
 Response `404`: returned when the request ID is missing or out of scope for the effective profile.
 
@@ -2422,7 +2442,7 @@ Response `200`:
 }
 ```
 
-When body capture is enabled and non-empty response bytes are captured, `response_body` stores those bytes and `response_body_stored=true`; `is_stream` does not prevent storage.
+When body capture is enabled and non-empty response bytes are captured, `response_body` stores those bytes and `response_body_stored=true`; `is_stream` does not prevent storage. For translated OpenAI sibling-operation attempts, `request_body` and `response_body` remain raw upstream-native payloads or SSE bytes. They do not store the translated client-facing request or response shape.
 If vendor body capture is disabled, both `request_body` and `response_body` are `null`. Rows with `response_body_stored=false` have no stored response body, including old rows that were written before streaming response capture was available.
 
 Response `404`: Audit log not found.
@@ -2957,3 +2977,6 @@ Scope-control errors follow this format:
 ## 10. API Reference Source
 
 This markdown document is the source of truth for current runtime and management API semantics.
+agement API semantics.
+urce of truth for current runtime and management API semantics.
+agement API semantics.

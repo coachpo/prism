@@ -36,6 +36,7 @@ const baseEditModel = {
   context_window_tokens: 8192,
   default_output_token_reserve: 4096,
   max_context_utilization: 0.9,
+  preferred_context_utilization_threshold: 0.72,
   connection_count: 0,
   active_connection_count: 0,
   health_success_rate: null,
@@ -51,6 +52,7 @@ test("new model defaults seed canonical capability strings", () => {
   assert.equal(DEFAULT_MODEL_FORM_DATA.context_window_tokens, "");
   assert.equal(DEFAULT_MODEL_FORM_DATA.default_output_token_reserve, "4096");
   assert.equal(DEFAULT_MODEL_FORM_DATA.max_context_utilization, "0.90");
+  assert.equal(DEFAULT_MODEL_FORM_DATA.preferred_context_utilization_threshold, "");
   assert.equal(formData.is_enabled, false);
   assert.deepEqual(formData.access_targets, []);
   assert.equal(formData.loadbalance_strategy_id, 42);
@@ -64,6 +66,7 @@ test("edit hydration seeds capability strings from list and detail payloads", ()
     context_window_tokens: null,
     default_output_token_reserve: 12288,
     max_context_utilization: 1,
+    preferred_context_utilization_threshold: null,
     access_targets: [
       { target_type: "connection", connection_id: 88, position: 5, is_enabled: true, connection: null },
     ],
@@ -72,9 +75,11 @@ test("edit hydration seeds capability strings from list and detail payloads", ()
   assert.equal(fromList.context_window_tokens, "8192");
   assert.equal(fromList.default_output_token_reserve, "4096");
   assert.equal(fromList.max_context_utilization, "0.9");
+  assert.equal(fromList.preferred_context_utilization_threshold, "0.72");
   assert.equal(fromDetail.context_window_tokens, "");
   assert.equal(fromDetail.default_output_token_reserve, "12288");
   assert.equal(fromDetail.max_context_utilization, "1");
+  assert.equal(fromDetail.preferred_context_utilization_threshold, "");
   assert.equal(fromDetail.display_name, "");
 });
 
@@ -89,6 +94,7 @@ test("disabled drafts validate with no access targets", () => {
       context_window_tokens: "",
       default_output_token_reserve: "4096",
       max_context_utilization: "0.90",
+      preferred_context_utilization_threshold: "",
       access_targets: [],
       is_enabled: false,
       last_auto_display_name: "Draft Model",
@@ -108,6 +114,7 @@ test("validation rejects blank model id before other form work proceeds", () => 
       context_window_tokens: "",
       default_output_token_reserve: "4096",
       max_context_utilization: "0.90",
+      preferred_context_utilization_threshold: "",
       access_targets: [],
       is_enabled: false,
       last_auto_display_name: "Draft Model",
@@ -127,6 +134,7 @@ test("validation rejects blank reserve/utilization and invalid capability values
       context_window_tokens: "0",
       default_output_token_reserve: "",
       max_context_utilization: "0.90",
+      preferred_context_utilization_threshold: "",
       access_targets: [],
       is_enabled: false,
       last_auto_display_name: "Bad Model",
@@ -143,6 +151,7 @@ test("validation rejects blank reserve/utilization and invalid capability values
       context_window_tokens: "",
       default_output_token_reserve: "-1",
       max_context_utilization: "0.90",
+      preferred_context_utilization_threshold: "",
       access_targets: [],
       is_enabled: false,
       last_auto_display_name: "Bad Model",
@@ -159,11 +168,49 @@ test("validation rejects blank reserve/utilization and invalid capability values
       context_window_tokens: "",
       default_output_token_reserve: "4096",
       max_context_utilization: "1.5",
+      preferred_context_utilization_threshold: "",
       access_targets: [],
       is_enabled: false,
       last_auto_display_name: "Bad Model",
     }),
     "max_context_utilization_invalid",
+  );
+});
+
+test("validation rejects invalid preferred threshold values and bands above max", () => {
+  assert.equal(
+    validateModelFormData({
+      vendor_id: null,
+      api_family: "openai",
+      model_id: "bad-model",
+      display_name: "Bad Model",
+      loadbalance_strategy_id: 9,
+      context_window_tokens: "",
+      default_output_token_reserve: "4096",
+      max_context_utilization: "0.90",
+      preferred_context_utilization_threshold: "1.2",
+      access_targets: [],
+      is_enabled: false,
+      last_auto_display_name: "Bad Model",
+    }),
+    "preferred_context_utilization_threshold_invalid",
+  );
+  assert.equal(
+    validateModelFormData({
+      vendor_id: null,
+      api_family: "openai",
+      model_id: "bad-model",
+      display_name: "Bad Model",
+      loadbalance_strategy_id: 9,
+      context_window_tokens: "",
+      default_output_token_reserve: "4096",
+      max_context_utilization: "0.70",
+      preferred_context_utilization_threshold: "0.75",
+      access_targets: [],
+      is_enabled: false,
+      last_auto_display_name: "Bad Model",
+    }),
+    "preferred_context_utilization_threshold_exceeds_max",
   );
 });
 
@@ -177,6 +224,7 @@ test("enabled models require at least one enabled valid access target", () => {
     context_window_tokens: "",
     default_output_token_reserve: "4096",
     max_context_utilization: "0.90",
+    preferred_context_utilization_threshold: "",
     access_targets: [],
     is_enabled: true,
     last_auto_display_name: "Live Model",
@@ -216,6 +264,7 @@ test("changing api family clears incompatible access targets", () => {
       context_window_tokens: "",
       default_output_token_reserve: "4096",
       max_context_utilization: "0.90",
+      preferred_context_utilization_threshold: "",
       access_targets: [{ target_type: "connection", connection_id: 88, position: 0, is_enabled: true }],
       is_enabled: false,
       last_auto_display_name: "Targeted Model",
@@ -237,6 +286,7 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     context_window_tokens: "",
     default_output_token_reserve: "4096",
     max_context_utilization: "0.90",
+    preferred_context_utilization_threshold: "0.70",
     access_targets: [
       { target_type: "connection", connection_id: 77, position: 4, is_enabled: true },
       { target_type: "model", target_model_id: "target-model", position: 9, is_enabled: true },
@@ -258,6 +308,7 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     context_window_tokens: null,
     default_output_token_reserve: 4096,
     max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: 0.7,
     access_targets: expectedAccessTargets,
   });
 
@@ -271,6 +322,7 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     context_window_tokens: null,
     default_output_token_reserve: 4096,
     max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: 0.7,
     access_targets: expectedAccessTargets,
   });
 });

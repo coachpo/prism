@@ -345,6 +345,9 @@ func validateProfileImportRequest(data profileImportRequest) error {
 	if err != nil {
 		return err
 	}
+	if err := validateImportedConnectionPreferredContextThresholds(data.Models, data.Connections); err != nil {
+		return err
+	}
 	if err := validateImportedAccessTargetReferences(data.Models, modelFamilies); err != nil {
 		return err
 	}
@@ -551,10 +554,12 @@ func validateImportedModelContextCapabilities(model modelExport, modelID string)
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' default_output_token_reserve %s", modelID, err.Error())}
 		}
 	}
-	if model.MaxContextUtilization != nil {
-		if _, err := contextcapability.NormalizeMaxContextUtilization(model.MaxContextUtilization); err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' max_context_utilization %s", modelID, err.Error())}
-		}
+	resolvedMaxContextUtilization, err := contextcapability.NormalizeMaxContextUtilization(model.MaxContextUtilization)
+	if err != nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' max_context_utilization %s", modelID, err.Error())}
+	}
+	if _, err := contextcapability.NormalizePreferredContextUtilizationThreshold(model.PreferredContextUtilizationThreshold, resolvedMaxContextUtilization); err != nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' preferred_context_utilization_threshold %s", modelID, err.Error())}
 	}
 	return nil
 }
@@ -1196,7 +1201,7 @@ func insertImportedStrategies(ctx context.Context, exec queryExecutor, profileID
 func buildImportedModelCapabilitySettings(models []modelExport) (map[string]contextcapability.Settings, error) {
 	items := make(map[string]contextcapability.Settings, len(models))
 	for _, model := range models {
-		settings, err := contextcapability.NormalizeModelSettings(model.ContextWindowTokens, model.DefaultOutputTokenReserve, model.MaxContextUtilization)
+		settings, err := contextcapability.NormalizeModelSettings(model.ContextWindowTokens, model.DefaultOutputTokenReserve, model.MaxContextUtilization, model.PreferredContextUtilizationThreshold)
 		if err != nil {
 			return nil, err
 		}
@@ -1226,6 +1231,25 @@ func buildImportedConnectionOwnerSettings(models []modelExport, modelSettingsByM
 	return items
 }
 
+func validateImportedConnectionPreferredContextThresholds(models []modelExport, connections []connectionExport) error {
+	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(models)
+	if err != nil {
+		return err
+	}
+	connectionOwnerSettings := buildImportedConnectionOwnerSettings(models, modelSettingsByModelID)
+	for _, connection := range connections {
+		connectionRef := strings.TrimSpace(connection.Ref)
+		settings, hasOwnerSettings := connectionOwnerSettings[connectionRef]
+		if !hasOwnerSettings {
+			settings = contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
+		}
+		if _, err := contextcapability.NormalizeConnectionSettings(settings, connection.ContextWindowTokens, connection.DefaultOutputTokenReserve, connection.MaxContextUtilization, connection.PreferredContextUtilizationThreshold); err != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' preferred_context_utilization_threshold %s", connectionRef, err.Error())}
+		}
+	}
+	return nil
+}
+
 func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, connections []connectionExport, vendorIDsByKey map[string]int, endpointIDsByName map[string]int, pricingIDsByName map[string]int, strategyIDsByName map[string]int, currentTime time.Time) (map[string]int, map[string]struct{}, int, error) {
 	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(models)
 	if err != nil {
@@ -1246,7 +1270,7 @@ func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor,
 		}
 		strategyID := strategyIDsByName[*trimmedOptionalString(model.LoadbalanceStrategyName)]
 		var modelConfigID int
-		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11) RETURNING id`, profileID, vendorID, apiFamily, modelID, nullableString(trimmedOptionalString(model.DisplayName)), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12) RETURNING id`, profileID, vendorID, apiFamily, modelID, nullableString(trimmedOptionalString(model.DisplayName)), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
 			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", modelID, err)
 		}
 		modelIDsByModelID[modelID] = modelConfigID
@@ -1276,7 +1300,7 @@ func insertImportedConnections(ctx context.Context, exec queryExecutor, profileI
 		if !hasOwnerSettings {
 			settings = contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
 		}
-		resolvedSettings, err := contextcapability.NormalizeConnectionSettings(settings, connection.ContextWindowTokens, connection.DefaultOutputTokenReserve, connection.MaxContextUtilization)
+		resolvedSettings, err := contextcapability.NormalizeConnectionSettings(settings, connection.ContextWindowTokens, connection.DefaultOutputTokenReserve, connection.MaxContextUtilization, connection.PreferredContextUtilizationThreshold)
 		if err != nil {
 			return 0, fmt.Errorf("normalize imported connection %q capabilities: %w", connectionRef, err)
 		}
@@ -1289,7 +1313,7 @@ func insertImportedConnections(ctx context.Context, exec queryExecutor, profileI
 			customHeaders = string(rawHeaders)
 		}
 		var connectionID int
-		if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17, $18, $19, $20, $20) RETURNING id`, profileID, apiFamily, endpointIDsByName[endpointName], nullableOptionalInt(resolvedSettings.ContextWindowTokens), resolvedSettings.DefaultOutputTokenReserve, resolvedSettings.MaxContextUtilization, nullableInt(pricingIDsByName, pricingTemplateName), connection.QPSLimit, connection.MaxInFlightNonStream, connection.MaxInFlightStream, nullableString(probeVariant), connection.IsActive, connection.Priority, nullableString(trimmedOptionalString(connection.Name)), nullableString(normalizedOptionalAuthType(connection.AuthType)), customHeaders, "unknown", nil, nil, currentTime).Scan(&connectionID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, $18, $19, $20, $21, $21) RETURNING id`, profileID, apiFamily, endpointIDsByName[endpointName], nullableOptionalInt(resolvedSettings.ContextWindowTokens), resolvedSettings.DefaultOutputTokenReserve, resolvedSettings.MaxContextUtilization, nullableOptionalFloat64(resolvedSettings.PreferredContextUtilizationThreshold), nullableInt(pricingIDsByName, pricingTemplateName), connection.QPSLimit, connection.MaxInFlightNonStream, connection.MaxInFlightStream, nullableString(probeVariant), connection.IsActive, connection.Priority, nullableString(trimmedOptionalString(connection.Name)), nullableString(normalizedOptionalAuthType(connection.AuthType)), customHeaders, "unknown", nil, nil, currentTime).Scan(&connectionID); err != nil {
 			return 0, fmt.Errorf("insert imported connection %q: %w", connectionRef, err)
 		}
 		connectionIDsByRef[connectionRef] = connectionID
@@ -1555,6 +1579,13 @@ func nullableString(value *string) any {
 }
 
 func nullableOptionalInt(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableOptionalFloat64(value *float64) any {
 	if value == nil {
 		return nil
 	}

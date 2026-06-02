@@ -212,6 +212,15 @@ export function ConnectionDialog({
       rowTestId: "conn-max-context-utilization-field",
       step: "0.01",
     },
+    {
+      field: "preferred_context_utilization_threshold",
+      id: "conn-preferred-context-utilization-threshold",
+      label: modelsUiCopy.preferredContextUtilizationThreshold,
+      max: "1",
+      min: "0",
+      rowTestId: "conn-preferred-context-utilization-threshold-field",
+      step: "0.01",
+    },
   ];
 
   const limiterFields: Array<{

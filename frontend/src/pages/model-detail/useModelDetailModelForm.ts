@@ -118,6 +118,16 @@ export function useModelDetailModelForm({
         return;
       }
 
+      if (validationError === "preferred_context_utilization_threshold_invalid") {
+        setTargetEditorError(messages.modelsData.preferredContextUtilizationThresholdInvalid);
+        return;
+      }
+
+      if (validationError === "preferred_context_utilization_threshold_exceeds_max") {
+        setTargetEditorError(messages.modelsData.preferredContextUtilizationThresholdExceedsMaxContextUtilization);
+        return;
+      }
+
       try {
         const updatedModel = await api.models.update(model.id, toModelUpdatePayload(formData));
         applyUpdatedModel(updatedModel);

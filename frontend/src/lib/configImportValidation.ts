@@ -80,6 +80,26 @@ const LoadbalanceStrategyImportSchema = z.strictObject({
 const ContextWindowTokensImportSchema = z.number().int().min(1).nullable().optional();
 const DefaultOutputTokenReserveImportSchema = z.number().int().min(1).nullable().optional();
 const MaxContextUtilizationImportSchema = z.number().gt(0).max(1).nullable().optional();
+const PreferredContextUtilizationThresholdImportSchema = z.number().gt(0).max(1).nullable().optional();
+
+function addPreferredThresholdIssue(
+  context: z.RefinementCtx,
+  maxContextUtilization: number | null | undefined,
+  preferredContextUtilizationThreshold: number | null | undefined,
+  fieldPrefix: readonly (string | number)[] = [],
+) {
+  if (
+    typeof maxContextUtilization === "number"
+    && typeof preferredContextUtilizationThreshold === "number"
+    && preferredContextUtilizationThreshold > maxContextUtilization
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: [...fieldPrefix, "preferred_context_utilization_threshold"],
+      message: "preferred_context_utilization_threshold must be less than or equal to max_context_utilization",
+    });
+  }
+}
 
 const ConnectionImportSchema = z.strictObject({
   ref: z.string(),
@@ -88,6 +108,7 @@ const ConnectionImportSchema = z.strictObject({
   context_window_tokens: ContextWindowTokensImportSchema,
   default_output_token_reserve: DefaultOutputTokenReserveImportSchema,
   max_context_utilization: MaxContextUtilizationImportSchema,
+  preferred_context_utilization_threshold: PreferredContextUtilizationThresholdImportSchema,
   pricing_template_name: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
   priority: z.number().int().min(0).optional(),
@@ -98,6 +119,12 @@ const ConnectionImportSchema = z.strictObject({
   qps_limit: z.number().int().min(1).nullable().optional(),
   max_in_flight_non_stream: z.number().int().min(1).nullable().optional(),
   max_in_flight_stream: z.number().int().min(1).nullable().optional(),
+}).superRefine((connection, context) => {
+  addPreferredThresholdIssue(
+    context,
+    connection.max_context_utilization,
+    connection.preferred_context_utilization_threshold,
+  );
 });
 
 const AccessTargetImportSchema = z.strictObject({
@@ -117,9 +144,15 @@ const ModelImportSchema = z.strictObject({
   context_window_tokens: ContextWindowTokensImportSchema,
   default_output_token_reserve: DefaultOutputTokenReserveImportSchema,
   max_context_utilization: MaxContextUtilizationImportSchema,
+  preferred_context_utilization_threshold: PreferredContextUtilizationThresholdImportSchema,
   is_enabled: z.boolean().optional(),
   access_targets: z.array(AccessTargetImportSchema),
 }).superRefine((model, context) => {
+  addPreferredThresholdIssue(
+    context,
+    model.max_context_utilization,
+    model.preferred_context_utilization_threshold,
+  );
   const seenPositions = new Set<number>();
   const seenTargets = new Set<string>();
 

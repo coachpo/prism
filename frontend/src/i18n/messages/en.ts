@@ -1593,6 +1593,8 @@ export interface Messages {
     editModelEnabledDescription: string;
     enableAccessTarget: (value: string) => string;
     maxContextUtilization: string;
+    preferredContextUtilizationThreshold: string;
+    preferredContextUtilizationThresholdHelper: string;
     modelId: string;
     modelIdPlaceholder: string;
     modelTarget: string;
@@ -1632,6 +1634,8 @@ export interface Messages {
     enabledAccessTargetRequired: string;
     fetchFailed: string;
     maxContextUtilizationInvalid: string;
+    preferredContextUtilizationThresholdInvalid: string;
+    preferredContextUtilizationThresholdExceedsMaxContextUtilization: string;
     modelIdRequired: string;
     saveFailed: string;
     selectApiFamily: string;
@@ -3836,6 +3840,8 @@ export const enMessages: Messages = {
     editModelEnabledDescription: "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments.",
     enableAccessTarget: (value) => `Enable access target ${value}`,
     maxContextUtilization: "Max context utilization",
+    preferredContextUtilizationThreshold: "Preferred context utilization threshold",
+    preferredContextUtilizationThresholdHelper: "Optional soft preference for cheapest eligible context routing. Leave blank to disable the preference band.",
     modelId: "Model ID",
     modelIdPlaceholder: "e.g. gpt-4o",
     modelTarget: "Model target",
@@ -3875,6 +3881,8 @@ export const enMessages: Messages = {
     enabledAccessTargetRequired: "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.",
     fetchFailed: "Failed to fetch data",
     maxContextUtilizationInvalid: "Max context utilization must be a decimal greater than 0 and less than or equal to 1.",
+    preferredContextUtilizationThresholdInvalid: "Preferred context utilization threshold must be a decimal greater than 0 and less than or equal to 1.",
+    preferredContextUtilizationThresholdExceedsMaxContextUtilization: "Preferred context utilization threshold must be less than or equal to max context utilization.",
     modelIdRequired: "Model ID is required.",
     saveFailed: "Failed to save model",
     selectApiFamily: "Please select an API family",

@@ -69,6 +69,7 @@ export interface ConfigConnectionExport {
   context_window_tokens: number | null;
   default_output_token_reserve: number;
   max_context_utilization: number;
+  preferred_context_utilization_threshold: number | null;
   pricing_template_name: string | null;
   is_active: boolean;
   priority: number;
@@ -88,6 +89,7 @@ export interface ConfigConnectionImport {
   context_window_tokens?: number | null;
   default_output_token_reserve?: number | null;
   max_context_utilization?: number | null;
+  preferred_context_utilization_threshold?: number | null;
   pricing_template_name?: string | null;
   is_active?: boolean;
   priority?: number;
@@ -117,6 +119,7 @@ export interface ConfigModelExport {
   context_window_tokens: number | null;
   default_output_token_reserve: number;
   max_context_utilization: number;
+  preferred_context_utilization_threshold: number | null;
   is_enabled: boolean;
   access_targets: ConfigAccessTargetExport[];
 }
@@ -130,6 +133,7 @@ export interface ConfigModelImport {
   context_window_tokens?: number | null;
   default_output_token_reserve?: number | null;
   max_context_utilization?: number | null;
+  preferred_context_utilization_threshold?: number | null;
   is_enabled?: boolean;
   access_targets: ConfigAccessTargetExport[];
 }

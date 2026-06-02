@@ -83,10 +83,64 @@ func TestRuntimeResponsesMalformedJSONUsesMissingModelBadRequest(t *testing.T) {
 	}
 }
 
-func runtimeResponseDetail(t *testing.T, response *http.Response) string {
+func TestRuntimeResponsesRejectUnsupportedTranslatedShapesBeforeUpstream(t *testing.T) {
+	t.Run("responses previous_response_id on chat-only target", func(t *testing.T) {
+		harness := newRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "responses-parity-previous-response-id"})
+		route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "responses-parity-previous-response-id-public", "responses-parity-previous-response-id-target", upstream.baseURL("/responses/parity/previous-response-id"), "responses-parity-previous-response-id-key", "chat_completions_reasoning_none")
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+			"model":                route.PublicModelID,
+			"previous_response_id": "resp_123",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": []map[string]any{{"type": "input_text", "text": "unsupported translated responses shape"}},
+			}},
+		}, nil)
+		assertStatus(t, response, http.StatusBadRequest)
+		payload := runtimeResponsePayload(t, response)
+		if payload["error"] != "context_estimation_unavailable" || payload["detail"] != "Preflight context estimation is unavailable for this request shape." {
+			t.Fatalf("expected responses previous_response_id rejection to stay on the preflight estimation contract, got %+v", payload)
+		}
+		if got := len(upstream.requestsSnapshot()); got != 0 {
+			t.Fatalf("expected unsupported translated responses shape to stop before upstream, got %d upstream requests", got)
+		}
+	})
+
+	t.Run("chat multi-choice on responses-only target", func(t *testing.T) {
+		harness := newRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "responses-parity-chat-multi-choice"})
+		route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "responses-parity-chat-multi-choice-public", "responses-parity-chat-multi-choice-target", upstream.baseURL("/responses/parity/chat-multi-choice"), "responses-parity-chat-multi-choice-key", "responses_reasoning_none")
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+			"model":    route.PublicModelID,
+			"messages": []map[string]any{{"role": "user", "content": "unsupported translated chat shape"}},
+			"n":        2,
+		}, nil)
+		assertStatus(t, response, http.StatusBadRequest)
+		payload := runtimeResponsePayload(t, response)
+		if payload["error"] != "openai_request_translation_unsupported" || payload["detail"] != "Prism cannot translate this OpenAI request shape for the selected target." || payload["unsupported_reason"] != "chat_multi_choice" {
+			t.Fatalf("expected chat multi-choice translated rejection payload, got %+v", payload)
+		}
+		if got := len(upstream.requestsSnapshot()); got != 0 {
+			t.Fatalf("expected unsupported translated chat shape to stop before upstream, got %d upstream requests", got)
+		}
+	})
+}
+
+func runtimeResponsePayload(t *testing.T, response *http.Response) map[string]any {
 	t.Helper()
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
+	return payload
+}
+
+func runtimeResponseDetail(t *testing.T, response *http.Response) string {
+	t.Helper()
+	payload := runtimeResponsePayload(t, response)
 	detail, _ := payload["detail"].(string)
 	if detail == "" {
 		t.Fatalf("expected response detail string, got %+v", payload)

@@ -155,7 +155,7 @@ func TestRuntimeTracingRedactsSensitiveAttributes(t *testing.T) {
 	service := newRuntimeTracingExecutionService(client)
 	executeRuntimeTracingPlan(t, service, client, "/v1/chat/completions", "openai", "secret-model-id", `{"model":"secret-model-id","messages":[{"role":"user","content":"prompt body leaked super-secret"}]}`)
 	_, synthetic := startRuntimeSpan(context.Background(), "runtime.redaction.synthetic",
-		runtimeTraceEnvelopeAttributes(runtimeTelemetryEnvelope{UsageEvent: usageEventInsert{OperationName: "https://upstream.example/v1/chat/completions?api_key=secret", APIFamily: "raw-url", StatusCode: 599, StreamOutcome: "prompt body leaked"}})...,
+		runtimeTraceEnvelopeAttributes(runtimeTelemetryEnvelope{UsageEvent: usageEventInsert{OperationName: "https://upstream.example/v1/chat/completions?api_key=secret", APIFamily: "raw-url", StatusCode: 599, StreamOutcome: "prompt body leaked", UpstreamOperationName: stringPtr("https://upstream.example/v1/chat/completions?api_key=secret"), OperationTranslationMode: stringPtr("super-secret"), UpstreamRequestPath: stringPtr("/v1beta/models/secret-model-id:generateContent")}})...,
 	)
 	synthetic.SetAttributes(runtimeTraceFeedbackAttributes(runtimeFeedbackEvent{Kind: runtimeFeedbackKind("provider error text"), APIFamily: "Bearer secret-token"})...)
 	synthetic.End()
@@ -177,6 +177,71 @@ func TestRuntimeTracingRedactsSensitiveAttributes(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestRuntimeTracingTranslationAttributes(t *testing.T) {
+	translatedContextRouting := &runtimeContextRoutingDecision{
+		SelectedTerminalTargetID:          intPtr(34),
+		SelectedContextBand:               stringPtr(runtimeContextBandPreferred),
+		SelectedUsableContextWindowTokens: intPtr(8192),
+	}
+	translatedPlan := requestPlan{
+		APIFamily:          "openai",
+		RuntimeOperation:   RuntimeOperation{Name: "openai.responses", APIFamily: "openai", PathTemplate: "/v1/responses"},
+		IsStreamingRequest: false,
+		ContextRouting:     translatedContextRouting,
+		TerminalAttempts: []runtimeTerminalAttempt{{
+			Connection:           runtimeConnection{ID: 34},
+			TranslationMode:      TranslationModeOpenAIResponsesToChatCompletions,
+			EffectiveRequestPath: "/v1/chat/completions",
+		}},
+	}
+	translatedAttrs := attributesByKey(runtimeTracePlanAttributes(translatedPlan))
+	if translatedAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 {
+		t.Fatalf("expected translated plan trace attributes, got %+v", translatedAttrs)
+	}
+
+	translatedEnvelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(runtimeTelemetryEnvelope{UsageEvent: usageEventInsert{
+		OperationName:            "openai.responses",
+		UpstreamOperationName:    stringPtr("openai.chat_completions"),
+		OperationTranslationMode: stringPtr(string(TranslationModeOpenAIResponsesToChatCompletions)),
+		UpstreamRequestPath:      stringPtr("/v1/chat/completions"),
+		APIFamily:                "openai",
+		StatusCode:               http.StatusOK,
+		StreamOutcome:            runtimeStreamOutcomeNotStreaming,
+		ContextRouting:           translatedContextRouting,
+	}}))
+	if translatedEnvelopeAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedEnvelopeAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedEnvelopeAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedEnvelopeAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedEnvelopeAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedEnvelopeAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 {
+		t.Fatalf("expected translated envelope trace attributes, got %+v", translatedEnvelopeAttrs)
+	}
+
+	nativePlan := requestPlan{
+		APIFamily:          "openai",
+		RuntimeOperation:   RuntimeOperation{Name: "openai.chat_completions", APIFamily: "openai", PathTemplate: "/v1/chat/completions"},
+		IsStreamingRequest: false,
+		TerminalAttempts: []runtimeTerminalAttempt{{
+			Connection:           runtimeConnection{ID: 35},
+			TranslationMode:      TranslationModeNone,
+			EffectiveRequestPath: "/v1/chat/completions",
+		}},
+	}
+	nativeAttrs := attributesByKey(runtimeTracePlanAttributes(nativePlan))
+	if nativeAttrs[runtimeTraceAttrOperationName].AsString() != "openai.chat_completions" || nativeAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || nativeAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeNone) || nativeAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" {
+		t.Fatalf("expected native plan trace attributes, got %+v", nativeAttrs)
+	}
+
+	planningFailureAttrs := attributesByKey(runtimeTracePlanningFailureAttributes(runtimePlanningFailureTelemetry{
+		APIFamily:                "openai",
+		RuntimeOperation:         RuntimeOperation{Name: "openai.responses", APIFamily: "openai", PathTemplate: "/v1/responses"},
+		UpstreamOperationName:    stringPtr("openai.chat_completions"),
+		UpstreamRequestPath:      stringPtr("/v1/chat/completions"),
+		OperationTranslationMode: stringPtr(string(TranslationModeOpenAIResponsesToChatCompletions)),
+		IsStreamingRequest:       false,
+		ContextRouting:           translatedContextRouting,
+	}))
+	if planningFailureAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || planningFailureAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || planningFailureAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || planningFailureAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || planningFailureAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || planningFailureAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 {
+		t.Fatalf("expected translated planning-failure trace attributes, got %+v", planningFailureAttrs)
 	}
 }
 
@@ -306,6 +371,14 @@ func runtimeTraceSpanAttributeSummary(spans []sdktrace.ReadOnlySpan) map[string]
 		summary[span.Name()] = append(summary[span.Name()], span.Attributes()...)
 	}
 	return summary
+}
+
+func attributesByKey(attrs []attribute.KeyValue) map[string]attribute.Value {
+	items := make(map[string]attribute.Value, len(attrs))
+	for _, attr := range attrs {
+		items[string(attr.Key)] = attr.Value
+	}
+	return items
 }
 
 func backgroundSchedulerForRuntimeTracing(t *testing.T) *background.Scheduler {

@@ -190,8 +190,21 @@ func migrationVersions(migrations []fileMigration) []string {
 }
 
 const modelAccessTargetsConnectionOwnerIndexName = "uq_model_access_targets_connection_owner"
+const modelConfigsPreferredContextConstraintName = "ck_model_configs_preferred_context_utilization_threshold"
+const connectionsPreferredContextConstraintName = "ck_connections_preferred_context_utilization_threshold"
 
 const modelAccessTargetsConnectionOwnerIndexSQL = `CREATE UNIQUE INDEX uq_model_access_targets_connection_owner ON public.model_access_targets USING btree (target_connection_id) WHERE (target_connection_id IS NOT NULL)`
+const ensureModelConfigsPreferredContextColumnsSQL = `ALTER TABLE public.model_configs ADD COLUMN IF NOT EXISTS preferred_context_utilization_threshold double precision`
+const ensureConnectionsPreferredContextColumnsSQL = `ALTER TABLE public.connections ADD COLUMN IF NOT EXISTS preferred_context_utilization_threshold double precision`
+const ensureConnectionsPreferredContextOverrideColumnSQL = `ALTER TABLE public.connections ADD COLUMN IF NOT EXISTS preferred_context_utilization_threshold_overridden boolean DEFAULT false NOT NULL`
+const ensureRequestLogsUpstreamOperationNameColumnSQL = `ALTER TABLE public.request_logs ADD COLUMN IF NOT EXISTS upstream_operation_name character varying(120)`
+const ensureRequestLogsOperationTranslationModeColumnSQL = `ALTER TABLE public.request_logs ADD COLUMN IF NOT EXISTS operation_translation_mode character varying(80)`
+const ensureRequestLogsUpstreamRequestPathColumnSQL = `ALTER TABLE public.request_logs ADD COLUMN IF NOT EXISTS upstream_request_path character varying(500)`
+const ensureUsageEventsUpstreamOperationNameColumnSQL = `ALTER TABLE public.usage_request_events ADD COLUMN IF NOT EXISTS upstream_operation_name character varying(120)`
+const ensureUsageEventsOperationTranslationModeColumnSQL = `ALTER TABLE public.usage_request_events ADD COLUMN IF NOT EXISTS operation_translation_mode character varying(80)`
+const ensureUsageEventsUpstreamRequestPathColumnSQL = `ALTER TABLE public.usage_request_events ADD COLUMN IF NOT EXISTS upstream_request_path character varying(500)`
+const modelConfigsPreferredContextConstraintSQL = `ALTER TABLE public.model_configs ADD CONSTRAINT ck_model_configs_preferred_context_utilization_threshold CHECK (((preferred_context_utilization_threshold IS NULL) OR (((preferred_context_utilization_threshold > (0)::double precision) AND (preferred_context_utilization_threshold <= (1)::double precision)) AND (preferred_context_utilization_threshold <= max_context_utilization))))`
+const connectionsPreferredContextConstraintSQL = `ALTER TABLE public.connections ADD CONSTRAINT ck_connections_preferred_context_utilization_threshold CHECK (((preferred_context_utilization_threshold IS NULL) OR (((preferred_context_utilization_threshold > (0)::double precision) AND (preferred_context_utilization_threshold <= (1)::double precision)) AND (preferred_context_utilization_threshold <= max_context_utilization))))`
 
 const duplicateModelAccessTargetConnectionOwnersSQL = `SELECT target_connection_id, COUNT(*) AS owner_count, ARRAY_AGG(source_model_config_id ORDER BY source_model_config_id) AS source_model_config_ids FROM model_access_targets WHERE target_connection_id IS NOT NULL GROUP BY target_connection_id HAVING COUNT(*) > 1`
 
@@ -202,8 +215,52 @@ type duplicateModelAccessTargetConnectionOwner struct {
 }
 
 func ensurePostBaselineSchemaGuards(ctx context.Context, conn *pgx.Conn) error {
+	if err := ensurePreferredContextCapabilitySchema(ctx, conn); err != nil {
+		return err
+	}
+	if err := ensureTranslatedObservabilitySchema(ctx, conn); err != nil {
+		return err
+	}
 	if err := ensureModelAccessTargetsConnectionOwnerIndex(ctx, conn); err != nil {
 		return err
+	}
+	return nil
+}
+
+func ensurePreferredContextCapabilitySchema(ctx context.Context, conn *pgx.Conn) error {
+	if _, err := conn.Exec(ctx, ensureModelConfigsPreferredContextColumnsSQL); err != nil {
+		return fmt.Errorf("ensure model_configs preferred context column: %w", err)
+	}
+	if _, err := conn.Exec(ctx, ensureConnectionsPreferredContextColumnsSQL); err != nil {
+		return fmt.Errorf("ensure connections preferred context column: %w", err)
+	}
+	if _, err := conn.Exec(ctx, ensureConnectionsPreferredContextOverrideColumnSQL); err != nil {
+		return fmt.Errorf("ensure connections preferred context override column: %w", err)
+	}
+	if err := recreateConstraint(ctx, conn, "model_configs", modelConfigsPreferredContextConstraintName, modelConfigsPreferredContextConstraintSQL); err != nil {
+		return err
+	}
+	if err := recreateConstraint(ctx, conn, "connections", connectionsPreferredContextConstraintName, connectionsPreferredContextConstraintSQL); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureTranslatedObservabilitySchema(ctx context.Context, conn *pgx.Conn) error {
+	for _, step := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "request_logs upstream operation column", sql: ensureRequestLogsUpstreamOperationNameColumnSQL},
+		{name: "request_logs translation mode column", sql: ensureRequestLogsOperationTranslationModeColumnSQL},
+		{name: "request_logs upstream request path column", sql: ensureRequestLogsUpstreamRequestPathColumnSQL},
+		{name: "usage_request_events upstream operation column", sql: ensureUsageEventsUpstreamOperationNameColumnSQL},
+		{name: "usage_request_events translation mode column", sql: ensureUsageEventsOperationTranslationModeColumnSQL},
+		{name: "usage_request_events upstream request path column", sql: ensureUsageEventsUpstreamRequestPathColumnSQL},
+	} {
+		if _, err := conn.Exec(ctx, step.sql); err != nil {
+			return fmt.Errorf("ensure %s: %w", step.name, err)
+		}
 	}
 	return nil
 }
@@ -293,6 +350,37 @@ func indexExists(ctx context.Context, conn *pgx.Conn, tableName string, indexNam
 			WHERE n.nspname = $1 AND table_class.relname = $2 AND index_class.relname = $3
 		)`, publicSchema, tableName, indexName).Scan(&exists); err != nil {
 		return false, fmt.Errorf("check index %s on %s: %w", indexName, tableName, err)
+	}
+	return exists, nil
+}
+
+func recreateConstraint(ctx context.Context, conn *pgx.Conn, tableName string, constraintName string, addSQL string) error {
+	exists, err := constraintExists(ctx, conn, tableName, constraintName)
+	if err != nil {
+		return err
+	}
+	if exists {
+		if _, err := conn.Exec(ctx, fmt.Sprintf(`ALTER TABLE public.%s DROP CONSTRAINT %s`, tableName, constraintName)); err != nil {
+			return fmt.Errorf("drop constraint %s on %s: %w", constraintName, tableName, err)
+		}
+	}
+	if _, err := conn.Exec(ctx, addSQL); err != nil {
+		return fmt.Errorf("add constraint %s on %s: %w", constraintName, tableName, err)
+	}
+	return nil
+}
+
+func constraintExists(ctx context.Context, conn *pgx.Conn, tableName string, constraintName string) (bool, error) {
+	var exists bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_constraint con
+			JOIN pg_class table_class ON table_class.oid = con.conrelid
+			JOIN pg_namespace n ON n.oid = table_class.relnamespace
+			WHERE n.nspname = $1 AND table_class.relname = $2 AND con.conname = $3
+		)`, publicSchema, tableName, constraintName).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check constraint %s on %s: %w", constraintName, tableName, err)
 	}
 	return exists, nil
 }

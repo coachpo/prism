@@ -76,6 +76,7 @@ export function useModelDetailData(id: string | undefined) {
           context_window_tokens: model.context_window_tokens,
           default_output_token_reserve: model.default_output_token_reserve,
           max_context_utilization: model.max_context_utilization,
+          preferred_context_utilization_threshold: model.preferred_context_utilization_threshold,
         }
       : undefined,
   });

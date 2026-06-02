@@ -6,6 +6,8 @@ const contextWindowHelperCopy = "Leave blank when the model context window is un
 const modelIdRequiredCopy = "Model ID is required.";
 const outputReserveValidationCopy = "Default output token reserve must be a positive integer.";
 const maxContextUtilizationValidationCopy = "Max context utilization must be a decimal greater than 0 and less than or equal to 1.";
+const preferredContextUtilizationThresholdValidationCopy = "Preferred context utilization threshold must be a decimal greater than 0 and less than or equal to 1.";
+const preferredThresholdExceedsMaxValidationCopy = "Preferred context utilization threshold must be less than or equal to max context utilization.";
 
 function createProfile() {
   return {
@@ -71,6 +73,7 @@ function createModelRecord(
   contextWindowTokens: number | null,
   defaultOutputTokenReserve: number,
   maxContextUtilization: number,
+  preferredContextUtilizationThreshold: number | null,
 ) {
   return {
     id: modelConfigId,
@@ -85,6 +88,7 @@ function createModelRecord(
     context_window_tokens: contextWindowTokens,
     default_output_token_reserve: defaultOutputTokenReserve,
     max_context_utilization: maxContextUtilization,
+    preferred_context_utilization_threshold: preferredContextUtilizationThreshold,
     access_targets: [createAccessTarget("target-alpha", 0, "Target Alpha")],
     is_enabled: true,
     connection_count: 0,
@@ -124,7 +128,7 @@ function createSpendingResponse() {
 async function mockModelSettingsRoutes(page: Page) {
   const profile = createProfile();
   const updatePayloads: Array<Record<string, unknown>> = [];
-  let currentModel = createModelRecord(65536, 4096, 0.9);
+  let currentModel = createModelRecord(65536, 4096, 0.9, 0.7);
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -158,14 +162,14 @@ async function mockModelSettingsRoutes(page: Page) {
       return fulfillJson([
         currentModel,
         {
-          ...createModelRecord(null, 4096, 0.9),
+          ...createModelRecord(null, 4096, 0.9, null),
           id: 1,
           model_id: "target-alpha",
           display_name: "Target Alpha",
           access_targets: [],
         },
         {
-          ...createModelRecord(null, 4096, 0.9),
+          ...createModelRecord(null, 4096, 0.9, null),
           id: 2,
           model_id: "target-beta",
           display_name: "Target Beta",
@@ -191,6 +195,8 @@ async function mockModelSettingsRoutes(page: Page) {
         context_window_tokens: (payload.context_window_tokens as number | null | undefined) ?? null,
         default_output_token_reserve: (payload.default_output_token_reserve as number) ?? currentModel.default_output_token_reserve,
         max_context_utilization: (payload.max_context_utilization as number) ?? currentModel.max_context_utilization,
+        preferred_context_utilization_threshold:
+          (payload.preferred_context_utilization_threshold as number | null | undefined) ?? null,
         is_enabled: (payload.is_enabled as boolean) ?? currentModel.is_enabled,
       };
       return fulfillJson(currentModel);
@@ -218,10 +224,12 @@ test("context-capability-authoring: model settings clears blank context window t
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText(contextWindowHelperCopy)).toBeVisible();
   await expect(dialog.locator("#edit-context-window-tokens")).toHaveValue("65536");
+  await expect(dialog.locator("#edit-preferred-context-utilization-threshold")).toHaveValue("0.7");
 
   await dialog.locator("#edit-context-window-tokens").fill("");
   await dialog.locator("#edit-default-output-token-reserve").fill("8192");
   await dialog.locator("#edit-max-context-utilization").fill("0.75");
+  await dialog.locator("#edit-preferred-context-utilization-threshold").fill("");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
 
   await expect(page.getByText("Model updated").last()).toBeVisible();
@@ -237,6 +245,7 @@ test("context-capability-authoring: model settings clears blank context window t
       context_window_tokens: null,
       default_output_token_reserve: 8192,
       max_context_utilization: 0.75,
+      preferred_context_utilization_threshold: null,
     },
   ]);
 
@@ -244,6 +253,7 @@ test("context-capability-authoring: model settings clears blank context window t
   await expect(dialog.locator("#edit-context-window-tokens")).toHaveValue("");
   await expect(dialog.locator("#edit-default-output-token-reserve")).toHaveValue("8192");
   await expect(dialog.locator("#edit-max-context-utilization")).toHaveValue("0.75");
+  await expect(dialog.locator("#edit-preferred-context-utilization-threshold")).toHaveValue("");
 });
 
 test("context-capability-authoring: model settings blocks invalid reserve and utilization before patch", async ({ page }) => {
@@ -270,5 +280,16 @@ test("context-capability-authoring: model settings blocks invalid reserve and ut
   await dialog.locator("#edit-max-context-utilization").fill("1.2");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
   await expect(dialog.getByText(maxContextUtilizationValidationCopy)).toBeVisible();
+  expect(routes.getUpdatePayloads()).toHaveLength(0);
+
+  await dialog.locator("#edit-max-context-utilization").fill("0.9");
+  await dialog.locator("#edit-preferred-context-utilization-threshold").fill("1.2");
+  await dialog.getByRole("button", { name: "Save Changes" }).click();
+  await expect(dialog.getByText(preferredContextUtilizationThresholdValidationCopy)).toBeVisible();
+  expect(routes.getUpdatePayloads()).toHaveLength(0);
+
+  await dialog.locator("#edit-preferred-context-utilization-threshold").fill("0.95");
+  await dialog.getByRole("button", { name: "Save Changes" }).click();
+  await expect(dialog.getByText(preferredThresholdExceedsMaxValidationCopy)).toBeVisible();
   expect(routes.getUpdatePayloads()).toHaveLength(0);
 });

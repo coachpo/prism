@@ -91,12 +91,41 @@ func ResponseHooksForOperation(operation RuntimeOperation) (operationResponseHoo
 	return responseHooksForOperation(operation)
 }
 
-func proxyNonEventResponseAndCaptureByOperation(operation RuntimeOperation, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+func proxyNonEventResponseAndCaptureByOperation(operation RuntimeOperation, translationMode TranslationMode, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+	if translationMode != "" && translationMode != TranslationModeNone {
+		return proxyTranslatedOpenAINonEventResponseAndCapture(translationMode, dst, src, now, captureAuditBody)
+	}
 	hooks, ok := responseHooksForOperation(operation)
 	if !ok || hooks.ParseNonStreamResponse == nil {
 		return proxyNonEventResponseAndCaptureWithoutUsage(operationResponseHooks{}, dst, src, contentType, now, captureAuditBody)
 	}
 	return hooks.ParseNonStreamResponse(hooks, dst, src, contentType, now, captureAuditBody)
+}
+
+func proxyTranslatedOpenAINonEventResponseAndCapture(translationMode TranslationMode, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+	rawBody, err := readBoundedResponseBody(src, openAITranslatedNonStreamResponseBodyLimit)
+	if err != nil {
+		return runtimeResponseCapture{}, err
+	}
+	translatedBody, usage, usageRule, err := translateOpenAIResponse(rawBody, translationMode)
+	if err != nil {
+		return runtimeResponseCapture{}, err
+	}
+	if _, err := dst.Write(translatedBody); err != nil {
+		return runtimeResponseCapture{}, err
+	}
+	completedAt := now()
+	capture := runtimeResponseCapture{
+		Body:          append([]byte(nil), rawBody...),
+		Usage:         usage,
+		UsageRule:     usageRule,
+		CompletedAt:   &completedAt,
+		StreamOutcome: runtimeStreamOutcomeNotStreaming,
+	}
+	if captureAuditBody {
+		capture.AuditBody = append([]byte(nil), rawBody...)
+	}
+	return capture, nil
 }
 
 func proxyNonEventResponseAndCaptureWithoutUsage(_ operationResponseHooks, dst io.Writer, src io.Reader, _ string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {

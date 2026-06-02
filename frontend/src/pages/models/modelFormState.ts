@@ -22,6 +22,7 @@ export interface ModelFormData {
   context_window_tokens: string;
   default_output_token_reserve: string;
   max_context_utilization: string;
+  preferred_context_utilization_threshold: string;
   access_targets: ModelAccessTargetMutation[];
   is_enabled: boolean;
   last_auto_display_name?: string | null;
@@ -34,12 +35,15 @@ export type ModelFormValidationError =
   | "access_target_required"
   | "context_window_tokens_invalid"
   | "default_output_token_reserve_invalid"
-  | "max_context_utilization_invalid";
+  | "max_context_utilization_invalid"
+  | "preferred_context_utilization_threshold_invalid"
+  | "preferred_context_utilization_threshold_exceeds_max";
 
 const DEFAULT_API_FAMILY: ApiFamily = "openai";
 const DEFAULT_CONTEXT_WINDOW_TOKENS = "";
 const DEFAULT_OUTPUT_TOKEN_RESERVE = "4096";
 const DEFAULT_MAX_CONTEXT_UTILIZATION = "0.90";
+const DEFAULT_PREFERRED_CONTEXT_UTILIZATION_THRESHOLD = "";
 
 export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   vendor_id: null,
@@ -50,6 +54,7 @@ export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
   default_output_token_reserve: DEFAULT_OUTPUT_TOKEN_RESERVE,
   max_context_utilization: DEFAULT_MAX_CONTEXT_UTILIZATION,
+  preferred_context_utilization_threshold: DEFAULT_PREFERRED_CONTEXT_UTILIZATION_THRESHOLD,
   access_targets: [],
   is_enabled: false,
   last_auto_display_name: "",
@@ -89,12 +94,16 @@ function parseRequiredPositiveIntegerField(value: string): number | null {
   return parsedValue === null ? null : parsedValue;
 }
 
-function parseRequiredUtilizationField(value: string): number | null {
+function parseOptionalUtilizationField(value: string): number | null {
   if (value.trim() === "") {
     return null;
   }
   const parsedValue = Number(value);
   return Number.isFinite(parsedValue) && parsedValue > 0 && parsedValue <= 1 ? parsedValue : null;
+}
+
+function parseRequiredUtilizationField(value: string): number | null {
+  return parseOptionalUtilizationField(value);
 }
 
 export function accessTargetKey(target: Pick<ModelAccessTargetMutation, "target_type" | "target_model_id" | "connection_id">): string | null {
@@ -219,6 +228,7 @@ type EditableModelFormSource =
         | "context_window_tokens"
         | "default_output_token_reserve"
         | "max_context_utilization"
+        | "preferred_context_utilization_threshold"
         | "access_targets"
         | "is_enabled"
     >
@@ -233,6 +243,7 @@ type EditableModelFormSource =
         | "context_window_tokens"
         | "default_output_token_reserve"
         | "max_context_utilization"
+        | "preferred_context_utilization_threshold"
         | "access_targets"
         | "is_enabled"
     >;
@@ -258,6 +269,7 @@ export function createEditModelFormData(model: EditableModelFormSource): ModelFo
     context_window_tokens: stringifyCapabilityValue(model.context_window_tokens),
     default_output_token_reserve: stringifyCapabilityValue(model.default_output_token_reserve),
     max_context_utilization: stringifyCapabilityValue(model.max_context_utilization),
+    preferred_context_utilization_threshold: stringifyCapabilityValue(model.preferred_context_utilization_threshold),
     access_targets: normalizeAccessTargetMutations(
       model.access_targets.map(accessTargetToMutation).filter((target): target is ModelAccessTargetMutation => target !== null),
     ),
@@ -276,6 +288,7 @@ export function createNewModelFormData(_vendors: Vendor[], loadbalanceStrategyId
     context_window_tokens: DEFAULT_MODEL_FORM_DATA.context_window_tokens,
     default_output_token_reserve: DEFAULT_MODEL_FORM_DATA.default_output_token_reserve,
     max_context_utilization: DEFAULT_MODEL_FORM_DATA.max_context_utilization,
+    preferred_context_utilization_threshold: DEFAULT_MODEL_FORM_DATA.preferred_context_utilization_threshold,
     access_targets: [...DEFAULT_MODEL_FORM_DATA.access_targets],
     is_enabled: DEFAULT_MODEL_FORM_DATA.is_enabled,
     last_auto_display_name: DEFAULT_MODEL_FORM_DATA.last_auto_display_name,
@@ -307,8 +320,24 @@ export function validateModelFormData(
   if (parseRequiredPositiveIntegerField(formData.default_output_token_reserve) === null) {
     return "default_output_token_reserve_invalid";
   }
-  if (parseRequiredUtilizationField(formData.max_context_utilization) === null) {
+  const maxContextUtilization = parseRequiredUtilizationField(formData.max_context_utilization);
+  if (maxContextUtilization === null) {
     return "max_context_utilization_invalid";
+  }
+  const preferredContextUtilizationThreshold = parseOptionalUtilizationField(
+    formData.preferred_context_utilization_threshold,
+  );
+  if (
+    formData.preferred_context_utilization_threshold.trim() !== ""
+    && preferredContextUtilizationThreshold === null
+  ) {
+    return "preferred_context_utilization_threshold_invalid";
+  }
+  if (
+    typeof preferredContextUtilizationThreshold === "number"
+    && preferredContextUtilizationThreshold > maxContextUtilization
+  ) {
+    return "preferred_context_utilization_threshold_exceeds_max";
   }
   const normalizedTargets = normalizeAccessTargetMutations(formData.access_targets);
   const enabledTargets = normalizedTargets.filter((target) => target.is_enabled !== false);
@@ -354,6 +383,9 @@ function getNormalizedCapabilityState(formData: ModelFormData) {
   const contextWindowTokens = parsePositiveIntegerField(formData.context_window_tokens);
   const defaultOutputTokenReserve = parseRequiredPositiveIntegerField(formData.default_output_token_reserve);
   const maxContextUtilization = parseRequiredUtilizationField(formData.max_context_utilization);
+  const preferredContextUtilizationThreshold = parseOptionalUtilizationField(
+    formData.preferred_context_utilization_threshold,
+  );
 
   if (formData.context_window_tokens.trim() !== "" && contextWindowTokens === null) {
     throw new Error("context_window_tokens is invalid");
@@ -364,11 +396,24 @@ function getNormalizedCapabilityState(formData: ModelFormData) {
   if (maxContextUtilization === null) {
     throw new Error("max_context_utilization is invalid");
   }
+  if (
+    formData.preferred_context_utilization_threshold.trim() !== ""
+    && preferredContextUtilizationThreshold === null
+  ) {
+    throw new Error("preferred_context_utilization_threshold is invalid");
+  }
+  if (
+    typeof preferredContextUtilizationThreshold === "number"
+    && preferredContextUtilizationThreshold > maxContextUtilization
+  ) {
+    throw new Error("preferred_context_utilization_threshold exceeds max_context_utilization");
+  }
 
   return {
     context_window_tokens: contextWindowTokens,
     default_output_token_reserve: defaultOutputTokenReserve,
     max_context_utilization: maxContextUtilization,
+    preferred_context_utilization_threshold: preferredContextUtilizationThreshold,
   };
 }
 
@@ -451,6 +496,7 @@ export function toModelListItem(model: ModelConfig, existing?: ModelConfigListIt
     context_window_tokens: model.context_window_tokens,
     default_output_token_reserve: model.default_output_token_reserve,
     max_context_utilization: model.max_context_utilization,
+    preferred_context_utilization_threshold: model.preferred_context_utilization_threshold,
     access_targets: model.access_targets,
     is_enabled: model.is_enabled,
     connection_count: connections.length,

@@ -6,6 +6,8 @@ const contextWindowValidationCopy = "Context window tokens must be a positive in
 const modelIdRequiredCopy = "Model ID is required.";
 const outputReserveValidationCopy = "Default output token reserve must be a positive integer.";
 const maxContextUtilizationValidationCopy = "Max context utilization must be a decimal greater than 0 and less than or equal to 1.";
+const preferredContextUtilizationThresholdValidationCopy = "Preferred context utilization threshold must be a decimal greater than 0 and less than or equal to 1.";
+const preferredThresholdExceedsMaxValidationCopy = "Preferred context utilization threshold must be less than or equal to max context utilization.";
 
 function createProfile() {
   return {
@@ -57,6 +59,7 @@ function createModelListItem(id: number, modelId: string, displayName: string) {
     context_window_tokens: null,
     default_output_token_reserve: 4096,
     max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: null,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -134,6 +137,7 @@ async function mockModelRoutes(page: Page) {
         context_window_tokens: payload.context_window_tokens ?? null,
         default_output_token_reserve: payload.default_output_token_reserve ?? 4096,
         max_context_utilization: payload.max_context_utilization ?? 0.9,
+        preferred_context_utilization_threshold: payload.preferred_context_utilization_threshold ?? null,
         access_targets: payload.access_targets ?? [],
         is_enabled: payload.is_enabled ?? true,
         connections: [],
@@ -164,9 +168,11 @@ test("context-capability-authoring: submits parsed context routing defaults on c
   await expect(dialog.getByText(contextWindowHelperCopy)).toBeVisible();
 
   await dialog.locator("#model-id").fill("context-routed-model");
+  await expect(dialog.locator("#model-preferred-context-utilization-threshold")).toBeVisible();
   await dialog.locator("#model-context-window-tokens").fill("131072");
   await dialog.locator("#model-default-output-token-reserve").fill("8192");
   await dialog.locator("#model-max-context-utilization").fill("0.75");
+  await dialog.locator("#model-preferred-context-utilization-threshold").fill("0.7");
   await dialog.getByRole("button", { name: "Save" }).click();
 
   await expect(page.getByText("Model created")).toBeVisible();
@@ -182,6 +188,7 @@ test("context-capability-authoring: submits parsed context routing defaults on c
       context_window_tokens: 131072,
       default_output_token_reserve: 8192,
       max_context_utilization: 0.75,
+      preferred_context_utilization_threshold: 0.7,
     },
   ]);
 });
@@ -214,5 +221,16 @@ test("context-capability-authoring: blocks invalid context routing defaults befo
   await dialog.locator("#model-max-context-utilization").fill("1.2");
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog.getByText(maxContextUtilizationValidationCopy)).toBeVisible();
+  expect(routes.getCreatedPayloads()).toHaveLength(0);
+
+  await dialog.locator("#model-max-context-utilization").fill("0.9");
+  await dialog.locator("#model-preferred-context-utilization-threshold").fill("1.2");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog.getByText(preferredContextUtilizationThresholdValidationCopy)).toBeVisible();
+  expect(routes.getCreatedPayloads()).toHaveLength(0);
+
+  await dialog.locator("#model-preferred-context-utilization-threshold").fill("0.95");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog.getByText(preferredThresholdExceedsMaxValidationCopy)).toBeVisible();
   expect(routes.getCreatedPayloads()).toHaveLength(0);
 });

@@ -18,20 +18,21 @@ import (
 )
 
 type runtimeOperationRouteMatrixCase struct {
-	name                string
-	apiFamily           string
-	operationName       string
-	responsePayload     map[string]any
-	responseContentType string
-	responseBody        string
-	requestPath         func(seededRuntimeRoute) string
-	requestBody         func(seededRuntimeRoute, string) any
-	rawRequestBody      func(*testing.T, seededRuntimeRoute) ([]byte, string)
-	wantUpstreamPath    func(string, seededRuntimeRoute) string
-	assertModelSource   func(*testing.T, upstreamRequestSnapshot, seededRuntimeRoute, string)
-	generationParams    routeMatrixGenerationParamsExpectation
-	usage               routeMatrixUsageExpectation
-	responseContains    string
+	name                 string
+	apiFamily            string
+	operationName        string
+	responsePayload      map[string]any
+	responseContentType  string
+	responseBody         string
+	requestPath          func(seededRuntimeRoute) string
+	requestBody          func(seededRuntimeRoute, string) any
+	rawRequestBody       func(*testing.T, seededRuntimeRoute) ([]byte, string)
+	wantUpstreamPath     func(string, seededRuntimeRoute) string
+	assertModelSource    func(*testing.T, upstreamRequestSnapshot, seededRuntimeRoute, string)
+	generationParams     routeMatrixGenerationParamsExpectation
+	usage                routeMatrixUsageExpectation
+	persistedAttribution *routeMatrixPersistedAttributionExpectation
+	responseContains     string
 }
 
 type routeMatrixGenerationParamsExpectation struct {
@@ -48,6 +49,12 @@ type routeMatrixUsageExpectation struct {
 	cacheReadInputTokens     *int64
 	cacheCreationInputTokens *int64
 	reasoningTokens          *int64
+}
+
+type routeMatrixPersistedAttributionExpectation struct {
+	upstreamOperationName string
+	translationMode       string
+	upstreamRequestPath   string
 }
 
 func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
@@ -68,7 +75,12 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			assertModelSource: assertRouteMatrixBodyModelBinding,
 			generationParams:  routeMatrixGenerationParamsExpectation{status: "complete", params: map[string]any{"provider": "openai", "temperature": 0.11}},
 			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(7), outputTokens: routeMatrixInt64(13), totalTokens: routeMatrixInt64(20)},
-			responseContains:  "route-matrix-chat",
+			persistedAttribution: &routeMatrixPersistedAttributionExpectation{
+				upstreamOperationName: "openai.chat_completions",
+				translationMode:       "none",
+				upstreamRequestPath:   "/v1/chat/completions",
+			},
+			responseContains: "route-matrix-chat",
 		},
 		{
 			name:          "OpenAIResponses",
@@ -86,7 +98,12 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			assertModelSource: assertRouteMatrixBodyModelBinding,
 			generationParams:  routeMatrixGenerationParamsExpectation{status: "complete", params: map[string]any{"provider": "openai", "temperature": 0.22}},
 			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(19), outputTokens: routeMatrixInt64(23), totalTokens: routeMatrixInt64(42)},
-			responseContains:  "route-matrix-responses",
+			persistedAttribution: &routeMatrixPersistedAttributionExpectation{
+				upstreamOperationName: "openai.responses",
+				translationMode:       "none",
+				upstreamRequestPath:   "/v1/responses",
+			},
+			responseContains: "route-matrix-responses",
 		},
 		{
 			name:          "OpenAIImageGenerations",
@@ -261,6 +278,9 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			assertRouteMatrixSharedCorePersistence(t, harness, profileID, route, test.operationName, requestPath)
 			assertRouteMatrixUsage(t, harness, profileID, test.usage)
 			assertRouteMatrixGenerationParams(t, harness, profileID, test.generationParams)
+			if test.persistedAttribution != nil {
+				assertRouteMatrixPersistedAttribution(t, harness, profileID, test.operationName, *test.persistedAttribution)
+			}
 		})
 	}
 }
@@ -549,6 +569,44 @@ func assertRouteMatrixSharedCorePersistence(t *testing.T, harness *runtimeHarnes
 	if eventRequestPath != requestPath || eventConnectionID != route.ConnectionID {
 		t.Fatalf("expected usage_event path/connection %q/%d, got %q/%d", requestPath, route.ConnectionID, eventRequestPath, eventConnectionID)
 	}
+}
+
+func assertRouteMatrixPersistedAttribution(t *testing.T, harness *runtimeHarness, profileID int, wantOperationName string, want routeMatrixPersistedAttributionExpectation) {
+	t.Helper()
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+
+	assertAttributionRow := func(label string, query string) {
+		t.Helper()
+		var operationName sql.NullString
+		var upstreamOperationName sql.NullString
+		var translationMode sql.NullString
+		var upstreamRequestPath sql.NullString
+		if err := harness.conn.QueryRow(context.Background(), query, profileID, ingressRequestID).Scan(&operationName, &upstreamOperationName, &translationMode, &upstreamRequestPath); err != nil {
+			t.Fatalf("load %s attribution row: %v", label, err)
+		}
+		if !operationName.Valid || operationName.String != wantOperationName {
+			t.Fatalf("expected %s operation_name %q, got %+v", label, wantOperationName, operationName)
+		}
+		if !upstreamOperationName.Valid || upstreamOperationName.String != want.upstreamOperationName {
+			t.Fatalf("expected %s upstream_operation_name %q, got %+v", label, want.upstreamOperationName, upstreamOperationName)
+		}
+		if !translationMode.Valid || translationMode.String != want.translationMode {
+			t.Fatalf("expected %s operation_translation_mode %q, got %+v", label, want.translationMode, translationMode)
+		}
+		if !upstreamRequestPath.Valid || upstreamRequestPath.String != want.upstreamRequestPath {
+			t.Fatalf("expected %s upstream_request_path %q, got %+v", label, want.upstreamRequestPath, upstreamRequestPath)
+		}
+	}
+
+	assertAttributionRow(
+		"request_log",
+		`SELECT operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+	)
+	assertAttributionRow(
+		"usage_event",
+		`SELECT operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
+	)
 }
 
 func assertRouteMatrixGenerationParams(t *testing.T, harness *runtimeHarness, profileID int, want routeMatrixGenerationParamsExpectation) {

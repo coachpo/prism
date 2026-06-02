@@ -47,6 +47,7 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertSidecarSchemaContract(t, testContext, conn)
 	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
 	assertContextCapabilityColumnContracts(t, testContext, conn)
+	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
 }
 
 func TestPartitionedLogSchemaContract(t *testing.T) {
@@ -175,6 +176,93 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
+}
+
+func TestTranslatedObservabilitySchemaGuardUpgradesStampedDatabase(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "translated_observability_schema_guard")
+	defer func() { _ = conn.Close(testContext) }()
+
+	firstResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run baseline before translated observability guard check: %v", err)
+	}
+	if firstResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected first run to apply baseline, got %q", firstResult.Outcome)
+	}
+
+	for _, statement := range []string{
+		`ALTER TABLE public.request_logs DROP COLUMN IF EXISTS upstream_operation_name`,
+		`ALTER TABLE public.request_logs DROP COLUMN IF EXISTS operation_translation_mode`,
+		`ALTER TABLE public.request_logs DROP COLUMN IF EXISTS upstream_request_path`,
+		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS upstream_operation_name`,
+		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS operation_translation_mode`,
+		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS upstream_request_path`,
+	} {
+		if _, err := conn.Exec(testContext, statement); err != nil {
+			t.Fatalf("drop translated observability schema surface with %q: %v", statement, err)
+		}
+	}
+
+	guardResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("rerun baseline with stamped database missing translated observability schema: %v", err)
+	}
+	if guardResult.Outcome != migrate.OutcomeNoop {
+		t.Fatalf("expected translated observability guard rerun to noop, got %q", guardResult.Outcome)
+	}
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
+}
+
+func TestPreferredContextSchemaGuardUpgradesStampedDatabase(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "preferred_context_schema_guard")
+	defer func() { _ = conn.Close(testContext) }()
+
+	firstResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run baseline before preferred context guard check: %v", err)
+	}
+	if firstResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected first run to apply baseline, got %q", firstResult.Outcome)
+	}
+
+	if _, err := conn.Exec(testContext, `ALTER TABLE public.connections DROP CONSTRAINT IF EXISTS ck_connections_preferred_context_utilization_threshold`); err != nil {
+		t.Fatalf("drop preferred context constraint from connections: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE public.model_configs DROP CONSTRAINT IF EXISTS ck_model_configs_preferred_context_utilization_threshold`); err != nil {
+		t.Fatalf("drop preferred context constraint from model_configs: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE public.connections DROP COLUMN IF EXISTS preferred_context_utilization_threshold_overridden`); err != nil {
+		t.Fatalf("drop preferred context override column from connections: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE public.connections DROP COLUMN IF EXISTS preferred_context_utilization_threshold`); err != nil {
+		t.Fatalf("drop preferred context column from connections: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE public.model_configs DROP COLUMN IF EXISTS preferred_context_utilization_threshold`); err != nil {
+		t.Fatalf("drop preferred context column from model_configs: %v", err)
+	}
+
+	guardResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("rerun baseline with stamped database missing preferred context schema: %v", err)
+	}
+	if guardResult.Outcome != migrate.OutcomeNoop {
+		t.Fatalf("expected guard rerun to noop, got %q", guardResult.Outcome)
+	}
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+	assertContextCapabilityColumnContracts(t, testContext, conn)
+	assertConstraintDefinitionContains(t, testContext, conn, "ck_model_configs_preferred_context_utilization_threshold", "preferred_context_utilization_threshold", "<= max_context_utilization")
+	assertConstraintDefinitionContains(t, testContext, conn, "ck_connections_preferred_context_utilization_threshold", "preferred_context_utilization_threshold", "<= max_context_utilization")
 }
 
 func TestModelPrivateConnectionOwnershipSchemaGuard(t *testing.T) {
@@ -616,6 +704,45 @@ func assertRequestLogGenerationParamsColumnContract(t *testing.T, ctx context.Co
 	if got["request_generation_params_status"] != [2]string{"character varying", "YES"} {
 		t.Fatalf("expected request_generation_params_status nullable varchar, got %+v", got["request_generation_params_status"])
 	}
+}
+
+func assertTranslatedObservabilityColumnContracts(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `
+		SELECT table_name, column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND ((table_name = 'request_logs' AND column_name = ANY($1::text[]))
+		    OR (table_name = 'usage_request_events' AND column_name = ANY($2::text[])))
+		ORDER BY table_name ASC, column_name ASC`,
+		[]string{"upstream_operation_name", "operation_translation_mode", "upstream_request_path"},
+		[]string{"upstream_operation_name", "operation_translation_mode", "upstream_request_path"},
+	)
+	if err != nil {
+		t.Fatalf("load translated observability column contracts: %v", err)
+	}
+	defer rows.Close()
+
+	contracts := map[string]partitionedLogColumnContract{}
+	for rows.Next() {
+		var tableName string
+		var columnName string
+		var contract partitionedLogColumnContract
+		if err := rows.Scan(&tableName, &columnName, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
+			t.Fatalf("scan translated observability column contract: %v", err)
+		}
+		contracts[tableName+"."+columnName] = contract
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate translated observability column contracts: %v", err)
+	}
+
+	assertColumnContract(t, contracts, "request_logs.upstream_operation_name", "character varying", 120, "YES")
+	assertColumnContract(t, contracts, "request_logs.operation_translation_mode", "character varying", 80, "YES")
+	assertColumnContract(t, contracts, "request_logs.upstream_request_path", "character varying", 500, "YES")
+	assertColumnContract(t, contracts, "usage_request_events.upstream_operation_name", "character varying", 120, "YES")
+	assertColumnContract(t, contracts, "usage_request_events.operation_translation_mode", "character varying", 80, "YES")
+	assertColumnContract(t, contracts, "usage_request_events.upstream_request_path", "character varying", 500, "YES")
 }
 
 func assertPricingTemplateConcretePriceColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {

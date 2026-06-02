@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 )
@@ -42,6 +43,11 @@ var apiFamilyAuthConfigs = map[string]apiFamilyAuthConfig{
 	},
 }
 
+const (
+	openAIUpstreamOperationResponses       = "openai.responses"
+	openAIUpstreamOperationChatCompletions = "openai.chat_completions"
+)
+
 type runtimeFeedbackStore struct {
 	pool *pgxpool.Pool
 }
@@ -62,6 +68,16 @@ var hopByHopHeaders = map[string]struct{}{
 	"host":                {},
 }
 
+var translatedResponseUnsafeEntityHeaders = map[string]struct{}{
+	"content-encoding": {},
+	"content-length":   {},
+	"content-md5":      {},
+	"content-range":    {},
+	"digest":           {},
+	"etag":             {},
+	"last-modified":    {},
+}
+
 var clientAuthHeaders = map[string]struct{}{
 	"authorization":  {},
 	"x-api-key":      {},
@@ -75,19 +91,20 @@ type apiFamilyAuthConfig struct {
 }
 
 type runtimeModelRecord struct {
-	ID                        int
-	ProfileID                 int
-	APIFamily                 string
-	ModelID                   string
-	VendorID                  *int
-	VendorKey                 *string
-	VendorName                *string
-	AuditEnabled              bool
-	AuditCaptureBodies        bool
-	LoadbalanceStrategyID     *int
-	ContextWindowTokens       *int
-	DefaultOutputTokenReserve *int
-	MaxContextUtilization     *float64
+	ID                                   int
+	ProfileID                            int
+	APIFamily                            string
+	ModelID                              string
+	VendorID                             *int
+	VendorKey                            *string
+	VendorName                           *string
+	AuditEnabled                         bool
+	AuditCaptureBodies                   bool
+	LoadbalanceStrategyID                *int
+	ContextWindowTokens                  *int
+	DefaultOutputTokenReserve            *int
+	MaxContextUtilization                *float64
+	PreferredContextUtilizationThreshold *float64
 }
 
 type runtimeEndpoint struct {
@@ -127,27 +144,30 @@ type runtimeConnectionUpstreamAuthSnapshot struct {
 }
 
 type runtimeConnection struct {
-	ID                        int
-	ProfileID                 int
-	APIFamily                 string
-	ModelConfigID             int
-	EndpointID                int
-	Priority                  int
-	QPSLimit                  *int
-	MaxInFlightNonStream      *int
-	MaxInFlightStream         *int
-	Name                      *string
-	AuthType                  *string
-	EncryptedEndpointAPIKey   string
-	CustomHeaders             map[string]any
-	PricingTemplateID         *int
-	PricingTemplateSnapshot   *runtimePricingTemplateSnapshot
-	ContextWindowTokens       *int
-	DefaultOutputTokenReserve int
-	MaxContextUtilization     float64
-	EndpointFXSnapshot        *runtimeEndpointFXSnapshot
-	UpstreamAuth              *runtimeConnectionUpstreamAuthSnapshot
-	Endpoint                  runtimeEndpoint
+	ID                                   int
+	ProfileID                            int
+	APIFamily                            string
+	ModelConfigID                        int
+	EndpointID                           int
+	Priority                             int
+	QPSLimit                             *int
+	MaxInFlightNonStream                 *int
+	MaxInFlightStream                    *int
+	Name                                 *string
+	AuthType                             *string
+	EncryptedEndpointAPIKey              string
+	CustomHeaders                        map[string]any
+	PricingTemplateID                    *int
+	PricingTemplateSnapshot              *runtimePricingTemplateSnapshot
+	ContextWindowTokens                  *int
+	DefaultOutputTokenReserve            int
+	MaxContextUtilization                float64
+	PreferredContextUtilizationThreshold *float64
+	OpenAIProbeEndpointVariant           *string
+	OpenAIUpstreamOperation              *string
+	EndpointFXSnapshot                   *runtimeEndpointFXSnapshot
+	UpstreamAuth                         *runtimeConnectionUpstreamAuthSnapshot
+	Endpoint                             runtimeEndpoint
 }
 
 const (
@@ -155,26 +175,34 @@ const (
 
 	runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow = "estimated_context_exceeds_usable_window"
 	runtimeContextRoutingSkipReasonUsableContextWindowUnavailable      = "usable_context_window_unavailable"
+
+	runtimeContextBandPreferred     = "preferred"
+	runtimeContextBandDiscretionary = "discretionary"
+	runtimeContextBandIneligible    = "ineligible"
 )
 
 type runtimeContextRoutingSkippedTerminalTarget struct {
-	TerminalTargetID            *int   `json:"terminal_target_id,omitempty"`
-	EndpointID                  *int   `json:"endpoint_id,omitempty"`
-	Reason                      string `json:"reason"`
-	UsableContextWindowTokens   *int   `json:"usable_context_window_tokens,omitempty"`
-	EstimatedTotalContextTokens *int   `json:"estimated_total_context_tokens,omitempty"`
+	TerminalTargetID            *int    `json:"terminal_target_id,omitempty"`
+	EndpointID                  *int    `json:"endpoint_id,omitempty"`
+	ContextBand                 *string `json:"context_band,omitempty"`
+	Reason                      string  `json:"reason"`
+	UsableContextWindowTokens   *int    `json:"usable_context_window_tokens,omitempty"`
+	EstimatedTotalContextTokens *int    `json:"estimated_total_context_tokens,omitempty"`
 }
 
 type runtimeContextRoutingDecision struct {
-	Policy                             string                                      `json:"policy"`
-	SelectedTerminalTargetID           *int                                        `json:"selected_terminal_target_id,omitempty"`
-	EstimationMethod                   *string                                     `json:"estimation_method,omitempty"`
-	EstimatedInputTokens               *int                                        `json:"estimated_input_tokens,omitempty"`
-	ReservedOutputTokens               *int                                        `json:"reserved_output_tokens,omitempty"`
-	EstimatedTotalContextTokens        *int                                        `json:"estimated_total_context_tokens,omitempty"`
-	UsableContextWindowTokens          *int                                        `json:"usable_context_window_tokens,omitempty"`
-	CostRankingMethod                  *string                                     `json:"cost_ranking_method,omitempty"`
-	SelectedEstimatedBlendedCostMicros *int64                                      `json:"selected_estimated_blended_cost_micros,omitempty"`
+	Policy                             string                                       `json:"policy"`
+	SelectedTerminalTargetID           *int                                         `json:"selected_terminal_target_id,omitempty"`
+	SelectedEndpointID                 *int                                         `json:"selected_endpoint_id,omitempty"`
+	SelectedContextBand                *string                                      `json:"selected_context_band,omitempty"`
+	SelectedUsableContextWindowTokens  *int                                         `json:"selected_usable_context_window_tokens,omitempty"`
+	EstimationMethod                   *string                                      `json:"estimation_method,omitempty"`
+	EstimatedInputTokens               *int                                         `json:"estimated_input_tokens,omitempty"`
+	ReservedOutputTokens               *int                                         `json:"reserved_output_tokens,omitempty"`
+	EstimatedTotalContextTokens        *int                                         `json:"estimated_total_context_tokens,omitempty"`
+	UsableContextWindowTokens          *int                                         `json:"usable_context_window_tokens,omitempty"`
+	CostRankingMethod                  *string                                      `json:"cost_ranking_method,omitempty"`
+	SelectedEstimatedBlendedCostMicros *int64                                       `json:"selected_estimated_blended_cost_micros,omitempty"`
 	SkippedTerminalTargets             []runtimeContextRoutingSkippedTerminalTarget `json:"skipped_terminal_targets,omitempty"`
 }
 
@@ -185,6 +213,9 @@ func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *
 	cloned := &runtimeContextRoutingDecision{
 		Policy:                             source.Policy,
 		SelectedTerminalTargetID:           cloneRuntimeIntPointer(source.SelectedTerminalTargetID),
+		SelectedEndpointID:                 cloneRuntimeIntPointer(source.SelectedEndpointID),
+		SelectedContextBand:                cloneRuntimeStringPointer(source.SelectedContextBand),
+		SelectedUsableContextWindowTokens:  cloneRuntimeIntPointer(source.SelectedUsableContextWindowTokens),
 		EstimationMethod:                   cloneRuntimeStringPointer(source.EstimationMethod),
 		EstimatedInputTokens:               cloneRuntimeIntPointer(source.EstimatedInputTokens),
 		ReservedOutputTokens:               cloneRuntimeIntPointer(source.ReservedOutputTokens),
@@ -209,6 +240,7 @@ func cloneRuntimeContextRoutingSkippedTerminalTargets(source []runtimeContextRou
 		cloned = append(cloned, runtimeContextRoutingSkippedTerminalTarget{
 			TerminalTargetID:            cloneRuntimeIntPointer(item.TerminalTargetID),
 			EndpointID:                  cloneRuntimeIntPointer(item.EndpointID),
+			ContextBand:                 cloneRuntimeStringPointer(item.ContextBand),
 			Reason:                      item.Reason,
 			UsableContextWindowTokens:   cloneRuntimeIntPointer(item.UsableContextWindowTokens),
 			EstimatedTotalContextTokens: cloneRuntimeIntPointer(item.EstimatedTotalContextTokens),
@@ -236,6 +268,84 @@ func cloneRuntimeStringPointer(source *string) *string {
 		return nil
 	}
 	return stringPtr(*source)
+}
+
+func runtimeContextBandPointer(band runtimeContextEligibilityBand) *string {
+	switch band {
+	case runtimeContextEligibilityBandPreferred:
+		return stringPtr(runtimeContextBandPreferred)
+	case runtimeContextEligibilityBandDiscretionary:
+		return stringPtr(runtimeContextBandDiscretionary)
+	case runtimeContextEligibilityBandIneligible:
+		return stringPtr(runtimeContextBandIneligible)
+	default:
+		return nil
+	}
+}
+
+func normalizedRuntimeTranslationMode(mode TranslationMode) TranslationMode {
+	if strings.TrimSpace(string(mode)) == "" {
+		return TranslationModeNone
+	}
+	return mode
+}
+
+func runtimeTranslationModePointer(mode TranslationMode) *string {
+	normalized := normalizedRuntimeTranslationMode(mode)
+	if strings.TrimSpace(string(normalized)) == "" {
+		return nil
+	}
+	return stringPtr(string(normalized))
+}
+
+func runtimeUpstreamOperationName(operation RuntimeOperation, mode TranslationMode) string {
+	switch normalizedRuntimeTranslationMode(mode) {
+	case TranslationModeOpenAIResponsesToChatCompletions:
+		return openAIUpstreamOperationChatCompletions
+	case TranslationModeOpenAIChatCompletionsToResponses:
+		return openAIUpstreamOperationResponses
+	default:
+		return strings.TrimSpace(operation.Name)
+	}
+}
+
+func runtimeUpstreamRequestPathTemplate(operation RuntimeOperation, mode TranslationMode) string {
+	switch normalizedRuntimeTranslationMode(mode) {
+	case TranslationModeOpenAIResponsesToChatCompletions:
+		return "/v1/chat/completions"
+	case TranslationModeOpenAIChatCompletionsToResponses:
+		return "/v1/responses"
+	default:
+		return strings.TrimSpace(operation.PathTemplate)
+	}
+}
+
+func runtimeUpstreamRequestPath(operation RuntimeOperation, mode TranslationMode, effectivePath string) *string {
+	trimmed := strings.TrimSpace(effectivePath)
+	if trimmed != "" {
+		return stringPtr(trimmed)
+	}
+	trimmed = runtimeUpstreamRequestPathTemplate(operation, mode)
+	if trimmed == "" {
+		return nil
+	}
+	return stringPtr(trimmed)
+}
+
+func deriveOpenAIUpstreamOperation(apiFamily string, probeEndpointVariant *string) *string {
+	if !strings.EqualFold(strings.TrimSpace(apiFamily), "openai") {
+		return nil
+	}
+	variant := "responses_minimal"
+	if probeEndpointVariant != nil && strings.TrimSpace(*probeEndpointVariant) != "" {
+		variant = strings.TrimSpace(*probeEndpointVariant)
+	}
+	switch variant {
+	case "chat_completions_minimal", "chat_completions_reasoning_none":
+		return stringPtr(openAIUpstreamOperationChatCompletions)
+	default:
+		return stringPtr(openAIUpstreamOperationResponses)
+	}
 }
 
 type headerBlocklistRule struct {
@@ -318,12 +428,13 @@ func (plan requestPlan) RequestGenerationParamsSnapshot() requestGenerationParam
 }
 
 type requestPlanningInput struct {
-	Request         *http.Request
-	RawBody         []byte
-	RuntimeConfig   RuntimeProxyConfigSnapshot
-	OperationMatch  RuntimeOperationMatch
-	ActiveProfileID int
-	Snapshot        *planningSnapshot
+	Request                *http.Request
+	RawBody                []byte
+	RuntimeConfig          RuntimeProxyConfigSnapshot
+	OperationMatch         RuntimeOperationMatch
+	ActiveProfileID        int
+	Snapshot               *planningSnapshot
+	TranslationEligibility requestTranslationEligibilitySummary
 }
 
 type runtimePlanningFailureTelemetry struct {
@@ -334,12 +445,16 @@ type runtimePlanningFailureTelemetry struct {
 	RequestedVendorName         *string
 	APIFamily                   string
 	RuntimeOperation            RuntimeOperation
+	UpstreamOperationName       *string
 	RequestPath                 string
+	UpstreamRequestPath         *string
+	OperationTranslationMode    *string
 	IsStreamingRequest          bool
 	AuditEnabledAtRequest       bool
 	AuditCaptureBodiesAtRequest bool
 	ReportCurrencySnapshot      runtimeReportCurrencySnapshot
 	RequestGenerationParams     requestGenerationParamsSnapshot
+	SelectedTerminalTargetID    *int
 	ContextRouting              *runtimeContextRoutingDecision
 }
 
@@ -373,6 +488,7 @@ type runtimeTerminalAttempt struct {
 	TargetModel               runtimeModelRecord
 	Connection                runtimeConnection
 	Strategy                  loadbalance.RuntimeStrategy
+	TranslationMode           TranslationMode
 	EffectiveRequestPath      string
 	UpstreamBody              []byte
 	AuditEnabledAtRequest     bool
@@ -443,6 +559,9 @@ type executionAttempt struct {
 	CompletedAt                 time.Time
 	AuditEnabledAtRequest       bool
 	AuditCaptureBodiesAtRequest bool
+	UpstreamOperationName       string
+	UpstreamRequestPath         string
+	OperationTranslationMode    TranslationMode
 }
 
 type executionResult struct {
@@ -561,6 +680,7 @@ func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []
 		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, err
 	}
+	input.TranslationEligibility = buildRequestTranslationEligibilitySummary(operation.Match.Operation, input.RawBody)
 	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
 	if err != nil {
 		runtimeTraceMarkError(span, "request_plan_failed")
@@ -601,10 +721,29 @@ func resolveRequestedModel(input requestPlanningInput, operation resolvedRequest
 
 func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput, operation resolvedRequestOperation, requestedModel runtimeModelRecord) error {
 	var runtimeErr *domainError
-	if !errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.ErrorCode != contextWindowExceededErrorCode {
+	if !errors.As(err, &runtimeErr) || runtimeErr == nil {
+		return err
+	}
+	if runtimeErr.ErrorCode != contextWindowExceededErrorCode && runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
 		return err
 	}
 	generationParams := extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody)
+	selectedTerminalTargetID := cloneRuntimeIntPointer(runtimeErr.SelectedTerminalTargetID)
+	if selectedTerminalTargetID == nil && runtimeErr.ContextRouting != nil {
+		selectedTerminalTargetID = cloneRuntimeIntPointer(runtimeErr.ContextRouting.SelectedTerminalTargetID)
+	}
+	translationMode := TranslationModeNone
+	if fieldValue, ok := runtimeErr.Fields["translation_mode"].(string); ok && strings.TrimSpace(fieldValue) != "" {
+		translationMode = normalizedRuntimeTranslationMode(TranslationMode(strings.TrimSpace(fieldValue)))
+	}
+	var upstreamOperationName *string
+	var upstreamRequestPath *string
+	var operationTranslationMode *string
+	if runtimeErr.ErrorCode == openAIRequestTranslationUnsupportedErrorCode {
+		upstreamOperationName = stringPtr(runtimeUpstreamOperationName(operation.Match.Operation, translationMode))
+		upstreamRequestPath = runtimeUpstreamRequestPath(operation.Match.Operation, translationMode, "")
+		operationTranslationMode = runtimeTranslationModePointer(translationMode)
+	}
 	runtimeErr.PlanningFailure = &runtimePlanningFailureTelemetry{
 		ProfileID:                   input.ActiveProfileID,
 		RequestedModelID:            requestedModel.ModelID,
@@ -613,19 +752,23 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 		RequestedVendorName:         requestedModel.VendorName,
 		APIFamily:                   requestedModel.APIFamily,
 		RuntimeOperation:            operation.Match.Operation,
+		UpstreamOperationName:       upstreamOperationName,
 		RequestPath:                 input.Request.URL.Path,
+		UpstreamRequestPath:         upstreamRequestPath,
+		OperationTranslationMode:    operationTranslationMode,
 		IsStreamingRequest:          requestWantsStreamForOperation(operation.Match.Operation, input.RawBody, input.Request.URL.Path),
 		AuditEnabledAtRequest:       requestedModel.AuditEnabled,
 		AuditCaptureBodiesAtRequest: requestedModel.AuditEnabled && requestedModel.AuditCaptureBodies,
 		ReportCurrencySnapshot:      input.Snapshot.ReportCurrency,
 		RequestGenerationParams:     generationParams,
+		SelectedTerminalTargetID:    selectedTerminalTargetID,
 		ContextRouting:              cloneRuntimeContextRoutingDecision(runtimeErr.ContextRouting),
 	}
 	return err
 }
 
 func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation resolvedRequestOperation, requestedModel runtimeModelRecord, contextEstimation *requestContextEstimation) (resolvedExecutionTarget, error) {
-	resolved, err := s.resolveExecutionTargetFromSnapshot(input.ActiveProfileID, input.Snapshot, requestedModel, contextEstimation, s.nowUTC())
+	resolved, err := s.resolveExecutionTargetFromSnapshot(input.ActiveProfileID, input.Snapshot, requestedModel, operation.Match.Operation, input.TranslationEligibility, contextEstimation, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
@@ -653,21 +796,31 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 	}, nil
 }
 
-func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, targetModel runtimeModelRecord) (plannedUpstreamRequest, error) {
+func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, attempt runtimeTerminalAttempt) (plannedUpstreamRequest, error) {
 	effectiveRequestPath := input.Request.URL.Path
 	upstreamBody := input.RawBody
-	switch operation.Match.Operation.ModelBindingSource {
-	case RuntimeOperationModelBindingPath:
-		pathModelID := strings.TrimSpace(operation.Match.PathParams["model"])
-		if pathModelID != "" && pathModelID != targetModel.ModelID {
-			effectiveRequestPath = rewriteModelInPath(input.Request.URL.Path, pathModelID, targetModel.ModelID)
-		}
-	case RuntimeOperationModelBindingBody:
-		if bodyModelID := extractModelFromBodyForOperation(input.RawBody, operation.ContentType, operation.Match.Operation); bodyModelID != "" && bodyModelID != targetModel.ModelID {
-			upstreamBody = rewriteModelInBodyForOperation(input.RawBody, operation.ContentType, operation.Match.Operation, targetModel.ModelID)
+	switch attempt.TranslationMode {
+	case "", TranslationModeNone:
+		switch operation.Match.Operation.ModelBindingSource {
+		case RuntimeOperationModelBindingPath:
+			pathModelID := strings.TrimSpace(operation.Match.PathParams["model"])
+			if pathModelID != "" && pathModelID != attempt.TargetModel.ModelID {
+				effectiveRequestPath = rewriteModelInPath(input.Request.URL.Path, pathModelID, attempt.TargetModel.ModelID)
+			}
+		case RuntimeOperationModelBindingBody:
+			if bodyModelID := extractModelFromBodyForOperation(input.RawBody, operation.ContentType, operation.Match.Operation); bodyModelID != "" && bodyModelID != attempt.TargetModel.ModelID {
+				upstreamBody = rewriteModelInBodyForOperation(input.RawBody, operation.ContentType, operation.Match.Operation, attempt.TargetModel.ModelID)
+			}
+		default:
+			return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
 		}
 	default:
-		return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
+		translatedPath, translatedBody, err := translateOpenAIRequest(input.RawBody, attempt.TranslationMode, attempt.TargetModel.ModelID)
+		if err != nil {
+			return plannedUpstreamRequest{}, err
+		}
+		effectiveRequestPath = translatedPath
+		upstreamBody = translatedBody
 	}
 
 	return plannedUpstreamRequest{
@@ -727,7 +880,7 @@ func buildPlannedTerminalAttempts(input requestPlanningInput, operation resolved
 	plannedAttempts := make([]runtimeTerminalAttempt, 0, len(attempts))
 	var firstUpstream plannedUpstreamRequest
 	for index, attempt := range attempts {
-		upstreamRequest, err := buildPlannedUpstreamRequest(input, operation, attempt.TargetModel)
+		upstreamRequest, err := buildPlannedUpstreamRequest(input, operation, attempt)
 		if err != nil {
 			return nil, plannedUpstreamRequest{}, err
 		}
@@ -1136,7 +1289,8 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 }
 
 func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, terminalAttempt runtimeTerminalAttempt, bodySource *runtimeRequestBodySource) executionOutcome {
-	ctx, span := startRuntimeSpan(ctx, "runtime.connection.attempt", runtimeTracePlanAttributes(plan)...)
+	attemptTraceAttrs := runtimeTraceAttemptAttributes(plan, terminalAttempt)
+	ctx, span := startRuntimeSpan(ctx, "runtime.connection.attempt", attemptTraceAttrs...)
 	defer span.End()
 	connection := terminalAttempt.Connection
 	headers, err := s.buildUpstreamHeaders(connection, plan.APIFamily, plan.ClientHeaders, plan.BlocklistRules)
@@ -1179,7 +1333,7 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 
 	attemptStartedAt := s.nowUTC()
 	attemptBodySource := bodySourceForTerminalAttempt(bodySource, terminalAttempt)
-	response, launched, requestErr := s.doUpstreamRequest(ctx, plan.HTTPClient, method, upstreamURL, headers, attemptBodySource, plan.RuntimeOperation, plan.IsStreamingRequest)
+	response, launched, requestErr := s.doUpstreamRequest(ctx, plan.HTTPClient, method, upstreamURL, headers, attemptBodySource, plan.RuntimeOperation, plan.IsStreamingRequest, runtimeTraceAttemptAttributionAttributes(plan.RuntimeOperation, terminalAttempt.TranslationMode, plan.ContextRouting)...)
 	outcome := executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr, UnbannedRecord: decision.UnbannedRecord}
 	if launched {
 		attemptCompletedAt := s.nowUTC()
@@ -1194,6 +1348,9 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 			CompletedAt:                 attemptCompletedAt,
 			AuditEnabledAtRequest:       terminalAttempt.AuditEnabledAtRequest,
 			AuditCaptureBodiesAtRequest: terminalAttempt.AuditCaptureBodiesRequest,
+			UpstreamOperationName:       runtimeUpstreamOperationName(plan.RuntimeOperation, terminalAttempt.TranslationMode),
+			UpstreamRequestPath:         dereferenceString(runtimeUpstreamRequestPath(plan.RuntimeOperation, terminalAttempt.TranslationMode, terminalAttempt.EffectiveRequestPath)),
+			OperationTranslationMode:    normalizedRuntimeTranslationMode(terminalAttempt.TranslationMode),
 		}
 		if response != nil {
 			outcome.Attempt.StatusCode = response.StatusCode
@@ -1304,8 +1461,10 @@ func runtimeMetricContextFromContext(ctx context.Context) context.Context {
 	return context.Background()
 }
 
-func (s *Service) doUpstreamRequest(ctx context.Context, client *http.Client, method string, upstreamURL string, headers map[string]string, bodySource *runtimeRequestBodySource, operation RuntimeOperation, isStreaming bool) (*http.Response, bool, error) {
-	ctx, span := startRuntimeClientSpan(ctx, "runtime.provider.http", runtimeTraceHTTPAttributes(method, operation, isStreaming, runtimeTraceBodyMode(bodySource))...)
+func (s *Service) doUpstreamRequest(ctx context.Context, client *http.Client, method string, upstreamURL string, headers map[string]string, bodySource *runtimeRequestBodySource, operation RuntimeOperation, isStreaming bool, extraAttrs ...attribute.KeyValue) (*http.Response, bool, error) {
+	attrs := runtimeTraceHTTPAttributes(method, operation, isStreaming, runtimeTraceBodyMode(bodySource))
+	attrs = append(attrs, extraAttrs...)
+	ctx, span := startRuntimeClientSpan(ctx, "runtime.provider.http", attrs...)
 	defer span.End()
 	if client == nil {
 		client = s.httpClient
@@ -1605,12 +1764,38 @@ func copyResponseHeaders(target http.Header, source http.Header) {
 	}
 }
 
+func copyTranslatedResponseHeaders(target http.Header, source http.Header) {
+	copyTranslatedResponseHeadersWithContentType(target, source, "application/json")
+}
+
+func copyTranslatedResponseHeadersWithContentType(target http.Header, source http.Header, contentType string) {
+	for key, values := range filterTranslatedResponseHeaders(source) {
+		for _, value := range values {
+			target.Add(key, value)
+		}
+	}
+	target.Set("Content-Type", contentType)
+}
+
 func filterResponseHeaders(source http.Header) http.Header {
+	return filterResponseHeadersWithEntitySafety(source, false)
+}
+
+func filterTranslatedResponseHeaders(source http.Header) http.Header {
+	return filterResponseHeadersWithEntitySafety(source, true)
+}
+
+func filterResponseHeadersWithEntitySafety(source http.Header, translated bool) http.Header {
 	filtered := make(http.Header)
 	for key, values := range source {
 		keyLower := strings.ToLower(strings.TrimSpace(key))
 		if _, blocked := hopByHopHeaders[keyLower]; blocked {
 			continue
+		}
+		if translated {
+			if _, unsafeEntity := translatedResponseUnsafeEntityHeaders[keyLower]; unsafeEntity {
+				continue
+			}
 		}
 		for _, value := range values {
 			filtered.Add(key, value)

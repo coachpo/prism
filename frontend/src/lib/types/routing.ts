@@ -115,12 +115,14 @@ export interface ContextCapabilityFields {
   context_window_tokens: number | null;
   default_output_token_reserve: number;
   max_context_utilization: number;
+  preferred_context_utilization_threshold: number | null;
 }
 
 export interface ContextCapabilityOverrides {
   context_window_tokens: number | null;
   default_output_token_reserve: number | null;
   max_context_utilization: number | null;
+  preferred_context_utilization_threshold: number | null;
 }
 
 export interface Connection extends ContextCapabilityFields {
@@ -163,6 +165,7 @@ export interface ConnectionCreate {
   context_window_tokens?: number | null;
   default_output_token_reserve?: number | null;
   max_context_utilization?: number | null;
+  preferred_context_utilization_threshold?: number | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;
@@ -181,6 +184,7 @@ export interface ConnectionUpdate {
   context_window_tokens?: number | null;
   default_output_token_reserve?: number | null;
   max_context_utilization?: number | null;
+  preferred_context_utilization_threshold?: number | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;

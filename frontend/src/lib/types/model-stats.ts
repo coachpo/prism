@@ -123,6 +123,7 @@ interface ModelConfigMutationBase {
   context_window_tokens?: number | null;
   default_output_token_reserve?: number | null;
   max_context_utilization?: number | null;
+  preferred_context_utilization_threshold?: number | null;
   access_targets?: ModelAccessTargetModelMutation[];
   is_enabled?: boolean;
 }

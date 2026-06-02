@@ -141,7 +141,11 @@ The operation registry is the ingress contract for the runtime plane. Each suppo
 
 After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves ordered access targets to a final model-private connection or final model target, applies the attached explicit Ban Policy strategy, claims leases, builds upstream headers, forwards to the selected provider connection, records retained request history through durable seams, and emits bounded OTLP metrics/traces through startup-owned providers when enabled. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
 
+OpenAI Chat Completions and Responses can translate only across explicit sibling-operation terminal targets. Planning remains ingress-led: estimation, generation-parameter extraction, and `operation_name` come from the client-visible operation. A selected OpenAI connection's derived `openai_upstream_operation` decides whether the attempt is native with `operation_translation_mode = "none"` or translated with `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses`. Translation rewrites supported request shapes after target selection, rewrites non-stream or stream responses back to ingress shape for the client, preserves canonical usage from upstream payloads or stream terminal events, and drops unsafe entity headers from translated responses.
+
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
+
+`cheapest_eligible_context` uses hard-fit legality and optional preferred bands. `max_context_utilization` caps whether a terminal target can legally receive the request. `preferred_context_utilization_threshold` is persisted on model defaults and owner-scoped terminal-target overrides; `null` means no preferred band, and a supplied value must be less than or equal to `max_context_utilization`. Preferred candidates sort before discretionary candidates, while ineligible candidates are skipped. Within a band, ranking stays priced first, then estimated blended request cost, access-target position, terminal target ID, and target ID.
 
 ### 3.1 Runtime Request With Private Connection Target
 
@@ -419,11 +423,11 @@ Client -> Operation registry -> Router / Planner -> Terminal target -> Endpoint 
 ### 7.3 Data Captured
 
 - Profile ID attribution, requested model ID, final target model ID, api family, vendor snapshot, terminal-target compatibility ID, endpoint base URL, and endpoint description
-- Prism `ingress_request_id`, per-request `attempt_number`, persisted `operation_name`, and best-effort `upstream_correlation_id`
+- Prism `ingress_request_id`, per-request `attempt_number`, persisted ingress `operation_name`, additive `upstream_operation_name`, `operation_translation_mode`, `upstream_request_path`, and best-effort `upstream_correlation_id`
 - HTTP status code, response time (ms)
-- Token usage (input, output, total), extracted by operation response or stream hooks
-- Context-routing metadata when preflight routing ran, including policy, selected terminal target, estimator method, estimated token totals, ranking method, and skipped terminal-target reasons
-- Stream flag, request path, error details
+- Token usage (input, output, total), extracted by upstream operation response or stream hooks before any client-facing response translation
+- Context-routing metadata when preflight routing ran, including policy, selected terminal target, selected endpoint, selected preferred-context band, estimator method, estimated token totals, ranking method, and skipped terminal-target reasons
+- Stream flag, ingress request path, sanitized upstream request path, error details
 
 Request-log semantics are per-attempt: one incoming runtime request can create multiple request-log rows when failover or retries occur. `ingress_request_id` groups those rows while `request_id` remains the unique identifier for one stored attempt row.
 
@@ -435,12 +439,14 @@ Request-log semantics are per-attempt: one incoming runtime request can create m
 
 These query APIs intentionally remain product-facing retained-history surfaces for the UI and operators. Prometheus/Grafana should consume Prism operations data from the configured OTLP Collector or Alloy path instead of scraping Prism for local metrics.
 
+Runtime traces keep `prism.runtime.operation_name` as ingress-led. Additive trace attributes include sanitized `prism.runtime.upstream_operation_name`, `prism.runtime.operation_translation_mode`, `prism.runtime.upstream_request_path`, `prism.runtime.preferred_context_band`, and `prism.runtime.selected_terminal_target_id`. The upstream path attribute is normalized through the operation registry so path-bound model IDs do not leak into spans.
+
 ## 8. Request Audit Logging
 
 ### 8.1 Concept
 
 Audit logging records the request-time provenance that was active when the request started. Vendorless models do not synthesize audit defaults from `api_family`; the request keeps the mode it started with, whether audit was disabled, metadata only, or full capture. Sensitive data in headers (API keys, auth tokens) is redacted before storage.
-Audit rows are written per upstream attempt, including failover attempts, and metadata-only requests still create audit metadata even when bodies are not stored.
+Audit rows are written per upstream attempt, including failover attempts, and metadata-only requests still create audit metadata even when bodies are not stored. Translated OpenAI attempts keep audit request and response bodies upstream-native; the rewritten client-facing request or response body is never substituted into audit storage.
 
 ### 8.2 Audit Flow (Non-Streaming)
 

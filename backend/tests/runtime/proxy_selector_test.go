@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"testing"
 	"time"
@@ -57,6 +58,142 @@ func TestRuntimeCheapestEligibleContextNoFitReturns413WithoutUpstreamAttemptOrBa
 	state := loadRuntimeState(t, harness, profileID, smallConnectionID)
 	if state.CycleRetryAttempts != 2 || state.CumulativeRetryAttempts != 5 || state.BanMode != "off" || state.NextRetryAt.Valid {
 		t.Fatalf("expected no-fit planner rejection to leave runtime failure state untouched, got %+v", state)
+	}
+}
+
+func TestProxySelectorPreferredContextPreferredBandWinsOverCheaperDiscretionaryTarget(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-selector-preferred-band-public-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-preferred-band-"+suffix, "cheapest_eligible_context")
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
+	preferredEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-preferred-band-preferred-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/preferred"), "proxy-selector-preferred-band-preferred-key", 0)
+	discretionaryEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-preferred-band-discretionary-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/discretionary"), "proxy-selector-preferred-band-discretionary-key", 1)
+	preferredConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, preferredEndpointID, "proxy-selector-preferred-band-preferred-connection-"+suffix, nil, nil, 1)
+	discretionaryConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, discretionaryEndpointID, "proxy-selector-preferred-band-discretionary-connection-"+suffix, nil, nil, 0)
+	preferredPricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "proxy-selector-preferred-band-expensive-"+suffix, "USD", "5", "5", "0", "0", "0")
+	discretionaryPricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "proxy-selector-preferred-band-cheap-"+suffix, "USD", "1", "1", "0", "0", "0")
+	attachRuntimeConnectionPricingTemplate(t, harness, preferredConnectionID, preferredPricingTemplateID)
+	attachRuntimeConnectionPricingTemplate(t, harness, discretionaryConnectionID, discretionaryPricingTemplateID)
+	now := time.Now().UTC()
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, preferredConnectionID, 1000, 4096, 1.0, 1.0, now); err != nil {
+		t.Fatalf("update preferred-band preferred connection capabilities: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, discretionaryConnectionID, 1000, 4096, 1.0, 0.10, now); err != nil {
+		t.Fatalf("update preferred-band discretionary connection capabilities: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "preferred band wins over cheaper discretionary"}}, "model": publicModelID, "max_completion_tokens": 256}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/proxy-selector/preferred-context/preferred/v1/chat/completions",
+		ModelID: publicModelID,
+	}})
+}
+
+func TestProxySelectorPreferredContextFallsBackToDiscretionaryWhenNoPreferredCandidatesExist(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-selector-discretionary-fallback-public-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-discretionary-fallback-"+suffix, "cheapest_eligible_context")
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
+	expensiveEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-discretionary-fallback-expensive-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/fallback-expensive"), "proxy-selector-discretionary-fallback-expensive-key", 0)
+	cheapEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-discretionary-fallback-cheap-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/fallback-cheap"), "proxy-selector-discretionary-fallback-cheap-key", 1)
+	expensiveConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, expensiveEndpointID, "proxy-selector-discretionary-fallback-expensive-connection-"+suffix, nil, nil, 0)
+	cheapConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, cheapEndpointID, "proxy-selector-discretionary-fallback-cheap-connection-"+suffix, nil, nil, 1)
+	expensivePricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "proxy-selector-discretionary-fallback-expensive-pricing-"+suffix, "USD", "4", "4", "0", "0", "0")
+	cheapPricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "proxy-selector-discretionary-fallback-cheap-pricing-"+suffix, "USD", "1", "1", "0", "0", "0")
+	attachRuntimeConnectionPricingTemplate(t, harness, expensiveConnectionID, expensivePricingTemplateID)
+	attachRuntimeConnectionPricingTemplate(t, harness, cheapConnectionID, cheapPricingTemplateID)
+	now := time.Now().UTC()
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, expensiveConnectionID, 1000, 4096, 1.0, 0.10, now); err != nil {
+		t.Fatalf("update discretionary-fallback expensive connection capabilities: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, cheapConnectionID, 1000, 4096, 1.0, 0.15, now); err != nil {
+		t.Fatalf("update discretionary-fallback cheap connection capabilities: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "no preferred candidates still route"}}, "model": publicModelID, "max_completion_tokens": 256}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/proxy-selector/preferred-context/fallback-cheap/v1/chat/completions",
+		ModelID: publicModelID,
+	}})
+}
+
+func TestProxySelectorNativeResponsesSupportWinsOverTranslatedCandidate(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-selector-native-support-public-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-native-support-"+suffix, "cheapest_eligible_context")
+	modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
+	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "proxy-selector-translated-should-not-run"})
+	nativeUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id": "proxy-selector-native-responses",
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "native support wins"}},
+		}},
+		"usage": map[string]any{"input_tokens": 7, "output_tokens": 13, "total_tokens": 20},
+	})
+	translatedEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-native-support-translated-"+suffix, translatedUpstream.baseURL("/proxy-selector/native-support/translated"), "proxy-selector-native-support-translated-key", 0)
+	nativeEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-native-support-native-"+suffix, nativeUpstream.baseURL("/proxy-selector/native-support/native"), "proxy-selector-native-support-native-key", 1)
+	translatedVariant := "chat_completions_reasoning_none"
+	nativeVariant := "responses_reasoning_none"
+	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-native-support-translated-connection-"+suffix, nil, nil, 0, &translatedVariant)
+	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-native-support-native-connection-"+suffix, nil, nil, 1, &nativeVariant)
+	now := time.Now().UTC()
+	for _, connectionID := range []int{translatedConnectionID, nativeConnectionID} {
+		if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, 16_384, 1_024, 1.0, now); err != nil {
+			t.Fatalf("update native-support connection %d context capabilities: %v", connectionID, err)
+		}
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"model":             publicModelID,
+		"input":             "native responses support should win over translated sibling",
+		"text":              map[string]any{"format": "json_schema"},
+		"max_output_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	if got := len(translatedUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected translated chat-only candidate to be skipped when native responses support exists, got %d upstream requests", got)
+	}
+	assertProxySelectorRequestSequence(t, nativeUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/proxy-selector/native-support/native/v1/responses",
+		ModelID: publicModelID,
+	}})
+	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
+
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+	var selectedTerminalTargetID sql.NullInt64
+	var upstreamOperationName sql.NullString
+	var translationMode sql.NullString
+	var upstreamRequestPath sql.NullString
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT selected_terminal_target_id, upstream_operation_name, operation_translation_mode, upstream_request_path FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(&selectedTerminalTargetID, &upstreamOperationName, &translationMode, &upstreamRequestPath); err != nil {
+		t.Fatalf("load proxy-selector native-support request-log attribution: %v", err)
+	}
+	if !selectedTerminalTargetID.Valid || int(selectedTerminalTargetID.Int64) != nativeConnectionID {
+		t.Fatalf("expected native-support selected_terminal_target_id %d, got %+v", nativeConnectionID, selectedTerminalTargetID)
+	}
+	if !upstreamOperationName.Valid || upstreamOperationName.String != "openai.responses" {
+		t.Fatalf("expected native-support upstream_operation_name openai.responses, got %+v", upstreamOperationName)
+	}
+	if !translationMode.Valid || translationMode.String != "none" {
+		t.Fatalf("expected native-support operation_translation_mode none, got %+v", translationMode)
+	}
+	if !upstreamRequestPath.Valid || upstreamRequestPath.String != "/v1/responses" {
+		t.Fatalf("expected native-support upstream_request_path /v1/responses, got %+v", upstreamRequestPath)
 	}
 }
 

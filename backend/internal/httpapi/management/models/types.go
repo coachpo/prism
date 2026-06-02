@@ -36,16 +36,17 @@ type modelAccessTargetMoveRequest struct {
 }
 
 type modelCreateRequest struct {
-	VendorID                  *int                       `json:"vendor_id"`
-	APIFamily                 string                     `json:"api_family"`
-	ModelID                   string                     `json:"model_id"`
-	DisplayName               *string                    `json:"display_name"`
-	LoadbalanceStrategyID     *int                       `json:"loadbalance_strategy_id"`
-	ContextWindowTokens       *int                       `json:"context_window_tokens"`
-	DefaultOutputTokenReserve *int                       `json:"default_output_token_reserve"`
-	MaxContextUtilization     *float64                   `json:"max_context_utilization"`
-	AccessTargets             []modelAccessTargetRequest `json:"access_targets"`
-	IsEnabled                 *bool                      `json:"is_enabled"`
+	VendorID                             *int                       `json:"vendor_id"`
+	APIFamily                            string                     `json:"api_family"`
+	ModelID                              string                     `json:"model_id"`
+	DisplayName                          *string                    `json:"display_name"`
+	LoadbalanceStrategyID                *int                       `json:"loadbalance_strategy_id"`
+	ContextWindowTokens                  *int                       `json:"context_window_tokens"`
+	DefaultOutputTokenReserve            *int                       `json:"default_output_token_reserve"`
+	MaxContextUtilization                *float64                   `json:"max_context_utilization"`
+	PreferredContextUtilizationThreshold *float64                   `json:"preferred_context_utilization_threshold"`
+	AccessTargets                        []modelAccessTargetRequest `json:"access_targets"`
+	IsEnabled                            *bool                      `json:"is_enabled"`
 }
 
 type optionalString struct {
@@ -139,16 +140,17 @@ func (value *optionalAccessTargets) UnmarshalJSON(data []byte) error {
 }
 
 type modelUpdateRequest struct {
-	VendorID                  optionalInt           `json:"vendor_id"`
-	APIFamily                 optionalString        `json:"api_family"`
-	ModelID                   optionalString        `json:"model_id"`
-	DisplayName               optionalString        `json:"display_name"`
-	LoadbalanceStrategyID     optionalInt           `json:"loadbalance_strategy_id"`
-	ContextWindowTokens       optionalInt           `json:"context_window_tokens"`
-	DefaultOutputTokenReserve optionalInt           `json:"default_output_token_reserve"`
-	MaxContextUtilization     optionalFloat         `json:"max_context_utilization"`
-	AccessTargets             optionalAccessTargets `json:"access_targets"`
-	IsEnabled                 optionalBool          `json:"is_enabled"`
+	VendorID                             optionalInt           `json:"vendor_id"`
+	APIFamily                            optionalString        `json:"api_family"`
+	ModelID                              optionalString        `json:"model_id"`
+	DisplayName                          optionalString        `json:"display_name"`
+	LoadbalanceStrategyID                optionalInt           `json:"loadbalance_strategy_id"`
+	ContextWindowTokens                  optionalInt           `json:"context_window_tokens"`
+	DefaultOutputTokenReserve            optionalInt           `json:"default_output_token_reserve"`
+	MaxContextUtilization                optionalFloat         `json:"max_context_utilization"`
+	PreferredContextUtilizationThreshold optionalFloat         `json:"preferred_context_utilization_threshold"`
+	AccessTargets                        optionalAccessTargets `json:"access_targets"`
+	IsEnabled                            optionalBool          `json:"is_enabled"`
 }
 
 type vendorResponse struct {
@@ -200,54 +202,58 @@ type connectionPricingTemplateSummary struct {
 }
 
 type contextCapabilityOverridesResponse struct {
-	ContextWindowTokens       *int     `json:"context_window_tokens"`
-	DefaultOutputTokenReserve *int     `json:"default_output_token_reserve"`
-	MaxContextUtilization     *float64 `json:"max_context_utilization"`
+	ContextWindowTokens                  *int     `json:"context_window_tokens"`
+	DefaultOutputTokenReserve            *int     `json:"default_output_token_reserve"`
+	MaxContextUtilization                *float64 `json:"max_context_utilization"`
+	PreferredContextUtilizationThreshold *float64 `json:"preferred_context_utilization_threshold"`
 }
 
 type connectionTargetSummary struct {
-	ID                         int                                `json:"id"`
-	ModelConfigID              int                                `json:"-"`
-	ProfileID                  int                                `json:"profile_id"`
-	APIFamily                  string                             `json:"api_family"`
-	EndpointID                 int                                `json:"endpoint_id"`
-	Endpoint                   *endpointResponse                  `json:"endpoint"`
-	ContextWindowTokens        *int                               `json:"context_window_tokens"`
-	DefaultOutputTokenReserve  int                                `json:"default_output_token_reserve"`
-	MaxContextUtilization      float64                            `json:"max_context_utilization"`
-	ContextCapabilityOverrides contextCapabilityOverridesResponse `json:"context_capability_overrides"`
-	IsActive                   bool                               `json:"is_active"`
-	Priority                   int                                `json:"priority"`
-	Name                       *string                            `json:"name"`
-	AuthType                   *string                            `json:"auth_type"`
-	CustomHeaders              map[string]string                  `json:"custom_headers"`
-	OpenAIProbeEndpointVariant *string                            `json:"openai_probe_endpoint_variant"`
-	PricingTemplateID          *int                               `json:"pricing_template_id"`
-	QPSLimit                   *int                               `json:"qps_limit"`
-	MaxInFlightNonStream       *int                               `json:"max_in_flight_non_stream"`
-	MaxInFlightStream          *int                               `json:"max_in_flight_stream"`
-	PricingTemplate            *connectionPricingTemplateSummary  `json:"pricing_template"`
-	HealthStatus               string                             `json:"health_status"`
-	HealthDetail               *string                            `json:"health_detail"`
-	LastHealthCheck            *time.Time                         `json:"last_health_check"`
-	CreatedAt                  time.Time                          `json:"created_at"`
-	UpdatedAt                  time.Time                          `json:"updated_at"`
+	ID                                   int                                `json:"id"`
+	ModelConfigID                        int                                `json:"-"`
+	ProfileID                            int                                `json:"profile_id"`
+	APIFamily                            string                             `json:"api_family"`
+	EndpointID                           int                                `json:"endpoint_id"`
+	Endpoint                             *endpointResponse                  `json:"endpoint"`
+	ContextWindowTokens                  *int                               `json:"context_window_tokens"`
+	DefaultOutputTokenReserve            int                                `json:"default_output_token_reserve"`
+	MaxContextUtilization                float64                            `json:"max_context_utilization"`
+	PreferredContextUtilizationThreshold *float64                           `json:"preferred_context_utilization_threshold"`
+	ContextCapabilityOverrides           contextCapabilityOverridesResponse `json:"context_capability_overrides"`
+	IsActive                             bool                               `json:"is_active"`
+	Priority                             int                                `json:"priority"`
+	Name                                 *string                            `json:"name"`
+	AuthType                             *string                            `json:"auth_type"`
+	CustomHeaders                        map[string]string                  `json:"custom_headers"`
+	OpenAIProbeEndpointVariant           *string                            `json:"openai_probe_endpoint_variant"`
+	OpenAIUpstreamOperation              *string                            `json:"openai_upstream_operation"`
+	PricingTemplateID                    *int                               `json:"pricing_template_id"`
+	QPSLimit                             *int                               `json:"qps_limit"`
+	MaxInFlightNonStream                 *int                               `json:"max_in_flight_non_stream"`
+	MaxInFlightStream                    *int                               `json:"max_in_flight_stream"`
+	PricingTemplate                      *connectionPricingTemplateSummary  `json:"pricing_template"`
+	HealthStatus                         string                             `json:"health_status"`
+	HealthDetail                         *string                            `json:"health_detail"`
+	LastHealthCheck                      *time.Time                         `json:"last_health_check"`
+	CreatedAt                            time.Time                          `json:"created_at"`
+	UpdatedAt                            time.Time                          `json:"updated_at"`
 }
 
 type terminalTargetSummary = connectionTargetSummary
 
 type modelTargetSummary struct {
-	ID                        int     `json:"id"`
-	ProfileID                 int     `json:"profile_id"`
-	VendorID                  *int    `json:"vendor_id"`
-	APIFamily                 string  `json:"api_family"`
-	ModelID                   string  `json:"model_id"`
-	DisplayName               *string `json:"display_name"`
-	LoadbalanceStrategyID     *int    `json:"loadbalance_strategy_id"`
-	ContextWindowTokens       *int    `json:"context_window_tokens"`
-	DefaultOutputTokenReserve int     `json:"default_output_token_reserve"`
-	MaxContextUtilization     float64 `json:"max_context_utilization"`
-	IsEnabled                 bool    `json:"is_enabled"`
+	ID                                   int      `json:"id"`
+	ProfileID                            int      `json:"profile_id"`
+	VendorID                             *int     `json:"vendor_id"`
+	APIFamily                            string   `json:"api_family"`
+	ModelID                              string   `json:"model_id"`
+	DisplayName                          *string  `json:"display_name"`
+	LoadbalanceStrategyID                *int     `json:"loadbalance_strategy_id"`
+	ContextWindowTokens                  *int     `json:"context_window_tokens"`
+	DefaultOutputTokenReserve            int      `json:"default_output_token_reserve"`
+	MaxContextUtilization                float64  `json:"max_context_utilization"`
+	PreferredContextUtilizationThreshold *float64 `json:"preferred_context_utilization_threshold"`
+	IsEnabled                            bool     `json:"is_enabled"`
 }
 
 type modelAccessTargetResponse struct {
@@ -266,45 +272,47 @@ type modelAccessTargetResponse struct {
 }
 
 type modelConfigListResponse struct {
-	ID                        int                         `json:"id"`
-	ProfileID                 int                         `json:"profile_id"`
-	VendorID                  *int                        `json:"vendor_id"`
-	Vendor                    *vendorResponse             `json:"vendor"`
-	APIFamily                 string                      `json:"api_family"`
-	ModelID                   string                      `json:"model_id"`
-	DisplayName               *string                     `json:"display_name"`
-	LoadbalanceStrategyID     *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy       *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	ContextWindowTokens       *int                        `json:"context_window_tokens"`
-	DefaultOutputTokenReserve int                         `json:"default_output_token_reserve"`
-	MaxContextUtilization     float64                     `json:"max_context_utilization"`
-	AccessTargets             []modelAccessTargetResponse `json:"access_targets"`
-	IsEnabled                 bool                        `json:"is_enabled"`
-	ConnectionCount           int                         `json:"connection_count"`
-	ActiveConnectionCount     int                         `json:"active_connection_count"`
-	HealthSuccessRate         *float64                    `json:"health_success_rate"`
-	HealthTotalRequests       int                         `json:"health_total_requests"`
-	CreatedAt                 time.Time                   `json:"created_at"`
-	UpdatedAt                 time.Time                   `json:"updated_at"`
+	ID                                   int                         `json:"id"`
+	ProfileID                            int                         `json:"profile_id"`
+	VendorID                             *int                        `json:"vendor_id"`
+	Vendor                               *vendorResponse             `json:"vendor"`
+	APIFamily                            string                      `json:"api_family"`
+	ModelID                              string                      `json:"model_id"`
+	DisplayName                          *string                     `json:"display_name"`
+	LoadbalanceStrategyID                *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy                  *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	ContextWindowTokens                  *int                        `json:"context_window_tokens"`
+	DefaultOutputTokenReserve            int                         `json:"default_output_token_reserve"`
+	MaxContextUtilization                float64                     `json:"max_context_utilization"`
+	PreferredContextUtilizationThreshold *float64                    `json:"preferred_context_utilization_threshold"`
+	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
+	IsEnabled                            bool                        `json:"is_enabled"`
+	ConnectionCount                      int                         `json:"connection_count"`
+	ActiveConnectionCount                int                         `json:"active_connection_count"`
+	HealthSuccessRate                    *float64                    `json:"health_success_rate"`
+	HealthTotalRequests                  int                         `json:"health_total_requests"`
+	CreatedAt                            time.Time                   `json:"created_at"`
+	UpdatedAt                            time.Time                   `json:"updated_at"`
 }
 
 type modelConfigResponse struct {
-	ID                        int                         `json:"id"`
-	ProfileID                 int                         `json:"profile_id"`
-	VendorID                  *int                        `json:"vendor_id"`
-	Vendor                    *vendorResponse             `json:"vendor"`
-	APIFamily                 string                      `json:"api_family"`
-	ModelID                   string                      `json:"model_id"`
-	DisplayName               *string                     `json:"display_name"`
-	LoadbalanceStrategyID     *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy       *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	ContextWindowTokens       *int                        `json:"context_window_tokens"`
-	DefaultOutputTokenReserve int                         `json:"default_output_token_reserve"`
-	MaxContextUtilization     float64                     `json:"max_context_utilization"`
-	AccessTargets             []modelAccessTargetResponse `json:"access_targets"`
-	IsEnabled                 bool                        `json:"is_enabled"`
-	CreatedAt                 time.Time                   `json:"created_at"`
-	UpdatedAt                 time.Time                   `json:"updated_at"`
+	ID                                   int                         `json:"id"`
+	ProfileID                            int                         `json:"profile_id"`
+	VendorID                             *int                        `json:"vendor_id"`
+	Vendor                               *vendorResponse             `json:"vendor"`
+	APIFamily                            string                      `json:"api_family"`
+	ModelID                              string                      `json:"model_id"`
+	DisplayName                          *string                     `json:"display_name"`
+	LoadbalanceStrategyID                *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy                  *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	ContextWindowTokens                  *int                        `json:"context_window_tokens"`
+	DefaultOutputTokenReserve            int                         `json:"default_output_token_reserve"`
+	MaxContextUtilization                float64                     `json:"max_context_utilization"`
+	PreferredContextUtilizationThreshold *float64                    `json:"preferred_context_utilization_threshold"`
+	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
+	IsEnabled                            bool                        `json:"is_enabled"`
+	CreatedAt                            time.Time                   `json:"created_at"`
+	UpdatedAt                            time.Time                   `json:"updated_at"`
 }
 
 type endpointModelsBatchItem struct {

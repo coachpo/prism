@@ -37,6 +37,7 @@ const CONNECTION_CAPABILITY_FIELDS: ConnectionCapabilityFieldName[] = [
   "context_window_tokens",
   "default_output_token_reserve",
   "max_context_utilization",
+  "preferred_context_utilization_threshold",
 ];
 
 let headerRowIdCounter = 0;
@@ -88,6 +89,10 @@ function createConnectionCapabilityDrafts(
     max_context_utilization: createConnectionCapabilityDraft(
       overrides?.max_context_utilization,
       inheritedValues?.max_context_utilization,
+    ),
+    preferred_context_utilization_threshold: createConnectionCapabilityDraft(
+      overrides?.preferred_context_utilization_threshold,
+      inheritedValues?.preferred_context_utilization_threshold,
     ),
   };
 }

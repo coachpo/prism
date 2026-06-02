@@ -29,6 +29,7 @@ function createModelResponse({
   contextWindowTokens = 16384,
   defaultOutputTokenReserve = 4096,
   maxContextUtilization = 0.9,
+  preferredContextUtilizationThreshold = null,
 }: {
   id: number;
   apiFamily: "openai" | "anthropic";
@@ -38,6 +39,7 @@ function createModelResponse({
   contextWindowTokens?: number | null;
   defaultOutputTokenReserve?: number;
   maxContextUtilization?: number;
+  preferredContextUtilizationThreshold?: number | null;
 }) {
   return {
     id,
@@ -52,6 +54,7 @@ function createModelResponse({
     context_window_tokens: contextWindowTokens,
     default_output_token_reserve: defaultOutputTokenReserve,
     max_context_utilization: maxContextUtilization,
+    preferred_context_utilization_threshold: preferredContextUtilizationThreshold,
     access_targets: connections.map<TestAccessTarget>((connection, index) => ({
       id: 700 + index,
       target_type: "connection",
@@ -79,10 +82,12 @@ function createConnection({
   contextWindowTokens = 16384,
   defaultOutputTokenReserve = 4096,
   maxContextUtilization = 0.9,
+  preferredContextUtilizationThreshold = null,
   contextCapabilityOverrides = {
     context_window_tokens: null,
     default_output_token_reserve: null,
     max_context_utilization: null,
+    preferred_context_utilization_threshold: null,
   },
 }: {
   id: number;
@@ -93,10 +98,12 @@ function createConnection({
   contextWindowTokens?: number | null;
   defaultOutputTokenReserve?: number;
   maxContextUtilization?: number;
+  preferredContextUtilizationThreshold?: number | null;
   contextCapabilityOverrides?: {
     context_window_tokens: number | null;
     default_output_token_reserve: number | null;
     max_context_utilization: number | null;
+    preferred_context_utilization_threshold: number | null;
   };
 }): Connection {
   return {
@@ -115,6 +122,7 @@ function createConnection({
     context_window_tokens: contextWindowTokens,
     default_output_token_reserve: defaultOutputTokenReserve,
     max_context_utilization: maxContextUtilization,
+    preferred_context_utilization_threshold: preferredContextUtilizationThreshold,
     context_capability_overrides: contextCapabilityOverrides,
     pricing_template_id: null,
     qps_limit: null,
@@ -137,6 +145,7 @@ function createModelListItem({
   contextWindowTokens = 16384,
   defaultOutputTokenReserve = 4096,
   maxContextUtilization = 0.9,
+  preferredContextUtilizationThreshold = null,
 }: {
   id: number;
   apiFamily: "openai" | "anthropic";
@@ -145,6 +154,7 @@ function createModelListItem({
   contextWindowTokens?: number | null;
   defaultOutputTokenReserve?: number;
   maxContextUtilization?: number;
+  preferredContextUtilizationThreshold?: number | null;
 }) {
   return {
     id,
@@ -159,6 +169,7 @@ function createModelListItem({
     context_window_tokens: contextWindowTokens,
     default_output_token_reserve: defaultOutputTokenReserve,
     max_context_utilization: maxContextUtilization,
+    preferred_context_utilization_threshold: preferredContextUtilizationThreshold,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -207,6 +218,7 @@ type ConnectionMutationPayload = {
   context_window_tokens?: number | null;
   default_output_token_reserve?: number | null;
   max_context_utilization?: number | null;
+  preferred_context_utilization_threshold?: number | null;
 };
 
 function applyConnectionPayload(
@@ -226,6 +238,12 @@ function applyConnectionPayload(
     payload.max_context_utilization === undefined
       ? connection.max_context_utilization
       : payload.max_context_utilization ?? model.max_context_utilization;
+  const nextPreferredContextUtilizationThreshold =
+    payload.preferred_context_utilization_threshold === undefined
+      ? connection.preferred_context_utilization_threshold
+      : payload.preferred_context_utilization_threshold
+        ?? model.preferred_context_utilization_threshold
+        ?? null;
 
   return {
     ...connection,
@@ -233,6 +251,7 @@ function applyConnectionPayload(
     context_window_tokens: nextContextWindowTokens,
     default_output_token_reserve: nextDefaultOutputTokenReserve,
     max_context_utilization: nextMaxContextUtilization,
+    preferred_context_utilization_threshold: nextPreferredContextUtilizationThreshold,
     context_capability_overrides: {
       context_window_tokens:
         payload.context_window_tokens === undefined
@@ -246,6 +265,10 @@ function applyConnectionPayload(
         payload.max_context_utilization === undefined
           ? connection.context_capability_overrides?.max_context_utilization ?? null
           : payload.max_context_utilization,
+      preferred_context_utilization_threshold:
+        payload.preferred_context_utilization_threshold === undefined
+          ? connection.context_capability_overrides?.preferred_context_utilization_threshold ?? null
+          : payload.preferred_context_utilization_threshold,
     },
   };
 }
@@ -321,6 +344,7 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
           contextWindowTokens: model.context_window_tokens,
           defaultOutputTokenReserve: model.default_output_token_reserve,
           maxContextUtilization: model.max_context_utilization,
+          preferredContextUtilizationThreshold: model.preferred_context_utilization_threshold,
         }),
       ]);
     }
@@ -370,6 +394,7 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
           contextWindowTokens: model.context_window_tokens,
           defaultOutputTokenReserve: model.default_output_token_reserve,
           maxContextUtilization: model.max_context_utilization,
+          preferredContextUtilizationThreshold: model.preferred_context_utilization_threshold,
         }),
         payload,
         model,
@@ -511,6 +536,7 @@ test("context-capability-authoring: connection dialog submits mixed inherit and 
     contextWindowTokens: null,
     defaultOutputTokenReserve: 4096,
     maxContextUtilization: 0.9,
+    preferredContextUtilizationThreshold: 0.7,
   });
   const { savePayloads } = await stubModelDetailRoutes(page, model);
 
@@ -535,12 +561,18 @@ test("context-capability-authoring: connection dialog submits mixed inherit and 
   await utilizationField.getByRole("button", { name: "Override" }).click();
   await page.locator("#conn-max-context-utilization").fill("0.75");
 
+  const preferredField = page.getByTestId("conn-preferred-context-utilization-threshold-field");
+  await expect(preferredField).toContainText("Inherited from model: 0.7");
+  await preferredField.getByRole("button", { name: "Override" }).click();
+  await page.locator("#conn-preferred-context-utilization-threshold").fill("0.6");
+
   await page.getByRole("button", { name: "Save Connection" }).click();
   await expect.poll(() => savePayloads.length).toBe(1);
   expect(savePayloads[0]).toMatchObject({
     context_window_tokens: null,
     default_output_token_reserve: 8192,
     max_context_utilization: 0.75,
+    preferred_context_utilization_threshold: 0.6,
   });
 });
 
@@ -564,6 +596,7 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
     contextWindowTokens: 16384,
     defaultOutputTokenReserve: 4096,
     maxContextUtilization: 0.9,
+    preferredContextUtilizationThreshold: 0.7,
     connections: [
       createConnection({
         id: 301,
@@ -574,10 +607,12 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
         contextWindowTokens: 16384,
         defaultOutputTokenReserve: 4096,
         maxContextUtilization: 0.9,
+        preferredContextUtilizationThreshold: 0.7,
         contextCapabilityOverrides: {
           context_window_tokens: 16384,
           default_output_token_reserve: null,
           max_context_utilization: 0.9,
+          preferred_context_utilization_threshold: 0.7,
         },
       }),
     ],
@@ -589,8 +624,10 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
 
   await expect(page.locator("#conn-context-window-tokens")).toHaveValue("16384");
   await expect(page.locator("#conn-max-context-utilization")).toHaveValue("0.9");
+  await expect(page.locator("#conn-preferred-context-utilization-threshold")).toHaveValue("0.7");
   await expect(page.getByTestId("conn-context-window-tokens-field")).not.toContainText("Inherited from model: 16384");
   await expect(page.getByTestId("conn-context-window-tokens-field")).toContainText("Reset to model default");
+  await expect(page.getByTestId("conn-preferred-context-utilization-threshold-field")).toContainText("Reset to model default");
 
   await page.locator("#conn-name").fill("Saved Connection Renamed");
   await page.getByRole("button", { name: "Save Connection" }).click();
@@ -599,10 +636,41 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
     context_window_tokens: 16384,
     default_output_token_reserve: null,
     max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: 0.7,
   });
 
   await page.getByRole("button", { name: "Edit Saved Connection Renamed" }).first().click();
   await expect(page.locator("#conn-context-window-tokens")).toHaveValue("16384");
   await expect(page.locator("#conn-max-context-utilization")).toHaveValue("0.9");
+  await expect(page.locator("#conn-preferred-context-utilization-threshold")).toHaveValue("0.7");
   await expect(page.getByTestId("conn-context-window-tokens-field")).toContainText("Reset to model default");
+  await expect(page.getByTestId("conn-preferred-context-utilization-threshold-field")).toContainText("Reset to model default");
+});
+
+
+test("context-capability-authoring: connection dialog blocks preferred threshold above the effective max before save", async ({ page }) => {
+  const model = createModelResponse({
+    id: 6,
+    apiFamily: "openai",
+    modelId: "gpt-4.1-context-invalid",
+    displayName: "GPT 4.1 Context Invalid",
+    contextWindowTokens: 16384,
+    defaultOutputTokenReserve: 4096,
+    maxContextUtilization: 0.9,
+    preferredContextUtilizationThreshold: 0.7,
+  });
+  const { savePayloads } = await stubModelDetailRoutes(page, model);
+
+  await page.goto("/models/6");
+  await page.getByRole("button", { name: "New terminal target" }).first().click();
+  await page.locator("#conn-selected-endpoint").click();
+  await page.getByRole("option", { name: /OpenAI Primary/ }).click();
+
+  const utilizationField = page.getByTestId("conn-max-context-utilization-field");
+  await utilizationField.getByRole("button", { name: "Override" }).click();
+  await page.locator("#conn-max-context-utilization").fill("0.6");
+
+  await page.getByRole("button", { name: "Save Connection" }).click();
+  await expect(page.getByText("Preferred context utilization threshold must be less than or equal to max context utilization.")).toBeVisible();
+  expect(savePayloads).toHaveLength(0);
 });

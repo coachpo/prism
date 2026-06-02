@@ -425,7 +425,7 @@ func runtimePlanningCacheInvalidationAfterOwnerScopedConnectionRoutes(t *testing
 	}
 
 	generation := harness.runtimeCache.PublishedGeneration()
-	createResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": createEndpointID, "name": "cache owner created", "is_active": true}, runtimeModelHeader(profileID))
+	createResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": createEndpointID, "name": "cache owner created", "is_active": true, "openai_probe_endpoint_variant": "chat_completions_reasoning_none"}, runtimeModelHeader(profileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	harness.waitForRuntimeSnapshotGeneration(t, generation)
 	var createPayload map[string]any
@@ -444,7 +444,7 @@ func runtimePlanningCacheInvalidationAfterOwnerScopedConnectionRoutes(t *testing
 	remainingUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-owner-connection-delete"})
 	remainingEndpointID := harness.seedEndpoint(t, profileID, "cache-owner-delete-endpoint-"+suffix, remainingUpstream.baseURL("/cache-invalidation/owner-connection-delete"), "owner-delete-key", 2)
 	generation = harness.runtimeCache.PublishedGeneration()
-	secondCreateResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": remainingEndpointID, "name": "cache owner remaining", "is_active": true}, runtimeModelHeader(profileID))
+	secondCreateResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": remainingEndpointID, "name": "cache owner remaining", "is_active": true, "openai_probe_endpoint_variant": "chat_completions_reasoning_none"}, runtimeModelHeader(profileID))
 	assertStatus(t, secondCreateResponse, http.StatusCreated)
 	harness.waitForRuntimeSnapshotGeneration(t, generation)
 

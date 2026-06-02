@@ -115,12 +115,12 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *requestBody.LoadbalanceStrategyID); err != nil {
 			return modelConfigResponse{}, err
 		}
-		capabilitySettings, err := contextcapability.NormalizeModelSettings(requestBody.ContextWindowTokens, requestBody.DefaultOutputTokenReserve, requestBody.MaxContextUtilization)
+		capabilitySettings, err := contextcapability.NormalizeModelSettings(requestBody.ContextWindowTokens, requestBody.DefaultOutputTokenReserve, requestBody.MaxContextUtilization, requestBody.PreferredContextUtilizationThreshold)
 		if err != nil {
 			return modelConfigResponse{}, contextCapabilityDomainError(err)
 		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, VendorID: requestBody.VendorID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
+		record := modelRecord{ProfileID: profile.ID, VendorID: requestBody.VendorID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, PreferredContextUtilizationThreshold: capabilitySettings.PreferredContextUtilizationThreshold, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
 		created, err := insertModel(r.Context(), tx, record)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -245,6 +245,22 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 			}
 			next.MaxContextUtilization = resolvedMaxContextUtilization
 		}
+		if requestBody.PreferredContextUtilizationThreshold.Set {
+			if requestBody.PreferredContextUtilizationThreshold.Value == nil {
+				next.PreferredContextUtilizationThreshold = nil
+			} else {
+				resolvedPreferredContextUtilizationThreshold, normalizeErr := contextcapability.NormalizePreferredContextUtilizationThreshold(requestBody.PreferredContextUtilizationThreshold.Value, next.MaxContextUtilization)
+				if normalizeErr != nil {
+					return modelConfigResponse{}, contextCapabilityFieldDomainError("preferred_context_utilization_threshold", normalizeErr)
+				}
+				next.PreferredContextUtilizationThreshold = resolvedPreferredContextUtilizationThreshold
+			}
+		}
+		resolvedPreferredContextUtilizationThreshold, normalizeErr := contextcapability.NormalizePreferredContextUtilizationThreshold(next.PreferredContextUtilizationThreshold, next.MaxContextUtilization)
+		if normalizeErr != nil {
+			return modelConfigResponse{}, contextCapabilityFieldDomainError("preferred_context_utilization_threshold", normalizeErr)
+		}
+		next.PreferredContextUtilizationThreshold = resolvedPreferredContextUtilizationThreshold
 		if requestBody.APIFamily.Set && next.APIFamily != current.APIFamily && hasConnectionAccessTargetRecords(currentAccessTargetsByModel[current.ID]) {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change api_family while private connections exist"}
 		}
@@ -1244,8 +1260,12 @@ func validateModelContextCapabilitiesCreate(requestBody modelCreateRequest) erro
 	if _, err := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve); err != nil {
 		return contextCapabilityFieldDomainError("default_output_token_reserve", err)
 	}
-	if _, err := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization); err != nil {
+	resolvedMaxContextUtilization, err := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization)
+	if err != nil {
 		return contextCapabilityFieldDomainError("max_context_utilization", err)
+	}
+	if _, err := contextcapability.NormalizePreferredContextUtilizationThreshold(requestBody.PreferredContextUtilizationThreshold, resolvedMaxContextUtilization); err != nil {
+		return contextCapabilityFieldDomainError("preferred_context_utilization_threshold", err)
 	}
 	return nil
 }
@@ -1270,6 +1290,11 @@ func validateModelContextCapabilitiesUpdate(requestBody modelUpdateRequest) erro
 		}
 		if _, err := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization.Value); err != nil {
 			return contextCapabilityFieldDomainError("max_context_utilization", err)
+		}
+	}
+	if requestBody.PreferredContextUtilizationThreshold.Set && requestBody.PreferredContextUtilizationThreshold.Value != nil {
+		if _, err := contextcapability.NormalizePreferredContextUtilizationThreshold(requestBody.PreferredContextUtilizationThreshold.Value, 1); err != nil {
+			return contextCapabilityFieldDomainError("preferred_context_utilization_threshold", err)
 		}
 	}
 	return nil

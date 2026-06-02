@@ -19,6 +19,7 @@ const liveAuthoringCapabilityDefaults = {
   context_window_tokens: null,
   default_output_token_reserve: 4096,
   max_context_utilization: 0.9,
+  preferred_context_utilization_threshold: null,
 };
 
 function buildValidConfigImport() {
@@ -127,6 +128,7 @@ test("config import schema accepts current profile bundle v3 Ban Policy payloads
       context_window_tokens: parsed.connections[0].context_window_tokens,
       default_output_token_reserve: parsed.connections[0].default_output_token_reserve,
       max_context_utilization: parsed.connections[0].max_context_utilization,
+      preferred_context_utilization_threshold: parsed.connections[0].preferred_context_utilization_threshold,
     },
     liveAuthoringCapabilityDefaults
   );
@@ -135,6 +137,7 @@ test("config import schema accepts current profile bundle v3 Ban Policy payloads
       context_window_tokens: parsed.models[0].context_window_tokens,
       default_output_token_reserve: parsed.models[0].default_output_token_reserve,
       max_context_utilization: parsed.models[0].max_context_utilization,
+      preferred_context_utilization_threshold: parsed.models[0].preferred_context_utilization_threshold,
     },
     liveAuthoringCapabilityDefaults
   );
@@ -306,6 +309,14 @@ test("config import schema rejects connection access targets without connection_
   delete payload.models[0].access_targets[0].connection_ref;
 
   assert.throws(() => ConfigImportSchema.parse(payload));
+});
+
+test("config import schema rejects preferred thresholds above max context utilization", () => {
+  const payload = buildValidConfigImport();
+  payload.connections[0].preferred_context_utilization_threshold = 0.95;
+  payload.connections[0].max_context_utilization = 0.9;
+
+  assert.throws(() => ConfigImportSchema.parse(payload), /preferred_context_utilization_threshold/);
 });
 
 test("config import schema rejects duplicate connection_ref ownership across models", () => {

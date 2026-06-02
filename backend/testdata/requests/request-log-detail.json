@@ -20,7 +20,11 @@
     "stream_error_detail": null
   },
   "request": {
+    "operation_name": "openai.chat_completions",
+    "upstream_operation_name": "openai.chat_completions",
+    "operation_translation_mode": "none",
     "request_path": "/v1/chat/completions",
+    "upstream_request_path": "/v1/chat/completions",
     "ingress_request_id": "ingress_req_42",
     "attempt_number": 2,
     "provider_correlation_id": "req_upstream_abc123",
@@ -53,6 +57,9 @@
     "context_routing": {
       "policy": "cheapest_eligible_context",
       "selected_terminal_target_id": 34,
+      "selected_endpoint_id": 12,
+      "selected_context_band": "preferred",
+      "selected_usable_context_window_tokens": 8192,
       "estimation_method": "openai_chat_heuristic_v1",
       "estimated_input_tokens": 15,
       "reserved_output_tokens": 1024,
@@ -63,6 +70,7 @@
         {
           "terminal_target_id": 35,
           "endpoint_id": 13,
+          "context_band": "ineligible",
           "reason": "estimated_context_exceeds_usable_window",
           "usable_context_window_tokens": 512,
           "estimated_total_context_tokens": 1039

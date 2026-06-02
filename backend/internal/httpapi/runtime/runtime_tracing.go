@@ -13,17 +13,22 @@ import (
 )
 
 const (
-	runtimeTraceAttrOperationName = "prism.runtime.operation_name"
-	runtimeTraceAttrAPIFamily     = "prism.runtime.api_family"
-	runtimeTraceAttrStreaming     = "prism.runtime.streaming"
-	runtimeTraceAttrStatusClass   = "prism.runtime.status_class"
-	runtimeTraceAttrStreamOutcome = "prism.runtime.stream_outcome"
-	runtimeTraceAttrBodyMode      = "prism.runtime.body_mode"
-	runtimeTraceAttrAttemptResult = "prism.runtime.attempt_result"
-	runtimeTraceAttrFeedbackKind  = "prism.runtime.feedback_kind"
-	runtimeTraceAttrEnqueueStatus = "prism.runtime.enqueue_status"
-	runtimeTraceAttrHTTPMethod    = "http.request.method"
-	runtimeTraceAttrHTTPStatus    = "http.response.status_code"
+	runtimeTraceAttrOperationName            = "prism.runtime.operation_name"
+	runtimeTraceAttrUpstreamOperationName    = "prism.runtime.upstream_operation_name"
+	runtimeTraceAttrOperationTranslationMode = "prism.runtime.operation_translation_mode"
+	runtimeTraceAttrUpstreamRequestPath      = "prism.runtime.upstream_request_path"
+	runtimeTraceAttrPreferredContextBand     = "prism.runtime.preferred_context_band"
+	runtimeTraceAttrSelectedTerminalTargetID = "prism.runtime.selected_terminal_target_id"
+	runtimeTraceAttrAPIFamily                = "prism.runtime.api_family"
+	runtimeTraceAttrStreaming                = "prism.runtime.streaming"
+	runtimeTraceAttrStatusClass              = "prism.runtime.status_class"
+	runtimeTraceAttrStreamOutcome            = "prism.runtime.stream_outcome"
+	runtimeTraceAttrBodyMode                 = "prism.runtime.body_mode"
+	runtimeTraceAttrAttemptResult            = "prism.runtime.attempt_result"
+	runtimeTraceAttrFeedbackKind             = "prism.runtime.feedback_kind"
+	runtimeTraceAttrEnqueueStatus            = "prism.runtime.enqueue_status"
+	runtimeTraceAttrHTTPMethod               = "http.request.method"
+	runtimeTraceAttrHTTPStatus               = "http.response.status_code"
 
 	runtimeTraceValueUnknown  = "unknown"
 	runtimeTraceBodyStreaming = "streaming"
@@ -105,12 +110,67 @@ func runtimeTraceOperationAttributes(operation RuntimeOperation) []attribute.Key
 	}
 }
 
+func runtimeTraceAttemptAttributionAttributes(operation RuntimeOperation, translationMode TranslationMode, contextRouting *runtimeContextRoutingDecision) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		attribute.String(runtimeTraceAttrUpstreamOperationName, runtimeMetricPolicy.operationName(runtimeUpstreamOperationName(operation, translationMode))),
+		attribute.String(runtimeTraceAttrOperationTranslationMode, runtimeTracePolicy.translationMode(string(normalizedRuntimeTranslationMode(translationMode)))),
+		attribute.String(runtimeTraceAttrUpstreamRequestPath, runtimeTracePolicy.requestPath(runtimeUpstreamRequestPathTemplate(operation, translationMode))),
+	}
+	if contextRouting != nil {
+		if contextRouting.SelectedContextBand != nil {
+			attrs = append(attrs, attribute.String(runtimeTraceAttrPreferredContextBand, runtimeTracePolicy.preferredContextBand(*contextRouting.SelectedContextBand)))
+		}
+		if contextRouting.SelectedTerminalTargetID != nil {
+			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *contextRouting.SelectedTerminalTargetID))
+		}
+	}
+	return attrs
+}
+
 func runtimeTracePlanAttributes(plan requestPlan) []attribute.KeyValue {
-	return []attribute.KeyValue{
+	attrs := []attribute.KeyValue{
 		attribute.String(runtimeTraceAttrOperationName, runtimeMetricPolicy.operationName(plan.RuntimeOperation.Name)),
 		attribute.String(runtimeTraceAttrAPIFamily, runtimeTracePolicy.apiFamily(plan.APIFamily)),
 		attribute.Bool(runtimeTraceAttrStreaming, plan.IsStreamingRequest),
 	}
+	attrs = append(attrs, runtimeTraceAttemptAttributionAttributes(plan.RuntimeOperation, firstTerminalAttempt(plan).TranslationMode, plan.ContextRouting)...)
+	return attrs
+}
+
+func runtimeTraceAttemptAttributes(plan requestPlan, attempt runtimeTerminalAttempt) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		attribute.String(runtimeTraceAttrOperationName, runtimeMetricPolicy.operationName(plan.RuntimeOperation.Name)),
+		attribute.String(runtimeTraceAttrAPIFamily, runtimeTracePolicy.apiFamily(plan.APIFamily)),
+		attribute.Bool(runtimeTraceAttrStreaming, plan.IsStreamingRequest),
+	}
+	attrs = append(attrs, runtimeTraceAttemptAttributionAttributes(plan.RuntimeOperation, attempt.TranslationMode, plan.ContextRouting)...)
+	return attrs
+}
+
+func runtimeTracePlanningFailureAttributes(failure runtimePlanningFailureTelemetry) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		attribute.String(runtimeTraceAttrOperationName, runtimeMetricPolicy.operationName(failure.RuntimeOperation.Name)),
+		attribute.String(runtimeTraceAttrAPIFamily, runtimeTracePolicy.apiFamily(failure.APIFamily)),
+		attribute.Bool(runtimeTraceAttrStreaming, failure.IsStreamingRequest),
+	}
+	if failure.UpstreamOperationName != nil {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrUpstreamOperationName, runtimeMetricPolicy.operationName(*failure.UpstreamOperationName)))
+	}
+	if failure.OperationTranslationMode != nil {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrOperationTranslationMode, runtimeTracePolicy.translationMode(*failure.OperationTranslationMode)))
+	}
+	if failure.UpstreamRequestPath != nil {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrUpstreamRequestPath, runtimeTracePolicy.requestPath(*failure.UpstreamRequestPath)))
+	}
+	if failure.ContextRouting != nil {
+		if failure.ContextRouting.SelectedContextBand != nil {
+			attrs = append(attrs, attribute.String(runtimeTraceAttrPreferredContextBand, runtimeTracePolicy.preferredContextBand(*failure.ContextRouting.SelectedContextBand)))
+		}
+		if failure.ContextRouting.SelectedTerminalTargetID != nil {
+			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *failure.ContextRouting.SelectedTerminalTargetID))
+		}
+	}
+	return attrs
 }
 
 func runtimeTraceEnvelopeAttributes(envelope runtimeTelemetryEnvelope) []attribute.KeyValue {
@@ -119,6 +179,23 @@ func runtimeTraceEnvelopeAttributes(envelope runtimeTelemetryEnvelope) []attribu
 		attribute.String(runtimeTraceAttrAPIFamily, runtimeTracePolicy.apiFamily(envelope.UsageEvent.APIFamily)),
 		attribute.String(runtimeTraceAttrStatusClass, runtimeMetricPolicy.statusClass(envelope.UsageEvent.StatusCode)),
 		attribute.String(runtimeTraceAttrStreamOutcome, runtimeMetricPolicy.streamOutcome(envelope.UsageEvent.StreamOutcome)),
+	}
+	if envelope.UsageEvent.UpstreamOperationName != nil {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrUpstreamOperationName, runtimeMetricPolicy.operationName(*envelope.UsageEvent.UpstreamOperationName)))
+	}
+	if envelope.UsageEvent.OperationTranslationMode != nil {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrOperationTranslationMode, runtimeTracePolicy.translationMode(*envelope.UsageEvent.OperationTranslationMode)))
+	}
+	if envelope.UsageEvent.UpstreamRequestPath != nil {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrUpstreamRequestPath, runtimeTracePolicy.requestPath(*envelope.UsageEvent.UpstreamRequestPath)))
+	}
+	if envelope.UsageEvent.ContextRouting != nil {
+		if envelope.UsageEvent.ContextRouting.SelectedContextBand != nil {
+			attrs = append(attrs, attribute.String(runtimeTraceAttrPreferredContextBand, runtimeTracePolicy.preferredContextBand(*envelope.UsageEvent.ContextRouting.SelectedContextBand)))
+		}
+		if envelope.UsageEvent.ContextRouting.SelectedTerminalTargetID != nil {
+			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *envelope.UsageEvent.ContextRouting.SelectedTerminalTargetID))
+		}
 	}
 	if envelope.UsageEvent.StatusCode >= 100 && envelope.UsageEvent.StatusCode <= 599 {
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrHTTPStatus, envelope.UsageEvent.StatusCode))
@@ -203,6 +280,37 @@ func (policy runtimeTraceAttributePolicy) httpMethod(method string) string {
 func (policy runtimeTraceAttributePolicy) bodyMode(value string) string {
 	switch strings.TrimSpace(value) {
 	case runtimeTraceBodyStreaming, runtimeTraceBodyBuffered, runtimeTraceBodyEmpty:
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) translationMode(value string) string {
+	switch strings.TrimSpace(value) {
+	case string(TranslationModeNone), string(TranslationModeOpenAIResponsesToChatCompletions), string(TranslationModeOpenAIChatCompletionsToResponses):
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) requestPath(value string) string {
+	trimmed := strings.TrimSpace(value)
+	for _, operation := range runtimeOperationCatalog {
+		if trimmed == operation.PathTemplate {
+			return operation.PathTemplate
+		}
+		if _, ok := operation.PathMatcher.Match(trimmed); ok {
+			return operation.PathTemplate
+		}
+	}
+	return runtimeTraceValueUnknown
+}
+
+func (policy runtimeTraceAttributePolicy) preferredContextBand(value string) string {
+	switch strings.TrimSpace(value) {
+	case runtimeContextBandPreferred, runtimeContextBandDiscretionary:
 		return strings.TrimSpace(value)
 	default:
 		return runtimeTraceValueUnknown

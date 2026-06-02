@@ -80,12 +80,13 @@ type Service struct {
 }
 
 type domainError struct {
-	StatusCode      int
-	ErrorCode       string
-	Detail          string
-	Fields          map[string]any
-	ContextRouting  *runtimeContextRoutingDecision
-	PlanningFailure *runtimePlanningFailureTelemetry
+	StatusCode               int
+	ErrorCode                string
+	Detail                   string
+	Fields                   map[string]any
+	ContextRouting           *runtimeContextRoutingDecision
+	SelectedTerminalTargetID *int
+	PlanningFailure          *runtimePlanningFailureTelemetry
 }
 
 func (err *domainError) Error() string {
@@ -452,16 +453,21 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	r = r.WithContext(ctx)
 	defer responseSpan.End()
 	proxyWriter := newRuntimeDeferredCommitWriter(w)
-	copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
-	proxyWriter.WriteHeader(execution.Response.StatusCode)
 	runtimeTraceSetStatusCode(responseSpan, execution.Response.StatusCode)
 
 	var responseCapture runtimeResponseCapture
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
+	translationMode := responseTranslationModeForExecution(plan, execution)
 	if strings.Contains(contentType, "text/event-stream") {
+		if translationMode == "" || translationMode == TranslationModeNone {
+			copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
+		} else {
+			copyTranslatedResponseHeadersWithContentType(proxyWriter.Header(), execution.Response.Header, "text/event-stream")
+		}
+		proxyWriter.WriteHeader(execution.Response.StatusCode)
 		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
-			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponse(plan.RuntimeOperation, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
+			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseByOperation(plan.RuntimeOperation, translationMode, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
 			if streamErr != nil {
 				runtimeTraceMarkError(responseSpan, "response_handle_failed")
 				slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
@@ -472,17 +478,48 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			return
 		}
 	}
-	responseCapture, err := proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, proxyWriter, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
+	if translationMode == "" || translationMode == TranslationModeNone {
+		copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
+		proxyWriter.WriteHeader(execution.Response.StatusCode)
+		responseCapture, err := proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, TranslationModeNone, proxyWriter, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
+		if err != nil {
+			runtimeTraceMarkError(responseSpan, "response_handle_failed")
+			if !proxyWriter.Committed() {
+				writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
+			}
+			return
+		}
+		runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
+		proxyWriter.Commit()
+		s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
+		return
+	}
+
+	var translatedBody bytes.Buffer
+	responseCapture, err := proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, translationMode, &translatedBody, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
 	if err != nil {
 		runtimeTraceMarkError(responseSpan, "response_handle_failed")
-		if !proxyWriter.Committed() {
-			writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
-		}
+		writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
+		return
+	}
+	copyTranslatedResponseHeaders(proxyWriter.Header(), execution.Response.Header)
+	proxyWriter.WriteHeader(execution.Response.StatusCode)
+	if _, err := proxyWriter.Write(translatedBody.Bytes()); err != nil {
+		runtimeTraceMarkError(responseSpan, "response_handle_failed")
 		return
 	}
 	runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
 	proxyWriter.Commit()
 	s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
+}
+
+func responseTranslationModeForExecution(plan requestPlan, execution executionResult) TranslationMode {
+	for _, attempt := range plan.orderedTerminalAttempts() {
+		if attempt.Connection.ID == execution.Connection.ID {
+			return attempt.TranslationMode
+		}
+	}
+	return TranslationModeNone
 }
 
 // Downstream bytes become committed on the first header/body write. Once that

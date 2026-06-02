@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -554,6 +555,9 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	if jsonInt(t, connection["context_window_tokens"]) != 200000 || jsonInt(t, connection["default_output_token_reserve"]) != 2048 || jsonFloat(t, connection["max_context_utilization"]) != 0.85 {
 		t.Fatalf("expected v3 connection capability export, got %+v", connection)
 	}
+	if connection["openai_probe_endpoint_variant"] != "responses_minimal" {
+		t.Fatalf("expected v3 connection export to keep openai_probe_endpoint_variant=responses_minimal, got %+v", connection)
+	}
 	strategies := payload["loadbalance_strategies"].([]any)
 	if len(strategies) != 1 {
 		t.Fatalf("expected one exported loadbalance strategy, got %+v", strategies)
@@ -922,5 +926,133 @@ func seedVendorCatalogCustomVendor(t *testing.T, harness *contractHarness, key s
 	now := configBundleFixtureTime.Add(2 * time.Minute)
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO vendors (key, name, description, icon_key, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, key, name, description, iconKey, auditEnabled, auditCaptureBodies, now); err != nil {
 		t.Fatalf("insert vendor %q: %v", key, err)
+	}
+}
+
+func TestConfigBundlePreferredContext(t *testing.T) {
+	harness := newConfigBundleV3ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleV3Graph(t, harness, profileID)
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET preferred_context_utilization_threshold = 0.70 WHERE profile_id = $1`, profileID); err != nil {
+		t.Fatalf("seed model preferred_context_utilization_threshold: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET preferred_context_utilization_threshold = 0.65 WHERE profile_id = $1`, profileID); err != nil {
+		t.Fatalf("seed connection preferred_context_utilization_threshold: %v", err)
+	}
+
+	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, exportResponse, http.StatusOK)
+	var exported map[string]any
+	decodeJSONResponse(t, exportResponse, &exported)
+	model := asMap(t, exported["models"].([]any)[0])
+	connection := asMap(t, exported["connections"].([]any)[0])
+	if jsonFloat(t, model["preferred_context_utilization_threshold"]) != 0.7 || jsonFloat(t, connection["preferred_context_utilization_threshold"]) != 0.65 {
+		t.Fatalf("expected preferred_context_utilization_threshold export values, got model=%+v connection=%+v", model, connection)
+	}
+
+	roundTripPreview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", exported, modelHeader(profileID))
+	assertStatus(t, roundTripPreview, http.StatusOK)
+	var roundTripPreviewBody map[string]any
+	decodeJSONResponse(t, roundTripPreview, &roundTripPreviewBody)
+	roundTripHeaders := configBundleHeadersWithPreviewToken(modelHeader(profileID), roundTripPreviewBody["preview_token"].(string))
+	roundTripImport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", exported, roundTripHeaders)
+	assertStatus(t, roundTripImport, http.StatusOK)
+	assertConfigBundlePreferredContextStored(t, harness, profileID, 0.70, 0.65)
+
+	roundTripExportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, roundTripExportResponse, http.StatusOK)
+	var roundTripExported map[string]any
+	decodeJSONResponse(t, roundTripExportResponse, &roundTripExported)
+	if jsonFloat(t, asMap(t, roundTripExported["models"].([]any)[0])["preferred_context_utilization_threshold"]) != 0.7 || jsonFloat(t, asMap(t, roundTripExported["connections"].([]any)[0])["preferred_context_utilization_threshold"]) != 0.65 {
+		t.Fatalf("expected non-null preferred_context_utilization_threshold to round-trip, got %+v", roundTripExported)
+	}
+
+	legacy := cloneProfileBundleV3Payload(t, exported)
+	delete(asMap(t, legacy["models"].([]any)[0]), "preferred_context_utilization_threshold")
+	delete(asMap(t, legacy["connections"].([]any)[0]), "preferred_context_utilization_threshold")
+	preview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", legacy, modelHeader(profileID))
+	assertStatus(t, preview, http.StatusOK)
+	var previewBody map[string]any
+	decodeJSONResponse(t, preview, &previewBody)
+	importHeaders := configBundleHeadersWithPreviewToken(modelHeader(profileID), previewBody["preview_token"].(string))
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", legacy, importHeaders)
+	assertStatus(t, importResponse, http.StatusOK)
+
+	reExportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, reExportResponse, http.StatusOK)
+	var reExported map[string]any
+	decodeJSONResponse(t, reExportResponse, &reExported)
+	if asMap(t, reExported["models"].([]any)[0])["preferred_context_utilization_threshold"] != nil || asMap(t, reExported["connections"].([]any)[0])["preferred_context_utilization_threshold"] != nil {
+		t.Fatalf("expected legacy import omission to re-export preferred_context_utilization_threshold as null, got %+v", reExported)
+	}
+
+	invalid := cloneProfileBundleV3Payload(t, exported)
+	asMap(t, invalid["connections"].([]any)[0])["max_context_utilization"] = 0.60
+	asMap(t, invalid["connections"].([]any)[0])["preferred_context_utilization_threshold"] = 0.70
+	invalidPreview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", invalid, modelHeader(profileID))
+	assertErrorResponse(t, invalidPreview, http.StatusBadRequest, "Connection 'openai-primary-openai' preferred_context_utilization_threshold must be less than or equal to max_context_utilization when provided")
+}
+
+func TestConfigBundleOpenAIProbeVariantRoundTrips(t *testing.T) {
+	harness := newConfigBundleV3ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleV3Graph(t, harness, profileID)
+
+	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, exportResponse, http.StatusOK)
+	var exported map[string]any
+	decodeJSONResponse(t, exportResponse, &exported)
+	connection := asMap(t, exported["connections"].([]any)[0])
+	if connection["openai_probe_endpoint_variant"] != "responses_minimal" {
+		t.Fatalf("expected exported connection probe variant responses_minimal, got %+v", connection)
+	}
+
+	mutated := cloneProfileBundleV3Payload(t, exported)
+	asMap(t, mutated["connections"].([]any)[0])["openai_probe_endpoint_variant"] = "chat_completions_reasoning_none"
+	preview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", mutated, modelHeader(profileID))
+	assertStatus(t, preview, http.StatusOK)
+	var previewBody map[string]any
+	decodeJSONResponse(t, preview, &previewBody)
+	importHeaders := configBundleHeadersWithPreviewToken(modelHeader(profileID), previewBody["preview_token"].(string))
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", mutated, importHeaders)
+	assertStatus(t, importResponse, http.StatusOK)
+
+	reExportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, reExportResponse, http.StatusOK)
+	var reExported map[string]any
+	decodeJSONResponse(t, reExportResponse, &reExported)
+	reExportedConnection := asMap(t, reExported["connections"].([]any)[0])
+	if reExportedConnection["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" {
+		t.Fatalf("expected round-tripped connection probe variant chat_completions_reasoning_none, got %+v", reExportedConnection)
+	}
+	assertConfigBundleStoredConnectionProbeVariant(t, harness, profileID, "chat_completions_reasoning_none")
+}
+
+func assertConfigBundlePreferredContextStored(t *testing.T, harness *contractHarness, profileID int, wantModel float64, wantConnection float64) {
+	t.Helper()
+	var modelPreferred sql.NullFloat64
+	if err := harness.conn.QueryRow(context.Background(), `SELECT preferred_context_utilization_threshold FROM model_configs WHERE profile_id = $1 AND model_id = 'gpt-4o-mini' LIMIT 1`, profileID).Scan(&modelPreferred); err != nil {
+		t.Fatalf("load stored model preferred_context_utilization_threshold: %v", err)
+	}
+	if !modelPreferred.Valid || modelPreferred.Float64 != wantModel {
+		t.Fatalf("expected stored model preferred_context_utilization_threshold %0.2f, got %+v", wantModel, modelPreferred)
+	}
+	var connectionPreferred sql.NullFloat64
+	if err := harness.conn.QueryRow(context.Background(), `SELECT preferred_context_utilization_threshold FROM connections WHERE profile_id = $1 AND name = 'Primary OpenAI connection' LIMIT 1`, profileID).Scan(&connectionPreferred); err != nil {
+		t.Fatalf("load stored connection preferred_context_utilization_threshold: %v", err)
+	}
+	if !connectionPreferred.Valid || connectionPreferred.Float64 != wantConnection {
+		t.Fatalf("expected stored connection preferred_context_utilization_threshold %0.2f, got %+v", wantConnection, connectionPreferred)
+	}
+}
+
+func assertConfigBundleStoredConnectionProbeVariant(t *testing.T, harness *contractHarness, profileID int, want string) {
+	t.Helper()
+	var probeVariant sql.NullString
+	if err := harness.conn.QueryRow(context.Background(), `SELECT openai_probe_endpoint_variant FROM connections WHERE profile_id = $1 AND name = 'Primary OpenAI connection' LIMIT 1`, profileID).Scan(&probeVariant); err != nil {
+		t.Fatalf("load stored connection openai_probe_endpoint_variant: %v", err)
+	}
+	if !probeVariant.Valid || probeVariant.String != want {
+		t.Fatalf("expected stored connection openai_probe_endpoint_variant %q, got %+v", want, probeVariant)
 	}
 }

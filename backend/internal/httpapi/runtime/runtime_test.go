@@ -551,6 +551,166 @@ func TestBuildRequestPlan_CheapestEligibleContextRanksUnpricedTargetsLast(t *tes
 	})
 }
 
+func TestBuildRequestPlan_CheapestEligibleContextPreferredContextRanksPreferredBeforeCheaperDiscretionary(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "preferred-band-openai"})
+	model := snapshot.ModelsByID["preferred-band-openai"]
+	setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"preferred-band-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
+	if err != nil {
+		t.Fatalf("estimate preferred-context request: %v", err)
+	}
+	contextWindowTokens := estimation.EstimatedTotalContextTokens + 100
+	maxContextUtilization := 1.0
+	preferredThreshold := 1.0
+	discretionaryThreshold := 0.5
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_401, 9_401, 1, requestPlanConnectionTargetOptions{
+		contextWindowTokens:                  &contextWindowTokens,
+		maxContextUtilization:                maxContextUtilization,
+		preferredContextUtilizationThreshold: &preferredThreshold,
+		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+			PricingUnit:         runtimePricingUnitPerMillion,
+			PricingCurrencyCode: "USD",
+			InputPrice:          "5",
+			OutputPrice:         "5",
+		},
+	})
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_402, 9_402, 0, requestPlanConnectionTargetOptions{
+		contextWindowTokens:                  &contextWindowTokens,
+		maxContextUtilization:                maxContextUtilization,
+		preferredContextUtilizationThreshold: &discretionaryThreshold,
+		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+			PricingUnit:         runtimePricingUnitPerMillion,
+			PricingCurrencyCode: "USD",
+			InputPrice:          "1",
+			OutputPrice:         "1",
+		},
+	})
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build preferred-band request plan: %v", err)
+	}
+	if len(plan.Connections) == 0 || plan.Connections[0].ID != 2_401 {
+		t.Fatalf("expected preferred-band terminal target 2401 to lead plan, got %+v", plan.Connections)
+	}
+	if len(plan.TerminalAttempts) == 0 || plan.TerminalAttempts[0].Connection.ID != 2_401 {
+		t.Fatalf("expected preferred-band terminal attempt 2401 to lead plan, got %+v", plan.TerminalAttempts)
+	}
+}
+
+func TestBuildRequestPlan_CheapestEligibleContextPreferredContextFallsBackToDiscretionaryCandidates(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "discretionary-band-openai"})
+	model := snapshot.ModelsByID["discretionary-band-openai"]
+	setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"discretionary-band-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
+	if err != nil {
+		t.Fatalf("estimate discretionary fallback request: %v", err)
+	}
+	contextWindowTokens := estimation.EstimatedTotalContextTokens + 100
+	maxContextUtilization := 1.0
+	firstThreshold := 0.5
+	secondThreshold := 0.4
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_411, 9_411, 0, requestPlanConnectionTargetOptions{
+		contextWindowTokens:                  &contextWindowTokens,
+		maxContextUtilization:                maxContextUtilization,
+		preferredContextUtilizationThreshold: &firstThreshold,
+		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+			PricingUnit:         runtimePricingUnitPerMillion,
+			PricingCurrencyCode: "USD",
+			InputPrice:          "4",
+			OutputPrice:         "4",
+		},
+	})
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_412, 9_412, 1, requestPlanConnectionTargetOptions{
+		contextWindowTokens:                  &contextWindowTokens,
+		maxContextUtilization:                maxContextUtilization,
+		preferredContextUtilizationThreshold: &secondThreshold,
+		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+			PricingUnit:         runtimePricingUnitPerMillion,
+			PricingCurrencyCode: "USD",
+			InputPrice:          "1",
+			OutputPrice:         "1",
+		},
+	})
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build discretionary fallback request plan: %v", err)
+	}
+	if len(plan.Connections) == 0 || plan.Connections[0].ID != 2_412 {
+		t.Fatalf("expected cheapest discretionary terminal target 2412 to lead plan, got %+v", plan.Connections)
+	}
+	if len(plan.TerminalAttempts) == 0 || plan.TerminalAttempts[0].Connection.ID != 2_412 {
+		t.Fatalf("expected cheapest discretionary terminal attempt 2412 to lead plan, got %+v", plan.TerminalAttempts)
+	}
+}
+
+func TestBuildRequestPlan_CheapestEligibleContextPreferredContextPreservesTieBreaksWithinBand(t *testing.T) {
+	t.Run("access-target position beats terminal target id within a preferred band", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "preferred-position-openai"})
+		model := snapshot.ModelsByID["preferred-position-openai"]
+		setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+		rawBody := []byte(`{"model":"preferred-position-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+		estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
+		if err != nil {
+			t.Fatalf("estimate preferred position request: %v", err)
+		}
+		contextWindowTokens := estimation.EstimatedTotalContextTokens + 100
+		maxContextUtilization := 1.0
+		preferredThreshold := 1.0
+		pricing := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "1", OutputPrice: "1"}
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_422, 9_422, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization, preferredContextUtilizationThreshold: &preferredThreshold, pricingTemplateSnapshot: pricing})
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_421, 9_421, 1, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization, preferredContextUtilizationThreshold: &preferredThreshold, pricingTemplateSnapshot: pricing})
+		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		if err != nil {
+			t.Fatalf("build preferred position request plan: %v", err)
+		}
+		if len(plan.Connections) == 0 || plan.Connections[0].ID != 2_422 {
+			t.Fatalf("expected lower-position preferred terminal target 2422 to lead plan, got %+v", plan.Connections)
+		}
+	})
+
+	t.Run("terminal target id breaks same-position preferred ties", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "preferred-terminal-id-openai"})
+		model := snapshot.ModelsByID["preferred-terminal-id-openai"]
+		setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+		rawBody := []byte(`{"model":"preferred-terminal-id-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+		estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
+		if err != nil {
+			t.Fatalf("estimate preferred terminal-id request: %v", err)
+		}
+		contextWindowTokens := estimation.EstimatedTotalContextTokens + 100
+		maxContextUtilization := 1.0
+		preferredThreshold := 1.0
+		pricing := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "1", OutputPrice: "1"}
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_431, 9_432, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization, preferredContextUtilizationThreshold: &preferredThreshold, pricingTemplateSnapshot: pricing})
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_432, 9_431, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization, preferredContextUtilizationThreshold: &preferredThreshold, pricingTemplateSnapshot: pricing})
+		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		if err != nil {
+			t.Fatalf("build preferred terminal-id request plan: %v", err)
+		}
+		if len(plan.Connections) == 0 || plan.Connections[0].ID != 2_431 {
+			t.Fatalf("expected lower terminal-target id 2431 to lead same-position preferred tie, got %+v", plan.Connections)
+		}
+	})
+}
+
 func TestBuildRequestPlan_NoContextEligibleTargetReturns413WithoutBanMutation(t *testing.T) {
 	service := newRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "no-fit-openai"})
@@ -590,10 +750,10 @@ func TestBuildRequestPlan_NoContextEligibleTargetReturns413WithoutBanMutation(t 
 	response := responseRecorder.Result()
 	defer func() { _ = response.Body.Close() }()
 	var payload struct {
-		Error                           string `json:"error"`
-		Detail                          string `json:"detail"`
-		EstimatedTotalContextTokens     int    `json:"estimated_total_context_tokens"`
-		LargestUsableContextWindowTokens int   `json:"largest_usable_context_window_tokens"`
+		Error                            string `json:"error"`
+		Detail                           string `json:"detail"`
+		EstimatedTotalContextTokens      int    `json:"estimated_total_context_tokens"`
+		LargestUsableContextWindowTokens int    `json:"largest_usable_context_window_tokens"`
 	}
 	if decodeErr := json.NewDecoder(response.Body).Decode(&payload); decodeErr != nil {
 		t.Fatalf("decode 413 context-window response: %v", decodeErr)
@@ -771,7 +931,7 @@ func TestResolveExecutionTarget_NoEligibleTargetsReturns503(t *testing.T) {
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "empty-openai"})
 	snapshot.AccessTargetsBySourceModelID[1] = nil
 
-	_, err := service.resolveExecutionTargetFromSnapshot(requestPlanTestProfileID, snapshot, snapshot.ModelsByID["empty-openai"], nil, service.nowUTC())
+	_, err := service.resolveExecutionTargetFromSnapshot(requestPlanTestProfileID, snapshot, snapshot.ModelsByID["empty-openai"], mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation, requestTranslationEligibilitySummary{}, nil, service.nowUTC())
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'empty-openai'.")
 }
 
@@ -1768,6 +1928,65 @@ const (
 	requestPlanTestStrategyID = 202
 )
 
+func TestOpenAIProbeCapabilityDerivation(t *testing.T) {
+	tests := []struct {
+		name      string
+		apiFamily string
+		variant   *string
+		want      *string
+	}{
+		{name: "default OpenAI probe variant maps to Responses", apiFamily: "openai", variant: nil, want: stringPtr(openAIUpstreamOperationResponses)},
+		{name: "blank OpenAI probe variant maps to Responses", apiFamily: "openai", variant: stringPtr("  "), want: stringPtr(openAIUpstreamOperationResponses)},
+		{name: "Responses reasoning-none probe maps to Responses", apiFamily: "openai", variant: stringPtr("responses_reasoning_none"), want: stringPtr(openAIUpstreamOperationResponses)},
+		{name: "Chat Completions probe maps to Chat Completions", apiFamily: "openai", variant: stringPtr("chat_completions_reasoning_none"), want: stringPtr(openAIUpstreamOperationChatCompletions)},
+		{name: "non-OpenAI probe capability is absent", apiFamily: "gemini", variant: stringPtr("responses_minimal"), want: nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := deriveOpenAIUpstreamOperation(test.apiFamily, test.variant)
+			if test.want == nil {
+				if got != nil {
+					t.Fatalf("expected nil upstream operation, got %q", *got)
+				}
+				return
+			}
+			if got == nil || *got != *test.want {
+				t.Fatalf("expected upstream operation %q, got %+v", *test.want, got)
+			}
+		})
+	}
+}
+
+func TestConnectionCapabilityPlanningPreservesPreferredThresholdAndOpenAIUpstreamOperation(t *testing.T) {
+	service := newRequestPlanUnitService()
+	modelPreferredThreshold := 0.70
+	connectionPreferredThreshold := 0.55
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "capability-openai", PreferredContextUtilizationThreshold: &modelPreferredThreshold})
+	model := snapshot.ModelsByID["capability-openai"]
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_401, 9_401, 0, requestPlanConnectionTargetOptions{preferredContextUtilizationThreshold: &connectionPreferredThreshold, openAIUpstreamOperation: stringPtr(openAIUpstreamOperationChatCompletions)})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"capability-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build request plan: %v", err)
+	}
+	if len(plan.TerminalAttempts) != 1 {
+		t.Fatalf("expected one terminal attempt, got %d", len(plan.TerminalAttempts))
+	}
+	attempt := plan.TerminalAttempts[0]
+	if attempt.TargetModel.PreferredContextUtilizationThreshold == nil || *attempt.TargetModel.PreferredContextUtilizationThreshold != modelPreferredThreshold {
+		t.Fatalf("expected target model preferred threshold %0.2f, got %+v", modelPreferredThreshold, attempt.TargetModel.PreferredContextUtilizationThreshold)
+	}
+	if attempt.Connection.PreferredContextUtilizationThreshold == nil || *attempt.Connection.PreferredContextUtilizationThreshold != connectionPreferredThreshold {
+		t.Fatalf("expected connection preferred threshold %0.2f, got %+v", connectionPreferredThreshold, attempt.Connection.PreferredContextUtilizationThreshold)
+	}
+	if attempt.Connection.OpenAIUpstreamOperation == nil || *attempt.Connection.OpenAIUpstreamOperation != openAIUpstreamOperationChatCompletions {
+		t.Fatalf("expected connection upstream operation %q, got %+v", openAIUpstreamOperationChatCompletions, attempt.Connection.OpenAIUpstreamOperation)
+	}
+}
+
 func newRequestPlanUnitService() *Service {
 	return &Service{
 		runtimeState: loadbalance.NewLocalRuntimeStateStore(),
@@ -1850,10 +2069,13 @@ func addRequestPlanModelTargetAtPosition(snapshot *planningSnapshot, proxyModelI
 }
 
 type requestPlanConnectionTargetOptions struct {
-	contextWindowTokens       *int
-	defaultOutputTokenReserve int
-	maxContextUtilization     float64
-	pricingTemplateSnapshot   *runtimePricingTemplateSnapshot
+	contextWindowTokens                  *int
+	defaultOutputTokenReserve            int
+	maxContextUtilization                float64
+	preferredContextUtilizationThreshold *float64
+	openAIProbeEndpointVariant           *string
+	openAIUpstreamOperation              *string
+	pricingTemplateSnapshot              *runtimePricingTemplateSnapshot
 }
 
 func addRequestPlanConnectionTarget(snapshot *planningSnapshot, model runtimeModelRecord, connectionID int, targetID int, position int) {
@@ -1862,17 +2084,20 @@ func addRequestPlanConnectionTarget(snapshot *planningSnapshot, model runtimeMod
 
 func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model runtimeModelRecord, connectionID int, targetID int, position int, options requestPlanConnectionTargetOptions) {
 	snapshot.ConnectionsByID[connectionID] = runtimeConnection{
-		ID:                        connectionID,
-		ProfileID:                 model.ProfileID,
-		APIFamily:                 model.APIFamily,
-		ModelConfigID:             model.ID,
-		EndpointID:                1,
-		Priority:                  position,
-		PricingTemplateSnapshot:   options.pricingTemplateSnapshot,
-		ContextWindowTokens:       options.contextWindowTokens,
-		DefaultOutputTokenReserve: options.defaultOutputTokenReserve,
-		MaxContextUtilization:     options.maxContextUtilization,
-		Endpoint:                  runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
+		ID:                                   connectionID,
+		ProfileID:                            model.ProfileID,
+		APIFamily:                            model.APIFamily,
+		ModelConfigID:                        model.ID,
+		EndpointID:                           1,
+		Priority:                             position,
+		PricingTemplateSnapshot:              options.pricingTemplateSnapshot,
+		ContextWindowTokens:                  options.contextWindowTokens,
+		DefaultOutputTokenReserve:            options.defaultOutputTokenReserve,
+		MaxContextUtilization:                options.maxContextUtilization,
+		PreferredContextUtilizationThreshold: options.preferredContextUtilizationThreshold,
+		OpenAIProbeEndpointVariant:           options.openAIProbeEndpointVariant,
+		OpenAIUpstreamOperation:              options.openAIUpstreamOperation,
+		Endpoint:                             runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
 	}
 	snapshot.AccessTargetsBySourceModelID[model.ID] = append(snapshot.AccessTargetsBySourceModelID[model.ID], runtimeAccessTargetRecord{
 		ID:                        targetID,
@@ -1962,7 +2187,7 @@ func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPath
 		t.Run(test.name, func(t *testing.T) {
 			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.requestPath).Operation
 			var forwarded bytes.Buffer
-			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(test.payload), "application/json", time.Now, false)
+			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(test.payload), "application/json", time.Now, false)
 			if err != nil {
 				t.Fatalf("capture streamed non-sse usage: %v", err)
 			}

@@ -43,6 +43,10 @@ function getModelValidationMessage(
       return messages.modelsData.defaultOutputTokenReserveInvalid;
     case "max_context_utilization_invalid":
       return messages.modelsData.maxContextUtilizationInvalid;
+    case "preferred_context_utilization_threshold_invalid":
+      return messages.modelsData.preferredContextUtilizationThresholdInvalid;
+    case "preferred_context_utilization_threshold_exceeds_max":
+      return messages.modelsData.preferredContextUtilizationThresholdExceedsMaxContextUtilization;
     default:
       return null;
   }
