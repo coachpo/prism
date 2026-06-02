@@ -341,8 +341,10 @@ test("loadbalance strategy dialog creates and edits Cheapest target that fits co
   await page.goto("/loadbalance-strategies");
   await expect(page.getByRole("table")).toContainText("Existing cheapest eligible context");
   await expect(page.getByRole("table")).toContainText("Cheapest target that fits context");
+  await expect(page.getByRole("table")).toContainText("Pick the lowest-cost terminal target that passes the hard context fit; prefer the preferred band before using the discretionary band. If no target fits, Prism returns 413.");
 
   await page.getByRole("button", { name: "Add Strategy" }).first().click();
+  await expect(page.getByText("Configure reusable terminal-target routing families and Ban Policy for this profile.")).toBeVisible();
   await page.getByLabel("Name").fill("Cheapest context routing");
   await page.getByLabel("Legacy Routing").click();
   await expect(page.getByRole("option")).toHaveText([

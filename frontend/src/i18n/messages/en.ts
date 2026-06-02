@@ -1582,6 +1582,7 @@ export interface Messages {
     addTarget: string;
     connectionTarget: string;
     contextRoutingDefaults: string;
+    contextRoutingDefaultsDescription: string;
     contextWindowTokens: string;
     contextWindowTokensHelper: string;
     currentApiFamily: (apiFamily: string) => string;
@@ -1600,6 +1601,7 @@ export interface Messages {
     modelTarget: string;
     needsTarget: string;
     newConnection: string;
+    newModelDescription: string;
     newModelEnabledDescription: string;
     noAccessTargetsSelected: string;
     noModelsMatchSearch: string;
@@ -2278,16 +2280,16 @@ export const enMessages: Messages = {
     routingModelNodeType: "Model",
     routingNoActiveRoutes: "No active routes",
     routingNoActiveRoutesDescription:
-      "Activate at least one model terminal target to map live routing paths across endpoints and models.",
+      "Create an entry model and enable at least one terminal target so Prism can publish this selected-profile routing topology.",
     routingNoData: "No routing data",
     routingNoDataDescription: "No routing diagram data is available for this profile.",
     routingNoRecentTraffic: "No routed traffic in the last 24h",
     routingNoRecentTrafficDescription:
-      "Active routes are configured, but no successful request traffic was recorded for the current profile in the last 24 hours.",
+      "The selected profile already has routes, but Prism recorded no successful terminal-target traffic in the last 24 hours.",
     routingNodeType: "Node type",
     routingTitle: "Routing Target Health",
     routingDescription:
-      "Trace configured model-to-target-to-endpoint paths in one view. Muted nodes mark disabled models and inactive terminal targets.",
+      "Routing story: Entry Model -> Planner -> Access Targets -> Terminal Target -> Endpoint. This backend-owned chart focuses on the selected-profile terminal-target topology after planner and access-target resolution. The browser does not reconstruct graph edges from management reads. Muted nodes mark disabled models and inactive terminal targets.",
     routingLoadingDescription: "Loading backend-owned routing topology and recent target telemetry",
     spending30d: "30d Total Spend",
     streamingShare: "Streaming Share",
@@ -2525,7 +2527,7 @@ export const enMessages: Messages = {
       "Multiplier applied to each retry-window delay after a failure is recorded.",
     backoffMultiplierLabel: "Backoff Multiplier",
     cancel: "Cancel",
-    description: "Configure reusable routing-family Ban Policy strategies for this profile.",
+    description: "Configure reusable terminal-target routing families and Ban Policy for this profile.",
     editTitle: "Edit Loadbalance Strategy",
     explainField: (label) => `Explain ${label}`,
     failureStatusCodesDescription:
@@ -2555,7 +2557,7 @@ export const enMessages: Messages = {
   loadbalanceStrategyCopy: {
     cheapestEligibleContextLabel: "Cheapest target that fits context",
     cheapestEligibleContextSummary:
-      "Prefer the lowest-cost eligible target that can satisfy the request context.",
+      "Pick the lowest-cost terminal target that passes the hard context fit; prefer the preferred band before using the discretionary band. If no target fits, Prism returns 413.",
     fillFirstLabel: "Fill first",
     fillFirstSummary: "Keep using the first eligible connection until it is unavailable.",
     legacyFamilyLabel: "Legacy routing",
@@ -2566,7 +2568,7 @@ export const enMessages: Messages = {
   },
   loadbalanceStrategiesPage: {
     description:
-      "Manage reusable routing-family Ban Policy strategies for this profile",
+      "Manage reusable Ban Policy and terminal-target routing families for this profile",
     selectedProfileFallback: "the selected profile",
     scopeCallout: (profileLabel) =>
       `Changes here affect ${profileLabel} and models attached to these strategies.`,
@@ -2642,7 +2644,7 @@ export const enMessages: Messages = {
     banUntilResetPolicy: (threshold) =>
       `Cumulative threshold ${threshold} attempts bans until reset`,
     description:
-      "Reuse routing-family Ban Policy strategies across models instead of redefining retry and ban behavior per model.",
+      "Reuse terminal-target selection families plus Ban Policy across models instead of redefining routing and retry behavior per entry model.",
     disabled: "Disabled",
     edit: "Edit",
     enabled: "Enabled",
@@ -3580,12 +3582,12 @@ export const enMessages: Messages = {
     connectionFallback: (id) => `Terminal target ${id}`,
     currentTargetLabel: (targetId) => `${targetId} (current terminal target)`,
     connectionDialogDescription:
-      "Configure endpoint source and optional pricing template for this terminal target. Routing priority is managed from the terminal target list by dragging cards.",
+      "Configure where this model-private terminal target sends requests. Routing priority stays owned by drag-and-drop in the terminal-target list.",
     connectionDisplayNamePlaceholder: "Connection display name",
     connectionHealthy: "Connection Healthy",
     contextRoutingOverrides: "Context routing overrides",
     contextRoutingOverridesDescription:
-      "Choose which context routing values this terminal target inherits from the model and which ones it overrides explicitly.",
+      "Choose per field whether this terminal target inherits the entry model defaults or overrides them for this endpoint.",
     inheritedFromModel: (value) => `Inherited from model: ${value}`,
     connectionNameOptional: "Name (Optional)",
     connectionNameSummaryLabel: "Resolved Name",
@@ -3633,7 +3635,8 @@ export const enMessages: Messages = {
     endpointNamePlaceholder: "e.g. OpenAI Primary",
     endpointSource: "Endpoint Source",
     endpointSummaryLabel: "Endpoint",
-    endpointSourceCreateHint: "Choose an existing endpoint or create one inline for this connection.",
+    endpointSourceCreateHint:
+      "Choose an existing endpoint or create one inline for this model-private terminal target.",
     endpointSourceEditHint: "Switch this connection to another endpoint or create a new one.",
     failoverEvents: (count) => `Events: ${count}`,
     failoverLast: (value) => `Last: ${value}`,
@@ -3660,10 +3663,11 @@ export const enMessages: Messages = {
     loadbalanceStrategyLabel: "Loadbalance Strategy",
     maxInFlightNonStream: "Max In-Flight (Non-Stream)",
     maxInFlightStream: "Max In-Flight (Stream)",
-    modelConfigurationAndConnectionRouting: "Model configuration and terminal target routing",
+    modelConfigurationAndConnectionRouting:
+      "Choose the Ban Policy and terminal-target selection family for this entry model.",
     modelIdLabel: "Model ID",
     modelSettingsDescription:
-      "Update model identity, vendor metadata, and API family compatibility for this profile.",
+      "Update the selected-profile entry model, its routing defaults, and the policy it uses to reach terminal targets.",
     modelSettingsTitle: "Model Settings",
     noConnectionsConfigured: "No terminal targets configured",
     noConnectionsMatchFilter: "No terminal targets match your filter",
@@ -3687,7 +3691,8 @@ export const enMessages: Messages = {
     probeApiResponses: "Responses API",
     probeApiResponsesHint: "Preferred modern probe path.",
     probeBehavior: "Probe Behavior",
-    probeBehaviorDescription: "Used for health checks only. Routed model traffic is unchanged.",
+    probeBehaviorDescription:
+      "Used for health checks only. It does not change routed model traffic or terminal-target selection.",
     probeBehaviorSummaryLabel: "Probe Behavior",
     qpsLimit: "QPS Limit",
     overrideSetting: "Override",
@@ -3825,10 +3830,12 @@ export const enMessages: Messages = {
   },
   modelsUi: {
     accessTargets: "Access targets",
-    accessTargetsDescription: "Select same-family model targets. Private terminal targets stay visible here but are created and managed from the model detail terminal target controls.",
+    accessTargetsDescription: "Entry models fan out through same-family model targets here. Model-private terminal targets stay visible for planning, but you create and manage them from Model Detail.",
     addTarget: "Add target",
     connectionTarget: "Terminal target",
     contextRoutingDefaults: "Context routing defaults",
+    contextRoutingDefaultsDescription:
+      "Set the entry-model context window, reserve, max utilization, and preferred band before terminal-target overrides apply.",
     contextWindowTokens: "Context window tokens",
     contextWindowTokensHelper: "Leave blank when the model context window is unknown.",
     currentApiFamily: (apiFamily) => `Current API family: ${apiFamily}`,
@@ -3841,12 +3848,15 @@ export const enMessages: Messages = {
     enableAccessTarget: (value) => `Enable access target ${value}`,
     maxContextUtilization: "Max context utilization",
     preferredContextUtilizationThreshold: "Preferred context utilization threshold",
-    preferredContextUtilizationThresholdHelper: "Optional soft preference for cheapest eligible context routing. Leave blank to disable the preference band.",
+    preferredContextUtilizationThresholdHelper:
+      "Optional soft preference band for cheapest eligible context routing. Leave blank to disable the preferred band.",
     modelId: "Model ID",
     modelIdPlaceholder: "e.g. gpt-4o",
     modelTarget: "Model target",
     needsTarget: "Needs target",
     newConnection: "New terminal target",
+    newModelDescription:
+      "Define the selected-profile entry model, its routing defaults, and the policy it will use to reach terminal targets.",
     newModelEnabledDescription: "New models start disabled so you can save a draft now and attach model targets later. Enabled saves require at least one enabled target.",
     noAccessTargetsSelected: "No model targets selected. Save disabled now, or add a same-family model target before enabling.",
     noModelsMatchSearch: "No models match search",
@@ -3854,7 +3864,8 @@ export const enMessages: Messages = {
     noSameFamilyModelsAvailable: "No other same-family models are available. Save disabled now, or add a model target later before enabling.",
     optionalFriendlyName: "Optional friendly name",
     priority: (value) => `Priority ${value}`,
-    routingTypeDescription: "Turn this model on or off",
+    routingTypeDescription:
+      "Choose the Ban Policy and terminal-target selection family this entry model uses after access-target routing.",
     save: "Save",
     selectSameFamilyModel: "Select same-family model",
     strategyNotConfigured: "Strategy not configured",
@@ -4036,7 +4047,8 @@ export const enMessages: Messages = {
     client: "Client",
     compact: "Compact",
     connection: "Connection",
-    detailDescription: "Review request metadata, routing, tokens, costs, and request-time audit provenance.",
+    detailDescription:
+      "Review requested model, final target model, selected terminal target, routing, tokens, costs, and request-time audit provenance.",
     endpoint: "Endpoint",
     fxRateSource: "FX source",
     fxRateUsed: "FX rate used",

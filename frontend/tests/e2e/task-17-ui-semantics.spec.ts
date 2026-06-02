@@ -315,7 +315,7 @@ test("legacy strategy ui and request log target labels", async ({ page }) => {
   await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
   await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
   await expect(page.getByText("Ban Policy").first()).toBeVisible({ timeout: routeReadyTimeout });
-  await expect(page.getByText("routing-family Ban Policy").first()).toBeVisible();
+  await expect(page.getByText("terminal-target selection families plus Ban Policy").first()).toBeVisible();
   await expect(page.getByText(/Adaptive|Auto Recovery|Routing Policy/)).toHaveCount(0);
 
   await page.goto("/request-logs");

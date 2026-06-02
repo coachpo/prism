@@ -381,6 +381,7 @@ test.describe("request log detail copy regression", () => {
     const overviewCopyButton = drawer.getByRole("button", { name: /^Copy$/ });
     const routingContext = drawer.getByText("Routing context", { exact: true }).locator("xpath=..");
 
+    await expect(drawer.getByText("Review requested model, final target model, selected terminal target, routing, tokens, costs, and request-time audit provenance.")).toBeVisible();
     await expect(routingContext).toBeVisible();
     await expect(routingContext.locator("span").filter({ hasText: /^Connection$/ })).toHaveCount(0);
     await expect(routingContext.getByRole("link", { name: "Open connection" })).toHaveCount(0);

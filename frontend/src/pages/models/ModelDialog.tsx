@@ -80,6 +80,7 @@ export function ModelDialog({
 
   const getStrategyTypeLabel = (strategy: LoadbalanceStrategy) => getLoadbalanceStrategyTypeLabel(strategy, strategyCopy);
   const getStrategyOptionText = (strategy: LoadbalanceStrategy) => `${strategy.name} (${getStrategyTypeLabel(strategy)})`;
+  const dialogDescription = editingModel ? detailCopy.modelSettingsDescription : copy.newModelDescription;
   const loadbalanceStrategyValue = String(formData.loadbalance_strategy_id ?? "");
   const selectedLoadbalanceStrategy = [...loadbalanceStrategies]
     .reverse()
@@ -115,7 +116,7 @@ export function ModelDialog({
       <DialogContent className="max-h-[90vh] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{editingModel ? copy.editModel : messages.modelsPage.newModel}</DialogTitle>
-          <DialogDescription>{detailCopy.modelSettingsDescription}</DialogDescription>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="flex min-h-0 flex-col gap-5" autoComplete="off" noValidate>
           <input type="hidden" name="vendor_id" value={String(formData.vendor_id ?? "")} />
@@ -187,6 +188,7 @@ export function ModelDialog({
             <div className="flex flex-col gap-4 rounded-lg border bg-muted/15 p-4">
               <div className="flex flex-col gap-1">
                 <p className="text-sm font-medium text-foreground">{copy.contextRoutingDefaults}</p>
+                <p className="text-sm text-muted-foreground">{copy.contextRoutingDefaultsDescription}</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <CapabilityField

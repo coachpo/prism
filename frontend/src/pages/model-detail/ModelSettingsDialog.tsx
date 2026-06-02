@@ -209,6 +209,7 @@ export function ModelSettingsDialog({
             >
               <div className="flex flex-col gap-1">
                 <h2 className="text-sm font-semibold tracking-tight text-foreground">{modelsUiCopy.contextRoutingDefaults}</h2>
+                <p className="text-sm text-muted-foreground">{modelsUiCopy.contextRoutingDefaultsDescription}</p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

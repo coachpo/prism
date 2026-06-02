@@ -225,6 +225,7 @@ test.describe("dashboard aggregate overview regression", () => {
 
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
     await expect(page.getByText("No active routes")).toBeVisible();
+    await expect(page.getByText("Create an entry model and enable at least one terminal target so Prism can publish this selected-profile routing topology.")).toBeVisible();
     await expect(page.getByText("No recent activity")).toBeVisible();
     await expect(page.getByText("No spending data")).toBeVisible();
     await expect(page.getByText("0 total requests")).toBeVisible();

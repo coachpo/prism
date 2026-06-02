@@ -209,6 +209,7 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
       context_window_tokens: null,
       default_output_token_reserve: 4096,
       max_context_utilization: 0.9,
+      preferred_context_utilization_threshold: null,
     },
   ]);
 
@@ -279,6 +280,7 @@ test("main model dialog keeps connection option absent while authoring ordered m
       context_window_tokens: null,
       default_output_token_reserve: 4096,
       max_context_utilization: 0.9,
+      preferred_context_utilization_threshold: null,
     },
   ]);
 });

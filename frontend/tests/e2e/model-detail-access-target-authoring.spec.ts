@@ -114,6 +114,10 @@ function createModelListItem(
     api_family: apiFamily,
     model_id: modelId,
     display_name: displayName,
+    context_window_tokens: null,
+    default_output_token_reserve: 4096,
+    max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: null,
     loadbalance_strategy_id: 11,
     loadbalance_strategy: {
       id: 11,
@@ -303,7 +307,9 @@ test("model detail editing supports disabled targetless drafts and later enabled
   await expect(page.getByText("Add at least one enabled same-family access target before saving an enabled model.").last()).toBeVisible();
   expect(routes.getUpdatePayloads()).toHaveLength(0);
 
-  await dialog.getByRole("switch").last().click();
+  const enabledSwitch = dialog.getByRole("switch").last();
+  await enabledSwitch.click();
+  await expect(enabledSwitch).toHaveAttribute("data-state", "unchecked");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
   await expect(page.getByText("Model updated").last()).toBeVisible();
   await expect(dialog).toHaveCount(0);
@@ -318,6 +324,10 @@ test("model detail editing supports disabled targetless drafts and later enabled
       access_targets: [],
       loadbalance_strategy_id: 11,
       is_enabled: false,
+      context_window_tokens: null,
+      default_output_token_reserve: 4096,
+      max_context_utilization: 0.9,
+      preferred_context_utilization_threshold: null,
     },
   ]);
 
@@ -349,6 +359,10 @@ test("model detail editing supports disabled targetless drafts and later enabled
       access_targets: [],
       loadbalance_strategy_id: 11,
       is_enabled: false,
+      context_window_tokens: null,
+      default_output_token_reserve: 4096,
+      max_context_utilization: 0.9,
+      preferred_context_utilization_threshold: null,
     },
     {
       vendor_id: null,
@@ -360,6 +374,10 @@ test("model detail editing supports disabled targetless drafts and later enabled
       ],
       loadbalance_strategy_id: 11,
       is_enabled: true,
+      context_window_tokens: null,
+      default_output_token_reserve: 4096,
+      max_context_utilization: 0.9,
+      preferred_context_utilization_threshold: null,
     },
   ]);
 

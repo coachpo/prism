@@ -325,7 +325,9 @@ test.describe("dashboard routing shell", () => {
     const routingCard = page.locator('[data-slot="card"]').filter({ hasText: "Routing Target Health" }).first();
 
     await expect(routingCard).toBeVisible();
-    await expect(routingCard.getByText(/configured model-to-target-to-endpoint paths/i)).toBeVisible();
+    await expect(routingCard.getByText(/Entry Model -> Planner -> Access Targets -> Terminal Target -> Endpoint/i)).toBeVisible();
+    await expect(routingCard.getByText(/terminal-target topology after planner and access-target resolution/i)).toBeVisible();
+    await expect(routingCard.getByText(/browser does not reconstruct graph edges from management reads/i)).toBeVisible();
     await expect(routingCard.getByText("1 endpoint")).toBeVisible();
     await expect(routingCard.getByText("2 models")).toBeVisible();
     await expect(routingCard.getByText("1 active target")).toBeVisible();

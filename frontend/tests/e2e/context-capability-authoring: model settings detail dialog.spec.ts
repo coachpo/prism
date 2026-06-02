@@ -222,6 +222,9 @@ test("context-capability-authoring: model settings clears blank context window t
 
   const dialog = page.getByRole("dialog", { name: "Model Settings" });
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Update the selected-profile entry model, its routing defaults, and the policy it uses to reach terminal targets.")).toBeVisible();
+  await expect(dialog.getByText("Set the entry-model context window, reserve, max utilization, and preferred band before terminal-target overrides apply.")).toBeVisible();
+  await expect(dialog.getByText("Choose the Ban Policy and terminal-target selection family for this entry model.")).toBeVisible();
   await expect(dialog.getByText(contextWindowHelperCopy)).toBeVisible();
   await expect(dialog.locator("#edit-context-window-tokens")).toHaveValue("65536");
   await expect(dialog.locator("#edit-preferred-context-utilization-threshold")).toHaveValue("0.7");
