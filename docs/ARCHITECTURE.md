@@ -303,20 +303,21 @@ The realtime API has two supported channels. `dashboard.update` is the overview 
 ### 4.2 Runtime execution pipeline
 
 1. The operation registry resolves the exact runtime operation and hook collection before the request body is consumed.
-2. Request setup resolves the active-profile model, ordered access targets, attached strategy, and one immutable effective strategy snapshot for the request.
+2. Request setup resolves the active-profile model by exact `planningSnapshot.ModelsByID` lookup, ordered access targets, attached strategy, and one immutable effective strategy snapshot for the request.
 3. OpenAI Chat Completions and Responses requests that use `cheapest_eligible_context` run local preflight context estimation before terminal-target choice. The deterministic methods are `openai_chat_heuristic_v1` and `openai_responses_heuristic_v1`; unsafe shapes such as external retrieval, remote file or image references, or prior conversation carryover are rejected before provider transport.
 4. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from admission counters and Ban Policy retry-window state.
 5. For `cheapest_eligible_context`, the planner filters terminal targets whose `estimated_total_context_tokens` exceed the target's usable context window, then ranks fitting candidates by estimated blended request cost, access-target position, then terminal target ID.
-6. The shared execution core claims per-attempt leases and uses shared upstream timeout behavior from the backend runtime before any client-visible bytes are committed.
-7. Operation request, response, stream, and media hooks interpret provider-native payload details by canonical operation name. Token-count hooks are attached to `anthropic.count_tokens` and `gemini.count_tokens`, media hooks are attached to `openai.images.generations` and `openai.images.edits`, and the Gemini SSE hook is attached to `gemini.stream_generate_content`; passive outcomes feed back into connection-global runtime state while durable transition history persists model-policy snapshots and exposes them on event APIs as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.
+6. Release 1 exact OpenAI facade routing is a backend-first planner specialization on that same exact requested-model lookup. It activates only when the requested OpenAI model is `facade_enabled = true`, `facade_selection_policy = "weighted_eligible_context"`, and `facade_fallback_policy = "redistribute_ineligible_weight"`, evaluates same-family model targets only, redistributes weights across the eligible subset only, and returns one selected child plan.
+7. The shared execution core claims per-attempt leases and uses shared upstream timeout behavior from the backend runtime before any client-visible bytes are committed.
+8. Operation request, response, stream, and media hooks interpret provider-native payload details by canonical operation name. Token-count hooks are attached to `anthropic.count_tokens` and `gemini.count_tokens`, media hooks are attached to `openai.images.generations` and `openai.images.edits`, and the Gemini SSE hook is attached to `gemini.stream_generate_content`; passive outcomes feed back into connection-global runtime state while durable transition history persists model-policy snapshots and exposes them on event APIs as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.
 
-If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail. If context fit is evaluated and no terminal target fits, the gateway returns HTTP `413` before provider transport with `error="context_window_exceeded"` and context-routing detail for skipped terminal targets.
+If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail. If context fit is evaluated and no terminal target fits, the gateway returns HTTP `413` before provider transport with `error="context_window_exceeded"` and context-routing detail for skipped terminal targets. Exact facade routing adds no regex matching, capability-metadata expansion, frontend facade authoring, sibling-target provider-failure failover after child selection, or response-body model rewriting. Request logs and usage events keep the existing requested-model and resolved-target fields, while `context_routing.facade_selection` and matching `prism.runtime.facade_*` trace attributes carry the additive facade metadata.
 
 ## 5. Unified Model Access
 
 ### 5.1 Concept
 
-Models resolve through ordered access targets. Public target authoring points only to other same-profile, same-`api_family` models. Private connection targets remain in `model_access_targets` as internal ownership and terminal routing edges from one source model to one terminal target backed by a connection row. Model targets can chain until a terminal private connection is reached, and the runtime records requested model, final target model, selected terminal target, endpoint, and context-routing metadata for observability.
+Models resolve through ordered access targets. Public target authoring points only to other same-profile, same-`api_family` models. Private connection targets remain in `model_access_targets` as internal ownership and terminal routing edges from one source model to one terminal target backed by a connection row. Model targets can chain until a terminal private connection is reached, and the runtime records requested model, final target model, selected terminal target, endpoint, and context-routing metadata for observability. Release 1 facade routing remains exact-ID-only and backend-authored: the requested model still enters planning by exact `model_id`, not by regex or capability matching, and the facade layer selects one child model target before ordinary terminal-target execution continues.
 
 ### 5.2 Rules
 
@@ -326,7 +327,7 @@ Models resolve through ordered access targets. Public target authoring points on
 - Endpoints are reusable. Connections are model-private endpoint bindings created and managed from model detail through model-scoped connection routes.
 - Every access target carries explicit ordering metadata.
 - Model IDs are unique within a profile.
-- The gateway may normalize provider request payloads before forwarding, for example rewriting the requested model ID to the final target model ID for upstream compatibility.
+- The gateway may normalize provider request payloads before forwarding, for example rewriting the requested model ID to the final target model ID for upstream compatibility. Release 1 exact facades do not add response-body model rewriting on the client-facing way back out.
 
 Model contracts require `api_family`; `vendor_id` is optional metadata. Vendor CRUD remains global, while runtime compatibility is checked against `api_family` only.
 

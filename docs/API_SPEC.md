@@ -505,7 +505,7 @@ Response `200`: Array of model objects.
 ```
 GET /api/models/{id}
 ```
-Response `200`: Full model object with nullable vendor metadata, required `api_family`, optional `loadbalance_strategy_id`, ordered `access_targets`, and attached private connection summaries in the effective profile scope. Public model target authoring uses only same-family model targets. Existing `target_type="connection"` rows are returned as internal ownership and runtime routing edges for the model's private connections. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`.
+Response `200`: Full model object with nullable vendor metadata, required `api_family`, optional `loadbalance_strategy_id`, exact-facade fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), ordered `access_targets`, and attached private connection summaries in the effective profile scope. Public model target authoring uses only same-family model targets by exact `target_model_id`. Existing `target_type="connection"` rows are returned as internal ownership and runtime routing edges for the model's private connections. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`. These backend model routes are the authoritative Release 1 facade authoring surface; frontend facade authoring remains deferred.
 
 #### Get Models by Endpoints (Batch)
 ```
@@ -534,17 +534,20 @@ Request:
 {
   "vendor_id": null,
   "api_family": "openai",
-  "model_id": "gpt-4o",
-  "display_name": "GPT-4o",
+  "model_id": "gpt-4o-public",
+  "display_name": "GPT-4o Public",
   "context_window_tokens": 128000,
   "default_output_token_reserve": 4096,
   "max_context_utilization": 0.90,
   "preferred_context_utilization_threshold": 0.70,
   "loadbalance_strategy_id": 7,
+  "facade_enabled": true,
+  "facade_selection_policy": "weighted_eligible_context",
+  "facade_fallback_policy": "redistribute_ineligible_weight",
   "access_targets": [
     {
       "target_type": "model",
-      "target_model_id": "gpt-4o-backup",
+      "target_model_id": "gpt-4o-regional",
       "position": 0,
       "weight": 1,
       "target_priority": 0
@@ -559,10 +562,13 @@ Validation rules:
 - `model_id` must be unique within the effective profile scope.
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
 - `vendor_id` is optional metadata and may be `null`.
-- Public create and update payloads may author only ordered same-profile, same-`api_family` model targets.
+- `facade_enabled` defaults to `false`. When it is `true`, the model must use `api_family = "openai"`, `facade_selection_policy` must be exactly `"weighted_eligible_context"`, and `facade_fallback_policy` must be exactly `"redistribute_ineligible_weight"`.
+- Release 1 facade authoring is exact model-ID only. The management API does not accept regex matcher payloads or capability-metadata facade fields.
+- Public create and update payloads may author only ordered same-profile, same-`api_family` model targets by exact `target_model_id`.
 - Submitted `target_type="connection"`, `connection_id`, or `target_connection_id` entries are rejected. Private connection rows are managed from model detail through model-scoped connection routes.
-- Every public model target requires `target_model_id`, `position`, `weight`, and `target_priority`; positions must stay contiguous starting at `0`; `weight` must be `>= 1`; `target_priority` must be `>= 0`.
+- Every public model target requires `target_model_id` and `position`; `weight` and `target_priority` are optional on input and default to `1` / `position` when omitted. Positions must stay contiguous starting at `0`; supplied `weight` values must be `>= 1`; supplied `target_priority` values must be `>= 0`.
 - Context capability fields are validated on create and update. `default_output_token_reserve` defaults to `4096`, `max_context_utilization` defaults to `0.90`, utilization values must be greater than `0` and less than or equal to `1`, and reserve must be at least `1` when supplied. `preferred_context_utilization_threshold` is nullable; `null` means no preferred band, while a supplied value must be less than or equal to `max_context_utilization`.
+- Nested facades are rejected at write time: public model targets cannot point at facade-enabled target models, and enabling `facade_enabled = true` on a model that already has inbound model-target referrers is rejected.
 - Model target self-reference and target cycles are rejected.
 - Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its private connections with the owning target rows.
 
@@ -574,19 +580,22 @@ Request (all fields optional):
 ```json
 {
   "vendor_id": null,
-  "api_family": "anthropic",
-  "model_id": "gpt-4o-updated",
-  "display_name": "GPT-4o (Updated)",
+  "api_family": "openai",
+  "model_id": "gpt-4o-public-updated",
+  "display_name": "GPT-4o Public (Updated)",
   "context_window_tokens": 256000,
   "default_output_token_reserve": 2048,
   "max_context_utilization": 0.85,
   "preferred_context_utilization_threshold": null,
   "loadbalance_strategy_id": 9,
+  "facade_enabled": true,
+  "facade_selection_policy": "weighted_eligible_context",
+  "facade_fallback_policy": "redistribute_ineligible_weight",
   "access_targets": [],
   "is_enabled": true
 }
 ```
-Update payloads use the same public model-target validation rules as create. Omitted private connection targets are preserved and remain managed by model-scoped connection routes. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if access-target validation fails.
+Update payloads use the same public model-target validation rules as create. Omitted private connection targets are preserved and remain managed by model-scoped connection routes. Omitted facade fields preserve the current stored values, but any effective `facade_enabled = true` state must still satisfy the exact OpenAI policy strings and nested-facade rejection rules after the update is applied. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if access-target validation fails.
 
 #### Delete Model
 ```
@@ -829,18 +838,21 @@ Model target rows define a model's ordered access graph. Public authoring create
   "target_type": "model",
   "target_model_id": "gpt-4o-backup",
   "position": 0,
+  "weight": 1,
+  "target_priority": 0,
   "is_enabled": true
 }
 ```
 
 Target semantics:
-- Public `POST /api/models/{model_config_id}/targets` accepts `target_type="model"` with `target_model_id`.
+- Public `POST /api/models/{model_config_id}/targets` accepts `target_type="model"` with exact `target_model_id`, `position`, and optional `weight` / `target_priority`. Omitted public model-target metadata defaults to `weight = 1` and `target_priority = position`.
+- Release 1 facade routing consumes exact target-model IDs only. Target payloads do not accept regex matcher fields or capability-metadata expansion.
 - Public target authoring rejects submitted `target_type="connection"`, `connection_id`, or `target_connection_id` values. Private connections are created and managed through `/api/models/{model_config_id}/connections`.
-- `PUT` and `PATCH /api/models/{model_config_id}/targets/{target_id}` update target metadata within the owning model scope. For internal connection targets, `PATCH` accepts only `position` and `is_enabled`; pointer fields remain immutable.
+- `PUT` and `PATCH /api/models/{model_config_id}/targets/{target_id}` update target metadata within the owning model scope. For internal connection targets, `PATCH` accepts only `position` and `is_enabled`; `weight`, `target_priority`, and pointer fields must stay omitted and immutable.
 - `PATCH /api/models/{model_config_id}/targets/{target_id}/position` is the dedicated move route and accepts `to_index`.
 - Existing internal `target_type="connection"` rows identify the source model that owns a private connection and provide the runtime terminal routing edge.
 - Target positions are contiguous starting at `0` and determine routing order for that source model.
-- Target validation is selected-profile scoped, same-family, enabled-target aware, and cycle-safe.
+- Target validation is selected-profile scoped, same-family, enabled-target aware, cycle-safe, and nested-facade-safe.
 
 #### Base URL Validation
 
@@ -971,6 +983,9 @@ Response `200`:
       "max_context_utilization": 0.90,
       "preferred_context_utilization_threshold": 0.70,
       "loadbalance_strategy_name": "Default fill-first routing",
+      "facade_enabled": false,
+      "facade_selection_policy": null,
+      "facade_fallback_policy": null,
       "is_enabled": true,
       "access_targets": [
         {
@@ -1010,7 +1025,9 @@ Profile export semantics:
 - Safe exports null reusable endpoint secret refs and do not include `secret_payload.entries[]`.
 - Dangerous exports include `secret_payload.entries[]` and reusable endpoint secret refs.
 - Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
-- Profile bundles preserve top-level private connection records, model `access_targets`, same-family model routing, and attached loadbalance strategy references. Each exported `connection_ref` must be owned by exactly one model access target.
+- Profile bundles preserve top-level private connection records, model `access_targets`, same-family model routing, exact-facade model flags (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), and attached loadbalance strategy references. Each exported `connection_ref` must be owned by exactly one model access target.
+- Export serializes exact facade state by exact model ID only. Release 1 profile bundles do not include regex matcher fields or capability-metadata facade expansion.
+- Exported model-to-model access targets carry explicit `weight` and `target_priority`. Internal connection targets continue to omit both metadata fields.
 - Export and preview always serialize effective context capability defaults explicitly: omitted model or connection reserves become `default_output_token_reserve: 4096`, and omitted utilization becomes `max_context_utilization: 0.90`. Import may accept legacy omissions, but it normalizes them before persistence and any later export.
 
 #### Preview Profile Import
@@ -1123,10 +1140,13 @@ Profile import semantics:
 - If a profile bundle would create a new vendor whose proposed name collides with an existing global vendor name, preview/import fail before profile replacement starts.
 - When endpoint `position` is present, import uses it as the ordering hint; when omitted, import falls back to endpoint file order. Persisted endpoint positions are normalized to contiguous `0..N-1` values.
 - Exported model access targets are ordered by `position`. During import, access-target positions are normalized to contiguous `0..N-1` values while preserving relative payload order.
+- Legacy bundle omissions are normalized before validation and persistence: missing facade fields become `facade_enabled = false` with nil policies, and missing model-target `weight` / `target_priority` become `1` / `position`.
+- Import accepts only the Release 1 exact facade policy strings `weighted_eligible_context` and `redistribute_ineligible_weight`; regex matcher fields and capability-metadata facade expansion remain unsupported.
+- Import rejects nested facades in the final imported graph, including model targets that point at facade-enabled target models.
 - Import decrypts bundle secrets before any destructive mutation begins, then re-encrypts them into Prism's normal at-rest secret storage.
 - Endpoints with `api_key_secret_ref: null` import as no-auth endpoints with an empty stored endpoint secret.
 - Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
-- Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and `target_model_id`.
+- Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and exact `target_model_id` values.
 - Exported/imported models carry ordered `access_targets` entries with model targets and internally owned private connection targets plus `position` and `is_enabled` metadata.
 - Exported/imported private connections live at the top level and include `api_family`, endpoint and pricing-template name references, context capability fields including `preferred_context_utilization_threshold`, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields and no preferred band for the preferred-threshold field.
 - Import rejects `connection_ref` values used by multiple models, duplicate private connection ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
@@ -1602,6 +1622,21 @@ Unsupported translated request shapes reject before provider transport with `ope
 Translated non-stream and stream responses are rewritten back to the ingress operation shape for the client. Runtime usage remains canonical from the raw upstream payload or terminal stream event, translated responses strip unsafe entity headers before writing to the client, and audit body capture stays upstream-native rather than translated.
 
 Ingress observability remains stable: `operation_name` is always the client-visible operation. Additive upstream fields use `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` for request logs, usage events, and request-log detail. `upstream_request_path` is the sanitized operation path Prism sent upstream, not an unbounded raw URL.
+
+### 2.2C Exact OpenAI facade routing (Release 1)
+
+Release 1 exact facade routing is backend-first and exact-ID only. Planning starts from the requested model's exact active-profile lookup and activates only when the requested OpenAI model has `facade_enabled = true`, `facade_selection_policy = "weighted_eligible_context"`, and `facade_fallback_policy = "redistribute_ineligible_weight"`.
+
+Facade planner behavior:
+- evaluates only same-family model targets from that exact requested model
+- reuses the existing child-target context, translation, and runtime-state eligibility evaluation
+- redistributes configured weights across the eligible subset only
+- uses target-set-aware weighted cursoring for stable eligible sets
+- returns one selected child plan; later provider retry or failover can continue only inside that selected child model's own terminal-target strategy and never jumps sideways to sibling facade targets
+
+Release 1 exact facade routing does not add regex model matching, capability-metadata expansion, frontend facade authoring, or response-body model rewriting.
+
+Facade rejections stay aligned with the selected child evaluation branch before provider transport: translated-shape rejection returns `400 openai_request_translation_unsupported`, hard no-fit returns `413 context_window_exceeded`, and no eligible child target returns `503`.
 
 ### 2.3 OpenAI Operations
 
@@ -2086,6 +2121,23 @@ Response `200`:
 Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five concrete pricing strings used for the attempt. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced. Public request-log detail routing exposes `terminal_target_id` and `selected_terminal_target_id`; it does not expose `routing.connection_id` on the detail surface.
 
 Request-log detail keeps ingress and upstream attribution separate. `request.operation_name` and `request.request_path` are ingress-led. `request.upstream_operation_name`, `request.operation_translation_mode`, and `request.upstream_request_path` describe the provider-facing operation selected for the attempt. Native attempts use `operation_translation_mode = "none"` and usually keep ingress and upstream fields equal; translated attempts keep canonical usage from the upstream payload while presenting the client-visible operation in `operation_name`.
+
+Exact facade attempts add nested `routing.context_routing.facade_selection` metadata without rewriting the top-level requested/resolved model fields:
+```json
+{
+  "facade_selection": {
+    "facade_model_id": "gpt-4o-public",
+    "selected_target_model_id": "gpt-4o-regional",
+    "selected_weight": 3,
+    "eligible_total_weight": 4,
+    "exclusion_reasons": [
+      {"reason": "translation_rejection", "count": 1}
+    ],
+    "exclusion_summary": "translation_rejection=1"
+  }
+}
+```
+The same planner output also surfaces in traces through additive `prism.runtime.facade_*` attributes: `prism.runtime.facade_model_id`, `prism.runtime.facade_selected_target_model_id`, `prism.runtime.facade_selected_weight`, `prism.runtime.facade_eligible_total_weight`, and `prism.runtime.facade_exclusion_summary`.
 
 Response `404`: returned when the request ID is missing or out of scope for the effective profile.
 
