@@ -19,10 +19,14 @@ import (
 )
 
 const (
-	canonicalProfileBundleVersion = 3
-	canonicalVendorCatalogVersion = 1
-	canonicalProfileBundleKind    = "profile_config"
-	canonicalVendorCatalogKind    = "vendor_catalog"
+	canonicalProfileBundleVersion                    = 3
+	canonicalVendorCatalogVersion                    = 1
+	canonicalProfileBundleKind                       = "profile_config"
+	canonicalVendorCatalogKind                       = "vendor_catalog"
+	facadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
+	facadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
+	facadeEnabledRequiresOpenAIDetail                = "facade_enabled requires api_family 'openai'"
+	nestedFacadesNotSupportedDetail                  = "nested facades are not supported"
 )
 
 var validImportAPIFamilies = map[string]struct{}{
@@ -341,14 +345,14 @@ func validateProfileImportRequest(data profileImportRequest) error {
 	if err != nil {
 		return err
 	}
-	modelFamilies, importedConnectionPairs, err := validateImportedModels(data.Models, modelRefs, connectionRefs)
+	importedModels, importedConnectionPairs, err := validateImportedModels(data.Models, modelRefs, connectionRefs)
 	if err != nil {
 		return err
 	}
-	if err := validateImportedConnectionPreferredContextThresholds(data.Models, data.Connections); err != nil {
+	if err := validateImportedConnectionPreferredContextThresholds(importedModels, data.Connections); err != nil {
 		return err
 	}
-	if err := validateImportedAccessTargetReferences(data.Models, modelFamilies); err != nil {
+	if err := validateImportedAccessTargetReferences(importedModels); err != nil {
 		return err
 	}
 	if err := validateImportedProfileSettings(data.ProfileSettings, connectionRefs, importedConnectionPairs); err != nil {
@@ -483,13 +487,13 @@ type profileImportModelValidationRefs struct {
 	strategyNames        map[string]struct{}
 }
 
-func validateImportedModels(models []modelExport, refs profileImportModelValidationRefs, connectionRefs map[string]importedConnectionValidationRef) (map[string]string, map[string]struct{}, error) {
-	modelFamilies := map[string]string{}
+func validateImportedModels(models []modelExport, refs profileImportModelValidationRefs, connectionRefs map[string]importedConnectionValidationRef) ([]importedModelPayload, map[string]struct{}, error) {
+	importedModels := normalizeImportedModels(models)
 	seenModelIDs := map[string]struct{}{}
 	connectionOwners := map[string]connectionOwnerRef{}
 	importedConnectionPairs := map[string]struct{}{}
-	for _, model := range models {
-		modelID := strings.TrimSpace(model.ModelID)
+	for _, model := range importedModels {
+		modelID := model.ModelID
 		if modelID == "" {
 			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "Model id must not be empty"}
 		}
@@ -497,69 +501,159 @@ func validateImportedModels(models []modelExport, refs profileImportModelValidat
 			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate model_id: '%s'", modelID)}
 		}
 		seenModelIDs[modelID] = struct{}{}
-
-		apiFamily := strings.ToLower(strings.TrimSpace(model.APIFamily))
-		if _, ok := validImportAPIFamilies[apiFamily]; !ok {
+		if _, ok := validImportAPIFamilies[model.APIFamily]; !ok {
 			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown api family: '%s'", model.APIFamily)}
 		}
 		if err := validateImportedModelVendorRef(model, refs.vendorKeys); err != nil {
 			return nil, nil, err
 		}
-		if err := validateImportedModelStrategy(model, modelID, refs.strategyNames); err != nil {
+		if err := validateImportedModelStrategy(model, refs.strategyNames); err != nil {
 			return nil, nil, err
 		}
-		if err := validateImportedModelContextCapabilities(model, modelID); err != nil {
+		if err := validateImportedModelContextCapabilities(model); err != nil {
 			return nil, nil, err
 		}
-		owner := connectionOwnerRef{ModelID: modelID, DisplayName: trimmedOptionalString(model.DisplayName)}
-		if err := validateImportedAccessTargets(modelID, apiFamily, owner, model.AccessTargets, connectionRefs, connectionOwners, importedConnectionPairs); err != nil {
+		if err := validateImportedFacadeConfiguration(model); err != nil {
 			return nil, nil, err
 		}
-		modelFamilies[modelID] = apiFamily
+		owner := connectionOwnerRef{ModelID: modelID, DisplayName: model.DisplayName}
+		if err := validateImportedAccessTargets(modelID, model.APIFamily, owner, model.AccessTargets, connectionRefs, connectionOwners, importedConnectionPairs); err != nil {
+			return nil, nil, err
+		}
 	}
 	if err := validateImportedConnectionOwners(connectionRefs, connectionOwners); err != nil {
 		return nil, nil, err
 	}
-	return modelFamilies, importedConnectionPairs, nil
+	return importedModels, importedConnectionPairs, nil
 }
 
-func validateImportedModelVendorRef(model modelExport, vendorKeys map[string]struct{}) error {
+func normalizeImportedModels(models []modelExport) []importedModelPayload {
+	items := make([]importedModelPayload, 0, len(models))
+	for _, model := range models {
+		items = append(items, importedModelPayload{
+			VendorKey:                            trimmedOptionalString(model.VendorKey),
+			APIFamily:                            strings.ToLower(strings.TrimSpace(model.APIFamily)),
+			ModelID:                              strings.TrimSpace(model.ModelID),
+			DisplayName:                          trimmedOptionalString(model.DisplayName),
+			LoadbalanceStrategyName:              trimmedOptionalString(model.LoadbalanceStrategyName),
+			ContextWindowTokens:                  model.ContextWindowTokens,
+			DefaultOutputTokenReserve:            model.DefaultOutputTokenReserve,
+			MaxContextUtilization:                model.MaxContextUtilization,
+			PreferredContextUtilizationThreshold: model.PreferredContextUtilizationThreshold,
+			FacadeEnabled:                        model.FacadeEnabled,
+			FacadeSelectionPolicy:                normalizeImportedOptionalString(model.FacadeSelectionPolicy, true),
+			FacadeFallbackPolicy:                 normalizeImportedOptionalString(model.FacadeFallbackPolicy, true),
+			IsEnabled:                            model.IsEnabled,
+			AccessTargets:                        normalizeImportedAccessTargets(model.AccessTargets),
+		})
+	}
+	return items
+}
+
+func normalizeImportedAccessTargets(targets []accessTargetExport) []importedAccessTargetPayload {
+	items := make([]importedAccessTargetPayload, 0, len(targets))
+	for _, target := range targets {
+		resolvedWeight := 1
+		if target.Weight != nil {
+			resolvedWeight = *target.Weight
+		}
+		resolvedTargetPriority := target.Position
+		if target.TargetPriority != nil {
+			resolvedTargetPriority = *target.TargetPriority
+		}
+		items = append(items, importedAccessTargetPayload{
+			Position:               target.Position,
+			IsEnabled:              target.IsEnabled,
+			TargetType:             strings.ToLower(strings.TrimSpace(target.TargetType)),
+			ConnectionRef:          trimmedOptionalString(target.ConnectionRef),
+			TargetModelID:          trimmedOptionalString(target.TargetModelID),
+			Weight:                 target.Weight,
+			ResolvedWeight:         resolvedWeight,
+			TargetPriority:         target.TargetPriority,
+			ResolvedTargetPriority: resolvedTargetPriority,
+		})
+	}
+	return items
+}
+
+func normalizeImportedOptionalString(value *string, lower bool) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if lower {
+		trimmed = strings.ToLower(trimmed)
+	}
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func validateImportedModelVendorRef(model importedModelPayload, vendorKeys map[string]struct{}) error {
 	if model.VendorKey == nil {
 		return nil
 	}
-	vendorKey := strings.TrimSpace(*model.VendorKey)
-	if _, ok := vendorKeys[vendorKey]; !ok {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown vendor key: '%s'", vendorKey)}
+	if _, ok := vendorKeys[*model.VendorKey]; !ok {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown vendor key: '%s'", *model.VendorKey)}
 	}
 	return nil
 }
 
-func validateImportedModelStrategy(model modelExport, modelID string, strategyNames map[string]struct{}) error {
-	strategyName := trimmedOptionalString(model.LoadbalanceStrategyName)
-	if strategyName == nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' must include loadbalance_strategy_name", modelID)}
+func validateImportedModelStrategy(model importedModelPayload, strategyNames map[string]struct{}) error {
+	if model.LoadbalanceStrategyName == nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' must include loadbalance_strategy_name", model.ModelID)}
 	}
-	if _, ok := strategyNames[*strategyName]; !ok {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown loadbalance strategy '%s'", modelID, *strategyName)}
+	if _, ok := strategyNames[*model.LoadbalanceStrategyName]; !ok {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown loadbalance strategy '%s'", model.ModelID, *model.LoadbalanceStrategyName)}
 	}
 	return nil
 }
 
-func validateImportedModelContextCapabilities(model modelExport, modelID string) error {
+func validateImportedModelContextCapabilities(model importedModelPayload) error {
 	if _, err := contextcapability.NormalizeContextWindowTokens(model.ContextWindowTokens); err != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' context_window_tokens %s", modelID, err.Error())}
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' context_window_tokens %s", model.ModelID, err.Error())}
 	}
 	if model.DefaultOutputTokenReserve != nil {
 		if _, err := contextcapability.NormalizeOutputTokenReserve(model.DefaultOutputTokenReserve); err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' default_output_token_reserve %s", modelID, err.Error())}
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' default_output_token_reserve %s", model.ModelID, err.Error())}
 		}
 	}
 	resolvedMaxContextUtilization, err := contextcapability.NormalizeMaxContextUtilization(model.MaxContextUtilization)
 	if err != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' max_context_utilization %s", modelID, err.Error())}
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' max_context_utilization %s", model.ModelID, err.Error())}
 	}
 	if _, err := contextcapability.NormalizePreferredContextUtilizationThreshold(model.PreferredContextUtilizationThreshold, resolvedMaxContextUtilization); err != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' preferred_context_utilization_threshold %s", modelID, err.Error())}
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' preferred_context_utilization_threshold %s", model.ModelID, err.Error())}
+	}
+	return nil
+}
+
+func validateImportedFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
+	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyWeightedEligibleContext {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_selection_policy must be 'weighted_eligible_context'"}
+	}
+	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicyRedistributeIneligibleWeight {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_fallback_policy must be 'redistribute_ineligible_weight'"}
+	}
+	return nil
+}
+
+func validateImportedFacadeConfiguration(model importedModelPayload) error {
+	if err := validateImportedFacadePolicyValues(model.FacadeSelectionPolicy, model.FacadeFallbackPolicy); err != nil {
+		return err
+	}
+	if !model.FacadeEnabled {
+		return nil
+	}
+	if model.APIFamily != "openai" {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: facadeEnabledRequiresOpenAIDetail}
+	}
+	if model.FacadeSelectionPolicy == nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_selection_policy is required when facade_enabled is true"}
+	}
+	if model.FacadeFallbackPolicy == nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_fallback_policy is required when facade_enabled is true"}
 	}
 	return nil
 }
@@ -591,7 +685,7 @@ type connectionOwnerRef struct {
 	DisplayName *string
 }
 
-func validateImportedAccessTargets(modelID string, apiFamily string, owner connectionOwnerRef, targets []accessTargetExport, connectionRefs map[string]importedConnectionValidationRef, connectionOwners map[string]connectionOwnerRef, importedConnectionPairs map[string]struct{}) error {
+func validateImportedAccessTargets(modelID string, apiFamily string, owner connectionOwnerRef, targets []importedAccessTargetPayload, connectionRefs map[string]importedConnectionValidationRef, connectionOwners map[string]connectionOwnerRef, importedConnectionPairs map[string]struct{}) error {
 	seenPositions := map[int]struct{}{}
 	seenTargets := map[string]struct{}{}
 	for _, target := range targets {
@@ -602,48 +696,48 @@ func validateImportedAccessTargets(modelID string, apiFamily string, owner conne
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access_targets must contain unique position values", modelID)}
 		}
 		seenPositions[target.Position] = struct{}{}
+		if err := validateImportedAccessTargetMetadataContract(target); err != nil {
+			return err
+		}
 
-		targetType := strings.ToLower(strings.TrimSpace(target.TargetType))
-		switch targetType {
+		switch target.TargetType {
 		case "connection":
-			connectionRef := trimmedOptionalString(target.ConnectionRef)
-			if connectionRef == nil {
+			if target.ConnectionRef == nil {
 				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' connection access target must include connection_ref", modelID)}
 			}
-			if trimmedOptionalString(target.TargetModelID) != nil {
+			if target.TargetModelID != nil {
 				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' connection access target must not include target_model_id", modelID)}
 			}
-			connection, ok := connectionRefs[*connectionRef]
+			connection, ok := connectionRefs[*target.ConnectionRef]
 			if !ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown connection_ref '%s'", modelID, *connectionRef)}
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown connection_ref '%s'", modelID, *target.ConnectionRef)}
 			}
 			if connection.APIFamily != apiFamily {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family connection_ref '%s'", modelID, *connectionRef)}
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family connection_ref '%s'", modelID, *target.ConnectionRef)}
 			}
-			seenKey := "connection:" + *connectionRef
+			seenKey := "connection:" + *target.ConnectionRef
 			if _, ok := seenTargets[seenKey]; ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' has duplicate connection_ref access target '%s'", modelID, *connectionRef)}
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' has duplicate connection_ref access target '%s'", modelID, *target.ConnectionRef)}
 			}
 			seenTargets[seenKey] = struct{}{}
-			if previousOwner, ok := connectionOwners[*connectionRef]; ok && previousOwner.ModelID != owner.ModelID {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: duplicateConnectionRefOwnerDetail(*connectionRef, previousOwner, owner)}
+			if previousOwner, ok := connectionOwners[*target.ConnectionRef]; ok && previousOwner.ModelID != owner.ModelID {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: duplicateConnectionRefOwnerDetail(*target.ConnectionRef, previousOwner, owner)}
 			}
-			connectionOwners[*connectionRef] = owner
-			importedConnectionPairs[connectionPairKey(modelID, *connectionRef)] = struct{}{}
+			connectionOwners[*target.ConnectionRef] = owner
+			importedConnectionPairs[connectionPairKey(modelID, *target.ConnectionRef)] = struct{}{}
 		case "model":
-			targetModelID := trimmedOptionalString(target.TargetModelID)
-			if targetModelID == nil {
+			if target.TargetModelID == nil {
 				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' model access target must include target_model_id", modelID)}
 			}
-			if trimmedOptionalString(target.ConnectionRef) != nil {
+			if target.ConnectionRef != nil {
 				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' model access target must not include connection_ref", modelID)}
 			}
-			if *targetModelID == modelID {
+			if *target.TargetModelID == modelID {
 				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access target cannot target itself", modelID)}
 			}
-			seenKey := "model:" + *targetModelID
+			seenKey := "model:" + *target.TargetModelID
 			if _, ok := seenTargets[seenKey]; ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' has duplicate model access target '%s'", modelID, *targetModelID)}
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' has duplicate model access target '%s'", modelID, *target.TargetModelID)}
 			}
 			seenTargets[seenKey] = struct{}{}
 		default:
@@ -654,6 +748,25 @@ func validateImportedAccessTargets(modelID string, apiFamily string, owner conne
 		if _, ok := seenPositions[expectedPosition]; !ok {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access_targets positions must be contiguous starting at 0", modelID)}
 		}
+	}
+	return nil
+}
+
+func validateImportedAccessTargetMetadataContract(target importedAccessTargetPayload) error {
+	if target.TargetType == "connection" {
+		if target.Weight != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be omitted for terminal targets"}
+		}
+		if target.TargetPriority != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be omitted for terminal targets"}
+		}
+		return nil
+	}
+	if target.Weight != nil && *target.Weight <= 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be greater than 0"}
+	}
+	if target.TargetPriority != nil && *target.TargetPriority < 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be greater than or equal to 0"}
 	}
 	return nil
 }
@@ -716,24 +829,25 @@ func validateImportedConnections(connections []connectionExport, refs profileImp
 	return connectionRefs, nil
 }
 
-func validateImportedAccessTargetReferences(models []modelExport, modelFamilies map[string]string) error {
+func validateImportedAccessTargetReferences(models []importedModelPayload) error {
+	modelsByID := make(map[string]importedModelPayload, len(models))
 	for _, model := range models {
-		apiFamily := strings.ToLower(strings.TrimSpace(model.APIFamily))
-		modelID := strings.TrimSpace(model.ModelID)
+		modelsByID[model.ModelID] = model
+	}
+	for _, model := range models {
 		for _, target := range model.AccessTargets {
-			if strings.ToLower(strings.TrimSpace(target.TargetType)) != "model" {
+			if target.TargetType != "model" || target.TargetModelID == nil {
 				continue
 			}
-			targetModelID := trimmedOptionalString(target.TargetModelID)
-			if targetModelID == nil {
-				continue
-			}
-			targetFamily, ok := modelFamilies[*targetModelID]
+			targetModel, ok := modelsByID[*target.TargetModelID]
 			if !ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown model access target '%s'", modelID, *targetModelID)}
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown model access target '%s'", model.ModelID, *target.TargetModelID)}
 			}
-			if targetFamily != apiFamily {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", modelID, *targetModelID)}
+			if targetModel.APIFamily != model.APIFamily {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", model.ModelID, *target.TargetModelID)}
+			}
+			if targetModel.FacadeEnabled {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: nestedFacadesNotSupportedDetail}
 			}
 		}
 	}
@@ -1198,40 +1312,36 @@ func insertImportedStrategies(ctx context.Context, exec queryExecutor, profileID
 	return strategyIDsByName, len(strategies), nil
 }
 
-func buildImportedModelCapabilitySettings(models []modelExport) (map[string]contextcapability.Settings, error) {
+func buildImportedModelCapabilitySettings(models []importedModelPayload) (map[string]contextcapability.Settings, error) {
 	items := make(map[string]contextcapability.Settings, len(models))
 	for _, model := range models {
 		settings, err := contextcapability.NormalizeModelSettings(model.ContextWindowTokens, model.DefaultOutputTokenReserve, model.MaxContextUtilization, model.PreferredContextUtilizationThreshold)
 		if err != nil {
 			return nil, err
 		}
-		items[strings.TrimSpace(model.ModelID)] = settings
+		items[model.ModelID] = settings
 	}
 	return items, nil
 }
 
-func buildImportedConnectionOwnerSettings(models []modelExport, modelSettingsByModelID map[string]contextcapability.Settings) map[string]contextcapability.Settings {
+func buildImportedConnectionOwnerSettings(models []importedModelPayload, modelSettingsByModelID map[string]contextcapability.Settings) map[string]contextcapability.Settings {
 	items := map[string]contextcapability.Settings{}
 	for _, model := range models {
-		ownerSettings, ok := modelSettingsByModelID[strings.TrimSpace(model.ModelID)]
+		ownerSettings, ok := modelSettingsByModelID[model.ModelID]
 		if !ok {
 			continue
 		}
 		for _, target := range model.AccessTargets {
-			if strings.ToLower(strings.TrimSpace(target.TargetType)) != "connection" {
+			if target.TargetType != "connection" || target.ConnectionRef == nil {
 				continue
 			}
-			connectionRef := trimmedOptionalString(target.ConnectionRef)
-			if connectionRef == nil {
-				continue
-			}
-			items[*connectionRef] = ownerSettings
+			items[*target.ConnectionRef] = ownerSettings
 		}
 	}
 	return items
 }
 
-func validateImportedConnectionPreferredContextThresholds(models []modelExport, connections []connectionExport) error {
+func validateImportedConnectionPreferredContextThresholds(models []importedModelPayload, connections []connectionExport) error {
 	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(models)
 	if err != nil {
 		return err
@@ -1251,36 +1361,35 @@ func validateImportedConnectionPreferredContextThresholds(models []modelExport, 
 }
 
 func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, connections []connectionExport, vendorIDsByKey map[string]int, endpointIDsByName map[string]int, pricingIDsByName map[string]int, strategyIDsByName map[string]int, currentTime time.Time) (map[string]int, map[string]struct{}, int, error) {
-	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(models)
+	importedModels := normalizeImportedModels(models)
+	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(importedModels)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	connectionOwnerSettings := buildImportedConnectionOwnerSettings(models, modelSettingsByModelID)
+	connectionOwnerSettings := buildImportedConnectionOwnerSettings(importedModels, modelSettingsByModelID)
 	modelIDsByModelID := map[string]int{}
 	connectionIDsByRef := map[string]int{}
 	importedPairs := map[string]struct{}{}
 
-	for _, model := range models {
-		modelID := strings.TrimSpace(model.ModelID)
-		apiFamily := strings.ToLower(strings.TrimSpace(model.APIFamily))
-		settings := modelSettingsByModelID[modelID]
+	for _, model := range importedModels {
+		settings := modelSettingsByModelID[model.ModelID]
 		var vendorID any
 		if model.VendorKey != nil {
-			vendorID = vendorIDsByKey[strings.TrimSpace(*model.VendorKey)]
+			vendorID = vendorIDsByKey[*model.VendorKey]
 		}
-		strategyID := strategyIDsByName[*trimmedOptionalString(model.LoadbalanceStrategyName)]
+		strategyID := strategyIDsByName[*model.LoadbalanceStrategyName]
 		var modelConfigID int
-		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12) RETURNING id`, profileID, vendorID, apiFamily, modelID, nullableString(trimmedOptionalString(model.DisplayName)), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
-			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", modelID, err)
+		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15) RETURNING id`, profileID, vendorID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
+			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", model.ModelID, err)
 		}
-		modelIDsByModelID[modelID] = modelConfigID
+		modelIDsByModelID[model.ModelID] = modelConfigID
 	}
 
 	connectionsImported, err := insertImportedConnections(ctx, exec, profileID, connections, endpointIDsByName, pricingIDsByName, connectionOwnerSettings, connectionIDsByRef, currentTime)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	if err := insertImportedAccessTargets(ctx, exec, profileID, models, modelIDsByModelID, connectionIDsByRef, importedPairs, currentTime); err != nil {
+	if err := insertImportedAccessTargets(ctx, exec, profileID, importedModels, modelIDsByModelID, connectionIDsByRef, importedPairs, currentTime); err != nil {
 		return nil, nil, 0, err
 	}
 	return connectionIDsByRef, importedPairs, connectionsImported, nil
@@ -1321,25 +1430,22 @@ func insertImportedConnections(ctx context.Context, exec queryExecutor, profileI
 	return len(connections), nil
 }
 
-func insertImportedAccessTargets(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, modelIDsByModelID map[string]int, connectionIDsByRef map[string]int, importedPairs map[string]struct{}, currentTime time.Time) error {
+func insertImportedAccessTargets(ctx context.Context, exec queryExecutor, profileID int, models []importedModelPayload, modelIDsByModelID map[string]int, connectionIDsByRef map[string]int, importedPairs map[string]struct{}, currentTime time.Time) error {
 	for _, model := range models {
-		modelID := strings.TrimSpace(model.ModelID)
-		sourceModelID := modelIDsByModelID[modelID]
-		sortedTargets := make([]accessTargetExport, len(model.AccessTargets))
+		sourceModelID := modelIDsByModelID[model.ModelID]
+		sortedTargets := make([]importedAccessTargetPayload, len(model.AccessTargets))
 		copy(sortedTargets, model.AccessTargets)
 		sort.SliceStable(sortedTargets, func(left int, right int) bool { return sortedTargets[left].Position < sortedTargets[right].Position })
 		for _, target := range sortedTargets {
-			switch strings.ToLower(strings.TrimSpace(target.TargetType)) {
+			switch target.TargetType {
 			case "connection":
-				connectionRef := *trimmedOptionalString(target.ConnectionRef)
-				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, $4, $5, $6, $6)`, profileID, sourceModelID, connectionIDsByRef[connectionRef], target.Position, target.IsEnabled, currentTime); err != nil {
-					return fmt.Errorf("insert connection access target for model %q: %w", modelID, err)
+				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, $4, $5, $6, $6)`, profileID, sourceModelID, connectionIDsByRef[*target.ConnectionRef], target.Position, target.IsEnabled, currentTime); err != nil {
+					return fmt.Errorf("insert connection access target for model %q: %w", model.ModelID, err)
 				}
-				importedPairs[connectionPairKey(modelID, connectionRef)] = struct{}{}
+				importedPairs[connectionPairKey(model.ModelID, *target.ConnectionRef)] = struct{}{}
 			case "model":
-				targetModelID := *trimmedOptionalString(target.TargetModelID)
-				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, 1, $4, $5, $6, $6)`, profileID, sourceModelID, modelIDsByModelID[targetModelID], target.Position, target.IsEnabled, currentTime); err != nil {
-					return fmt.Errorf("insert model access target for model %q: %w", modelID, err)
+				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, $5, $6, $7, $8, $8)`, profileID, sourceModelID, modelIDsByModelID[*target.TargetModelID], target.Position, target.ResolvedWeight, target.ResolvedTargetPriority, target.IsEnabled, currentTime); err != nil {
+					return fmt.Errorf("insert model access target for model %q: %w", model.ModelID, err)
 				}
 			}
 		}

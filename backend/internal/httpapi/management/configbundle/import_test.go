@@ -420,6 +420,139 @@ func TestVendorCatalogBundleHelpersRejectUnsupportedEnvelope(t *testing.T) {
 	}
 }
 
+func TestProfileBundleImportNormalizesLegacyFacadeAndTargetMetadataDefaults(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.Models = append(request.Models, modelExport{
+		VendorKey:               stringPtr("openai"),
+		APIFamily:               "openai",
+		ModelID:                 "gpt-4o-router",
+		DisplayName:             stringPtr("GPT 4o Router"),
+		LoadbalanceStrategyName: stringPtr("Default single"),
+		IsEnabled:               true,
+		AccessTargets: []accessTargetExport{{
+			Position:      0,
+			IsEnabled:     true,
+			TargetType:    "model",
+			TargetModelID: stringPtr("gpt-4o-mini"),
+		}},
+	})
+
+	if err := validateProfileImportRequest(request); err != nil {
+		t.Fatalf("validate legacy facade defaults bundle: %v", err)
+	}
+	importedModels := normalizeImportedModels(request.Models)
+	var router importedModelPayload
+	found := false
+	for _, model := range importedModels {
+		if model.ModelID == "gpt-4o-router" {
+			router = model
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected normalized imported router model")
+	}
+	if router.FacadeEnabled || router.FacadeSelectionPolicy != nil || router.FacadeFallbackPolicy != nil {
+		t.Fatalf("expected missing legacy facade fields to default to disabled/nil, got %+v", router)
+	}
+	if len(router.AccessTargets) != 1 {
+		t.Fatalf("expected one normalized router access target, got %+v", router.AccessTargets)
+	}
+	target := router.AccessTargets[0]
+	if target.Weight != nil || target.TargetPriority != nil || target.ResolvedWeight != 1 || target.ResolvedTargetPriority != 0 {
+		t.Fatalf("expected missing legacy model target metadata to default to weight=1 target_priority=position, got %+v", target)
+	}
+}
+
+func TestProfileBundleImportRejectsFacadeConfiguration(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*profileImportRequest)
+		detail string
+	}{
+		{
+			name: "invalid selection policy",
+			mutate: func(request *profileImportRequest) {
+				request.Models[0].FacadeEnabled = true
+				request.Models[0].FacadeSelectionPolicy = stringPtr("invalid")
+				request.Models[0].FacadeFallbackPolicy = stringPtr("redistribute_ineligible_weight")
+			},
+			detail: "facade_selection_policy must be 'weighted_eligible_context'",
+		},
+		{
+			name: "invalid fallback policy",
+			mutate: func(request *profileImportRequest) {
+				request.Models[0].FacadeEnabled = true
+				request.Models[0].FacadeSelectionPolicy = stringPtr("weighted_eligible_context")
+				request.Models[0].FacadeFallbackPolicy = stringPtr("invalid")
+			},
+			detail: "facade_fallback_policy must be 'redistribute_ineligible_weight'",
+		},
+		{
+			name: "missing selection policy when enabled",
+			mutate: func(request *profileImportRequest) {
+				request.Models[0].FacadeEnabled = true
+				request.Models[0].FacadeFallbackPolicy = stringPtr("redistribute_ineligible_weight")
+			},
+			detail: "facade_selection_policy is required when facade_enabled is true",
+		},
+		{
+			name: "missing fallback policy when enabled",
+			mutate: func(request *profileImportRequest) {
+				request.Models[0].FacadeEnabled = true
+				request.Models[0].FacadeSelectionPolicy = stringPtr("weighted_eligible_context")
+			},
+			detail: "facade_fallback_policy is required when facade_enabled is true",
+		},
+		{
+			name: "non-openai facade enabled",
+			mutate: func(request *profileImportRequest) {
+				request.Models[0].APIFamily = "anthropic"
+				request.Models[0].FacadeEnabled = true
+				request.Models[0].FacadeSelectionPolicy = stringPtr("weighted_eligible_context")
+				request.Models[0].FacadeFallbackPolicy = stringPtr("redistribute_ineligible_weight")
+			},
+			detail: "facade_enabled requires api_family 'openai'",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := validProfileBundleV3Request()
+			test.mutate(&request)
+			err := validateProfileImportRequest(request)
+			requireConfigBundleDomainError(t, err, http.StatusBadRequest, test.detail)
+		})
+	}
+}
+
+func TestProfileBundleImportRejectsNestedFacades(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.Models[0].FacadeEnabled = true
+	request.Models[0].FacadeSelectionPolicy = stringPtr("weighted_eligible_context")
+	request.Models[0].FacadeFallbackPolicy = stringPtr("redistribute_ineligible_weight")
+	request.Models = append(request.Models, modelExport{
+		VendorKey:               stringPtr("openai"),
+		APIFamily:               "openai",
+		ModelID:                 "gpt-4o-router",
+		DisplayName:             stringPtr("GPT 4o Router"),
+		LoadbalanceStrategyName: stringPtr("Default single"),
+		IsEnabled:               true,
+		AccessTargets: []accessTargetExport{{
+			Position:       0,
+			IsEnabled:      true,
+			TargetType:     "model",
+			TargetModelID:  stringPtr("gpt-4o-mini"),
+			Weight:         intPtr(9),
+			TargetPriority: intPtr(4),
+		}},
+	})
+
+	err := validateProfileImportRequest(request)
+	requireConfigBundleDomainError(t, err, http.StatusBadRequest, nestedFacadesNotSupportedDetail)
+}
+
 func validProfileBundleV3Request() profileImportRequest {
 	return profileImportRequest{
 		Version:    canonicalProfileBundleVersion,
