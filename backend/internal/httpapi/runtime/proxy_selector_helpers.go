@@ -20,12 +20,15 @@ type runtimeRoundRobinTargetCursor interface {
 	ClaimRoundRobinTargetCursor(profileID int, sourceModelConfigID int, strategyID int, targetSetHash string, targetCount int) int
 }
 
+type runtimeWeightedTargetCursor interface {
+	ClaimProxyWeightedCursor(profileID int, facadeModelConfigID int, targetSetHash string, totalWeight int) int
+}
+
 func orderRuntimeAccessTargets(profileID int, sourceModelConfigID int, strategy loadbalance.RuntimeStrategy, targets []runtimeAccessTargetRecord, cursor runtimeRoundRobinTargetCursor) []runtimeAccessTargetRecord {
-	ordered := enabledRuntimeAccessTargets(targets)
+	ordered := sortedEnabledRuntimeAccessTargets(targets)
 	if len(ordered) == 0 {
 		return nil
 	}
-	sortRuntimeAccessTargets(ordered)
 	switch normalizedRuntimeLegacyStrategyType(strategy) {
 	case "single":
 		return ordered[:1]
@@ -41,6 +44,15 @@ func orderRuntimeAccessTargets(profileID int, sourceModelConfigID int, strategy 
 	return ordered
 }
 
+func sortedEnabledRuntimeAccessTargets(targets []runtimeAccessTargetRecord) []runtimeAccessTargetRecord {
+	ordered := enabledRuntimeAccessTargets(targets)
+	if len(ordered) == 0 {
+		return nil
+	}
+	sortRuntimeAccessTargets(ordered)
+	return ordered
+}
+
 func enabledRuntimeAccessTargets(targets []runtimeAccessTargetRecord) []runtimeAccessTargetRecord {
 	if len(targets) == 0 {
 		return nil
@@ -52,6 +64,37 @@ func enabledRuntimeAccessTargets(targets []runtimeAccessTargetRecord) []runtimeA
 		}
 	}
 	return filtered
+}
+
+func effectiveRuntimeAccessTargetWeight(target runtimeAccessTargetRecord) int {
+	if target.Weight > 0 {
+		return target.Weight
+	}
+	return runtimeActiveModelTargetDefaultWeight
+}
+
+func selectWeightedRuntimeAccessCandidate(profileID int, facadeModelConfigID int, candidates []runtimeResolvedAccessCandidate, cursor runtimeWeightedTargetCursor) *runtimeResolvedAccessCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	weightedTargets := make([]runtimeAccessTargetRecord, 0, len(candidates))
+	totalWeight := 0
+	for _, candidate := range candidates {
+		weightedTargets = append(weightedTargets, candidate.target)
+		totalWeight += effectiveRuntimeAccessTargetWeight(candidate.target)
+	}
+	cursorOffset := 0
+	if cursor != nil {
+		cursorOffset = cursor.ClaimProxyWeightedCursor(profileID, facadeModelConfigID, runtimeAccessTargetSetHash(weightedTargets), totalWeight)
+	}
+	cumulativeWeight := 0
+	for index := range candidates {
+		cumulativeWeight += effectiveRuntimeAccessTargetWeight(candidates[index].target)
+		if cursorOffset < cumulativeWeight {
+			return &candidates[index]
+		}
+	}
+	return &candidates[len(candidates)-1]
 }
 
 func sortRuntimeAccessTargets(targets []runtimeAccessTargetRecord) {

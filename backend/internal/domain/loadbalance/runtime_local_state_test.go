@@ -304,32 +304,66 @@ func TestRuntimeLocalRoundRobinCursorAdvancesOncePerLaunch(t *testing.T) {
 	}
 }
 
-func TestRuntimeLocalProxyWeightedCursorUsesSeparateWeightedKeys(t *testing.T) {
+func TestRuntimeLocalFacadeWeightedCursorUsesTargetSetHash(t *testing.T) {
 	store := NewLocalRuntimeStateStore()
 
-	if got := store.ClaimProxyWeightedCursor(1, 60, 0); got != 0 {
+	if got := store.ClaimProxyWeightedCursor(1, 60, "", 4); got != 0 {
+		t.Fatalf("expected blank target-set hash to return 0, got %d", got)
+	}
+	if got := store.ClaimProxyWeightedCursor(1, 60, "eligible-a", 0); got != 0 {
 		t.Fatalf("expected invalid total weight to return 0, got %d", got)
 	}
 	for index, want := range []int{0, 1, 2, 3, 0} {
-		if got := store.ClaimProxyWeightedCursor(1, 60, 4); got != want {
-			t.Fatalf("weighted cursor step %d: expected %d, got %d", index, want, got)
+		if got := store.ClaimProxyWeightedCursor(1, 60, "eligible-a", 4); got != want {
+			t.Fatalf("stable eligible-set cursor step %d: expected %d, got %d", index, want, got)
 		}
 	}
-	if got := store.ClaimProxyWeightedCursor(1, 60, 3); got != 0 {
+	if got := store.ClaimProxyWeightedCursor(1, 60, " eligible-a ", 4); got != 1 {
+		t.Fatalf("expected trimmed target-set hash to reuse the stable sequence, got %d", got)
+	}
+	if got := store.ClaimProxyWeightedCursor(1, 60, "eligible-b", 4); got != 0 {
+		t.Fatalf("expected different eligible target set to start a separate sequence, got %d", got)
+	}
+	if got := store.ClaimProxyWeightedCursor(1, 60, "eligible-a", 4); got != 2 {
+		t.Fatalf("expected original eligible target set to preserve its deterministic sequence, got %d", got)
+	}
+	if got := store.ClaimProxyWeightedCursor(1, 60, "eligible-a", 3); got != 0 {
 		t.Fatalf("expected changed total weight to use a separate key, got %d", got)
+	}
+	if got := store.ClaimProxyWeightedCursor(1, 61, "eligible-a", 4); got != 0 {
+		t.Fatalf("expected different facade model config to use a separate key, got %d", got)
+	}
+	if got := store.ClaimProxyWeightedCursor(2, 60, "eligible-a", 4); got != 0 {
+		t.Fatalf("expected profile isolation to keep weighted cursors separate, got %d", got)
 	}
 	if got := store.ClaimRoundRobinCursor(1, 60, 2); got != 0 {
 		t.Fatalf("expected native round-robin cursor to stay separate, got %d", got)
 	}
-	store.ClaimProxyWeightedCursor(2, 60, 4)
-	store.ResetProfile(2)
-	if got := store.ClaimProxyWeightedCursor(2, 60, 4); got != 0 {
-		t.Fatalf("expected profile reset to clear proxy weighted cursor, got %d", got)
+}
+
+func TestRuntimeLocalFacadeWeightedCursorResetsOnProfileAndFullReset(t *testing.T) {
+	store := NewLocalRuntimeStateStore()
+
+	if got := store.ClaimProxyWeightedCursor(2, 60, "eligible-a", 4); got != 0 {
+		t.Fatalf("expected initial weighted cursor state for profile 2, got %d", got)
 	}
-	store.ClaimProxyWeightedCursor(1, 60, 4)
+	if got := store.ClaimProxyWeightedCursor(2, 60, "eligible-a", 4); got != 1 {
+		t.Fatalf("expected weighted cursor to advance before profile reset, got %d", got)
+	}
+	store.ResetProfile(2)
+	if got := store.ClaimProxyWeightedCursor(2, 60, "eligible-a", 4); got != 0 {
+		t.Fatalf("expected profile reset to clear facade weighted cursor state, got %d", got)
+	}
+
+	if got := store.ClaimProxyWeightedCursor(1, 60, "eligible-a", 4); got != 0 {
+		t.Fatalf("expected initial weighted cursor state for profile 1, got %d", got)
+	}
+	if got := store.ClaimProxyWeightedCursor(1, 60, "eligible-a", 4); got != 1 {
+		t.Fatalf("expected weighted cursor to advance before full reset, got %d", got)
+	}
 	store.ResetAll()
-	if got := store.ClaimProxyWeightedCursor(1, 60, 4); got != 0 {
-		t.Fatalf("expected full reset to clear proxy weighted cursor, got %d", got)
+	if got := store.ClaimProxyWeightedCursor(1, 60, "eligible-a", 4); got != 0 {
+		t.Fatalf("expected full reset to clear facade weighted cursor state, got %d", got)
 	}
 }
 

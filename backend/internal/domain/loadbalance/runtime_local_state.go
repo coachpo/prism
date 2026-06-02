@@ -76,8 +76,9 @@ type localTargetRoundRobinCursorKey struct {
 }
 
 type localProxyWeightedCursorKey struct {
-	proxyModelConfigID int
-	totalWeight        int
+	facadeModelConfigID int
+	targetSetHash       string
+	totalWeight         int
 }
 
 type localProxyWeightedCursor struct {
@@ -318,12 +319,16 @@ func (s *LocalRuntimeStateStore) ClaimRoundRobinTargetCursor(profileID int, sour
 	return int((cursor.next.Add(1) - 1) % uint64(targetCount))
 }
 
-func (s *LocalRuntimeStateStore) ClaimProxyWeightedCursor(profileID int, proxyModelConfigID int, totalWeight int) int {
-	if s == nil || profileID <= 0 || proxyModelConfigID <= 0 || totalWeight <= 0 {
+func (s *LocalRuntimeStateStore) ClaimProxyWeightedCursor(profileID int, facadeModelConfigID int, targetSetHash string, totalWeight int) int {
+	if s == nil || profileID <= 0 || facadeModelConfigID <= 0 || totalWeight <= 0 {
+		return 0
+	}
+	trimmedTargetSetHash := strings.TrimSpace(targetSetHash)
+	if trimmedTargetSetHash == "" {
 		return 0
 	}
 	profile := s.profileState(profileID)
-	key := localProxyWeightedCursorKey{proxyModelConfigID: proxyModelConfigID, totalWeight: totalWeight}
+	key := localProxyWeightedCursorKey{facadeModelConfigID: facadeModelConfigID, targetSetHash: trimmedTargetSetHash, totalWeight: totalWeight}
 	profile.mu.Lock()
 	cursor := profile.proxyWeighted[key]
 	if cursor == nil {
