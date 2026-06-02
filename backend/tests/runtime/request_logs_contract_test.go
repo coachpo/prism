@@ -378,6 +378,152 @@ func TestRequestLogsNoFitPlanningFailurePersistsContextRoutingMetadata(t *testin
 	}
 }
 
+func TestRequestLogsFacadeSuccessDetailIncludesFacadeSelectionMetadata(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	route := seedOpenAIFacadeRoute(t, harness, profileID, "request-logs-facade-success-public-"+suffix, []facadeTargetSeed{
+		{ModelID: "request-logs-facade-success-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/first"), EndpointAPIKey: "request-logs-facade-success-first-key", Weight: 1},
+		{ModelID: "request-logs-facade-success-blocked-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/blocked"), EndpointAPIKey: "request-logs-facade-success-blocked-key", Weight: 100},
+		{ModelID: "request-logs-facade-success-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/second"), EndpointAPIKey: "request-logs-facade-success-second-key", Weight: 1},
+	})
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[1], 400, 4096, 1.0)
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages":              []map[string]any{{"role": "user", "content": "facade observability success"}},
+		"model":                 route.PublicModelID,
+		"max_completion_tokens": 600,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	payload := loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)
+	routing := asMapRuntime(t, payload["routing"])
+	contextRouting := asMapRuntime(t, routing["context_routing"])
+	facadeSelection := asMapRuntime(t, contextRouting["facade_selection"])
+	if facadeSelection["facade_model_id"] != route.PublicModelID {
+		t.Fatalf("expected facade_model_id=%q, got %+v", route.PublicModelID, facadeSelection)
+	}
+	if facadeSelection["selected_target_model_id"] != route.TargetModelIDs[0] {
+		t.Fatalf("expected selected_target_model_id=%q, got %+v", route.TargetModelIDs[0], facadeSelection)
+	}
+	if got, ok := facadeSelection["selected_weight"].(float64); !ok || int(got) != 1 {
+		t.Fatalf("expected selected_weight=1, got %+v", facadeSelection)
+	}
+	if got, ok := facadeSelection["eligible_total_weight"].(float64); !ok || int(got) != 2 {
+		t.Fatalf("expected eligible_total_weight=2, got %+v", facadeSelection)
+	}
+	if facadeSelection["exclusion_summary"] != "estimated_context_exceeds_usable_window=1" {
+		t.Fatalf("expected facade exclusion summary for blocked sibling, got %+v", facadeSelection)
+	}
+}
+
+func TestRequestLogsFacadeTranslatedRejectionDetailIncludesFacadeSelectionMetadata(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "request-logs-facade-translated-rejected-should-not-run"})
+	route := seedTranslatedOpenAIFacadeRoute(t, harness, profileID, "request-logs-facade-translated-public", "request-logs-facade-translated-target", upstream.baseURL("/request-logs/facade/translated-rejected-detail"), "request-logs-facade-translated-key", "chat_completions_reasoning_none")
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"model":             route.PublicModelID,
+		"input":             "facade translated rejected request-log detail",
+		"text":              map[string]any{"format": "json_schema"},
+		"max_output_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusBadRequest)
+	if got := len(upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected facade translated rejected detail request to avoid upstream calls, got %d", got)
+	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	payload := loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)
+	routing := asMapRuntime(t, payload["routing"])
+	contextRouting := asMapRuntime(t, routing["context_routing"])
+	facadeSelection := asMapRuntime(t, contextRouting["facade_selection"])
+	if facadeSelection["facade_model_id"] != route.PublicModelID || facadeSelection["selected_target_model_id"] != route.TargetModelID {
+		t.Fatalf("expected translated rejected facade selection to keep requested and selected target models, got %+v", facadeSelection)
+	}
+	if got, ok := facadeSelection["selected_weight"].(float64); !ok || int(got) != 1 {
+		t.Fatalf("expected translated rejected selected_weight=1, got %+v", facadeSelection)
+	}
+	if got, ok := facadeSelection["eligible_total_weight"].(float64); !ok || int(got) != 0 {
+		t.Fatalf("expected translated rejected eligible_total_weight=0, got %+v", facadeSelection)
+	}
+	if facadeSelection["exclusion_summary"] != "translation_rejection=1" {
+		t.Fatalf("expected translated rejected exclusion summary, got %+v", facadeSelection)
+	}
+}
+
+func TestRequestLogsFacadeNoFitPlanningFailureIncludesFacadeSelectionMetadata(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "request-logs-facade-no-fit-public-" + suffix
+	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
+		{ModelID: "request-logs-facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/small"), EndpointAPIKey: "request-logs-facade-no-fit-small-key", Weight: 1},
+		{ModelID: "request-logs-facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/large"), EndpointAPIKey: "request-logs-facade-no-fit-large-key", Weight: 1},
+	})
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[0], 200, 4096, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[1], 400, 4096, 1.0)
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized facade request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
+	assertStatus(t, response, http.StatusRequestEntityTooLarge)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	payload := loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)
+	routing := asMapRuntime(t, payload["routing"])
+	contextRouting := asMapRuntime(t, routing["context_routing"])
+	facadeSelection := asMapRuntime(t, contextRouting["facade_selection"])
+	if facadeSelection["facade_model_id"] != publicModelID {
+		t.Fatalf("expected no-fit facade_model_id=%q, got %+v", publicModelID, facadeSelection)
+	}
+	if _, ok := facadeSelection["selected_target_model_id"]; ok {
+		t.Fatalf("expected no-fit selected_target_model_id to stay omitted without planner selection, got %+v", facadeSelection)
+	}
+	if got, ok := facadeSelection["eligible_total_weight"].(float64); !ok || int(got) != 0 {
+		t.Fatalf("expected no-fit eligible_total_weight=0, got %+v", facadeSelection)
+	}
+	if facadeSelection["exclusion_summary"] != "estimated_context_exceeds_usable_window=2" {
+		t.Fatalf("expected no-fit exclusion summary, got %+v", facadeSelection)
+	}
+}
+
+func TestRequestLogsFacadeNoEligiblePlanningFailureIncludesFacadeSelectionMetadata(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "request-logs-facade-no-eligible-public-" + suffix
+	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
+		{ModelID: "request-logs-facade-no-eligible-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/first"), EndpointAPIKey: "request-logs-facade-no-eligible-first-key", Weight: 1},
+		{ModelID: "request-logs-facade-no-eligible-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/second"), EndpointAPIKey: "request-logs-facade-no-eligible-second-key", Weight: 1},
+	})
+	harness.runtimeService.RuntimeState().ResetProfile(profileID)
+	blockedUntilAt := time.Now().UTC().Add(10 * time.Minute)
+	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: route.ConnectionIDs[0], BlockedUntilAt: &blockedUntilAt, CircuitState: "open"})
+	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: route.ConnectionIDs[1], BlockedUntilAt: &blockedUntilAt, CircuitState: "open"})
+
+	response := performProxySelectorChatRequest(t, harness, publicModelID, "all facade targets unroutable")
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	payload := loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)
+	routing := asMapRuntime(t, payload["routing"])
+	contextRouting := asMapRuntime(t, routing["context_routing"])
+	facadeSelection := asMapRuntime(t, contextRouting["facade_selection"])
+	if facadeSelection["facade_model_id"] != publicModelID {
+		t.Fatalf("expected no-eligible facade_model_id=%q, got %+v", publicModelID, facadeSelection)
+	}
+	if _, ok := facadeSelection["selected_target_model_id"]; ok {
+		t.Fatalf("expected no-eligible selected_target_model_id to stay omitted without planner selection, got %+v", facadeSelection)
+	}
+	if got, ok := facadeSelection["eligible_total_weight"].(float64); !ok || int(got) != 0 {
+		t.Fatalf("expected no-eligible eligible_total_weight=0, got %+v", facadeSelection)
+	}
+	if _, ok := facadeSelection["exclusion_summary"]; ok {
+		t.Fatalf("expected no-eligible exclusion_summary to stay omitted when planner has no exclusion reasons, got %+v", facadeSelection)
+	}
+}
+
 func TestRequestLogStreamErrorDetailContract(t *testing.T) {
 	harness := newRequestLogContractHarness(t)
 	profileID := loadRuntimeDefaultProfileID(t, harness)
@@ -2757,4 +2903,17 @@ func asMapRuntime(t *testing.T, raw any) map[string]any {
 		t.Fatalf("expected map payload, got %T %+v", raw, raw)
 	}
 	return item
+}
+
+func loadLatestRuntimeRequestLogDetailPayload(t *testing.T, harness *runtimeHarness, profileID int) map[string]any {
+	t.Helper()
+	var requestLogID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestLogID); err != nil {
+		t.Fatalf("load latest facade request log id: %v", err)
+	}
+	response := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	return payload
 }

@@ -125,6 +125,20 @@ type RequestLogContextRoutingSkippedTerminalTarget struct {
 	EstimatedTotalContextTokens *int    `json:"estimated_total_context_tokens,omitempty"`
 }
 
+type RequestLogFacadeExclusionReason struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
+}
+
+type RequestLogFacadeSelection struct {
+	FacadeModelID         string                            `json:"facade_model_id"`
+	SelectedTargetModelID *string                           `json:"selected_target_model_id,omitempty"`
+	SelectedWeight        *int                              `json:"selected_weight,omitempty"`
+	EligibleTotalWeight   *int                              `json:"eligible_total_weight,omitempty"`
+	ExclusionReasons      []RequestLogFacadeExclusionReason `json:"exclusion_reasons,omitempty"`
+	ExclusionSummary      *string                           `json:"exclusion_summary,omitempty"`
+}
+
 type RequestLogContextRouting struct {
 	Policy                             string                                          `json:"policy"`
 	SelectedTerminalTargetID           *int                                            `json:"selected_terminal_target_id,omitempty"`
@@ -139,6 +153,7 @@ type RequestLogContextRouting struct {
 	CostRankingMethod                  *string                                         `json:"cost_ranking_method,omitempty"`
 	SelectedEstimatedBlendedCostMicros *int64                                          `json:"selected_estimated_blended_cost_micros,omitempty"`
 	SkippedTerminalTargets             []RequestLogContextRoutingSkippedTerminalTarget `json:"skipped_terminal_targets,omitempty"`
+	FacadeSelection                    *RequestLogFacadeSelection                      `json:"facade_selection,omitempty"`
 }
 
 type RequestLogDetailRouting struct {
