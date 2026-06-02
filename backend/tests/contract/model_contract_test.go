@@ -31,6 +31,12 @@ func TestModelCRUD(t *testing.T) {
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S8 Access Strategy")
 	targetModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s8-target-model", stringPtr("S8 Target Model"), &strategyID, true)
 	otherFamilyModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "anthropic", "s8-anthropic-target", stringPtr("S8 Anthropic Target"), &strategyID, true)
+	selectionPolicy := "weighted_eligible_context"
+	fallbackPolicy := "redistribute_ineligible_weight"
+	initialWeight := 7
+	initialTargetPriority := 2
+	updatedWeight := 3
+	updatedTargetPriority := 0
 	_ = otherFamilyModelID
 
 	missingHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models", nil, nil)
@@ -86,6 +92,7 @@ func TestModelCRUD(t *testing.T) {
 	var createDraftPayload map[string]any
 	decodeJSONResponse(t, createDraftResponse, &createDraftPayload)
 	assertNoLegacyModelFields(t, createDraftPayload)
+	assertFacadeFields(t, createDraftPayload, false, nil, nil)
 	assertAccessTargets(t, createDraftPayload, nil)
 	if got := createDraftPayload["is_enabled"]; got != false {
 		t.Fatalf("expected disabled draft create to persist is_enabled=false, got %+v", createDraftPayload)
@@ -106,8 +113,11 @@ func TestModelCRUD(t *testing.T) {
 			"model_id":                "s8-access-model",
 			"display_name":            "S8 Access Model",
 			"loadbalance_strategy_id": strategyID,
+			"facade_enabled":          true,
+			"facade_selection_policy": selectionPolicy,
+			"facade_fallback_policy":  fallbackPolicy,
 			"is_enabled":              true,
-			"access_targets":          []map[string]any{modelAccessTarget("model", "s8-target-model", nil, 0, true)},
+			"access_targets":          []map[string]any{modelAccessTargetWithMetadata("model", "s8-target-model", nil, 0, modelIntPtr(initialWeight), modelIntPtr(initialTargetPriority), true)},
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -116,7 +126,10 @@ func TestModelCRUD(t *testing.T) {
 	decodeJSONResponse(t, createResponse, &createPayload)
 	sourceModelConfigID := jsonInt(t, createPayload["id"])
 	assertNoLegacyModelFields(t, createPayload)
-	assertAccessTargets(t, createPayload, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, IsEnabled: true}})
+	assertFacadeFields(t, createPayload, true, &selectionPolicy, &fallbackPolicy)
+	assertAccessTargets(t, createPayload, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, Weight: modelIntPtr(initialWeight), TargetPriority: modelIntPtr(initialTargetPriority), IsEnabled: true}})
+	assertStoredModelFacadeFields(t, harness, sourceModelConfigID, true, &selectionPolicy, &fallbackPolicy)
+	assertStoredModelTargetMetadata(t, harness, sourceModelConfigID, targetModelID, initialWeight, initialTargetPriority)
 	assertModelLoadbalanceStrategySummary(t, createPayload["loadbalance_strategy"], strategyID, "S8 Access Strategy")
 
 	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d", sourceModelConfigID), nil, modelHeader(defaultProfileID))
@@ -124,6 +137,8 @@ func TestModelCRUD(t *testing.T) {
 	var detailPayload map[string]any
 	decodeJSONResponse(t, detailResponse, &detailPayload)
 	assertNoLegacyModelFields(t, detailPayload)
+	assertFacadeFields(t, detailPayload, true, &selectionPolicy, &fallbackPolicy)
+	assertAccessTargets(t, detailPayload, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, Weight: modelIntPtr(initialWeight), TargetPriority: modelIntPtr(initialTargetPriority), IsEnabled: true}})
 	assertModelLoadbalanceStrategySummary(t, detailPayload["loadbalance_strategy"], strategyID, "S8 Access Strategy")
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models", nil, modelHeader(defaultProfileID))
@@ -132,6 +147,8 @@ func TestModelCRUD(t *testing.T) {
 	decodeJSONResponse(t, listResponse, &listPayload)
 	listItem := findModelListItemByModelID(t, listPayload, "s8-access-model")
 	assertNoLegacyModelFields(t, listItem)
+	assertFacadeFields(t, listItem, true, &selectionPolicy, &fallbackPolicy)
+	assertAccessTargets(t, listItem, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, Weight: modelIntPtr(initialWeight), TargetPriority: modelIntPtr(initialTargetPriority), IsEnabled: true}})
 	assertModelLoadbalanceStrategySummary(t, listItem["loadbalance_strategy"], strategyID, "S8 Access Strategy")
 
 	enabledZeroTargetsCreate := harness.requestJSON(
@@ -167,9 +184,12 @@ func TestModelCRUD(t *testing.T) {
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", sourceModelConfigID),
 		map[string]any{
-			"display_name": nil,
+			"display_name":            nil,
+			"facade_enabled":          false,
+			"facade_selection_policy": nil,
+			"facade_fallback_policy":  nil,
 			"access_targets": []map[string]any{
-				modelAccessTarget("model", "s8-target-model", nil, 0, true),
+				modelAccessTargetWithMetadata("model", "s8-target-model", nil, 0, modelIntPtr(updatedWeight), modelIntPtr(updatedTargetPriority), true),
 			},
 		},
 		modelHeader(defaultProfileID),
@@ -178,7 +198,10 @@ func TestModelCRUD(t *testing.T) {
 	var updatePayload map[string]any
 	decodeJSONResponse(t, updateResponse, &updatePayload)
 	assertNoLegacyModelFields(t, updatePayload)
-	assertAccessTargets(t, updatePayload, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, IsEnabled: true}})
+	assertFacadeFields(t, updatePayload, false, nil, nil)
+	assertAccessTargets(t, updatePayload, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, Weight: modelIntPtr(updatedWeight), TargetPriority: modelIntPtr(updatedTargetPriority), IsEnabled: true}})
+	assertStoredModelFacadeFields(t, harness, sourceModelConfigID, false, nil, nil)
+	assertStoredModelTargetMetadata(t, harness, sourceModelConfigID, targetModelID, updatedWeight, updatedTargetPriority)
 	if updatePayload["display_name"] != "s8-access-model" {
 		t.Fatalf("expected nil display_name update to reset to model_id, got %+v", updatePayload)
 	}
@@ -246,6 +269,172 @@ func TestModelCRUD(t *testing.T) {
 	assertNoSourceAccessTargets(t, harness, sourceModelConfigID)
 	deleteTarget := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d", targetModelID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, deleteTarget, http.StatusOK)
+}
+
+func TestModelFacadePoliciesAndTargetMetadata(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Facade Policy Strategy")
+	terminalTargetID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "facade-terminal-target", nil, &strategyID, true)
+	nestedFacadeTargetID := modelInsertFacadeModel(t, harness, profileID, &vendorID, "openai", "nested-facade-target", nil, &strategyID, true)
+	selectionPolicy := "weighted_eligible_context"
+	fallbackPolicy := "redistribute_ineligible_weight"
+
+	invalidSelection := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "openai",
+		"model_id":                "invalid-facade-selection",
+		"loadbalance_strategy_id": strategyID,
+		"facade_enabled":          true,
+		"facade_selection_policy": "invalid",
+		"facade_fallback_policy":  fallbackPolicy,
+		"access_targets":          []map[string]any{modelAccessTargetWithMetadata("model", "facade-terminal-target", nil, 0, modelIntPtr(1), modelIntPtr(0), true)},
+	}, modelHeader(profileID))
+	assertErrorResponse(t, invalidSelection, http.StatusBadRequest, "facade_selection_policy must be 'weighted_eligible_context'")
+
+	invalidFallback := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "openai",
+		"model_id":                "invalid-facade-fallback",
+		"loadbalance_strategy_id": strategyID,
+		"facade_enabled":          true,
+		"facade_selection_policy": selectionPolicy,
+		"facade_fallback_policy":  "invalid",
+		"access_targets":          []map[string]any{modelAccessTargetWithMetadata("model", "facade-terminal-target", nil, 0, modelIntPtr(1), modelIntPtr(0), true)},
+	}, modelHeader(profileID))
+	assertErrorResponse(t, invalidFallback, http.StatusBadRequest, "facade_fallback_policy must be 'redistribute_ineligible_weight'")
+
+	missingSelection := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "openai",
+		"model_id":                "missing-facade-selection",
+		"loadbalance_strategy_id": strategyID,
+		"facade_enabled":          true,
+		"facade_fallback_policy":  fallbackPolicy,
+		"access_targets":          []map[string]any{modelAccessTargetWithMetadata("model", "facade-terminal-target", nil, 0, modelIntPtr(1), modelIntPtr(0), true)},
+	}, modelHeader(profileID))
+	assertErrorResponse(t, missingSelection, http.StatusBadRequest, "facade_selection_policy is required when facade_enabled is true")
+
+	missingFallback := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "openai",
+		"model_id":                "missing-facade-fallback",
+		"loadbalance_strategy_id": strategyID,
+		"facade_enabled":          true,
+		"facade_selection_policy": selectionPolicy,
+		"access_targets":          []map[string]any{modelAccessTargetWithMetadata("model", "facade-terminal-target", nil, 0, modelIntPtr(1), modelIntPtr(0), true)},
+	}, modelHeader(profileID))
+	assertErrorResponse(t, missingFallback, http.StatusBadRequest, "facade_fallback_policy is required when facade_enabled is true")
+
+	anthropicFacadeCreate := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "anthropic",
+		"model_id":                "anthropic-facade-create",
+		"loadbalance_strategy_id": strategyID,
+		"facade_enabled":          true,
+		"facade_selection_policy": selectionPolicy,
+		"facade_fallback_policy":  fallbackPolicy,
+		"is_enabled":              false,
+		"access_targets":          []map[string]any{},
+	}, modelHeader(profileID))
+	assertErrorResponse(t, anthropicFacadeCreate, http.StatusBadRequest, "facade_enabled requires api_family 'openai'")
+
+	anthropicFacadeSourceID := modelInsertModel(t, harness, profileID, &vendorID, "anthropic", "anthropic-facade-update", nil, &strategyID, false)
+	enableAnthropicFacade := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", anthropicFacadeSourceID), map[string]any{
+		"facade_enabled":          true,
+		"facade_selection_policy": selectionPolicy,
+		"facade_fallback_policy":  fallbackPolicy,
+	}, modelHeader(profileID))
+	assertErrorResponse(t, enableAnthropicFacade, http.StatusBadRequest, "facade_enabled requires api_family 'openai'")
+
+	invalidWeight := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "openai",
+		"model_id":                "invalid-weight-model",
+		"loadbalance_strategy_id": strategyID,
+		"access_targets":          []map[string]any{modelAccessTargetWithMetadata("model", "facade-terminal-target", nil, 0, modelIntPtr(0), modelIntPtr(0), true)},
+	}, modelHeader(profileID))
+	assertErrorResponse(t, invalidWeight, http.StatusBadRequest, "weight must be greater than 0")
+
+	invalidTargetPriority := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "openai",
+		"model_id":                "invalid-target-priority-model",
+		"loadbalance_strategy_id": strategyID,
+		"access_targets":          []map[string]any{modelAccessTargetWithMetadata("model", "facade-terminal-target", nil, 0, modelIntPtr(1), modelIntPtr(-1), true)},
+	}, modelHeader(profileID))
+	assertErrorResponse(t, invalidTargetPriority, http.StatusBadRequest, "target_priority must be greater than or equal to 0")
+
+	nestedTargetCreate := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "openai",
+		"model_id":                "nested-source-model",
+		"loadbalance_strategy_id": strategyID,
+		"access_targets":          []map[string]any{modelAccessTargetWithMetadata("model", "nested-facade-target", nil, 0, modelIntPtr(1), modelIntPtr(0), true)},
+	}, modelHeader(profileID))
+	assertErrorResponse(t, nestedTargetCreate, http.StatusBadRequest, "nested facades are not supported")
+
+	nonFacadeTargetID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "non-facade-target", nil, &strategyID, true)
+	nonFacadeEndpointID := modelInsertEndpoint(t, harness, profileID, "Non Facade Target Endpoint", 0)
+	_ = modelInsertConnection(t, harness, profileID, nonFacadeTargetID, nonFacadeEndpointID, 0, true, nil)
+	referrerCreate := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+		"vendor_id":               vendorID,
+		"api_family":              "openai",
+		"model_id":                "facade-referrer",
+		"loadbalance_strategy_id": strategyID,
+		"access_targets":          []map[string]any{modelAccessTargetWithMetadata("model", "non-facade-target", nil, 0, modelIntPtr(1), modelIntPtr(0), true)},
+	}, modelHeader(profileID))
+	assertStatus(t, referrerCreate, http.StatusCreated)
+	enableNestedFacade := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", nonFacadeTargetID), map[string]any{
+		"facade_enabled":          true,
+		"facade_selection_policy": selectionPolicy,
+		"facade_fallback_policy":  fallbackPolicy,
+	}, modelHeader(profileID))
+	assertErrorResponse(t, enableNestedFacade, http.StatusBadRequest, "nested facades are not supported")
+
+	sourceModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "target-metadata-source", nil, &strategyID, true)
+	createTargetResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", sourceModelID), map[string]any{
+		"target_type":     "model",
+		"target_model_id": "facade-terminal-target",
+		"position":        0,
+		"weight":          9,
+		"target_priority": 4,
+		"is_enabled":      true,
+	}, modelHeader(profileID))
+	assertStatus(t, createTargetResponse, http.StatusCreated)
+	var createdTargets []any
+	decodeJSONResponse(t, createTargetResponse, &createdTargets)
+	assertAccessTargets(t, map[string]any{"access_targets": createdTargets}, []expectedAccessTarget{{TargetType: "model", TargetModelID: "facade-terminal-target", Position: 0, Weight: modelIntPtr(9), TargetPriority: modelIntPtr(4), IsEnabled: true}})
+	createdTargetID := jsonInt(t, asMap(t, createdTargets[0])["id"])
+	assertStoredModelTargetMetadata(t, harness, sourceModelID, terminalTargetID, 9, 4)
+
+	updateTargetResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, createdTargetID), map[string]any{
+		"weight":          6,
+		"target_priority": 1,
+	}, modelHeader(profileID))
+	assertStatus(t, updateTargetResponse, http.StatusOK)
+	var updatedTargets []any
+	decodeJSONResponse(t, updateTargetResponse, &updatedTargets)
+	assertAccessTargets(t, map[string]any{"access_targets": updatedTargets}, []expectedAccessTarget{{TargetType: "model", TargetModelID: "facade-terminal-target", Position: 0, Weight: modelIntPtr(6), TargetPriority: modelIntPtr(1), IsEnabled: true}})
+	assertStoredModelTargetMetadata(t, harness, sourceModelID, terminalTargetID, 6, 1)
+
+	listTargetsResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d/targets", sourceModelID), nil, modelHeader(profileID))
+	assertStatus(t, listTargetsResponse, http.StatusOK)
+	var listedTargets []any
+	decodeJSONResponse(t, listTargetsResponse, &listedTargets)
+	assertAccessTargets(t, map[string]any{"access_targets": listedTargets}, []expectedAccessTarget{{TargetType: "model", TargetModelID: "facade-terminal-target", Position: 0, Weight: modelIntPtr(6), TargetPriority: modelIntPtr(1), IsEnabled: true}})
+
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Target Metadata Connection Endpoint", 0)
+	connectionID := modelInsertConnection(t, harness, profileID, sourceModelID, endpointID, 1, true, nil)
+	connectionTargetID := modelLoadConnectionTargetID(t, harness, sourceModelID, connectionID)
+
+	connectionWeightUpdate := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, connectionTargetID), map[string]any{"weight": 2}, modelHeader(profileID))
+	assertErrorResponse(t, connectionWeightUpdate, http.StatusBadRequest, "weight must be omitted for terminal targets")
+	connectionPriorityUpdate := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, connectionTargetID), map[string]any{"target_priority": 0}, modelHeader(profileID))
+	assertErrorResponse(t, connectionPriorityUpdate, http.StatusBadRequest, "target_priority must be omitted for terminal targets")
+	assertConnectionTargetState(t, harness, sourceModelID, connectionTargetID, connectionID, 1, true)
+	_ = nestedFacadeTargetID
 }
 
 func TestModelContextCapabilities(t *testing.T) {
@@ -742,6 +931,17 @@ func modelInsertModel(t *testing.T, harness *contractHarness, profileID int, ven
 	return modelConfigID
 }
 
+func modelInsertFacadeModel(t *testing.T, harness *contractHarness, profileID int, vendorID *int, apiFamily string, modelID string, displayName *string, strategyID *int, isEnabled bool) int {
+	t.Helper()
+	now := time.Now().UTC()
+	var modelConfigID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, $9, $10, $10) RETURNING id`, profileID, nullableTestInt(vendorID), apiFamily, modelID, displayName, nullableTestInt(strategyID), "weighted_eligible_context", "redistribute_ineligible_weight", isEnabled, now).Scan(&modelConfigID); err != nil {
+		t.Fatalf("insert facade model %q: %v", modelID, err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	return modelConfigID
+}
+
 func parseModelInsertArgs(t *testing.T, args []any) (*int, bool) {
 	t.Helper()
 	if len(args) == 2 {
@@ -873,20 +1073,32 @@ func assertStoredModelContextCapabilities(t *testing.T, harness *contractHarness
 }
 
 type expectedAccessTarget struct {
-	TargetType    string
-	TargetModelID string
-	ConnectionID  int
-	Position      int
-	IsEnabled     bool
+	TargetType     string
+	TargetModelID  string
+	ConnectionID   int
+	Position       int
+	Weight         *int
+	TargetPriority *int
+	IsEnabled      bool
 }
 
 func modelAccessTarget(targetType string, targetModelID string, connectionID *int, position int, isEnabled bool) map[string]any {
+	return modelAccessTargetWithMetadata(targetType, targetModelID, connectionID, position, nil, nil, isEnabled)
+}
+
+func modelAccessTargetWithMetadata(targetType string, targetModelID string, connectionID *int, position int, weight *int, targetPriority *int, isEnabled bool) map[string]any {
 	item := map[string]any{"target_type": targetType, "position": position, "is_enabled": isEnabled}
 	if targetType == "model" {
 		item["target_model_id"] = targetModelID
 	}
 	if targetType == "connection" && connectionID != nil {
 		item["connection_id"] = *connectionID
+	}
+	if weight != nil {
+		item["weight"] = *weight
+	}
+	if targetPriority != nil {
+		item["target_priority"] = *targetPriority
 	}
 	return item
 }
@@ -933,10 +1145,19 @@ func assertAccessTargets(t *testing.T, payload map[string]any, want []expectedAc
 			if item["target_model_id"] != expected.TargetModelID {
 				t.Fatalf("expected model target %q at %d, got %+v", expected.TargetModelID, index, item)
 			}
+			if expected.Weight != nil && jsonInt(t, item["weight"]) != *expected.Weight {
+				t.Fatalf("expected model target weight %d at %d, got %+v", *expected.Weight, index, item)
+			}
+			if expected.TargetPriority != nil && jsonInt(t, item["target_priority"]) != *expected.TargetPriority {
+				t.Fatalf("expected model target target_priority %d at %d, got %+v", *expected.TargetPriority, index, item)
+			}
 			if targetModel := asMap(t, item["target_model"]); targetModel["model_id"] != expected.TargetModelID {
 				t.Fatalf("expected hydrated target_model %q at %d, got %+v", expected.TargetModelID, index, item)
 			}
 			continue
+		}
+		if item["weight"] != nil || item["target_priority"] != nil {
+			t.Fatalf("expected connection target metadata to stay null at %d, got %+v", index, item)
 		}
 		if jsonInt(t, item["connection_id"]) != expected.ConnectionID {
 			t.Fatalf("expected connection target %d at %d, got %+v", expected.ConnectionID, index, item)
@@ -945,6 +1166,66 @@ func assertAccessTargets(t *testing.T, payload map[string]any, want []expectedAc
 		if jsonInt(t, connection["id"]) != expected.ConnectionID {
 			t.Fatalf("expected hydrated connection %d at %d, got %+v", expected.ConnectionID, index, item)
 		}
+	}
+}
+
+func assertFacadeFields(t *testing.T, payload map[string]any, wantEnabled bool, wantSelectionPolicy *string, wantFallbackPolicy *string) {
+	t.Helper()
+	if payload["facade_enabled"] != wantEnabled {
+		t.Fatalf("expected facade_enabled=%v, got %+v", wantEnabled, payload)
+	}
+	if wantSelectionPolicy == nil {
+		if payload["facade_selection_policy"] != nil {
+			t.Fatalf("expected facade_selection_policy null, got %+v", payload)
+		}
+	} else if payload["facade_selection_policy"] != *wantSelectionPolicy {
+		t.Fatalf("expected facade_selection_policy=%q, got %+v", *wantSelectionPolicy, payload)
+	}
+	if wantFallbackPolicy == nil {
+		if payload["facade_fallback_policy"] != nil {
+			t.Fatalf("expected facade_fallback_policy null, got %+v", payload)
+		}
+	} else if payload["facade_fallback_policy"] != *wantFallbackPolicy {
+		t.Fatalf("expected facade_fallback_policy=%q, got %+v", *wantFallbackPolicy, payload)
+	}
+}
+
+func assertStoredModelFacadeFields(t *testing.T, harness *contractHarness, modelConfigID int, wantEnabled bool, wantSelectionPolicy *string, wantFallbackPolicy *string) {
+	t.Helper()
+	var facadeEnabled bool
+	var facadeSelectionPolicy sql.NullString
+	var facadeFallbackPolicy sql.NullString
+	if err := harness.conn.QueryRow(context.Background(), `SELECT facade_enabled, facade_selection_policy, facade_fallback_policy FROM model_configs WHERE id = $1`, modelConfigID).Scan(&facadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy); err != nil {
+		t.Fatalf("load model %d facade fields: %v", modelConfigID, err)
+	}
+	if facadeEnabled != wantEnabled {
+		t.Fatalf("expected stored facade_enabled=%v for model %d, got %v", wantEnabled, modelConfigID, facadeEnabled)
+	}
+	if wantSelectionPolicy == nil {
+		if facadeSelectionPolicy.Valid {
+			t.Fatalf("expected stored facade_selection_policy NULL for model %d, got %q", modelConfigID, facadeSelectionPolicy.String)
+		}
+	} else if !facadeSelectionPolicy.Valid || facadeSelectionPolicy.String != *wantSelectionPolicy {
+		t.Fatalf("expected stored facade_selection_policy=%q for model %d, got %+v", *wantSelectionPolicy, modelConfigID, facadeSelectionPolicy)
+	}
+	if wantFallbackPolicy == nil {
+		if facadeFallbackPolicy.Valid {
+			t.Fatalf("expected stored facade_fallback_policy NULL for model %d, got %q", modelConfigID, facadeFallbackPolicy.String)
+		}
+	} else if !facadeFallbackPolicy.Valid || facadeFallbackPolicy.String != *wantFallbackPolicy {
+		t.Fatalf("expected stored facade_fallback_policy=%q for model %d, got %+v", *wantFallbackPolicy, modelConfigID, facadeFallbackPolicy)
+	}
+}
+
+func assertStoredModelTargetMetadata(t *testing.T, harness *contractHarness, sourceModelConfigID int, targetModelConfigID int, wantWeight int, wantTargetPriority int) {
+	t.Helper()
+	var weight int
+	var targetPriority int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT weight, target_priority FROM model_access_targets WHERE source_model_config_id = $1 AND target_model_config_id = $2`, sourceModelConfigID, targetModelConfigID).Scan(&weight, &targetPriority); err != nil {
+		t.Fatalf("load model target metadata source=%d target=%d: %v", sourceModelConfigID, targetModelConfigID, err)
+	}
+	if weight != wantWeight || targetPriority != wantTargetPriority {
+		t.Fatalf("expected model target metadata weight=%d target_priority=%d, got weight=%d target_priority=%d", wantWeight, wantTargetPriority, weight, targetPriority)
 	}
 }
 
@@ -978,11 +1259,16 @@ func assertConnectionTargetState(t *testing.T, harness *contractHarness, sourceM
 	var gotConnectionID int
 	var gotPosition int
 	var gotEnabled bool
-	if err := harness.conn.QueryRow(context.Background(), `SELECT source_model_config_id, target_connection_id, position, is_enabled FROM model_access_targets WHERE id = $1`, targetID).Scan(&gotSourceID, &gotConnectionID, &gotPosition, &gotEnabled); err != nil {
+	var gotWeight sql.NullInt32
+	var gotTargetPriority sql.NullInt32
+	if err := harness.conn.QueryRow(context.Background(), `SELECT source_model_config_id, target_connection_id, position, weight, target_priority, is_enabled FROM model_access_targets WHERE id = $1`, targetID).Scan(&gotSourceID, &gotConnectionID, &gotPosition, &gotWeight, &gotTargetPriority, &gotEnabled); err != nil {
 		t.Fatalf("load connection target row %d: %v", targetID, err)
 	}
 	if gotSourceID != sourceModelConfigID || gotConnectionID != connectionID || gotPosition != position || gotEnabled != isEnabled {
 		t.Fatalf("unexpected connection target row %d: got source=%d connection=%d position=%d enabled=%v", targetID, gotSourceID, gotConnectionID, gotPosition, gotEnabled)
+	}
+	if gotWeight.Valid || gotTargetPriority.Valid {
+		t.Fatalf("expected connection target row %d metadata to stay NULL, got weight=%+v target_priority=%+v", targetID, gotWeight, gotTargetPriority)
 	}
 }
 
@@ -1176,6 +1462,11 @@ func assertStoredModelPreferredContextThreshold(t *testing.T, harness *contractH
 	if !preferred.Valid || preferred.Float64 != *want {
 		t.Fatalf("expected model %d preferred_context_utilization_threshold %0.2f, got %+v", modelConfigID, *want, preferred)
 	}
+}
+
+func modelIntPtr(value int) *int {
+	resolved := value
+	return &resolved
 }
 
 func modelFloat64Ptr(value float64) *float64 {

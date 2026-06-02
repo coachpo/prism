@@ -635,11 +635,15 @@ CREATE TABLE public.model_configs (
     default_output_token_reserve integer DEFAULT 4096 NOT NULL,
     max_context_utilization double precision DEFAULT 0.90 NOT NULL,
     preferred_context_utilization_threshold double precision,
+    facade_enabled boolean DEFAULT false NOT NULL,
+    facade_selection_policy character varying(100),
+    facade_fallback_policy character varying(100),
     is_enabled boolean NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     CONSTRAINT ck_model_configs_context_window_tokens CHECK (((context_window_tokens IS NULL) OR (context_window_tokens >= 1))),
     CONSTRAINT ck_model_configs_default_output_token_reserve CHECK ((default_output_token_reserve >= 1)),
+    CONSTRAINT ck_model_configs_facade_policy_contract CHECK (((NOT facade_enabled) AND ((facade_selection_policy IS NULL) OR ((facade_selection_policy)::text = 'weighted_eligible_context'::text)) AND ((facade_fallback_policy IS NULL) OR ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))) OR (facade_enabled AND ((facade_selection_policy)::text = 'weighted_eligible_context'::text) AND ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))),
     CONSTRAINT ck_model_configs_max_context_utilization CHECK (((max_context_utilization > (0)::double precision) AND (max_context_utilization <= (1)::double precision))),
     CONSTRAINT ck_model_configs_preferred_context_utilization_threshold CHECK (((preferred_context_utilization_threshold IS NULL) OR (((preferred_context_utilization_threshold > (0)::double precision) AND (preferred_context_utilization_threshold <= (1)::double precision)) AND (preferred_context_utilization_threshold <= max_context_utilization))))
 );

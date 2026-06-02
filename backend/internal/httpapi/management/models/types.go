@@ -7,19 +7,23 @@ import (
 )
 
 type modelAccessTargetRequest struct {
-	TargetType    string  `json:"target_type"`
-	TargetModelID *string `json:"target_model_id"`
-	ConnectionID  *int    `json:"connection_id"`
-	Position      int     `json:"position"`
-	IsEnabled     *bool   `json:"is_enabled"`
+	TargetType     string  `json:"target_type"`
+	TargetModelID  *string `json:"target_model_id"`
+	ConnectionID   *int    `json:"connection_id"`
+	Position       int     `json:"position"`
+	Weight         *int    `json:"weight"`
+	TargetPriority *int    `json:"target_priority"`
+	IsEnabled      *bool   `json:"is_enabled"`
 }
 
 type modelAccessTargetCreateRequest struct {
-	TargetType    string  `json:"target_type"`
-	TargetModelID *string `json:"target_model_id"`
-	ConnectionID  *int    `json:"connection_id"`
-	Position      *int    `json:"position"`
-	IsEnabled     *bool   `json:"is_enabled"`
+	TargetType     string  `json:"target_type"`
+	TargetModelID  *string `json:"target_model_id"`
+	ConnectionID   *int    `json:"connection_id"`
+	Position       *int    `json:"position"`
+	Weight         *int    `json:"weight"`
+	TargetPriority *int    `json:"target_priority"`
+	IsEnabled      *bool   `json:"is_enabled"`
 }
 
 type modelAccessTargetUpdateRequest struct {
@@ -28,6 +32,8 @@ type modelAccessTargetUpdateRequest struct {
 	ConnectionID       optionalInt    `json:"connection_id"`
 	TargetConnectionID optionalInt    `json:"target_connection_id"`
 	Position           optionalInt    `json:"position"`
+	Weight             optionalInt    `json:"weight"`
+	TargetPriority     optionalInt    `json:"target_priority"`
 	IsEnabled          optionalBool   `json:"is_enabled"`
 }
 
@@ -45,6 +51,9 @@ type modelCreateRequest struct {
 	DefaultOutputTokenReserve            *int                       `json:"default_output_token_reserve"`
 	MaxContextUtilization                *float64                   `json:"max_context_utilization"`
 	PreferredContextUtilizationThreshold *float64                   `json:"preferred_context_utilization_threshold"`
+	FacadeEnabled                        *bool                      `json:"facade_enabled"`
+	FacadeSelectionPolicy                *string                    `json:"facade_selection_policy"`
+	FacadeFallbackPolicy                 *string                    `json:"facade_fallback_policy"`
 	AccessTargets                        []modelAccessTargetRequest `json:"access_targets"`
 	IsEnabled                            *bool                      `json:"is_enabled"`
 }
@@ -149,6 +158,9 @@ type modelUpdateRequest struct {
 	DefaultOutputTokenReserve            optionalInt           `json:"default_output_token_reserve"`
 	MaxContextUtilization                optionalFloat         `json:"max_context_utilization"`
 	PreferredContextUtilizationThreshold optionalFloat         `json:"preferred_context_utilization_threshold"`
+	FacadeEnabled                        optionalBool          `json:"facade_enabled"`
+	FacadeSelectionPolicy                optionalString        `json:"facade_selection_policy"`
+	FacadeFallbackPolicy                 optionalString        `json:"facade_fallback_policy"`
 	AccessTargets                        optionalAccessTargets `json:"access_targets"`
 	IsEnabled                            optionalBool          `json:"is_enabled"`
 }
@@ -253,6 +265,9 @@ type modelTargetSummary struct {
 	DefaultOutputTokenReserve            int      `json:"default_output_token_reserve"`
 	MaxContextUtilization                float64  `json:"max_context_utilization"`
 	PreferredContextUtilizationThreshold *float64 `json:"preferred_context_utilization_threshold"`
+	FacadeEnabled                        bool     `json:"facade_enabled"`
+	FacadeSelectionPolicy                *string  `json:"facade_selection_policy"`
+	FacadeFallbackPolicy                 *string  `json:"facade_fallback_policy"`
 	IsEnabled                            bool     `json:"is_enabled"`
 }
 
@@ -263,6 +278,8 @@ type modelAccessTargetResponse struct {
 	ConnectionID     *int                     `json:"connection_id"`
 	TerminalTargetID *int                     `json:"terminal_target_id"`
 	Position         int                      `json:"position"`
+	Weight           *int                     `json:"weight"`
+	TargetPriority   *int                     `json:"target_priority"`
 	IsEnabled        bool                     `json:"is_enabled"`
 	TargetModel      *modelTargetSummary      `json:"target_model"`
 	Connection       *connectionTargetSummary `json:"connection"`
@@ -285,6 +302,9 @@ type modelConfigListResponse struct {
 	DefaultOutputTokenReserve            int                         `json:"default_output_token_reserve"`
 	MaxContextUtilization                float64                     `json:"max_context_utilization"`
 	PreferredContextUtilizationThreshold *float64                    `json:"preferred_context_utilization_threshold"`
+	FacadeEnabled                        bool                        `json:"facade_enabled"`
+	FacadeSelectionPolicy                *string                     `json:"facade_selection_policy"`
+	FacadeFallbackPolicy                 *string                     `json:"facade_fallback_policy"`
 	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
 	IsEnabled                            bool                        `json:"is_enabled"`
 	ConnectionCount                      int                         `json:"connection_count"`
@@ -309,6 +329,9 @@ type modelConfigResponse struct {
 	DefaultOutputTokenReserve            int                         `json:"default_output_token_reserve"`
 	MaxContextUtilization                float64                     `json:"max_context_utilization"`
 	PreferredContextUtilizationThreshold *float64                    `json:"preferred_context_utilization_threshold"`
+	FacadeEnabled                        bool                        `json:"facade_enabled"`
+	FacadeSelectionPolicy                *string                     `json:"facade_selection_policy"`
+	FacadeFallbackPolicy                 *string                     `json:"facade_fallback_policy"`
 	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
 	IsEnabled                            bool                        `json:"is_enabled"`
 	CreatedAt                            time.Time                   `json:"created_at"`

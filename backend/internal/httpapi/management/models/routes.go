@@ -26,6 +26,13 @@ type endpointModelsBatchRequest struct {
 	EndpointIDs []int `json:"endpoint_ids"`
 }
 
+const (
+	facadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
+	facadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
+	facadeEnabledRequiresOpenAIDetail                = "facade_enabled requires api_family 'openai'"
+	nestedFacadesNotSupportedDetail                  = "nested facades are not supported"
+)
+
 func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelConfigListResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
@@ -120,7 +127,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, contextCapabilityDomainError(err)
 		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, VendorID: requestBody.VendorID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, PreferredContextUtilizationThreshold: capabilitySettings.PreferredContextUtilizationThreshold, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
+		record := modelRecord{ProfileID: profile.ID, VendorID: requestBody.VendorID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, PreferredContextUtilizationThreshold: capabilitySettings.PreferredContextUtilizationThreshold, FacadeEnabled: resolveFacadeEnabled(requestBody.FacadeEnabled), FacadeSelectionPolicy: requestBody.FacadeSelectionPolicy, FacadeFallbackPolicy: requestBody.FacadeFallbackPolicy, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
 		created, err := insertModel(r.Context(), tx, record)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -130,6 +137,9 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		}
 		resolvedTargets, err := resolveAccessTargets(r.Context(), tx, profile.ID, &created.ID, created.ModelID, created.APIFamily, requestBody.AccessTargets)
 		if err != nil {
+			return modelConfigResponse{}, err
+		}
+		if err := validateFacadeWriteContract(r.Context(), tx, profile.ID, nil, created, resolvedTargets); err != nil {
 			return modelConfigResponse{}, err
 		}
 		if created.IsEnabled && !hasEnabledResolvedAccessTarget(resolvedTargets) {
@@ -207,6 +217,15 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		}
 		if requestBody.DisplayName.Set {
 			next.DisplayName = resolvePersistedDisplayName(next.ModelID, requestBody.DisplayName.Value)
+		}
+		if requestBody.FacadeEnabled.Set {
+			next.FacadeEnabled = requestBody.FacadeEnabled.Value
+		}
+		if requestBody.FacadeSelectionPolicy.Set {
+			next.FacadeSelectionPolicy = requestBody.FacadeSelectionPolicy.Value
+		}
+		if requestBody.FacadeFallbackPolicy.Set {
+			next.FacadeFallbackPolicy = requestBody.FacadeFallbackPolicy.Value
 		}
 		if requestBody.IsEnabled.Set {
 			next.IsEnabled = requestBody.IsEnabled.Value
@@ -291,6 +310,9 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		}
 		resolvedTargets, err := resolveAccessTargets(r.Context(), tx, profile.ID, &current.ID, next.ModelID, next.APIFamily, targetInputs)
 		if err != nil {
+			return modelConfigResponse{}, err
+		}
+		if err := validateFacadeWriteContract(r.Context(), tx, profile.ID, &current.ID, next, resolvedTargets); err != nil {
 			return modelConfigResponse{}, err
 		}
 		if next.IsEnabled && !hasEnabledResolvedOrPreservedAccessTarget(resolvedTargets, preservedConnectionTargets) {
@@ -621,6 +643,9 @@ func (s *Service) replaceModelTargetsFromMutationItems(ctx context.Context, tx p
 	if err != nil {
 		return nil, err
 	}
+	if err := validateFacadeWriteContract(ctx, tx, profileID, &model.ID, model, resolvedTargets); err != nil {
+		return nil, err
+	}
 	if model.IsEnabled && !hasEnabledResolvedOrPreservedAccessTarget(resolvedTargets, preservedConnectionTargets) {
 		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
 	}
@@ -636,6 +661,10 @@ func (s *Service) replaceModelTargetsFromMutationItems(ctx context.Context, tx p
 
 func (s *Service) updateModelTargetMetadataFromMutationItems(ctx context.Context, tx pgx.Tx, profileID int, model modelRecord, items []accessTargetMutationItem) ([]modelAccessTargetResponse, error) {
 	normalizeMutationItemPositions(items)
+	requests := accessTargetRequestsFromMutationItems(items)
+	if err := validateAccessTargets(requests); err != nil {
+		return nil, err
+	}
 	if model.IsEnabled && !hasEnabledAccessTargetMutationItem(items) {
 		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
 	}
@@ -676,7 +705,7 @@ func accessTargetRequestFromCreate(input modelAccessTargetCreateRequest, existin
 	if position < 0 || position > existingCount {
 		return modelAccessTargetRequest{}, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("position must be between 0 and %d", existingCount)}
 	}
-	request := modelAccessTargetRequest{TargetType: targetcompat.NormalizeAccessTargetType(input.TargetType), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, IsEnabled: input.IsEnabled}
+	request := modelAccessTargetRequest{TargetType: targetcompat.NormalizeAccessTargetType(input.TargetType), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, Weight: copyIntPtr(input.Weight), TargetPriority: copyIntPtr(input.TargetPriority), IsEnabled: input.IsEnabled}
 	if err := validatePublicAccessTarget(request); err != nil {
 		return modelAccessTargetRequest{}, err
 	}
@@ -685,7 +714,7 @@ func accessTargetRequestFromCreate(input modelAccessTargetCreateRequest, existin
 
 func accessTargetRequestFromRecord(record accessTargetRecord) modelAccessTargetRequest {
 	enabled := record.IsEnabled
-	request := modelAccessTargetRequest{TargetType: record.TargetType, Position: record.Position, IsEnabled: &enabled}
+	request := modelAccessTargetRequest{TargetType: record.TargetType, Position: record.Position, Weight: copyIntPtr(record.Weight), TargetPriority: copyIntPtr(record.TargetPriority), IsEnabled: &enabled}
 	if targetcompat.IsModelAccessTargetType(record.TargetType) && record.TargetModel != nil {
 		request.TargetModelID = stringPtr(record.TargetModel.ModelID)
 	}
@@ -747,6 +776,18 @@ func updateAccessTargetMutationItem(items []accessTargetMutationItem, targetID i
 	if input.ConnectionID.Set || input.TargetConnectionID.Set {
 		return nil, connectionAccessTargetsManagedError()
 	}
+	if input.Weight.Set {
+		if input.Weight.Value == nil {
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "weight is required"}
+		}
+		updated.Weight = copyIntPtr(input.Weight.Value)
+	}
+	if input.TargetPriority.Set {
+		if input.TargetPriority.Value == nil {
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority is required"}
+		}
+		updated.TargetPriority = copyIntPtr(input.TargetPriority.Value)
+	}
 	if input.IsEnabled.Set {
 		updated.IsEnabled = &input.IsEnabled.Value
 	}
@@ -806,6 +847,12 @@ func accessTargetRequestsFromMutationItems(items []accessTargetMutationItem) []m
 func updateConnectionAccessTargetMutationItem(items []accessTargetMutationItem, targetID int, index int, input modelAccessTargetUpdateRequest) ([]accessTargetMutationItem, error) {
 	if input.TargetType.Set || input.TargetModelID.Set || input.ConnectionID.Set || input.TargetConnectionID.Set {
 		return nil, connectionAccessTargetsManagedError()
+	}
+	if input.Weight.Set && input.Weight.Value != nil {
+		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be omitted for terminal targets"}
+	}
+	if input.TargetPriority.Set && input.TargetPriority.Value != nil {
+		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be omitted for terminal targets"}
 	}
 	if input.IsEnabled.Set {
 		items[index].Request.IsEnabled = &input.IsEnabled.Value
@@ -1171,6 +1218,8 @@ func normalizeCreateRequest(requestBody *modelCreateRequest) {
 	requestBody.APIFamily = strings.ToLower(strings.TrimSpace(requestBody.APIFamily))
 	requestBody.ModelID = strings.TrimSpace(requestBody.ModelID)
 	requestBody.DisplayName = normalizeOptionalString(requestBody.DisplayName, false, true)
+	requestBody.FacadeSelectionPolicy = normalizeOptionalString(requestBody.FacadeSelectionPolicy, true, true)
+	requestBody.FacadeFallbackPolicy = normalizeOptionalString(requestBody.FacadeFallbackPolicy, true, true)
 	requestBody.AccessTargets = normalizeAccessTargets(requestBody.AccessTargets)
 }
 
@@ -1178,6 +1227,8 @@ func normalizeUpdateRequest(requestBody *modelUpdateRequest) {
 	requestBody.APIFamily = optionalString{Set: requestBody.APIFamily.Set, Value: normalizeOptionalString(requestBody.APIFamily.Value, true, false)}
 	requestBody.ModelID = optionalString{Set: requestBody.ModelID.Set, Value: normalizeOptionalString(requestBody.ModelID.Value, false, false)}
 	requestBody.DisplayName = optionalString{Set: requestBody.DisplayName.Set, Value: normalizeOptionalString(requestBody.DisplayName.Value, false, true)}
+	requestBody.FacadeSelectionPolicy = optionalString{Set: requestBody.FacadeSelectionPolicy.Set, Value: normalizeOptionalString(requestBody.FacadeSelectionPolicy.Value, true, true)}
+	requestBody.FacadeFallbackPolicy = optionalString{Set: requestBody.FacadeFallbackPolicy.Set, Value: normalizeOptionalString(requestBody.FacadeFallbackPolicy.Value, true, true)}
 	requestBody.AccessTargets = optionalAccessTargets{Set: requestBody.AccessTargets.Set, Value: normalizeAccessTargets(requestBody.AccessTargets.Value)}
 }
 
@@ -1223,6 +1274,9 @@ func validateCreateRequest(requestBody modelCreateRequest) error {
 	if requestBody.LoadbalanceStrategyID == nil {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
 	}
+	if err := validateFacadePolicyValues(requestBody.FacadeSelectionPolicy, requestBody.FacadeFallbackPolicy); err != nil {
+		return err
+	}
 	if err := validateModelContextCapabilitiesCreate(requestBody); err != nil {
 		return err
 	}
@@ -1243,6 +1297,9 @@ func validateUpdateRequest(requestBody modelUpdateRequest) error {
 	}
 	if requestBody.LoadbalanceStrategyID.Set && requestBody.LoadbalanceStrategyID.Value == nil {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
+	}
+	if err := validateFacadePolicyValues(requestBody.FacadeSelectionPolicy.Value, requestBody.FacadeFallbackPolicy.Value); err != nil {
+		return err
 	}
 	if err := validateModelContextCapabilitiesUpdate(requestBody); err != nil {
 		return err
@@ -1312,6 +1369,64 @@ func requiredContextCapabilityFieldError(fieldName string) error {
 	return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("%s is required", fieldName)}
 }
 
+func validateFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
+	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyWeightedEligibleContext {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_selection_policy must be 'weighted_eligible_context'"}
+	}
+	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicyRedistributeIneligibleWeight {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_fallback_policy must be 'redistribute_ineligible_weight'"}
+	}
+	return nil
+}
+
+func validateFacadeWriteContract(ctx context.Context, exec queryExecutor, profileID int, modelConfigID *int, record modelRecord, resolvedTargets []resolvedAccessTarget) error {
+	if err := validateFacadeConfiguration(record); err != nil {
+		return err
+	}
+	if err := ensureNoNestedFacadeTargets(resolvedTargets); err != nil {
+		return err
+	}
+	if !record.FacadeEnabled || modelConfigID == nil {
+		return nil
+	}
+	referrers, err := listAccessTargetReferrers(ctx, exec, profileID, *modelConfigID, nil)
+	if err != nil {
+		return err
+	}
+	if len(referrers) > 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: nestedFacadesNotSupportedDetail}
+	}
+	return nil
+}
+
+func validateFacadeConfiguration(record modelRecord) error {
+	if err := validateFacadePolicyValues(record.FacadeSelectionPolicy, record.FacadeFallbackPolicy); err != nil {
+		return err
+	}
+	if !record.FacadeEnabled {
+		return nil
+	}
+	if record.APIFamily != "openai" {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: facadeEnabledRequiresOpenAIDetail}
+	}
+	if record.FacadeSelectionPolicy == nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_selection_policy is required when facade_enabled is true"}
+	}
+	if record.FacadeFallbackPolicy == nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_fallback_policy is required when facade_enabled is true"}
+	}
+	return nil
+}
+
+func ensureNoNestedFacadeTargets(resolvedTargets []resolvedAccessTarget) error {
+	for _, target := range resolvedTargets {
+		if target.Model != nil && target.Model.FacadeEnabled {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: nestedFacadesNotSupportedDetail}
+		}
+	}
+	return nil
+}
+
 func validatePublicAccessTargets(accessTargets []modelAccessTargetRequest) error {
 	if err := validateAccessTargets(accessTargets); err != nil {
 		return err
@@ -1351,6 +1466,9 @@ func validateAccessTargets(accessTargets []modelAccessTargetRequest) error {
 		seenPositions[accessTarget.Position] = struct{}{}
 		targetKey, err := validateAccessTargetPointerContract(accessTarget)
 		if err != nil {
+			return err
+		}
+		if err := validateAccessTargetMetadataContract(accessTarget); err != nil {
 			return err
 		}
 		if _, ok := seenTargets[targetKey]; ok {
@@ -1401,6 +1519,25 @@ func validateAccessTargetPointerContract(accessTarget modelAccessTargetRequest) 
 	return fmt.Sprintf("connection:%d", *accessTarget.ConnectionID), nil
 }
 
+func validateAccessTargetMetadataContract(accessTarget modelAccessTargetRequest) error {
+	if targetcompat.IsTerminalTargetAccessTargetType(accessTarget.TargetType) {
+		if accessTarget.Weight != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be omitted for terminal targets"}
+		}
+		if accessTarget.TargetPriority != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be omitted for terminal targets"}
+		}
+		return nil
+	}
+	if accessTarget.Weight != nil && *accessTarget.Weight <= 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be greater than 0"}
+	}
+	if accessTarget.TargetPriority != nil && *accessTarget.TargetPriority < 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be greater than or equal to 0"}
+	}
+	return nil
+}
+
 func resolvePersistedDisplayName(modelID string, displayName *string) *string {
 	if displayName == nil {
 		return stringPtr(modelID)
@@ -1411,6 +1548,13 @@ func resolvePersistedDisplayName(modelID string, displayName *string) *string {
 func resolveIsEnabled(value *bool) bool {
 	if value == nil {
 		return true
+	}
+	return *value
+}
+
+func resolveFacadeEnabled(value *bool) bool {
+	if value == nil {
+		return false
 	}
 	return *value
 }
