@@ -770,6 +770,92 @@ func TestBuildRequestPlan_NoContextEligibleTargetReturns413WithoutBanMutation(t 
 	}
 }
 
+func TestAttachRuntimePlanningFailureTelemetry_NoResolvedTargetLeavesResolvedTargetModelNil(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	requestedModel := runtimeModelRecord{
+		ID:         1,
+		APIFamily:  "openai",
+		ModelID:    "facade-no-fit-model",
+		VendorID:   intPtr(1),
+		VendorKey:  stringPtr("openai"),
+		VendorName: stringPtr("OpenAI"),
+	}
+	contextRouting := &runtimeContextRoutingDecision{
+		Policy: runtimeFacadeSelectionPolicyWeightedEligibleContext,
+		FacadeSelection: &runtimeFacadeSelectionDecision{
+			FacadeModelID:       requestedModel.ModelID,
+			EligibleTotalWeight: intPtr(0),
+			ExclusionSummary:    stringPtr("estimated_context_exceeds_usable_window=2"),
+		},
+	}
+	runtimeErr := &domainError{
+		StatusCode:     http.StatusRequestEntityTooLarge,
+		ErrorCode:      contextWindowExceededErrorCode,
+		Detail:         contextWindowExceededDetail,
+		ContextRouting: contextRouting,
+	}
+
+	err := attachRuntimePlanningFailureTelemetry(runtimeErr, requestPlanningInput{
+		Request:  request,
+		RawBody:  []byte(`{"model":"facade-no-fit-model","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`),
+		Snapshot: &planningSnapshot{ReportCurrency: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}},
+	}, resolvedRequestOperation{Match: operationMatch, RequestedModelID: requestedModel.ModelID}, requestedModel)
+	if err != runtimeErr {
+		t.Fatalf("expected attach helper to return original domain error, got %v", err)
+	}
+	if runtimeErr.PlanningFailure == nil {
+		t.Fatal("expected planning-failure telemetry to be attached")
+	}
+	if runtimeErr.ResolvedTargetModelID != nil {
+		t.Fatalf("expected no resolved target model id on no-target planning failure, got %+v", runtimeErr.ResolvedTargetModelID)
+	}
+	if runtimeErr.PlanningFailure.RequestedModelID != requestedModel.ModelID {
+		t.Fatalf("expected planning-failure telemetry to keep requested model %q, got %+v", requestedModel.ModelID, runtimeErr.PlanningFailure)
+	}
+}
+
+func TestAttachRuntimePlanningFailureTelemetry_PreservesResolvedTargetModelWhenSelected(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	requestedModel := runtimeModelRecord{
+		ID:         1,
+		APIFamily:  "openai",
+		ModelID:    "public-responses-model",
+		VendorID:   intPtr(1),
+		VendorKey:  stringPtr("openai"),
+		VendorName: stringPtr("OpenAI"),
+	}
+	resolvedTargetModelID := "native-chat-target"
+	selectedTerminalTargetID := 2841
+	runtimeErr := &domainError{
+		StatusCode:               http.StatusBadRequest,
+		ErrorCode:                openAIRequestTranslationUnsupportedErrorCode,
+		Detail:                   "translation unsupported",
+		Fields:                   map[string]any{"translation_mode": string(TranslationModeOpenAIResponsesToChatCompletions)},
+		ResolvedTargetModelID:    &resolvedTargetModelID,
+		SelectedTerminalTargetID: &selectedTerminalTargetID,
+	}
+
+	err := attachRuntimePlanningFailureTelemetry(runtimeErr, requestPlanningInput{
+		Request:  request,
+		RawBody:  []byte(`{"model":"public-responses-model","input":"hello","text":{"format":"json_schema"},"max_output_tokens":64}`),
+		Snapshot: &planningSnapshot{ReportCurrency: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}},
+	}, resolvedRequestOperation{Match: operationMatch, RequestedModelID: requestedModel.ModelID}, requestedModel)
+	if err != runtimeErr {
+		t.Fatalf("expected attach helper to return original domain error, got %v", err)
+	}
+	if runtimeErr.PlanningFailure == nil {
+		t.Fatal("expected planning-failure telemetry to be attached")
+	}
+	if runtimeErr.ResolvedTargetModelID == nil || *runtimeErr.ResolvedTargetModelID != resolvedTargetModelID {
+		t.Fatalf("expected translated planning failure to preserve resolved target %q, got %+v", resolvedTargetModelID, runtimeErr.ResolvedTargetModelID)
+	}
+	if runtimeErr.PlanningFailure.SelectedTerminalTargetID == nil || *runtimeErr.PlanningFailure.SelectedTerminalTargetID != selectedTerminalTargetID {
+		t.Fatalf("expected planning-failure telemetry to keep selected terminal target %d, got %+v", selectedTerminalTargetID, runtimeErr.PlanningFailure)
+	}
+}
+
 func TestBuildRequestPlan_RewritesResolvedTargetModel(t *testing.T) {
 	service := newRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(

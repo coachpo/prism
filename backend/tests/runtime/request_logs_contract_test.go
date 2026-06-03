@@ -347,6 +347,7 @@ func TestRequestLogsNoFitPlanningFailurePersistsContextRoutingMetadata(t *testin
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
 	assertStatus(t, response, http.StatusRequestEntityTooLarge)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeModelIdentityNull(t, harness.conn, profileID, publicModelID)
 
 	var requestLogID int
 	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestLogID); err != nil {
@@ -471,6 +472,7 @@ func TestRequestLogsFacadeNoFitPlanningFailureIncludesFacadeSelectionMetadata(t 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized facade request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
 	assertStatus(t, response, http.StatusRequestEntityTooLarge)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeModelIdentityNull(t, harness.conn, profileID, publicModelID)
 
 	payload := loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)
 	routing := asMapRuntime(t, payload["routing"])
@@ -507,6 +509,7 @@ func TestRequestLogsFacadeNoEligiblePlanningFailureIncludesFacadeSelectionMetada
 	response := performProxySelectorChatRequest(t, harness, publicModelID, "all facade targets unroutable")
 	assertStatus(t, response, http.StatusServiceUnavailable)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeModelIdentityNull(t, harness.conn, profileID, publicModelID)
 
 	payload := loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)
 	routing := asMapRuntime(t, payload["routing"])
@@ -2537,6 +2540,16 @@ func assertLatestRuntimeAttemptCounts(t *testing.T, conn *pgx.Conn, profileID in
 
 func assertLatestRuntimeModelIdentity(t *testing.T, conn *pgx.Conn, profileID int, wantModelID string, wantResolvedTargetModelID string) {
 	t.Helper()
+	assertLatestRuntimeModelIdentityState(t, conn, profileID, wantModelID, sql.NullString{String: wantResolvedTargetModelID, Valid: true})
+}
+
+func assertLatestRuntimeModelIdentityNull(t *testing.T, conn *pgx.Conn, profileID int, wantModelID string) {
+	t.Helper()
+	assertLatestRuntimeModelIdentityState(t, conn, profileID, wantModelID, sql.NullString{})
+}
+
+func assertLatestRuntimeModelIdentityState(t *testing.T, conn *pgx.Conn, profileID int, wantModelID string, wantResolvedTargetModelID sql.NullString) {
+	t.Helper()
 	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
 
 	var requestLogModelID string
@@ -2549,8 +2562,8 @@ func assertLatestRuntimeModelIdentity(t *testing.T, conn *pgx.Conn, profileID in
 	).Scan(&requestLogModelID, &requestLogResolvedTargetModelID); err != nil {
 		t.Fatalf("load runtime request-log model identity: %v", err)
 	}
-	if requestLogModelID != wantModelID || !requestLogResolvedTargetModelID.Valid || requestLogResolvedTargetModelID.String != wantResolvedTargetModelID {
-		t.Fatalf("expected request_logs identity requested=%q resolved=%q, got requested=%q resolved=%+v", wantModelID, wantResolvedTargetModelID, requestLogModelID, requestLogResolvedTargetModelID)
+	if requestLogModelID != wantModelID || requestLogResolvedTargetModelID != wantResolvedTargetModelID {
+		t.Fatalf("expected request_logs identity requested=%q resolved=%+v, got requested=%q resolved=%+v", wantModelID, wantResolvedTargetModelID, requestLogModelID, requestLogResolvedTargetModelID)
 	}
 
 	var usageEventModelID string
@@ -2563,8 +2576,8 @@ func assertLatestRuntimeModelIdentity(t *testing.T, conn *pgx.Conn, profileID in
 	).Scan(&usageEventModelID, &usageEventResolvedTargetModelID); err != nil {
 		t.Fatalf("load runtime usage-event model identity: %v", err)
 	}
-	if usageEventModelID != wantModelID || !usageEventResolvedTargetModelID.Valid || usageEventResolvedTargetModelID.String != wantResolvedTargetModelID {
-		t.Fatalf("expected usage_request_events identity requested=%q resolved=%q, got requested=%q resolved=%+v", wantModelID, wantResolvedTargetModelID, usageEventModelID, usageEventResolvedTargetModelID)
+	if usageEventModelID != wantModelID || usageEventResolvedTargetModelID != wantResolvedTargetModelID {
+		t.Fatalf("expected usage_request_events identity requested=%q resolved=%+v, got requested=%q resolved=%+v", wantModelID, wantResolvedTargetModelID, usageEventModelID, usageEventResolvedTargetModelID)
 	}
 }
 
