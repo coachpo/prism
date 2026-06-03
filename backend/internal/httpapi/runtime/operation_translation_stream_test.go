@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"reflect"
 	"strings"
@@ -69,12 +70,8 @@ func TestTranslateOpenAIResponsesToChatStream(t *testing.T) {
 		"data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n" +
 		"event: response.output_text.delta\n" +
 		"data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_1\",\"delta\":\"hello \"}\n\n" +
-		"event: response.output_item.added\n" +
-		"data: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"id\":\"call_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"\"}}\n\n" +
-		"event: response.function_call_arguments.delta\n" +
-		"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"item_id\":\"call_1\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"delta\":\"{\\\"city\\\":\\\"Paris\\\"}\"}\n\n" +
 		"event: response.completed\n" +
-		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stream\",\"model\":\"responses-target\",\"created_at\":1700000000,\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello \"}]},{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"}],\"usage\":{\"input_tokens\":10,\"output_tokens\":6,\"total_tokens\":16,\"input_tokens_details\":{\"cached_tokens\":4},\"output_tokens_details\":{\"reasoning_tokens\":3}}}}\n\n"
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stream\",\"model\":\"responses-target\",\"created_at\":1700000000,\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello \"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":6,\"total_tokens\":16,\"input_tokens_details\":{\"cached_tokens\":4},\"output_tokens_details\":{\"reasoning_tokens\":3}}}}\n\n"
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
 	var forwarded bytes.Buffer
 	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIChatCompletionsToResponses, "", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
@@ -95,7 +92,7 @@ func TestTranslateOpenAIResponsesToChatStream(t *testing.T) {
 	if strings.Contains(forwardedBody, "event: response.output_text.delta") || strings.Contains(forwardedBody, "event: response.completed") {
 		t.Fatalf("expected translated chat stream without raw responses event framing, got %q", forwardedBody)
 	}
-	if !strings.Contains(forwardedBody, "chat.completion.chunk") || !strings.Contains(forwardedBody, "\"finish_reason\":\"tool_calls\"") || !strings.Contains(forwardedBody, "data: [DONE]") {
+	if !strings.Contains(forwardedBody, "chat.completion.chunk") || !strings.Contains(forwardedBody, "\"finish_reason\":\"stop\"") || !strings.Contains(forwardedBody, "data: [DONE]") {
 		t.Fatalf("expected translated chat stream chunks, finish_reason, and DONE sentinel, got %q", forwardedBody)
 	}
 	if !strings.Contains(forwardedBody, "\"usage\":{") || !strings.Contains(forwardedBody, "\"prompt_tokens\":10") || !strings.Contains(forwardedBody, "\"completion_tokens\":6") || !strings.Contains(forwardedBody, "\"total_tokens\":16") {
@@ -105,8 +102,7 @@ func TestTranslateOpenAIResponsesToChatStream(t *testing.T) {
 
 func TestTranslateOpenAIChatToResponsesStreamRequestedEqualsResolved(t *testing.T) {
 	stream := "data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello \"}}]}\n\n" +
-		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"}}]}}]}\n\n" +
-		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
 		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":6,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":4},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n" +
 		"data: [DONE]\n\n"
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
@@ -133,8 +129,7 @@ func TestTranslateOpenAIChatToResponsesStreamRequestedEqualsResolved(t *testing.
 
 func TestTranslateOpenAIChatToResponsesStream(t *testing.T) {
 	stream := "data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello \"}}]}\n\n" +
-		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"}}]}}]}\n\n" +
-		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
 		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":6,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":4},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n" +
 		"data: [DONE]\n\n"
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
@@ -194,6 +189,53 @@ func TestTranslateOpenAIChatToResponsesStreamPreservesErrorPayload(t *testing.T)
 	}
 	if capture.StreamOutcome != runtimeStreamOutcomeCompleted {
 		t.Fatalf("expected completed stream outcome, got %+v", capture)
+	}
+}
+
+func TestTranslateOpenAIStreamRejectsUnsupportedShape(t *testing.T) {
+	tests := []struct {
+		name        string
+		ingressPath string
+		mode        TranslationMode
+		stream      string
+		reason      string
+	}{
+		{
+			name:        "chat tool delta",
+			ingressPath: "/v1/responses",
+			mode:        TranslationModeOpenAIResponsesToChatCompletions,
+			stream: "data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{}\"}}]}}]}\n\n" +
+				"data: [DONE]\n\n",
+			reason: "chat_tool_call_stream",
+		},
+		{
+			name:        "responses function event",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.function_call_arguments.delta\n" +
+				"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"call_1\",\"delta\":\"{}\"}\n\n",
+			reason: "responses_stream_response_function_call_arguments_delta",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.ingressPath).Operation
+			var forwarded bytes.Buffer
+			capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, test.mode, "responses-public", context.Background(), &forwarded, strings.NewReader(test.stream), fixedResponseHookTestNow, true)
+			if err == nil {
+				t.Fatalf("expected unsupported stream translation error, got capture %+v and body %q", capture, forwarded.String())
+			}
+			var domainErr *domainError
+			if !errors.As(err, &domainErr) {
+				t.Fatalf("expected domain error, got %v", err)
+			}
+			if domainErr.StatusCode != http.StatusBadGateway || domainErr.ErrorCode != openAIStreamTranslationUnsupportedErrorCode || domainErr.Detail != openAIStreamTranslationUnsupportedDetail {
+				t.Fatalf("expected pinned stream translation 502 contract, got %+v", domainErr)
+			}
+			if got := stringValue(domainErr.Fields["unsupported_reason"]); got != test.reason {
+				t.Fatalf("expected unsupported reason %q, got %+v", test.reason, domainErr.Fields)
+			}
+		})
 	}
 }
 

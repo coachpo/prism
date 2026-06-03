@@ -1,7 +1,12 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { ApiError } from "@/lib/api/core";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { ConfigImportSchema } from "@/lib/configImportValidation";
+import {
+  ConfigImportSchema,
+  formatRoutingPlanValidationIssues,
+  formatValidationIssues,
+} from "@/lib/configImportValidation";
 import type { ConfigImportPreviewResponse, ConfigImportRequest } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -18,6 +23,17 @@ function buildProfileConfigExportFilename(mode: ConfigExportMode, now: Date = ne
   return mode === "dangerous"
     ? `prism-profile-config-with-secrets-v3-${date}.json`
     : `prism-profile-config-v3-${date}.json`;
+}
+
+function getConfigImportErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    const routingIssues = formatRoutingPlanValidationIssues(error.detail);
+    if (routingIssues) {
+      return routingIssues;
+    }
+  }
+
+  return error instanceof Error ? error.message : fallback;
 }
 
 export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConfigBackupDataInput) {
@@ -137,9 +153,7 @@ export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConf
       const validation = ConfigImportSchema.safeParse(parsed);
 
       if (!validation.success) {
-        const errors = validation.error.issues
-          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-          .join(", ");
+        const errors = formatValidationIssues(validation.error.issues);
         throw new Error(messages.settingsBackupData.invalidConfigPayload(errors));
       }
 
@@ -192,7 +206,7 @@ export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConf
       if (currentPreviewRequestTokenRef.current !== previewRequestToken) {
         return;
       }
-      toast.error(error instanceof Error ? error.message : messages.settingsBackupData.previewFailed);
+      toast.error(getConfigImportErrorMessage(error, messages.settingsBackupData.previewFailed));
       clearPreviewState("bundle_changed");
     } finally {
       if (currentPreviewRequestTokenRef.current === previewRequestToken) {
@@ -228,7 +242,7 @@ export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConf
       resetSelectedFile();
       bumpRevision();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.settingsBackupData.importFailed);
+      toast.error(getConfigImportErrorMessage(error, messages.settingsBackupData.importFailed));
     } finally {
       setImporting(false);
     }

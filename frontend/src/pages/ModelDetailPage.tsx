@@ -59,6 +59,7 @@ export function ModelDetailPage() {
     handleAddAccessTarget,
     handleMoveAccessTarget,
     handleToggleAccessTarget,
+    handleUpdateModelTarget,
     handleDeleteAccessTarget,
     handleEditModelSubmit,
     pricingTemplates,
@@ -117,6 +118,7 @@ export function ModelDetailPage() {
         onHealthCheck={handleHealthCheck}
         onMoveTarget={handleMoveAccessTarget}
         onToggleTarget={handleToggleAccessTarget}
+        onUpdateModelTarget={handleUpdateModelTarget}
         onChange={() => undefined}
       />
 

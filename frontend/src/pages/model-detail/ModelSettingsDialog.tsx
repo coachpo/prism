@@ -129,7 +129,7 @@ export function ModelSettingsDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(92vh,48rem)] max-h-[92vh] max-w-2xl flex-col overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent className="flex h-[min(92vh,48rem)] max-h-[92vh] max-w-4xl flex-col overflow-hidden p-0 sm:max-w-4xl">
         <DialogHeader className="shrink-0 border-b bg-background px-6 py-5 sm:px-7">
           <DialogTitle>{copy.modelSettingsTitle}</DialogTitle>
           <DialogDescription>{copy.modelSettingsDescription}</DialogDescription>

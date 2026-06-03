@@ -1063,9 +1063,9 @@ func contractAuthSettings() config.Settings {
 	return config.Settings{
 		Host:                       "127.0.0.1",
 		Port:                       8000,
-		AppEnv:                     config.EnvironmentProduction,
-		SecretEncryptionKey:        "contract-secret",
-		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
+		AppEnv:              config.EnvironmentProduction,
+		SecretEncryptionKey: "contract-secret",
+		CORSAllowedOrigins:  "http://localhost:5173,http://127.0.0.1:5173",
 		AuthJWTSecret:              "contract-jwt-secret",
 		AuthAccessTokenTTLSeconds:  900,
 		AuthRefreshTokenTTLSeconds: 604800,
@@ -1509,9 +1509,13 @@ func assertStatus(t *testing.T, response *http.Response, want int) {
 func assertErrorResponse(t *testing.T, response *http.Response, wantStatus int, wantDetail string) {
 	t.Helper()
 	assertStatus(t, response, wantStatus)
-	var payload map[string]string
+	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	if payload["detail"] != wantDetail {
+	detail, ok := payload["detail"].(string)
+	if !ok {
+		t.Fatalf("expected error detail string, got %+v", payload)
+	}
+	if detail != wantDetail {
 		t.Fatalf("expected error detail %q, got %+v", wantDetail, payload)
 	}
 }

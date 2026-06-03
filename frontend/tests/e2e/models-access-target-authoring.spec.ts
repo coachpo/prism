@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-27T12:00:00Z";
-const disabledDraftAccessTargetCopy = "No model targets selected. Save disabled now, or add a same-family model target before enabling.";
+const disabledDraftAccessTargetCopy = /No model targets selected\./;
 const enabledTargetRequiredCopy = "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.";
 
 function createProfile() {
@@ -191,7 +191,7 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
   await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
   await expect(dialog.getByText("New models start disabled so you can save a draft now and attach model targets later.")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
-  await expect(dialog.locator('[data-slot="switch"]').last()).toHaveAttribute("data-state", "unchecked");
+  await expect(dialog.getByRole("switch", { name: "Enabled" })).toHaveAttribute("data-state", "unchecked");
 
   await page.getByRole("textbox", { name: "Model ID" }).fill("draft-openai");
   await dialog.getByRole("button", { name: "Save" }).click();
@@ -227,7 +227,7 @@ test("main model dialog keeps connection option absent while authoring ordered m
   const dialog = page.getByRole("dialog", { name: "New Model" });
   await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
-  const enabledSwitch = dialog.locator('[data-slot="switch"]').last();
+  const enabledSwitch = dialog.getByRole("switch", { name: "Enabled" });
   await expect(enabledSwitch).toHaveAttribute("data-state", "unchecked");
   await page.getByRole("textbox", { name: "Model ID" }).fill("routed-openai");
 
@@ -274,7 +274,7 @@ test("main model dialog keeps connection option absent while authoring ordered m
       api_family: "anthropic",
       model_id: "routed-openai",
       display_name: "routed-openai",
-      access_targets: [{ target_type: "model", target_model_id: "claude-sonnet", position: 0, is_enabled: true }],
+      access_targets: [{ target_type: "model", target_model_id: "claude-sonnet", position: 0, weight: 1, target_priority: 0, is_enabled: true }],
       loadbalance_strategy_id: 11,
       is_enabled: true,
       context_window_tokens: null,
@@ -284,4 +284,3 @@ test("main model dialog keeps connection option absent while authoring ordered m
     },
   ]);
 });
-

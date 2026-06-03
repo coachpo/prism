@@ -58,6 +58,9 @@ func TestConfigBundle(t *testing.T) {
 	if integrationJSONInt(t, exported["version"]) != 3 {
 		t.Fatalf("expected profile export version 3, got %+v", exported)
 	}
+	if _, ok := exported["runtime"]; ok {
+		t.Fatalf("expected profile export to stay on the existing bundle contract without bootstrap runtime rollout controls, got %+v", exported)
+	}
 	model := asMap(t, exported["models"].([]any)[0])
 	connection := asMap(t, exported["connections"].([]any)[0])
 	if integrationJSONInt(t, model["context_window_tokens"]) != 128000 || integrationJSONInt(t, model["default_output_token_reserve"]) != 4096 || integrationJSONFloat(t, model["max_context_utilization"]) != 0.9 {

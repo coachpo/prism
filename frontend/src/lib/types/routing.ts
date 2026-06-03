@@ -153,6 +153,16 @@ export interface Connection extends ContextCapabilityFields {
 
 export type TerminalTarget = Connection;
 
+export interface ModelTargetTierSemantics {
+  weight: number;
+  target_priority: number;
+}
+
+export interface ModelTargetTierSemanticsInput {
+  weight?: number | null;
+  target_priority?: number | null;
+}
+
 export interface ConnectionCreate {
   api_family: ApiFamily;
   endpoint_id?: number;

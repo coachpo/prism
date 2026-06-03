@@ -141,7 +141,7 @@ test("stale connection target payload is rejected and surfaced in the model crea
   await dialog.getByRole("button", { name: "Add target" }).click();
   await expect(dialog.getByTestId("access-target-model:target-alpha")).toContainText("Target Alpha");
 
-  await dialog.locator('[data-slot="switch"]').last().click();
+  await dialog.getByRole("switch", { name: "Enabled" }).click();
   await dialog.getByRole("button", { name: "Save" }).click();
 
   await expect(dialog.getByTestId("access-targets-error")).toContainText(staleConnectionTargetMessage);
@@ -150,7 +150,7 @@ test("stale connection target payload is rejected and surfaced in the model crea
   expect(routes.getStalePayloads()).toHaveLength(1);
   expect(routes.getStalePayloads()[0]).toMatchObject({
     access_targets: [
-      { target_type: "model", target_model_id: "target-alpha", position: 0, is_enabled: true },
+      { target_type: "model", target_model_id: "target-alpha", position: 0, weight: 1, target_priority: 0, is_enabled: true },
       { target_type: "connection", connection_id: 77, position: 1, is_enabled: true },
     ],
   });

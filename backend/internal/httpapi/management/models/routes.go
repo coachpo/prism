@@ -26,6 +26,12 @@ type endpointModelsBatchRequest struct {
 	EndpointIDs []int `json:"endpoint_ids"`
 }
 
+type routingPlanValidationIssue struct {
+	Code    string `json:"code"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
 const (
 	facadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
 	facadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
@@ -143,7 +149,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, err
 		}
 		if created.IsEnabled && !hasEnabledResolvedAccessTarget(resolvedTargets) {
-			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
+			return modelConfigResponse{}, routingPlanValidationIssueError("model_no_enabled_targets", "access_targets", "enabled models must include at least one enabled access target")
 		}
 		if err := ensureAccessTargetGraphAcyclic(r.Context(), tx, profile.ID, created.ID, resolvedTargets); err != nil {
 			return modelConfigResponse{}, err
@@ -316,7 +322,7 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, err
 		}
 		if next.IsEnabled && !hasEnabledResolvedOrPreservedAccessTarget(resolvedTargets, preservedConnectionTargets) {
-			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
+			return modelConfigResponse{}, routingPlanValidationIssueError("model_no_enabled_targets", "access_targets", "enabled models must include at least one enabled access target")
 		}
 		if err := ensureAccessTargetGraphAcyclic(r.Context(), tx, profile.ID, current.ID, resolvedTargets); err != nil {
 			return modelConfigResponse{}, err
@@ -647,7 +653,7 @@ func (s *Service) replaceModelTargetsFromMutationItems(ctx context.Context, tx p
 		return nil, err
 	}
 	if model.IsEnabled && !hasEnabledResolvedOrPreservedAccessTarget(resolvedTargets, preservedConnectionTargets) {
-		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
+		return nil, routingPlanValidationIssueError("model_no_enabled_targets", "access_targets", "enabled models must include at least one enabled access target")
 	}
 	if err := ensureAccessTargetGraphAcyclic(ctx, tx, profileID, model.ID, resolvedTargets); err != nil {
 		return nil, err
@@ -666,7 +672,7 @@ func (s *Service) updateModelTargetMetadataFromMutationItems(ctx context.Context
 		return nil, err
 	}
 	if model.IsEnabled && !hasEnabledAccessTargetMutationItem(items) {
-		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
+		return nil, routingPlanValidationIssueError("model_no_enabled_targets", "access_targets", "enabled models must include at least one enabled access target")
 	}
 	if err := updateAccessTargetMetadata(ctx, tx, profileID, model.ID, items, s.nowUTC()); err != nil {
 		return nil, err
@@ -1371,10 +1377,10 @@ func requiredContextCapabilityFieldError(fieldName string) error {
 
 func validateFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
 	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyWeightedEligibleContext {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_selection_policy must be 'weighted_eligible_context'"}
+		return routingPlanValidationIssueError("facade_selection_policy_invalid", "facade_selection_policy", "facade_selection_policy must be 'weighted_eligible_context'")
 	}
 	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicyRedistributeIneligibleWeight {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_fallback_policy must be 'redistribute_ineligible_weight'"}
+		return routingPlanValidationIssueError("facade_fallback_policy_invalid", "facade_fallback_policy", "facade_fallback_policy must be 'redistribute_ineligible_weight'")
 	}
 	return nil
 }
@@ -1394,7 +1400,7 @@ func validateFacadeWriteContract(ctx context.Context, exec queryExecutor, profil
 		return err
 	}
 	if len(referrers) > 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: nestedFacadesNotSupportedDetail}
+		return routingPlanValidationIssueError("nested_facade_target", "facade_enabled", nestedFacadesNotSupportedDetail)
 	}
 	return nil
 }
@@ -1407,13 +1413,13 @@ func validateFacadeConfiguration(record modelRecord) error {
 		return nil
 	}
 	if record.APIFamily != "openai" {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: facadeEnabledRequiresOpenAIDetail}
+		return routingPlanValidationIssueError("model_api_family_invalid", "api_family", facadeEnabledRequiresOpenAIDetail)
 	}
 	if record.FacadeSelectionPolicy == nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_selection_policy is required when facade_enabled is true"}
+		return routingPlanValidationIssueError("facade_selection_policy_missing", "facade_selection_policy", "facade_selection_policy is required when facade_enabled is true")
 	}
 	if record.FacadeFallbackPolicy == nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_fallback_policy is required when facade_enabled is true"}
+		return routingPlanValidationIssueError("facade_fallback_policy_missing", "facade_fallback_policy", "facade_fallback_policy is required when facade_enabled is true")
 	}
 	return nil
 }
@@ -1421,10 +1427,39 @@ func validateFacadeConfiguration(record modelRecord) error {
 func ensureNoNestedFacadeTargets(resolvedTargets []resolvedAccessTarget) error {
 	for _, target := range resolvedTargets {
 		if target.Model != nil && target.Model.FacadeEnabled {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: nestedFacadesNotSupportedDetail}
+			return routingPlanValidationIssueError("nested_facade_target", accessTargetIssuePath(target.Position, "target_model_id"), nestedFacadesNotSupportedDetail)
 		}
 	}
 	return nil
+}
+
+func routingPlanValidationIssueError(code string, path string, detail string) error {
+	return routingPlanValidationError(http.StatusBadRequest, detail, []routingPlanValidationIssue{{
+		Code:    strings.TrimSpace(code),
+		Path:    strings.TrimSpace(path),
+		Message: strings.TrimSpace(detail),
+	}})
+}
+
+func routingPlanValidationError(statusCode int, detail string, issues []routingPlanValidationIssue) error {
+	if len(issues) == 0 {
+		return &domainError{StatusCode: statusCode, Detail: detail}
+	}
+	return &domainError{
+		StatusCode: statusCode,
+		Detail:     detail,
+		Fields: map[string]any{
+			"routing_plan_issues": issues,
+		},
+	}
+}
+
+func accessTargetIssuePath(index int, field string) string {
+	path := fmt.Sprintf("access_targets[%d]", index)
+	if strings.TrimSpace(field) == "" {
+		return path
+	}
+	return path + "." + strings.TrimSpace(field)
 }
 
 func validatePublicAccessTargets(accessTargets []modelAccessTargetRequest) error {
@@ -1453,33 +1488,28 @@ func connectionAccessTargetsManagedError() error {
 func validateAccessTargets(accessTargets []modelAccessTargetRequest) error {
 	seenTargets := map[string]struct{}{}
 	seenPositions := map[int]struct{}{}
-	for _, accessTarget := range accessTargets {
+	for index, accessTarget := range accessTargets {
 		if !targetcompat.IsSupportedAccessTargetType(accessTarget.TargetType) {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_type must be 'model' or 'connection'"}
+			return routingPlanValidationIssueError("target_type_invalid", accessTargetIssuePath(index, "target_type"), "target_type must be 'model' or 'connection'")
 		}
 		if accessTarget.Position < 0 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "position must be greater than or equal to 0"}
+			return routingPlanValidationIssueError("target_position_invalid", accessTargetIssuePath(index, "position"), "position must be greater than or equal to 0")
 		}
 		if _, ok := seenPositions[accessTarget.Position]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "access_targets must contain unique position values"}
+			return routingPlanValidationIssueError("target_position_duplicate", accessTargetIssuePath(index, "position"), "access_targets must contain unique position values")
 		}
 		seenPositions[accessTarget.Position] = struct{}{}
-		targetKey, err := validateAccessTargetPointerContract(accessTarget)
+		targetKey, err := validateAccessTargetPointerContract(index, accessTarget)
 		if err != nil {
 			return err
 		}
-		if err := validateAccessTargetMetadataContract(accessTarget); err != nil {
+		if err := validateAccessTargetMetadataContract(index, accessTarget); err != nil {
 			return err
 		}
 		if _, ok := seenTargets[targetKey]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "access_targets must contain unique target references"}
+			return routingPlanValidationIssueError("target_duplicate", accessTargetIssuePath(index, ""), "access_targets must contain unique target references")
 		}
 		seenTargets[targetKey] = struct{}{}
-	}
-	for expectedPosition := 0; expectedPosition < len(accessTargets); expectedPosition++ {
-		if _, ok := seenPositions[expectedPosition]; !ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "access_targets positions must be contiguous starting at 0"}
-		}
 	}
 	return nil
 }
@@ -1489,51 +1519,51 @@ func validateAccessTargetsForSourceModel(sourceModelID string, accessTargets []m
 	if sourceModelID == "" {
 		return nil
 	}
-	for _, accessTarget := range accessTargets {
+	for index, accessTarget := range accessTargets {
 		if !targetcompat.IsModelAccessTargetType(accessTarget.TargetType) || accessTarget.TargetModelID == nil {
 			continue
 		}
 		if strings.TrimSpace(*accessTarget.TargetModelID) == sourceModelID {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "Model access target cannot target itself"}
+			return routingPlanValidationIssueError("model_graph_cycle", accessTargetIssuePath(index, "target_model_id"), "Model access target cannot target itself")
 		}
 	}
 	return nil
 }
 
-func validateAccessTargetPointerContract(accessTarget modelAccessTargetRequest) (string, error) {
+func validateAccessTargetPointerContract(index int, accessTarget modelAccessTargetRequest) (string, error) {
 	if targetcompat.IsModelAccessTargetType(accessTarget.TargetType) {
 		if accessTarget.TargetModelID == nil || strings.TrimSpace(*accessTarget.TargetModelID) == "" {
-			return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "target_model_id is required for model access targets"}
+			return "", routingPlanValidationIssueError("model_target_id_empty", accessTargetIssuePath(index, "target_model_id"), "target_model_id is required for model access targets")
 		}
 		if accessTarget.ConnectionID != nil {
-			return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "connection_id must be omitted for model access targets"}
+			return "", routingPlanValidationIssueError("model_target_has_connection", accessTargetIssuePath(index, "connection_id"), "connection_id must be omitted for model access targets")
 		}
 		return "model:" + strings.TrimSpace(*accessTarget.TargetModelID), nil
 	}
 	if accessTarget.ConnectionID == nil || *accessTarget.ConnectionID <= 0 {
-		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "connection_id is required for terminal targets"}
+		return "", routingPlanValidationIssueError("connection_target_missing_connection", accessTargetIssuePath(index, "connection_id"), "connection_id is required for terminal targets")
 	}
 	if accessTarget.TargetModelID != nil && strings.TrimSpace(*accessTarget.TargetModelID) != "" {
-		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "target_model_id must be omitted for terminal targets"}
+		return "", routingPlanValidationIssueError("connection_target_has_model", accessTargetIssuePath(index, "target_model_id"), "target_model_id must be omitted for terminal targets")
 	}
 	return fmt.Sprintf("connection:%d", *accessTarget.ConnectionID), nil
 }
 
-func validateAccessTargetMetadataContract(accessTarget modelAccessTargetRequest) error {
+func validateAccessTargetMetadataContract(index int, accessTarget modelAccessTargetRequest) error {
 	if targetcompat.IsTerminalTargetAccessTargetType(accessTarget.TargetType) {
 		if accessTarget.Weight != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be omitted for terminal targets"}
+			return routingPlanValidationIssueError("terminal_target_metadata_invalid", accessTargetIssuePath(index, "weight"), "weight must be omitted for terminal targets")
 		}
 		if accessTarget.TargetPriority != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be omitted for terminal targets"}
+			return routingPlanValidationIssueError("terminal_target_metadata_invalid", accessTargetIssuePath(index, "target_priority"), "target_priority must be omitted for terminal targets")
 		}
 		return nil
 	}
 	if accessTarget.Weight != nil && *accessTarget.Weight <= 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be greater than 0"}
+		return routingPlanValidationIssueError("model_target_weight_invalid", accessTargetIssuePath(index, "weight"), "weight must be greater than 0")
 	}
 	if accessTarget.TargetPriority != nil && *accessTarget.TargetPriority < 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be greater than or equal to 0"}
+		return routingPlanValidationIssueError("model_target_priority_invalid", accessTargetIssuePath(index, "target_priority"), "target_priority must be greater than or equal to 0")
 	}
 	return nil
 }
@@ -1593,7 +1623,7 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var modelErr *domainError
 	if errors.As(err, &modelErr) {
-		writeError(w, r, corsSnapshot, modelErr.StatusCode, modelErr.Detail)
+		writeErrorFields(w, r, corsSnapshot, modelErr.StatusCode, modelErr.Detail, modelErr.Fields)
 		return
 	}
 	var profileErr *profiledomain.HTTPError
@@ -1605,8 +1635,20 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
+	writeErrorFields(w, r, corsSnapshot, statusCode, detail, nil)
+}
+
+func writeErrorFields(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string, fields map[string]any) {
 	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]string{"detail": detail})
+	if len(fields) == 0 {
+		writeJSON(w, statusCode, map[string]string{"detail": detail})
+		return
+	}
+	payload := map[string]any{"detail": detail}
+	for key, value := range fields {
+		payload[key] = value
+	}
+	writeJSON(w, statusCode, payload)
 }
 
 func routeInt(request *http.Request, name string) (int, error) {

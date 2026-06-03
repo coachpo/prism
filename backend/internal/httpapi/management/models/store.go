@@ -545,18 +545,19 @@ func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int
 		if target.IsEnabled != nil {
 			enabled = *target.IsEnabled
 		}
+		targetPath := accessTargetIssuePath(target.Position, "")
 		switch target.TargetType {
 		case "model":
 			targetModelID := strings.TrimSpace(*target.TargetModelID)
 			model, ok := modelsByID[targetModelID]
 			if !ok {
-				return nil, &domainError{StatusCode: 400, Detail: fmt.Sprintf("Target model '%s' not found", targetModelID)}
+				return nil, routingPlanValidationIssueError("model_target_missing_model", targetPath+".target_model_id", fmt.Sprintf("Target model '%s' not found", targetModelID))
 			}
 			if model.ModelID == sourceModelID || (sourceModelConfigID != nil && model.ID == *sourceModelConfigID) {
-				return nil, &domainError{StatusCode: 400, Detail: "Model access target cannot target itself"}
+				return nil, routingPlanValidationIssueError("model_graph_cycle", targetPath+".target_model_id", "Model access target cannot target itself")
 			}
 			if model.APIFamily != apiFamily {
-				return nil, &domainError{StatusCode: 400, Detail: "Model access targets must use the same api_family as the source model"}
+				return nil, routingPlanValidationIssueError("target_api_family_mismatch", targetPath+".target_model_id", "Model access targets must use the same api_family as the source model")
 			}
 			weight := 1
 			if target.Weight != nil {
@@ -572,10 +573,10 @@ func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int
 			connectionID := *target.ConnectionID
 			connection, ok := connectionsByID[connectionID]
 			if !ok {
-				return nil, &domainError{StatusCode: 400, Detail: fmt.Sprintf("Target connection %d not found", connectionID)}
+				return nil, routingPlanValidationIssueError("connection_target_missing_connection", targetPath+".connection_id", fmt.Sprintf("Target connection %d not found", connectionID))
 			}
 			if connection.APIFamily != apiFamily {
-				return nil, &domainError{StatusCode: 400, Detail: "Connection access targets must use the same api_family as the source model"}
+				return nil, routingPlanValidationIssueError("target_api_family_mismatch", targetPath+".connection_id", "Connection access targets must use the same api_family as the source model")
 			}
 			connectionCopy := connection
 			resolved = append(resolved, resolvedAccessTarget{TargetType: "connection", Position: target.Position, IsEnabled: enabled, Connection: &connectionCopy})
@@ -711,7 +712,7 @@ func ensureAccessTargetGraphAcyclic(ctx context.Context, exec queryExecutor, pro
 		return fmt.Errorf("check access target cycles for model %d: %w", sourceModelConfigID, err)
 	}
 	if hasCycle {
-		return &domainError{StatusCode: 400, Detail: "access_targets cannot introduce a model target cycle"}
+		return routingPlanValidationIssueError("model_graph_cycle", "access_targets", "access_targets cannot introduce a model target cycle")
 	}
 	return nil
 }

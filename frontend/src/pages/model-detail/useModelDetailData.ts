@@ -135,6 +135,7 @@ export function useModelDetailData(id: string | undefined) {
     handleAddAccessTarget,
     handleMoveAccessTarget,
     handleToggleAccessTarget,
+    handleUpdateModelTarget,
     handleDeleteAccessTarget,
   } = useModelDetailConnectionMutations({
     id,
@@ -175,13 +176,16 @@ export function useModelDetailData(id: string | undefined) {
     setModel,
   });
 
+  const effectiveTargetApiFamily = isEditModelDialogOpen
+    ? formData.api_family
+    : model?.api_family ?? formData.api_family;
   const targetModelsForApiFamily = useMemo(
-    () => getAccessTargetModelsForApiFamily(allModels, formData.api_family, model?.model_id),
-    [allModels, formData.api_family, model?.model_id],
+    () => getAccessTargetModelsForApiFamily(allModels, effectiveTargetApiFamily, model?.model_id),
+    [allModels, effectiveTargetApiFamily, model?.model_id],
   );
   const targetConnectionsForApiFamily = useMemo(
-    () => getSameFamilyConnections(allConnections, formData.api_family, modelConfigId),
-    [allConnections, formData.api_family, modelConfigId],
+    () => getSameFamilyConnections(allConnections, effectiveTargetApiFamily, modelConfigId),
+    [allConnections, effectiveTargetApiFamily, modelConfigId],
   );
   const accessTargetSummary = useMemo(() => buildAccessTargetSummary(model), [model]);
 
@@ -247,6 +251,7 @@ export function useModelDetailData(id: string | undefined) {
     handleAddAccessTarget,
     handleMoveAccessTarget,
     handleToggleAccessTarget,
+    handleUpdateModelTarget,
     handleDeleteAccessTarget,
     handleEditModelSubmit,
     pricingTemplates,

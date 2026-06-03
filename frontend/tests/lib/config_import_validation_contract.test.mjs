@@ -277,11 +277,103 @@ test("vendor catalog import schema requires explicit icon_key boundaries", () =>
   );
 });
 
-test("config import schema rejects model access targets with non-contiguous positions", () => {
+test("config import schema accepts model access targets with sparse positions", () => {
   const payload = buildValidConfigImport();
-  payload.models[0].access_targets[0].position = 2;
+  payload.models[0].access_targets[0].position = 4;
 
-  assert.throws(() => ConfigImportSchema.parse(payload));
+  const parsed = ConfigImportSchema.parse(payload);
+
+  assert.equal(parsed.models[0].access_targets[0].position, 4);
+});
+
+test("config import schema accepts model target weight and target_priority metadata", () => {
+  const payload = buildValidConfigImport();
+  payload.connections = [];
+  payload.profile_settings.endpoint_fx_mappings = [];
+  payload.models = [
+    {
+      vendor_key: "openai",
+      api_family: "openai",
+      model_id: "gpt-4o-router",
+      display_name: "GPT 4o Router",
+      loadbalance_strategy_name: "Default single",
+      ...liveAuthoringCapabilityDefaults,
+      is_enabled: true,
+      access_targets: [
+        {
+          position: 4,
+          is_enabled: true,
+          target_type: "model",
+          target_model_id: "gpt-4o-mini-terminal",
+          weight: 9,
+          target_priority: 3,
+        },
+      ],
+    },
+    {
+      vendor_key: "openai",
+      api_family: "openai",
+      model_id: "gpt-4o-mini-terminal",
+      display_name: "GPT 4o Mini Terminal",
+      loadbalance_strategy_name: "Default single",
+      ...liveAuthoringCapabilityDefaults,
+      is_enabled: true,
+      access_targets: [],
+    },
+  ];
+
+  const parsed = ConfigImportSchema.parse(payload);
+
+  assert.equal(parsed.models[0].access_targets[0].position, 4);
+  assert.equal(parsed.models[0].access_targets[0].weight, 9);
+  assert.equal(parsed.models[0].access_targets[0].target_priority, 3);
+});
+
+test("config import schema rejects terminal target routing metadata", () => {
+  const payload = buildValidConfigImport();
+  payload.models[0].access_targets[0].weight = 2;
+  payload.models[0].access_targets[0].target_priority = 1;
+
+  assert.throws(() => ConfigImportSchema.parse(payload), /weight must be omitted for terminal targets/);
+});
+
+test("config import schema rejects invalid model target routing metadata", () => {
+  const payload = buildValidConfigImport();
+  payload.connections = [];
+  payload.profile_settings.endpoint_fx_mappings = [];
+  payload.models = [
+    {
+      vendor_key: "openai",
+      api_family: "openai",
+      model_id: "gpt-4o-router",
+      display_name: "GPT 4o Router",
+      loadbalance_strategy_name: "Default single",
+      ...liveAuthoringCapabilityDefaults,
+      is_enabled: true,
+      access_targets: [
+        {
+          position: 2,
+          is_enabled: true,
+          target_type: "model",
+          target_model_id: "gpt-4o-mini-terminal",
+          weight: 0,
+          target_priority: -1,
+        },
+      ],
+    },
+    {
+      vendor_key: "openai",
+      api_family: "openai",
+      model_id: "gpt-4o-mini-terminal",
+      display_name: "GPT 4o Mini Terminal",
+      loadbalance_strategy_name: "Default single",
+      ...liveAuthoringCapabilityDefaults,
+      is_enabled: true,
+      access_targets: [],
+    },
+  ];
+
+  assert.throws(() => ConfigImportSchema.parse(payload), /weight must be greater than 0/);
 });
 
 test("config import schema rejects model access targets with duplicate references", () => {
@@ -338,7 +430,7 @@ test("config import schema rejects duplicate connection_ref ownership across mod
     ],
   });
 
-  assert.throws(() => ConfigImportSchema.parse(payload), /already owned/);
+  assert.throws(() => ConfigImportSchema.parse(payload), /owned by multiple models/);
 });
 
 test("config import schema rejects ownerless top-level connection refs", () => {
@@ -347,6 +439,6 @@ test("config import schema rejects ownerless top-level connection refs", () => {
 
   assert.throws(
     () => ConfigImportSchema.parse(payload),
-    /private connection ref openai-primary must be owned by a model access target/
+    /Connection ref 'openai-primary' must be owned by exactly one model access target/
   );
 });

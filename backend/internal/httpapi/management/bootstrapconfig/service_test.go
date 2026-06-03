@@ -28,8 +28,10 @@ const (
 	routeTestNextDatabaseURL                       = "postgres://prism:" + routeTestNextDatabasePassword + "@db.next.internal:5432/prism?sslmode=disable"
 	routeTestReplacementJWTSecret                  = "route-replacement-jwt-secret"
 	routeTestRuntimeReplacementSecret              = "route-runtime-replacement-secret"
-	routeTestTelemetryAuthorizationHeader          = "Bearer route-telemetry-secret"
-	routeTestRuntimeSideEffectsAttemptTimeoutField = "runtime.side_effects.attempt_timeout"
+	routeTestTelemetryAuthorizationHeader                 = "Bearer route-telemetry-secret"
+	routeTestRuntimeSideEffectsAttemptTimeoutField        = "runtime.side_effects.attempt_timeout"
+	routeTestRuntimeRoutingPlannerModeField               = "runtime.routing.planner_mode"
+	routeTestRuntimeRoutingOpenAITranslationModeField     = "runtime.routing.openai_terminal_translation_mode"
 )
 
 var (
@@ -173,6 +175,44 @@ func TestBootstrapConfigRouteValidateReportsRuntimeSideEffectsAttemptTimeoutRest
 		t.Fatalf("expected side-effects attempt timeout validation to require restart, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
 	}
 	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{{Field: routeTestRuntimeSideEffectsAttemptTimeoutField, Mode: config.BootstrapConfigApplyModeRestartRequired}})
+	if body.ApplyResult != nil {
+		t.Fatal("expected validation response to omit apply result")
+	}
+}
+
+func TestBootstrapConfigRouteValidateReportsRuntimeRoutingRolloutControlsRestartRequired(t *testing.T) {
+	fixture := newBootstrapRouteFixture(t)
+	before := mustReadFile(t, fixture.path)
+	request := bootstrapRouteRequestForSnapshot(t, fixture.snapshot)
+	request.Values.Runtime.Routing.PlannerMode = routeStringPtr(string(config.RuntimeRoutingPlannerModeShadow))
+	request.Values.Runtime.Routing.OpenAITerminalTranslationMode = routeStringPtr(string(config.OpenAITerminalTranslationModeSafeOnly))
+
+	response := fixture.doJSON(t, http.MethodPost, "/api/config/bootstrap/validate", request)
+
+	requireStatus(t, response, http.StatusOK)
+	assertFileUnchanged(t, fixture.path, before)
+	body := decodeBootstrapConfigResponse(t, response)
+	plannerCapability, ok := body.ApplyCapabilities[routeTestRuntimeRoutingPlannerModeField]
+	if !ok {
+		t.Fatal("expected response capabilities to include runtime routing planner mode")
+	}
+	if plannerCapability.Mode != config.BootstrapConfigApplyModeRestartRequired || plannerCapability.ConfirmationToken != "" {
+		t.Fatalf("expected planner mode to be restart-required without confirmation, got %+v", plannerCapability)
+	}
+	translationCapability, ok := body.ApplyCapabilities[routeTestRuntimeRoutingOpenAITranslationModeField]
+	if !ok {
+		t.Fatal("expected response capabilities to include runtime routing OpenAI translation mode")
+	}
+	if translationCapability.Mode != config.BootstrapConfigApplyModeRestartRequired || translationCapability.ConfirmationToken != "" {
+		t.Fatalf("expected OpenAI translation mode to be restart-required without confirmation, got %+v", translationCapability)
+	}
+	if !body.RestartRequired || body.PlannedChanges == nil || !body.PlannedChanges.RestartRequired {
+		t.Fatalf("expected runtime routing rollout controls validation to require restart, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
+	}
+	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{
+		{Field: routeTestRuntimeRoutingPlannerModeField, Mode: config.BootstrapConfigApplyModeRestartRequired},
+		{Field: routeTestRuntimeRoutingOpenAITranslationModeField, Mode: config.BootstrapConfigApplyModeRestartRequired},
+	})
 	if body.ApplyResult != nil {
 		t.Fatal("expected validation response to omit apply result")
 	}
@@ -1299,7 +1339,7 @@ func assertRouteDefaultSafeValues(t *testing.T, values config.BootstrapConfigVal
 	if values.HTTP == nil || values.HTTP.CORSAllowedOrigins == nil || !slices.Equal(*values.HTTP.CORSAllowedOrigins, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
 		t.Fatalf("expected route safe CORS origins on frontend port 5173, got %+v", values.HTTP)
 	}
-	if values.Runtime == nil || values.Runtime.Transport == nil || values.Runtime.SideEffects == nil {
+	if values.Runtime == nil || values.Runtime.Transport == nil || values.Runtime.SideEffects == nil || values.Runtime.Routing == nil {
 		t.Fatalf("expected route safe runtime defaults, got %+v", values.Runtime)
 	}
 	encodedRuntime := mustMarshalBootstrapRouteJSON(t, values.Runtime)
@@ -1315,6 +1355,12 @@ func assertRouteDefaultSafeValues(t *testing.T, values config.BootstrapConfigVal
 	}
 	if values.Runtime.SideEffects.AttemptTimeout == nil || *values.Runtime.SideEffects.AttemptTimeout != "10s" {
 		t.Fatalf("expected route safe side-effects attempt_timeout=10s, got %+v", values.Runtime.SideEffects)
+	}
+	if values.Runtime.Routing.PlannerMode == nil || *values.Runtime.Routing.PlannerMode != string(config.RuntimeRoutingPlannerModeLegacy) {
+		t.Fatalf("expected route safe runtime planner_mode=legacy, got %+v", values.Runtime.Routing)
+	}
+	if values.Runtime.Routing.OpenAITerminalTranslationMode == nil || *values.Runtime.Routing.OpenAITerminalTranslationMode != string(config.OpenAITerminalTranslationModeOff) {
+		t.Fatalf("expected route safe runtime openai_terminal_translation_mode=off, got %+v", values.Runtime.Routing)
 	}
 	if values.Database == nil || values.Database.Pools == nil || values.Database.ManagementAdmission == nil {
 		t.Fatalf("expected route safe database defaults, got %+v", values.Database)

@@ -9,8 +9,85 @@ import (
 	"testing"
 )
 
+func TestResolveTranslationMode(t *testing.T) {
+	responsesOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	chatOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	tests := []struct {
+		name      string
+		operation RuntimeOperation
+		upstream  *string
+		variant   *string
+		want      TranslationMode
+	}{
+		{name: "responses to chat", operation: responsesOperation, upstream: stringPtr(openAIUpstreamOperationChatCompletions), variant: stringPtr("chat_completions_reasoning_none"), want: TranslationModeOpenAIResponsesToChatCompletions},
+		{name: "chat to responses", operation: chatOperation, upstream: stringPtr(openAIUpstreamOperationResponses), variant: stringPtr("responses_reasoning_none"), want: TranslationModeOpenAIChatCompletionsToResponses},
+		{name: "same dialect", operation: responsesOperation, upstream: stringPtr(openAIUpstreamOperationResponses), variant: stringPtr("responses_reasoning_none"), want: TranslationModeNone},
+		{name: "missing variant", operation: responsesOperation, upstream: stringPtr(openAIUpstreamOperationChatCompletions), want: TranslationModeNone},
+		{name: "unsupported upstream", operation: responsesOperation, upstream: stringPtr("anthropic.messages"), variant: stringPtr("chat_completions_reasoning_none"), want: TranslationModeNone},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := resolveTranslationMode(test.operation, test.upstream, test.variant); got != test.want {
+				t.Fatalf("expected translation mode %q, got %q", test.want, got)
+			}
+		})
+	}
+}
+
+func TestTranslationCapability(t *testing.T) {
+	responsesOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	chatOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	tests := []struct {
+		name              string
+		operation         RuntimeOperation
+		mode              TranslationMode
+		raw               []byte
+		wantRequestClass  openAITranslationCapabilityClass
+		wantResponseClass openAITranslationCapabilityClass
+		wantStreamClass   openAITranslationCapabilityClass
+		wantReason        string
+		wantSupported     bool
+	}{
+		{name: "responses text request safe", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":"hello"}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
+		{name: "chat text request safe", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}]}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
+		{name: "chat multi choice rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"n":2}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_multi_choice"},
+		{name: "responses previous response id rejected", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":"hello","previous_response_id":"resp_123"}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "responses_previous_response_id"},
+		{name: "chat structured output rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"response_format":{"type":"json_schema"}}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_response_format"},
+		{name: "responses reasoning state rejected", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":"hello","reasoning":{"encrypted_content":"state"}}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "responses_reasoning_encrypted_content"},
+		{name: "chat audio rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"audio":{"format":"wav"}}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_audio"},
+		{name: "chat stream tools rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","stream":true,"messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilityReject, wantReason: "chat_stream_tools"},
+		{name: "responses stream tools rejected", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","stream":true,"input":"hello","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilityReject, wantReason: "responses_stream_tools"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			capability := classifyOpenAITranslationCapability(test.operation, test.raw, test.mode)
+			if capability.RequestClass != test.wantRequestClass || capability.ResponseClass != test.wantResponseClass || capability.StreamClass != test.wantStreamClass {
+				t.Fatalf("expected classes request=%s response=%s stream=%s, got %+v", test.wantRequestClass, test.wantResponseClass, test.wantStreamClass, capability)
+			}
+			if capability.UnsupportedReason != test.wantReason {
+				t.Fatalf("expected unsupported reason %q, got %+v", test.wantReason, capability)
+			}
+			eligibility := requestTranslationEligibilityFromCapability(capability)
+			if eligibility.Supported != test.wantSupported {
+				t.Fatalf("expected supported=%v, got %+v", test.wantSupported, eligibility)
+			}
+			if !test.wantSupported {
+				if eligibility.Rejection == nil {
+					t.Fatal("expected rejected capability to produce domain error")
+				}
+				if eligibility.Rejection.StatusCode != http.StatusBadRequest || eligibility.Rejection.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
+					t.Fatalf("expected pinned rejection contract, got %+v", eligibility.Rejection)
+				}
+				if got := stringValue(eligibility.Rejection.Fields["unsupported_reason"]); got != test.wantReason {
+					t.Fatalf("expected rejection reason %q, got %+v", test.wantReason, eligibility.Rejection.Fields)
+				}
+			}
+		})
+	}
+}
+
 func TestTranslateOpenAIResponsesToChatRequest(t *testing.T) {
-	rawBody := []byte(`{"model":"responses-public","instructions":"system note","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}],"tools":[{"type":"function","name":"lookup","description":"Lookup weather","parameters":{"type":"object"},"strict":true}],"tool_choice":{"type":"function","name":"lookup"},"max_output_tokens":64,"temperature":0.2}`)
+	rawBody := []byte(`{"model":"responses-public","instructions":"system note","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}],"max_output_tokens":64,"temperature":0.2}`)
 
 	path, translated, err := translateOpenAIRequest(rawBody, TranslationModeOpenAIResponsesToChatCompletions, "chat-target")
 	if err != nil {
@@ -39,23 +116,14 @@ func TestTranslateOpenAIResponsesToChatRequest(t *testing.T) {
 	if got := stringValue(messages[1].(map[string]any)["content"].([]any)[0].(map[string]any)["text"]); got != "hello" {
 		t.Fatalf("expected translated user text hello, got %q", got)
 	}
-	tools := payload["tools"].([]any)
-	function := tools[0].(map[string]any)["function"].(map[string]any)
-	if got := stringValue(function["name"]); got != "lookup" {
-		t.Fatalf("expected function tool lookup, got %q", got)
-	}
-	toolChoice := payload["tool_choice"].(map[string]any)
-	if got := stringValue(toolChoice["type"]); got != "function" {
-		t.Fatalf("expected function tool choice, got %q", got)
-	}
 }
 
-func TestTranslateOpenAIResponsesImageAndReasoningRequest(t *testing.T) {
-	rawBody := []byte(`{"model":"responses-public","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"},{"type":"input_image","image_url":"https://example.invalid/image.png","detail":"high"}]}],"reasoning":{"effort":"medium"},"max_output_tokens":32}`)
+func TestTranslateOpenAIResponsesReasoningRequest(t *testing.T) {
+	rawBody := []byte(`{"model":"responses-public","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}],"reasoning":{"effort":"medium"},"max_output_tokens":32}`)
 
 	_, translated, err := translateOpenAIRequest(rawBody, TranslationModeOpenAIResponsesToChatCompletions, "chat-target")
 	if err != nil {
-		t.Fatalf("translate responses image/reasoning request: %v", err)
+		t.Fatalf("translate responses reasoning request: %v", err)
 	}
 	payload := decodeTranslationTestPayload(t, translated)
 	if got := stringValue(payload["reasoning_effort"]); got != "medium" {
@@ -64,18 +132,10 @@ func TestTranslateOpenAIResponsesImageAndReasoningRequest(t *testing.T) {
 	if got := intValue(intPointerFromAny(payload["max_completion_tokens"])); got != 32 {
 		t.Fatalf("expected max_completion_tokens=32, got %+v", payload["max_completion_tokens"])
 	}
-	content := payload["messages"].([]any)[0].(map[string]any)["content"].([]any)
-	if got := stringValue(content[1].(map[string]any)["type"]); got != "image_url" {
-		t.Fatalf("expected translated image_url part, got %q", got)
-	}
-	image := content[1].(map[string]any)["image_url"].(map[string]any)
-	if got := stringValue(image["detail"]); got != "high" {
-		t.Fatalf("expected translated image detail high, got %q", got)
-	}
 }
 
 func TestTranslateOpenAIChatToResponsesRequest(t *testing.T) {
-	rawBody := []byte(`{"model":"chat-public","messages":[{"role":"system","content":"system note"},{"role":"user","content":[{"type":"text","text":"hello"},{"type":"image_url","image_url":{"url":"https://example.invalid/image.png","detail":"low"}}]},{"role":"assistant","content":"thinking","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"city\":\"Paris\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"{\"result\":\"sunny\"}"}],"tools":[{"type":"function","function":{"name":"lookup","description":"Lookup weather","parameters":{"type":"object"},"strict":true}}],"tool_choice":{"type":"function","function":{"name":"lookup"}},"max_completion_tokens":32,"reasoning_effort":"low","parallel_tool_calls":true}`)
+	rawBody := []byte(`{"model":"chat-public","messages":[{"role":"system","content":"system note"},{"role":"user","content":[{"type":"text","text":"hello"}]}],"max_completion_tokens":32,"reasoning_effort":"low"}`)
 
 	path, translated, err := translateOpenAIRequest(rawBody, TranslationModeOpenAIChatCompletionsToResponses, "responses-target")
 	if err != nil {
@@ -98,14 +158,11 @@ func TestTranslateOpenAIChatToResponsesRequest(t *testing.T) {
 		t.Fatalf("expected reasoning.effort=low, got %q", got)
 	}
 	input := payload["input"].([]any)
-	if len(input) != 4 {
-		t.Fatalf("expected user message + assistant message + function call + function output, got %+v", input)
+	if len(input) != 1 {
+		t.Fatalf("expected one translated user message, got %+v", input)
 	}
-	if got := stringValue(input[2].(map[string]any)["type"]); got != "function_call" {
-		t.Fatalf("expected translated function_call item, got %q", got)
-	}
-	if got := stringValue(input[3].(map[string]any)["type"]); got != "function_call_output" {
-		t.Fatalf("expected translated function_call_output item, got %q", got)
+	if got := stringValue(input[0].(map[string]any)["type"]); got != "message" {
+		t.Fatalf("expected translated message item, got %q", got)
 	}
 }
 
@@ -117,7 +174,11 @@ func TestTranslateOpenAIRequestRejectsUnsupportedShape(t *testing.T) {
 		reason string
 	}{
 		{name: "chat multi-choice", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"n":2}`), reason: "chat_multi_choice"},
+		{name: "chat tools", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"lookup"}}]}`), reason: "chat_tools"},
+		{name: "chat image", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}]}]}`), reason: "chat_image_part"},
 		{name: "responses previous_response_id", mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":"hello"}`), reason: "responses_previous_response_id"},
+		{name: "responses tools", mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":"hello","tools":[{"type":"function","name":"lookup"}]}`), reason: "responses_tools"},
+		{name: "responses image", mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":[{"type":"input_image","image_url":"https://example.invalid/image.png"}]}`), reason: "responses_input_image"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

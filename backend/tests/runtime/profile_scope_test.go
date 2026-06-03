@@ -2117,6 +2117,16 @@ func newRuntimeHarness(tb testing.TB) *runtimeHarness {
 	return newRuntimeHarnessWithConfig(tb, runtimeHarnessConfig{})
 }
 
+func useEnforcedRuntimeRoutingRollout(settings *config.Settings) {
+	settings.RuntimeRoutingPlannerMode = config.RuntimeRoutingPlannerModeEnforced
+	settings.OpenAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
+}
+
+func newEnforcedRuntimeHarness(tb testing.TB) *runtimeHarness {
+	tb.Helper()
+	return newRuntimeHarnessWithConfig(tb, runtimeHarnessConfig{SettingsMutator: useEnforcedRuntimeRoutingRollout})
+}
+
 type runtimeHarnessConfig struct {
 	RuntimeOptions  runtimeapi.Options
 	SettingsMutator func(*config.Settings)

@@ -52,6 +52,13 @@ func TestRuntimeCheapestEligibleContextNoFitReturns413WithoutUpstreamAttemptOrBa
 	if got, ok := payload["estimated_total_context_tokens"].(float64); !ok || int(got) <= 400 {
 		t.Fatalf("expected estimated total context tokens to exceed 400, got %+v", payload)
 	}
+	if got, _ := payload["requested_model_id"].(string); got != publicModelID {
+		t.Fatalf("expected requested_model_id %q, got %+v", publicModelID, payload)
+	}
+	consideredPath, ok := payload["considered_model_path"].([]any)
+	if !ok || len(consideredPath) != 1 || consideredPath[0] != publicModelID {
+		t.Fatalf("expected considered_model_path [%q], got %+v", publicModelID, payload)
+	}
 	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
 		t.Fatalf("expected no upstream requests for planner-side 413, got %d", got)
 	}
@@ -59,6 +66,35 @@ func TestRuntimeCheapestEligibleContextNoFitReturns413WithoutUpstreamAttemptOrBa
 	if state.CycleRetryAttempts != 2 || state.CumulativeRetryAttempts != 5 || state.BanMode != "off" || state.NextRetryAt.Valid {
 		t.Fatalf("expected no-fit planner rejection to leave runtime failure state untouched, got %+v", state)
 	}
+}
+
+func TestRuntimeCheapestEligibleContextSelectsLargerNestedTerminalBeforeUpstreamAttempt(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "cheapest-nested-public-" + suffix
+	childModelID := "cheapest-nested-child-" + suffix
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "cheapest-nested-public-"+suffix, "cheapest_eligible_context")
+	childStrategyID := harness.seedLegacyStrategy(t, profileID, "cheapest-nested-child-"+suffix, "fill-first")
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &publicStrategyID)
+	childModelConfigID := harness.seedModel(t, profileID, "openai", childModelID, "native", &childStrategyID)
+	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, childModelConfigID, 0, 1, 0)
+	smallEndpointID := harness.seedEndpoint(t, profileID, "cheapest-nested-small-"+suffix, harness.upstream.baseURL("/cheapest/nested/small"), "cheapest-nested-small-key", 0)
+	largeEndpointID := harness.seedEndpoint(t, profileID, "cheapest-nested-large-"+suffix, harness.upstream.baseURL("/cheapest/nested/large"), "cheapest-nested-large-key", 1)
+	smallConnectionID := harness.seedConnection(t, profileID, childModelConfigID, smallEndpointID, "cheapest-nested-small-connection-"+suffix, nil, nil, 0)
+	largeConnectionID := harness.seedConnection(t, profileID, childModelConfigID, largeEndpointID, "cheapest-nested-large-connection-"+suffix, nil, nil, 1)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, smallConnectionID, 400, 4_096, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, largeConnectionID, 1_000, 4_096, 1.0)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "nested oversized request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/cheapest/nested/large/v1/chat/completions",
+		ModelID: childModelID,
+	}})
 }
 
 func TestFacadeWeightedEligibleContextExcludesIneligibleTargetsFromWeight(t *testing.T) {
@@ -151,7 +187,7 @@ func TestFacadeWeightedEligibleContextNoContextFitReturns413WithoutUpstreamAttem
 }
 
 func TestFacadeWeightedEligibleContextTranslationRejectionReturns400WithoutUpstreamAttempt(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "facade-translation-public-" + suffix
@@ -644,7 +680,7 @@ func seedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int,
 		if weight <= 0 {
 			weight = 1
 		}
-		harness.seedProxyTargetWithMetadata(t, publicModelConfigID, targetModelConfigID, index, weight, index)
+		harness.seedProxyTargetWithMetadata(t, publicModelConfigID, targetModelConfigID, index, weight, 0)
 		endpointID := harness.seedEndpoint(t, profileID, "facade-endpoint-"+target.ModelID, target.EndpointBaseURL, target.EndpointAPIKey, index)
 		connectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, targetModelConfigID, endpointID, "facade-connection-"+target.ModelID, nil, nil, 0, target.OpenAIProbeEndpointVariant)
 		setRuntimeHarnessConnectionContextCapabilities(t, harness, connectionID, 16_384, 1_024, 1.0)

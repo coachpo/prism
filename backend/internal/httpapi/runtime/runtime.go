@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 var apiFamilyAuthConfigs = map[string]apiFamilyAuthConfig{
@@ -243,6 +244,11 @@ const (
 	runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow = "estimated_context_exceeds_usable_window"
 	runtimeContextRoutingSkipReasonUsableContextWindowUnavailable      = "usable_context_window_unavailable"
 
+	runtimePlannerTraceVersion          = "runtime-routing-plan-v1"
+	runtimePlannerTraceDecisionSelected = "selected"
+	runtimePlannerTraceDecisionNoFit    = "no_context_fit"
+	runtimePlannerTraceDecisionNoTarget = "no_eligible_target"
+
 	runtimeContextBandPreferred     = "preferred"
 	runtimeContextBandDiscretionary = "discretionary"
 	runtimeContextBandIneligible    = "ineligible"
@@ -271,6 +277,27 @@ type runtimeFacadeSelectionDecision struct {
 	ExclusionSummary      *string                        `json:"exclusion_summary,omitempty"`
 }
 
+type runtimeShadowComparisonResult struct {
+	Result          string   `json:"result"`
+	MismatchReasons []string `json:"mismatch_reasons,omitempty"`
+}
+
+type runtimePlannerTraceDecision struct {
+	PlannerVersion           string                         `json:"planner_version"`
+	PlannerMode              string                         `json:"planner_mode,omitempty"`
+	Decision                 string                         `json:"decision"`
+	Policy                   string                         `json:"policy,omitempty"`
+	AccessTargetID           *int                           `json:"access_target_id,omitempty"`
+	AccessTargetType         *string                        `json:"access_target_type,omitempty"`
+	SelectedTargetModelID    *string                        `json:"selected_target_model_id,omitempty"`
+	SelectedTierPriority     *int                           `json:"selected_tier_priority,omitempty"`
+	SelectedTerminalTargetID *int                           `json:"selected_terminal_target_id,omitempty"`
+	TranslationMode          *string                        `json:"translation_mode,omitempty"`
+	SkippedTerminalTargets   int                            `json:"skipped_terminal_targets,omitempty"`
+	FacadeExclusionSummary   *string                        `json:"facade_exclusion_summary,omitempty"`
+	ShadowComparisonResult   *runtimeShadowComparisonResult `json:"shadow_comparison_result,omitempty"`
+}
+
 type runtimeContextRoutingDecision struct {
 	Policy                             string                                       `json:"policy"`
 	SelectedTerminalTargetID           *int                                         `json:"selected_terminal_target_id,omitempty"`
@@ -286,6 +313,7 @@ type runtimeContextRoutingDecision struct {
 	SelectedEstimatedBlendedCostMicros *int64                                       `json:"selected_estimated_blended_cost_micros,omitempty"`
 	SkippedTerminalTargets             []runtimeContextRoutingSkippedTerminalTarget `json:"skipped_terminal_targets,omitempty"`
 	FacadeSelection                    *runtimeFacadeSelectionDecision              `json:"facade_selection,omitempty"`
+	PlannerTrace                       *runtimePlannerTraceDecision                 `json:"planner_trace,omitempty"`
 }
 
 func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *runtimeContextRoutingDecision {
@@ -307,6 +335,7 @@ func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *
 		SelectedEstimatedBlendedCostMicros: cloneRuntimeInt64Pointer(source.SelectedEstimatedBlendedCostMicros),
 		SkippedTerminalTargets:             cloneRuntimeContextRoutingSkippedTerminalTargets(source.SkippedTerminalTargets),
 		FacadeSelection:                    cloneRuntimeFacadeSelectionDecision(source.FacadeSelection),
+		PlannerTrace:                       cloneRuntimePlannerTraceDecision(source.PlannerTrace),
 	}
 	if cloned.Policy == "" {
 		cloned.Policy = source.Policy
@@ -348,6 +377,34 @@ func cloneRuntimeFacadeSelectionDecision(source *runtimeFacadeSelectionDecision)
 		cloned.FacadeModelID = source.FacadeModelID
 	}
 	return cloned
+}
+
+func cloneRuntimePlannerTraceDecision(source *runtimePlannerTraceDecision) *runtimePlannerTraceDecision {
+	if source == nil {
+		return nil
+	}
+	var shadowComparison *runtimeShadowComparisonResult
+	if source.ShadowComparisonResult != nil {
+		shadowComparison = &runtimeShadowComparisonResult{
+			Result:          source.ShadowComparisonResult.Result,
+			MismatchReasons: append([]string(nil), source.ShadowComparisonResult.MismatchReasons...),
+		}
+	}
+	return &runtimePlannerTraceDecision{
+		PlannerVersion:           source.PlannerVersion,
+		PlannerMode:              source.PlannerMode,
+		Decision:                 source.Decision,
+		Policy:                   source.Policy,
+		AccessTargetID:           cloneRuntimeIntPointer(source.AccessTargetID),
+		AccessTargetType:         cloneRuntimeStringPointer(source.AccessTargetType),
+		SelectedTargetModelID:    cloneRuntimeStringPointer(source.SelectedTargetModelID),
+		SelectedTierPriority:     cloneRuntimeIntPointer(source.SelectedTierPriority),
+		SelectedTerminalTargetID: cloneRuntimeIntPointer(source.SelectedTerminalTargetID),
+		TranslationMode:          cloneRuntimeStringPointer(source.TranslationMode),
+		SkippedTerminalTargets:   source.SkippedTerminalTargets,
+		FacadeExclusionSummary:   cloneRuntimeStringPointer(source.FacadeExclusionSummary),
+		ShadowComparisonResult:   shadowComparison,
+	}
 }
 
 func cloneRuntimeFacadeExclusionReasons(source []runtimeFacadeExclusionReason) []runtimeFacadeExclusionReason {
@@ -546,7 +603,15 @@ type requestPlanningInput struct {
 	OperationMatch         RuntimeOperationMatch
 	ActiveProfileID        int
 	Snapshot               *planningSnapshot
+	RoutingPlan            *runtimeRoutingPlan
 	TranslationEligibility requestTranslationEligibilitySummary
+}
+
+func (input requestPlanningInput) compiledRoutingPlan() (*runtimeRoutingPlan, error) {
+	if input.RoutingPlan != nil {
+		return input.RoutingPlan, nil
+	}
+	return input.Snapshot.compiledRoutingPlan()
 }
 
 type runtimePlanningFailureTelemetry struct {
@@ -769,42 +834,43 @@ func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []
 	ctx, span := startRuntimeSpan(request.Context(), "runtime.request.plan", runtimeTraceOperationAttributes(operationMatch.Operation)...)
 	defer span.End()
 	request = request.WithContext(ctx)
-	input := requestPlanningInput{
-		Request:         request,
-		RawBody:         rawBody,
-		RuntimeConfig:   runtimeConfig,
-		OperationMatch:  operationMatch,
-		ActiveProfileID: activeProfileID,
-		Snapshot:        snapshot,
+	plannerMode := s.resolvedPlannerMode()
+
+	switch plannerMode {
+	case config.RuntimeRoutingPlannerModeLegacy:
+		plan, err := s.buildRequestPlanFromSnapshotLegacyCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
+		if err != nil {
+			runtimeTraceMarkError(span, "request_plan_failed")
+			return requestPlan{}, annotatePlannerErrorRollout(err, plannerMode, nil)
+		}
+		plan = annotatePlannerTraceRollout(plan, plannerMode, nil)
+		span.SetAttributes(runtimeTracePlanAttributes(plan)...)
+		return plan, nil
+	case config.RuntimeRoutingPlannerModeShadow:
+		servedPlan, servedErr := s.buildRequestPlanFromSnapshotLegacyCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
+		shadowPlan, shadowErr := s.buildRequestPlanFromSnapshotEnforcedCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
+		comparison := compareShadowOutcomes(&servedPlan, servedErr, &shadowPlan, shadowErr)
+		if servedErr != nil {
+			logShadowComparisonMismatch("", comparison)
+			runtimeTraceMarkError(span, "request_plan_failed")
+			return requestPlan{}, annotatePlannerErrorRollout(servedErr, plannerMode, comparison)
+		}
+		if comparison != nil {
+			logShadowComparisonMismatch(servedPlan.RequestedModelID, comparison)
+		}
+		servedPlan = annotatePlannerTraceRollout(servedPlan, plannerMode, comparison)
+		span.SetAttributes(runtimeTracePlanAttributes(servedPlan)...)
+		return servedPlan, nil
+	default:
+		plan, err := s.buildRequestPlanFromSnapshotEnforcedCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
+		if err != nil {
+			runtimeTraceMarkError(span, "request_plan_failed")
+			return requestPlan{}, annotatePlannerErrorRollout(err, plannerMode, nil)
+		}
+		plan = annotatePlannerTraceRollout(plan, plannerMode, nil)
+		span.SetAttributes(runtimeTracePlanAttributes(plan)...)
+		return plan, nil
 	}
-	operation, err := resolveRequestOperation(input)
-	if err != nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
-		return requestPlan{}, err
-	}
-	requestedModel, err := resolveRequestedModel(input, operation)
-	if err != nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
-		return requestPlan{}, err
-	}
-	contextEstimation, err := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
-	if err != nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
-		return requestPlan{}, err
-	}
-	input.TranslationEligibility = buildRequestTranslationEligibilitySummary(operation.Match.Operation, input.RawBody)
-	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
-	if err != nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
-		return requestPlan{}, attachRuntimePlanningFailureTelemetry(err, input, operation, requestedModel)
-	}
-	plan, err := assembleRequestPlan(input, operation, target, contextEstimation)
-	if err != nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
-		return requestPlan{}, err
-	}
-	span.SetAttributes(runtimeTracePlanAttributes(plan)...)
-	return plan, nil
 }
 
 func resolveRequestOperation(input requestPlanningInput) (resolvedRequestOperation, error) {
@@ -821,7 +887,11 @@ func resolveRequestOperation(input requestPlanningInput) (resolvedRequestOperati
 }
 
 func resolveRequestedModel(input requestPlanningInput, operation resolvedRequestOperation) (runtimeModelRecord, error) {
-	requestedModel, found := input.Snapshot.ModelsByID[operation.RequestedModelID]
+	routingPlan, err := input.compiledRoutingPlan()
+	if err != nil {
+		return runtimeModelRecord{}, err
+	}
+	requestedModel, found := routingPlan.requestedModelByID(operation.RequestedModelID)
 	if !found {
 		return runtimeModelRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", operation.RequestedModelID)}
 	}
@@ -890,7 +960,11 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 }
 
 func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation resolvedRequestOperation, requestedModel runtimeModelRecord, contextEstimation *requestContextEstimation) (resolvedExecutionTarget, error) {
-	resolved, err := s.resolveExecutionTargetFromSnapshot(input.ActiveProfileID, input.Snapshot, requestedModel, operation.Match.Operation, input.TranslationEligibility, contextEstimation, s.nowUTC())
+	routingPlan, err := input.compiledRoutingPlan()
+	if err != nil {
+		return resolvedExecutionTarget{}, err
+	}
+	resolved, err := s.resolveExecutionTargetFromRoutingPlan(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, input.TranslationEligibility, contextEstimation, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}

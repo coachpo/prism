@@ -238,9 +238,9 @@ func phase0RuntimeHarnessSettings(databaseName string) config.Settings {
 		AppEnv:      config.EnvironmentProduction,
 		DatabaseURL: sharedPostgresHarness.connectionString(databaseName),
 
-		RuntimeTelemetryMode:       config.RuntimeTelemetryModeSynchronous,
-		SecretEncryptionKey:        "runtime-phase0-secret",
-		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
+		RuntimeTelemetryMode: config.RuntimeTelemetryModeSynchronous,
+		SecretEncryptionKey:  "runtime-phase0-secret",
+		CORSAllowedOrigins:   "http://localhost:5173,http://127.0.0.1:5173",
 		AuthJWTSecret:              "runtime-phase0-jwt-secret",
 		AuthAccessTokenTTLSeconds:  900,
 		AuthRefreshTokenTTLSeconds: 604800,

@@ -103,6 +103,8 @@ function buildAccessTarget(overrides = {}) {
     connection_id: 77,
     terminal_target_id: 77,
     position: 0,
+    weight: null,
+    target_priority: null,
     is_enabled: true,
     target_model: null,
     connection: buildOwnedConnection(),
@@ -134,7 +136,31 @@ function buildModelListItemPayload(overrides = {}) {
     default_output_token_reserve: 4_096,
     max_context_utilization: 0.9,
     preferred_context_utilization_threshold: 0.74,
-    access_targets: [buildAccessTarget()],
+    access_targets: [
+      buildAccessTarget(),
+      buildAccessTarget({
+        id: 502,
+        target_type: "model",
+        target_model_id: "peer-model",
+        connection_id: null,
+        terminal_target_id: null,
+        position: 3,
+        weight: null,
+        target_priority: null,
+        target_model: {
+          id: 99,
+          profile_id: 7,
+          vendor_id: 5,
+          api_family: "openai",
+          model_id: "peer-model",
+          display_name: "Peer Model",
+          loadbalance_strategy_id: 9,
+          is_enabled: true,
+        },
+        connection: null,
+        terminal_target: null,
+      }),
+    ],
     is_enabled: true,
     connection_count: 1,
     active_connection_count: 1,
@@ -238,6 +264,10 @@ test("management model normalization preserves snake_case capability fields", as
     preferred_context_utilization_threshold: 0.74,
   });
   assert.ok(!Object.hasOwn(listItem, "contextWindowTokens"));
+  assert.equal(listItem.access_targets[0].weight, null);
+  assert.equal(listItem.access_targets[0].target_priority, null);
+  assert.equal(listItem.access_targets[1].weight, 1);
+  assert.equal(listItem.access_targets[1].target_priority, 0);
   assert.deepEqual(detail.access_targets[0].connection.context_capability_overrides, {
     context_window_tokens: null,
     default_output_token_reserve: 4_096,

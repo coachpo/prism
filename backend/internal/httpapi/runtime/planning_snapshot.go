@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,24 @@ type planningSnapshot struct {
 	StrategiesByModelID          map[int]loadbalance.RuntimeStrategy
 	BlocklistRules               []headerBlocklistRule
 	ReportCurrency               runtimeReportCurrencySnapshot
+
+	routingPlanOnce sync.Once
+	routingPlan     *runtimeRoutingPlan
+	routingPlanErr  error
+}
+
+func (snapshot *planningSnapshot) compiledRoutingPlan() (*runtimeRoutingPlan, error) {
+	if snapshot == nil {
+		return nil, invalidRuntimeRoutingPlanError("planning snapshot is nil")
+	}
+	snapshot.routingPlanOnce.Do(func() {
+		snapshot.routingPlan, snapshot.routingPlanErr = compileRuntimeRoutingPlan(snapshot)
+		if snapshot.routingPlanErr != nil {
+			return
+		}
+		snapshot.routingPlanErr = validateRuntimeRoutingPlan(snapshot.routingPlan)
+	})
+	return snapshot.routingPlan, snapshot.routingPlanErr
 }
 
 type runtimeAccessTargetRecord struct {
@@ -43,10 +62,6 @@ type runtimeAccessTargetRecord struct {
 	TargetPriority            int
 	IsEnabled                 bool
 	ConnectionEndpointFX      *runtimeEndpointFXSnapshot
-}
-
-func (snapshot *planningSnapshot) terminalTargetsByID() map[int]runtimeConnection {
-	return snapshot.ConnectionsByID
 }
 
 func (record runtimeAccessTargetRecord) terminalTargetConnectionID() *int {
@@ -193,6 +208,7 @@ type runtimeAccessResolutionContext struct {
 	TranslationEligibility   requestTranslationEligibilitySummary
 	RequestContextEstimation *requestContextEstimation
 	VisitedModelIDs          map[int]struct{}
+	ConsideredModelPath      []string
 	Depth                    int
 	ReferenceNow             time.Time
 }
@@ -235,6 +251,18 @@ type runtimeResolvedAccessCandidateEvaluation struct {
 	contextFitEvaluated              bool
 }
 
+type runtimeModelPeerSelection struct {
+	selectedCandidate                *runtimeResolvedAccessCandidate
+	translatedRejectedCandidates     []runtimeResolvedAccessCandidate
+	skippedTerminalTargets           []runtimeContextRoutingSkippedTerminalTarget
+	translationRejection             *domainError
+	selectedTranslatedRejectedTarget *runtimeAccessTargetRecord
+	eligibleTotalWeight              int
+	translatedRejectedCount          int
+	largestUsableContextWindowTokens int
+	contextFitEvaluated              bool
+}
+
 type noEligibleTargetsError struct {
 	requestedModelID string
 	facadeSelection  *runtimeFacadeSelectionDecision
@@ -244,6 +272,7 @@ type noContextEligibleTargetsError struct {
 	requestedModelID                 string
 	estimatedTotalContextTokens      int
 	largestUsableContextWindowTokens int
+	consideredModelPath              []string
 	skippedTerminalTargets           []runtimeContextRoutingSkippedTerminalTarget
 	facadeSelection                  *runtimeFacadeSelectionDecision
 }
@@ -257,6 +286,14 @@ func (err *noContextEligibleTargetsError) Error() string {
 }
 
 func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, translationEligibility requestTranslationEligibilitySummary, contextEstimation *requestContextEstimation, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
+	routingPlan, err := snapshot.compiledRoutingPlan()
+	if err != nil {
+		return runtimeResolvedAccessPlan{}, err
+	}
+	return s.resolveExecutionTargetFromRoutingPlan(profileID, routingPlan, requestedModel, requestOperation, translationEligibility, contextEstimation, referenceNow)
+}
+
+func (s *Service) resolveExecutionTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, translationEligibility requestTranslationEligibilitySummary, contextEstimation *requestContextEstimation, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
 	ctx := runtimeAccessResolutionContext{
 		RequestedModelID:         requestedModel.ModelID,
 		RequestedAPIFamily:       requestedModel.APIFamily,
@@ -264,9 +301,10 @@ func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *pl
 		TranslationEligibility:   translationEligibility,
 		RequestContextEstimation: contextEstimation,
 		VisitedModelIDs:          map[int]struct{}{},
+		ConsideredModelPath:      appendRuntimeModelPath(nil, requestedModel.ModelID),
 		ReferenceNow:             referenceNow,
 	}
-	resolved, err := s.resolveRequestedModelExecutionTargetFromSnapshot(profileID, snapshot, requestedModel, ctx)
+	resolved, err := s.resolveRequestedModelExecutionTargetFromRoutingPlan(profileID, routingPlan, requestedModel, ctx)
 	if err != nil {
 		var noEligible *noEligibleTargetsError
 		if errors.As(err, &noEligible) {
@@ -299,14 +337,19 @@ func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *pl
 					noContextEligible.facadeSelection,
 				)
 			}
+			fields := map[string]any{
+				"estimated_total_context_tokens":       noContextEligible.estimatedTotalContextTokens,
+				"largest_usable_context_window_tokens": noContextEligible.largestUsableContextWindowTokens,
+				"requested_model_id":                   noContextEligible.requestedModelID,
+			}
+			if len(noContextEligible.consideredModelPath) > 0 {
+				fields["considered_model_path"] = cloneRuntimeModelPath(noContextEligible.consideredModelPath)
+			}
 			return runtimeResolvedAccessPlan{}, &domainError{
-				StatusCode: http.StatusRequestEntityTooLarge,
-				ErrorCode:  contextWindowExceededErrorCode,
-				Detail:     contextWindowExceededDetail,
-				Fields: map[string]any{
-					"estimated_total_context_tokens":       noContextEligible.estimatedTotalContextTokens,
-					"largest_usable_context_window_tokens": noContextEligible.largestUsableContextWindowTokens,
-				},
+				StatusCode:     http.StatusRequestEntityTooLarge,
+				ErrorCode:      contextWindowExceededErrorCode,
+				Detail:         contextWindowExceededDetail,
+				Fields:         fields,
 				ContextRouting: contextRouting,
 			}
 		}
@@ -315,14 +358,14 @@ func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *pl
 	return resolved, nil
 }
 
-func (s *Service) resolveRequestedModelExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
+func (s *Service) resolveRequestedModelExecutionTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, requestedModel runtimeModelRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
 	if isRuntimeExactOpenAIFacadeModel(requestedModel) {
-		return s.resolveExactFacadeModelAccessFromSnapshot(profileID, snapshot, requestedModel, ctx)
+		return s.resolveExactFacadeModelAccessFromRoutingPlan(profileID, routingPlan, requestedModel, ctx)
 	}
-	return s.resolveModelAccessFromSnapshot(profileID, snapshot, requestedModel, ctx)
+	return s.resolveModelAccessFromRoutingPlan(profileID, routingPlan, requestedModel, ctx)
 }
 
-func (s *Service) resolveExactFacadeModelAccessFromSnapshot(profileID int, snapshot *planningSnapshot, model runtimeModelRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
+func (s *Service) resolveExactFacadeModelAccessFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
 	if ctx.Depth > runtimeAccessResolverMaxDepth {
 		return runtimeResolvedAccessPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Model access graph exceeded maximum depth of %d while resolving model '%s'.", runtimeAccessResolverMaxDepth, ctx.RequestedModelID)}
 	}
@@ -332,9 +375,6 @@ func (s *Service) resolveExactFacadeModelAccessFromSnapshot(profileID int, snaps
 	if err := validateRuntimeModelFacadePolicies(model); err != nil {
 		return runtimeResolvedAccessPlan{}, err
 	}
-	if ctx.RequestContextEstimation == nil {
-		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
-	}
 
 	visited := cloneVisitedModelIDs(ctx.VisitedModelIDs)
 	visited[model.ID] = struct{}{}
@@ -342,116 +382,138 @@ func (s *Service) resolveExactFacadeModelAccessFromSnapshot(profileID int, snaps
 	childContext.VisitedModelIDs = visited
 	childContext.Depth++
 
-	orderedTargets := sortedEnabledRuntimeAccessTargets(snapshot.AccessTargetsBySourceModelID[model.ID])
 	strategy := runtimeFacadeSelectionStrategy()
-	eligibleCandidates := make([]runtimeResolvedAccessCandidate, 0, len(orderedTargets))
-	translatedRejectedCandidates := make([]runtimeResolvedAccessCandidate, 0, len(orderedTargets))
-	skippedTerminalTargets := make([]runtimeContextRoutingSkippedTerminalTarget, 0, len(orderedTargets))
-	largestUsableContextWindowTokens := 0
-	contextFitEvaluated := false
-	translatedRejectedCount := 0
-	var translationRejection *domainError
-	var selectedTranslatedRejectedTarget *runtimeAccessTargetRecord
-	for _, target := range orderedTargets {
-		if target.TargetType != runtimeAccessTargetTypeModel {
-			continue
-		}
-		evaluation, err := s.evaluateAccessTargetCandidateFromSnapshot(profileID, snapshot, model, strategy, target, childContext)
-		if err != nil {
-			return runtimeResolvedAccessPlan{}, err
-		}
-		if evaluation.contextFitEvaluated {
-			contextFitEvaluated = true
-			if evaluation.largestUsableContextWindowTokens > largestUsableContextWindowTokens {
-				largestUsableContextWindowTokens = evaluation.largestUsableContextWindowTokens
-			}
-		}
-		if evaluation.translationRejection != nil {
-			translatedRejectedCount++
-			if translationRejection == nil {
-				translationRejection = cloneDomainError(evaluation.translationRejection)
-			}
-			if selectedTranslatedRejectedTarget == nil {
-				selectedTarget := target
-				selectedTranslatedRejectedTarget = &selectedTarget
-			}
-		}
-		skippedTerminalTargets = append(skippedTerminalTargets, evaluation.skippedTerminalTargets...)
-		if evaluation.translatedRejectedCandidate != nil {
-			translatedRejectedCandidates = append(translatedRejectedCandidates, *evaluation.translatedRejectedCandidate)
-		}
-		if evaluation.eligibleCandidate != nil {
-			eligibleCandidates = append(eligibleCandidates, *evaluation.eligibleCandidate)
-		}
+	peerSelection, err := s.selectModelPeerCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, childContext)
+	if err != nil {
+		return runtimeResolvedAccessPlan{}, err
 	}
-	eligibleTotalWeight := runtimeFacadeEligibleTotalWeight(eligibleCandidates)
-	if len(eligibleCandidates) == 0 {
-		if translationRejection != nil {
-			facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, eligibleTotalWeight, skippedTerminalTargets, translatedRejectedCount)
-			if selectedTranslatedRejectedTarget != nil {
-				facadeSelection.SelectedTargetModelID = stringPointerIfNotEmpty(selectedTranslatedRejectedTarget.TargetModelID)
-				facadeSelection.SelectedWeight = intPtr(selectedTranslatedRejectedTarget.Weight)
+	if peerSelection.selectedCandidate == nil {
+		if peerSelection.translationRejection != nil {
+			facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, peerSelection.eligibleTotalWeight, peerSelection.skippedTerminalTargets, peerSelection.translatedRejectedCount)
+			if peerSelection.selectedTranslatedRejectedTarget != nil {
+				facadeSelection.SelectedTargetModelID = stringPointerIfNotEmpty(peerSelection.selectedTranslatedRejectedTarget.TargetModelID)
+				facadeSelection.SelectedWeight = intPtr(effectiveRuntimeAccessTargetWeight(*peerSelection.selectedTranslatedRejectedTarget))
 			}
-			selectedTerminalTargetID := cloneRuntimeIntPointer(translationRejection.SelectedTerminalTargetID)
-			if selectedTerminalTargetID == nil && translationRejection.ContextRouting != nil {
-				selectedTerminalTargetID = cloneRuntimeIntPointer(translationRejection.ContextRouting.SelectedTerminalTargetID)
+			selectedTerminalTargetID := cloneRuntimeIntPointer(peerSelection.translationRejection.SelectedTerminalTargetID)
+			if selectedTerminalTargetID == nil && peerSelection.translationRejection.ContextRouting != nil {
+				selectedTerminalTargetID = cloneRuntimeIntPointer(peerSelection.translationRejection.ContextRouting.SelectedTerminalTargetID)
 			}
-			contextRouting := attachRuntimeFacadeSelectionDecision(translationRejection.ContextRouting, facadeSelection)
-			if len(translatedRejectedCandidates) > 0 {
-				selectedRejectedCandidate := translatedRejectedCandidates[0]
+			contextRouting := attachRuntimeFacadeSelectionDecision(peerSelection.translationRejection.ContextRouting, facadeSelection)
+			if len(peerSelection.translatedRejectedCandidates) > 0 {
+				selectedRejectedCandidate := peerSelection.translatedRejectedCandidates[0]
 				if selectedTerminalTargetID == nil {
 					selectedTerminalTargetID = cloneRuntimeIntPointer(selectedRejectedCandidate.resolved.SelectedTerminalTargetID)
 					if selectedTerminalTargetID == nil && len(selectedRejectedCandidate.resolved.TerminalAttempts) > 0 {
 						selectedTerminalTargetID = intPtr(selectedRejectedCandidate.resolved.TerminalAttempts[0].Connection.ID)
 					}
 				}
-				contextRouting = buildRuntimeFacadeContextRoutingDecision(ctx.RequestContextEstimation, &selectedRejectedCandidate, largestUsableContextWindowTokens, skippedTerminalTargets, facadeSelection)
+				contextRouting = buildRuntimeFacadeContextRoutingDecision(ctx.RequestContextEstimation, &selectedRejectedCandidate, peerSelection.largestUsableContextWindowTokens, peerSelection.skippedTerminalTargets, facadeSelection)
 			}
-			translationRejection = decorateRequestTranslationRejection(
-				translationRejection,
+			translationRejection := decorateRequestTranslationRejection(
+				peerSelection.translationRejection,
 				selectedTerminalTargetID,
 				contextRouting,
 			)
-			if selectedTranslatedRejectedTarget != nil && selectedTranslatedRejectedTarget.TargetModelID != "" {
-				resolvedTargetModelID := selectedTranslatedRejectedTarget.TargetModelID
+			if peerSelection.selectedTranslatedRejectedTarget != nil && peerSelection.selectedTranslatedRejectedTarget.TargetModelID != "" {
+				resolvedTargetModelID := peerSelection.selectedTranslatedRejectedTarget.TargetModelID
 				if resolvedTargetModelID != "" {
 					translationRejection.ResolvedTargetModelID = &resolvedTargetModelID
 				}
 			}
 			return runtimeResolvedAccessPlan{}, translationRejection
 		}
-		facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, eligibleTotalWeight, skippedTerminalTargets, translatedRejectedCount)
-		if contextFitEvaluated {
+		if ctx.RequestContextEstimation == nil {
+			return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
+		}
+		facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, peerSelection.eligibleTotalWeight, peerSelection.skippedTerminalTargets, peerSelection.translatedRejectedCount)
+		if peerSelection.contextFitEvaluated {
 			return runtimeResolvedAccessPlan{}, &noContextEligibleTargetsError{
 				requestedModelID:                 ctx.RequestedModelID,
 				estimatedTotalContextTokens:      ctx.RequestContextEstimation.EstimatedTotalContextTokens,
-				largestUsableContextWindowTokens: largestUsableContextWindowTokens,
-				skippedTerminalTargets:           skippedTerminalTargets,
+				largestUsableContextWindowTokens: peerSelection.largestUsableContextWindowTokens,
+				consideredModelPath:              cloneRuntimeModelPath(ctx.ConsideredModelPath),
+				skippedTerminalTargets:           peerSelection.skippedTerminalTargets,
 				facadeSelection:                  facadeSelection,
 			}
 		}
 		return runtimeResolvedAccessPlan{}, &noEligibleTargetsError{requestedModelID: ctx.RequestedModelID, facadeSelection: facadeSelection}
 	}
-	selectedCandidate := selectWeightedRuntimeAccessCandidate(profileID, model.ID, eligibleCandidates, s.runtimeState)
-	if selectedCandidate == nil {
-		facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, eligibleTotalWeight, skippedTerminalTargets, translatedRejectedCount)
-		return runtimeResolvedAccessPlan{}, &noEligibleTargetsError{requestedModelID: ctx.RequestedModelID, facadeSelection: facadeSelection}
+	if ctx.RequestContextEstimation == nil {
+		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 	}
+	selectedCandidate := peerSelection.selectedCandidate
 	resolved := selectedCandidate.resolved
-	facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, selectedCandidate, eligibleTotalWeight, skippedTerminalTargets, translatedRejectedCount)
+	facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, selectedCandidate, peerSelection.eligibleTotalWeight, peerSelection.skippedTerminalTargets, peerSelection.translatedRejectedCount)
 	if resolved.ContextRouting == nil {
-		resolved.ContextRouting = buildRuntimeFacadeContextRoutingDecision(ctx.RequestContextEstimation, selectedCandidate, largestUsableContextWindowTokens, skippedTerminalTargets, facadeSelection)
+		resolved.ContextRouting = buildRuntimeFacadeContextRoutingDecision(ctx.RequestContextEstimation, selectedCandidate, peerSelection.largestUsableContextWindowTokens, peerSelection.skippedTerminalTargets, facadeSelection)
 	} else {
 		resolved.ContextRouting = attachRuntimeFacadeSelectionDecision(resolved.ContextRouting, facadeSelection)
 	}
-	if resolved.LargestUsableContextWindowTokens < largestUsableContextWindowTokens {
-		resolved.LargestUsableContextWindowTokens = largestUsableContextWindowTokens
+	if resolved.LargestUsableContextWindowTokens < peerSelection.largestUsableContextWindowTokens {
+		resolved.LargestUsableContextWindowTokens = peerSelection.largestUsableContextWindowTokens
 	}
-	resolved.ContextFitEvaluated = resolved.ContextFitEvaluated || contextFitEvaluated
+	resolved.ContextFitEvaluated = resolved.ContextFitEvaluated || peerSelection.contextFitEvaluated
 	return resolved, nil
 }
 
+func (s *Service) selectModelPeerCandidateFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, ctx runtimeAccessResolutionContext) (runtimeModelPeerSelection, error) {
+	selection := runtimeModelPeerSelection{}
+	peerTiers := routingPlan.orderedPeerTiersForModel(model)
+	for _, tier := range peerTiers {
+		eligibleCandidates := make([]runtimeResolvedAccessCandidate, 0, len(tier.WeightedPeerSet.Targets))
+		for _, target := range tier.WeightedPeerSet.Targets {
+			evaluation, err := s.evaluateAccessTargetCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, target, ctx)
+			if err != nil {
+				return runtimeModelPeerSelection{}, err
+			}
+			if evaluation.contextFitEvaluated {
+				selection.contextFitEvaluated = true
+				if evaluation.largestUsableContextWindowTokens > selection.largestUsableContextWindowTokens {
+					selection.largestUsableContextWindowTokens = evaluation.largestUsableContextWindowTokens
+				}
+			}
+			if evaluation.translationRejection != nil {
+				selection.translatedRejectedCount++
+				if selection.translationRejection == nil {
+					selection.translationRejection = cloneDomainError(evaluation.translationRejection)
+				}
+				if selection.selectedTranslatedRejectedTarget == nil {
+					selectedTarget := target
+					selection.selectedTranslatedRejectedTarget = &selectedTarget
+				}
+			}
+			selection.skippedTerminalTargets = append(selection.skippedTerminalTargets, evaluation.skippedTerminalTargets...)
+			if evaluation.translatedRejectedCandidate != nil {
+				selection.translatedRejectedCandidates = append(selection.translatedRejectedCandidates, *evaluation.translatedRejectedCandidate)
+			}
+			if evaluation.eligibleCandidate != nil {
+				eligibleCandidates = append(eligibleCandidates, *evaluation.eligibleCandidate)
+			}
+		}
+		if len(eligibleCandidates) == 0 {
+			continue
+		}
+		selection.eligibleTotalWeight = runtimeAccessCandidateTotalWeight(eligibleCandidates)
+		selectedCandidate := selectWeightedRuntimeAccessCandidate(profileID, model.ID, eligibleCandidates, s.runtimeState)
+		if selectedCandidate == nil {
+			return selection, nil
+		}
+		selected := *selectedCandidate
+		selection.selectedCandidate = &selected
+		return selection, nil
+	}
+	return selection, nil
+}
+
 func (s *Service) resolveModelAccessFromSnapshot(profileID int, snapshot *planningSnapshot, model runtimeModelRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
+	routingPlan, err := snapshot.compiledRoutingPlan()
+	if err != nil {
+		return runtimeResolvedAccessPlan{}, err
+	}
+	return s.resolveModelAccessFromRoutingPlan(profileID, routingPlan, model, ctx)
+}
+
+func (s *Service) resolveModelAccessFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
 	if ctx.Depth > runtimeAccessResolverMaxDepth {
 		return runtimeResolvedAccessPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Model access graph exceeded maximum depth of %d while resolving model '%s'.", runtimeAccessResolverMaxDepth, ctx.RequestedModelID)}
 	}
@@ -461,59 +523,91 @@ func (s *Service) resolveModelAccessFromSnapshot(profileID int, snapshot *planni
 	if err := validateRuntimeModelFacadePolicies(model); err != nil {
 		return runtimeResolvedAccessPlan{}, err
 	}
-	strategy, ok := snapshot.StrategiesByModelID[model.ID]
+	strategy, ok := routingPlan.strategyForModel(model)
 	if !ok {
 		return runtimeResolvedAccessPlan{}, fmt.Errorf("model %q is missing loadbalance_strategy", model.ModelID)
 	}
-	if strategy.IsCheapestEligibleContextStrategy() && ctx.RequestContextEstimation == nil {
-		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
-	}
-
 	visited := cloneVisitedModelIDs(ctx.VisitedModelIDs)
 	visited[model.ID] = struct{}{}
 	childContext := ctx
 	childContext.VisitedModelIDs = visited
 	childContext.Depth++
 
-	orderedTargets := orderRuntimeAccessTargets(profileID, model.ID, strategy, snapshot.AccessTargetsBySourceModelID[model.ID], s.runtimeState)
-	if strategy.IsCheapestEligibleContextStrategy() {
-		return s.resolveCheapestEligibleContextModelAccess(profileID, snapshot, model, strategy, orderedTargets, childContext)
+	peerSelection, err := s.selectModelPeerCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, childContext)
+	if err != nil {
+		return runtimeResolvedAccessPlan{}, err
 	}
-	resolved := runtimeResolvedAccessPlan{RuntimeStates: map[int]loadbalance.RuntimeConnectionState{}, Strategy: strategy}
-	var translationRejection *domainError
-	for _, target := range orderedTargets {
-		candidate, eligible, err := s.resolveAccessTargetFromSnapshot(profileID, snapshot, model, strategy, target, childContext)
-		if err != nil {
-			return runtimeResolvedAccessPlan{}, err
+	if peerSelection.selectedCandidate != nil {
+		if strategy.IsCheapestEligibleContextStrategy() && ctx.RequestContextEstimation == nil {
+			return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 		}
-		if candidate.TranslationRejection != nil && translationRejection == nil {
-			translationRejection = candidate.TranslationRejection
+		resolved := peerSelection.selectedCandidate.resolved
+		if strategy.IsCheapestEligibleContextStrategy() && resolved.ContextRouting == nil {
+			resolved.ContextRouting = buildRuntimeContextRoutingDecision(strategy, ctx.RequestContextEstimation, peerSelection.selectedCandidate, runtimeContextRoutingCostRankingMethod, peerSelection.largestUsableContextWindowTokens, peerSelection.skippedTerminalTargets)
 		}
-		if !eligible {
-			continue
+		if resolved.LargestUsableContextWindowTokens < peerSelection.largestUsableContextWindowTokens {
+			resolved.LargestUsableContextWindowTokens = peerSelection.largestUsableContextWindowTokens
 		}
-		candidate, compatible, rejection := applyRequestTranslationCompatibility(candidate, childContext)
-		if rejection != nil {
-			if translationRejection == nil {
-				translationRejection = rejection
+		resolved.ContextFitEvaluated = resolved.ContextFitEvaluated || peerSelection.contextFitEvaluated
+		return resolved, nil
+	}
+
+	orderedTerminalTargets := routingPlan.orderedTerminalTargetsForStrategy(profileID, model, strategy, s.runtimeState)
+	if len(orderedTerminalTargets) > 0 {
+		if strategy.IsCheapestEligibleContextStrategy() {
+			return s.resolveCheapestEligibleContextModelAccess(profileID, routingPlan, model, strategy, orderedTerminalTargets, childContext)
+		}
+		resolved := runtimeResolvedAccessPlan{RuntimeStates: map[int]loadbalance.RuntimeConnectionState{}, Strategy: strategy}
+		var translationRejection *domainError
+		for _, target := range orderedTerminalTargets {
+			candidate, eligible, err := s.resolveAccessTargetFromRoutingPlan(profileID, routingPlan, model, strategy, target, childContext)
+			if err != nil {
+				return runtimeResolvedAccessPlan{}, err
 			}
-			continue
+			if candidate.TranslationRejection != nil && translationRejection == nil {
+				translationRejection = candidate.TranslationRejection
+			}
+			if !eligible {
+				continue
+			}
+			candidate, compatible, rejection := applyRequestTranslationCompatibility(candidate, childContext)
+			if rejection != nil {
+				if translationRejection == nil {
+					translationRejection = rejection
+				}
+				continue
+			}
+			if !compatible {
+				continue
+			}
+			appendRuntimeResolvedAccessPlan(&resolved, candidate)
 		}
-		if !compatible {
-			continue
+		if len(resolved.TerminalAttempts) > 0 && len(resolved.Connections) > 0 {
+			return resolved, nil
 		}
-		appendRuntimeResolvedAccessPlan(&resolved, candidate)
-	}
-	if len(resolved.TerminalAttempts) == 0 || len(resolved.Connections) == 0 {
 		if translationRejection != nil {
 			return runtimeResolvedAccessPlan{}, translationRejection
 		}
-		return runtimeResolvedAccessPlan{}, &noEligibleTargetsError{requestedModelID: ctx.RequestedModelID}
 	}
-	return resolved, nil
+	if peerSelection.translationRejection != nil {
+		return runtimeResolvedAccessPlan{}, peerSelection.translationRejection
+	}
+	if strategy.IsCheapestEligibleContextStrategy() && ctx.RequestContextEstimation == nil {
+		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
+	}
+	if peerSelection.contextFitEvaluated && ctx.RequestContextEstimation != nil {
+		return runtimeResolvedAccessPlan{}, &noContextEligibleTargetsError{
+			requestedModelID:                 ctx.RequestedModelID,
+			estimatedTotalContextTokens:      ctx.RequestContextEstimation.EstimatedTotalContextTokens,
+			largestUsableContextWindowTokens: peerSelection.largestUsableContextWindowTokens,
+			consideredModelPath:              cloneRuntimeModelPath(ctx.ConsideredModelPath),
+			skippedTerminalTargets:           peerSelection.skippedTerminalTargets,
+		}
+	}
+	return runtimeResolvedAccessPlan{}, &noEligibleTargetsError{requestedModelID: ctx.RequestedModelID}
 }
 
-func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, snapshot *planningSnapshot, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, orderedTargets []runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
+func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, orderedTargets []runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
 	eligibleCandidates := make([]runtimeResolvedAccessCandidate, 0, len(orderedTargets))
 	translatedRejectedCandidates := make([]runtimeResolvedAccessCandidate, 0, len(orderedTargets))
 	skippedTerminalTargets := make([]runtimeContextRoutingSkippedTerminalTarget, 0, len(orderedTargets))
@@ -521,7 +615,7 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, snaps
 	contextFitEvaluated := false
 	var translationRejection *domainError
 	for _, target := range orderedTargets {
-		evaluation, err := s.evaluateAccessTargetCandidateFromSnapshot(profileID, snapshot, model, strategy, target, ctx)
+		evaluation, err := s.evaluateAccessTargetCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, target, ctx)
 		if err != nil {
 			return runtimeResolvedAccessPlan{}, err
 		}
@@ -567,15 +661,22 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, snaps
 			}
 			return runtimeResolvedAccessPlan{}, translationRejection
 		}
+		if ctx.RequestContextEstimation == nil {
+			return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
+		}
 		if contextFitEvaluated && ctx.RequestContextEstimation != nil {
 			return runtimeResolvedAccessPlan{}, &noContextEligibleTargetsError{
 				requestedModelID:                 ctx.RequestedModelID,
 				estimatedTotalContextTokens:      ctx.RequestContextEstimation.EstimatedTotalContextTokens,
 				largestUsableContextWindowTokens: largestUsableContextWindowTokens,
+				consideredModelPath:              cloneRuntimeModelPath(ctx.ConsideredModelPath),
 				skippedTerminalTargets:           skippedTerminalTargets,
 			}
 		}
 		return runtimeResolvedAccessPlan{}, &noEligibleTargetsError{requestedModelID: ctx.RequestedModelID}
+	}
+	if ctx.RequestContextEstimation == nil {
+		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 	}
 	sort.SliceStable(eligibleCandidates, func(left int, right int) bool {
 		return compareRuntimeResolvedAccessCandidates(eligibleCandidates[left], eligibleCandidates[right]) < 0
@@ -593,7 +694,15 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, snaps
 }
 
 func (s *Service) evaluateAccessTargetCandidateFromSnapshot(profileID int, snapshot *planningSnapshot, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, target runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessCandidateEvaluation, error) {
-	candidate, eligible, err := s.resolveAccessTargetFromSnapshot(profileID, snapshot, model, strategy, target, ctx)
+	routingPlan, err := snapshot.compiledRoutingPlan()
+	if err != nil {
+		return runtimeResolvedAccessCandidateEvaluation{}, err
+	}
+	return s.evaluateAccessTargetCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, target, ctx)
+}
+
+func (s *Service) evaluateAccessTargetCandidateFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, target runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessCandidateEvaluation, error) {
+	candidate, eligible, err := s.resolveAccessTargetFromRoutingPlan(profileID, routingPlan, model, strategy, target, ctx)
 	if err != nil {
 		return runtimeResolvedAccessCandidateEvaluation{}, err
 	}
@@ -610,31 +719,36 @@ func (s *Service) evaluateAccessTargetCandidateFromSnapshot(profileID int, snaps
 		return evaluation, nil
 	}
 
-	evaluation.contextFitEvaluated = true
-	terminalAttempt := candidate.TerminalAttempts[0]
-	usableContextWindowTokens := usableContextWindowTokensForConnection(terminalAttempt.Connection)
-	if usableContextWindowTokens > evaluation.largestUsableContextWindowTokens {
-		evaluation.largestUsableContextWindowTokens = usableContextWindowTokens
-	}
-	contextBand := classifyRequestContextBand(ctx.RequestContextEstimation, terminalAttempt.Connection)
-	if contextBand == runtimeContextEligibilityBandIneligible {
-		evaluation.skippedTerminalTargets = append(evaluation.skippedTerminalTargets, buildRuntimeContextRoutingSkippedTerminalTarget(terminalAttempt.Connection, ctx.RequestContextEstimation, usableContextWindowTokens))
-		return evaluation, nil
-	}
-
-	costMicros, priced := estimateRuntimeBlendedRequestCost(terminalAttempt.Connection, ctx.RequestContextEstimation)
 	compatibleCandidate, compatible, rejection := applyRequestTranslationCompatibility(candidate, ctx)
 	if rejection != nil {
+		terminalAttempt := candidate.TerminalAttempts[0]
+		contextBand := classifyRequestContextBand(ctx.RequestContextEstimation, terminalAttempt.Connection)
+		costMicros, priced := estimateRuntimeBlendedRequestCost(terminalAttempt.Connection, ctx.RequestContextEstimation)
 		rejectedCandidate := runtimeResolvedAccessCandidate{target: target, resolved: candidate, contextBand: contextBand, priced: priced, costMicros: costMicros}
 		evaluation.translatedRejectedCandidate = &rejectedCandidate
 		evaluation.translationRejection = rejection
 		return evaluation, nil
 	}
-	if !compatible {
+	if !compatible || len(compatibleCandidate.TerminalAttempts) == 0 || len(compatibleCandidate.Connections) == 0 {
 		return evaluation, nil
 	}
 
-	eligibleCandidate := runtimeResolvedAccessCandidate{target: target, resolved: compatibleCandidate, contextBand: contextBand, priced: priced, costMicros: costMicros}
+	contextFilteredCandidate, skippedTerminalTargets, largestUsableContextWindowTokens, contextFitEvaluated := filterRuntimeResolvedAccessPlanByContext(compatibleCandidate, ctx.RequestContextEstimation)
+	if contextFitEvaluated {
+		evaluation.contextFitEvaluated = true
+		if largestUsableContextWindowTokens > evaluation.largestUsableContextWindowTokens {
+			evaluation.largestUsableContextWindowTokens = largestUsableContextWindowTokens
+		}
+		evaluation.skippedTerminalTargets = append(evaluation.skippedTerminalTargets, skippedTerminalTargets...)
+	}
+	if len(contextFilteredCandidate.TerminalAttempts) == 0 || len(contextFilteredCandidate.Connections) == 0 {
+		return evaluation, nil
+	}
+
+	terminalAttempt := contextFilteredCandidate.TerminalAttempts[0]
+	contextBand := classifyRequestContextBand(ctx.RequestContextEstimation, terminalAttempt.Connection)
+	costMicros, priced := estimateRuntimeBlendedRequestCost(terminalAttempt.Connection, ctx.RequestContextEstimation)
+	eligibleCandidate := runtimeResolvedAccessCandidate{target: target, resolved: contextFilteredCandidate, contextBand: contextBand, priced: priced, costMicros: costMicros}
 	evaluation.eligibleCandidate = &eligibleCandidate
 	return evaluation, nil
 }
@@ -674,6 +788,46 @@ func candidateSkippedTerminalTargets(candidate runtimeResolvedAccessPlan) []runt
 	return cloneRuntimeContextRoutingSkippedTerminalTargets(candidate.ContextRouting.SkippedTerminalTargets)
 }
 
+func filterRuntimeResolvedAccessPlanByContext(candidate runtimeResolvedAccessPlan, estimation *requestContextEstimation) (runtimeResolvedAccessPlan, []runtimeContextRoutingSkippedTerminalTarget, int, bool) {
+	largestUsableContextWindowTokens := candidate.LargestUsableContextWindowTokens
+	if estimation == nil || len(candidate.TerminalAttempts) == 0 || len(candidate.Connections) == 0 {
+		return candidate, nil, largestUsableContextWindowTokens, false
+	}
+
+	filtered := candidate
+	filteredAttempts := make([]runtimeTerminalAttempt, 0, len(candidate.TerminalAttempts))
+	filteredConnections := make([]runtimeConnection, 0, len(candidate.Connections))
+	filteredStates := make(map[int]loadbalance.RuntimeConnectionState, len(candidate.RuntimeStates))
+	skippedTerminalTargets := make([]runtimeContextRoutingSkippedTerminalTarget, 0)
+	for _, attempt := range candidate.TerminalAttempts {
+		usableContextWindowTokens := usableContextWindowTokensForConnection(attempt.Connection)
+		if usableContextWindowTokens > largestUsableContextWindowTokens {
+			largestUsableContextWindowTokens = usableContextWindowTokens
+		}
+		if !estimation.fitsUsableContextWindowTokens(usableContextWindowTokens) {
+			skippedTerminalTargets = append(skippedTerminalTargets, buildRuntimeContextRoutingSkippedTerminalTarget(attempt.Connection, estimation, usableContextWindowTokens))
+			continue
+		}
+		filteredAttempts = append(filteredAttempts, attempt)
+		filteredConnections = append(filteredConnections, attempt.Connection)
+		if state, ok := candidate.RuntimeStates[attempt.Connection.ID]; ok {
+			filteredStates[attempt.Connection.ID] = state
+		}
+	}
+
+	filtered.TerminalAttempts = filteredAttempts
+	filtered.Connections = filteredConnections
+	filtered.RuntimeStates = filteredStates
+	filtered.LargestUsableContextWindowTokens = largestUsableContextWindowTokens
+	filtered.ContextFitEvaluated = true
+	if len(filteredAttempts) == 0 {
+		filtered.SelectedTerminalTargetID = nil
+		return filtered, skippedTerminalTargets, largestUsableContextWindowTokens, true
+	}
+	filtered.SelectedTerminalTargetID = intPtr(filteredAttempts[0].Connection.ID)
+	return filtered, skippedTerminalTargets, largestUsableContextWindowTokens, true
+}
+
 func applyRequestTranslationCompatibility(candidate runtimeResolvedAccessPlan, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, *domainError) {
 	if len(candidate.TerminalAttempts) == 0 || len(candidate.Connections) == 0 {
 		return candidate, false, nil
@@ -683,11 +837,14 @@ func applyRequestTranslationCompatibility(candidate runtimeResolvedAccessPlan, c
 	compatibleStates := make(map[int]loadbalance.RuntimeConnectionState, len(candidate.RuntimeStates))
 	var rejection *domainError
 	for _, attempt := range candidate.TerminalAttempts {
-		mode, translationErr := ctx.TranslationEligibility.resolveTranslationMode(ctx.RequestOperation, attempt.Connection)
+		mode, compatible, translationErr := ctx.TranslationEligibility.resolveTranslationMode(ctx.RequestOperation, attempt.Connection)
 		if translationErr != nil {
 			if rejection == nil {
 				rejection = translationErr
 			}
+			continue
+		}
+		if !compatible {
 			continue
 		}
 		plannedAttempt := attempt
@@ -745,10 +902,10 @@ func buildRuntimeContextRoutingSkippedTerminalTarget(connection runtimeConnectio
 
 const runtimeFacadeExclusionReasonTranslationRejection = "translation_rejection"
 
-func runtimeFacadeEligibleTotalWeight(candidates []runtimeResolvedAccessCandidate) int {
+func runtimeAccessCandidateTotalWeight(candidates []runtimeResolvedAccessCandidate) int {
 	totalWeight := 0
 	for _, candidate := range candidates {
-		totalWeight += candidate.target.Weight
+		totalWeight += effectiveRuntimeAccessTargetWeight(candidate.target)
 	}
 	return totalWeight
 }
@@ -764,7 +921,7 @@ func buildRuntimeFacadeSelectionDecision(facadeModelID string, selectedCandidate
 	}
 	if selectedCandidate != nil {
 		decision.SelectedTargetModelID = stringPointerIfNotEmpty(selectedCandidate.target.TargetModelID)
-		decision.SelectedWeight = intPtr(selectedCandidate.target.Weight)
+		decision.SelectedWeight = intPtr(effectiveRuntimeAccessTargetWeight(selectedCandidate.target))
 	}
 	decision.ExclusionReasons = buildRuntimeFacadeExclusionReasons(skippedTerminalTargets, translatedRejectedCount)
 	decision.ExclusionSummary = buildRuntimeFacadeExclusionSummary(decision.ExclusionReasons)
@@ -815,10 +972,21 @@ func attachRuntimeFacadeSelectionDecision(contextRouting *runtimeContextRoutingD
 		return cloneRuntimeContextRoutingDecision(contextRouting)
 	}
 	if contextRouting == nil {
-		return &runtimeContextRoutingDecision{FacadeSelection: cloneRuntimeFacadeSelectionDecision(facadeSelection)}
+		return &runtimeContextRoutingDecision{
+			FacadeSelection: cloneRuntimeFacadeSelectionDecision(facadeSelection),
+			PlannerTrace:    buildRuntimePlannerTraceDecision("", nil, nil, facadeSelection),
+		}
 	}
 	cloned := cloneRuntimeContextRoutingDecision(contextRouting)
 	cloned.FacadeSelection = cloneRuntimeFacadeSelectionDecision(facadeSelection)
+	if cloned.PlannerTrace == nil {
+		cloned.PlannerTrace = buildRuntimePlannerTraceDecision(cloned.Policy, nil, cloned.SkippedTerminalTargets, facadeSelection)
+	} else {
+		cloned.PlannerTrace.FacadeExclusionSummary = cloneRuntimeStringPointer(facadeSelection.ExclusionSummary)
+		if cloned.PlannerTrace.SelectedTargetModelID == nil {
+			cloned.PlannerTrace.SelectedTargetModelID = cloneRuntimeStringPointer(facadeSelection.SelectedTargetModelID)
+		}
+	}
 	return cloned
 }
 
@@ -836,6 +1004,7 @@ func buildRuntimeFacadeContextRoutingDecision(estimation *requestContextEstimati
 			contextRouting.UsableContextWindowTokens = intPtr(usableContextWindowTokens)
 		}
 		contextRouting.SkippedTerminalTargets = cloneRuntimeContextRoutingSkippedTerminalTargets(skippedTerminalTargets)
+		contextRouting.PlannerTrace = buildRuntimePlannerTraceDecision(contextRouting.Policy, selectedCandidate, skippedTerminalTargets, nil)
 	}
 	return attachRuntimeFacadeSelectionDecision(contextRouting, facadeSelection)
 }
@@ -864,6 +1033,37 @@ func buildRuntimeContextRoutingDecision(strategy loadbalance.RuntimeStrategy, es
 		decision.SelectedUsableContextWindowTokens = runtimeContextWindowTokensPointer(usableContextWindowTokensForConnection(selectedConnection))
 		if selectedCandidate.priced {
 			decision.SelectedEstimatedBlendedCostMicros = int64Ptr(selectedCandidate.costMicros)
+		}
+	}
+	decision.PlannerTrace = buildRuntimePlannerTraceDecision(decision.Policy, selectedCandidate, skippedTerminalTargets, nil)
+	return decision
+}
+
+func buildRuntimePlannerTraceDecision(policy string, selectedCandidate *runtimeResolvedAccessCandidate, skippedTerminalTargets []runtimeContextRoutingSkippedTerminalTarget, facadeSelection *runtimeFacadeSelectionDecision) *runtimePlannerTraceDecision {
+	decision := &runtimePlannerTraceDecision{
+		PlannerVersion:         runtimePlannerTraceVersion,
+		Decision:               runtimePlannerTraceDecisionNoTarget,
+		Policy:                 strings.TrimSpace(policy),
+		SkippedTerminalTargets: len(skippedTerminalTargets),
+	}
+	if selectedCandidate != nil {
+		decision.Decision = runtimePlannerTraceDecisionSelected
+		decision.AccessTargetID = intPtr(selectedCandidate.target.ID)
+		decision.AccessTargetType = stringPointerIfNotEmpty(selectedCandidate.target.TargetType)
+		decision.SelectedTargetModelID = stringPointerIfNotEmpty(selectedCandidate.target.TargetModelID)
+		decision.SelectedTierPriority = intPtr(selectedCandidate.target.TargetPriority)
+		if len(selectedCandidate.resolved.TerminalAttempts) > 0 {
+			attempt := selectedCandidate.resolved.TerminalAttempts[0]
+			decision.SelectedTerminalTargetID = intPtr(attempt.Connection.ID)
+			decision.TranslationMode = runtimeTranslationModePointer(attempt.TranslationMode)
+		}
+	} else if len(skippedTerminalTargets) > 0 {
+		decision.Decision = runtimePlannerTraceDecisionNoFit
+	}
+	if facadeSelection != nil {
+		decision.FacadeExclusionSummary = cloneRuntimeStringPointer(facadeSelection.ExclusionSummary)
+		if decision.SelectedTargetModelID == nil {
+			decision.SelectedTargetModelID = cloneRuntimeStringPointer(facadeSelection.SelectedTargetModelID)
 		}
 	}
 	return decision
@@ -963,14 +1163,8 @@ func usableContextWindowTokensForConnection(connection runtimeConnection) int {
 }
 
 func requestContextFitsConnection(estimation *requestContextEstimation, connection runtimeConnection) bool {
-	if estimation == nil {
-		return false
-	}
 	usableContextWindowTokens := usableContextWindowTokensForConnection(connection)
-	if usableContextWindowTokens <= 0 {
-		return false
-	}
-	return estimation.EstimatedTotalContextTokens <= usableContextWindowTokens
+	return estimation.fitsUsableContextWindowTokens(usableContextWindowTokens)
 }
 
 func estimateRuntimeBlendedRequestCost(connection runtimeConnection, estimation *requestContextEstimation) (int64, bool) {
@@ -994,36 +1188,23 @@ func estimateRuntimeBlendedRequestCost(connection runtimeConnection, estimation 
 	return runtimeSumMicros(inputCostMicros, outputCostMicros), true
 }
 
-func (s *Service) resolveAccessTargetFromSnapshot(profileID int, snapshot *planningSnapshot, sourceModel runtimeModelRecord, strategy loadbalance.RuntimeStrategy, target runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
+func (s *Service) resolveAccessTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, sourceModel runtimeModelRecord, strategy loadbalance.RuntimeStrategy, target runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
 	if !target.IsEnabled || target.ProfileID != profileID || target.SourceModelConfigID != sourceModel.ID {
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
 	switch target.TargetType {
 	case runtimeAccessTargetTypeConnection:
-		return s.resolveTerminalTargetFromSnapshot(profileID, snapshot, sourceModel, strategy, target, ctx.ReferenceNow)
+		return s.resolveTerminalTargetFromRoutingPlan(profileID, routingPlan, sourceModel, strategy, target, ctx.ReferenceNow)
 	case runtimeAccessTargetTypeModel:
-		return s.resolveModelAccessTargetFromSnapshot(profileID, snapshot, sourceModel, target, ctx)
+		return s.resolveModelAccessTargetFromRoutingPlan(profileID, routingPlan, sourceModel, target, ctx)
 	default:
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
 }
 
-func (s *Service) resolveTerminalTargetFromSnapshot(profileID int, snapshot *planningSnapshot, sourceModel runtimeModelRecord, strategy loadbalance.RuntimeStrategy, target runtimeAccessTargetRecord, referenceNow time.Time) (runtimeResolvedAccessPlan, bool, error) {
-	terminalTargetConnectionID := target.terminalTargetConnectionID()
-	if terminalTargetConnectionID == nil {
-		return runtimeResolvedAccessPlan{}, false, nil
-	}
-	connection, ok := snapshot.terminalTargetsByID()[*terminalTargetConnectionID]
+func (s *Service) resolveTerminalTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, sourceModel runtimeModelRecord, strategy loadbalance.RuntimeStrategy, target runtimeAccessTargetRecord, referenceNow time.Time) (runtimeResolvedAccessPlan, bool, error) {
+	connection, ok := routingPlan.terminalConnectionForAccessTarget(sourceModel, target)
 	if !ok {
-		return runtimeResolvedAccessPlan{}, false, nil
-	}
-	if connection.ProfileID != sourceModel.ProfileID || !sameRuntimeAPIFamily(connection.APIFamily, sourceModel.APIFamily) {
-		return runtimeResolvedAccessPlan{}, false, nil
-	}
-	if target.TargetConnectionProfileID != 0 && target.TargetConnectionProfileID != sourceModel.ProfileID {
-		return runtimeResolvedAccessPlan{}, false, nil
-	}
-	if strings.TrimSpace(target.TargetConnectionAPIFamily) != "" && !sameRuntimeAPIFamily(target.TargetConnectionAPIFamily, sourceModel.APIFamily) {
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
 
@@ -1064,24 +1245,17 @@ func (s *Service) resolveTerminalTargetFromSnapshot(profileID int, snapshot *pla
 	}, true, nil
 }
 
-func (s *Service) resolveModelAccessTargetFromSnapshot(profileID int, snapshot *planningSnapshot, sourceModel runtimeModelRecord, target runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
-	if target.TargetModelConfigID == nil || !target.TargetModelEnabled {
+func (s *Service) resolveModelAccessTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, sourceModel runtimeModelRecord, target runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
+	childModel, ok, err := routingPlan.modelForAccessTarget(sourceModel, target)
+	if err != nil {
+		return runtimeResolvedAccessPlan{}, false, err
+	}
+	if !ok {
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
-	if target.TargetModelProfileID != sourceModel.ProfileID || !sameRuntimeAPIFamily(target.TargetModelAPIFamily, sourceModel.APIFamily) {
-		return runtimeResolvedAccessPlan{}, false, nil
-	}
-	childModel, ok := snapshot.ModelsByID[target.TargetModelID]
-	if !ok || childModel.ID != *target.TargetModelConfigID {
-		return runtimeResolvedAccessPlan{}, false, nil
-	}
-	if childModel.ProfileID != sourceModel.ProfileID || !sameRuntimeAPIFamily(childModel.APIFamily, sourceModel.APIFamily) {
-		return runtimeResolvedAccessPlan{}, false, nil
-	}
-	if childModel.FacadeEnabled {
-		return runtimeResolvedAccessPlan{}, false, nestedRuntimeFacadeTargetError()
-	}
-	resolved, err := s.resolveModelAccessFromSnapshot(profileID, snapshot, childModel, ctx)
+	childContext := ctx
+	childContext.ConsideredModelPath = appendRuntimeModelPath(ctx.ConsideredModelPath, childModel.ModelID)
+	resolved, err := s.resolveModelAccessFromRoutingPlan(profileID, routingPlan, childModel, childContext)
 	if err != nil {
 		var noEligible *noEligibleTargetsError
 		if errors.As(err, &noEligible) {
@@ -1111,6 +1285,29 @@ func cloneVisitedModelIDs(source map[int]struct{}) map[int]struct{} {
 	cloned := make(map[int]struct{}, len(source)+1)
 	for modelID := range source {
 		cloned[modelID] = struct{}{}
+	}
+	return cloned
+}
+
+func appendRuntimeModelPath(source []string, modelID string) []string {
+	cloned := cloneRuntimeModelPath(source)
+	trimmedModelID := strings.TrimSpace(modelID)
+	if trimmedModelID == "" {
+		return cloned
+	}
+	return append(cloned, trimmedModelID)
+}
+
+func cloneRuntimeModelPath(source []string) []string {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make([]string, 0, len(source))
+	for _, modelID := range source {
+		trimmedModelID := strings.TrimSpace(modelID)
+		if trimmedModelID != "" {
+			cloned = append(cloned, trimmedModelID)
+		}
 	}
 	return cloned
 }

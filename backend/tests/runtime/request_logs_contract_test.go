@@ -228,7 +228,7 @@ func TestRequestLogsDetailContractIncludesContextRoutingMetadata(t *testing.T) {
 }
 
 func TestRequestLogsTranslatedOpenAIDetailPreservesIngressAndUpstreamAttribution(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
@@ -274,7 +274,7 @@ func TestRequestLogsTranslatedOpenAIDetailPreservesIngressAndUpstreamAttribution
 }
 
 func TestRequestLogsTranslatedOpenAIRejectedDetailPreservesIngressAndUpstreamAttribution(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "request-logs-translated-rejected-should-not-run"})
 	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "request-logs-translated-rejected-public", "request-logs-translated-rejected-target", upstream.baseURL("/request-logs/translated-openai-rejected-detail"), "translated-request-logs-rejected-key", "chat_completions_reasoning_none")
@@ -422,7 +422,7 @@ func TestRequestLogsFacadeSuccessDetailIncludesFacadeSelectionMetadata(t *testin
 }
 
 func TestRequestLogsFacadeTranslatedRejectionDetailIncludesFacadeSelectionMetadata(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "request-logs-facade-translated-rejected-should-not-run"})
 	route := seedTranslatedOpenAIFacadeRoute(t, harness, profileID, "request-logs-facade-translated-public", "request-logs-facade-translated-target", upstream.baseURL("/request-logs/facade/translated-rejected-detail"), "request-logs-facade-translated-key", "chat_completions_reasoning_none")

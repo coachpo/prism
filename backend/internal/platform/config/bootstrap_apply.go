@@ -105,6 +105,8 @@ const (
 	bootstrapFieldRuntimeTransportTLSHandshakeTimeout    = "runtime.transport.tls_handshake_timeout"
 	bootstrapFieldRuntimeTransportExpectContinueTimeout  = "runtime.transport.expect_continue_timeout"
 	bootstrapFieldRuntimeSideEffectsAttemptTimeout       = "runtime.side_effects.attempt_timeout"
+	bootstrapFieldRuntimeRoutingPlannerMode              = "runtime.routing.planner_mode"
+	bootstrapFieldRuntimeRoutingOpenAITerminalTranslationMode = "runtime.routing.openai_terminal_translation_mode"
 	bootstrapFieldTelemetryEnabled                       = "telemetry.enabled"
 	bootstrapFieldTelemetryExporterEndpoint              = "telemetry.exporter.endpoint"
 	bootstrapFieldTelemetryExporterProtocol              = "telemetry.exporter.protocol"
@@ -174,6 +176,8 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM2Max),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM3Max),
 	restartRequiredBootstrapField(bootstrapFieldRuntimeSideEffectsAttemptTimeout, ""),
+	restartRequiredBootstrapField(bootstrapFieldRuntimeRoutingPlannerMode, ""),
+	restartRequiredBootstrapField(bootstrapFieldRuntimeRoutingOpenAITerminalTranslationMode, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryEnabled, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterEndpoint, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterProtocol, ""),
@@ -421,10 +425,12 @@ func addBootstrapRuntimeFieldValues(fields map[string]bootstrapConfigFieldValue,
 	if values == nil {
 		addBootstrapRuntimeTransportFieldValues(fields, nil)
 		addBootstrapRuntimeSideEffectsFieldValues(fields, nil)
+		addBootstrapRuntimeRoutingFieldValues(fields, nil)
 		return
 	}
 	addBootstrapRuntimeTransportFieldValues(fields, values.Transport)
 	addBootstrapRuntimeSideEffectsFieldValues(fields, values.SideEffects)
+	addBootstrapRuntimeRoutingFieldValues(fields, values.Routing)
 }
 
 func addBootstrapRuntimeSideEffectsFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeSideEffectsValues) {
@@ -433,6 +439,14 @@ func addBootstrapRuntimeSideEffectsFieldValues(fields map[string]bootstrapConfig
 		return
 	}
 	fields[bootstrapFieldRuntimeSideEffectsAttemptTimeout] = bootstrapDurationFieldValue(values.AttemptTimeout)
+}
+
+func addBootstrapRuntimeRoutingFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeRoutingValues) {
+	if values == nil {
+		values = defaultSafeBootstrapRuntimeRoutingValues()
+	}
+	fields[bootstrapFieldRuntimeRoutingPlannerMode] = bootstrapStringFieldValue(values.PlannerMode)
+	fields[bootstrapFieldRuntimeRoutingOpenAITerminalTranslationMode] = bootstrapStringFieldValue(values.OpenAITerminalTranslationMode)
 }
 
 func addBootstrapRuntimeTransportFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeTransportValues) {
@@ -665,6 +679,8 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 	postgresPools := settings.PostgresPoolsBudgetOrDefault()
 	runtimeTransport := settings.RuntimeTransport()
 	runtimeSideEffects := settings.RuntimeSideEffects()
+	routingPlannerMode := string(settings.RoutingPlannerMode())
+	openAITerminalTranslationMode := string(settings.ResolvedOpenAITerminalTranslationMode())
 	managementAdmission := settings.ManagementAdmissionBudget()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
 	requestTimeout := bootstrapRequestTimeoutString(runtimeTransport.RequestTimeout)
@@ -707,6 +723,10 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 			},
 			SideEffects: &BootstrapConfigRuntimeSideEffectsValues{
 				AttemptTimeout: &runtimeSideEffectsAttemptTimeout,
+			},
+			Routing: &BootstrapConfigRuntimeRoutingValues{
+				PlannerMode:                   &routingPlannerMode,
+				OpenAITerminalTranslationMode: &openAITerminalTranslationMode,
 			},
 		},
 		HTTP: &BootstrapConfigHTTPValues{CORSAllowedOrigins: &corsAllowedOrigins},

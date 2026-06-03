@@ -43,6 +43,12 @@ var validConnectionAuthTypes = map[string]struct{}{
 
 var importedPricingTemplateDecimalPattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
 
+type routingPlanValidationIssue struct {
+	Code    string `json:"code"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
 func importedConnectionCount(connections []connectionExport) int {
 	return len(connections)
 }
@@ -487,12 +493,49 @@ type profileImportModelValidationRefs struct {
 	strategyNames        map[string]struct{}
 }
 
+func routingPlanValidationIssueError(code string, path string, detail string) error {
+	return routingPlanValidationError(http.StatusBadRequest, detail, []routingPlanValidationIssue{{
+		Code:    strings.TrimSpace(code),
+		Path:    strings.TrimSpace(path),
+		Message: strings.TrimSpace(detail),
+	}})
+}
+
+func routingPlanValidationError(statusCode int, detail string, issues []routingPlanValidationIssue) error {
+	if len(issues) == 0 {
+		return &domainError{StatusCode: statusCode, Detail: detail}
+	}
+	return &domainError{
+		StatusCode: statusCode,
+		Detail:     detail,
+		Fields: map[string]any{
+			"routing_plan_issues": issues,
+		},
+	}
+}
+
+func importedModelIssuePath(modelIndex int, field string) string {
+	path := fmt.Sprintf("models[%d]", modelIndex)
+	if strings.TrimSpace(field) == "" {
+		return path
+	}
+	return path + "." + strings.TrimSpace(field)
+}
+
+func importedAccessTargetIssuePath(modelIndex int, targetIndex int, field string) string {
+	path := fmt.Sprintf("models[%d].access_targets[%d]", modelIndex, targetIndex)
+	if strings.TrimSpace(field) == "" {
+		return path
+	}
+	return path + "." + strings.TrimSpace(field)
+}
+
 func validateImportedModels(models []modelExport, refs profileImportModelValidationRefs, connectionRefs map[string]importedConnectionValidationRef) ([]importedModelPayload, map[string]struct{}, error) {
 	importedModels := normalizeImportedModels(models)
 	seenModelIDs := map[string]struct{}{}
 	connectionOwners := map[string]connectionOwnerRef{}
 	importedConnectionPairs := map[string]struct{}{}
-	for _, model := range importedModels {
+	for modelIndex, model := range importedModels {
 		modelID := model.ModelID
 		if modelID == "" {
 			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "Model id must not be empty"}
@@ -513,11 +556,11 @@ func validateImportedModels(models []modelExport, refs profileImportModelValidat
 		if err := validateImportedModelContextCapabilities(model); err != nil {
 			return nil, nil, err
 		}
-		if err := validateImportedFacadeConfiguration(model); err != nil {
+		if err := validateImportedFacadeConfiguration(modelIndex, model); err != nil {
 			return nil, nil, err
 		}
 		owner := connectionOwnerRef{ModelID: modelID, DisplayName: model.DisplayName}
-		if err := validateImportedAccessTargets(modelID, model.APIFamily, owner, model.AccessTargets, connectionRefs, connectionOwners, importedConnectionPairs); err != nil {
+		if err := validateImportedAccessTargets(modelIndex, modelID, model.APIFamily, owner, model.AccessTargets, connectionRefs, connectionOwners, importedConnectionPairs); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -629,31 +672,31 @@ func validateImportedModelContextCapabilities(model importedModelPayload) error 
 	return nil
 }
 
-func validateImportedFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
+func validateImportedFacadePolicyValues(modelIndex int, selectionPolicy *string, fallbackPolicy *string) error {
 	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyWeightedEligibleContext {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_selection_policy must be 'weighted_eligible_context'"}
+		return routingPlanValidationIssueError("facade_selection_policy_invalid", importedModelIssuePath(modelIndex, "facade_selection_policy"), "facade_selection_policy must be 'weighted_eligible_context'")
 	}
 	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicyRedistributeIneligibleWeight {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_fallback_policy must be 'redistribute_ineligible_weight'"}
+		return routingPlanValidationIssueError("facade_fallback_policy_invalid", importedModelIssuePath(modelIndex, "facade_fallback_policy"), "facade_fallback_policy must be 'redistribute_ineligible_weight'")
 	}
 	return nil
 }
 
-func validateImportedFacadeConfiguration(model importedModelPayload) error {
-	if err := validateImportedFacadePolicyValues(model.FacadeSelectionPolicy, model.FacadeFallbackPolicy); err != nil {
+func validateImportedFacadeConfiguration(modelIndex int, model importedModelPayload) error {
+	if err := validateImportedFacadePolicyValues(modelIndex, model.FacadeSelectionPolicy, model.FacadeFallbackPolicy); err != nil {
 		return err
 	}
 	if !model.FacadeEnabled {
 		return nil
 	}
 	if model.APIFamily != "openai" {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: facadeEnabledRequiresOpenAIDetail}
+		return routingPlanValidationIssueError("model_api_family_invalid", importedModelIssuePath(modelIndex, "api_family"), facadeEnabledRequiresOpenAIDetail)
 	}
 	if model.FacadeSelectionPolicy == nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_selection_policy is required when facade_enabled is true"}
+		return routingPlanValidationIssueError("facade_selection_policy_missing", importedModelIssuePath(modelIndex, "facade_selection_policy"), "facade_selection_policy is required when facade_enabled is true")
 	}
 	if model.FacadeFallbackPolicy == nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "facade_fallback_policy is required when facade_enabled is true"}
+		return routingPlanValidationIssueError("facade_fallback_policy_missing", importedModelIssuePath(modelIndex, "facade_fallback_policy"), "facade_fallback_policy is required when facade_enabled is true")
 	}
 	return nil
 }
@@ -685,88 +728,96 @@ type connectionOwnerRef struct {
 	DisplayName *string
 }
 
-func validateImportedAccessTargets(modelID string, apiFamily string, owner connectionOwnerRef, targets []importedAccessTargetPayload, connectionRefs map[string]importedConnectionValidationRef, connectionOwners map[string]connectionOwnerRef, importedConnectionPairs map[string]struct{}) error {
+func validateImportedAccessTargets(modelIndex int, modelID string, apiFamily string, owner connectionOwnerRef, targets []importedAccessTargetPayload, connectionRefs map[string]importedConnectionValidationRef, connectionOwners map[string]connectionOwnerRef, importedConnectionPairs map[string]struct{}) error {
 	seenPositions := map[int]struct{}{}
 	seenTargets := map[string]struct{}{}
-	for _, target := range targets {
+	for targetIndex, target := range targets {
 		if target.Position < 0 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access target position must be greater than or equal to 0", modelID)}
+			detail := fmt.Sprintf("Model '%s' access target position must be greater than or equal to 0", modelID)
+			return routingPlanValidationIssueError("target_position_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "position"), detail)
 		}
 		if _, ok := seenPositions[target.Position]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access_targets must contain unique position values", modelID)}
+			detail := fmt.Sprintf("Model '%s' access_targets must contain unique position values", modelID)
+			return routingPlanValidationIssueError("target_position_duplicate", importedAccessTargetIssuePath(modelIndex, targetIndex, "position"), detail)
 		}
 		seenPositions[target.Position] = struct{}{}
-		if err := validateImportedAccessTargetMetadataContract(target); err != nil {
+		if err := validateImportedAccessTargetMetadataContract(modelIndex, targetIndex, target); err != nil {
 			return err
 		}
 
 		switch target.TargetType {
 		case "connection":
 			if target.ConnectionRef == nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' connection access target must include connection_ref", modelID)}
+				detail := fmt.Sprintf("Model '%s' connection access target must include connection_ref", modelID)
+				return routingPlanValidationIssueError("connection_target_missing_connection", importedAccessTargetIssuePath(modelIndex, targetIndex, "connection_ref"), detail)
 			}
 			if target.TargetModelID != nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' connection access target must not include target_model_id", modelID)}
+				detail := fmt.Sprintf("Model '%s' connection access target must not include target_model_id", modelID)
+				return routingPlanValidationIssueError("connection_target_has_model", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
 			}
 			connection, ok := connectionRefs[*target.ConnectionRef]
 			if !ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown connection_ref '%s'", modelID, *target.ConnectionRef)}
+				detail := fmt.Sprintf("Model '%s' references unknown connection_ref '%s'", modelID, *target.ConnectionRef)
+				return routingPlanValidationIssueError("connection_target_missing_connection", importedAccessTargetIssuePath(modelIndex, targetIndex, "connection_ref"), detail)
 			}
 			if connection.APIFamily != apiFamily {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family connection_ref '%s'", modelID, *target.ConnectionRef)}
+				detail := fmt.Sprintf("Model '%s' cannot target cross-api-family connection_ref '%s'", modelID, *target.ConnectionRef)
+				return routingPlanValidationIssueError("target_api_family_mismatch", importedAccessTargetIssuePath(modelIndex, targetIndex, "connection_ref"), detail)
 			}
 			seenKey := "connection:" + *target.ConnectionRef
 			if _, ok := seenTargets[seenKey]; ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' has duplicate connection_ref access target '%s'", modelID, *target.ConnectionRef)}
+				detail := fmt.Sprintf("Model '%s' has duplicate connection_ref access target '%s'", modelID, *target.ConnectionRef)
+				return routingPlanValidationIssueError("target_duplicate", importedAccessTargetIssuePath(modelIndex, targetIndex, "connection_ref"), detail)
 			}
 			seenTargets[seenKey] = struct{}{}
 			if previousOwner, ok := connectionOwners[*target.ConnectionRef]; ok && previousOwner.ModelID != owner.ModelID {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: duplicateConnectionRefOwnerDetail(*target.ConnectionRef, previousOwner, owner)}
+				detail := duplicateConnectionRefOwnerDetail(*target.ConnectionRef, previousOwner, owner)
+				return routingPlanValidationIssueError("connection_target_owner_conflict", importedAccessTargetIssuePath(modelIndex, targetIndex, "connection_ref"), detail)
 			}
 			connectionOwners[*target.ConnectionRef] = owner
 			importedConnectionPairs[connectionPairKey(modelID, *target.ConnectionRef)] = struct{}{}
 		case "model":
 			if target.TargetModelID == nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' model access target must include target_model_id", modelID)}
+				detail := fmt.Sprintf("Model '%s' model access target must include target_model_id", modelID)
+				return routingPlanValidationIssueError("model_target_id_empty", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
 			}
 			if target.ConnectionRef != nil {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' model access target must not include connection_ref", modelID)}
+				detail := fmt.Sprintf("Model '%s' model access target must not include connection_ref", modelID)
+				return routingPlanValidationIssueError("model_target_has_connection", importedAccessTargetIssuePath(modelIndex, targetIndex, "connection_ref"), detail)
 			}
 			if *target.TargetModelID == modelID {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access target cannot target itself", modelID)}
+				detail := fmt.Sprintf("Model '%s' access target cannot target itself", modelID)
+				return routingPlanValidationIssueError("model_graph_cycle", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
 			}
 			seenKey := "model:" + *target.TargetModelID
 			if _, ok := seenTargets[seenKey]; ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' has duplicate model access target '%s'", modelID, *target.TargetModelID)}
+				detail := fmt.Sprintf("Model '%s' has duplicate model access target '%s'", modelID, *target.TargetModelID)
+				return routingPlanValidationIssueError("target_duplicate", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
 			}
 			seenTargets[seenKey] = struct{}{}
 		default:
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access target_type must be 'model' or 'connection'", modelID)}
-		}
-	}
-	for expectedPosition := 0; expectedPosition < len(targets); expectedPosition++ {
-		if _, ok := seenPositions[expectedPosition]; !ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' access_targets positions must be contiguous starting at 0", modelID)}
+			detail := fmt.Sprintf("Model '%s' access target_type must be 'model' or 'connection'", modelID)
+			return routingPlanValidationIssueError("target_type_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_type"), detail)
 		}
 	}
 	return nil
 }
 
-func validateImportedAccessTargetMetadataContract(target importedAccessTargetPayload) error {
+func validateImportedAccessTargetMetadataContract(modelIndex int, targetIndex int, target importedAccessTargetPayload) error {
 	if target.TargetType == "connection" {
 		if target.Weight != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be omitted for terminal targets"}
+			return routingPlanValidationIssueError("terminal_target_metadata_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "weight"), "weight must be omitted for terminal targets")
 		}
 		if target.TargetPriority != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be omitted for terminal targets"}
+			return routingPlanValidationIssueError("terminal_target_metadata_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_priority"), "target_priority must be omitted for terminal targets")
 		}
 		return nil
 	}
 	if target.Weight != nil && *target.Weight <= 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be greater than 0"}
+		return routingPlanValidationIssueError("model_target_weight_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "weight"), "weight must be greater than 0")
 	}
 	if target.TargetPriority != nil && *target.TargetPriority < 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be greater than or equal to 0"}
+		return routingPlanValidationIssueError("model_target_priority_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_priority"), "target_priority must be greater than or equal to 0")
 	}
 	return nil
 }
@@ -831,24 +882,98 @@ func validateImportedConnections(connections []connectionExport, refs profileImp
 
 func validateImportedAccessTargetReferences(models []importedModelPayload) error {
 	modelsByID := make(map[string]importedModelPayload, len(models))
-	for _, model := range models {
+	modelIndexesByID := make(map[string]int, len(models))
+	for modelIndex, model := range models {
 		modelsByID[model.ModelID] = model
+		modelIndexesByID[model.ModelID] = modelIndex
 	}
-	for _, model := range models {
-		for _, target := range model.AccessTargets {
+	referencedModels := map[string]struct{}{}
+	enabledModelGraph := map[string][]string{}
+	for modelIndex, model := range models {
+		for targetIndex, target := range model.AccessTargets {
 			if target.TargetType != "model" || target.TargetModelID == nil {
 				continue
 			}
 			targetModel, ok := modelsByID[*target.TargetModelID]
 			if !ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown model access target '%s'", model.ModelID, *target.TargetModelID)}
+				detail := fmt.Sprintf("Model '%s' references unknown model access target '%s'", model.ModelID, *target.TargetModelID)
+				return routingPlanValidationIssueError("model_target_missing_model", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
 			}
 			if targetModel.APIFamily != model.APIFamily {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", model.ModelID, *target.TargetModelID)}
+				detail := fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", model.ModelID, *target.TargetModelID)
+				return routingPlanValidationIssueError("target_api_family_mismatch", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
 			}
 			if targetModel.FacadeEnabled {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: nestedFacadesNotSupportedDetail}
+				return routingPlanValidationIssueError("nested_facade_target", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), nestedFacadesNotSupportedDetail)
 			}
+			if target.IsEnabled {
+				referencedModels[*target.TargetModelID] = struct{}{}
+				enabledModelGraph[model.ModelID] = append(enabledModelGraph[model.ModelID], *target.TargetModelID)
+			}
+		}
+	}
+	if err := validateImportedModelsHaveEnabledRoutingTargets(models, modelIndexesByID, referencedModels); err != nil {
+		return err
+	}
+	return validateImportedModelGraphAcyclic(enabledModelGraph, modelIndexesByID)
+}
+
+func validateImportedModelsHaveEnabledRoutingTargets(models []importedModelPayload, modelIndexesByID map[string]int, referencedModels map[string]struct{}) error {
+	for _, model := range models {
+		if !model.IsEnabled {
+			if _, referenced := referencedModels[model.ModelID]; !referenced {
+				continue
+			}
+		}
+		hasEnabledTarget := false
+		for _, target := range model.AccessTargets {
+			if target.IsEnabled {
+				hasEnabledTarget = true
+				break
+			}
+		}
+		if hasEnabledTarget {
+			continue
+		}
+		modelIndex := modelIndexesByID[model.ModelID]
+		detail := fmt.Sprintf("Model '%s' must include at least one enabled access target", model.ModelID)
+		return routingPlanValidationIssueError("model_no_enabled_targets", importedModelIssuePath(modelIndex, "access_targets"), detail)
+	}
+	return nil
+}
+
+func validateImportedModelGraphAcyclic(graph map[string][]string, modelIndexesByID map[string]int) error {
+	state := map[string]int{}
+	modelIDs := make([]string, 0, len(modelIndexesByID))
+	for modelID := range modelIndexesByID {
+		modelIDs = append(modelIDs, modelID)
+	}
+	sort.Strings(modelIDs)
+	var visit func(string, []string) error
+	visit = func(modelID string, stack []string) error {
+		switch state[modelID] {
+		case 1:
+			modelIndex := modelIndexesByID[modelID]
+			cycle := append(append([]string{}, stack...), modelID)
+			detail := fmt.Sprintf("Routing cycle detected for model '%s': %s", modelID, strings.Join(cycle, " -> "))
+			return routingPlanValidationIssueError("model_graph_cycle", importedModelIssuePath(modelIndex, "access_targets"), detail)
+		case 2:
+			return nil
+		}
+		state[modelID] = 1
+		children := append([]string{}, graph[modelID]...)
+		sort.Strings(children)
+		for _, child := range children {
+			if err := visit(child, append(stack, modelID)); err != nil {
+				return err
+			}
+		}
+		state[modelID] = 2
+		return nil
+	}
+	for _, modelID := range modelIDs {
+		if err := visit(modelID, nil); err != nil {
+			return err
 		}
 	}
 	return nil

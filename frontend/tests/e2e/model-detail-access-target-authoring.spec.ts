@@ -18,13 +18,15 @@ function createProfile() {
   };
 }
 
-function createAccessTarget(targetModelId: string, position: number, displayName: string, isEnabled = true) {
+function createAccessTarget(targetModelId: string, position: number, displayName: string, isEnabled = true, weight = 1, targetPriority = 0) {
   return {
     id: 700 + position,
     target_type: "model",
     target_model_id: targetModelId,
     connection_id: null,
     position,
+    weight,
+    target_priority: targetPriority,
     is_enabled: isEnabled,
     target_model: {
       id: 100 + position,
@@ -249,7 +251,7 @@ async function mockModelDetailRoutes(page: Page) {
         api_family: "openai" | "anthropic";
         model_id: string;
         display_name: string | null;
-        access_targets: Array<{ target_type: "model"; target_model_id: string; position: number; is_enabled?: boolean }>;
+        access_targets: Array<{ target_type: "model"; target_model_id: string; position: number; weight?: number; target_priority?: number; is_enabled?: boolean }>;
         loadbalance_strategy_id: number;
         is_enabled: boolean;
       };
@@ -261,6 +263,8 @@ async function mockModelDetailRoutes(page: Page) {
           target.position,
           target.target_model_id === "target-alpha" ? "Target Alpha" : "Target Beta",
           target.is_enabled ?? true,
+          target.weight ?? 1,
+          target.target_priority ?? 0,
         ),
       );
       return fulfillJson({
@@ -307,7 +311,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
   await expect(page.getByText("Add at least one enabled same-family access target before saving an enabled model.").last()).toBeVisible();
   expect(routes.getUpdatePayloads()).toHaveLength(0);
 
-  const enabledSwitch = dialog.getByRole("switch").last();
+  const enabledSwitch = dialog.getByRole("switch", { name: "Enabled" });
   await enabledSwitch.click();
   await expect(enabledSwitch).toHaveAttribute("data-state", "unchecked");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
@@ -344,7 +348,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
   await dialog.getByRole("button", { name: "Add target" }).click();
   await expect(dialog.getByText("Target Alpha")).toBeVisible();
 
-  await dialog.getByRole("switch").last().click();
+  await dialog.getByRole("switch", { name: "Enabled" }).click();
   await dialog.getByRole("button", { name: "Save Changes" }).click();
   await expect(page.getByText("Model updated").last()).toBeVisible();
   await expect(dialog).toHaveCount(0);
@@ -370,7 +374,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
       model_id: "routed-openai",
       display_name: "Routed OpenAI",
       access_targets: [
-        { target_type: "model", target_model_id: "target-alpha", position: 0, is_enabled: true },
+        { target_type: "model", target_model_id: "target-alpha", position: 0, weight: 1, target_priority: 0, is_enabled: true },
       ],
       loadbalance_strategy_id: 11,
       is_enabled: true,
@@ -384,7 +388,8 @@ test("model detail editing supports disabled targetless drafts and later enabled
   const accessTargetsEditor = page.getByTestId("access-targets-editor");
   await expect(page.getByRole("button", { name: "Add target" })).toHaveCount(1);
   await expect(accessTargetsEditor.getByText("Target Alpha")).toBeVisible();
-  await expect(accessTargetsEditor.getByText("Priority 1")).toBeVisible();
+  await expect(accessTargetsEditor.getByText("Tier 1").first()).toBeVisible();
+  await expect(accessTargetsEditor.getByText("Weight 1")).toBeVisible();
 });
 
 async function mockPrivateConnectionRoutes(page: Page) {

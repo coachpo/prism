@@ -167,7 +167,7 @@ test("context-capability-authoring: submits parsed context routing defaults on c
   const dialog = page.getByRole("dialog", { name: "New Model" });
   await expect(dialog.getByText("Define the selected-profile entry model, its routing defaults, and the policy it will use to reach terminal targets.")).toBeVisible();
   await expect(dialog.getByText("Set the entry-model context window, reserve, max utilization, and preferred band before terminal-target overrides apply.")).toBeVisible();
-  await expect(dialog.getByText("Entry models fan out through same-family model targets here. Model-private terminal targets stay visible for planning, but you create and manage them from Model Detail.")).toBeVisible();
+  await expect(dialog.getByText("Entry models fan out through grouped same-family fallback tiers here. Model-private terminal targets stay visible for planning, but you create and manage them from Model Detail.")).toBeVisible();
   await expect(dialog.getByText("Choose the Ban Policy and terminal-target selection family this entry model uses after access-target routing.")).toBeVisible();
   await expect(dialog.getByText(contextWindowHelperCopy)).toBeVisible();
 

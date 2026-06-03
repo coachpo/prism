@@ -149,6 +149,7 @@ type BootstrapConfigManagementAdmissionValues struct {
 type BootstrapConfigRuntimeValues struct {
 	Transport   *BootstrapConfigRuntimeTransportValues   `json:"transport"`
 	SideEffects *BootstrapConfigRuntimeSideEffectsValues `json:"side_effects"`
+	Routing     *BootstrapConfigRuntimeRoutingValues     `json:"routing"`
 }
 
 type BootstrapConfigRuntimeTransportValues struct {
@@ -164,6 +165,11 @@ type BootstrapConfigRuntimeTransportValues struct {
 
 type BootstrapConfigRuntimeSideEffectsValues struct {
 	AttemptTimeout *string `json:"attempt_timeout"`
+}
+
+type BootstrapConfigRuntimeRoutingValues struct {
+	PlannerMode                   *string `json:"planner_mode"`
+	OpenAITerminalTranslationMode *string `json:"openai_terminal_translation_mode"`
 }
 
 type BootstrapConfigHTTPValues struct {
@@ -344,6 +350,7 @@ type bootstrapRuntime struct {
 	SecretEncryptionKey *string                      `json:"secretEncryptionKey"`
 	Transport           *bootstrapRuntimeTransport   `json:"transport"`
 	SideEffects         *bootstrapRuntimeSideEffects `json:"sideEffects"`
+	Routing             *bootstrapRuntimeRouting     `json:"routing,omitempty"`
 }
 
 type bootstrapRuntimeTransport struct {
@@ -359,6 +366,11 @@ type bootstrapRuntimeTransport struct {
 
 type bootstrapRuntimeSideEffects struct {
 	AttemptTimeout *string `json:"attemptTimeout"`
+}
+
+type bootstrapRuntimeRouting struct {
+	PlannerMode                   *string `json:"plannerMode,omitempty"`
+	OpenAITerminalTranslationMode *string `json:"openaiTerminalTranslationMode,omitempty"`
 }
 
 type bootstrapHTTP struct {
@@ -981,6 +993,7 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 		Runtime: &BootstrapConfigRuntimeValues{
 			Transport:   safeBootstrapRuntimeTransportValues(document.Runtime.Transport),
 			SideEffects: safeBootstrapRuntimeSideEffectsValues(document.Runtime.SideEffects),
+			Routing:     safeBootstrapRuntimeRoutingValues(document.Runtime.Routing),
 		},
 		HTTP: &BootstrapConfigHTTPValues{
 			CORSAllowedOrigins: cloneStringSlicePointer(document.HTTP.CORSAllowedOrigins),
@@ -1116,6 +1129,7 @@ func bootstrapRuntimeFromSafeValues(values *BootstrapConfigRuntimeValues, secret
 		SecretEncryptionKey: cloneStringPointer(secretEncryptionKey),
 		Transport:           bootstrapRuntimeTransportFromSafeValues(values.Transport),
 		SideEffects:         bootstrapRuntimeSideEffectsFromSafeValues(values.SideEffects),
+		Routing:             bootstrapRuntimeRoutingFromSafeValues(values.Routing),
 	}
 }
 
@@ -1140,6 +1154,41 @@ func bootstrapRuntimeSideEffectsFromSafeValues(values *BootstrapConfigRuntimeSid
 		return nil
 	}
 	return &bootstrapRuntimeSideEffects{AttemptTimeout: cloneStringPointer(values.AttemptTimeout)}
+}
+
+func bootstrapRuntimeRoutingFromSafeValues(values *BootstrapConfigRuntimeRoutingValues) *bootstrapRuntimeRouting {
+	if values == nil {
+		values = defaultSafeBootstrapRuntimeRoutingValues()
+	}
+	return &bootstrapRuntimeRouting{
+		PlannerMode:                   cloneStringPointer(values.PlannerMode),
+		OpenAITerminalTranslationMode: cloneStringPointer(values.OpenAITerminalTranslationMode),
+	}
+}
+
+func defaultSafeBootstrapRuntimeRoutingValues() *BootstrapConfigRuntimeRoutingValues {
+	plannerMode := string(RuntimeRoutingPlannerModeLegacy)
+	translationMode := string(OpenAITerminalTranslationModeOff)
+	return &BootstrapConfigRuntimeRoutingValues{
+		PlannerMode:                   &plannerMode,
+		OpenAITerminalTranslationMode: &translationMode,
+	}
+}
+
+func dereferenceRuntimeRoutingPlannerMode(value *string) RuntimeRoutingPlannerMode {
+	parsed, err := parseRuntimeRoutingPlannerModeField("runtime.routing.plannerMode", value)
+	if err != nil {
+		return RuntimeRoutingPlannerModeLegacy
+	}
+	return parsed
+}
+
+func dereferenceOpenAITerminalTranslationMode(value *string) OpenAITerminalTranslationMode {
+	parsed, err := parseOpenAITerminalTranslationModeField("runtime.routing.openaiTerminalTranslationMode", value)
+	if err != nil {
+		return OpenAITerminalTranslationModeOff
+	}
+	return parsed
 }
 
 func bootstrapHTTPFromSafeValues(values *BootstrapConfigHTTPValues) *bootstrapHTTP {
@@ -1501,6 +1550,7 @@ func safeBootstrapRuntimeValues(runtimeConfig *bootstrapRuntime) *BootstrapConfi
 	return &BootstrapConfigRuntimeValues{
 		Transport:   safeBootstrapRuntimeTransportValues(runtimeConfig.Transport),
 		SideEffects: safeBootstrapRuntimeSideEffectsValues(runtimeConfig.SideEffects),
+		Routing:     safeBootstrapRuntimeRoutingValues(runtimeConfig.Routing),
 	}
 }
 
@@ -1525,6 +1575,16 @@ func safeBootstrapRuntimeSideEffectsValues(sideEffects *bootstrapRuntimeSideEffe
 		return nil
 	}
 	return &BootstrapConfigRuntimeSideEffectsValues{AttemptTimeout: cloneStringPointer(sideEffects.AttemptTimeout)}
+}
+
+func safeBootstrapRuntimeRoutingValues(routing *bootstrapRuntimeRouting) *BootstrapConfigRuntimeRoutingValues {
+	if routing == nil {
+		return defaultSafeBootstrapRuntimeRoutingValues()
+	}
+	return &BootstrapConfigRuntimeRoutingValues{
+		PlannerMode:                   stringPointer(string(dereferenceRuntimeRoutingPlannerMode(routing.PlannerMode))),
+		OpenAITerminalTranslationMode: stringPointer(string(dereferenceOpenAITerminalTranslationMode(routing.OpenAITerminalTranslationMode))),
+	}
 }
 
 func safeBootstrapHTTPValues(httpConfig *bootstrapHTTP) *BootstrapConfigHTTPValues {
@@ -1972,7 +2032,13 @@ func (r bootstrapRuntime) validate() error {
 	if err := r.Transport.validate(); err != nil {
 		return err
 	}
-	return r.SideEffects.validate()
+	if err := r.SideEffects.validate(); err != nil {
+		return err
+	}
+	if r.Routing == nil {
+		return nil
+	}
+	return r.Routing.validate()
 }
 
 func (t bootstrapRuntimeTransport) validate() error {
@@ -2006,6 +2072,16 @@ func (t bootstrapRuntimeTransport) validate() error {
 func (s bootstrapRuntimeSideEffects) validate() error {
 	_, err := requiredTrimmedString("runtime.sideEffects.attemptTimeout", s.AttemptTimeout, 1, 0)
 	return err
+}
+
+func (r bootstrapRuntimeRouting) validate() error {
+	if _, err := parseRuntimeRoutingPlannerModeField("runtime.routing.plannerMode", r.PlannerMode); err != nil {
+		return err
+	}
+	if _, err := parseOpenAITerminalTranslationModeField("runtime.routing.openaiTerminalTranslationMode", r.OpenAITerminalTranslationMode); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (h bootstrapHTTP) validate() error {
@@ -2208,6 +2284,18 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	routingPlannerMode := RuntimeRoutingPlannerModeLegacy
+	openAITerminalTranslationMode := OpenAITerminalTranslationModeOff
+	if d.Runtime.Routing != nil {
+		routingPlannerMode, err = parseRuntimeRoutingPlannerModeField("runtime.routing.plannerMode", d.Runtime.Routing.PlannerMode)
+		if err != nil {
+			return Settings{}, err
+		}
+		openAITerminalTranslationMode, err = parseOpenAITerminalTranslationModeField("runtime.routing.openaiTerminalTranslationMode", d.Runtime.Routing.OpenAITerminalTranslationMode)
+		if err != nil {
+			return Settings{}, err
+		}
+	}
 	postgresPoolsBudget, err := d.Database.Pools.toPostgresPoolsBudget()
 	if err != nil {
 		return Settings{}, err
@@ -2247,6 +2335,8 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      databaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
+		RuntimeRoutingPlannerMode:        routingPlannerMode,
+		OpenAITerminalTranslationMode:    openAITerminalTranslationMode,
 		Telemetry:                        telemetryConfig,
 		RuntimeTransportConfig:           runtimeTransport,
 		RuntimeSideEffectsConfig:         runtimeSideEffects,
@@ -2618,11 +2708,39 @@ func (s bootstrapRuntimeSideEffects) toRuntimeSideEffectsConfig() (RuntimeSideEf
 	return RuntimeSideEffectsConfig{AttemptTimeout: attemptTimeout}, nil
 }
 
+func parseRuntimeRoutingPlannerModeField(field string, value *string) (RuntimeRoutingPlannerMode, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return RuntimeRoutingPlannerModeLegacy, nil
+	}
+	trimmed := strings.ToLower(strings.TrimSpace(*value))
+	switch RuntimeRoutingPlannerMode(trimmed) {
+	case RuntimeRoutingPlannerModeLegacy, RuntimeRoutingPlannerModeShadow, RuntimeRoutingPlannerModeEnforced:
+		return RuntimeRoutingPlannerMode(trimmed), nil
+	default:
+		return "", fmt.Errorf("bootstrap config field %s must be one of legacy, shadow, enforced", field)
+	}
+}
+
+func parseOpenAITerminalTranslationModeField(field string, value *string) (OpenAITerminalTranslationMode, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return OpenAITerminalTranslationModeOff, nil
+	}
+	trimmed := strings.ToLower(strings.TrimSpace(*value))
+	switch OpenAITerminalTranslationMode(trimmed) {
+	case OpenAITerminalTranslationModeOff, OpenAITerminalTranslationModeSafeOnly:
+		return OpenAITerminalTranslationMode(trimmed), nil
+	default:
+		return "", fmt.Errorf("bootstrap config field %s must be one of off, safe_only", field)
+	}
+}
+
 func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapConfigDocument, error) {
 	postgresPoolsBudget := settings.PostgresPoolsBudgetOrDefault()
 	managementAdmissionBudget := settings.ManagementAdmissionBudget()
 	runtimeTransport := settings.RuntimeTransport()
 	runtimeSideEffects := settings.RuntimeSideEffects()
+	routingPlannerMode := settings.RoutingPlannerMode()
+	openAITerminalTranslationMode := settings.ResolvedOpenAITerminalTranslationMode()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
 	databaseURL := strings.TrimSpace(settings.DatabaseURL)
 	if databaseURL == "" {
@@ -2684,6 +2802,10 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 			},
 			SideEffects: &bootstrapRuntimeSideEffects{
 				AttemptTimeout: stringPointer(bootstrapDurationString(runtimeSideEffects.AttemptTimeout)),
+			},
+			Routing: &bootstrapRuntimeRouting{
+				PlannerMode:                   stringPointer(string(routingPlannerMode)),
+				OpenAITerminalTranslationMode: stringPointer(string(openAITerminalTranslationMode)),
 			},
 		},
 		HTTP: &bootstrapHTTP{

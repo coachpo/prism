@@ -74,12 +74,19 @@ type RawLoadbalanceStrategyDefaultsResponse = {
   existing_names: string[];
 };
 
-type RawModelConfigListItem = Omit<ModelConfigListItem, "loadbalance_strategy"> & {
-  loadbalance_strategy: RawLoadbalanceStrategySummary | null;
+type RawModelAccessTarget = Omit<ModelAccessTarget, "weight" | "target_priority"> & {
+  weight?: unknown;
+  target_priority?: unknown;
 };
 
-type RawModelConfig = Omit<ModelConfig, "loadbalance_strategy"> & {
+type RawModelConfigListItem = Omit<ModelConfigListItem, "loadbalance_strategy" | "access_targets"> & {
   loadbalance_strategy: RawLoadbalanceStrategySummary | null;
+  access_targets: RawModelAccessTarget[];
+};
+
+type RawModelConfig = Omit<ModelConfig, "loadbalance_strategy" | "access_targets"> & {
+  loadbalance_strategy: RawLoadbalanceStrategySummary | null;
+  access_targets: RawModelAccessTarget[];
 };
 
 type RawEndpointModelsBatchResponse = {
@@ -107,6 +114,52 @@ function normalizeNumber(value: unknown, field: string) {
   }
 
   return value;
+}
+
+function unsupportedManagementModel(reason: string): never {
+  throw new Error(`Unsupported model contract from management API: ${reason}`);
+}
+
+function normalizeOptionalPositiveInteger(value: unknown, field: string): number | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    unsupportedManagementModel(field);
+  }
+  return value;
+}
+
+function normalizeOptionalNonNegativeInteger(value: unknown, field: string): number | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    unsupportedManagementModel(field);
+  }
+  return value;
+}
+
+function normalizeModelAccessTarget(target: RawModelAccessTarget): ModelAccessTarget {
+  const weight = normalizeOptionalPositiveInteger(target.weight, "access_targets.weight");
+  const targetPriority = normalizeOptionalNonNegativeInteger(
+    target.target_priority,
+    "access_targets.target_priority",
+  );
+
+  if (target.target_type === "model") {
+    return {
+      ...target,
+      weight: weight ?? 1,
+      target_priority: targetPriority ?? 0,
+    };
+  }
+
+  return {
+    ...target,
+    weight: null,
+    target_priority: null,
+  };
 }
 
 function normalizeLegacyStrategyType(value: unknown): LegacyLoadbalanceStrategyType {
@@ -208,6 +261,7 @@ function normalizeModelConfigListItem(model: RawModelConfigListItem): ModelConfi
   return {
     ...model,
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(model.loadbalance_strategy),
+    access_targets: model.access_targets.map(normalizeModelAccessTarget),
   };
 }
 
@@ -215,6 +269,7 @@ function normalizeModelConfig(model: RawModelConfig): ModelConfig {
   return {
     ...model,
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(model.loadbalance_strategy),
+    access_targets: model.access_targets.map(normalizeModelAccessTarget),
   };
 }
 
@@ -290,24 +345,29 @@ export const models = {
     }).then(normalizeModelConfig),
   delete: (id: number) => request<void>(`/api/models/${id}`, { method: "DELETE" }),
   targets: {
-    list: (modelConfigId: number) => request<ModelAccessTarget[]>(`/api/models/${modelConfigId}/targets`),
+    list: (modelConfigId: number) =>
+      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets`).then((targets) =>
+        targets.map(normalizeModelAccessTarget),
+      ),
     create: (modelConfigId: number, data: ModelAccessTargetCreate) =>
-      request<ModelAccessTarget[]>(`/api/models/${modelConfigId}/targets`, {
+      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets`, {
         method: "POST",
         body: JSON.stringify(data),
-      }),
+      }).then((targets) => targets.map(normalizeModelAccessTarget)),
     update: (modelConfigId: number, targetId: number, data: ModelAccessTargetUpdate) =>
-      request<ModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
+      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
         method: "PATCH",
         body: JSON.stringify(data),
-      }),
+      }).then((targets) => targets.map(normalizeModelAccessTarget)),
     movePosition: (modelConfigId: number, targetId: number, toIndex: number) =>
-      request<ModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
+      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
         method: "PATCH",
         body: JSON.stringify({ position: toIndex }),
-      }),
+      }).then((targets) => targets.map(normalizeModelAccessTarget)),
     delete: (modelConfigId: number, targetId: number) =>
-      request<ModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, { method: "DELETE" }),
+      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
+        method: "DELETE",
+      }).then((targets) => targets.map(normalizeModelAccessTarget)),
   },
   connections: {
     list: (modelConfigId: number) => request<Connection[]>(`/api/models/${modelConfigId}/connections`),

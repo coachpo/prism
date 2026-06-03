@@ -20,7 +20,7 @@ import (
 )
 
 func TestRequestGenerationParams_TranslatedResponsesPreserveIngressAttribution(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
 		"id": "generation-translated-responses",
@@ -51,7 +51,7 @@ func TestRequestGenerationParams_TranslatedResponsesPreserveIngressAttribution(t
 }
 
 func TestRequestGenerationParams_TranslatedChatPreserveIngressAttribution(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
 		"id": "generation-translated-chat",
@@ -82,7 +82,7 @@ func TestRequestGenerationParams_TranslatedChatPreserveIngressAttribution(t *tes
 }
 
 func TestRequestGenerationParams_TranslatedResponsesRejectionPreservesIngressAttribution(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "generation-translated-responses-rejection"})
 	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "generation-translated-rejection-public", "generation-translated-rejection-target", upstream.baseURL("/generation/translated/rejection"), "generation-translated-rejection-key", "chat_completions_reasoning_none")
@@ -98,7 +98,7 @@ func TestRequestGenerationParams_TranslatedResponsesRejectionPreservesIngressAtt
 }
 
 func TestFacadeRequestGenerationParams_TranslatedResponsesRejectionPreservesIngressAttribution(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "generation-facade-translated-rejection"})
 	route := seedTranslatedOpenAIFacadeRoute(t, harness, profileID, "generation-facade-rejection-public", "generation-facade-rejection-target", upstream.baseURL("/generation/facade/translated/rejection"), "generation-facade-rejection-key", "chat_completions_reasoning_none")
@@ -114,7 +114,7 @@ func TestFacadeRequestGenerationParams_TranslatedResponsesRejectionPreservesIngr
 }
 
 func TestRequestGenerationParams_TranslatedChatRejectionPreservesIngressAttribution(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "generation-translated-chat-rejection"})
 	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "generation-translated-chat-rejection-public", "generation-translated-chat-rejection-target", upstream.baseURL("/generation/translated/chat-rejection"), "generation-translated-chat-rejection-key", "responses_reasoning_none")

@@ -132,7 +132,7 @@ GET is a read of the managed file plus the live applied baseline. Current respon
 }
 ```
 
-The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied. Runtime buffering is automatic and not user-configurable.
+The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied. Runtime buffering is automatic and not user-configurable. The same bootstrap contract also owns the temporary restart-required rollout controls `runtime.routing.plannerMode` (`legacy`, `shadow`, `enforced`) and `runtime.routing.openaiTerminalTranslationMode` (`off`, `safe_only`). `legacy` + `off` is the rollback position; `shadow` keeps serving through the legacy resolver while the compiled planner runs in parallel and persists only compact mismatch summaries when the two outcomes diverge.
 
 Raw runtime startup config uses camelCase JSON field names in the file:
 
@@ -1098,6 +1098,7 @@ Preview semantics:
 - The backend validates bundle kind/version, top-level private connection references, ordered model access targets, vendor resolution, and secret decryption before returning `ready: true`.
 - Preview rejects any `connection_ref` used by multiple models or any imported connection ref that cannot be owned by exactly one model.
 - Preview rejects profile bundle versions other than `3`; older profile bundle versions return `400`.
+- Profile bundles stay on `version: 3` during planner rollout and do not include the temporary bootstrap-owned runtime rollout controls.
 - Preview returns a server-issued preview token, and apply must send that token in `X-Prism-Preview-Token`.
 - Preview rejects plaintext or otherwise non-encrypted `secret_payload.entries[].ciphertext` values.
 - When bundle key validation or secret decryption fails, preview returns `ready: false` with `blocking_errors[]` and does not mutate profile state.

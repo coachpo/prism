@@ -93,6 +93,23 @@ func TestEstimateOpenAIResponsesRequestTokens(t *testing.T) {
 	}
 }
 
+func TestRequestGenerationParamsContextFitHelper(t *testing.T) {
+	estimation := &requestContextEstimation{EstimatedTotalContextTokens: 600}
+	if !estimation.fitsUsableContextWindowTokens(600) {
+		t.Fatal("expected equal estimated and usable context tokens to fit")
+	}
+	if estimation.fitsUsableContextWindowTokens(599) {
+		t.Fatal("expected estimated tokens above usable context window to be rejected")
+	}
+	var missing *requestContextEstimation
+	if missing.fitsUsableContextWindowTokens(600) {
+		t.Fatal("expected missing estimation to never fit")
+	}
+	if estimation.fitsUsableContextWindowTokens(0) {
+		t.Fatal("expected unavailable usable context metadata to never fit")
+	}
+}
+
 func TestGeminiStreamingObserverByOperation(t *testing.T) {
 	streamOperation := mustResolveRequestGenerationOperation(t, "/v1beta/models/gemini:streamGenerateContent").Operation
 	generateOperation := mustResolveRequestGenerationOperation(t, "/v1beta/models/gemini:generateContent").Operation

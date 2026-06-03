@@ -1593,7 +1593,9 @@ export interface Messages {
     editModel: string;
     editModelEnabledDescription: string;
     enableAccessTarget: (value: string) => string;
+    fallbackTier: (value: string) => string;
     maxContextUtilization: string;
+    modelTierDescription: string;
     preferredContextUtilizationThreshold: string;
     preferredContextUtilizationThresholdHelper: string;
     modelId: string;
@@ -1607,15 +1609,19 @@ export interface Messages {
     noModelsMatchSearch: string;
     noModelsConfigured: string;
     noSameFamilyModelsAvailable: string;
+    noTerminalTargetsSelected: string;
     optionalFriendlyName: string;
     priority: (value: string) => string;
     routingTypeDescription: string;
     save: string;
     selectSameFamilyModel: string;
     strategyNotConfigured: string;
+    terminalTargets: string;
+    terminalTargetsDescription: string;
     targetMoveDown: (id: string) => string;
     targetMoveUp: (id: string) => string;
     targetRemove: (id: string) => string;
+    tier: string;
     viewModelDetails: (name: string) => string;
     tryDifferentModelNameOrId: string;
     createFirstModel: string;
@@ -1625,6 +1631,8 @@ export interface Messages {
     spendShort: string;
     unknownVendor: string;
     targetsFirst: (count: string, first: string) => string;
+    weight: string;
+    weightValue: (value: string) => string;
     modelCount: (count: string) => string;
   };
   modelsData: {
@@ -3830,7 +3838,7 @@ export const enMessages: Messages = {
   },
   modelsUi: {
     accessTargets: "Access targets",
-    accessTargetsDescription: "Entry models fan out through same-family model targets here. Model-private terminal targets stay visible for planning, but you create and manage them from Model Detail.",
+    accessTargetsDescription: "Entry models fan out through grouped same-family fallback tiers here. Model-private terminal targets stay visible for planning, but you create and manage them from Model Detail.",
     addTarget: "Add target",
     connectionTarget: "Terminal target",
     contextRoutingDefaults: "Context routing defaults",
@@ -3846,7 +3854,9 @@ export const enMessages: Messages = {
     editModel: "Edit Model",
     editModelEnabledDescription: "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments.",
     enableAccessTarget: (value) => `Enable access target ${value}`,
+    fallbackTier: (value) => `Tier ${value}`,
     maxContextUtilization: "Max context utilization",
+    modelTierDescription: "Targets in the same tier are planner peers. Lower tier numbers run before later fallback tiers.",
     preferredContextUtilizationThreshold: "Preferred context utilization threshold",
     preferredContextUtilizationThresholdHelper:
       "Optional soft preference band for cheapest eligible context routing. Leave blank to disable the preferred band.",
@@ -3858,10 +3868,11 @@ export const enMessages: Messages = {
     newModelDescription:
       "Define the selected-profile entry model, its routing defaults, and the policy it will use to reach terminal targets.",
     newModelEnabledDescription: "New models start disabled so you can save a draft now and attach model targets later. Enabled saves require at least one enabled target.",
-    noAccessTargetsSelected: "No model targets selected. Save disabled now, or add a same-family model target before enabling.",
+    noAccessTargetsSelected: "No model targets selected. Save disabled now, or add a same-family model target to a fallback tier before enabling.",
     noModelsMatchSearch: "No models match search",
     noModelsConfigured: "No models configured",
     noSameFamilyModelsAvailable: "No other same-family models are available. Save disabled now, or add a model target later before enabling.",
+    noTerminalTargetsSelected: "No terminal targets are attached yet. Create or manage them from Model Detail.",
     optionalFriendlyName: "Optional friendly name",
     priority: (value) => `Priority ${value}`,
     routingTypeDescription:
@@ -3869,9 +3880,12 @@ export const enMessages: Messages = {
     save: "Save",
     selectSameFamilyModel: "Select same-family model",
     strategyNotConfigured: "Strategy not configured",
+    terminalTargets: "Terminal targets",
+    terminalTargetsDescription: "Terminal connections stay outside the peer-tier editor. Create, edit, and health-check them here without changing grouped model fallback tiers.",
     targetMoveDown: (id) => `Move target ${id} down`,
     targetMoveUp: (id) => `Move target ${id} up`,
     targetRemove: (id) => `Remove target ${id}`,
+    tier: "Tier",
     viewModelDetails: (name) => `View model details for ${name}`,
     tryDifferentModelNameOrId: "Try a different model name or ID",
     createFirstModel: "Create your first model to get started",
@@ -3881,6 +3895,8 @@ export const enMessages: Messages = {
     spendShort: "spend",
     unknownVendor: "Unknown vendor",
     targetsFirst: (count, first) => `${count} targets · ${first} first`,
+    weight: "Weight",
+    weightValue: (value) => `Weight ${value}`,
     modelCount: (count) => `${count} ${count === "1" ? "model" : "models"}`,
   },
   modelsData: {

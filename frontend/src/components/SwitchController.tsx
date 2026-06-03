@@ -31,6 +31,7 @@ export function SwitchController({
         checked={checked ?? false}
         onCheckedChange={onCheckedChange}
         disabled={disabled}
+        aria-label={label}
         className="data-[state=checked]:bg-emerald-500"
       />
     </div>

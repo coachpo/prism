@@ -85,7 +85,7 @@ func selectWeightedRuntimeAccessCandidate(profileID int, facadeModelConfigID int
 	}
 	cursorOffset := 0
 	if cursor != nil {
-		cursorOffset = cursor.ClaimProxyWeightedCursor(profileID, facadeModelConfigID, runtimeAccessTargetSetHash(weightedTargets), totalWeight)
+		cursorOffset = cursor.ClaimProxyWeightedCursor(profileID, facadeModelConfigID, runtimeWeightedAccessTargetSetHash(weightedTargets), totalWeight)
 	}
 	cumulativeWeight := 0
 	for index := range candidates {
@@ -131,6 +131,22 @@ func runtimeAccessTargetSetHash(targets []runtimeAccessTargetRecord) string {
 			connectionID = *target.TargetConnectionID
 		}
 		_, _ = fmt.Fprintf(hasher, "%d:%d:%s:%d:%d|", target.ID, target.Position, target.TargetType, modelID, connectionID)
+	}
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func runtimeWeightedAccessTargetSetHash(targets []runtimeAccessTargetRecord) string {
+	hasher := sha256.New()
+	for _, target := range targets {
+		modelID := 0
+		if target.TargetModelConfigID != nil {
+			modelID = *target.TargetModelConfigID
+		}
+		connectionID := 0
+		if target.TargetConnectionID != nil {
+			connectionID = *target.TargetConnectionID
+		}
+		_, _ = fmt.Fprintf(hasher, "%d:%d:%s:%d:%d:%d:%d|", target.ID, target.Position, target.TargetType, modelID, connectionID, target.TargetPriority, effectiveRuntimeAccessTargetWeight(target))
 	}
 	return hex.EncodeToString(hasher.Sum(nil))
 }

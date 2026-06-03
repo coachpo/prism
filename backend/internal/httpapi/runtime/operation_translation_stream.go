@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"time"
 )
@@ -113,11 +112,11 @@ func newOpenAIStreamTranslator(mode TranslationMode, requestedModelID string) (o
 	switch mode {
 	case TranslationModeOpenAIResponsesToChatCompletions:
 		if hooks, ok := translatedOpenAIStreamHooksForMode(mode); ok {
-			return hooks, &openAIChatToResponsesStreamTranslator{requestedModelID: requestedModelID, messageRole: "assistant", messageItemID: "msg_0", toolCalls: map[int]*openAIChatToolCallStreamState{}}, nil
+			return hooks, &openAIChatToResponsesStreamTranslator{requestedModelID: requestedModelID, messageRole: "assistant", messageItemID: "msg_0"}, nil
 		}
 	case TranslationModeOpenAIChatCompletionsToResponses:
 		if hooks, ok := translatedOpenAIStreamHooksForMode(mode); ok {
-			return hooks, &openAIResponsesToChatStreamTranslator{messageRole: "assistant", toolCalls: map[int]*openAIResponsesToolCallStreamState{}}, nil
+			return hooks, &openAIResponsesToChatStreamTranslator{messageRole: "assistant"}, nil
 		}
 	}
 	return operationStreamHooks{}, nil, unsupportedTranslationModeError(mode)
@@ -132,6 +131,29 @@ func translatedOpenAIStreamHooksForMode(mode TranslationMode) (operationStreamHo
 	default:
 		return operationStreamHooks{}, false
 	}
+}
+
+func unsupportedOpenAIStreamTranslationShapeError(mode TranslationMode, reason string) error {
+	return openAIStreamTranslationUnsupportedDomainError(mode, normalizedTranslationUnsupportedReason(reason))
+}
+
+func streamTranslationErrorFromResponseError(mode TranslationMode, err error, fallback string) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := translationUnsupportedDomainError(err, openAIResponseTranslationUnsupportedErrorCode); ok {
+		return unsupportedOpenAIStreamTranslationShapeError(mode, translationUnsupportedReasonFromError(err, openAIResponseTranslationUnsupportedErrorCode, fallback))
+	}
+	return err
+}
+
+func unsupportedResponsesStreamEventReason(eventType string) string {
+	normalized := strings.ToLower(strings.TrimSpace(eventType))
+	if normalized == "" {
+		return "responses_stream_event"
+	}
+	normalized = strings.NewReplacer(".", "_", "-", "_").Replace(normalized)
+	return "responses_stream_" + normalized
 }
 
 type openAIChatToResponsesStreamTranslator struct {
@@ -149,15 +171,6 @@ type openAIChatToResponsesStreamTranslator struct {
 	finishReason      string
 	terminalUsage     responseUsage
 	text              strings.Builder
-	toolCalls         map[int]*openAIChatToolCallStreamState
-}
-
-type openAIChatToolCallStreamState struct {
-	index int
-	id    string
-	name  string
-	args  strings.Builder
-	added bool
 }
 
 func (translator *openAIChatToResponsesStreamTranslator) consumeEvent(_ string, payload map[string]any) ([][]byte, error) {
@@ -173,11 +186,11 @@ func (translator *openAIChatToResponsesStreamTranslator) consumeEvent(_ string, 
 		return nil, nil
 	}
 	if len(choices) > 1 {
-		return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "chat_multi_choice_stream")
+		return nil, unsupportedOpenAIStreamTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "chat_multi_choice_stream")
 	}
 	choice, ok := choices[0].(map[string]any)
 	if !ok {
-		return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "chat_choice_stream")
+		return nil, unsupportedOpenAIStreamTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "chat_choice_stream")
 	}
 	if finishReason := firstNonEmptyString(choice["finish_reason"], choice["finishReason"]); finishReason != "" {
 		translator.finishReason = finishReason
@@ -206,18 +219,11 @@ func (translator *openAIChatToResponsesStreamTranslator) consumeEvent(_ string, 
 			frames = append(frames, frame)
 		}
 	}
-	if rawToolCalls, ok := delta["tool_calls"].([]any); ok {
-		for position, rawToolCall := range rawToolCalls {
-			toolCall, ok := rawToolCall.(map[string]any)
-			if !ok {
-				return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "chat_tool_call_stream")
-			}
-			toolCallFrames, err := translator.consumeChatToolCallDelta(toolCall, position)
-			if err != nil {
-				return nil, err
-			}
-			frames = append(frames, toolCallFrames...)
-		}
+	if fieldHasValue(delta, "tool_calls") || fieldHasValue(delta, "function_call") {
+		return nil, unsupportedOpenAIStreamTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "chat_tool_call_stream")
+	}
+	if fieldHasValue(delta, "audio") {
+		return nil, unsupportedOpenAIStreamTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "chat_audio_stream")
 	}
 	return frames, nil
 }
@@ -236,7 +242,7 @@ func (translator *openAIChatToResponsesStreamTranslator) buildCompletedFrames(pr
 	if err != nil {
 		return nil, err
 	}
-	frames := make([][]byte, 0, len(translator.toolCalls)+2)
+	frames := make([][]byte, 0, 2)
 	if len(prefix) > 0 {
 		frames = append(frames, prefix)
 	}
@@ -250,17 +256,9 @@ func (translator *openAIChatToResponsesStreamTranslator) buildCompletedFrames(pr
 
 func (translator *openAIChatToResponsesStreamTranslator) completedResponsesPayload() (map[string]any, error) {
 	message := map[string]any{"role": firstNonEmptyString(translator.messageRole, "assistant"), "content": translator.text.String()}
-	toolCalls := translator.chatToolCallsPayload()
-	if len(toolCalls) > 0 {
-		message["tool_calls"] = toolCalls
-	}
 	finishReason := strings.TrimSpace(translator.finishReason)
 	if finishReason == "" {
-		if len(toolCalls) > 0 {
-			finishReason = "tool_calls"
-		} else {
-			finishReason = "stop"
-		}
+		finishReason = "stop"
 	}
 	payload := map[string]any{"object": "chat.completion", "choices": []any{map[string]any{"index": 0, "message": message, "finish_reason": finishReason}}}
 	if strings.TrimSpace(translator.responseID) != "" {
@@ -290,7 +288,7 @@ func (translator *openAIChatToResponsesStreamTranslator) completedResponsesPaylo
 	}
 	translatedBody, _, _, err := translateOpenAIChatToResponsesResponseWithRequestedModel(rawPayload, translator.requestedModelID)
 	if err != nil {
-		return nil, err
+		return nil, streamTranslationErrorFromResponseError(TranslationModeOpenAIResponsesToChatCompletions, err, "chat_terminal_payload")
 	}
 	translated := map[string]any{}
 	if err := json.Unmarshal(translatedBody, &translated); err != nil {
@@ -308,70 +306,6 @@ func (translator *openAIChatToResponsesStreamTranslator) terminalErrorPayload() 
 		return nil
 	}
 	return translator.errorPayload
-}
-
-func (translator *openAIChatToResponsesStreamTranslator) chatToolCallsPayload() []any {
-	if len(translator.toolCalls) == 0 {
-		return nil
-	}
-	indices := make([]int, 0, len(translator.toolCalls))
-	for index := range translator.toolCalls {
-		indices = append(indices, index)
-	}
-	sort.Ints(indices)
-	payload := make([]any, 0, len(indices))
-	for _, index := range indices {
-		state := translator.toolCalls[index]
-		payload = append(payload, map[string]any{
-			"id":   state.id,
-			"type": "function",
-			"function": map[string]any{
-				"name":      state.name,
-				"arguments": state.args.String(),
-			},
-		})
-	}
-	return payload
-}
-
-func (translator *openAIChatToResponsesStreamTranslator) consumeChatToolCallDelta(toolCall map[string]any, position int) ([][]byte, error) {
-	function, ok := toolCall["function"].(map[string]any)
-	if !ok {
-		return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "chat_function_tool_call_stream")
-	}
-	index := position
-	if value := intPointerFromAny(toolCall["index"]); value != nil {
-		index = *value
-	}
-	state := translator.toolCalls[index]
-	if state == nil {
-		state = &openAIChatToolCallStreamState{index: index, id: firstNonEmptyString(toolCall["id"], fmt.Sprintf("call_%d", index))}
-		translator.toolCalls[index] = state
-	}
-	state.name = firstNonEmptyString(function["name"], state.name)
-	frames := make([][]byte, 0, 2)
-	if frame, err := translator.ensureCreatedFrame(); err != nil {
-		return nil, err
-	} else if len(frame) > 0 {
-		frames = append(frames, frame)
-	}
-	if !state.added {
-		frame, err := marshalOpenAIResponsesSSEEvent("response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": index, "item": map[string]any{"id": state.id, "type": "function_call", "call_id": state.id, "name": state.name, "arguments": ""}})
-		if err != nil {
-			return nil, err
-		}
-		frames = append(frames, frame)
-		state.added = true
-	}
-	if arguments := stringValue(function["arguments"]); arguments != "" {
-		state.args.WriteString(arguments)
-		frame, err := marshalOpenAIResponsesSSEEvent("response.function_call_arguments.delta", map[string]any{"type": "response.function_call_arguments.delta", "output_index": index, "item_id": state.id, "delta": arguments})
-		if err != nil {
-			return nil, err
-		}
-		frames = append(frames, frame)
-	}
-	return frames, nil
 }
 
 func (translator *openAIChatToResponsesStreamTranslator) ensureCreatedFrame() ([]byte, error) {
@@ -418,34 +352,28 @@ type openAIResponsesToChatStreamTranslator struct {
 	messageRole string
 	roleSent    bool
 	text        strings.Builder
-	toolCalls   map[int]*openAIResponsesToolCallStreamState
-}
-
-type openAIResponsesToolCallStreamState struct {
-	index   int
-	id      string
-	name    string
-	args    strings.Builder
-	started bool
 }
 
 func (translator *openAIResponsesToChatStreamTranslator) consumeEvent(event string, payload map[string]any) ([][]byte, error) {
 	translator.captureResponsesMetadata(payload)
-	switch translatedResponsesEventType(event, payload) {
+	eventType := translatedResponsesEventType(event, payload)
+	switch eventType {
 	case "response.created":
 		return nil, nil
 	case "response.output_item.added":
 		return translator.consumeResponsesOutputItemAdded(payload)
 	case "response.output_text.delta":
 		return translator.consumeResponsesTextDelta(payload)
-	case "response.function_call_arguments.delta":
-		return translator.consumeResponsesToolCallDelta(payload)
 	case "response.completed":
 		return translator.consumeResponsesTerminalEvent(payload, true)
 	case "response.incomplete":
 		return translator.consumeResponsesTerminalEvent(payload, false)
-	default:
+	case "error":
+		return translator.consumeResponsesErrorEvent(payload)
+	case "":
 		return nil, nil
+	default:
+		return nil, unsupportedOpenAIStreamTranslationShapeError(TranslationModeOpenAIChatCompletionsToResponses, unsupportedResponsesStreamEventReason(eventType))
 	}
 }
 
@@ -471,11 +399,21 @@ func (translator *openAIResponsesToChatStreamTranslator) consumeResponsesOutputI
 		}
 		return nil, nil
 	case "function_call":
-		state := translator.toolCallStateFromResponseItem(item, payload)
-		return translator.emitToolCallSuffix(state, "")
+		return nil, unsupportedOpenAIStreamTranslationShapeError(TranslationModeOpenAIChatCompletionsToResponses, "responses_stream_function_call")
 	default:
+		return nil, unsupportedOpenAIStreamTranslationShapeError(TranslationModeOpenAIChatCompletionsToResponses, "responses_stream_output_item")
+	}
+}
+
+func (translator *openAIResponsesToChatStreamTranslator) consumeResponsesErrorEvent(payload map[string]any) ([][]byte, error) {
+	if len(payload) == 0 {
 		return nil, nil
 	}
+	frame, err := translator.marshalChatChunk(map[string]any{"error": firstValue(payload, "error", "message")})
+	if err != nil {
+		return nil, err
+	}
+	return [][]byte{frame, []byte("data: [DONE]\n\n")}, nil
 }
 
 func (translator *openAIResponsesToChatStreamTranslator) consumeResponsesTextDelta(payload map[string]any) ([][]byte, error) {
@@ -485,13 +423,6 @@ func (translator *openAIResponsesToChatStreamTranslator) consumeResponsesTextDel
 	}
 	translator.text.WriteString(delta)
 	return translator.chatContentChunk(delta)
-}
-
-func (translator *openAIResponsesToChatStreamTranslator) consumeResponsesToolCallDelta(payload map[string]any) ([][]byte, error) {
-	state := translator.toolCallStateFromResponseDelta(payload)
-	arguments := stringValue(payload["delta"])
-	state.args.WriteString(arguments)
-	return translator.emitToolCallSuffix(state, arguments)
 }
 
 func (translator *openAIResponsesToChatStreamTranslator) consumeResponsesTerminalEvent(payload map[string]any, completed bool) ([][]byte, error) {
@@ -537,7 +468,7 @@ func (translator *openAIResponsesToChatStreamTranslator) translatedCompletedChat
 	}
 	translatedBody, _, _, err := translateOpenAIResponsesToChatResponse(rawPayload)
 	if err != nil {
-		return nil, err
+		return nil, streamTranslationErrorFromResponseError(TranslationModeOpenAIChatCompletionsToResponses, err, "responses_terminal_payload")
 	}
 	translated := map[string]any{}
 	if err := json.Unmarshal(translatedBody, &translated); err != nil {
@@ -558,18 +489,8 @@ func (translator *openAIResponsesToChatStreamTranslator) emitResidualChatFrames(
 		}
 		frames = append(frames, contentFrames...)
 	}
-	for index, finalToolCall := range translatedChatToolCalls(translatedPayload) {
-		state := translator.toolCallStateFromChatToolCall(index, finalToolCall)
-		suffix := translatedChatToolCallArgumentsSuffix(finalToolCall, state.args.String())
-		if state.started && suffix == "" {
-			continue
-		}
-		state.args.WriteString(suffix)
-		toolCallFrames, err := translator.emitToolCallSuffix(state, suffix)
-		if err != nil {
-			return nil, err
-		}
-		frames = append(frames, toolCallFrames...)
+	if len(translatedChatToolCalls(translatedPayload)) > 0 {
+		return nil, unsupportedOpenAIStreamTranslationShapeError(TranslationModeOpenAIChatCompletionsToResponses, "responses_stream_function_call")
 	}
 	return frames, nil
 }
@@ -609,79 +530,6 @@ func (translator *openAIResponsesToChatStreamTranslator) chatContentChunk(conten
 	}
 	frames = append(frames, frame)
 	return frames, nil
-}
-
-func (translator *openAIResponsesToChatStreamTranslator) emitToolCallSuffix(state *openAIResponsesToolCallStreamState, arguments string) ([][]byte, error) {
-	frames := make([][]byte, 0, 2)
-	if !translator.roleSent {
-		frame, err := translator.chatRoleChunk()
-		if err != nil {
-			return nil, err
-		}
-		frames = append(frames, frame)
-	}
-	functionPayload := map[string]any{"arguments": arguments}
-	if !state.started && strings.TrimSpace(state.name) != "" {
-		functionPayload["name"] = state.name
-	}
-	toolCall := map[string]any{"index": state.index, "id": state.id, "type": "function", "function": functionPayload}
-	frame, err := translator.marshalChatChunk(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"tool_calls": []any{toolCall}}}}})
-	if err != nil {
-		return nil, err
-	}
-	frames = append(frames, frame)
-	state.started = true
-	return frames, nil
-}
-
-func (translator *openAIResponsesToChatStreamTranslator) toolCallStateFromResponseItem(item map[string]any, payload map[string]any) *openAIResponsesToolCallStreamState {
-	index := 0
-	if value := intPointerFromAny(firstValue(payload, "output_index", "index")); value != nil {
-		index = *value
-	}
-	state := translator.toolCalls[index]
-	if state == nil {
-		state = &openAIResponsesToolCallStreamState{index: len(translator.toolCalls)}
-		translator.toolCalls[index] = state
-	}
-	state.id = firstNonEmptyString(item["call_id"], item["id"], state.id, fmt.Sprintf("call_%d", index))
-	state.name = firstNonEmptyString(item["name"], state.name)
-	return state
-}
-
-func (translator *openAIResponsesToChatStreamTranslator) toolCallStateFromResponseDelta(payload map[string]any) *openAIResponsesToolCallStreamState {
-	index := 0
-	if value := intPointerFromAny(firstValue(payload, "output_index", "index")); value != nil {
-		index = *value
-	}
-	state := translator.toolCalls[index]
-	if state == nil {
-		state = &openAIResponsesToolCallStreamState{index: len(translator.toolCalls)}
-		translator.toolCalls[index] = state
-	}
-	state.id = firstNonEmptyString(payload["call_id"], payload["item_id"], state.id, fmt.Sprintf("call_%d", index))
-	state.name = firstNonEmptyString(payload["name"], state.name)
-	return state
-}
-
-func (translator *openAIResponsesToChatStreamTranslator) toolCallStateFromChatToolCall(index int, toolCall map[string]any) *openAIResponsesToolCallStreamState {
-	toolCallID := firstNonEmptyString(toolCall["id"], fmt.Sprintf("call_%d", index))
-	for _, existing := range translator.toolCalls {
-		if existing != nil && strings.TrimSpace(existing.id) == toolCallID {
-			function, _ := toolCall["function"].(map[string]any)
-			existing.name = firstNonEmptyString(firstValue(function, "name"), existing.name)
-			return existing
-		}
-	}
-	state := translator.toolCalls[index]
-	if state == nil {
-		state = &openAIResponsesToolCallStreamState{index: len(translator.toolCalls)}
-		translator.toolCalls[index] = state
-	}
-	state.id = firstNonEmptyString(toolCall["id"], state.id, fmt.Sprintf("call_%d", index))
-	function, _ := toolCall["function"].(map[string]any)
-	state.name = firstNonEmptyString(firstValue(function, "name"), state.name)
-	return state
 }
 
 func (translator *openAIResponsesToChatStreamTranslator) marshalChatChunk(payload map[string]any) ([]byte, error) {
@@ -772,18 +620,6 @@ func translatedChatToolCalls(payload map[string]any) []map[string]any {
 		translated = append(translated, toolCall)
 	}
 	return translated
-}
-
-func translatedChatToolCallArgumentsSuffix(toolCall map[string]any, emitted string) string {
-	function, _ := toolCall["function"].(map[string]any)
-	full := stringValue(function["arguments"])
-	if full == "" {
-		return ""
-	}
-	if !strings.HasPrefix(full, emitted) {
-		return full
-	}
-	return full[len(emitted):]
 }
 
 func translatedChatChoice(payload map[string]any) (map[string]any, bool) {

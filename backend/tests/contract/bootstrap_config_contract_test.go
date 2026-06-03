@@ -35,6 +35,12 @@ func TestBootstrapConfigSchema(t *testing.T) {
 		if snapshot.Values.Runtime == nil || snapshot.Values.Runtime.SideEffects == nil || snapshot.Values.Runtime.SideEffects.AttemptTimeout == nil || *snapshot.Values.Runtime.SideEffects.AttemptTimeout != "10s" {
 			t.Fatalf("expected safe runtime side_effects attempt_timeout to be exposed, got %+v", snapshot.Values.Runtime)
 		}
+		if snapshot.Values.Runtime.Routing == nil || snapshot.Values.Runtime.Routing.PlannerMode == nil || *snapshot.Values.Runtime.Routing.PlannerMode != string(config.RuntimeRoutingPlannerModeLegacy) {
+			t.Fatalf("expected safe runtime routing planner_mode=legacy to be exposed, got %+v", snapshot.Values.Runtime)
+		}
+		if snapshot.Values.Runtime.Routing.OpenAITerminalTranslationMode == nil || *snapshot.Values.Runtime.Routing.OpenAITerminalTranslationMode != string(config.OpenAITerminalTranslationModeOff) {
+			t.Fatalf("expected safe runtime routing openai_terminal_translation_mode=off to be exposed, got %+v", snapshot.Values.Runtime)
+		}
 		assertContractDisabledSafeMailValues(t, snapshot.Values.Mail)
 	})
 
@@ -266,6 +272,20 @@ func TestBootstrapConfigValidation(t *testing.T) {
 				payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "-1s"
 			},
 			wantErr: "runtime.sideEffects.attemptTimeout must be greater than zero",
+		},
+		{
+			name: "invalid runtime routing planner mode",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["routing"] = map[string]any{"plannerMode": "gradual"}
+			},
+			wantErr: "runtime.routing.plannerMode must be one of legacy, shadow, enforced",
+		},
+		{
+			name: "invalid runtime routing OpenAI terminal translation mode",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["routing"] = map[string]any{"openaiTerminalTranslationMode": "all"}
+			},
+			wantErr: "runtime.routing.openaiTerminalTranslationMode must be one of off, safe_only",
 		},
 		{
 			name: "runtime execution pool min idle exceeds max",

@@ -267,7 +267,7 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var bundleErr *domainError
 	if errors.As(err, &bundleErr) {
-		writeError(w, r, corsSnapshot, bundleErr.StatusCode, bundleErr.Detail)
+		writeErrorFields(w, r, corsSnapshot, bundleErr.StatusCode, bundleErr.Detail, bundleErr.Fields)
 
 		return
 	}
@@ -280,6 +280,18 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
+	writeErrorFields(w, r, corsSnapshot, statusCode, detail, nil)
+}
+
+func writeErrorFields(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string, fields map[string]any) {
 	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]string{"detail": detail})
+	if len(fields) == 0 {
+		writeJSON(w, statusCode, map[string]string{"detail": detail})
+		return
+	}
+	payload := map[string]any{"detail": detail}
+	for key, value := range fields {
+		payload[key] = value
+	}
+	writeJSON(w, statusCode, payload)
 }

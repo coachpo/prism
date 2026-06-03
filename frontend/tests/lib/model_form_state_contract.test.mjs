@@ -14,6 +14,8 @@ const {
   DEFAULT_MODEL_FORM_DATA,
   createEditModelFormData,
   createNewModelFormData,
+  getModelAccessTargetTierNumber,
+  parseModelAccessTargetTierNumberInput,
   setApiFamilyOnForm,
   toModelCreatePayload,
   toModelUpdatePayload,
@@ -81,6 +83,65 @@ test("edit hydration seeds capability strings from list and detail payloads", ()
   assert.equal(fromDetail.max_context_utilization, "1");
   assert.equal(fromDetail.preferred_context_utilization_threshold, "");
   assert.equal(fromDetail.display_name, "");
+});
+
+test("edit hydration preserves explicit model tiers and defaults legacy model targets to a single tier", () => {
+  const formData = createEditModelFormData({
+    ...baseEditModel,
+    access_targets: [
+      {
+        id: 501,
+        target_type: "model",
+        target_model_id: "peer-model-a",
+        connection_id: null,
+        terminal_target_id: null,
+        position: 8,
+        weight: 7,
+        target_priority: 3,
+        is_enabled: true,
+        target_model: { id: 91, profile_id: 7, vendor_id: 11, api_family: "openai", model_id: "peer-model-a", display_name: "Peer A", loadbalance_strategy_id: 21, is_enabled: true },
+        connection: null,
+        terminal_target: null,
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:00Z",
+      },
+      {
+        id: 502,
+        target_type: "model",
+        target_model_id: "peer-model-b",
+        connection_id: null,
+        terminal_target_id: null,
+        position: 11,
+        weight: null,
+        target_priority: null,
+        is_enabled: false,
+        target_model: { id: 92, profile_id: 7, vendor_id: 11, api_family: "openai", model_id: "peer-model-b", display_name: "Peer B", loadbalance_strategy_id: 21, is_enabled: true },
+        connection: null,
+        terminal_target: null,
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:00Z",
+      },
+    ],
+  });
+
+  assert.deepEqual(formData.access_targets, [
+    {
+      target_type: "model",
+      target_model_id: "peer-model-a",
+      position: 0,
+      weight: 7,
+      target_priority: 3,
+      is_enabled: true,
+    },
+    {
+      target_type: "model",
+      target_model_id: "peer-model-b",
+      position: 1,
+      weight: 1,
+      target_priority: 0,
+      is_enabled: false,
+    },
+  ]);
 });
 
 test("disabled drafts validate with no access targets", () => {
@@ -214,6 +275,16 @@ test("validation rejects invalid preferred threshold values and bands above max"
   );
 });
 
+test("model target tier number helpers keep UI one-based and payload zero-based", () => {
+  assert.equal(getModelAccessTargetTierNumber(0), 1);
+  assert.equal(getModelAccessTargetTierNumber(4), 5);
+  assert.equal(getModelAccessTargetTierNumber(null), 1);
+  assert.equal(parseModelAccessTargetTierNumberInput("1"), 0);
+  assert.equal(parseModelAccessTargetTierNumberInput("5"), 4);
+  assert.equal(parseModelAccessTargetTierNumberInput("0"), null);
+  assert.equal(parseModelAccessTargetTierNumberInput(""), null);
+});
+
 test("enabled models require at least one enabled valid access target", () => {
   const enabledDraft = {
     vendor_id: null,
@@ -296,7 +367,14 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     last_auto_display_name: "Live Model",
   };
 
-  const expectedAccessTargets = [{ target_type: "model", target_model_id: "target-model", position: 0, is_enabled: true }];
+  const expectedAccessTargets = [{
+    target_type: "model",
+    target_model_id: "target-model",
+    position: 0,
+    weight: 1,
+    target_priority: 0,
+    is_enabled: true,
+  }];
 
   assert.deepEqual(toModelCreatePayload(formData), {
     vendor_id: 11,

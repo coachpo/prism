@@ -745,20 +745,28 @@ func TestBuildRequestPlan_NoContextEligibleTargetReturns413WithoutBanMutation(t 
 	if got, ok := domainErr.Fields["largest_usable_context_window_tokens"].(int); !ok || got != largeContextWindowTokens {
 		t.Fatalf("expected largest_usable_context_window_tokens=%d, got %+v", largeContextWindowTokens, domainErr.Fields)
 	}
+	if got, ok := domainErr.Fields["requested_model_id"].(string); !ok || got != model.ModelID {
+		t.Fatalf("expected requested_model_id=%q, got %+v", model.ModelID, domainErr.Fields)
+	}
+	if got, ok := domainErr.Fields["considered_model_path"].([]string); !ok || len(got) != 1 || got[0] != model.ModelID {
+		t.Fatalf("expected considered_model_path=[%q], got %+v", model.ModelID, domainErr.Fields)
+	}
 	responseRecorder := httptest.NewRecorder()
 	writeDomainError(responseRecorder, err)
 	response := responseRecorder.Result()
 	defer func() { _ = response.Body.Close() }()
 	var payload struct {
-		Error                            string `json:"error"`
-		Detail                           string `json:"detail"`
-		EstimatedTotalContextTokens      int    `json:"estimated_total_context_tokens"`
-		LargestUsableContextWindowTokens int    `json:"largest_usable_context_window_tokens"`
+		Error                            string   `json:"error"`
+		Detail                           string   `json:"detail"`
+		EstimatedTotalContextTokens      int      `json:"estimated_total_context_tokens"`
+		LargestUsableContextWindowTokens int      `json:"largest_usable_context_window_tokens"`
+		RequestedModelID                 string   `json:"requested_model_id"`
+		ConsideredModelPath              []string `json:"considered_model_path"`
 	}
 	if decodeErr := json.NewDecoder(response.Body).Decode(&payload); decodeErr != nil {
 		t.Fatalf("decode 413 context-window response: %v", decodeErr)
 	}
-	if response.StatusCode != http.StatusRequestEntityTooLarge || payload.Error != contextWindowExceededErrorCode || payload.Detail != contextWindowExceededDetail || payload.EstimatedTotalContextTokens != estimation.EstimatedTotalContextTokens || payload.LargestUsableContextWindowTokens != largeContextWindowTokens {
+	if response.StatusCode != http.StatusRequestEntityTooLarge || payload.Error != contextWindowExceededErrorCode || payload.Detail != contextWindowExceededDetail || payload.EstimatedTotalContextTokens != estimation.EstimatedTotalContextTokens || payload.LargestUsableContextWindowTokens != largeContextWindowTokens || payload.RequestedModelID != model.ModelID || len(payload.ConsideredModelPath) != 1 || payload.ConsideredModelPath[0] != model.ModelID {
 		t.Fatalf("expected exact pinned 413 response payload, got status=%d payload=%+v", response.StatusCode, payload)
 	}
 	state, ok := service.runtimeState.SnapshotConnectionState(requestPlanTestProfileID, 2_301)
@@ -767,6 +775,44 @@ func TestBuildRequestPlan_NoContextEligibleTargetReturns413WithoutBanMutation(t 
 	}
 	if state.CycleRetryAttempts != 2 || state.CumulativeRetryAttempts != 5 || state.BanMode != "off" || state.NextRetryAt != nil {
 		t.Fatalf("expected planning-time 413 to leave runtime failure state untouched, got %+v", state)
+	}
+}
+
+func TestBuildRequestPlan_CheapestEligibleContextFiltersNestedTerminalAttemptsBeforeSelection(t *testing.T) {
+	service := newEnforcedRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "nested-router-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "nested-child-openai"},
+	)
+	router := snapshot.ModelsByID["nested-router-openai"]
+	child := snapshot.ModelsByID["nested-child-openai"]
+	setRequestPlanStrategyType(snapshot, router, "cheapest_eligible_context")
+	addRequestPlanProxyTarget(snapshot, router.ModelID, child.ModelID)
+	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
+	smallContextWindowTokens := 400
+	largeContextWindowTokens := 1_000
+	maxContextUtilization := 1.0
+	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_321, 9_321, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &smallContextWindowTokens, maxContextUtilization: maxContextUtilization})
+	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_322, 9_322, 1, requestPlanConnectionTargetOptions{contextWindowTokens: &largeContextWindowTokens, maxContextUtilization: maxContextUtilization})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"nested-router-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build nested context-filtered request plan: %v", err)
+	}
+	if len(plan.TerminalAttempts) == 0 || plan.TerminalAttempts[0].Connection.ID != 2_322 {
+		t.Fatalf("expected planner to skip small terminal and select larger terminal 2322, got %+v", plan.TerminalAttempts)
+	}
+	if plan.ContextRouting == nil || plan.ContextRouting.SelectedTerminalTargetID == nil || *plan.ContextRouting.SelectedTerminalTargetID != 2_322 {
+		t.Fatalf("expected context routing to select larger terminal 2322, got %+v", plan.ContextRouting)
+	}
+	if plan.ContextRouting.UsableContextWindowTokens == nil || *plan.ContextRouting.UsableContextWindowTokens != largeContextWindowTokens {
+		t.Fatalf("expected largest usable context window %d, got %+v", largeContextWindowTokens, plan.ContextRouting)
+	}
+	if len(plan.ContextRouting.SkippedTerminalTargets) != 1 || plan.ContextRouting.SkippedTerminalTargets[0].TerminalTargetID == nil || *plan.ContextRouting.SkippedTerminalTargets[0].TerminalTargetID != 2_321 {
+		t.Fatalf("expected planner to record skipped small terminal 2321, got %+v", plan.ContextRouting.SkippedTerminalTargets)
 	}
 }
 
@@ -2380,8 +2426,8 @@ func TestBuildRequestPlan_ExactOpenAIFacadeWeightedEligibleContextRedistributesE
 	blockedTarget := snapshot.ModelsByID["blocked-openai"]
 	secondTarget := snapshot.ModelsByID["eligible-second-openai"]
 	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, firstTarget.ModelID, 0, 1, 0)
-	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, blockedTarget.ModelID, 1, 100, 1)
-	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, secondTarget.ModelID, 2, 1, 2)
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, blockedTarget.ModelID, 1, 100, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, secondTarget.ModelID, 2, 1, 0)
 	snapshot.AccessTargetsBySourceModelID[firstTarget.ID] = nil
 	snapshot.AccessTargetsBySourceModelID[blockedTarget.ID] = nil
 	snapshot.AccessTargetsBySourceModelID[secondTarget.ID] = nil
@@ -2474,6 +2520,13 @@ func newRequestPlanUnitService() *Service {
 			return time.Unix(1_700_000_000, 0).UTC()
 		},
 	}
+}
+
+func newEnforcedRequestPlanUnitService() *Service {
+	service := newRequestPlanUnitService()
+	service.plannerMode = config.RuntimeRoutingPlannerModeEnforced
+	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
+	return service
 }
 
 func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
@@ -2617,6 +2670,7 @@ func newRuntimeAccessResolutionContextForTest(service *Service, model runtimeMod
 		TranslationEligibility:   buildRequestTranslationEligibilitySummary(operation, rawBody),
 		RequestContextEstimation: estimation,
 		VisitedModelIDs:          map[int]struct{}{model.ID: struct{}{}},
+		ConsideredModelPath:      appendRuntimeModelPath(nil, model.ModelID),
 		Depth:                    1,
 		ReferenceNow:             service.nowUTC(),
 	}

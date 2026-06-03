@@ -113,7 +113,7 @@ export function ModelDialog({
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-      <DialogContent className="max-h-[90vh] sm:max-w-3xl">
+      <DialogContent className="max-h-[90vh] sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{editingModel ? copy.editModel : messages.modelsPage.newModel}</DialogTitle>
           <DialogDescription>{dialogDescription}</DialogDescription>

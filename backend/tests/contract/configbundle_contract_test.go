@@ -128,6 +128,82 @@ func TestProfileBundleImportRejectsNonOpenAIFacadeModel(t *testing.T) {
 	assertProfileImportStateUnchanged(t, harness, profileID, before)
 }
 
+func TestProfileBundleImportAllowsSparseAccessTargetPositions(t *testing.T) {
+	harness := newConfigBundleV3ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleV3Graph(t, harness, profileID)
+
+	payload := exportProfileBundlePayload(t, harness, profileID)
+	models := payload["models"].([]any)
+	firstModel := asMap(t, models[0])
+	accessTargets := firstModel["access_targets"].([]any)
+	asMap(t, accessTargets[0])["position"] = float64(4)
+	payload["models"] = models
+
+	previewPayload := previewProfileImportPayload(t, harness, profileID, payload)
+	if previewPayload["ready"] != true || previewPayload["preview_token"] == "" {
+		t.Fatalf("expected ready preview for sparse positions, got %+v", previewPayload)
+	}
+	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", payload, configBundleHeadersWithPreviewToken(modelHeader(profileID), previewPayload["preview_token"].(string)))
+	assertStatus(t, response, http.StatusOK)
+
+	reExported := exportProfileBundlePayload(t, harness, profileID)
+	reExportedModels := reExported["models"].([]any)
+	reExportedTargets := asMap(t, reExportedModels[0])["access_targets"].([]any)
+	if got := jsonInt(t, asMap(t, reExportedTargets[0])["position"]); got != 4 {
+		t.Fatalf("expected sparse target position 4 to round-trip, got %+v", reExportedTargets)
+	}
+}
+
+func TestProfileBundleImportRejectsUnknownModelTargetWithStableRoutingPlanIssue(t *testing.T) {
+	harness := newConfigBundleV3ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleV3Graph(t, harness, profileID)
+
+	payload := exportProfileBundlePayload(t, harness, profileID)
+	payload["connections"] = []any{}
+	profileSettings := asMap(t, payload["profile_settings"])
+	profileSettings["endpoint_fx_mappings"] = []any{}
+	models := payload["models"].([]any)
+	firstModel := asMap(t, models[0])
+	firstModel["access_targets"] = []any{map[string]any{"position": 2, "is_enabled": true, "target_type": "model", "target_model_id": "missing-model"}}
+	payload["models"] = models
+	before := captureProfileImportState(t, harness, profileID)
+
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", payload, modelHeader(profileID))
+	assertStatus(t, previewResponse, http.StatusBadRequest)
+	var previewPayload map[string]any
+	decodeJSONResponse(t, previewResponse, &previewPayload)
+	if previewPayload["detail"] != "Model 'gpt-4o-mini' references unknown model access target 'missing-model'" {
+		t.Fatalf("unexpected preview detail: %+v", previewPayload)
+	}
+	previewIssues, ok := previewPayload["routing_plan_issues"].([]any)
+	if !ok || len(previewIssues) != 1 {
+		t.Fatalf("expected one preview routing_plan_issue, got %+v", previewPayload)
+	}
+	previewIssue := asMap(t, previewIssues[0])
+	if previewIssue["code"] != "model_target_missing_model" || previewIssue["path"] != "models[0].access_targets[0].target_model_id" || previewIssue["message"] != "Model 'gpt-4o-mini' references unknown model access target 'missing-model'" {
+		t.Fatalf("unexpected preview routing_plan_issue: %+v", previewIssue)
+	}
+
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", payload, modelHeader(profileID))
+	assertStatus(t, importResponse, http.StatusBadRequest)
+	var importPayload map[string]any
+	decodeJSONResponse(t, importResponse, &importPayload)
+	if importPayload["detail"] != "Model 'gpt-4o-mini' references unknown model access target 'missing-model'" {
+		t.Fatalf("unexpected import detail: %+v", importPayload)
+	}
+	importIssues, ok := importPayload["routing_plan_issues"].([]any)
+	if !ok || len(importIssues) != 1 {
+		t.Fatalf("expected one import routing_plan_issue, got %+v", importPayload)
+	}
+	importIssue := asMap(t, importIssues[0])
+	if importIssue["code"] != "model_target_missing_model" || importIssue["path"] != "models[0].access_targets[0].target_model_id" || importIssue["message"] != "Model 'gpt-4o-mini' references unknown model access target 'missing-model'" {
+		t.Fatalf("unexpected import routing_plan_issue: %+v", importIssue)
+	}
+	assertProfileImportStateUnchanged(t, harness, profileID, before)
+}
+
 func TestProfileBundleImportRejectsExistingConnectionOwnerCollision(t *testing.T) {
 	harness := newConfigBundleV3ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -432,13 +508,13 @@ func newConfigBundleV3ContractHarness(t *testing.T) *contractHarness {
 	}
 
 	settings := config.Settings{
-		Host:                      "127.0.0.1",
-		Port:                      8000,
-		AppEnv:                    config.EnvironmentProduction,
-		DatabaseURL:               sharedPostgresHarness.connectionString(databaseName),
-		SecretEncryptionKey:       configBundleSecretKey,
+		Host:                   "127.0.0.1",
+		Port:                   8000,
+		AppEnv:                 config.EnvironmentProduction,
+		DatabaseURL:            sharedPostgresHarness.connectionString(databaseName),
+		SecretEncryptionKey:    configBundleSecretKey,
 		ConfigBundleEncryptionKey: configBundlePreviewTokenKey,
-		CORSAllowedOrigins:        "http://localhost:5173,http://127.0.0.1:5173",
+		CORSAllowedOrigins:     "http://localhost:5173,http://127.0.0.1:5173",
 	}
 	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
 	if err != nil {
@@ -639,6 +715,9 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	target := asMap(t, targets[0])
 	if target["target_type"] != "connection" || target["connection_ref"] != connectionRef || jsonInt(t, target["position"]) != 0 || target["is_enabled"] != true {
 		t.Fatalf("expected v3 connection access target, got %+v", target)
+	}
+	if _, ok := payload["runtime"]; ok {
+		t.Fatalf("profile config bundle export must not include bootstrap runtime rollout controls: %+v", payload)
 	}
 	settings := asMap(t, payload["profile_settings"])
 	fxMappings := settings["endpoint_fx_mappings"].([]any)

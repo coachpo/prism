@@ -108,6 +108,8 @@ export interface ConfigAccessTargetExport {
   target_type: "model" | "connection";
   connection_ref: string | null;
   target_model_id: string | null;
+  weight?: number | null;
+  target_priority?: number | null;
 }
 
 export interface ConfigModelExport {

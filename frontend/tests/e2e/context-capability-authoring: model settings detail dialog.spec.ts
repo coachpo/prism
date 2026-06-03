@@ -52,6 +52,8 @@ function createAccessTarget(targetModelId: string, position: number, displayName
     target_model_id: targetModelId,
     connection_id: null,
     position,
+    weight: 1,
+    target_priority: 0,
     is_enabled: true,
     target_model: {
       id: 100 + position,
@@ -242,7 +244,7 @@ test("context-capability-authoring: model settings clears blank context window t
       api_family: "openai",
       model_id: "routed-openai",
       display_name: "Routed OpenAI",
-      access_targets: [{ target_type: "model", target_model_id: "target-alpha", position: 0, is_enabled: true }],
+      access_targets: [{ target_type: "model", target_model_id: "target-alpha", position: 0, weight: 1, target_priority: 0, is_enabled: true }],
       loadbalance_strategy_id: 11,
       is_enabled: true,
       context_window_tokens: null,

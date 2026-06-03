@@ -11,7 +11,7 @@ import (
 
 func TestOperationRouteMatrixTranslatedOpenAINonStreamResponses(t *testing.T) {
 	t.Run("chat ingress translated from responses upstream", func(t *testing.T) {
-		harness := newRuntimeHarness(t)
+		harness := newEnforcedRuntimeHarness(t)
 		profileID := harness.activeProfileID(t)
 		upstream := newTranslatedRouteMatrixUpstream(t, `{"id":"resp_route","model":"responses-target","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"translated via responses"}]}],"usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":3}}}`, http.Header{
 			"Content-Type":     []string{"application/json"},
@@ -58,7 +58,7 @@ func TestOperationRouteMatrixTranslatedOpenAINonStreamResponses(t *testing.T) {
 	})
 
 	t.Run("responses ingress translated from chat upstream", func(t *testing.T) {
-		harness := newRuntimeHarness(t)
+		harness := newEnforcedRuntimeHarness(t)
 		profileID := harness.activeProfileID(t)
 		upstream := newTranslatedRouteMatrixUpstream(t, `{"id":"chatcmpl_route","model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":"translated via chat"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":3}}}`, http.Header{
 			"Content-Type":     []string{"application/json"},

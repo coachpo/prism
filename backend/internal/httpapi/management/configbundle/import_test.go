@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func requireConfigBundleDomainError(t *testing.T, err error, status int, detail string) {
+func requireConfigBundleDomainError(t *testing.T, err error, status int, detail string) *domainError {
 	t.Helper()
 
 	var domainErr *domainError
@@ -19,6 +19,7 @@ func requireConfigBundleDomainError(t *testing.T, err error, status int, detail 
 	if domainErr.StatusCode != status || domainErr.Detail != detail {
 		t.Fatalf("expected domainError (%d, %q), got (%d, %q)", status, detail, domainErr.StatusCode, domainErr.Detail)
 	}
+	return domainErr
 }
 
 func TestResolveImportedNames(t *testing.T) {
@@ -624,5 +625,39 @@ func validProfileBundleV3Request() profileImportRequest {
 		HeaderBlocklistRules: []headerBlocklistRuleExport{},
 		UserAgentClientRules: []userAgentClientRuleExport{},
 		SecretPayload:        secretPayloadExport{Kind: "encrypted", Cipher: bundleSecretCipher, KeyID: "kid", Entries: []secretPayloadEntry{}},
+	}
+}
+
+func TestProfileBundleImportAllowsSparseAccessTargetPositions(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.Models[0].AccessTargets[0].Position = 3
+
+	if err := validateProfileImportRequest(request); err != nil {
+		t.Fatalf("expected sparse access target positions to pass, got %v", err)
+	}
+}
+
+func TestProfileBundleImportReturnsStableRoutingPlanIssueForUnknownModelTarget(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.Connections = nil
+	request.ProfileSettings.EndpointFXMappings = nil
+	request.Models[0].AccessTargets[0] = accessTargetExport{
+		Position:      2,
+		IsEnabled:     true,
+		TargetType:    "model",
+		TargetModelID: stringPtr("missing-model"),
+	}
+
+	err := validateProfileImportRequest(request)
+	domainErr := requireConfigBundleDomainError(t, err, http.StatusBadRequest, "Model 'gpt-4o-mini' references unknown model access target 'missing-model'")
+	issues, ok := domainErr.Fields["routing_plan_issues"].([]routingPlanValidationIssue)
+	if !ok {
+		t.Fatalf("expected routing_plan_issues payload, got %+v", domainErr.Fields)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected one routing_plan_issue, got %+v", issues)
+	}
+	if issues[0].Code != "model_target_missing_model" || issues[0].Path != "models[0].access_targets[0].target_model_id" || issues[0].Message != "Model 'gpt-4o-mini' references unknown model access target 'missing-model'" {
+		t.Fatalf("unexpected routing_plan_issue: %+v", issues[0])
 	}
 }

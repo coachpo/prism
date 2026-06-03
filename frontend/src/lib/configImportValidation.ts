@@ -1,5 +1,67 @@
 import { z } from "zod";
 
+type ValidationIssueLike = {
+  path: readonly PropertyKey[];
+  message: string;
+};
+
+export function formatValidationIssuePath(path: readonly PropertyKey[]) {
+  let formatted = "";
+
+  path.forEach((segment) => {
+    if (typeof segment === "number") {
+      formatted += `[${segment}]`;
+      return;
+    }
+
+    const key = String(segment);
+    formatted += formatted.length === 0 ? key : `.${key}`;
+  });
+
+  return formatted;
+}
+
+export function formatValidationIssues(issues: readonly ValidationIssueLike[]) {
+  return issues
+    .map((issue) => {
+      const formattedPath = formatValidationIssuePath(issue.path);
+      return formattedPath.length > 0 ? `${formattedPath}: ${issue.message}` : issue.message;
+    })
+    .join(", ");
+}
+
+export function formatRoutingPlanValidationIssues(detail: unknown): string | null {
+  if (!detail || typeof detail !== "object") {
+    return null;
+  }
+
+  const routingPlanIssues = (detail as { routing_plan_issues?: unknown }).routing_plan_issues;
+  if (!Array.isArray(routingPlanIssues) || routingPlanIssues.length === 0) {
+    return null;
+  }
+
+  const formattedIssues = routingPlanIssues.flatMap((issue) => {
+    if (!issue || typeof issue !== "object") {
+      return [];
+    }
+
+    const path = (issue as { path?: unknown }).path;
+    const message = (issue as { message?: unknown }).message;
+    if (typeof message !== "string" || message.trim().length === 0) {
+      return [];
+    }
+
+    const normalizedMessage = message.trim();
+    if (typeof path === "string" && path.trim().length > 0) {
+      return [`${path.trim()}: ${normalizedMessage}`];
+    }
+
+    return [normalizedMessage];
+  });
+
+  return formattedIssues.length > 0 ? formattedIssues.join(", ") : null;
+}
+
 const EndpointImportSchema = z.strictObject({
   name: z.string(),
   base_url: z.string(),
@@ -133,6 +195,8 @@ const AccessTargetImportSchema = z.strictObject({
   target_type: z.enum(["model", "connection"]),
   connection_ref: z.string().nullable().optional(),
   target_model_id: z.string().nullable().optional(),
+  weight: z.number().int().nullable().optional(),
+  target_priority: z.number().int().nullable().optional(),
 });
 
 const ModelImportSchema = z.strictObject({
@@ -157,13 +221,6 @@ const ModelImportSchema = z.strictObject({
   const seenTargets = new Set<string>();
 
   for (const [index, target] of model.access_targets.entries()) {
-    if (target.position !== index) {
-      context.addIssue({
-        code: "custom",
-        path: ["access_targets", index, "position"],
-        message: "access_targets positions must be contiguous starting at 0",
-      });
-    }
     if (seenPositions.has(target.position)) {
       context.addIssue({
         code: "custom",
@@ -175,29 +232,97 @@ const ModelImportSchema = z.strictObject({
 
     if (target.target_type === "connection") {
       if (!target.connection_ref) {
-        context.addIssue({ code: "custom", path: ["access_targets", index, "connection_ref"], message: "connection_ref is required for connection targets" });
+        context.addIssue({
+          code: "custom",
+          path: ["access_targets", index, "connection_ref"],
+          message: `Model '${model.model_id}' connection access target must include connection_ref`,
+        });
       }
       if (target.target_model_id) {
-        context.addIssue({ code: "custom", path: ["access_targets", index, "target_model_id"], message: "target_model_id must be omitted for connection targets" });
+        context.addIssue({
+          code: "custom",
+          path: ["access_targets", index, "target_model_id"],
+          message: `Model '${model.model_id}' connection access target must not include target_model_id`,
+        });
       }
-    }
-    if (target.target_type === "model") {
-      if (!target.target_model_id) {
-        context.addIssue({ code: "custom", path: ["access_targets", index, "target_model_id"], message: "target_model_id is required for model targets" });
+      if (target.weight !== null && target.weight !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["access_targets", index, "weight"],
+          message: "weight must be omitted for terminal targets",
+        });
+      }
+      if (target.target_priority !== null && target.target_priority !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["access_targets", index, "target_priority"],
+          message: "target_priority must be omitted for terminal targets",
+        });
       }
       if (target.connection_ref) {
-        context.addIssue({ code: "custom", path: ["access_targets", index, "connection_ref"], message: "connection_ref must be omitted for model targets" });
+        const targetKey = `connection:${target.connection_ref}`;
+        if (seenTargets.has(targetKey)) {
+          context.addIssue({
+            code: "custom",
+            path: ["access_targets", index, "connection_ref"],
+            message: `Model '${model.model_id}' has duplicate connection_ref access target '${target.connection_ref}'`,
+          });
+        }
+        seenTargets.add(targetKey);
       }
-      if (target.target_model_id === model.model_id) {
-        context.addIssue({ code: "custom", path: ["access_targets", index, "target_model_id"], message: "access target cannot target itself" });
-      }
+      continue;
     }
 
-    const targetKey = `${target.target_type}:${target.connection_ref ?? target.target_model_id ?? ""}`;
-    if (seenTargets.has(targetKey)) {
-      context.addIssue({ code: "custom", path: ["access_targets", index], message: "access_targets must contain unique target references" });
+    if (!target.target_model_id) {
+      context.addIssue({
+        code: "custom",
+        path: ["access_targets", index, "target_model_id"],
+        message: `Model '${model.model_id}' model access target must include target_model_id`,
+      });
     }
-    seenTargets.add(targetKey);
+    if (target.connection_ref) {
+      context.addIssue({
+        code: "custom",
+        path: ["access_targets", index, "connection_ref"],
+        message: `Model '${model.model_id}' model access target must not include connection_ref`,
+      });
+    }
+    if (target.weight !== null && target.weight !== undefined && target.weight <= 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["access_targets", index, "weight"],
+        message: "weight must be greater than 0",
+      });
+    }
+    if (
+      target.target_priority !== null
+      && target.target_priority !== undefined
+      && target.target_priority < 0
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["access_targets", index, "target_priority"],
+        message: "target_priority must be greater than or equal to 0",
+      });
+    }
+    if (target.target_model_id === model.model_id) {
+      context.addIssue({
+        code: "custom",
+        path: ["access_targets", index, "target_model_id"],
+        message: `Model '${model.model_id}' access target cannot target itself`,
+      });
+    }
+    if (target.target_model_id) {
+      const targetKey = `model:${target.target_model_id}`;
+      if (seenTargets.has(targetKey)) {
+        context.addIssue({
+          code: "custom",
+          path: ["access_targets", index, "target_model_id"],
+          message: `Model '${model.model_id}' has duplicate model access target '${target.target_model_id}'`,
+        });
+      }
+      seenTargets.add(targetKey);
+    }
   }
 });
 
@@ -284,7 +409,7 @@ export const ConfigImportSchema = z.strictObject({
         context.addIssue({
           code: "custom",
           path: targetPath,
-          message: `connection_ref ${target.connection_ref} is already owned by model ${existingOwner}`,
+          message: `connection_ref '${target.connection_ref}' is owned by multiple models: model_id '${existingOwner}' and model_id '${model.model_id}'`,
         });
         continue;
       }
@@ -301,7 +426,7 @@ export const ConfigImportSchema = z.strictObject({
     context.addIssue({
       code: "custom",
       path: ["connections", connectionIndex, "ref"],
-      message: `private connection ref ${connection.ref} must be owned by a model access target`,
+      message: `Connection ref '${connection.ref}' must be owned by exactly one model access target`,
     });
   }
 });

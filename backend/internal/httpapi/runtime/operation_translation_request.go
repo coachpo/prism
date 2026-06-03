@@ -30,7 +30,7 @@ func translateOpenAIResponsesToChatRequest(rawBody []byte, targetModelID string)
 		return nil, err
 	}
 	translated := map[string]any{"model": targetModelID}
-	copyTranslationField(payload, translated, "temperature", "top_p", "seed", "parallel_tool_calls", "store", "metadata", "user", "service_tier", "stream")
+	copyTranslationField(payload, translated, "temperature", "top_p", "seed", "store", "metadata", "user", "service_tier", "stream")
 	if instructions := trimmedStringFromAny(payload["instructions"]); instructions != nil {
 		translated["messages"] = appendChatTranslationMessage(nil, "system", *instructions)
 	}
@@ -39,16 +39,6 @@ func translateOpenAIResponsesToChatRequest(rawBody []byte, targetModelID string)
 		return nil, err
 	}
 	translated["messages"] = appendChatTranslationMessages(translated["messages"], messages)
-	if tools, err := translateResponsesToolsToChat(payload["tools"]); err != nil {
-		return nil, err
-	} else if len(tools) > 0 {
-		translated["tools"] = tools
-	}
-	if toolChoice, err := translateResponsesToolChoiceToChat(payload["tool_choice"]); err != nil {
-		return nil, err
-	} else if toolChoice != nil {
-		translated["tool_choice"] = toolChoice
-	}
 	if maxOutputTokens := intPointerFromAny(payload["max_output_tokens"]); maxOutputTokens != nil {
 		translated["max_completion_tokens"] = *maxOutputTokens
 	}
@@ -69,7 +59,7 @@ func translateOpenAIChatToResponsesRequest(rawBody []byte, targetModelID string)
 		return nil, err
 	}
 	translated := map[string]any{"model": targetModelID}
-	copyTranslationField(payload, translated, "temperature", "top_p", "seed", "parallel_tool_calls", "store", "metadata", "user", "service_tier", "stream")
+	copyTranslationField(payload, translated, "temperature", "top_p", "seed", "store", "metadata", "user", "service_tier", "stream")
 	messagesValue, _ := payload["messages"].([]any)
 	instructions, remainingMessages, err := extractLeadingChatInstructions(messagesValue)
 	if err != nil {
@@ -84,16 +74,6 @@ func translateOpenAIChatToResponsesRequest(rawBody []byte, targetModelID string)
 	}
 	if len(inputItems) > 0 {
 		translated["input"] = inputItems
-	}
-	if tools, err := translateChatToolsToResponses(payload["tools"]); err != nil {
-		return nil, err
-	} else if len(tools) > 0 {
-		translated["tools"] = tools
-	}
-	if toolChoice, err := translateChatToolChoiceToResponses(payload["tool_choice"]); err != nil {
-		return nil, err
-	} else if toolChoice != nil {
-		translated["tool_choice"] = toolChoice
 	}
 	if maxCompletionTokens := intPointerFromAny(payload["max_completion_tokens"]); maxCompletionTokens != nil {
 		translated["max_output_tokens"] = *maxCompletionTokens
@@ -129,6 +109,11 @@ func rejectResponsesTranslationUnsupportedFields(payload map[string]any) error {
 	if fieldHasValue(payload, "text") {
 		return openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_text")
 	}
+	for _, key := range []string{"tools", "tool_choice", "parallel_tool_calls"} {
+		if fieldHasValue(payload, key) {
+			return openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_"+key)
+		}
+	}
 	return rejectUnsupportedResponsesReasoning(payload["reasoning"])
 }
 
@@ -152,7 +137,7 @@ func rejectChatTranslationUnsupportedFields(payload map[string]any) error {
 	if n := intPointerFromAny(payload["n"]); n != nil && *n > 1 {
 		return openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_multi_choice")
 	}
-	for _, key := range []string{"response_format", "audio", "logprobs", "top_logprobs", "stream_options", "modalities", "prediction"} {
+	for _, key := range []string{"response_format", "audio", "logprobs", "top_logprobs", "stream_options", "modalities", "prediction", "tools", "tool_choice", "parallel_tool_calls"} {
 		if fieldHasValue(payload, key) {
 			return openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_"+key)
 		}
@@ -196,23 +181,11 @@ func translateResponsesInputItemToChatMessages(value any) ([]any, error) {
 	case "input_text":
 		return []any{map[string]any{"role": "user", "content": stringValue(item["text"])}}, nil
 	case "input_image":
-		part, err := translateResponsesImagePartToChat(item)
-		if err != nil {
-			return nil, err
-		}
-		return []any{map[string]any{"role": "user", "content": []any{part}}}, nil
+		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_input_image")
 	case "function_call":
-		toolCall, err := translateResponsesFunctionCallToChat(item)
-		if err != nil {
-			return nil, err
-		}
-		return []any{map[string]any{"role": "assistant", "content": "", "tool_calls": []any{toolCall}}}, nil
+		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_function_call")
 	case "function_call_output":
-		toolMessage, err := translateResponsesFunctionCallOutputToChat(item)
-		if err != nil {
-			return nil, err
-		}
-		return []any{toolMessage}, nil
+		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_function_call_output")
 	default:
 		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_input_type")
 	}
@@ -245,14 +218,7 @@ func translateResponsesMessageContentToChat(value any, role string) (any, error)
 			case "input_text", "output_text", "text":
 				parts = append(parts, map[string]any{"type": "text", "text": stringValue(part["text"])})
 			case "input_image":
-				if role != "user" {
-					return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_non_user_image")
-				}
-				translatedPart, err := translateResponsesImagePartToChat(part)
-				if err != nil {
-					return nil, err
-				}
-				parts = append(parts, translatedPart)
+				return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_input_image")
 			default:
 				return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_message_part_type")
 			}
@@ -266,103 +232,6 @@ func translateResponsesMessageContentToChat(value any, role string) (any, error)
 	default:
 		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_message_content")
 	}
-}
-
-func translateResponsesImagePartToChat(item map[string]any) (map[string]any, error) {
-	imageURL := strings.TrimSpace(stringValue(item["image_url"]))
-	if imageURL == "" {
-		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_input_image")
-	}
-	translated := map[string]any{"type": "image_url", "image_url": map[string]any{"url": imageURL}}
-	if detail := trimmedStringFromAny(item["detail"]); detail != nil {
-		translated["image_url"].(map[string]any)["detail"] = *detail
-	}
-	return translated, nil
-}
-
-func translateResponsesFunctionCallToChat(item map[string]any) (map[string]any, error) {
-	name := strings.TrimSpace(stringValue(item["name"]))
-	callID := strings.TrimSpace(firstNonEmptyString(item["call_id"], item["id"]))
-	if name == "" || callID == "" {
-		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_function_call")
-	}
-	arguments, err := jsonStringValue(item["arguments"], TranslationModeOpenAIResponsesToChatCompletions, "responses_function_call_arguments")
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{
-		"id":   callID,
-		"type": "function",
-		"function": map[string]any{
-			"name":      name,
-			"arguments": arguments,
-		},
-	}, nil
-}
-
-func translateResponsesFunctionCallOutputToChat(item map[string]any) (map[string]any, error) {
-	callID := strings.TrimSpace(firstNonEmptyString(item["call_id"], item["tool_call_id"]))
-	output, ok := item["output"].(string)
-	if callID == "" || !ok {
-		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_function_call_output")
-	}
-	return map[string]any{"role": "tool", "tool_call_id": callID, "content": output}, nil
-}
-
-func translateResponsesToolsToChat(value any) ([]any, error) {
-	if value == nil {
-		return nil, nil
-	}
-	tools, ok := value.([]any)
-	if !ok {
-		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_tools")
-	}
-	translated := make([]any, 0, len(tools))
-	for _, rawTool := range tools {
-		tool, ok := rawTool.(map[string]any)
-		if !ok || strings.TrimSpace(stringValue(tool["type"])) != "function" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_non_function_tool")
-		}
-		name := strings.TrimSpace(stringValue(tool["name"]))
-		if name == "" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_function_tool_name")
-		}
-		translatedTool := map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name":        name,
-				"description": stringValue(tool["description"]),
-				"parameters":  firstValue(tool, "parameters", "input_schema"),
-			},
-		}
-		if strict, ok := boolPointerFromAny(tool["strict"]); ok {
-			translatedTool["function"].(map[string]any)["strict"] = *strict
-		}
-		translated = append(translated, translatedTool)
-	}
-	return translated, nil
-}
-
-func translateResponsesToolChoiceToChat(value any) (any, error) {
-	switch typed := value.(type) {
-	case nil:
-		return nil, nil
-	case string:
-		normalized := strings.TrimSpace(typed)
-		if normalized == "" || normalized == "auto" || normalized == "none" {
-			return normalized, nil
-		}
-	case map[string]any:
-		if strings.TrimSpace(stringValue(typed["type"])) != "function" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_tool_choice")
-		}
-		name := strings.TrimSpace(firstNonEmptyString(typed["name"], nestedValue(typed, "function", "name")))
-		if name == "" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_tool_choice")
-		}
-		return map[string]any{"type": "function", "function": map[string]any{"name": name}}, nil
-	}
-	return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIResponsesToChatCompletions, "responses_tool_choice")
 }
 
 func translateResponsesReasoningEffort(value any) (*string, error) {
@@ -451,7 +320,7 @@ func translateChatMessageToResponsesInput(message map[string]any) ([]any, error)
 		if fieldHasValue(message, "function_call") {
 			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_legacy_function_call")
 		}
-		content, err := translateChatContentToResponses(message["content"], role)
+		content, err := translateChatContentToResponses(message["content"])
 		if err != nil {
 			return nil, err
 		}
@@ -460,25 +329,17 @@ func translateChatMessageToResponsesInput(message map[string]any) ([]any, error)
 			items = append(items, map[string]any{"type": "message", "role": role, "content": content})
 		}
 		if role == "assistant" && fieldHasValue(message, "tool_calls") {
-			toolCalls, err := translateChatToolCallsToResponses(message["tool_calls"])
-			if err != nil {
-				return nil, err
-			}
-			items = append(items, toolCalls...)
+			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_calls")
 		}
 		return items, nil
 	case "tool":
-		toolOutput, err := translateChatToolMessageToResponses(message)
-		if err != nil {
-			return nil, err
-		}
-		return []any{toolOutput}, nil
+		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_message")
 	default:
 		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_message_role")
 	}
 }
 
-func translateChatContentToResponses(value any, role string) (any, error) {
+func translateChatContentToResponses(value any) (any, error) {
 	switch typed := value.(type) {
 	case nil, string:
 		return typed, nil
@@ -492,12 +353,8 @@ func translateChatContentToResponses(value any, role string) (any, error) {
 			switch {
 			case isChatTextPart(part):
 				parts = append(parts, map[string]any{"type": "input_text", "text": stringValue(part["text"])})
-			case isChatImagePart(part) && role == "user":
-				translatedPart, err := translateChatImagePartToResponses(part)
-				if err != nil {
-					return nil, err
-				}
-				parts = append(parts, translatedPart)
+			case isChatImagePart(part):
+				return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_image_part")
 			default:
 				return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_content_part_type")
 			}
@@ -506,118 +363,6 @@ func translateChatContentToResponses(value any, role string) (any, error) {
 	default:
 		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_content")
 	}
-}
-
-func translateChatImagePartToResponses(part map[string]any) (map[string]any, error) {
-	image, ok := part["image_url"].(map[string]any)
-	if !ok {
-		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_image_part")
-	}
-	imageURL := strings.TrimSpace(stringValue(image["url"]))
-	if imageURL == "" {
-		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_image_part")
-	}
-	translated := map[string]any{"type": "input_image", "image_url": imageURL}
-	detailValue := part["detail"]
-	if detailValue == nil {
-		detailValue = image["detail"]
-	}
-	if detail := trimmedStringFromAny(detailValue); detail != nil {
-		translated["detail"] = *detail
-	}
-	return translated, nil
-}
-
-func translateChatToolCallsToResponses(value any) ([]any, error) {
-	toolCalls, ok := value.([]any)
-	if !ok {
-		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_calls")
-	}
-	translated := make([]any, 0, len(toolCalls))
-	for _, rawToolCall := range toolCalls {
-		toolCall, ok := rawToolCall.(map[string]any)
-		if !ok || strings.TrimSpace(stringValue(toolCall["type"])) != "function" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_non_function_tool_call")
-		}
-		function, ok := toolCall["function"].(map[string]any)
-		if !ok {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_function_tool_call")
-		}
-		arguments, err := jsonStringValue(function["arguments"], TranslationModeOpenAIChatCompletionsToResponses, "chat_function_tool_call_arguments")
-		if err != nil {
-			return nil, err
-		}
-		callID := strings.TrimSpace(stringValue(toolCall["id"]))
-		name := strings.TrimSpace(stringValue(function["name"]))
-		if callID == "" || name == "" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_function_tool_call")
-		}
-		translated = append(translated, map[string]any{"type": "function_call", "call_id": callID, "name": name, "arguments": arguments})
-	}
-	return translated, nil
-}
-
-func translateChatToolMessageToResponses(message map[string]any) (map[string]any, error) {
-	callID := strings.TrimSpace(firstNonEmptyString(message["tool_call_id"], message["call_id"]))
-	content, ok := message["content"].(string)
-	if callID == "" || !ok {
-		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_message")
-	}
-	return map[string]any{"type": "function_call_output", "call_id": callID, "output": content}, nil
-}
-
-func translateChatToolsToResponses(value any) ([]any, error) {
-	if value == nil {
-		return nil, nil
-	}
-	tools, ok := value.([]any)
-	if !ok {
-		return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_tools")
-	}
-	translated := make([]any, 0, len(tools))
-	for _, rawTool := range tools {
-		tool, ok := rawTool.(map[string]any)
-		if !ok || strings.TrimSpace(stringValue(tool["type"])) != "function" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_non_function_tool")
-		}
-		function, ok := tool["function"].(map[string]any)
-		if !ok {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_function_tool")
-		}
-		name := strings.TrimSpace(stringValue(function["name"]))
-		if name == "" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_function_tool")
-		}
-		translatedTool := map[string]any{"type": "function", "name": name, "description": stringValue(function["description"]), "parameters": function["parameters"]}
-		if strict, ok := boolPointerFromAny(firstValue(function, "strict", "schema_strict")); ok {
-			translatedTool["strict"] = *strict
-		}
-		translated = append(translated, translatedTool)
-	}
-	return translated, nil
-}
-
-func translateChatToolChoiceToResponses(value any) (any, error) {
-	switch typed := value.(type) {
-	case nil:
-		return nil, nil
-	case string:
-		normalized := strings.TrimSpace(typed)
-		if normalized == "" || normalized == "auto" || normalized == "none" {
-			return normalized, nil
-		}
-	case map[string]any:
-		if strings.TrimSpace(stringValue(typed["type"])) != "function" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_choice")
-		}
-		function, _ := typed["function"].(map[string]any)
-		name := strings.TrimSpace(firstNonEmptyString(typed["name"], firstValue(function, "name")))
-		if name == "" {
-			return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_choice")
-		}
-		return map[string]any{"type": "function", "name": name}, nil
-	}
-	return nil, openAIRequestTranslationUnsupportedDomainError(TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_choice")
 }
 
 func isChatTextPart(part map[string]any) bool {
@@ -635,21 +380,6 @@ func firstNonEmptyString(values ...any) string {
 		}
 	}
 	return ""
-}
-
-func jsonStringValue(value any, mode TranslationMode, reason string) (string, error) {
-	switch typed := value.(type) {
-	case nil:
-		return "", nil
-	case string:
-		return typed, nil
-	default:
-		raw, err := json.Marshal(typed)
-		if err != nil {
-			return "", openAIRequestTranslationUnsupportedDomainError(mode, reason)
-		}
-		return string(raw), nil
-	}
 }
 
 func copyTranslationField(source map[string]any, target map[string]any, keys ...string) {

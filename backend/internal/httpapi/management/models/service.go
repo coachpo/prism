@@ -30,6 +30,7 @@ type Service struct {
 type domainError struct {
 	StatusCode int
 	Detail     string
+	Fields     map[string]any
 }
 
 func (err *domainError) Error() string {

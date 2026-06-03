@@ -386,12 +386,12 @@ func newProfileContractHarness(t *testing.T) *contractHarness {
 	}
 
 	settings := config.Settings{
-		Host:                       "127.0.0.1",
-		Port:                       8000,
-		AppEnv:                     config.EnvironmentProduction,
-		DatabaseURL:                sharedPostgresHarness.connectionString(databaseName),
-		SecretEncryptionKey:        "profile-contract-secret",
-		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
+		Host:                "127.0.0.1",
+		Port:                8000,
+		AppEnv:              config.EnvironmentProduction,
+		DatabaseURL:         sharedPostgresHarness.connectionString(databaseName),
+		SecretEncryptionKey: "profile-contract-secret",
+		CORSAllowedOrigins:  "http://localhost:5173,http://127.0.0.1:5173",
 		AuthJWTSecret:              "profile-contract-jwt-secret",
 		AuthAccessTokenTTLSeconds:  900,
 		AuthRefreshTokenTTLSeconds: 604800,

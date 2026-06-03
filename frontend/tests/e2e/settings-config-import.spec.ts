@@ -95,7 +95,7 @@ function createModelListItem() {
   };
 }
 
-function buildProfileImportBundle(variant: "alpha" | "beta") {
+function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
   if (variant === "alpha") {
     return {
       version: 3 as const,
@@ -189,6 +189,84 @@ function buildProfileImportBundle(variant: "alpha" | "beta") {
         cipher: "fernet-v1" as const,
         key_id: "alpha-key",
         entries: [{ ref: "alpha-endpoint-secret", ciphertext: "cipher-alpha" }],
+      },
+    };
+  }
+
+  if (variant === "routing") {
+    return {
+      version: 3 as const,
+      bundle_kind: "profile_config" as const,
+      vendor_refs: [
+        {
+          key: "openai",
+          name_hint: "OpenAI",
+          description_hint: "Routing vendor",
+          icon_key_hint: "openai",
+        },
+      ],
+      endpoints: [],
+      pricing_templates: [],
+      connections: [],
+      loadbalance_strategies: [
+        {
+          name: "Routing facade",
+          legacy_strategy_type: "round-robin" as const,
+          failure_status_codes: [429, 500],
+          ban_mode: "off" as const,
+          retry_base_delay_ms: 1000,
+          retry_backoff_multiplier: 2,
+          retry_jitter_ratio: 0.2,
+          retry_max_delay_ms: 8000,
+          cycle_retry_attempt_limit: 3,
+          ban_cumulative_retry_attempt_threshold: 0,
+          ban_duration_seconds: 0,
+        },
+      ],
+      models: [
+        {
+          vendor_key: "openai",
+          api_family: "openai" as const,
+          model_id: "router-model",
+          display_name: "Router model",
+          loadbalance_strategy_name: "Routing facade",
+          ...liveAuthoringCapabilityDefaults,
+          is_enabled: true,
+          access_targets: [
+            {
+              position: 4,
+              is_enabled: true,
+              target_type: "model" as const,
+              target_model_id: "leaf-model",
+              weight: 9,
+              target_priority: 3,
+            },
+          ],
+        },
+        {
+          vendor_key: "openai",
+          api_family: "openai" as const,
+          model_id: "leaf-model",
+          display_name: "Leaf model",
+          loadbalance_strategy_name: "Routing facade",
+          ...liveAuthoringCapabilityDefaults,
+          is_enabled: true,
+          access_targets: [],
+        },
+      ],
+      profile_settings: {
+        report_currency_code: "EUR",
+        report_currency_symbol: "€",
+        timezone_preference: null,
+        endpoint_fx_mappings: [],
+      },
+      header_blocklist_rules: [],
+      user_agent_client_rules: [],
+      secret_payload: {
+        kind: "encrypted" as const,
+        cipher: "fernet-v1" as const,
+        key_id: "routing-key",
+        entries: [],
       },
     };
   }
@@ -366,7 +444,7 @@ function buildPreviewResponse(bundle: ProfileImportBundle, previewToken: string)
       warning: "Vendor metadata will be created during import.",
     })),
     secret_key_id: bundle.secret_payload.key_id,
-    decryptable_secret_refs: bundle.secret_payload.entries.map((entry) => entry.ref),
+    decryptable_secret_refs: bundle.secret_payload.entries.map((entry: { ref: string }) => entry.ref),
     blocking_errors: [],
     warnings: ["Secrets are imported only when the referenced key is available."],
   };
@@ -384,9 +462,15 @@ type PreviewResponseFactory = (
   previewToken: string,
 ) => ProfilePreviewResponse;
 
+type PreviewErrorResponseFactory = (
+  bundle: ProfileImportBundle,
+  previewToken: string,
+) => { status: number; body: Record<string, unknown> };
+
 interface MockSettingsRoutesOptions {
   profiles?: ProfileFixture[];
   previewResponseFactory?: PreviewResponseFactory;
+  previewErrorResponseFactory?: PreviewErrorResponseFactory;
 }
 
 async function mockSettingsRoutes(page: Page, options: MockSettingsRoutesOptions = {}) {
@@ -447,6 +531,10 @@ async function mockSettingsRoutes(page: Page, options: MockSettingsRoutesOptions
       const previewToken = `profile-preview-token-${previewRequests.length + 1}`;
       previewRequests.push({ payload, previewToken, profileHeader });
       previewTokenBindings.set(previewToken, { payloadText: JSON.stringify(payload), profileHeader });
+      const previewErrorResponse = options.previewErrorResponseFactory?.(payload, previewToken);
+      if (previewErrorResponse) {
+        return fulfillJson(previewErrorResponse.body, previewErrorResponse.status);
+      }
       const previewResponse = options.previewResponseFactory?.(payload, previewToken)
         ?? buildPreviewResponse(payload, previewToken);
       return fulfillJson(previewResponse);
@@ -578,6 +666,96 @@ test("context-capability-authoring: config import keeps apply disabled and surfa
   expect(routes.getPreviewRequests()).toHaveLength(1);
   expect(routes.getImportedPayloads()).toEqual([]);
   expect(routes.getAppliedPreviewTokens()).toEqual([]);
+});
+
+test("context-capability-authoring: config import accepts backend-valid sparse routing metadata", async ({ page }) => {
+  const routes = await mockSettingsRoutes(page);
+  const importBundle = buildProfileImportBundle("routing");
+
+  await page.goto("/settings#backup");
+  const backupSection = page.locator("section#backup");
+  const applyButton = backupSection.getByTestId("profile-import-apply");
+
+  await expect(backupSection).toBeVisible();
+  await backupSection.getByTestId("profile-import-file").setInputFiles({
+    name: "profile-import-routing.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(importBundle)),
+  });
+  await expect(backupSection.getByText("Loaded profile-import-routing.json: 0 endpoints, 1 strategies, 2 models, 0 top-level connections.")).toBeVisible();
+
+  await backupSection.getByTestId("profile-import-preview").click();
+
+  await expect(backupSection.getByText("Preview status")).toBeVisible();
+  await expect(applyButton).toBeEnabled();
+
+  const previewRequests = routes.getPreviewRequests();
+  expect(previewRequests).toHaveLength(1);
+  expect(previewRequests[0]).toEqual({
+    payload: importBundle,
+    previewToken: "profile-preview-token-1",
+    profileHeader: "1",
+  });
+
+  await applyButton.click();
+
+  await expect(page.getByText("Imported 0 endpoints, 1 strategies, 2 models, 0 top-level connections")).toBeVisible();
+  expect(routes.getImportedPayloads()).toEqual([importBundle]);
+});
+
+test("context-capability-authoring: config import surfaces structured routing preview issues", async ({ page }) => {
+  const routes = await mockSettingsRoutes(page, {
+    previewErrorResponseFactory: () => ({
+      status: 400,
+      body: {
+        detail: "Model 'router-model' references unknown model access target 'missing-model'",
+        routing_plan_issues: [
+          {
+            code: "model_target_missing_model",
+            path: "models[0].access_targets[0].target_model_id",
+            message: "Model 'router-model' references unknown model access target 'missing-model'",
+          },
+        ],
+      },
+    }),
+  });
+  const importBundle = {
+    ...buildProfileImportBundle("routing"),
+    models: [
+      {
+        ...buildProfileImportBundle("routing").models[0],
+        access_targets: [
+          {
+            position: 4,
+            is_enabled: true,
+            target_type: "model" as const,
+            target_model_id: "missing-model",
+            weight: 9,
+            target_priority: 3,
+          },
+        ],
+      },
+      buildProfileImportBundle("routing").models[1],
+    ],
+  };
+
+  await page.goto("/settings#backup");
+  const backupSection = page.locator("section#backup");
+  const applyButton = backupSection.getByTestId("profile-import-apply");
+
+  await expect(backupSection).toBeVisible();
+  await backupSection.getByTestId("profile-import-file").setInputFiles({
+    name: "profile-import-routing-invalid.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(importBundle)),
+  });
+
+  await backupSection.getByTestId("profile-import-preview").click();
+
+  await expect(page.getByText("models[0].access_targets[0].target_model_id: Model 'router-model' references unknown model access target 'missing-model'")).toBeVisible();
+  await expect(applyButton).toBeDisabled();
+  expect(routes.getPreviewRequests()).toHaveLength(1);
+  expect(routes.getImportedPayloads()).toEqual([]);
 });
 
 test("context-capability-authoring: config import invalidates a stale preview when the bundle changes", async ({ page }) => {

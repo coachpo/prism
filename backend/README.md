@@ -72,7 +72,7 @@ go build ./cmd/prism-backend
 - Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, CORS for `http://localhost:5173`, PostgreSQL pool total `24` with split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, disabled telemetry, and management admission `3/2`.
 - When the bootstrap file already exists and is valid, Prism loads startup settings from it without rewriting it, even if it contains older values.
 - When the bootstrap file is missing, Prism seeds it from backend-owned defaults plus the optional `DATABASE_URL` input only.
-- The startup bootstrap contract is not DB-backed, and profile backup/restore, vendor catalog export/import, global log retention, and other settings-page state flows remain PostgreSQL-backed state transport.
+- The startup bootstrap contract is not DB-backed, and profile backup/restore, vendor catalog export/import, global log retention, and other settings-page state flows remain PostgreSQL-backed state transport. Profile config bundles remain on `version: 3` during planner rollout and do not carry the temporary bootstrap-owned routing rollout controls.
 - `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file only when it is missing so local runs keep frontend `5173` and the local PostgreSQL DSN on host port `15432`; fresh seeds default backend port to `8000`.
 - Before booting, `../start.sh` verifies that the selected bootstrap file keeps the local launcher host and database contract, then uses that file's configured backend port. If an existing valid file still carries old-but-valid values, reset manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
@@ -127,6 +127,10 @@ Enabled SMTP bootstrap example:
 - Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.
 - Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the cutoff-overlapping boundary child receives bounded cleanup plus `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
 - Audit rows keep weak request references through `request_log_id`, `request_log_created_at`, and `ingress_request_id`; request detail links can be missing after request-log retention expires first.
+- `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
+
+For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.
+at`, and `ingress_request_id`; request detail links can be missing after request-log retention expires first.
 - `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
 
 For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.

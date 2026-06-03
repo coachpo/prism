@@ -280,6 +280,13 @@ func buildRequestContextEstimation(method string, estimatedInputTokens int, expl
 	}
 }
 
+func (estimation *requestContextEstimation) fitsUsableContextWindowTokens(usableContextWindowTokens int) bool {
+	if estimation == nil || usableContextWindowTokens <= 0 {
+		return false
+	}
+	return estimation.EstimatedTotalContextTokens <= usableContextWindowTokens
+}
+
 func decodeRequestContextEstimationPayload(rawBody []byte) (map[string]any, error) {
 	payload := map[string]any{}
 	if len(bytes.TrimSpace(rawBody)) == 0 {

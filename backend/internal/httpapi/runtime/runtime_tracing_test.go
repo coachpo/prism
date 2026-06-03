@@ -11,6 +11,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/platform/background"
+	"github.com/coachpo/prism/backend/internal/platform/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -182,9 +183,19 @@ func TestRuntimeTracingRedactsSensitiveAttributes(t *testing.T) {
 
 func TestRuntimeTracingTranslationAttributes(t *testing.T) {
 	translatedContextRouting := &runtimeContextRoutingDecision{
+		Policy:                            "cheapest_eligible_context",
 		SelectedTerminalTargetID:          intPtr(34),
 		SelectedContextBand:               stringPtr(runtimeContextBandPreferred),
 		SelectedUsableContextWindowTokens: intPtr(8192),
+		PlannerTrace: &runtimePlannerTraceDecision{
+			PlannerVersion:         runtimePlannerTraceVersion,
+			PlannerMode:            string(config.RuntimeRoutingPlannerModeShadow),
+			Decision:               runtimePlannerTraceDecisionSelected,
+			Policy:                 "cheapest_eligible_context",
+			SelectedTierPriority:   intPtr(4),
+			SkippedTerminalTargets: 2,
+			ShadowComparisonResult: &runtimeShadowComparisonResult{Result: runtimeShadowComparisonResultMismatch, MismatchReasons: []string{"resolved_model", "selected_connection"}},
+		},
 	}
 	translatedPlan := requestPlan{
 		APIFamily:          "openai",
@@ -198,7 +209,7 @@ func TestRuntimeTracingTranslationAttributes(t *testing.T) {
 		}},
 	}
 	translatedAttrs := attributesByKey(runtimeTracePlanAttributes(translatedPlan))
-	if translatedAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 {
+	if translatedAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 || translatedAttrs[runtimeTraceAttrPlannerVersion].AsString() != runtimePlannerTraceVersion || translatedAttrs[runtimeTraceAttrPlannerMode].AsString() != string(config.RuntimeRoutingPlannerModeShadow) || translatedAttrs[runtimeTraceAttrPlannerDecision].AsString() != runtimePlannerTraceDecisionSelected || translatedAttrs[runtimeTraceAttrPlannerPolicy].AsString() != "cheapest_eligible_context" || translatedAttrs[runtimeTraceAttrPlannerSelectedTier].AsInt64() != 4 || translatedAttrs[runtimeTraceAttrPlannerSkippedTargets].AsInt64() != 2 || translatedAttrs[runtimeTraceAttrShadowComparisonResult].AsString() != runtimeShadowComparisonResultMismatch || translatedAttrs[runtimeTraceAttrShadowMismatchReasons].AsString() != "resolved_model,selected_connection" {
 		t.Fatalf("expected translated plan trace attributes, got %+v", translatedAttrs)
 	}
 

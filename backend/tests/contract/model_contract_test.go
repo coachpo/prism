@@ -561,6 +561,43 @@ func TestWrongFamilyTarget(t *testing.T) {
 	assertErrorResponse(t, response, http.StatusBadRequest, "Model access targets must use the same api_family as the source model")
 }
 
+func TestModelCreateAllowsSparseAccessTargetPositions(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Sparse Position Strategy")
+	modelInsertModel(t, harness, profileID, &vendorID, "openai", "sparse-position-target", nil, &strategyID, true)
+
+	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"vendor_id": vendorID, "api_family": "openai", "model_id": "sparse-position-source", "loadbalance_strategy_id": strategyID, "access_targets": []map[string]any{modelAccessTarget("model", "sparse-position-target", nil, 3, true)}}, modelHeader(profileID))
+	assertStatus(t, response, http.StatusCreated)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	assertAccessTargets(t, payload, []expectedAccessTarget{{TargetType: "model", TargetModelID: "sparse-position-target", Position: 3, IsEnabled: true}})
+}
+
+func TestModelCreateRejectsSelfTargetWithStableRoutingPlanIssue(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Routing Issue Strategy")
+
+	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"vendor_id": vendorID, "api_family": "openai", "model_id": "routing-issue-self-target", "loadbalance_strategy_id": strategyID, "access_targets": []map[string]any{modelAccessTarget("model", "routing-issue-self-target", nil, 0, true)}}, modelHeader(profileID))
+	assertStatus(t, response, http.StatusBadRequest)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	if payload["detail"] != "Model access target cannot target itself" {
+		t.Fatalf("unexpected self-target detail: %+v", payload)
+	}
+	issues, ok := payload["routing_plan_issues"].([]any)
+	if !ok || len(issues) != 1 {
+		t.Fatalf("expected one routing_plan_issue, got %+v", payload)
+	}
+	issue := asMap(t, issues[0])
+	if issue["code"] != "model_graph_cycle" || issue["path"] != "access_targets[0].target_model_id" || issue["message"] != "Model access target cannot target itself" {
+		t.Fatalf("unexpected routing_plan_issue: %+v", issue)
+	}
+}
+
 func TestWrongProfileTarget(t *testing.T) {
 	harness := newModelContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)

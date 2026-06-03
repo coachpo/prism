@@ -85,7 +85,7 @@ func TestRuntimeResponsesMalformedJSONUsesMissingModelBadRequest(t *testing.T) {
 
 func TestRuntimeResponsesRejectUnsupportedTranslatedShapesBeforeUpstream(t *testing.T) {
 	t.Run("responses previous_response_id on chat-only target", func(t *testing.T) {
-		harness := newRuntimeHarness(t)
+		harness := newEnforcedRuntimeHarness(t)
 		profileID := harness.activeProfileID(t)
 		upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "responses-parity-previous-response-id"})
 		route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "responses-parity-previous-response-id-public", "responses-parity-previous-response-id-target", upstream.baseURL("/responses/parity/previous-response-id"), "responses-parity-previous-response-id-key", "chat_completions_reasoning_none")
@@ -101,8 +101,8 @@ func TestRuntimeResponsesRejectUnsupportedTranslatedShapesBeforeUpstream(t *test
 		}, nil)
 		assertStatus(t, response, http.StatusBadRequest)
 		payload := runtimeResponsePayload(t, response)
-		if payload["error"] != "context_estimation_unavailable" || payload["detail"] != "Preflight context estimation is unavailable for this request shape." {
-			t.Fatalf("expected responses previous_response_id rejection to stay on the preflight estimation contract, got %+v", payload)
+		if payload["error"] != "openai_request_translation_unsupported" || payload["detail"] != "Prism cannot translate this OpenAI request shape for the selected target." || payload["unsupported_reason"] != "responses_previous_response_id" {
+			t.Fatalf("expected responses previous_response_id translated rejection payload, got %+v", payload)
 		}
 		if got := len(upstream.requestsSnapshot()); got != 0 {
 			t.Fatalf("expected unsupported translated responses shape to stop before upstream, got %d upstream requests", got)
@@ -110,7 +110,7 @@ func TestRuntimeResponsesRejectUnsupportedTranslatedShapesBeforeUpstream(t *test
 	})
 
 	t.Run("chat multi-choice on responses-only target", func(t *testing.T) {
-		harness := newRuntimeHarness(t)
+		harness := newEnforcedRuntimeHarness(t)
 		profileID := harness.activeProfileID(t)
 		upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "responses-parity-chat-multi-choice"})
 		route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "responses-parity-chat-multi-choice-public", "responses-parity-chat-multi-choice-target", upstream.baseURL("/responses/parity/chat-multi-choice"), "responses-parity-chat-multi-choice-key", "responses_reasoning_none")
@@ -127,6 +127,55 @@ func TestRuntimeResponsesRejectUnsupportedTranslatedShapesBeforeUpstream(t *test
 		}
 		if got := len(upstream.requestsSnapshot()); got != 0 {
 			t.Fatalf("expected unsupported translated chat shape to stop before upstream, got %d upstream requests", got)
+		}
+	})
+
+	t.Run("translated response tool shape fails after upstream without sibling retry", func(t *testing.T) {
+		harness := newEnforcedRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		upstream := newTranslatedRouteMatrixUpstream(t, `{"id":"chatcmpl_tool_response","model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`, http.Header{"Content-Type": []string{"application/json"}})
+		route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "responses-parity-response-tool-public", "responses-parity-response-tool-target", upstream.baseURL("/responses/parity/response-tool"), "responses-parity-response-tool-key", "chat_completions_reasoning_none")
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+			"model": route.PublicModelID,
+			"input": "safe translated responses request with unsupported upstream response",
+		}, nil)
+		assertStatus(t, response, http.StatusBadGateway)
+		payload := runtimeResponsePayload(t, response)
+		if payload["error"] != "openai_response_translation_unsupported" || payload["detail"] != "Prism cannot translate this OpenAI response shape for the selected target." || payload["unsupported_reason"] != "chat_tool_calls" {
+			t.Fatalf("expected translated response-shape rejection payload, got %+v", payload)
+		}
+		upstream.mu.Lock()
+		gotRequests := len(upstream.requests)
+		upstream.mu.Unlock()
+		if gotRequests != 1 {
+			t.Fatalf("expected exactly one upstream request and no sibling retry, got %d", gotRequests)
+		}
+	})
+
+	t.Run("translated stream function event fails after upstream without sibling retry", func(t *testing.T) {
+		harness := newEnforcedRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		stream := "event: response.function_call_arguments.delta\n" +
+			"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"call_1\",\"delta\":\"{}\"}\n\n"
+		upstream := newTranslatedStreamingUpstream(t, stream, http.Header{"Content-Type": []string{"text/event-stream"}})
+		route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "responses-parity-stream-tool-public", "responses-parity-stream-tool-target", upstream.baseURL("/responses/parity/stream-tool"), "responses-parity-stream-tool-key", "responses_reasoning_none")
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+			"model":    route.PublicModelID,
+			"messages": []map[string]any{{"role": "user", "content": "safe translated chat stream request"}},
+			"stream":   true,
+		}, nil)
+		assertStatus(t, response, http.StatusBadGateway)
+		payload := runtimeResponsePayload(t, response)
+		if payload["error"] != "openai_stream_translation_unsupported" || payload["detail"] != "Prism cannot translate this OpenAI stream shape for the selected target." || payload["unsupported_reason"] != "responses_stream_response_function_call_arguments_delta" {
+			t.Fatalf("expected translated stream-shape rejection payload, got %+v", payload)
+		}
+		upstream.mu.Lock()
+		gotRequests := len(upstream.requests)
+		upstream.mu.Unlock()
+		if gotRequests != 1 {
+			t.Fatalf("expected exactly one upstream request and no sibling retry, got %d", gotRequests)
 		}
 	})
 }

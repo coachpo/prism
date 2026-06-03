@@ -68,6 +68,8 @@ type Service struct {
 	staticRuntimeProxyConfig   RuntimeProxyConfigSnapshot
 	now                        func() time.Time
 	secretEncryptionKey        string
+	plannerMode                config.RuntimeRoutingPlannerMode
+	openAITerminalTranslationMode config.OpenAITerminalTranslationMode
 	dashboardUpdates           DashboardUpdatePublisher
 	analyticsUpdates           AnalyticsUpdatePublisher
 	cache                      *SharedCache
@@ -135,6 +137,8 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		staticRuntimeProxyConfig:   RuntimeProxyConfigSnapshot{HTTPClient: client},
 		now:                        now,
 		secretEncryptionKey:        settings.SecretEncryptionKey,
+		plannerMode:                settings.RoutingPlannerMode(),
+		openAITerminalTranslationMode: settings.ResolvedOpenAITerminalTranslationMode(),
 		dashboardUpdates:           options.DashboardUpdates,
 		analyticsUpdates:           options.AnalyticsUpdates,
 		cache:                      options.Cache,
@@ -461,17 +465,34 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
 	translationMode := responseTranslationModeForExecution(plan, execution)
 	if strings.Contains(contentType, "text/event-stream") {
-		if translationMode == "" || translationMode == TranslationModeNone {
-			copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
-		} else {
-			copyTranslatedResponseHeadersWithContentType(proxyWriter.Header(), execution.Response.Header, "text/event-stream")
-		}
-		proxyWriter.WriteHeader(execution.Response.StatusCode)
 		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
-			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseByOperation(plan.RuntimeOperation, translationMode, plan.RequestedModelID, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
+			if translationMode == "" || translationMode == TranslationModeNone {
+				copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
+				proxyWriter.WriteHeader(execution.Response.StatusCode)
+				responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseByOperation(plan.RuntimeOperation, TranslationModeNone, plan.RequestedModelID, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
+				if streamErr != nil {
+					runtimeTraceMarkError(responseSpan, "response_handle_failed")
+					slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
+				}
+				runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
+				proxyWriter.Commit()
+				s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
+				return
+			}
+
+			var translatedStream bytes.Buffer
+			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseByOperation(plan.RuntimeOperation, translationMode, plan.RequestedModelID, r.Context(), &translatedStream, execution.Response.Body, s.nowUTC, captureAuditBody)
 			if streamErr != nil {
 				runtimeTraceMarkError(responseSpan, "response_handle_failed")
-				slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
+				slog.Debug("runtime translated stream proxy failed", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
+				writeTranslatedOpenAIError(w, streamErr, "Failed to translate upstream stream")
+				return
+			}
+			copyTranslatedResponseHeadersWithContentType(proxyWriter.Header(), execution.Response.Header, "text/event-stream")
+			proxyWriter.WriteHeader(execution.Response.StatusCode)
+			if _, err := proxyWriter.Write(translatedStream.Bytes()); err != nil {
+				runtimeTraceMarkError(responseSpan, "response_handle_failed")
+				return
 			}
 			runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
 			proxyWriter.Commit()
@@ -500,7 +521,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	responseCapture, err := proxyTranslatedOpenAINonEventResponseAndCapture(translationMode, plan.RequestedModelID, &translatedBody, execution.Response.Body, s.nowUTC, captureAuditBody)
 	if err != nil {
 		runtimeTraceMarkError(responseSpan, "response_handle_failed")
-		writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
+		writeTranslatedOpenAIError(w, err, "Failed to translate upstream response")
 		return
 	}
 	copyTranslatedResponseHeaders(proxyWriter.Header(), execution.Response.Header)
@@ -1216,6 +1237,19 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "", "Internal server error", nil)
+}
+
+func writeTranslatedOpenAIError(w http.ResponseWriter, err error, fallbackDetail string) {
+	var runtimeErr *domainError
+	if errors.As(err, &runtimeErr) {
+		writeDomainError(w, err)
+		return
+	}
+	detail := strings.TrimSpace(fallbackDetail)
+	if detail == "" {
+		detail = "Failed to translate upstream response"
+	}
+	writeError(w, http.StatusBadGateway, "", detail, nil)
 }
 
 func writeError(w http.ResponseWriter, statusCode int, errorCode string, detail string, fields map[string]any) {

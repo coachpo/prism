@@ -118,7 +118,6 @@ func normalizeTranslatedResponsesPublicModel(payload map[string]any, requestedMo
 
 func translateResponsesOutputToChatChoice(output []any) (map[string]any, error) {
 	message := map[string]any{"role": "assistant", "content": ""}
-	toolCalls := make([]any, 0)
 	seenMessage := false
 	for _, rawItem := range output {
 		item, ok := rawItem.(map[string]any)
@@ -131,7 +130,7 @@ func translateResponsesOutputToChatChoice(output []any) (map[string]any, error) 
 				return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "responses_output_multiple_messages")
 			}
 			role := firstNonEmptyString(item["role"], "assistant")
-			content, err := translateResponsesMessageContentToChat(item["content"], role)
+			content, refusal, err := translateResponsesMessageContentToChatResponse(item["content"], role)
 			if err != nil {
 				return nil, err
 			}
@@ -141,25 +140,57 @@ func translateResponsesOutputToChatChoice(output []any) (map[string]any, error) 
 			} else {
 				message["content"] = content
 			}
+			if refusal != nil {
+				message["refusal"] = *refusal
+			}
 			seenMessage = true
 		case "function_call":
-			toolCall, err := translateResponsesFunctionCallToChat(item)
-			if err != nil {
-				return nil, err
-			}
-			toolCalls = append(toolCalls, toolCall)
+			return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "responses_function_call")
 		default:
 			return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "responses_output_type")
 		}
 	}
-	if len(toolCalls) > 0 {
-		message["tool_calls"] = toolCalls
+	if !seenMessage {
+		return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "responses_output_message")
 	}
-	finishReason := "stop"
-	if len(toolCalls) > 0 {
-		finishReason = "tool_calls"
+	return map[string]any{"index": 0, "message": message, "finish_reason": "stop"}, nil
+}
+
+func translateResponsesMessageContentToChatResponse(value any, role string) (any, *string, error) {
+	switch typed := value.(type) {
+	case nil, string:
+		return typed, nil, nil
+	case []any:
+		parts := make([]any, 0, len(typed))
+		var refusal *string
+		for _, rawPart := range typed {
+			part, ok := rawPart.(map[string]any)
+			if !ok {
+				return nil, nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "responses_message_part")
+			}
+			switch strings.ToLower(strings.TrimSpace(stringValue(part["type"]))) {
+			case "input_text", "output_text", "text":
+				parts = append(parts, map[string]any{"type": "text", "text": stringValue(part["text"])})
+			case "refusal":
+				if value := trimmedStringFromAny(part["refusal"]); value != nil {
+					refusal = value
+				}
+			default:
+				return nil, nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "responses_message_part_type")
+			}
+		}
+		if len(parts) == 0 {
+			return nil, refusal, nil
+		}
+		if len(parts) == 1 {
+			if textPart, ok := parts[0].(map[string]any); ok && len(textPart) == 2 && textPart["type"] == "text" && role != "user" {
+				return stringValue(textPart["text"]), refusal, nil
+			}
+		}
+		return parts, refusal, nil
+	default:
+		return nil, nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIResponsesToChatCompletions, "responses_message_content")
 	}
-	return map[string]any{"index": 0, "message": message, "finish_reason": finishReason}, nil
 }
 
 func translateChatChoiceToResponsesOutput(choice map[string]any) ([]any, error) {
@@ -167,21 +198,20 @@ func translateChatChoiceToResponsesOutput(choice map[string]any) ([]any, error) 
 	if !ok {
 		return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIChatCompletionsToResponses, "chat_message")
 	}
+	if fieldHasValue(message, "tool_calls") {
+		return nil, unsupportedOpenAIResponseTranslationShapeError(TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_calls")
+	}
 	role := firstNonEmptyString(message["role"], "assistant")
-	output := make([]any, 0, 2)
+	output := make([]any, 0, 1)
 	content, err := translateChatResponseContentToResponsesOutput(message["content"])
 	if err != nil {
 		return nil, err
 	}
+	if refusal := trimmedStringFromAny(message["refusal"]); refusal != nil {
+		content = append(content, map[string]any{"type": "refusal", "refusal": *refusal})
+	}
 	if valueHasMeaning(content) {
 		output = append(output, map[string]any{"type": "message", "role": role, "content": content})
-	}
-	if fieldHasValue(message, "tool_calls") {
-		toolCalls, err := translateChatToolCallsToResponses(message["tool_calls"])
-		if err != nil {
-			return nil, err
-		}
-		output = append(output, toolCalls...)
 	}
 	if len(output) == 0 {
 		output = append(output, map[string]any{"type": "message", "role": role, "content": []any{}})
@@ -310,7 +340,7 @@ func marshalTranslatedOpenAIResponse(payload map[string]any, mode TranslationMod
 }
 
 func unsupportedOpenAIResponseTranslationShapeError(mode TranslationMode, reason string) error {
-	return fmt.Errorf("unsupported translated %s response shape: %s", mode, strings.TrimSpace(reason))
+	return openAIResponseTranslationUnsupportedDomainError(mode, normalizedTranslationUnsupportedReason(reason))
 }
 
 func readBoundedResponseBody(src io.Reader, limit int64) ([]byte, error) {

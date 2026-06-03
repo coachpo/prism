@@ -24,6 +24,14 @@ const (
 	runtimeTraceAttrFacadeSelectedWeight      = "prism.runtime.facade_selected_weight"
 	runtimeTraceAttrFacadeEligibleTotalWeight = "prism.runtime.facade_eligible_total_weight"
 	runtimeTraceAttrFacadeExclusionSummary    = "prism.runtime.facade_exclusion_summary"
+	runtimeTraceAttrPlannerVersion            = "prism.runtime.planner_version"
+	runtimeTraceAttrPlannerMode               = "prism.runtime.planner_mode"
+	runtimeTraceAttrPlannerDecision           = "prism.runtime.planner_decision"
+	runtimeTraceAttrPlannerPolicy             = "prism.runtime.planner_policy"
+	runtimeTraceAttrPlannerSelectedTier       = "prism.runtime.planner_selected_tier_priority"
+	runtimeTraceAttrPlannerSkippedTargets     = "prism.runtime.planner_skipped_terminal_targets"
+	runtimeTraceAttrShadowComparisonResult    = "prism.runtime.shadow_comparison_result"
+	runtimeTraceAttrShadowMismatchReasons     = "prism.runtime.shadow_mismatch_reasons"
 	runtimeTraceAttrAPIFamily                 = "prism.runtime.api_family"
 	runtimeTraceAttrStreaming                 = "prism.runtime.streaming"
 	runtimeTraceAttrStatusClass               = "prism.runtime.status_class"
@@ -129,6 +137,7 @@ func runtimeTraceAttemptAttributionAttributes(operation RuntimeOperation, transl
 			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *contextRouting.SelectedTerminalTargetID))
 		}
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(contextRouting)...)
+		attrs = append(attrs, runtimeTracePlannerTraceAttributes(contextRouting.PlannerTrace)...)
 	}
 	return attrs
 }
@@ -150,6 +159,35 @@ func runtimeTraceFacadeSelectionAttributes(contextRouting *runtimeContextRouting
 	}
 	if facadeSelection.ExclusionSummary != nil && strings.TrimSpace(*facadeSelection.ExclusionSummary) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrFacadeExclusionSummary, strings.TrimSpace(*facadeSelection.ExclusionSummary)))
+	}
+	return attrs
+}
+
+func runtimeTracePlannerTraceAttributes(plannerTrace *runtimePlannerTraceDecision) []attribute.KeyValue {
+	if plannerTrace == nil {
+		return nil
+	}
+	attrs := []attribute.KeyValue{
+		attribute.String(runtimeTraceAttrPlannerVersion, runtimeTracePolicy.plannerVersion(plannerTrace.PlannerVersion)),
+		attribute.String(runtimeTraceAttrPlannerDecision, runtimeTracePolicy.plannerDecision(plannerTrace.Decision)),
+	}
+	if strings.TrimSpace(plannerTrace.PlannerMode) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrPlannerMode, strings.TrimSpace(plannerTrace.PlannerMode)))
+	}
+	if strings.TrimSpace(plannerTrace.Policy) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrPlannerPolicy, runtimeTracePolicy.plannerPolicy(plannerTrace.Policy)))
+	}
+	if plannerTrace.SelectedTierPriority != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrPlannerSelectedTier, *plannerTrace.SelectedTierPriority))
+	}
+	if plannerTrace.SkippedTerminalTargets > 0 {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrPlannerSkippedTargets, plannerTrace.SkippedTerminalTargets))
+	}
+	if plannerTrace.ShadowComparisonResult != nil {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrShadowComparisonResult, strings.TrimSpace(plannerTrace.ShadowComparisonResult.Result)))
+		if len(plannerTrace.ShadowComparisonResult.MismatchReasons) > 0 {
+			attrs = append(attrs, attribute.String(runtimeTraceAttrShadowMismatchReasons, strings.Join(plannerTrace.ShadowComparisonResult.MismatchReasons, ",")))
+		}
 	}
 	return attrs
 }
@@ -197,6 +235,7 @@ func runtimeTracePlanningFailureAttributes(failure runtimePlanningFailureTelemet
 			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *failure.ContextRouting.SelectedTerminalTargetID))
 		}
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(failure.ContextRouting)...)
+		attrs = append(attrs, runtimeTracePlannerTraceAttributes(failure.ContextRouting.PlannerTrace)...)
 	}
 	return attrs
 }
@@ -225,6 +264,7 @@ func runtimeTraceEnvelopeAttributes(envelope runtimeTelemetryEnvelope) []attribu
 			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *envelope.UsageEvent.ContextRouting.SelectedTerminalTargetID))
 		}
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(envelope.UsageEvent.ContextRouting)...)
+		attrs = append(attrs, runtimeTracePlannerTraceAttributes(envelope.UsageEvent.ContextRouting.PlannerTrace)...)
 	}
 	if envelope.UsageEvent.StatusCode >= 100 && envelope.UsageEvent.StatusCode <= 599 {
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrHTTPStatus, envelope.UsageEvent.StatusCode))
@@ -335,6 +375,31 @@ func (policy runtimeTraceAttributePolicy) requestPath(value string) string {
 		}
 	}
 	return runtimeTraceValueUnknown
+}
+
+func (policy runtimeTraceAttributePolicy) plannerVersion(value string) string {
+	if strings.TrimSpace(value) == runtimePlannerTraceVersion {
+		return runtimePlannerTraceVersion
+	}
+	return runtimeTraceValueUnknown
+}
+
+func (policy runtimeTraceAttributePolicy) plannerDecision(value string) string {
+	switch strings.TrimSpace(value) {
+	case runtimePlannerTraceDecisionSelected, runtimePlannerTraceDecisionNoFit, runtimePlannerTraceDecisionNoTarget:
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) plannerPolicy(value string) string {
+	switch strings.TrimSpace(value) {
+	case "single", "fill-first", "round-robin", "cheapest_eligible_context", runtimeFacadeSelectionPolicyWeightedEligibleContext:
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
 }
 
 func (policy runtimeTraceAttributePolicy) preferredContextBand(value string) string {

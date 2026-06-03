@@ -12,7 +12,7 @@ import (
 
 func TestResponsesTranslatedStreamingPreservesIngressDialectAndUsage(t *testing.T) {
 	t.Run("chat ingress translated from responses upstream", func(t *testing.T) {
-		harness := newRuntimeHarness(t)
+		harness := newEnforcedRuntimeHarness(t)
 		profileID := harness.activeProfileID(t)
 		stream := "event: response.created\n" +
 			"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_runtime_stream\",\"model\":\"responses-target\",\"created_at\":1700000000}}\n\n" +
@@ -62,7 +62,7 @@ func TestResponsesTranslatedStreamingPreservesIngressDialectAndUsage(t *testing.
 	})
 
 	t.Run("responses ingress translated from chat upstream", func(t *testing.T) {
-		harness := newRuntimeHarness(t)
+		harness := newEnforcedRuntimeHarness(t)
 		profileID := harness.activeProfileID(t)
 		stream := "data: {\"id\":\"chatcmpl_runtime_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello runtime\"}}]}\n\n" +
 			"data: {\"id\":\"chatcmpl_runtime_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
@@ -108,7 +108,7 @@ func TestResponsesTranslatedStreamingPreservesIngressDialectAndUsage(t *testing.
 	})
 
 	t.Run("responses ingress translated from chat upstream preserves public model and resolved upstream identity", func(t *testing.T) {
-		harness := newRuntimeHarness(t)
+		harness := newEnforcedRuntimeHarness(t)
 		profileID := harness.activeProfileID(t)
 		stream := "data: {\"id\":\"chatcmpl_runtime_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello runtime\"}}]}\n\n" +
 			"data: {\"id\":\"chatcmpl_runtime_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
