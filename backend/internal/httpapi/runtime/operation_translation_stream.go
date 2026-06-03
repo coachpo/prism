@@ -18,11 +18,11 @@ type openAIStreamTranslator interface {
 	consumeDone() ([][]byte, error)
 }
 
-func proxyEventStreamAndCaptureCompletedResponseByOperation(operation RuntimeOperation, translationMode TranslationMode, ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+func proxyEventStreamAndCaptureCompletedResponseByOperation(operation RuntimeOperation, translationMode TranslationMode, requestedModelID string, ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if translationMode == "" || translationMode == TranslationModeNone {
 		return proxyEventStreamAndCaptureCompletedResponse(operation, ctx, dst, src, now, captureAuditBody)
 	}
-	streamHooks, translator, err := newOpenAIStreamTranslator(translationMode)
+	streamHooks, translator, err := newOpenAIStreamTranslator(translationMode, requestedModelID)
 	if err != nil {
 		return runtimeResponseCapture{}, err
 	}
@@ -109,11 +109,11 @@ func proxyEventStreamAndCaptureCompletedResponseByOperation(operation RuntimeOpe
 	}
 }
 
-func newOpenAIStreamTranslator(mode TranslationMode) (operationStreamHooks, openAIStreamTranslator, error) {
+func newOpenAIStreamTranslator(mode TranslationMode, requestedModelID string) (operationStreamHooks, openAIStreamTranslator, error) {
 	switch mode {
 	case TranslationModeOpenAIResponsesToChatCompletions:
 		if hooks, ok := translatedOpenAIStreamHooksForMode(mode); ok {
-			return hooks, &openAIChatToResponsesStreamTranslator{messageRole: "assistant", messageItemID: "msg_0", toolCalls: map[int]*openAIChatToolCallStreamState{}}, nil
+			return hooks, &openAIChatToResponsesStreamTranslator{requestedModelID: requestedModelID, messageRole: "assistant", messageItemID: "msg_0", toolCalls: map[int]*openAIChatToolCallStreamState{}}, nil
 		}
 	case TranslationModeOpenAIChatCompletionsToResponses:
 		if hooks, ok := translatedOpenAIStreamHooksForMode(mode); ok {
@@ -136,10 +136,12 @@ func translatedOpenAIStreamHooksForMode(mode TranslationMode) (operationStreamHo
 
 type openAIChatToResponsesStreamTranslator struct {
 	responseID        string
-	model             string
+	upstreamModel     string
+	requestedModelID  string
 	serviceTier       string
 	systemFingerprint string
 	created           *int
+	errorPayload      map[string]any
 	messageRole       string
 	messageItemID     string
 	createdSent       bool
@@ -160,6 +162,9 @@ type openAIChatToolCallStreamState struct {
 
 func (translator *openAIChatToResponsesStreamTranslator) consumeEvent(_ string, payload map[string]any) ([][]byte, error) {
 	translator.captureChatMetadata(payload)
+	if errPayload, ok := payload["error"].(map[string]any); ok {
+		translator.errorPayload = errPayload
+	}
 	choices, ok := payload["choices"].([]any)
 	if !ok || len(choices) == 0 {
 		if usage := extractResponseUsageFromPayload(payload, runtimeUsageRuleOpenAIChatCompletions); usage.hasValues() {
@@ -261,8 +266,8 @@ func (translator *openAIChatToResponsesStreamTranslator) completedResponsesPaylo
 	if strings.TrimSpace(translator.responseID) != "" {
 		payload["id"] = translator.responseID
 	}
-	if strings.TrimSpace(translator.model) != "" {
-		payload["model"] = translator.model
+	if strings.TrimSpace(translator.upstreamModel) != "" {
+		payload["model"] = translator.upstreamModel
 	}
 	if translator.created != nil {
 		payload["created"] = *translator.created
@@ -276,11 +281,14 @@ func (translator *openAIChatToResponsesStreamTranslator) completedResponsesPaylo
 	if usagePayload := buildOpenAIChatCompletionsUsagePayload(translator.terminalUsage); len(usagePayload) > 0 {
 		payload["usage"] = usagePayload
 	}
+	if errPayload := translator.terminalErrorPayload(); len(errPayload) > 0 {
+		payload["error"] = errPayload
+	}
 	rawPayload, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal translated %s stream payload: %w", TranslationModeOpenAIResponsesToChatCompletions, err)
 	}
-	translatedBody, _, _, err := translateOpenAIChatToResponsesResponse(rawPayload)
+	translatedBody, _, _, err := translateOpenAIChatToResponsesResponseWithRequestedModel(rawPayload, translator.requestedModelID)
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +297,17 @@ func (translator *openAIChatToResponsesStreamTranslator) completedResponsesPaylo
 		return nil, fmt.Errorf("decode translated %s stream payload: %w", TranslationModeOpenAIResponsesToChatCompletions, err)
 	}
 	return translated, nil
+}
+
+func (translator *openAIChatToResponsesStreamTranslator) clientFacingModel() string {
+	return firstNonEmptyString(translator.requestedModelID, translator.upstreamModel)
+}
+
+func (translator *openAIChatToResponsesStreamTranslator) terminalErrorPayload() map[string]any {
+	if translator.errorPayload == nil {
+		return nil
+	}
+	return translator.errorPayload
 }
 
 func (translator *openAIChatToResponsesStreamTranslator) chatToolCallsPayload() []any {
@@ -359,18 +378,18 @@ func (translator *openAIChatToResponsesStreamTranslator) ensureCreatedFrame() ([
 	if translator.createdSent {
 		return nil, nil
 	}
-	payload := map[string]any{"type": "response.created", "response": map[string]any{"id": firstNonEmptyString(translator.responseID, "response_0"), "object": "response", "status": "in_progress", "output": []any{}}}
-	if strings.TrimSpace(translator.model) != "" {
-		payload["response"].(map[string]any)["model"] = translator.model
+	response := map[string]any{"id": firstNonEmptyString(translator.responseID, "response_0"), "object": "response", "status": "in_progress", "output": []any{}}
+	if model := translator.clientFacingModel(); model != "" {
+		response["model"] = model
 	}
 	if translator.created != nil {
-		payload["response"].(map[string]any)["created_at"] = *translator.created
+		response["created_at"] = *translator.created
 	}
 	if strings.TrimSpace(translator.serviceTier) != "" {
-		payload["response"].(map[string]any)["service_tier"] = translator.serviceTier
+		response["service_tier"] = translator.serviceTier
 	}
 	translator.createdSent = true
-	return marshalOpenAIResponsesSSEEvent("response.created", payload)
+	return marshalOpenAIResponsesSSEEvent("response.created", map[string]any{"type": "response.created", "response": response})
 }
 
 func (translator *openAIChatToResponsesStreamTranslator) ensureMessageAddedFrame() ([]byte, error) {
@@ -383,7 +402,7 @@ func (translator *openAIChatToResponsesStreamTranslator) ensureMessageAddedFrame
 
 func (translator *openAIChatToResponsesStreamTranslator) captureChatMetadata(payload map[string]any) {
 	translator.responseID = firstNonEmptyString(payload["id"], translator.responseID)
-	translator.model = firstNonEmptyString(payload["model"], translator.model)
+	translator.upstreamModel = firstNonEmptyString(payload["model"], translator.upstreamModel)
 	translator.serviceTier = firstNonEmptyString(payload["service_tier"], translator.serviceTier)
 	translator.systemFingerprint = firstNonEmptyString(payload["system_fingerprint"], translator.systemFingerprint)
 	if translator.created == nil {

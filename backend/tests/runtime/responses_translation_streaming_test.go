@@ -1,6 +1,7 @@
 package runtime_test
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -105,12 +106,106 @@ func TestResponsesTranslatedStreamingPreservesIngressDialectAndUsage(t *testing.
 			t.Fatalf("expected translated responses stream_outcome completed, got %+v", streamRow)
 		}
 	})
+
+	t.Run("responses ingress translated from chat upstream preserves public model and resolved upstream identity", func(t *testing.T) {
+		harness := newRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		stream := "data: {\"id\":\"chatcmpl_runtime_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello runtime\"}}]}\n\n" +
+			"data: {\"id\":\"chatcmpl_runtime_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+			"data: {\"id\":\"chatcmpl_runtime_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":6,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":4},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n" +
+			"data: [DONE]\n\n"
+		upstream := newTranslatedStreamingUpstream(t, stream, http.Header{
+			"Content-Type":     []string{"text/event-stream"},
+			"Content-Encoding": []string{"gzip"},
+			"Digest":           []string{"sha-256=chat-stream"},
+			"ETag":             []string{`"chat-stream"`},
+			"X-Request-Id":     []string{"chat-upstream-stream"},
+		})
+		route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "responses-translated-stream-responses-public-split", "responses-translated-stream-chat-target-split", upstream.baseURL("/responses/translated/stream/responses"), "responses-translated-stream-responses-key-split", "chat_completions_reasoning_none")
+		response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+			"model":  route.PublicModelID,
+			"input":  "translated runtime responses stream",
+			"stream": true,
+		}, nil)
+		assertStatus(t, response, http.StatusOK)
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatalf("read translated responses stream body: %v", err)
+		}
+		payload := string(body)
+		if !strings.Contains(payload, `"model":"`+route.PublicModelID+`"`) {
+			t.Fatalf("expected translated responses stream to expose requested public model %q, got %q", route.PublicModelID, payload)
+		}
+		if strings.Contains(payload, `"model":"responses-target"`) {
+			t.Fatalf("expected translated responses stream to avoid leaking resolved target model responses-target, got %q", payload)
+		}
+		request := upstream.lastRequest(t)
+		if request.Path != "/responses/translated/stream/responses/v1/chat/completions" {
+			t.Fatalf("expected translated upstream chat path, got %q", request.Path)
+		}
+		if got := requestModelID(t, request.Body); got != route.TargetModelID {
+			t.Fatalf("expected upstream request model %q, got %q", route.TargetModelID, got)
+		}
+		assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.TargetModelID)
+	})
 }
 
 type translatedStreamingUpstream struct {
 	server   *httptest.Server
 	mu       sync.Mutex
 	requests []upstreamRequestSnapshot
+}
+
+func parseTranslatedResponsesStreamEvents(t *testing.T, body string) []translatedResponseStreamEvent {
+	t.Helper()
+	chunks := strings.Split(body, "\n\n")
+	events := make([]translatedResponseStreamEvent, 0, len(chunks))
+	for _, chunk := range chunks {
+		chunk = strings.TrimSpace(chunk)
+		if chunk == "" {
+			continue
+		}
+		var eventName string
+		var dataLines []string
+		for _, line := range strings.Split(chunk, "\n") {
+			trimmed := strings.TrimSpace(line)
+			switch {
+			case strings.HasPrefix(trimmed, "event:"):
+				eventName = strings.TrimSpace(strings.TrimPrefix(trimmed, "event:"))
+			case strings.HasPrefix(trimmed, "data:"):
+				dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(trimmed, "data:")))
+			}
+		}
+		if len(dataLines) == 0 {
+			continue
+		}
+		data := strings.Join(dataLines, "\n")
+		if strings.TrimSpace(data) == "[DONE]" {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(data), &payload); err != nil {
+			t.Fatalf("decode translated responses SSE event %q payload: %v", eventName, err)
+		}
+		events = append(events, translatedResponseStreamEvent{event: eventName, payload: payload})
+	}
+	return events
+}
+
+type translatedResponseStreamEvent struct {
+	event   string
+	payload map[string]any
+}
+
+func translatedResponsesStreamEventPayload(t *testing.T, events []translatedResponseStreamEvent, eventName string) map[string]any {
+	t.Helper()
+	for _, event := range events {
+		if event.event == eventName {
+			return event.payload
+		}
+	}
+	t.Fatalf("expected translated responses SSE event %q, got %+v", eventName, events)
+	return nil
 }
 
 func newTranslatedStreamingUpstream(t *testing.T, responseBody string, responseHeaders http.Header) *translatedStreamingUpstream {
@@ -157,3 +252,5 @@ func (u *translatedStreamingUpstream) lastRequest(t *testing.T) upstreamRequestS
 	}
 	return u.requests[len(u.requests)-1]
 }
+
+// correction note: fixed broken string literals and kept the semantic split tests intact.

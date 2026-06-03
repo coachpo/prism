@@ -986,11 +986,12 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 	if selectedTerminalTargetID == nil && failure.ContextRouting != nil {
 		selectedTerminalTargetID = cloneRuntimeIntPointer(failure.ContextRouting.SelectedTerminalTargetID)
 	}
+	resolvedTargetModelID := cloneRuntimeStringPointer(runtimeErr.ResolvedTargetModelID)
 	completionDurationMS := intPtr(responseTimeMS)
 	requestLog := requestLogInsert{
 		ProfileID:                     failure.ProfileID,
 		ModelID:                       failure.RequestedModelID,
-		ResolvedTargetModelID:         nil,
+		ResolvedTargetModelID:         resolvedTargetModelID,
 		APIFamily:                     failure.APIFamily,
 		OperationName:                 strings.TrimSpace(failure.RuntimeOperation.Name),
 		UpstreamOperationName:         cloneRuntimeStringPointer(failure.UpstreamOperationName),
@@ -1036,7 +1037,7 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 		ProfileID:                failure.ProfileID,
 		IngressRequestID:         ingressRequestID,
 		ModelID:                  failure.RequestedModelID,
-		ResolvedTargetModelID:    nil,
+		ResolvedTargetModelID:    resolvedTargetModelID,
 		APIFamily:                failure.APIFamily,
 		OperationName:            strings.TrimSpace(failure.RuntimeOperation.Name),
 		UpstreamOperationName:    cloneRuntimeStringPointer(failure.UpstreamOperationName),

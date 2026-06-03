@@ -412,6 +412,12 @@ func (s *Service) resolveExactFacadeModelAccessFromSnapshot(profileID int, snaps
 				selectedTerminalTargetID,
 				contextRouting,
 			)
+			if selectedTranslatedRejectedTarget != nil && selectedTranslatedRejectedTarget.TargetModelID != "" {
+				resolvedTargetModelID := selectedTranslatedRejectedTarget.TargetModelID
+				if resolvedTargetModelID != "" {
+					translationRejection.ResolvedTargetModelID = &resolvedTargetModelID
+				}
+			}
 			return runtimeResolvedAccessPlan{}, translationRejection
 		}
 		facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, eligibleTotalWeight, skippedTerminalTargets, translatedRejectedCount)
@@ -552,6 +558,12 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, snaps
 					selectedTerminalTargetID,
 					buildRuntimeContextRoutingDecision(strategy, ctx.RequestContextEstimation, &selectedRejectedCandidate, runtimeContextRoutingCostRankingMethod, largestUsableContextWindowTokens, skippedTerminalTargets),
 				)
+				if len(selectedRejectedCandidate.resolved.TerminalAttempts) > 0 {
+					resolvedTargetModelID := selectedRejectedCandidate.resolved.TerminalAttempts[0].TargetModel.ModelID
+					if resolvedTargetModelID != "" {
+						translationRejection.ResolvedTargetModelID = &resolvedTargetModelID
+					}
+				}
 			}
 			return runtimeResolvedAccessPlan{}, translationRejection
 		}
@@ -689,6 +701,12 @@ func applyRequestTranslationCompatibility(candidate runtimeResolvedAccessPlan, c
 	if len(compatibleAttempts) == 0 {
 		if rejection != nil {
 			decoratedRejection := decorateRequestTranslationRejection(rejection, candidate.SelectedTerminalTargetID, candidate.ContextRouting)
+			if len(candidate.TerminalAttempts) > 0 {
+				resolvedTargetModelID := candidate.TerminalAttempts[0].TargetModel.ModelID
+				if resolvedTargetModelID != "" {
+					decoratedRejection.ResolvedTargetModelID = &resolvedTargetModelID
+				}
+			}
 			return runtimeResolvedAccessPlan{
 				TargetModel:                      candidate.TargetModel,
 				SelectedTerminalTargetID:         cloneRuntimeIntPointer(candidate.SelectedTerminalTargetID),

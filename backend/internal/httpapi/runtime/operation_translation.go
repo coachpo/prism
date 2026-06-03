@@ -107,6 +107,7 @@ func cloneDomainError(err *domainError) *domainError {
 	}
 	cloned.ContextRouting = cloneRuntimeContextRoutingDecision(err.ContextRouting)
 	cloned.SelectedTerminalTargetID = cloneRuntimeIntPointer(err.SelectedTerminalTargetID)
+	cloned.ResolvedTargetModelID = cloneRuntimeStringPointer(err.ResolvedTargetModelID)
 	if err.PlanningFailure != nil {
 		planningFailure := *err.PlanningFailure
 		planningFailure.RequestGenerationParams = err.PlanningFailure.RequestGenerationParams.clone()

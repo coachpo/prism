@@ -861,6 +861,10 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 		upstreamRequestPath = runtimeUpstreamRequestPath(operation.Match.Operation, translationMode, "")
 		operationTranslationMode = runtimeTranslationModePointer(translationMode)
 	}
+	resolvedTargetModelID := stringPtr(requestedModel.ModelID)
+	if runtimeErr.ResolvedTargetModelID != nil && strings.TrimSpace(*runtimeErr.ResolvedTargetModelID) != "" {
+		resolvedTargetModelID = cloneRuntimeStringPointer(runtimeErr.ResolvedTargetModelID)
+	}
 	runtimeErr.PlanningFailure = &runtimePlanningFailureTelemetry{
 		ProfileID:                   input.ActiveProfileID,
 		RequestedModelID:            requestedModel.ModelID,
@@ -881,6 +885,7 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 		SelectedTerminalTargetID:    selectedTerminalTargetID,
 		ContextRouting:              cloneRuntimeContextRoutingDecision(runtimeErr.ContextRouting),
 	}
+	runtimeErr.ResolvedTargetModelID = resolvedTargetModelID
 	return err
 }
 

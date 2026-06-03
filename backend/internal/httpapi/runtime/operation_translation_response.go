@@ -10,10 +10,10 @@ import (
 
 const openAITranslatedNonStreamResponseBodyLimit int64 = 8 * 1024 * 1024
 
-func translateOpenAIResponse(rawBody []byte, mode TranslationMode) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
+func translateOpenAIResponse(rawBody []byte, mode TranslationMode, requestedModelID string) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
 	switch mode {
 	case TranslationModeOpenAIResponsesToChatCompletions:
-		return translateOpenAIChatToResponsesResponse(rawBody)
+		return translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody, requestedModelID)
 	case TranslationModeOpenAIChatCompletionsToResponses:
 		return translateOpenAIResponsesToChatResponse(rawBody)
 	case "", TranslationModeNone:
@@ -59,12 +59,17 @@ func translateOpenAIResponsesToChatResponse(rawBody []byte) ([]byte, responseUsa
 }
 
 func translateOpenAIChatToResponsesResponse(rawBody []byte) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
+	return translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody, "")
+}
+
+func translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody []byte, requestedModelID string) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
 	payload, err := decodeOpenAIResponseTranslationPayload(rawBody)
 	if err != nil {
 		return nil, responseUsage{}, runtimeUsageRuleOpenAIChatCompletions, err
 	}
 	usage := extractResponseUsageFromPayload(payload, runtimeUsageRuleOpenAIChatCompletions)
 	if _, ok := payload["error"]; ok {
+		normalizeTranslatedResponsesPublicModel(payload, requestedModelID)
 		body, err := marshalTranslatedOpenAIResponse(payload, TranslationModeOpenAIChatCompletionsToResponses)
 		return body, usage, runtimeUsageRuleOpenAIChatCompletions, err
 	}
@@ -89,6 +94,7 @@ func translateOpenAIChatToResponsesResponse(rawBody []byte) ([]byte, responseUsa
 		"output": output,
 	}
 	copyOpenAIResponseTranslationFields(payload, translated, "id", "model", "service_tier")
+	normalizeTranslatedResponsesPublicModel(translated, requestedModelID)
 	if created := intPointerFromAny(payload["created"]); created != nil {
 		translated["created_at"] = *created
 	}
@@ -97,6 +103,17 @@ func translateOpenAIChatToResponsesResponse(rawBody []byte) ([]byte, responseUsa
 	}
 	body, err := marshalTranslatedOpenAIResponse(translated, TranslationModeOpenAIChatCompletionsToResponses)
 	return body, usage, runtimeUsageRuleOpenAIChatCompletions, err
+}
+
+func normalizeTranslatedResponsesPublicModel(payload map[string]any, requestedModelID string) {
+	if payload == nil {
+		return
+	}
+	requestedModelID = strings.TrimSpace(requestedModelID)
+	if requestedModelID == "" {
+		return
+	}
+	payload["model"] = requestedModelID
 }
 
 func translateResponsesOutputToChatChoice(output []any) (map[string]any, error) {

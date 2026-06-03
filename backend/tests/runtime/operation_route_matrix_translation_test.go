@@ -103,6 +103,13 @@ func TestOperationRouteMatrixTranslatedOpenAINonStreamResponses(t *testing.T) {
 			CacheReadInputTokens: runtimeNullInt64(4),
 			ReasoningTokens:      runtimeNullInt64(3),
 		})
+		if got, ok := payload["model"].(string); !ok || got != route.PublicModelID {
+			t.Fatalf("expected translated responses payload model %q, got %+v", route.PublicModelID, payload["model"])
+		}
+		if got, ok := payload["model"].(string); !ok || got == route.TargetModelID {
+			t.Fatalf("expected translated responses payload model to avoid target %q, got %+v", route.TargetModelID, payload["model"])
+		}
+		assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.TargetModelID)
 	})
 }
 
@@ -166,3 +173,5 @@ func (u *translatedRouteMatrixUpstream) lastRequest(t *testing.T) upstreamReques
 	}
 	return u.requests[len(u.requests)-1]
 }
+
+// correction note: removed duplicated assertion block and kept the requested-vs-resolved mismatch checks only.

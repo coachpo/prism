@@ -93,7 +93,7 @@ func ResponseHooksForOperation(operation RuntimeOperation) (operationResponseHoo
 
 func proxyNonEventResponseAndCaptureByOperation(operation RuntimeOperation, translationMode TranslationMode, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if translationMode != "" && translationMode != TranslationModeNone {
-		return proxyTranslatedOpenAINonEventResponseAndCapture(translationMode, dst, src, now, captureAuditBody)
+		return proxyTranslatedOpenAINonEventResponseAndCapture(translationMode, "", dst, src, now, captureAuditBody)
 	}
 	hooks, ok := responseHooksForOperation(operation)
 	if !ok || hooks.ParseNonStreamResponse == nil {
@@ -102,12 +102,12 @@ func proxyNonEventResponseAndCaptureByOperation(operation RuntimeOperation, tran
 	return hooks.ParseNonStreamResponse(hooks, dst, src, contentType, now, captureAuditBody)
 }
 
-func proxyTranslatedOpenAINonEventResponseAndCapture(translationMode TranslationMode, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+func proxyTranslatedOpenAINonEventResponseAndCapture(translationMode TranslationMode, requestedModelID string, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	rawBody, err := readBoundedResponseBody(src, openAITranslatedNonStreamResponseBodyLimit)
 	if err != nil {
 		return runtimeResponseCapture{}, err
 	}
-	translatedBody, usage, usageRule, err := translateOpenAIResponse(rawBody, translationMode)
+	translatedBody, usage, usageRule, err := translateOpenAIResponse(rawBody, translationMode, requestedModelID)
 	if err != nil {
 		return runtimeResponseCapture{}, err
 	}

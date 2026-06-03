@@ -270,6 +270,7 @@ func TestRequestLogsTranslatedOpenAIDetailPreservesIngressAndUpstreamAttribution
 	if got, ok := contextRouting["selected_endpoint_id"].(float64); !ok || int(got) <= 0 {
 		t.Fatalf("expected translated detail to expose selected_endpoint_id, got %+v", contextRouting)
 	}
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.TargetModelID)
 }
 
 func TestRequestLogsTranslatedOpenAIRejectedDetailPreservesIngressAndUpstreamAttribution(t *testing.T) {
@@ -316,6 +317,7 @@ func TestRequestLogsTranslatedOpenAIRejectedDetailPreservesIngressAndUpstreamAtt
 	if got, ok := contextRouting["selected_terminal_target_id"].(float64); !ok || int(got) != route.ConnectionID {
 		t.Fatalf("expected rejected context_routing.selected_terminal_target_id=%d, got %+v", route.ConnectionID, contextRouting)
 	}
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.TargetModelID)
 	usage := asMapRuntime(t, payload["usage"])
 	if got, ok := usage["input_tokens"]; !ok || got != nil {
 		t.Fatalf("expected rejected translated detail usage.input_tokens=null without provider truth, got %+v", usage)
@@ -929,6 +931,47 @@ func TestRuntimeRequestLogsPreserveRequestedAndResolvedModelIdentity(t *testing.
 		map[string]any{
 			"messages": []map[string]any{{"role": "user", "content": "preserve requested and resolved identity"}},
 			"model":    route.PublicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	if got := requestModelID(t, upstream.lastRequest(t).Body); got != route.TargetModelID {
+		t.Fatalf("expected upstream request model %q, got %q", route.TargetModelID, got)
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.TargetModelID)
+}
+
+func TestRuntimeRequestLogsPreserveRequestedPublicAndResolvedNativeIdentityForTranslatedResponses(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl-runtime-requested-resolved-identity-translation-" + suffix,
+		"object": "chat.completion",
+		"usage": map[string]any{
+			"prompt_tokens":     8,
+			"completion_tokens": 5,
+			"total_tokens":      13,
+		},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "requested-resolved-public-translation-" + suffix,
+		TargetModelID:   "requested-resolved-target-translation-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/request-logs/requested-resolved-translation"),
+		EndpointAPIKey:  "runtime-requested-resolved-key-translation",
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/responses",
+		map[string]any{
+			"input": "preserve requested and resolved identity in translated responses",
+			"model": route.PublicModelID,
 		},
 		nil,
 	)

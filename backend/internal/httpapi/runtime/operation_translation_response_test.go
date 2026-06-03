@@ -66,7 +66,7 @@ func TestTranslateOpenAIResponsesToChatResponse(t *testing.T) {
 func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 	rawBody := []byte(`{"id":"chatcmpl_123","created":1700000001,"model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":"thinking","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"city\":\"Paris\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":3}}}`)
 
-	translated, usage, usageRule, err := translateOpenAIChatToResponsesResponse(rawBody)
+	translated, usage, usageRule, err := translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody, "responses-public")
 	if err != nil {
 		t.Fatalf("translate chat to responses response: %v", err)
 	}
@@ -78,6 +78,12 @@ func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 		t.Fatalf("expected chat usage rule %+v, got %+v", runtimeUsageRuleOpenAIChatCompletions, usageRule)
 	}
 	payload := decodeTranslationTestPayload(t, translated)
+	if got := stringValue(payload["model"]); got != "responses-public" {
+		t.Fatalf("expected translated responses model to normalize to requested public model, got %q", got)
+	}
+	if got := stringValue(payload["model"]); got == "chat-target" {
+		t.Fatalf("expected translated responses model to avoid leaking resolved target model, got %q", got)
+	}
 	if got := stringValue(payload["object"]); got != "response" {
 		t.Fatalf("expected response object, got %q", got)
 	}
@@ -117,6 +123,45 @@ func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 	}
 }
 
+func TestTranslateOpenAIChatToResponsesResponseRequestedEqualsResolved(t *testing.T) {
+	rawBody := []byte(`{"id":"chatcmpl_123","created":1700000001,"model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":"thinking"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16}}`)
+
+	translated, _, _, err := translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody, "chat-target")
+	if err != nil {
+		t.Fatalf("translate chat to responses response: %v", err)
+	}
+	payload := decodeTranslationTestPayload(t, translated)
+	if got := stringValue(payload["model"]); got != "chat-target" {
+		t.Fatalf("expected translated responses model to keep equal requested/resolved model, got %q", got)
+	}
+	if got := stringValue(payload["model"]); got == "responses-public" {
+		t.Fatalf("expected translated responses equal-identity model to avoid alias swap, got %q", got)
+	}
+}
+
+func TestTranslateOpenAIChatToResponsesResponsePreservesErrorPayload(t *testing.T) {
+	rawBody := []byte(`{"id":"chatcmpl_123","created":1700000001,"model":"chat-target","error":{"message":"upstream failed","type":"server_error","code":"bad_gateway"},"choices":[{"index":0,"message":{"role":"assistant","content":"thinking"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16}}`)
+
+	translated, _, _, err := translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody, "responses-public")
+	if err != nil {
+		t.Fatalf("translate chat to responses response with error payload: %v", err)
+	}
+	payload := decodeTranslationTestPayload(t, translated)
+	errorPayload, ok := payload["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected translated responses payload to preserve error object, got %+v", payload)
+	}
+	if got := stringValue(errorPayload["message"]); got != "upstream failed" {
+		t.Fatalf("expected preserved error message, got %q", got)
+	}
+	if got := stringValue(payload["model"]); got != "responses-public" {
+		t.Fatalf("expected translated responses model to normalize to requested public model during error payload preservation, got %q", got)
+	}
+	if got := stringValue(payload["model"]); got == "chat-target" {
+		t.Fatalf("expected translated responses error payload to avoid leaking resolved target model, got %q", got)
+	}
+}
+
 func TestOperationResponseHooks_TranslatedOpenAINonStreamPreservesCanonicalUsageAndRawAudit(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -130,7 +175,7 @@ func TestOperationResponseHooks_TranslatedOpenAINonStreamPreservesCanonicalUsage
 			name:         "responses ingress from translated chat upstream",
 			ingressPath:  "/v1/responses",
 			mode:         TranslationModeOpenAIResponsesToChatCompletions,
-			payload:      `{"id":"chatcmpl-hook","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":3}}}`,
+			payload:      `{"id":"chatcmpl-hook","model":"responses-target","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":3}}}`,
 			wantContains: `"output"`,
 			wantUsage:    generationResponseHookTestUsageWithCacheAndReasoning(6, 3, 16, 4, 3),
 		},
@@ -138,7 +183,7 @@ func TestOperationResponseHooks_TranslatedOpenAINonStreamPreservesCanonicalUsage
 			name:         "chat ingress from translated responses upstream",
 			ingressPath:  "/v1/chat/completions",
 			mode:         TranslationModeOpenAIChatCompletionsToResponses,
-			payload:      `{"id":"resp-hook","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":3}}}`,
+			payload:      `{"id":"resp-hook","model":"chat-target","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":3}}}`,
 			wantContains: `"choices"`,
 			wantUsage:    generationResponseHookTestUsageWithCacheAndReasoning(6, 3, 16, 4, 3),
 		},
@@ -154,6 +199,22 @@ func TestOperationResponseHooks_TranslatedOpenAINonStreamPreservesCanonicalUsage
 			}
 			if forwarded.String() == test.payload || !strings.Contains(forwarded.String(), test.wantContains) {
 				t.Fatalf("expected translated client payload containing %q, got %q", test.wantContains, forwarded.String())
+			}
+			if test.ingressPath == "/v1/responses" {
+				if !strings.Contains(forwarded.String(), `"model":"responses-target"`) {
+					t.Fatalf("expected equal requested/resolved responses payload to keep model responses-target, got %q", forwarded.String())
+				}
+				if strings.Contains(forwarded.String(), `"model":"responses-public"`) {
+					t.Fatalf("expected equal requested/resolved responses payload to avoid swapping to public alias, got %q", forwarded.String())
+				}
+			}
+			if test.ingressPath == "/v1/chat/completions" {
+				if !strings.Contains(forwarded.String(), `"model":"chat-target"`) {
+					t.Fatalf("expected equal requested/resolved chat payload to keep model chat-target, got %q", forwarded.String())
+				}
+				if strings.Contains(forwarded.String(), `"model":"chat-public"`) {
+					t.Fatalf("expected equal requested/resolved chat payload to avoid swapping to public alias, got %q", forwarded.String())
+				}
 			}
 			if string(capture.AuditBody) != test.payload {
 				t.Fatalf("expected raw upstream audit body, got %q", string(capture.AuditBody))

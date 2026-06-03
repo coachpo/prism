@@ -84,6 +84,7 @@ type domainError struct {
 	ErrorCode                string
 	Detail                   string
 	Fields                   map[string]any
+	ResolvedTargetModelID    *string
 	ContextRouting           *runtimeContextRoutingDecision
 	SelectedTerminalTargetID *int
 	PlanningFailure          *runtimePlanningFailureTelemetry
@@ -467,7 +468,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		}
 		proxyWriter.WriteHeader(execution.Response.StatusCode)
 		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
-			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseByOperation(plan.RuntimeOperation, translationMode, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
+			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseByOperation(plan.RuntimeOperation, translationMode, plan.RequestedModelID, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
 			if streamErr != nil {
 				runtimeTraceMarkError(responseSpan, "response_handle_failed")
 				slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
@@ -496,7 +497,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	}
 
 	var translatedBody bytes.Buffer
-	responseCapture, err := proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, translationMode, &translatedBody, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
+	responseCapture, err := proxyTranslatedOpenAINonEventResponseAndCapture(translationMode, plan.RequestedModelID, &translatedBody, execution.Response.Body, s.nowUTC, captureAuditBody)
 	if err != nil {
 		runtimeTraceMarkError(responseSpan, "response_handle_failed")
 		writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
