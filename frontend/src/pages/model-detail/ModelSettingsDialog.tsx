@@ -132,7 +132,7 @@ export function ModelSettingsDialog({
       <DialogContent className="flex h-[min(92vh,48rem)] max-h-[92vh] max-w-4xl flex-col overflow-hidden p-0 sm:max-w-4xl">
         <DialogHeader className="shrink-0 border-b bg-background px-6 py-5 sm:px-7">
           <DialogTitle>{copy.modelSettingsTitle}</DialogTitle>
-          <DialogDescription>{copy.modelSettingsDescription}</DialogDescription>
+          <DialogDescription>{copy.modelSettingsAccessTargetsDescription}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleEditModelSubmit} className="flex min-h-0 flex-1 flex-col" noValidate>
@@ -293,7 +293,7 @@ export function ModelSettingsDialog({
             >
               <div className="flex flex-col gap-1">
                 <h2 className="text-sm font-semibold tracking-tight text-foreground">{copy.loadbalanceStrategy}</h2>
-                <p className="text-sm text-muted-foreground">{copy.modelConfigurationAndConnectionRouting}</p>
+                <p className="text-sm text-muted-foreground">{copy.modelSettingsRoutingDescription}</p>
               </div>
 
               <div className="flex min-w-0 flex-col gap-4">

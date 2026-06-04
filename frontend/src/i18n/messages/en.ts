@@ -713,6 +713,7 @@ export interface Messages {
     mailFromRequired: string;
     mailReplyTo: string;
     mailReplyToPlaceholder: string;
+    managementAdmission: string;
     managementMaxConns: string;
     managementMinIdle: string;
     minIdleMustNotExceedMax: string;
@@ -832,6 +833,9 @@ export interface Messages {
     telemetryExporterTimeoutPlaceholder: string;
     telemetryExporterTimeoutRequired: string;
     telemetryMetricsEnabled: string;
+    advancedTelemetryDescription: string;
+    hideAdvancedTelemetry: string;
+    showAdvancedTelemetry: string;
     telemetryProtocolAndExporterTitle: string;
     telemetrySectionDescription: string;
     telemetrySectionTitle: string;
@@ -860,6 +864,9 @@ export interface Messages {
     smtpAuthPlain: string;
     smtpAuthPlaceholder: string;
     smtpAuthRequired: string;
+    advancedSmtpDescription: string;
+    hideAdvancedSmtp: string;
+    showAdvancedSmtp: string;
     smtpDescription: string;
     smtpDisabledDescription: string;
     smtpEhloHostname: string;
@@ -1492,7 +1499,10 @@ export interface Messages {
     maxInFlightStream: string;
     modelConfigurationAndConnectionRouting: string;
     modelIdLabel: string;
+    modelRoutingAccessTargetsAndTerminalTargets: string;
+    modelSettingsAccessTargetsDescription: string;
     modelSettingsDescription: string;
+    modelSettingsRoutingDescription: string;
     modelSettingsTitle: string;
     noConnectionsConfigured: string;
     noConnectionsMatchFilter: string;
@@ -1580,6 +1590,8 @@ export interface Messages {
     accessTargets: string;
     accessTargetsDescription: string;
     addTarget: string;
+    modelFallbackTargets: string;
+    modelFallbackTargetsDescription: string;
     connectionTarget: string;
     contextRoutingDefaults: string;
     contextRoutingDefaultsDescription: string;
@@ -2273,8 +2285,8 @@ export const enMessages: Messages = {
     routing24hTotalRequests: "24h total requests",
     routingActionOpenModelDetail: "Open model detail",
     routingActiveConnections: "Active terminal targets",
-    routingChartActionHint: "Click model nodes to open details",
-    routingChartHint: "Link width reflects active terminal target count. Color reflects 24h route success rate.",
+    routingChartActionHint: "Activate model or endpoint targets to open details or request logs",
+    routingChartHint: "Desktop shows the backend-owned routing graph. Compact widths switch to a topology list with the same model and endpoint drill-down targets.",
     routingEndpoint: "Endpoint",
     routingEndpointNodeType: "Endpoint",
     routingLegendDegraded: "Degraded",
@@ -2874,14 +2886,14 @@ export const enMessages: Messages = {
     corsOriginsAbsolute: "CORS origins must be absolute URLs.",
     corsOriginsRequired: "At least one CORS origin is required.",
     corsOriginsUnique: "CORS origins must be unique.",
-    currentSecretMetadata: (value) => `Current metadata: ${value}.`,
+    currentSecretMetadata: (value) => `Current: ${value}.`,
     dangerDialogDescription: "These edits will be written to config.json. Eligible fields apply immediately; structural fields require the next Prism restart.",
     dangerDialogTitle: "Save dangerous startup changes?",
     dangerousChangesStaged: "Dangerous changes staged",
     dangerousChecklistDescription: "Required for restart-sensitive changes.",
     dangerousChecklistTitle: "Dangerous confirmation checklist",
     database: "Database",
-    databaseAndCapacityDescription: "PostgreSQL secret metadata plus pool and admission limits.",
+    databaseAndCapacityDescription: "Database secret metadata, pools, and admission limits.",
     databaseAndCapacityTitle: "Database and capacity",
     databaseUrl: "Database URL",
     databaseUrlChangeLabel: "Database URL replacement points Prism at a different PostgreSQL target",
@@ -2910,7 +2922,7 @@ export const enMessages: Messages = {
     loadFailedTitle: "Startup bootstrap config unavailable",
     loadFailedDescription: "The startup bootstrap config could not be loaded.",
     mail: "Mail",
-    mailAndSmtpDescription: "Auth email delivery and SMTP.",
+    mailAndSmtpDescription: "Auth email delivery and SMTP transport.",
     mailAndSmtpTitle: "Mail and SMTP",
     mailEnabled: "Enable auth email delivery",
     mailEnabledDescription: "Disabling mail also disables SMTP requirements.",
@@ -2919,6 +2931,7 @@ export const enMessages: Messages = {
     mailFromRequired: "Mail sender is required when mail is enabled.",
     mailReplyTo: "Reply-to address",
     mailReplyToPlaceholder: "support@example.com",
+    managementAdmission: "Management admission",
     managementMaxConns: "Management max conns",
     managementMinIdle: "Management min idle",
     minIdleMustNotExceedMax: "Minimum idle connections must not exceed max connections.",
@@ -3038,8 +3051,11 @@ export const enMessages: Messages = {
     telemetryExporterTimeoutPlaceholder: "10s",
     telemetryExporterTimeoutRequired: "Exporter timeout is required when telemetry is enabled.",
     telemetryMetricsEnabled: "Export metrics",
+    advancedTelemetryDescription: "Auth headers, TLS trust, and signal toggles.",
+    hideAdvancedTelemetry: "Hide advanced telemetry",
+    showAdvancedTelemetry: "Show advanced telemetry",
     telemetryProtocolAndExporterTitle: "OTLP exporter",
-    telemetrySectionDescription: "OpenTelemetry exporter, auth, TLS, metrics, and traces. These fields are restart-required and do not hot-apply.",
+    telemetrySectionDescription: "Restart-only OTLP exporter, auth, TLS, metrics, and traces.",
     telemetrySectionTitle: "Telemetry",
     telemetrySignals: "Signals",
     telemetrySignalsDescription: "Choose which telemetry signals Prism starts on next process boot.",
@@ -3055,7 +3071,7 @@ export const enMessages: Messages = {
     telemetryTracesSamplingRatioDescription: "Required only when trace export is enabled. Use a value from 0 to 1.",
     telemetryTracesSamplingRatioRange: "Trace sampling ratio must be between 0 and 1.",
     state: "State",
-    stateTransferDescription: "Config bundle encryption metadata. Runtime secret encryption key is read-only and preserve-only.",
+    stateTransferDescription: "Bundle encryption metadata and runtime secret storage.",
     stateTransferTitle: "State transfer",
     status: "Status",
     startupBootstrapConfigTitle: "Startup bootstrap config",
@@ -3066,6 +3082,9 @@ export const enMessages: Messages = {
     smtpAuthPlain: "Plain username and password",
     smtpAuthPlaceholder: "Select SMTP auth",
     smtpAuthRequired: "Select a valid SMTP auth mode.",
+    advancedSmtpDescription: "Auth mode, secret sources, EHLO, TLS, and timeouts.",
+    hideAdvancedSmtp: "Hide advanced SMTP auth and TLS",
+    showAdvancedSmtp: "Show advanced SMTP auth and TLS",
     smtpDescription: "Outbound SMTP for recovery email.",
     smtpDisabledDescription: "Enable mail to edit SMTP.",
     smtpEhloHostname: "EHLO hostname",
@@ -3674,8 +3693,14 @@ export const enMessages: Messages = {
     modelConfigurationAndConnectionRouting:
       "Choose the Ban Policy and terminal-target selection family for this entry model.",
     modelIdLabel: "Model ID",
+    modelRoutingAccessTargetsAndTerminalTargets:
+      "Entry-model routing spans grouped access targets, same-family model fallback targets, and model-private terminal targets.",
+    modelSettingsAccessTargetsDescription:
+      "Update the selected-profile entry model, its routing defaults, and its grouped model fallback targets before terminal-target routing takes over.",
     modelSettingsDescription:
       "Update the selected-profile entry model, its routing defaults, and the policy it uses to reach terminal targets.",
+    modelSettingsRoutingDescription:
+      "Choose the Ban Policy for this entry model and adjust grouped model fallback targets here. Model-private terminal targets stay on Model Detail.",
     modelSettingsTitle: "Model Settings",
     noConnectionsConfigured: "No terminal targets configured",
     noConnectionsMatchFilter: "No terminal targets match your filter",
@@ -3838,8 +3863,10 @@ export const enMessages: Messages = {
   },
   modelsUi: {
     accessTargets: "Access targets",
-    accessTargetsDescription: "Entry models fan out through grouped same-family fallback tiers here. Model-private terminal targets stay visible for planning, but you create and manage them from Model Detail.",
+    accessTargetsDescription: "Access targets combine grouped same-family model fallback targets with model-private terminal targets. Manage fallback tiers here, then finish terminal-target routing from Model Detail.",
     addTarget: "Add target",
+    modelFallbackTargets: "Model fallback targets",
+    modelFallbackTargetsDescription: "Manage same-family model peers here and group them into fallback tiers before Prism reaches terminal targets.",
     connectionTarget: "Terminal target",
     contextRoutingDefaults: "Context routing defaults",
     contextRoutingDefaultsDescription:
@@ -3862,26 +3889,26 @@ export const enMessages: Messages = {
       "Optional soft preference band for cheapest eligible context routing. Leave blank to disable the preferred band.",
     modelId: "Model ID",
     modelIdPlaceholder: "e.g. gpt-4o",
-    modelTarget: "Model target",
+    modelTarget: "Model fallback target",
     needsTarget: "Needs target",
     newConnection: "New terminal target",
     newModelDescription:
       "Define the selected-profile entry model, its routing defaults, and the policy it will use to reach terminal targets.",
     newModelEnabledDescription: "New models start disabled so you can save a draft now and attach model targets later. Enabled saves require at least one enabled target.",
-    noAccessTargetsSelected: "No model targets selected. Save disabled now, or add a same-family model target to a fallback tier before enabling.",
+    noAccessTargetsSelected: "No model targets selected. Save disabled now, or add a same-family model fallback target to a fallback tier before enabling.",
     noModelsMatchSearch: "No models match search",
     noModelsConfigured: "No models configured",
-    noSameFamilyModelsAvailable: "No other same-family models are available. Save disabled now, or add a model target later before enabling.",
-    noTerminalTargetsSelected: "No terminal targets are attached yet. Create or manage them from Model Detail.",
+    noSameFamilyModelsAvailable: "No other same-family models are available. Save disabled now, or add a model fallback target later before enabling.",
+    noTerminalTargetsSelected: "No terminal targets are attached yet. Create or manage those terminal connections from Model Detail.",
     optionalFriendlyName: "Optional friendly name",
     priority: (value) => `Priority ${value}`,
     routingTypeDescription:
       "Choose the Ban Policy and terminal-target selection family this entry model uses after access-target routing.",
     save: "Save",
-    selectSameFamilyModel: "Select same-family model",
+    selectSameFamilyModel: "Select fallback model",
     strategyNotConfigured: "Strategy not configured",
     terminalTargets: "Terminal targets",
-    terminalTargetsDescription: "Terminal connections stay outside the peer-tier editor. Create, edit, and health-check them here without changing grouped model fallback tiers.",
+    terminalTargetsDescription: "Terminal connections stay outside the model fallback tier editor. Create, edit, and health-check them here without changing grouped model fallback tiers.",
     targetMoveDown: (id) => `Move target ${id} down`,
     targetMoveUp: (id) => `Move target ${id} up`,
     targetRemove: (id) => `Remove target ${id}`,

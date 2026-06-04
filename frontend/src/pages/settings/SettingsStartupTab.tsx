@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, RefreshCw, ShieldAlert } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, RefreshCw, Save, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
+import { Separator } from "@/components/ui/separator";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type {
   BootstrapConfigConfirmationToken,
   BootstrapConfigMailSMTPValues,
@@ -40,6 +47,7 @@ import {
   getChangedCapabilityFields,
   getDangerousConfirmationLabel,
   getErrorMessage,
+  getValidationStatusLabel,
   normalizeBootstrapValues,
   normalizeMailValues,
   normalizeTelemetryValues,
@@ -52,8 +60,148 @@ import {
   type DangerousConfirmation,
   type FieldErrors,
   type SecretInputState,
+  type SettingsStartupCopy,
   type ValidationRow,
 } from "./startup/startupFieldMetadata";
+
+function StartupSectionGroup({
+  children,
+  className,
+  testId,
+}: {
+  children: ReactNode;
+  className?: string;
+  testId: string;
+}) {
+  return (
+    <section
+      data-testid={testId}
+      className={cn("space-y-6 rounded-2xl border border-border/70 bg-muted/10 p-4 md:p-5", className)}
+    >
+      {children}
+    </section>
+  );
+}
+
+interface StartupReviewPanelProps {
+  activeDangerousConfirmations: DangerousConfirmation[];
+  confirmedTokens: BootstrapConfigConfirmationToken[];
+  controlsDisabled: boolean;
+  copy: SettingsStartupCopy;
+  dangerousConfirmations: DangerousConfirmation[];
+  dirtySummary: string[];
+  handleSave: () => void;
+  handleValidate: () => Promise<void>;
+  saving: boolean;
+  toggleConfirmation: (token: BootstrapConfigConfirmationToken, checked: boolean) => void;
+  validating: boolean;
+  validationRows: ValidationRow[];
+  writable: boolean;
+}
+
+function StartupReviewPanel({
+  activeDangerousConfirmations,
+  confirmedTokens,
+  controlsDisabled,
+  copy,
+  dangerousConfirmations,
+  dirtySummary,
+  handleSave,
+  handleValidate,
+  saving,
+  toggleConfirmation,
+  validating,
+  validationRows,
+  writable,
+}: StartupReviewPanelProps) {
+  return (
+    <Card data-testid="startup-review-panel" className="gap-0 overflow-hidden xl:max-h-[calc(100vh-2rem)]">
+      <CardHeader className="border-b">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <CheckCircle2 />
+          {copy.reviewAndSaveTitle}
+        </CardTitle>
+        <CardDescription>{copy.reviewAndSaveDescription}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 py-[var(--density-card-pad-y)]">
+        <div className="flex flex-wrap gap-2">
+          {dirtySummary.length
+            ? dirtySummary.map((item) => (
+                <Badge key={item} variant="secondary">
+                  {item}
+                </Badge>
+              ))
+            : <Badge variant="outline">{copy.noLocalChangesDetected}</Badge>}
+          {activeDangerousConfirmations.length ? <Badge variant="destructive">{copy.dangerousChangesStaged}</Badge> : null}
+        </div>
+        <FieldSet>
+          <FieldLegend>{copy.dangerousChecklistTitle}</FieldLegend>
+          <FieldDescription>{copy.dangerousChecklistDescription}</FieldDescription>
+          <FieldGroup data-slot="checkbox-group">
+            {dangerousConfirmations.map((confirmation) => (
+              <Field key={confirmation.token} orientation="horizontal" data-disabled={!confirmation.active || controlsDisabled || undefined}>
+                <Checkbox
+                  id={`startup-review-${confirmation.token}`}
+                  checked={confirmedTokens.includes(confirmation.token as BootstrapConfigConfirmationToken)}
+                  disabled={!confirmation.active || controlsDisabled}
+                  onCheckedChange={(checked) => toggleConfirmation(confirmation.token as BootstrapConfigConfirmationToken, checked === true)}
+                />
+                <FieldContent>
+                  <FieldLabel htmlFor={`startup-review-${confirmation.token}`}>{confirmation.label}</FieldLabel>
+                  <FieldDescription>
+                    {confirmation.active ? copy.confirmationRequiredBeforeSave : copy.noChangeCurrentlyStaged}
+                  </FieldDescription>
+                </FieldContent>
+              </Field>
+            ))}
+          </FieldGroup>
+        </FieldSet>
+        <Separator />
+        <div className="min-h-0 overflow-auto scrollbar-thin">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{copy.status}</TableHead>
+                <TableHead>{copy.field}</TableHead>
+                <TableHead>{copy.message}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {validationRows.map((row, index) => (
+                <TableRow key={`${row.field}-${index}`}>
+                  <TableCell>
+                    <Badge variant={row.status === "error" ? "destructive" : row.status === "warning" ? "secondary" : "outline"}>
+                      {getValidationStatusLabel(row.status, copy)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{row.field}</TableCell>
+                  <TableCell className="whitespace-normal">{row.message}</TableCell>
+                </TableRow>
+              ))}
+              {!validationRows.length ? (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-muted-foreground">
+                    {copy.noValidationRunYet}
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+      <CardFooter className="border-t justify-end gap-2">
+        <Button type="button" variant="outline" disabled={controlsDisabled} onClick={() => void handleValidate()}>
+          {validating ? <RefreshCw data-icon="inline-start" className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
+          {copy.validate}
+        </Button>
+        <Button type="button" disabled={controlsDisabled || saving || !writable} onClick={handleSave}>
+          {saving ? <RefreshCw data-icon="inline-start" className="animate-spin" /> : <Save data-icon="inline-start" />}
+          {copy.saveStartupConfig}
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
 
 export function SettingsStartupTab() {
   const { messages } = useLocale();
@@ -70,6 +218,7 @@ export function SettingsStartupTab() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dangerDialogOpen, setDangerDialogOpen] = useState(false);
+  const [showDesktopReviewPanel, setShowDesktopReviewPanel] = useState(false);
 
   const hydrateConfig = useCallback((response: BootstrapConfigResponse) => {
     const normalizedResponse = { ...response, values: normalizeBootstrapValues(response.values) };
@@ -96,6 +245,17 @@ export function SettingsStartupTab() {
   useEffect(() => {
     void loadConfig();
   }, [loadConfig]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const media = window.matchMedia("(min-width: 1280px)");
+    const syncDesktopReviewPanel = () => setShowDesktopReviewPanel(media.matches);
+    syncDesktopReviewPanel();
+    media.addEventListener("change", syncDesktopReviewPanel);
+    return () => media.removeEventListener("change", syncDesktopReviewPanel);
+  }, []);
 
   const updateValues = useCallback((updater: (current: BootstrapConfigValues) => BootstrapConfigValues) => {
     setValues((current) => (current ? updater(current) : current));
@@ -465,13 +625,42 @@ export function SettingsStartupTab() {
           <AlertDescription>{currentApplySummary.message}</AlertDescription>
         </Alert>
       ) : null}
-      <StartupFileStatusCard bootstrapConfig={bootstrapConfig} copy={copy} currentApplySummary={currentApplySummary} />
-      <div className="grid gap-6 xl:grid-cols-2">
-        <StartupServerSection copy={copy} controlsDisabled={controlsDisabled} corsOriginsText={corsOriginsText} fieldErrors={fieldErrors} fieldEffect={fieldEffect} sectionEffect={sectionEffect} setCorsOriginsText={setCorsOriginsText} setServerField={setServerField} values={values} />
-        <StartupDatabaseSection bootstrapConfig={bootstrapConfig} clearSecretInput={clearSecretInput} controlsDisabled={controlsDisabled} copy={copy} fieldErrors={fieldErrors} fieldEffect={fieldEffect} handleSecretInputChange={handleSecretInputChange} sectionEffect={sectionEffect} secretInputs={secretInputs} setNumberField={setNumberField} values={values} />
-        <StartupRuntimeSection controlsDisabled={controlsDisabled} copy={copy} fieldErrors={fieldErrors} fieldEffect={fieldEffect} sectionEffect={sectionEffect} setNumberField={setNumberField} setStringField={setStringField} values={values} />
-        <StartupTelemetrySection bootstrapConfig={bootstrapConfig} clearSecretInput={clearSecretInput} controlsDisabled={controlsDisabled} copy={copy} fieldErrors={fieldErrors} fieldEffect={fieldEffect} handleSecretInputChange={handleSecretInputChange} sectionEffect={sectionEffect} secretInputs={secretInputs} setBooleanField={setBooleanField} setFloatField={setFloatField} setStringField={setStringField} setTelemetryAuthMode={setTelemetryAuthMode} setTelemetryEnabled={setTelemetryEnabled} values={values} />
-        <StartupMailSecretsSection activeDangerousConfirmations={activeDangerousConfirmations} bootstrapConfig={bootstrapConfig} clearSecretInput={clearSecretInput} confirmedTokens={confirmedTokens} controlsDisabled={controlsDisabled} copy={copy} dangerDialogOpen={dangerDialogOpen} dangerousConfirmations={dangerousConfirmations} dirtySummary={dirtySummary} fieldErrors={fieldErrors} fieldEffect={fieldEffect} handleDangerDialogOpenChange={handleDangerDialogOpenChange} handleSave={handleSave} handleSecretInputChange={handleSecretInputChange} handleValidate={handleValidate} mailEnabled={mailEnabled} mailValues={mailValues} performSave={performSave} saving={saving} sectionEffect={sectionEffect} secretInputs={secretInputs} setBooleanField={setBooleanField} setMailEnabled={setMailEnabled} setMailStringField={setMailStringField} setNumberField={setNumberField} setSMTPNumberField={setSMTPNumberField} setSMTPStringField={setSMTPStringField} setStringField={setStringField} smtpControlsDisabled={smtpControlsDisabled} smtpValues={smtpValues} toggleConfirmation={toggleConfirmation} validating={validating} validationRows={validationRows} values={values} />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
+        <div className="grid gap-6">
+          <StartupFileStatusCard bootstrapConfig={bootstrapConfig} copy={copy} currentApplySummary={currentApplySummary} />
+          <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
+            <StartupSectionGroup testId="startup-group-core">
+              <StartupServerSection copy={copy} controlsDisabled={controlsDisabled} corsOriginsText={corsOriginsText} fieldErrors={fieldErrors} fieldEffect={fieldEffect} sectionEffect={sectionEffect} setCorsOriginsText={setCorsOriginsText} setServerField={setServerField} values={values} />
+              <StartupDatabaseSection bootstrapConfig={bootstrapConfig} clearSecretInput={clearSecretInput} controlsDisabled={controlsDisabled} copy={copy} fieldErrors={fieldErrors} handleSecretInputChange={handleSecretInputChange} sectionEffect={sectionEffect} secretInputs={secretInputs} setNumberField={setNumberField} values={values} />
+            </StartupSectionGroup>
+            <StartupSectionGroup testId="startup-group-runtime">
+              <StartupRuntimeSection controlsDisabled={controlsDisabled} copy={copy} fieldErrors={fieldErrors} sectionEffect={sectionEffect} setNumberField={setNumberField} setStringField={setStringField} values={values} />
+              <StartupTelemetrySection bootstrapConfig={bootstrapConfig} clearSecretInput={clearSecretInput} controlsDisabled={controlsDisabled} copy={copy} fieldErrors={fieldErrors} handleSecretInputChange={handleSecretInputChange} sectionEffect={sectionEffect} secretInputs={secretInputs} setBooleanField={setBooleanField} setFloatField={setFloatField} setStringField={setStringField} setTelemetryAuthMode={setTelemetryAuthMode} setTelemetryEnabled={setTelemetryEnabled} values={values} />
+            </StartupSectionGroup>
+            <StartupSectionGroup testId="startup-group-secrets" className="xl:col-span-2">
+              <StartupMailSecretsSection activeDangerousConfirmations={activeDangerousConfirmations} bootstrapConfig={bootstrapConfig} clearSecretInput={clearSecretInput} confirmedTokens={confirmedTokens} controlsDisabled={controlsDisabled} copy={copy} dangerDialogOpen={dangerDialogOpen} dangerousConfirmations={dangerousConfirmations} dirtySummary={dirtySummary} fieldErrors={fieldErrors} fieldEffect={fieldEffect} handleDangerDialogOpenChange={handleDangerDialogOpenChange} handleSave={handleSave} handleSecretInputChange={handleSecretInputChange} handleValidate={handleValidate} mailEnabled={mailEnabled} mailValues={mailValues} performSave={performSave} saving={saving} sectionEffect={sectionEffect} secretInputs={secretInputs} setBooleanField={setBooleanField} setMailEnabled={setMailEnabled} setMailStringField={setMailStringField} setNumberField={setNumberField} setSMTPNumberField={setSMTPNumberField} setSMTPStringField={setSMTPStringField} setStringField={setStringField} smtpControlsDisabled={smtpControlsDisabled} smtpValues={smtpValues} toggleConfirmation={toggleConfirmation} validating={validating} validationRows={validationRows} values={values} showReviewPanel={!showDesktopReviewPanel} />
+            </StartupSectionGroup>
+          </div>
+        </div>
+        {showDesktopReviewPanel ? (
+          <aside className="hidden xl:sticky xl:top-4 xl:block xl:h-fit">
+            <StartupReviewPanel
+              activeDangerousConfirmations={activeDangerousConfirmations}
+              confirmedTokens={confirmedTokens}
+              controlsDisabled={controlsDisabled}
+              copy={copy}
+              dangerousConfirmations={dangerousConfirmations}
+              dirtySummary={dirtySummary}
+              handleSave={handleSave}
+              handleValidate={handleValidate}
+              saving={saving}
+              toggleConfirmation={toggleConfirmation}
+              validating={validating}
+              validationRows={validationRows}
+              writable={bootstrapConfig.writable}
+            />
+          </aside>
+        ) : null}
       </div>
     </div>
   );

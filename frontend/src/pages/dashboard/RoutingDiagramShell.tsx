@@ -26,7 +26,7 @@ export function RoutingDiagramShell({
 
   if (loading) {
     return (
-      <Card>
+      <Card data-testid="routing-diagram-card">
         <CardHeader>
           <CardTitle>{messages.dashboard.routingTitle}</CardTitle>
           <CardDescription>{messages.dashboard.routingLoadingDescription}</CardDescription>
@@ -44,7 +44,7 @@ export function RoutingDiagramShell({
   }
 
   return (
-    <Card>
+    <Card data-testid="routing-diagram-card">
       <CardHeader className="gap-4">
         <div className="space-y-2">
           <CardTitle>{messages.dashboard.routingTitle}</CardTitle>

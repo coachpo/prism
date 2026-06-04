@@ -1,8 +1,11 @@
 import { Database } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field";
+import { FieldGroup, FieldSet } from "@/components/ui/field";
+import { Separator } from "@/components/ui/separator";
 import type { BootstrapConfigResponse, BootstrapConfigSecretKey, BootstrapConfigValues } from "@/lib/types";
 import {
+  DATABASE_ADMISSION_FIELD_PATHS,
+  DATABASE_CORE_FIELD_PATHS,
   DATABASE_FIELD_PATHS,
   POSTGRES_POOL_LANES,
   getPostgresPoolLaneLabel,
@@ -12,9 +15,9 @@ import {
   type SettingsStartupCopy,
 } from "./startupFieldMetadata";
 import {
+  FieldLegendWithEffect,
   SecretReplacementField,
   StartupInputField,
-  type FieldEffectRenderer,
   type SectionEffectRenderer,
 } from "./StartupServerSection";
 
@@ -24,7 +27,6 @@ interface StartupDatabaseSectionProps {
   controlsDisabled: boolean;
   copy: SettingsStartupCopy;
   fieldErrors: FieldErrors;
-  fieldEffect: FieldEffectRenderer;
   handleSecretInputChange: (secretKey: BootstrapConfigSecretKey, value: string) => void;
   sectionEffect: SectionEffectRenderer;
   secretInputs: SecretInputState;
@@ -38,7 +40,6 @@ export function StartupDatabaseSection({
   controlsDisabled,
   copy,
   fieldErrors,
-  fieldEffect,
   handleSecretInputChange,
   sectionEffect,
   secretInputs,
@@ -55,14 +56,13 @@ export function StartupDatabaseSection({
         </CardTitle>
         <CardDescription>{copy.databaseAndCapacityDescription}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-6">
         <FieldSet disabled={controlsDisabled}>
-          <FieldLegend>{copy.database}</FieldLegend>
+          <FieldLegendWithEffect label={copy.database} effect={sectionEffect(DATABASE_CORE_FIELD_PATHS)} />
           <FieldGroup>
             <SecretReplacementField
               id="startup-database-url"
               label={copy.databaseUrl}
-              effect={fieldEffect("database.url")}
               secretKey="database.url"
               masked={bootstrapConfig.secrets["database.url"].masked}
               configured={bootstrapConfig.secrets["database.url"].configured}
@@ -75,7 +75,6 @@ export function StartupDatabaseSection({
             <StartupInputField
               id="startup-postgres-total-max-conns"
               label={copy.postgresTotalMaxConns}
-              effect={fieldEffect("database.pools.total_max_conns")}
               type="number"
               value={numberValue(values.database.pools.total_max_conns)}
               error={fieldErrors["database.pools.total_max_conns"]}
@@ -90,7 +89,6 @@ export function StartupDatabaseSection({
                     <StartupInputField
                       id={`startup-${lane}-max-conns`}
                       label={copy.postgresLaneMaxConns(label)}
-                      effect={fieldEffect(`database.pools.${lane}.max_conns`)}
                       type="number"
                       value={numberValue(values.database.pools[lane].max_conns)}
                       error={fieldErrors[`database.pools.${lane}.max_conns`]}
@@ -100,7 +98,6 @@ export function StartupDatabaseSection({
                     <StartupInputField
                       id={`startup-${lane}-min-idle`}
                       label={copy.postgresLaneMinIdle(label)}
-                      effect={fieldEffect(`database.pools.${lane}.min_idle_conns`)}
                       type="number"
                       value={numberValue(values.database.pools[lane].min_idle_conns)}
                       error={fieldErrors[`database.pools.${lane}.min_idle_conns`]}
@@ -110,10 +107,17 @@ export function StartupDatabaseSection({
                   </div>
                 );
               })}
+            </div>
+          </FieldGroup>
+        </FieldSet>
+        <Separator />
+        <FieldSet disabled={controlsDisabled}>
+          <FieldLegendWithEffect label={copy.managementAdmission} effect={sectionEffect(DATABASE_ADMISSION_FIELD_PATHS)} />
+          <FieldGroup>
+            <div className="grid gap-4 md:grid-cols-2">
               <StartupInputField
                 id="startup-m2-concurrent"
                 label={copy.m2MaxConcurrent}
-                effect={fieldEffect("database.management_admission.m2_max_concurrent")}
                 type="number"
                 value={numberValue(values.database.management_admission.m2_max_concurrent)}
                 error={fieldErrors["database.management_admission.m2_max_concurrent"]}
@@ -123,7 +127,6 @@ export function StartupDatabaseSection({
               <StartupInputField
                 id="startup-m3-concurrent"
                 label={copy.m3MaxConcurrent}
-                effect={fieldEffect("database.management_admission.m3_max_concurrent")}
                 type="number"
                 value={numberValue(values.database.management_admission.m3_max_concurrent)}
                 error={fieldErrors["database.management_admission.m3_max_concurrent"]}

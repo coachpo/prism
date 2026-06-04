@@ -238,6 +238,66 @@ func TestFacadeWeightedEligibleContextNoEligibleTargetsReturns503(t *testing.T) 
 	}
 }
 
+func TestProxySelectorTopologyCascadeShortTextSafeResponsesStayOnPrimaryChild(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := seedOpenAITopologyCascadeRoute(t, harness, profileID, "/proxy-selector/topology-cascade/short")
+
+	response := performProxySelectorResponsesTextRequest(t, harness, route.PublicModelID, "short text-safe request", 32)
+	assertStatus(t, response, http.StatusOK)
+	assertProxySelectorRequestSequence(t, route.PrimaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    route.PrimaryPathPrefix + "/v1/responses",
+		ModelID: route.PrimaryModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, route.GPT54Upstream, "gpt-5.4 long-context tier")
+	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek fallback tier")
+}
+
+func TestProxySelectorTopologyCascadeOversizedCompatibleResponsesRouteToGPT54(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := seedOpenAITopologyCascadeRoute(t, harness, profileID, "/proxy-selector/topology-cascade/gpt54")
+
+	response := performProxySelectorResponsesTextRequest(t, harness, route.PublicModelID, "oversized compatible request", 900)
+	assertStatus(t, response, http.StatusOK)
+	assertNoScriptedUpstreamRequests(t, route.PrimaryUpstream, "gpt-5.5 primary tier")
+	assertProxySelectorRequestSequence(t, route.GPT54Upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    route.GPT54PathPrefix + "/v1/responses",
+		ModelID: route.GPT54ModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek fallback tier")
+}
+
+func TestProxySelectorTopologyCascadeReachesDeepSeekOnlyAfterEarlierTiersAreIneligible(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := seedOpenAITopologyCascadeRoute(t, harness, profileID, "/proxy-selector/topology-cascade/deepseek")
+
+	response := performProxySelectorResponsesTextRequest(t, harness, route.PublicModelID, "large text-safe request", 1800)
+	assertStatus(t, response, http.StatusOK)
+	assertNoScriptedUpstreamRequests(t, route.PrimaryUpstream, "gpt-5.5 primary tier")
+	assertNoScriptedUpstreamRequests(t, route.GPT54Upstream, "gpt-5.4 long-context tier")
+	assertProxySelectorRequestSequence(t, route.DeepSeekUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    route.DeepSeekPathPrefix + "/v1/chat/completions",
+		ModelID: route.DeepSeekModelID,
+	}})
+}
+
+func TestProxySelectorTopologyCascadeDirectGPT54UsesItsOwnLongContextTerminalPath(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := seedOpenAITopologyCascadeRoute(t, harness, profileID, "/proxy-selector/topology-cascade/direct-gpt54")
+
+	response := performProxySelectorResponsesTextRequest(t, harness, route.GPT54ModelID, "direct gpt-5.4 request", 900)
+	assertStatus(t, response, http.StatusOK)
+	assertNoScriptedUpstreamRequests(t, route.PrimaryUpstream, "gpt-5.5 primary tier")
+	assertProxySelectorRequestSequence(t, route.GPT54Upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    route.GPT54PathPrefix + "/v1/responses",
+		ModelID: route.GPT54ModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek fallback tier")
+}
+
 func TestProxySelectorPreferredContextPreferredBandWinsOverCheaperDiscretionaryTarget(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -666,6 +726,19 @@ type seededFacadeRoute struct {
 	ConnectionIDs  []int
 }
 
+type seededTopologyCascadeRoute struct {
+	PublicModelID      string
+	PrimaryModelID     string
+	GPT54ModelID       string
+	DeepSeekModelID    string
+	PrimaryPathPrefix  string
+	GPT54PathPrefix    string
+	DeepSeekPathPrefix string
+	PrimaryUpstream    *scriptedUpstream
+	GPT54Upstream      *scriptedUpstream
+	DeepSeekUpstream   *scriptedUpstream
+}
+
 func seedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelID string, targets []facadeTargetSeed) seededFacadeRoute {
 	t.Helper()
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
@@ -690,6 +763,83 @@ func seedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int,
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return route
+}
+
+func seedOpenAITopologyCascadeRoute(t *testing.T, harness *runtimeHarness, profileID int, pathPrefix string) seededTopologyCascadeRoute {
+	t.Helper()
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-public-"+randomSuffix(), "fill-first")
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", "gpt-5.5", "proxy", &publicStrategyID)
+	enableRuntimeHarnessFacadeModel(t, harness, publicModelConfigID)
+	primaryStrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-primary-"+randomSuffix(), "fill-first")
+	gpt54StrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-gpt54-"+randomSuffix(), "fill-first")
+	deepSeekStrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-deepseek-"+randomSuffix(), "fill-first")
+	primaryModelConfigID := harness.seedModel(t, profileID, "openai", "gpt-5.5-primary", "native", &primaryStrategyID)
+	gpt54ModelConfigID := harness.seedModel(t, profileID, "openai", "gpt-5.4", "native", &gpt54StrategyID)
+	deepSeekModelConfigID := harness.seedModel(t, profileID, "openai", "deepseek-v4-flash", "native", &deepSeekStrategyID)
+	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, primaryModelConfigID, 0, 1, 0)
+	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, gpt54ModelConfigID, 1, 1, 1)
+	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, deepSeekModelConfigID, 2, 1, 2)
+	responsesVariant := "responses_reasoning_none"
+	chatOnlyVariant := "chat_completions_reasoning_none"
+	primaryPathPrefix := pathPrefix + "/primary"
+	gpt54PathPrefix := pathPrefix + "/gpt-5-4"
+	deepSeekPathPrefix := pathPrefix + "/deepseek"
+	primaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id": "resp_topology_cascade_primary",
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "primary child"}},
+		}},
+		"usage": map[string]any{"input_tokens": 7, "output_tokens": 11, "total_tokens": 18},
+	})
+	gpt54Upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id": "resp_topology_cascade_gpt54",
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "gpt-5.4 long context"}},
+		}},
+		"usage": map[string]any{"input_tokens": 9, "output_tokens": 15, "total_tokens": 24},
+	})
+	deepSeekUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl_topology_cascade_deepseek",
+		"object": "chat.completion",
+		"model":  "deepseek-v4-flash",
+		"choices": []map[string]any{{
+			"index": 0,
+			"message": map[string]any{
+				"role":    "assistant",
+				"content": "deepseek fallback",
+			},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 14, "total_tokens": 24},
+	})
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-primary-endpoint-"+randomSuffix(), primaryUpstream.baseURL(primaryPathPrefix), "topology-cascade-primary-key", 0)
+	gpt54EndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-gpt54-endpoint-"+randomSuffix(), gpt54Upstream.baseURL(gpt54PathPrefix), "topology-cascade-gpt54-key", 1)
+	deepSeekEndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-deepseek-endpoint-"+randomSuffix(), deepSeekUpstream.baseURL(deepSeekPathPrefix), "topology-cascade-deepseek-key", 2)
+	primaryConnectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, primaryModelConfigID, primaryEndpointID, "topology-cascade-primary-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant)
+	gpt54ConnectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, gpt54ModelConfigID, gpt54EndpointID, "topology-cascade-gpt54-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant)
+	deepSeekConnectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, deepSeekModelConfigID, deepSeekEndpointID, "topology-cascade-deepseek-connection-"+randomSuffix(), nil, nil, 0, &chatOnlyVariant)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 400, 64, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, gpt54ConnectionID, 1_400, 64, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, deepSeekConnectionID, 2_400, 64, 1.0)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	return seededTopologyCascadeRoute{
+		PublicModelID:      "gpt-5.5",
+		PrimaryModelID:     "gpt-5.5-primary",
+		GPT54ModelID:       "gpt-5.4",
+		DeepSeekModelID:    "deepseek-v4-flash",
+		PrimaryPathPrefix:  primaryPathPrefix,
+		GPT54PathPrefix:    gpt54PathPrefix,
+		DeepSeekPathPrefix: deepSeekPathPrefix,
+		PrimaryUpstream:    primaryUpstream,
+		GPT54Upstream:      gpt54Upstream,
+		DeepSeekUpstream:   deepSeekUpstream,
+	}
 }
 
 func enableRuntimeHarnessFacadeModel(t *testing.T, harness *runtimeHarness, modelConfigID int) {
@@ -722,6 +872,21 @@ func performProxySelectorChatRequest(t *testing.T, harness *runtimeHarness, mode
 	)
 }
 
+func performProxySelectorResponsesTextRequest(t *testing.T, harness *runtimeHarness, modelID string, input string, maxOutputTokens int) *http.Response {
+	t.Helper()
+	return harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/responses",
+		map[string]any{
+			"input":             input,
+			"model":             modelID,
+			"max_output_tokens": maxOutputTokens,
+		},
+		nil,
+	)
+}
+
 func assertProxySelectorRequestSequence(t *testing.T, requests []upstreamRequestSnapshot, want []proxySelectorExpectedRequest) {
 	t.Helper()
 	if len(requests) != len(want) {
@@ -734,6 +899,13 @@ func assertProxySelectorRequestSequence(t *testing.T, requests []upstreamRequest
 		if got := requestModelID(t, requests[index].Body); got != expected.ModelID {
 			t.Fatalf("expected upstream request %d model %q, got %q", index, expected.ModelID, got)
 		}
+	}
+}
+
+func assertNoScriptedUpstreamRequests(t *testing.T, upstream *scriptedUpstream, name string) {
+	t.Helper()
+	if got := len(upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected %s to stay unattempted, got %d requests", name, got)
 	}
 }
 

@@ -444,6 +444,59 @@ func TestRuntimeBranchAuthSplitStillIgnoresXProfileId(t *testing.T) {
 	}
 }
 
+func TestProfileScopeTopologyCascadeIgnoresXProfileId(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	inactiveProfileID := harness.createProfile(t, "Topology Cascade Ignore Override")
+	activeRoute := seedOpenAITopologyCascadeRoute(t, harness, activeProfileID, "/profile-scope/topology-cascade/active")
+	inactiveRoute := seedOpenAITopologyCascadeRoute(t, harness, inactiveProfileID, "/profile-scope/topology-cascade/inactive")
+
+	firstResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/responses",
+		map[string]any{
+			"input":             "profile-scope cascade should use the active gpt-5.4 tier",
+			"model":             activeRoute.PublicModelID,
+			"max_output_tokens": 900,
+		},
+		map[string]string{"X-Profile-Id": fmt.Sprintf("%d", inactiveProfileID)},
+	)
+	assertStatus(t, firstResponse, http.StatusOK)
+	assertNoScriptedUpstreamRequests(t, activeRoute.PrimaryUpstream, "active profile primary tier")
+	assertProxySelectorRequestSequence(t, activeRoute.GPT54Upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    activeRoute.GPT54PathPrefix + "/v1/responses",
+		ModelID: activeRoute.GPT54ModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, activeRoute.DeepSeekUpstream, "active profile deepseek tier")
+	assertNoScriptedUpstreamRequests(t, inactiveRoute.PrimaryUpstream, "inactive profile primary tier")
+	assertNoScriptedUpstreamRequests(t, inactiveRoute.GPT54Upstream, "inactive profile gpt-5.4 tier")
+	assertNoScriptedUpstreamRequests(t, inactiveRoute.DeepSeekUpstream, "inactive profile deepseek tier")
+
+	harness.activateProfile(t, inactiveProfileID, activeProfileID)
+	secondResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/responses",
+		map[string]any{
+			"input":             "profile-scope cascade should switch to the new active deepseek tier",
+			"model":             inactiveRoute.PublicModelID,
+			"max_output_tokens": 1800,
+		},
+		map[string]string{"X-Profile-Id": fmt.Sprintf("%d", activeProfileID)},
+	)
+	assertStatus(t, secondResponse, http.StatusOK)
+	if got := len(activeRoute.GPT54Upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected active profile gpt-5.4 tier to keep only the first request, got %d requests", got)
+	}
+	assertNoScriptedUpstreamRequests(t, inactiveRoute.PrimaryUpstream, "inactive profile primary tier before deepseek fallback")
+	assertNoScriptedUpstreamRequests(t, inactiveRoute.GPT54Upstream, "inactive profile gpt-5.4 tier before deepseek fallback")
+	assertProxySelectorRequestSequence(t, inactiveRoute.DeepSeekUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    inactiveRoute.DeepSeekPathPrefix + "/v1/chat/completions",
+		ModelID: inactiveRoute.DeepSeekModelID,
+	}})
+}
+
 func TestProxyExecutionParity(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	activeProfileID := harness.activeProfileID(t)

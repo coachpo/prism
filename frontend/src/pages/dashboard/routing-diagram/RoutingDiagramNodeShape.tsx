@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import type { RoutingDiagramNode } from "../routingDiagram";
 import { useLocale } from "@/i18n/useLocale";
 import {
@@ -38,10 +39,22 @@ export function RoutingDiagramNodeShape({
   const textAnchor = payload.kind === "endpoint" ? "end" : "start";
   const textX = payload.kind === "endpoint" ? x - 10 : x + width + 10;
 
+  const activate = () => onActivate(payload);
+  const handleKeyDown = (event: KeyboardEvent<SVGGElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      activate();
+    }
+  };
+
   return (
     <g
+      aria-label={interactive ? payload.label : undefined}
       className={interactive ? "cursor-pointer" : undefined}
-      onClick={interactive ? () => onActivate(payload) : undefined}
+      onClick={interactive ? activate : undefined}
+      onKeyDown={interactive ? handleKeyDown : undefined}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
     >
       <rect
         x={x}

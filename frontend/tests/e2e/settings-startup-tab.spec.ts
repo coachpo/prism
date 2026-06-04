@@ -420,10 +420,8 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByText(maskedRuntimeKey)).toBeVisible();
   await expect(page.getByText(maskedJwtKey)).toBeVisible();
   await expect(page.getByText(maskedBundleKey)).toBeVisible();
-  await expect(page.getByText(maskedSmtpPassword)).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Database URL" })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "JWT signing key" })).toHaveValue("");
-  await expect(page.getByRole("textbox", { name: "SMTP password", exact: true })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "Server host" })).toHaveValue("0.0.0.0");
   await expect(page.getByRole("spinbutton", { name: "Server port" })).toHaveValue("8000");
   await expect(page.getByLabel("CORS allowed origins")).toHaveValue("http://localhost:5173");
@@ -441,6 +439,60 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).not.toBeChecked();
   await expect(page.getByRole("textbox", { name: "SMTP host" })).toBeDisabled();
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
+});
+
+test("startup default advanced disclosures stay collapsed until opened", async ({ page }) => {
+  await mockSettingsStartupRoutes(page);
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  const telemetryToggle = page.getByTestId("startup-telemetry-advanced-toggle");
+  const smtpToggle = page.getByTestId("startup-smtp-advanced-toggle");
+
+  await expect(telemetryToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(smtpToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("combobox", { name: "Telemetry auth" })).not.toBeVisible();
+  await expect(page.getByRole("textbox", { name: "EHLO hostname" })).not.toBeVisible();
+
+  await telemetryToggle.click();
+  await expect(telemetryToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("combobox", { name: "Telemetry auth" })).toBeVisible();
+
+  await smtpToggle.click();
+  await expect(smtpToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("textbox", { name: "EHLO hostname" })).toBeVisible();
+});
+
+test("startup mobile layout stays single-column and unclipped at 390x844", async ({ page }) => {
+  await mockSettingsStartupRoutes(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await openReadyStartupTab(page);
+
+  await expect(page.getByTestId("startup-review-panel")).toHaveCount(0);
+  await page.getByTestId("startup-telemetry-advanced-toggle").scrollIntoViewIfNeeded();
+  await expect(page.getByTestId("startup-telemetry-advanced-toggle")).toBeVisible();
+  await page.getByTestId("startup-telemetry-advanced-toggle").click();
+  await expect(page.getByRole("combobox", { name: "Telemetry auth" })).toBeVisible();
+
+  const widths = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(widths.scrollWidth).toBeLessThanOrEqual(widths.clientWidth);
+
+  const [coreBox, runtimeBox, secretsBox] = await Promise.all([
+    page.getByTestId("startup-group-core").boundingBox(),
+    page.getByTestId("startup-group-runtime").boundingBox(),
+    page.getByTestId("startup-group-secrets").boundingBox(),
+  ]);
+
+  expect(coreBox).not.toBeNull();
+  expect(runtimeBox).not.toBeNull();
+  expect(secretsBox).not.toBeNull();
+  expect(Math.abs((coreBox?.x ?? 0) - (runtimeBox?.x ?? 0))).toBeLessThanOrEqual(2);
+  expect(Math.abs((runtimeBox?.x ?? 0) - (secretsBox?.x ?? 0))).toBeLessThanOrEqual(2);
 });
 
 test("startup runtime section omits buffering selector and payload field", async ({ page }) => {
@@ -465,7 +517,6 @@ test("startup runtime section omits buffering selector and payload field", async
 
   await expect(page.getByRole("combobox", { name: "Buffering mode" })).toHaveCount(0);
   await expect(page.getByText("Runtime transport and side effects")).toBeVisible();
-  await expect(page.getByText("HTTP transport limits and side-effect settings apply to future requests after save.")).toBeVisible();
   mkdirSync(task3EvidenceDir, { recursive: true });
   await page.screenshot({ path: task3StartupScreenshotPath, fullPage: true });
 
@@ -614,7 +665,7 @@ test("disabling mail after staging SMTP password saves disabled mail without rep
   await page.getByRole("textbox", { name: "SMTP password", exact: true }).fill("discarded-smtp-password");
   await page.getByRole("switch", { name: "Enable auth email delivery" }).click();
   await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).not.toBeChecked();
-  await expect(page.getByRole("textbox", { name: "SMTP password", exact: true })).toHaveValue("");
+  await expect(page.getByRole("textbox", { name: "SMTP password", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Save startup config" }).click();
   await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
 
@@ -692,7 +743,6 @@ test("runtime side-effects timeout renders distinct field", async ({ page }) => 
 
   await expect(page.getByText("Runtime side effects", { exact: true })).toBeVisible();
   await expect(page.getByText("Telemetry enqueue timeout.")).toBeVisible();
-  await expect(page.locator('label[for="startup-side-effects-attempt-timeout"]').locator("..").getByText("Restart required")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" })).toHaveValue("10s");
   await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("300s");
 });
@@ -926,7 +976,8 @@ test("startup telemetry section renders backend fields, restart badges, and mask
 
   await page.goto("/settings#startup");
   await expect(page.getByText("Telemetry", { exact: true })).toBeVisible();
-  await expect(page.getByText("OpenTelemetry exporter, auth, TLS, metrics, and traces. These fields are restart-required and do not hot-apply.")).toBeVisible();
+  await expect(page.getByText("Restart-only OTLP exporter, auth, TLS, metrics, and traces.")).toBeVisible();
+  await expect(page.getByTestId("startup-telemetry-advanced-toggle")).toHaveAttribute("aria-expanded", "true");
 
   await expect(page.getByRole("switch", { name: "Enable OpenTelemetry export" })).toBeChecked();
   await expect(page.getByRole("textbox", { name: "OTLP endpoint" })).toHaveValue("https://otel.example.com/v1/traces");
@@ -939,7 +990,6 @@ test("startup telemetry section renders backend fields, restart badges, and mask
   await expect(page.getByRole("switch", { name: "Export metrics" })).toBeChecked();
   await expect(page.getByRole("switch", { name: "Export traces" })).toBeChecked();
   await expect(page.getByRole("spinbutton", { name: "Trace sampling ratio" })).toHaveValue("0.25");
-  await expect(page.locator('label[for="startup-telemetry-endpoint"]').locator("..").getByText("Restart required")).toBeVisible();
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
 });
 

@@ -1,14 +1,5 @@
 import type { ReactNode } from "react";
 import { Network } from "lucide-react";
-import { ResponsiveContainer, Sankey, Tooltip as RechartsTooltip } from "recharts";
-import { RoutingDiagramLinkShape } from "./RoutingDiagramLinkShape";
-import { RoutingDiagramNodeShape } from "./RoutingDiagramNodeShape";
-import { RoutingDiagramTooltip } from "./RoutingDiagramTooltip";
-import type {
-  RoutingDiagramChartProps,
-  RoutingLinkShapeProps,
-  RoutingNodeShapeProps,
-} from "./routingDiagramChartTypes";
 import {
   Card,
   CardAction,
@@ -18,16 +9,14 @@ import {
 } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 
-interface RoutingDiagramChartShellProps extends RoutingDiagramChartProps {
+interface RoutingDiagramChartShellProps {
   children?: ReactNode;
+  visualization: ReactNode;
 }
 
 export function RoutingDiagramChartShell({
-  chartData,
-  chartHeight,
-  isCompact,
-  onActivateNode,
   children,
+  visualization,
 }: RoutingDiagramChartShellProps) {
   const { messages } = useLocale();
 
@@ -50,33 +39,7 @@ export function RoutingDiagramChartShell({
 
       <CardContent className="flex flex-col gap-4 pt-4 sm:pt-5">
         {children}
-
-        <div style={{ height: chartHeight }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <Sankey
-              data={chartData}
-              nodePadding={isCompact ? 18 : 24}
-              nodeWidth={isCompact ? 14 : 18}
-              margin={{
-                top: 12,
-                right: isCompact ? 84 : 148,
-                bottom: isCompact ? 28 : 36,
-                left: isCompact ? 84 : 148,
-              }}
-              sort={false}
-              node={(props: RoutingNodeShapeProps) => (
-                <RoutingDiagramNodeShape compact={isCompact} onActivate={onActivateNode} props={props} />
-              )}
-              link={(props: RoutingLinkShapeProps) => <RoutingDiagramLinkShape props={props} />}
-            >
-              <RechartsTooltip
-                cursor={false}
-                wrapperStyle={{ outline: "none" }}
-                content={<RoutingDiagramTooltip />}
-              />
-            </Sankey>
-          </ResponsiveContainer>
-        </div>
+        {visualization}
       </CardContent>
     </Card>
   );

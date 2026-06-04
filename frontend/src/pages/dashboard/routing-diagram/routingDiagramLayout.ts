@@ -21,6 +21,29 @@ type TerminalTargetRollup = {
   successRate24h: number | null;
 };
 
+export interface RoutingDiagramMobileRelation {
+  id: string;
+  linkKind: RoutingDiagramLinkKind;
+  nodeId: string;
+  nodeKind: RoutingDiagramNodeKind;
+  label: string;
+  sublabel: string | null;
+}
+
+export interface RoutingDiagramMobileNode extends RoutingDiagramChartNode {
+  incoming: RoutingDiagramMobileRelation[];
+  outgoing: RoutingDiagramMobileRelation[];
+}
+
+export interface RoutingDiagramMobileSection {
+  kind: RoutingDiagramNodeKind;
+  nodes: RoutingDiagramMobileNode[];
+}
+
+export interface RoutingDiagramMobileData {
+  sections: RoutingDiagramMobileSection[];
+}
+
 export function getRoutingDiagramChartData(
   data: RoutingDiagramData,
 ): { nodes: RoutingDiagramChartNode[]; links: RoutingDiagramChartLink[] } {
@@ -108,6 +131,65 @@ export function getRoutingDiagramChartData(
   });
 
   return { nodes: chartNodes, links: chartLinks };
+}
+
+export function getRoutingDiagramMobileData(chartData: {
+  nodes: RoutingDiagramChartNode[];
+  links: RoutingDiagramChartLink[];
+}): RoutingDiagramMobileData {
+  const nodeById = new Map(chartData.nodes.map((node) => [node.id, node]));
+  const relationsByNodeId = new Map(
+    chartData.nodes.map((node) => [
+      node.id,
+      {
+        incoming: [] as RoutingDiagramMobileRelation[],
+        outgoing: [] as RoutingDiagramMobileRelation[],
+      },
+    ]),
+  );
+
+  for (const link of chartData.links) {
+    const sourceNode = nodeById.get(link.sourceNodeId);
+    const targetNode = nodeById.get(link.targetNodeId);
+    if (!sourceNode || !targetNode) {
+      continue;
+    }
+
+    relationsByNodeId.get(sourceNode.id)?.outgoing.push({
+      id: link.id,
+      linkKind: link.kind,
+      nodeId: targetNode.id,
+      nodeKind: targetNode.kind,
+      label: targetNode.label,
+      sublabel: targetNode.sublabel,
+    });
+    relationsByNodeId.get(targetNode.id)?.incoming.push({
+      id: link.id,
+      linkKind: link.kind,
+      nodeId: sourceNode.id,
+      nodeKind: sourceNode.kind,
+      label: sourceNode.label,
+      sublabel: sourceNode.sublabel,
+    });
+  }
+
+  return {
+    sections: (["model", "terminal_target", "endpoint"] as const)
+      .map((kind) => ({
+        kind,
+        nodes: chartData.nodes
+          .filter((node) => node.kind === kind)
+          .map((node) => {
+            const relations = relationsByNodeId.get(node.id);
+            return {
+              ...node,
+              incoming: relations?.incoming ?? [],
+              outgoing: relations?.outgoing ?? [],
+            };
+          }),
+      }))
+      .filter((section) => section.nodes.length > 0),
+  };
 }
 
 export function getRoutingDiagramSummary(data: RoutingDiagramData): RoutingDiagramSummary {

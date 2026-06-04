@@ -9,6 +9,7 @@ import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolic
 import { useTimezone } from "@/hooks/useTimezone";
 import { Coins, FileText } from "lucide-react";
 import type { ModelConfig, SpendingSummary } from "@/lib/types";
+import type { AccessTargetSummary } from "./useModelDetailDataSupport";
 
 interface OverviewCardsProps {
   model: ModelConfig;
@@ -16,12 +17,7 @@ interface OverviewCardsProps {
   spendingLoading: boolean;
   spendingCurrencySymbol: string;
   spendingCurrencyCode: string;
-  accessTargetSummary?: {
-    targetCount: number;
-    enabledTargetCount: number;
-    firstTargetLabel: string | null;
-    routePolicyLabel: string;
-  };
+  accessTargetSummary?: AccessTargetSummary;
   onViewRequestLogs?: () => void;
 }
 
@@ -46,8 +42,18 @@ export function OverviewCards({
     ? getLoadbalanceStrategyDetailLabel(model.loadbalance_strategy, strategyCopy)
     : null;
   const hasEnabledAccessTarget = (accessTargetSummary?.enabledTargetCount ?? 0) > 0;
-  const accessTargetLabel = hasEnabledAccessTarget
-    ? `${copy.targets(formatNumber(accessTargetSummary?.targetCount ?? 0))}${accessTargetSummary?.firstTargetLabel ? ` · ${accessTargetSummary.firstTargetLabel}` : ""}`
+  const accessTargetSegments = hasEnabledAccessTarget && accessTargetSummary
+    ? [
+        accessTargetSummary.enabledModelFallbackTargetCount > 0
+          ? `${modelsUiCopy.modelFallbackTargets}: ${formatNumber(accessTargetSummary.enabledModelFallbackTargetCount)}${accessTargetSummary.firstEnabledModelFallbackTargetLabel ? ` · ${accessTargetSummary.firstEnabledModelFallbackTargetLabel}` : ""}`
+          : null,
+        accessTargetSummary.enabledTerminalTargetCount > 0
+          ? `${modelsUiCopy.terminalTargets}: ${formatNumber(accessTargetSummary.enabledTerminalTargetCount)}${accessTargetSummary.firstEnabledTerminalTargetLabel ? ` · ${accessTargetSummary.firstEnabledTerminalTargetLabel}` : ""}`
+          : null,
+      ].filter((segment): segment is string => segment !== null)
+    : [];
+  const accessTargetLabel = accessTargetSegments.length > 0
+    ? accessTargetSegments.join(" · ")
     : modelsUiCopy.needsTarget;
   const spendingTokenDetail = spending
     ? [

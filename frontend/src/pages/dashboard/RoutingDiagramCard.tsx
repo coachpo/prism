@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getRoutingDiagramChartData,
   getRoutingDiagramEmptyState,
+  getRoutingDiagramMobileData,
   getRoutingDiagramSummary,
   type RoutingDiagramData,
   type RoutingDiagramNode,
 } from "./routingDiagram";
 import { RoutingDiagramChart } from "./routing-diagram/RoutingDiagramChart";
+import { RoutingDiagramMobileList } from "./routing-diagram/RoutingDiagramMobileList";
 import { useLocale } from "@/i18n/useLocale";
 import { RoutingDiagramShell } from "./RoutingDiagramShell";
 
@@ -55,6 +57,10 @@ export function RoutingDiagramCard({
     return data ? getRoutingDiagramChartData(data) : { nodes: [], links: [] };
   }, [data]);
 
+  const mobileData = useMemo(() => {
+    return getRoutingDiagramMobileData(chartData);
+  }, [chartData]);
+
   const summary = useMemo(() => {
     return data ? getRoutingDiagramSummary(data) : null;
   }, [data]);
@@ -100,12 +106,16 @@ export function RoutingDiagramCard({
       <RoutingDiagramShell
         chartContent={
           data && hasChartContent ? (
-            <RoutingDiagramChart
-              chartData={chartData}
-              chartHeight={chartHeight}
-              isCompact={isCompact}
-              onActivateNode={activateNode}
-            />
+            isCompact ? (
+              <RoutingDiagramMobileList mobileData={mobileData} onActivateNode={activateNode} />
+            ) : (
+              <RoutingDiagramChart
+                chartData={chartData}
+                chartHeight={chartHeight}
+                isCompact={isCompact}
+                onActivateNode={activateNode}
+              />
+            )
           ) : null
         }
         emptyState={

@@ -1,7 +1,9 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
+const mobileViewport = { width: 390, height: 844 };
+const desktopViewport = { width: 1280, height: 900 };
 
 function createProfile(id: number, name: string, isActive = false) {
   return {
@@ -309,8 +311,44 @@ async function mockDashboardRoutes(
   await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
+function getRoutingCard(page: Page) {
+  return page.getByTestId("routing-diagram-card");
+}
+
+async function tabUntilFocused(page: Page, locator: Locator, maxTabs = 40) {
+  await expect(locator).toBeVisible();
+
+  for (let index = 0; index < maxTabs; index += 1) {
+    const isFocused = await locator.evaluate((element) => element === document.activeElement);
+    if (isFocused) {
+      await expect(locator).toBeFocused();
+      return;
+    }
+
+    await page.keyboard.press("Tab");
+  }
+
+  await expect(locator).toBeFocused();
+}
+
+async function expectNoHorizontalOverflow(page: Page, locator: Locator) {
+  const [pageRootDimensions, elementDimensions] = await Promise.all([
+    page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    })),
+    locator.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    })),
+  ]);
+
+  expect(pageRootDimensions.scrollWidth).toBeLessThanOrEqual(pageRootDimensions.clientWidth);
+  expect(elementDimensions.scrollWidth).toBeLessThanOrEqual(elementDimensions.clientWidth);
+}
+
 test.describe("dashboard routing shell", () => {
-  test("keeps the routing shell chrome and graph drill-down behavior", async ({ page }) => {
+  test("keeps the desktop routing shell chrome and Sankey drill-down behavior", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") {
@@ -318,13 +356,20 @@ test.describe("dashboard routing shell", () => {
       }
     });
 
+    await page.setViewportSize(desktopViewport);
     await mockDashboardRoutes(page);
 
     await page.goto("/dashboard?tab=overview");
 
-    const routingCard = page.locator('[data-slot="card"]').filter({ hasText: "Routing Target Health" }).first();
+    const routingCard = getRoutingCard(page);
 
     await expect(routingCard).toBeVisible();
+    await expect(page.getByTestId("routing-diagram-sankey")).toBeVisible();
+    await expect(page.getByTestId("routing-diagram-mobile")).toHaveCount(0);
+    await expect(routingCard.getByText(/Desktop shows the backend-owned routing graph/i)).toBeVisible();
+    await expect(
+      routingCard.getByText("Activate model or endpoint targets to open details or request logs"),
+    ).toBeVisible();
     await expect(routingCard.getByText(/Entry Model -> Planner -> Access Targets -> Terminal Target -> Endpoint/i)).toBeVisible();
     await expect(routingCard.getByText(/terminal-target topology after planner and access-target resolution/i)).toBeVisible();
     await expect(routingCard.getByText(/browser does not reconstruct graph edges from management reads/i)).toBeVisible();
@@ -340,21 +385,61 @@ test.describe("dashboard routing shell", () => {
     expect(
       consoleErrors.filter(
         (message) =>
-          message.includes("cannot be a descendant") || message.includes("cannot contain a nested")
-      )
+          message.includes("cannot be a descendant") || message.includes("cannot contain a nested"),
+      ),
     ).toEqual([]);
-    await expect(routingCard.getByText("Endpoint A")).toBeVisible();
-    await expect(routingCard.getByText("Model A")).toBeVisible();
     await expect(routingCard.getByText("Disabled Model", { exact: true })).toBeVisible();
     await expect(routingCard.getByText("Primary Target", { exact: true })).toBeVisible();
     await expect(routingCard.getByText("Backup Target", { exact: true })).toBeVisible();
 
-    await routingCard.getByText("Model A").click();
+    await routingCard.getByRole("button", { name: "Model A", exact: true }).click();
     await expect(page).toHaveURL(/\/models\/101$/);
 
     await page.goto("/dashboard?tab=overview");
-    const refreshedRoutingCard = page.locator('[data-slot="card"]').filter({ hasText: "Routing Target Health" }).first();
-    await refreshedRoutingCard.getByText("Endpoint A").click();
+    const refreshedRoutingCard = getRoutingCard(page);
+    await refreshedRoutingCard.getByRole("button", { name: "Endpoint A", exact: true }).click();
+    await expect(page).toHaveURL(/\/request-logs\?endpoint_id=201$/);
+  });
+
+  test("covers the compact routing list at 390x844 with keyboard drill-down and no overflow", async ({ page }) => {
+    await page.setViewportSize(mobileViewport);
+    await mockDashboardRoutes(page);
+
+    await page.goto("/dashboard?tab=overview");
+
+    const routingCard = getRoutingCard(page);
+    const modelAction = routingCard
+      .getByRole("article")
+      .filter({ has: page.getByRole("heading", { name: "Model A", level: 5 }) })
+      .getByRole("button", { name: "View model details for Model A" });
+
+    await expect(routingCard).toBeVisible();
+    await expect(page.getByTestId("routing-diagram-mobile")).toBeVisible();
+    await expect(page.getByTestId("routing-diagram-sankey")).toHaveCount(0);
+    await expect(routingCard.getByText(/Desktop shows the backend-owned routing graph/i)).toBeVisible();
+    await expect(
+      routingCard.getByText("Activate model or endpoint targets to open details or request logs"),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page, routingCard);
+    await tabUntilFocused(page, modelAction);
+    await expect(modelAction).toBeFocused();
+    await expect(modelAction).toBeInViewport();
+    await modelAction.press("Enter");
+    await expect(page).toHaveURL(/\/models\/101$/);
+
+    await page.goto("/dashboard?tab=overview");
+    const refreshedRoutingCard = getRoutingCard(page);
+    const endpointAction = refreshedRoutingCard
+      .getByRole("article")
+      .filter({ has: page.getByRole("heading", { name: "Endpoint A", level: 5 }) })
+      .getByRole("button", {
+        name: "View Request Logs: Endpoint A",
+      });
+
+    await tabUntilFocused(page, endpointAction);
+    await expect(endpointAction).toBeFocused();
+    await expect(endpointAction).toBeInViewport();
+    await endpointAction.press("Enter");
     await expect(page).toHaveURL(/\/request-logs\?endpoint_id=201$/);
   });
 

@@ -263,6 +263,11 @@ export function AccessTargetsEditor({
       ) : null}
 
       <section className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium text-foreground">{copy.modelFallbackTargets}</p>
+          <p className="text-sm text-muted-foreground">{copy.modelFallbackTargetsDescription}</p>
+        </div>
+
         {modelTierGroups.length === 0 ? (
           <div className="rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">
             {copy.noAccessTargetsSelected}

@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import type { ModelConfig } from "@/lib/types";
+import { buildAccessTargetSummary } from "./useModelDetailDataSupport";
 
 interface ModelDetailHeaderProps {
   model: ModelConfig;
@@ -12,9 +13,26 @@ interface ModelDetailHeaderProps {
 }
 
 export function ModelDetailHeader({ model, onBack, onEditModel }: ModelDetailHeaderProps) {
-  const { messages } = useLocale();
+  const { formatNumber, messages } = useLocale();
   const copy = messages.modelDetail;
+  const modelsUiCopy = messages.modelsUi;
   const statusLabel = model.is_enabled ? copy.enabled : copy.disabled;
+  const accessTargetSummary = buildAccessTargetSummary(model);
+  const accessTargetSegments = accessTargetSummary.enabledTargetCount > 0
+    ? [
+        accessTargetSummary.enabledModelFallbackTargetCount > 0
+          ? `${modelsUiCopy.modelFallbackTargets}: ${formatNumber(accessTargetSummary.enabledModelFallbackTargetCount)}`
+          : null,
+        accessTargetSummary.enabledTerminalTargetCount > 0
+          ? `${modelsUiCopy.terminalTargets}: ${formatNumber(accessTargetSummary.enabledTerminalTargetCount)}`
+          : null,
+      ].filter((segment): segment is string => segment !== null)
+    : [];
+  const accessTargetLabel = accessTargetSegments.length > 0
+    ? accessTargetSegments.join(" · ")
+    : accessTargetSummary.totalTargetCount > 0
+      ? `${modelsUiCopy.accessTargets}: ${formatNumber(accessTargetSummary.totalTargetCount)} · ${copy.disabled}`
+      : `${modelsUiCopy.accessTargets}: ${formatNumber(0)}`;
 
   return (
     <div className="rounded-2xl border bg-card p-4 sm:p-5">
@@ -44,7 +62,7 @@ export function ModelDetailHeader({ model, onBack, onEditModel }: ModelDetailHea
                 className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
               />
             ) : null}
-            <StatusBadge label={`${model.access_targets.length} targets`} intent="info" />
+            <StatusBadge label={accessTargetLabel} intent="info" />
             <StatusBadge
               label={statusLabel}
               intent={model.is_enabled ? "success" : "muted"}
@@ -65,7 +83,7 @@ export function ModelDetailHeader({ model, onBack, onEditModel }: ModelDetailHea
             </div>
           ) : (
             <p className="mt-1 text-xs text-muted-foreground">
-              {copy.modelConfigurationAndConnectionRouting}
+              {copy.modelRoutingAccessTargetsAndTerminalTargets}
             </p>
           )}
         </div>

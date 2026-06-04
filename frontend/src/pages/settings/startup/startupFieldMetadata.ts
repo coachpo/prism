@@ -148,7 +148,7 @@ const FIELD_LABELS = {
 } satisfies Record<string, FieldLabelResolver>;
 
 export const SERVER_FIELD_PATHS = ["server.host", "server.port", "http.cors_allowed_origins"];
-export const DATABASE_FIELD_PATHS = [
+export const DATABASE_CORE_FIELD_PATHS = [
   "database.url",
   "database.pools.total_max_conns",
   "database.pools.management.max_conns",
@@ -165,9 +165,12 @@ export const DATABASE_FIELD_PATHS = [
   "database.pools.cache_refresh.min_idle_conns",
   "database.pools.background_jobs.max_conns",
   "database.pools.background_jobs.min_idle_conns",
+];
+export const DATABASE_ADMISSION_FIELD_PATHS = [
   "database.management_admission.m2_max_concurrent",
   "database.management_admission.m3_max_concurrent",
 ];
+export const DATABASE_FIELD_PATHS = [...DATABASE_CORE_FIELD_PATHS, ...DATABASE_ADMISSION_FIELD_PATHS];
 export const TRANSPORT_FIELD_PATHS = [
   "runtime.transport.max_idle_conns",
   "runtime.transport.max_idle_conns_per_host",

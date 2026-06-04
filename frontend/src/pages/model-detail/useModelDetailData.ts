@@ -12,7 +12,11 @@ import type {
   PricingTemplate,
 } from "@/lib/types";
 import { getAccessTargetModelsForApiFamily } from "../models/modelFormState";
-import { buildAccessTargetSummary, getSameFamilyConnections } from "./useModelDetailDataSupport";
+import {
+  type AccessTargetSummary,
+  buildAccessTargetSummary,
+  getSameFamilyConnections,
+} from "./useModelDetailDataSupport";
 import { useConnectionFocus } from "./useConnectionFocus";
 import { useModelDetailBootstrap } from "./useModelDetailBootstrap";
 import { useModelDetailConnectionFlows } from "./useModelDetailConnectionFlows";
@@ -187,7 +191,10 @@ export function useModelDetailData(id: string | undefined) {
     () => getSameFamilyConnections(allConnections, effectiveTargetApiFamily, modelConfigId),
     [allConnections, effectiveTargetApiFamily, modelConfigId],
   );
-  const accessTargetSummary = useMemo(() => buildAccessTargetSummary(model), [model]);
+  const accessTargetSummary = useMemo<AccessTargetSummary>(
+    () => buildAccessTargetSummary(model),
+    [model],
+  );
 
   useConnectionFocus({
     model,

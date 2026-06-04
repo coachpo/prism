@@ -477,24 +477,47 @@ export function getOwnedModelConnections(
   return getModelConnections(model).filter((connection) => connectionBelongsToModel(connection, modelConfigId));
 }
 
-export function buildAccessTargetSummary(model: ModelConfig | null) {
+export interface AccessTargetSummary {
+  totalTargetCount: number;
+  enabledTargetCount: number;
+  enabledModelFallbackTargetCount: number;
+  enabledTerminalTargetCount: number;
+  firstEnabledModelFallbackTargetLabel: string | null;
+  firstEnabledTerminalTargetLabel: string | null;
+  routePolicyLabel: string;
+}
+
+function getAccessTargetLabel(target: ModelAccessTarget | null | undefined): string | null {
+  if (!target) {
+    return null;
+  }
+
+  if (target.target_type === "model") {
+    return target.target_model?.display_name || target.target_model_id;
+  }
+
+  const terminalTarget = getTerminalTarget(target);
+  const terminalTargetId = getTerminalTargetId(target);
+  return terminalTarget?.name
+    || terminalTarget?.endpoint?.name
+    || (terminalTargetId != null
+      ? getStaticMessages().modelDetail.connectionFallback(terminalTargetId)
+      : null);
+}
+
+export function buildAccessTargetSummary(model: ModelConfig | null): AccessTargetSummary {
   const targets = model?.access_targets ?? [];
   const enabledTargets = targets.filter((target) => target.is_enabled);
-  const firstTarget = targets[0] ?? null;
-  const firstTerminalTarget = firstTarget ? getTerminalTarget(firstTarget) : null;
-  const firstTerminalTargetId = firstTarget ? getTerminalTargetId(firstTarget) : null;
-  const firstTargetLabel = firstTarget?.target_type === "model"
-    ? firstTarget.target_model?.display_name || firstTarget.target_model_id
-    : firstTerminalTarget?.name
-      || firstTerminalTarget?.endpoint?.name
-      || (firstTerminalTargetId != null
-        ? getStaticMessages().modelDetail.connectionFallback(firstTerminalTargetId)
-        : null);
+  const enabledModelFallbackTargets = enabledTargets.filter((target) => target.target_type === "model");
+  const enabledTerminalTargets = enabledTargets.filter((target) => isTerminalTargetAccessTargetType(target.target_type));
 
   return {
-    targetCount: targets.length,
+    totalTargetCount: targets.length,
     enabledTargetCount: enabledTargets.length,
-    firstTargetLabel,
+    enabledModelFallbackTargetCount: enabledModelFallbackTargets.length,
+    enabledTerminalTargetCount: enabledTerminalTargets.length,
+    firstEnabledModelFallbackTargetLabel: getAccessTargetLabel(enabledModelFallbackTargets[0]),
+    firstEnabledTerminalTargetLabel: getAccessTargetLabel(enabledTerminalTargets[0]),
     routePolicyLabel: getStaticMessages().modelDetail.orderedPriorityRouting,
   };
 }

@@ -107,6 +107,66 @@ func TestResponsesTranslatedStreamingPreservesIngressDialectAndUsage(t *testing.
 		}
 	})
 
+	t.Run("responses ingress safe-only fallback can stream through deepseek chat-only tier", func(t *testing.T) {
+		harness := newEnforcedRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		primaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "deepseek-stream-primary"})
+		secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "deepseek-stream-secondary"})
+		stream := "data: {\"id\":\"chatcmpl_deepseek_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello deepseek stream\"}}]}\n\n" +
+			"data: {\"id\":\"chatcmpl_deepseek_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek-upstream\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+			"data: {\"id\":\"chatcmpl_deepseek_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek-upstream\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":6,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":4},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n" +
+			"data: [DONE]\n\n"
+		deepseekUpstream := newTranslatedStreamingUpstream(t, stream, http.Header{
+			"Content-Type":     []string{"text/event-stream"},
+			"Content-Encoding": []string{"gzip"},
+			"Digest":           []string{"sha-256=deepseek-stream"},
+			"ETag":             []string{`"deepseek-stream"`},
+			"X-Request-Id":     []string{"deepseek-stream-upstream"},
+		})
+		route := seedDeepSeekSafeOnlyFacadeRoute(t, harness, profileID, "gpt-5.5-stream", primaryUpstream.baseURL("/deepseek-stream/primary"), secondaryUpstream.baseURL("/deepseek-stream/secondary"), deepseekUpstream.baseURL("/deepseek-stream/deepseek"))
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+			"model":  route.PublicModelID,
+			"input":  "translated runtime deepseek stream",
+			"stream": true,
+		}, nil)
+		assertStatus(t, response, http.StatusOK)
+		assertTranslatedOpenAISafeHeaders(t, response, "deepseek-stream-upstream")
+		if got := response.Header.Get("Content-Type"); !strings.Contains(strings.ToLower(got), "text/event-stream") {
+			t.Fatalf("expected deepseek translated streaming content-type text/event-stream, got %q", got)
+		}
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatalf("read deepseek translated responses stream body: %v", err)
+		}
+		payload := string(body)
+		if strings.Contains(payload, "data: [DONE]") || !strings.Contains(payload, "event: response.created") || !strings.Contains(payload, "event: response.completed") {
+			t.Fatalf("expected translated deepseek responses SSE body without raw chat DONE sentinel, got %q", payload)
+		}
+		if got := len(primaryUpstream.requestsSnapshot()); got != 0 {
+			t.Fatalf("expected inactive primary tier to avoid upstream requests, got %d", got)
+		}
+		if got := len(secondaryUpstream.requestsSnapshot()); got != 0 {
+			t.Fatalf("expected inactive secondary tier to avoid upstream requests, got %d", got)
+		}
+		request := deepseekUpstream.lastRequest(t)
+		if request.Path != "/deepseek-stream/deepseek/v1/chat/completions" {
+			t.Fatalf("expected translated deepseek streaming upstream chat path, got %q", request.Path)
+		}
+		if got := requestModelID(t, request.Body); got != route.DeepSeekTargetModelID {
+			t.Fatalf("expected deepseek streaming upstream request model %q, got %q", route.DeepSeekTargetModelID, got)
+		}
+		assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
+		assertLatestTranslatedIngressPlanningAttribution(t, harness.conn, profileID, "/v1/responses", route.DeepSeekConnectionID, "openai_responses_heuristic_v1")
+		assertLatestRuntimeUsageRows(t, harness.conn, profileID, true, runtimePersistedUsageRow{InputTokens: runtimeNullInt64(6), OutputTokens: runtimeNullInt64(3), TotalTokens: runtimeNullInt64(16), CacheReadInputTokens: runtimeNullInt64(4), ReasoningTokens: runtimeNullInt64(3)})
+		assertLatestRuntimeWinningRequestLogTiming(t, harness.conn, profileID, true)
+		assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.DeepSeekTargetModelID)
+		streamRow := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
+		if streamRow.StreamOutcome != "completed" {
+			t.Fatalf("expected translated deepseek responses stream_outcome completed, got %+v", streamRow)
+		}
+	})
+
 	t.Run("responses ingress translated from chat upstream preserves public model and resolved upstream identity", func(t *testing.T) {
 		harness := newEnforcedRuntimeHarness(t)
 		profileID := harness.activeProfileID(t)

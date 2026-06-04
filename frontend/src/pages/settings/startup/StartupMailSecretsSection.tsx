@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { CheckCircle2, KeyRound, Loader2, Mail, Save, ShieldAlert } from "lucide-react";
 import {
   AlertDialog,
@@ -51,6 +52,7 @@ import {
 import {
   FieldLabelWithEffect,
   SecretReplacementField,
+  StartupDisclosure,
   StartupInputField,
   type FieldEffectRenderer,
   type SectionEffectRenderer,
@@ -91,6 +93,7 @@ interface StartupMailSecretsSectionProps {
   validating: boolean;
   validationRows: ValidationRow[];
   values: BootstrapConfigValues;
+  showReviewPanel?: boolean;
 }
 
 export function StartupMailSecretsSection({
@@ -128,7 +131,24 @@ export function StartupMailSecretsSection({
   validating,
   validationRows,
   values,
+  showReviewPanel = true,
 }: StartupMailSecretsSectionProps) {
+  const advancedSmtpActive = mailEnabled && (
+    smtpValues.auth === "plain"
+    || Boolean(smtpValues.ehlo_hostname)
+    || Boolean(smtpValues.username)
+    || Boolean(smtpValues.password_file)
+    || Boolean(smtpValues.tls_server_name)
+    || Boolean(secretInputs["mail.smtp.password"].trim())
+    || Boolean(fieldErrors["mail.smtp.auth"])
+    || Boolean(fieldErrors["mail.smtp.username"])
+    || Boolean(fieldErrors["mail.smtp.password_file"])
+    || Boolean(fieldErrors["mail.smtp.password"])
+    || Boolean(fieldErrors["mail.smtp.timeout"])
+  );
+  const [advancedSmtpOpenOverride, setAdvancedSmtpOpenOverride] = useState<boolean | null>(null);
+  const advancedSmtpOpen = advancedSmtpOpenOverride ?? advancedSmtpActive;
+
   return (
     <>
       <Card>
@@ -228,13 +248,13 @@ export function StartupMailSecretsSection({
           </CardTitle>
           <CardDescription>{copy.mailAndSmtpDescription}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
           <FieldSet disabled={controlsDisabled}>
             <FieldLegend>{copy.mail}</FieldLegend>
             <FieldGroup>
               <Field orientation="horizontal" data-disabled={controlsDisabled || undefined}>
                 <FieldContent>
-                  <FieldLabelWithEffect htmlFor="startup-mail-enabled" label={copy.mailEnabled} effect={fieldEffect("mail.enabled")} />
+                  <FieldLabelWithEffect htmlFor="startup-mail-enabled" label={copy.mailEnabled} />
                   <FieldDescription>{copy.mailEnabledDescription}</FieldDescription>
                 </FieldContent>
                 <Switch id="startup-mail-enabled" checked={mailEnabled} disabled={controlsDisabled} onCheckedChange={setMailEnabled} />
@@ -243,7 +263,6 @@ export function StartupMailSecretsSection({
                 <StartupInputField
                   id="startup-mail-from"
                   label={copy.mailFrom}
-                  effect={fieldEffect("mail.from")}
                   value={textValue(mailValues.from)}
                   placeholder={copy.mailFromPlaceholder}
                   error={fieldErrors["mail.from"]}
@@ -253,7 +272,6 @@ export function StartupMailSecretsSection({
                 <StartupInputField
                   id="startup-mail-reply-to"
                   label={copy.mailReplyTo}
-                  effect={fieldEffect("mail.reply_to")}
                   value={textValue(mailValues.reply_to)}
                   placeholder={copy.mailReplyToPlaceholder}
                   disabled={smtpControlsDisabled}
@@ -262,7 +280,7 @@ export function StartupMailSecretsSection({
               </div>
             </FieldGroup>
           </FieldSet>
-          <Separator className="my-6" />
+          <Separator />
           <FieldSet disabled={smtpControlsDisabled}>
             <FieldLegend>{copy.smtp}</FieldLegend>
             <FieldDescription>{mailEnabled ? copy.smtpDescription : copy.smtpDisabledDescription}</FieldDescription>
@@ -271,7 +289,6 @@ export function StartupMailSecretsSection({
                 <StartupInputField
                   id="startup-smtp-host"
                   label={copy.smtpHost}
-                  effect={fieldEffect("mail.smtp.host")}
                   value={textValue(smtpValues.host)}
                   placeholder={copy.smtpHostPlaceholder}
                   error={fieldErrors["mail.smtp.host"]}
@@ -281,7 +298,6 @@ export function StartupMailSecretsSection({
                 <StartupInputField
                   id="startup-smtp-port"
                   label={copy.smtpPort}
-                  effect={fieldEffect("mail.smtp.port")}
                   type="number"
                   value={numberValue(smtpValues.port)}
                   error={fieldErrors["mail.smtp.port"]}
@@ -289,7 +305,7 @@ export function StartupMailSecretsSection({
                   onChange={(value) => setSMTPNumberField("port", value)}
                 />
                 <Field data-invalid={Boolean(fieldErrors["mail.smtp.mode"]) || undefined} data-disabled={smtpControlsDisabled || undefined}>
-                  <FieldLabelWithEffect htmlFor="startup-smtp-mode" label={copy.smtpMode} effect={fieldEffect("mail.smtp.mode")} />
+                  <FieldLabelWithEffect htmlFor="startup-smtp-mode" label={copy.smtpMode} />
                   <Select value={smtpValues.mode ?? ""} disabled={smtpControlsDisabled} onValueChange={(value) => setSMTPStringField("mode", value)}>
                     <SelectTrigger id="startup-smtp-mode" aria-invalid={Boolean(fieldErrors["mail.smtp.mode"]) || undefined}>
                       <SelectValue placeholder={copy.selectMode} />
@@ -304,17 +320,29 @@ export function StartupMailSecretsSection({
                   </Select>
                   <FieldError>{fieldErrors["mail.smtp.mode"]}</FieldError>
                 </Field>
+              </div>
+            </FieldGroup>
+          </FieldSet>
+          <StartupDisclosure
+            testId="startup-smtp-advanced-toggle"
+            open={advancedSmtpOpen}
+            onOpenChange={setAdvancedSmtpOpenOverride}
+            closedLabel={copy.showAdvancedSmtp}
+            openLabel={copy.hideAdvancedSmtp}
+            description={copy.advancedSmtpDescription}
+          >
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
                 <StartupInputField
                   id="startup-smtp-ehlo"
                   label={copy.smtpEhloHostname}
-                  effect={fieldEffect("mail.smtp.ehlo_hostname")}
                   value={textValue(smtpValues.ehlo_hostname)}
                   placeholder={copy.smtpEhloHostnamePlaceholder}
                   disabled={smtpControlsDisabled}
                   onChange={(value) => setSMTPStringField("ehlo_hostname", value)}
                 />
                 <Field data-invalid={Boolean(fieldErrors["mail.smtp.auth"]) || undefined} data-disabled={smtpControlsDisabled || undefined}>
-                  <FieldLabelWithEffect htmlFor="startup-smtp-auth" label={copy.smtpAuth} effect={fieldEffect("mail.smtp.auth")} />
+                  <FieldLabelWithEffect htmlFor="startup-smtp-auth" label={copy.smtpAuth} />
                   <Select value={smtpValues.auth ?? ""} disabled={smtpControlsDisabled} onValueChange={(value) => setSMTPStringField("auth", value)}>
                     <SelectTrigger id="startup-smtp-auth" aria-invalid={Boolean(fieldErrors["mail.smtp.auth"]) || undefined}>
                       <SelectValue placeholder={copy.smtpAuthPlaceholder} />
@@ -331,7 +359,6 @@ export function StartupMailSecretsSection({
                 <StartupInputField
                   id="startup-smtp-username"
                   label={copy.smtpUsername}
-                  effect={fieldEffect("mail.smtp.username")}
                   value={textValue(smtpValues.username)}
                   placeholder={copy.smtpUsernamePlaceholder}
                   error={fieldErrors["mail.smtp.username"]}
@@ -341,7 +368,6 @@ export function StartupMailSecretsSection({
                 <StartupInputField
                   id="startup-smtp-password-file"
                   label={copy.smtpPasswordFile}
-                  effect={fieldEffect("mail.smtp.password_file")}
                   value={textValue(smtpValues.password_file)}
                   placeholder={copy.smtpPasswordFilePlaceholder}
                   description={copy.smtpPasswordFileDescription}
@@ -352,7 +378,6 @@ export function StartupMailSecretsSection({
                 <StartupInputField
                   id="startup-smtp-timeout"
                   label={copy.smtpTimeout}
-                  effect={fieldEffect("mail.smtp.timeout")}
                   value={textValue(smtpValues.timeout)}
                   placeholder={copy.smtpTimeoutPlaceholder}
                   error={fieldErrors["mail.smtp.timeout"]}
@@ -362,7 +387,6 @@ export function StartupMailSecretsSection({
                 <StartupInputField
                   id="startup-smtp-tls-server-name"
                   label={copy.smtpTlsServerName}
-                  effect={fieldEffect("mail.smtp.tls_server_name")}
                   value={textValue(smtpValues.tls_server_name)}
                   placeholder={copy.smtpTlsServerNamePlaceholder}
                   disabled={smtpControlsDisabled}
@@ -372,7 +396,6 @@ export function StartupMailSecretsSection({
               <SecretReplacementField
                 id="startup-smtp-password"
                 label={copy.smtpPassword}
-                effect={fieldEffect("mail.smtp.password")}
                 secretKey="mail.smtp.password"
                 masked={bootstrapConfig.secrets["mail.smtp.password"].masked}
                 configured={bootstrapConfig.secrets["mail.smtp.password"].configured}
@@ -383,8 +406,8 @@ export function StartupMailSecretsSection({
                 onChange={handleSecretInputChange}
                 onClear={clearSecretInput}
               />
-            </FieldGroup>
-          </FieldSet>
+            </div>
+          </StartupDisclosure>
         </CardContent>
       </Card>
 
@@ -404,7 +427,6 @@ export function StartupMailSecretsSection({
               <SecretReplacementField
                 id="startup-bundle-key"
                 label={copy.bundleEncryptionKey}
-                effect={fieldEffect("stateTransfer.bundleEncryptionKey")}
                 secretKey="stateTransfer.bundleEncryptionKey"
                 masked={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].masked}
                 configured={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].configured}
@@ -417,7 +439,6 @@ export function StartupMailSecretsSection({
               <SecretReplacementField
                 id="startup-runtime-secret-key"
                 label={copy.runtimeSecretEncryptionKey}
-                effect={fieldEffect("runtime.secretEncryptionKey")}
                 secretKey="runtime.secretEncryptionKey"
                 masked={bootstrapConfig.secrets["runtime.secretEncryptionKey"].masked}
                 configured={bootstrapConfig.secrets["runtime.secretEncryptionKey"].configured}
@@ -432,71 +453,73 @@ export function StartupMailSecretsSection({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <CheckCircle2 />
-            {copy.reviewAndSaveTitle}
-          </CardTitle>
-          <CardDescription>{copy.reviewAndSaveDescription}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-wrap gap-2">
-            {dirtySummary.length ? dirtySummary.map((item) => <Badge key={item} variant="secondary">{item}</Badge>) : <Badge variant="outline">{copy.noLocalChangesDetected}</Badge>}
-            {activeDangerousConfirmations.length ? <Badge variant="destructive">{copy.dangerousChangesStaged}</Badge> : null}
-          </div>
-          <FieldSet>
-            <FieldLegend>{copy.dangerousChecklistTitle}</FieldLegend>
-            <FieldDescription>{copy.dangerousChecklistDescription}</FieldDescription>
-            <FieldGroup data-slot="checkbox-group">
-              {dangerousConfirmations.map((confirmation) => (
-                <Field key={confirmation.token} orientation="horizontal" data-disabled={!confirmation.active || controlsDisabled || undefined}>
-                  <Checkbox
-                    id={confirmation.token}
-                    checked={confirmedTokens.includes(confirmation.token as BootstrapConfigConfirmationToken)}
-                    disabled={!confirmation.active || controlsDisabled}
-                    onCheckedChange={(checked) => toggleConfirmation(confirmation.token as BootstrapConfigConfirmationToken, checked === true)}
-                  />
-                  <FieldContent>
-                    <FieldLabel htmlFor={confirmation.token}>{confirmation.label}</FieldLabel>
-                    <FieldDescription>{confirmation.active ? copy.confirmationRequiredBeforeSave : copy.noChangeCurrentlyStaged}</FieldDescription>
-                  </FieldContent>
-                </Field>
-              ))}
-            </FieldGroup>
-          </FieldSet>
-          <Separator />
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{copy.status}</TableHead>
-                <TableHead>{copy.field}</TableHead>
-                <TableHead>{copy.message}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {validationRows.map((row, index) => (
-                <TableRow key={`${row.field}-${index}`}>
-                  <TableCell><Badge variant={row.status === "error" ? "destructive" : row.status === "warning" ? "secondary" : "outline"}>{getValidationStatusLabel(row.status, copy)}</Badge></TableCell>
-                  <TableCell>{row.field}</TableCell>
-                  <TableCell className="whitespace-normal">{row.message}</TableCell>
+      {showReviewPanel ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <CheckCircle2 />
+              {copy.reviewAndSaveTitle}
+            </CardTitle>
+            <CardDescription>{copy.reviewAndSaveDescription}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex flex-wrap gap-2">
+              {dirtySummary.length ? dirtySummary.map((item) => <Badge key={item} variant="secondary">{item}</Badge>) : <Badge variant="outline">{copy.noLocalChangesDetected}</Badge>}
+              {activeDangerousConfirmations.length ? <Badge variant="destructive">{copy.dangerousChangesStaged}</Badge> : null}
+            </div>
+            <FieldSet>
+              <FieldLegend>{copy.dangerousChecklistTitle}</FieldLegend>
+              <FieldDescription>{copy.dangerousChecklistDescription}</FieldDescription>
+              <FieldGroup data-slot="checkbox-group">
+                {dangerousConfirmations.map((confirmation) => (
+                  <Field key={confirmation.token} orientation="horizontal" data-disabled={!confirmation.active || controlsDisabled || undefined}>
+                    <Checkbox
+                      id={confirmation.token}
+                      checked={confirmedTokens.includes(confirmation.token as BootstrapConfigConfirmationToken)}
+                      disabled={!confirmation.active || controlsDisabled}
+                      onCheckedChange={(checked) => toggleConfirmation(confirmation.token as BootstrapConfigConfirmationToken, checked === true)}
+                    />
+                    <FieldContent>
+                      <FieldLabel htmlFor={confirmation.token}>{confirmation.label}</FieldLabel>
+                      <FieldDescription>{confirmation.active ? copy.confirmationRequiredBeforeSave : copy.noChangeCurrentlyStaged}</FieldDescription>
+                    </FieldContent>
+                  </Field>
+                ))}
+              </FieldGroup>
+            </FieldSet>
+            <Separator />
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{copy.status}</TableHead>
+                  <TableHead>{copy.field}</TableHead>
+                  <TableHead>{copy.message}</TableHead>
                 </TableRow>
-              ))}
-              {!validationRows.length ? <TableRow><TableCell colSpan={3} className="text-muted-foreground">{copy.noValidationRunYet}</TableCell></TableRow> : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-        <CardFooter className="justify-end gap-2">
-          <Button type="button" variant="outline" disabled={controlsDisabled} onClick={() => void handleValidate()}>
-            {validating ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
-            {copy.validate}
-          </Button>
-          <Button type="button" disabled={controlsDisabled || saving || !bootstrapConfig.writable} onClick={handleSave}>
-            {saving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Save data-icon="inline-start" />}
-            {copy.saveStartupConfig}
-          </Button>
-        </CardFooter>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {validationRows.map((row, index) => (
+                  <TableRow key={`${row.field}-${index}`}>
+                    <TableCell><Badge variant={row.status === "error" ? "destructive" : row.status === "warning" ? "secondary" : "outline"}>{getValidationStatusLabel(row.status, copy)}</Badge></TableCell>
+                    <TableCell>{row.field}</TableCell>
+                    <TableCell className="whitespace-normal">{row.message}</TableCell>
+                  </TableRow>
+                ))}
+                {!validationRows.length ? <TableRow><TableCell colSpan={3} className="text-muted-foreground">{copy.noValidationRunYet}</TableCell></TableRow> : null}
+              </TableBody>
+            </Table>
+          </CardContent>
+          <CardFooter className="justify-end gap-2">
+            <Button type="button" variant="outline" disabled={controlsDisabled} onClick={() => void handleValidate()}>
+              {validating ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
+              {copy.validate}
+            </Button>
+            <Button type="button" disabled={controlsDisabled || saving || !bootstrapConfig.writable} onClick={handleSave}>
+              {saving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Save data-icon="inline-start" />}
+              {copy.saveStartupConfig}
+            </Button>
+          </CardFooter>
+        </Card>
+      ) : null}
 
       <AlertDialog open={dangerDialogOpen} onOpenChange={handleDangerDialogOpenChange}>
         <AlertDialogContent>
