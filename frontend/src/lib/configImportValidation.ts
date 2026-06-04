@@ -143,6 +143,8 @@ const ContextWindowTokensImportSchema = z.number().int().min(1).nullable().optio
 const DefaultOutputTokenReserveImportSchema = z.number().int().min(1).nullable().optional();
 const MaxContextUtilizationImportSchema = z.number().gt(0).max(1).nullable().optional();
 const PreferredContextUtilizationThresholdImportSchema = z.number().gt(0).max(1).nullable().optional();
+const FacadeSelectionPolicyImportSchema = z.literal("weighted_eligible_context").nullable().optional();
+const FacadeFallbackPolicyImportSchema = z.literal("redistribute_ineligible_weight").nullable().optional();
 
 function addPreferredThresholdIssue(
   context: z.RefinementCtx,
@@ -209,6 +211,9 @@ const ModelImportSchema = z.strictObject({
   default_output_token_reserve: DefaultOutputTokenReserveImportSchema,
   max_context_utilization: MaxContextUtilizationImportSchema,
   preferred_context_utilization_threshold: PreferredContextUtilizationThresholdImportSchema,
+  facade_enabled: z.boolean().optional(),
+  facade_selection_policy: FacadeSelectionPolicyImportSchema,
+  facade_fallback_policy: FacadeFallbackPolicyImportSchema,
   is_enabled: z.boolean().optional(),
   access_targets: z.array(AccessTargetImportSchema),
 }).superRefine((model, context) => {

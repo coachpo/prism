@@ -21,6 +21,11 @@ const liveAuthoringCapabilityDefaults = {
   max_context_utilization: 0.9,
   preferred_context_utilization_threshold: null,
 };
+const facadePolicyDefaults = {
+  facade_enabled: true,
+  facade_selection_policy: "weighted_eligible_context",
+  facade_fallback_policy: "redistribute_ineligible_weight",
+};
 
 function buildValidConfigImport() {
   return {
@@ -155,6 +160,23 @@ test("config import schema accepts cheapest_eligible_context loadbalance strateg
   assert.equal(
     parsed.loadbalance_strategies[0].legacy_strategy_type,
     "cheapest_eligible_context"
+  );
+});
+
+
+test("config import schema accepts backend-exported facade model fields", () => {
+  const payload = buildValidConfigImport();
+  Object.assign(payload.models[0], facadePolicyDefaults);
+
+  const parsed = ConfigImportSchema.parse(payload);
+
+  assert.deepEqual(
+    {
+      facade_enabled: parsed.models[0].facade_enabled,
+      facade_selection_policy: parsed.models[0].facade_selection_policy,
+      facade_fallback_policy: parsed.models[0].facade_fallback_policy,
+    },
+    facadePolicyDefaults,
   );
 });
 

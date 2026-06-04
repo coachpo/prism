@@ -1,6 +1,9 @@
 import type { ApiFamily } from "./vendor";
 import type { OpenAIProbeEndpointVariant, PricingComponentPrice } from "./routing";
 
+export type ConfigModelFacadeSelectionPolicy = "weighted_eligible_context";
+export type ConfigModelFacadeFallbackPolicy = "redistribute_ineligible_weight";
+
 export interface ConfigEndpointExport {
   name: string;
   base_url: string;
@@ -122,6 +125,9 @@ export interface ConfigModelExport {
   default_output_token_reserve: number;
   max_context_utilization: number;
   preferred_context_utilization_threshold: number | null;
+  facade_enabled: boolean;
+  facade_selection_policy: ConfigModelFacadeSelectionPolicy | null;
+  facade_fallback_policy: ConfigModelFacadeFallbackPolicy | null;
   is_enabled: boolean;
   access_targets: ConfigAccessTargetExport[];
 }
@@ -136,6 +142,9 @@ export interface ConfigModelImport {
   default_output_token_reserve?: number | null;
   max_context_utilization?: number | null;
   preferred_context_utilization_threshold?: number | null;
+  facade_enabled?: boolean;
+  facade_selection_policy?: ConfigModelFacadeSelectionPolicy | null;
+  facade_fallback_policy?: ConfigModelFacadeFallbackPolicy | null;
   is_enabled?: boolean;
   access_targets: ConfigAccessTargetExport[];
 }

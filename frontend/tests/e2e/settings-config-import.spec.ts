@@ -6,6 +6,11 @@ const liveAuthoringCapabilityDefaults = {
   default_output_token_reserve: 4_096,
   max_context_utilization: 0.9,
 };
+const facadePolicyDefaults = {
+  facade_enabled: true,
+  facade_selection_policy: "weighted_eligible_context" as const,
+  facade_fallback_policy: "redistribute_ineligible_weight" as const,
+};
 
 type ProfileImportBundle = ReturnType<typeof buildProfileImportBundle>;
 
@@ -157,6 +162,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
           display_name: "Alpha model",
           loadbalance_strategy_name: "Alpha legacy routing",
           ...liveAuthoringCapabilityDefaults,
+          ...facadePolicyDefaults,
           is_enabled: true,
           access_targets: [
             { position: 0, is_enabled: true, target_type: "connection" as const, connection_ref: "alpha-connection" },
