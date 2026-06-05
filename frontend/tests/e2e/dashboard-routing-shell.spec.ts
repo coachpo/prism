@@ -348,7 +348,7 @@ async function expectNoHorizontalOverflow(page: Page, locator: Locator) {
 }
 
 test.describe("dashboard routing shell", () => {
-  test("keeps the desktop routing shell chrome and Sankey drill-down behavior", async ({ page }) => {
+  test("keeps the desktop routing shell chrome and React Flow drill-down behavior", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") {
@@ -362,9 +362,17 @@ test.describe("dashboard routing shell", () => {
     await page.goto("/dashboard?tab=overview");
 
     const routingCard = getRoutingCard(page);
+    const summaryPills = routingCard.locator('[aria-live="polite"]');
+    const legendLabels = routingCard.locator(
+      '[data-slot="card-content"] > div:first-child > span > span.font-medium',
+    );
+    const desktopDiagram = routingCard.getByTestId("routing-diagram-desktop");
+    const modelAction = desktopDiagram
+      .getByTestId("routing-diagram-node-model-model-101")
+      .getByRole("button", { name: "View model details for Model A" });
 
     await expect(routingCard).toBeVisible();
-    await expect(page.getByTestId("routing-diagram-sankey")).toBeVisible();
+    await expect(desktopDiagram).toBeVisible();
     await expect(page.getByTestId("routing-diagram-mobile")).toHaveCount(0);
     await expect(routingCard.getByText(/Desktop shows the backend-owned routing graph/i)).toBeVisible();
     await expect(
@@ -373,15 +381,17 @@ test.describe("dashboard routing shell", () => {
     await expect(routingCard.getByText(/Entry Model -> Planner -> Access Targets -> Terminal Target -> Endpoint/i)).toBeVisible();
     await expect(routingCard.getByText(/terminal-target topology after planner and access-target resolution/i)).toBeVisible();
     await expect(routingCard.getByText(/browser does not reconstruct graph edges from management reads/i)).toBeVisible();
-    await expect(routingCard.getByText("1 endpoint")).toBeVisible();
-    await expect(routingCard.getByText("2 models")).toBeVisible();
-    await expect(routingCard.getByText("1 active target")).toBeVisible();
-    await expect(routingCard.getByText("42 successful requests in 24h")).toBeVisible();
-    await expect(routingCard.getByText("Model", { exact: true })).toBeVisible();
-    await expect(routingCard.getByText("Terminal Targets", { exact: true })).toBeVisible();
-    await expect(routingCard.getByText("Endpoint", { exact: true })).toBeVisible();
-    await expect(routingCard.getByText("Disabled", { exact: true })).toBeVisible();
-    await expect(routingCard.getByText("Inactive", { exact: true })).toBeVisible();
+    await expect(summaryPills.getByText("1 endpoint")).toBeVisible();
+    await expect(summaryPills.getByText("2 models")).toBeVisible();
+    await expect(summaryPills.getByText("1 active target")).toBeVisible();
+    await expect(summaryPills.getByText("42 successful requests in 24h")).toBeVisible();
+    await expect(legendLabels).toHaveText([
+      "Model",
+      "Terminal Targets",
+      "Endpoint",
+      "Disabled",
+      "Inactive",
+    ]);
     expect(
       consoleErrors.filter(
         (message) =>
@@ -392,12 +402,25 @@ test.describe("dashboard routing shell", () => {
     await expect(routingCard.getByText("Primary Target", { exact: true })).toBeVisible();
     await expect(routingCard.getByText("Backup Target", { exact: true })).toBeVisible();
 
-    await routingCard.getByRole("button", { name: "Model A", exact: true }).click();
+    await tabUntilFocused(page, modelAction);
+    await expect(modelAction).toBeFocused();
+    await expect(modelAction).toBeInViewport();
+    await modelAction.press("Enter");
     await expect(page).toHaveURL(/\/models\/101$/);
 
     await page.goto("/dashboard?tab=overview");
     const refreshedRoutingCard = getRoutingCard(page);
-    await refreshedRoutingCard.getByRole("button", { name: "Endpoint A", exact: true }).click();
+    const endpointAction = refreshedRoutingCard
+      .getByTestId("routing-diagram-desktop")
+      .getByTestId("routing-diagram-node-endpoint-endpoint-201")
+      .getByRole("button", {
+        name: "View Request Logs: Endpoint A",
+      });
+
+    await tabUntilFocused(page, endpointAction);
+    await expect(endpointAction).toBeFocused();
+    await expect(endpointAction).toBeInViewport();
+    await endpointAction.press("Enter");
     await expect(page).toHaveURL(/\/request-logs\?endpoint_id=201$/);
   });
 
@@ -415,7 +438,7 @@ test.describe("dashboard routing shell", () => {
 
     await expect(routingCard).toBeVisible();
     await expect(page.getByTestId("routing-diagram-mobile")).toBeVisible();
-    await expect(page.getByTestId("routing-diagram-sankey")).toHaveCount(0);
+    await expect(page.getByTestId("routing-diagram-desktop")).toHaveCount(0);
     await expect(routingCard.getByText(/Desktop shows the backend-owned routing graph/i)).toBeVisible();
     await expect(
       routingCard.getByText("Activate model or endpoint targets to open details or request logs"),
