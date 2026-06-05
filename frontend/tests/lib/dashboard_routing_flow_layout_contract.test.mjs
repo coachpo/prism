@@ -65,6 +65,7 @@ const { load } = createTsModuleLoader({
 });
 const {
   getRoutingDiagramEmptyState,
+  getRoutingDiagramFlowLayout,
   getRoutingDiagramGraph,
   getRoutingDiagramMobileData,
   getRoutingDiagramSummary,
@@ -248,6 +249,315 @@ test("renders edge inspector content from explicit graph edge input", () => {
   assert.match(markup, /24h successful requests/);
   assert.match(markup, /24h errors/);
 });
+
+test("produces deterministic flow layout positions", () => {
+  const graph = getRoutingDiagramGraph(createTopologyGraph());
+  const firstLayout = getRoutingDiagramFlowLayout(graph);
+  const secondLayout = getRoutingDiagramFlowLayout(graph);
+
+  assert.deepEqual(secondLayout, firstLayout);
+  assert.deepEqual(summarizeFlowNodes(firstLayout), [
+    { id: "model-101", x: 40, y: 24, width: 224, height: 60 },
+    { id: "model-102", x: 432, y: 24, width: 224, height: 60 },
+    { id: "terminal-target-501", x: 432, y: 112, width: 208, height: 60 },
+    { id: "terminal-target-502", x: 432, y: 200, width: 208, height: 60 },
+    { id: "endpoint-201", x: 824, y: 24, width: 224, height: 60 },
+  ]);
+  assert.deepEqual(
+    firstLayout.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })),
+    [
+      { id: "access-target-1001", source: "model-101", target: "model-102" },
+      { id: "access-target-1002", source: "model-101", target: "terminal-target-501" },
+      { id: "access-target-1003", source: "model-101", target: "terminal-target-502" },
+      { id: "terminal-target-binding-501", source: "terminal-target-501", target: "endpoint-201" },
+      { id: "terminal-target-binding-502", source: "terminal-target-502", target: "endpoint-201" },
+    ],
+  );
+  assert.deepEqual(firstLayout.bounds, { x: 0, y: 0, width: 1088, height: 284 });
+});
+
+test("stably orders tied nodes by position label and id", () => {
+  const layout = getRoutingDiagramFlowLayout(createStableOrderingGraph());
+
+  assert.deepEqual(summarizeFlowNodes(layout), [
+    { id: "model-alpha", x: 40, y: 24, width: 224, height: 60 },
+    { id: "model-beta", x: 40, y: 112, width: 224, height: 60 },
+    { id: "terminal-positioned", x: 432, y: 24, width: 208, height: 60 },
+    { id: "terminal-alpha-1", x: 432, y: 112, width: 208, height: 60 },
+    { id: "terminal-alpha-2", x: 432, y: 200, width: 208, height: 60 },
+    { id: "terminal-beta-1", x: 432, y: 288, width: 208, height: 60 },
+  ]);
+  assert.deepEqual(
+    getRoutingDiagramFlowLayout(createStableOrderingGraph()).nodes.map((node) => node.id),
+    layout.nodes.map((node) => node.id),
+  );
+  assert.deepEqual(layout.bounds, { x: 0, y: 0, width: 680, height: 372 });
+});
+
+test("applies fallback placement for cycles or orphan nodes", () => {
+  const layout = getRoutingDiagramFlowLayout(createFallbackRoutingGraph());
+
+  assert.deepEqual(summarizeFlowNodes(layout), [
+    { id: "cycle-model-a", x: 40, y: 24, width: 224, height: 60 },
+    { id: "orphan-model", x: 40, y: 112, width: 224, height: 60 },
+    { id: "cycle-model-b", x: 432, y: 24, width: 224, height: 60 },
+    { id: "orphan-terminal-target", x: 432, y: 112, width: 208, height: 60 },
+    { id: "connected-terminal-target", x: 824, y: 24, width: 208, height: 60 },
+    { id: "orphan-endpoint", x: 824, y: 112, width: 224, height: 60 },
+    { id: "connected-endpoint", x: 1216, y: 24, width: 224, height: 60 },
+  ]);
+  assert.deepEqual(layout.edges.map((edge) => edge.id), [
+    "cycle-edge-a-b",
+    "cycle-edge-b-a",
+    "cycle-target-edge",
+    "connected-binding",
+  ]);
+  assert.deepEqual(layout.bounds, { x: 0, y: 0, width: 1480, height: 196 });
+});
+
+function summarizeFlowNodes(layout) {
+  return layout.nodes.map((node) => ({
+    id: node.id,
+    x: node.position.x,
+    y: node.position.y,
+    width: node.width,
+    height: node.height,
+  }));
+}
+
+function createStableOrderingGraph() {
+  return {
+    nodes: [
+      createGraphNode({
+        id: "terminal-alpha-2",
+        kind: "terminal_target",
+        label: "Alpha Shared",
+        sublabel: "Endpoint A",
+        terminalTargetId: 502,
+      }),
+      createGraphNode({
+        id: "model-beta",
+        kind: "model",
+        label: "Beta Root",
+        modelConfigId: 202,
+        modelId: "beta-root",
+      }),
+      createGraphNode({
+        id: "terminal-positioned",
+        kind: "terminal_target",
+        label: "Position First",
+        sublabel: "Endpoint A",
+        terminalTargetId: 501,
+      }),
+      createGraphNode({
+        id: "model-alpha",
+        kind: "model",
+        label: "Alpha Root",
+        modelConfigId: 201,
+        modelId: "alpha-root",
+      }),
+      createGraphNode({
+        id: "terminal-beta-1",
+        kind: "terminal_target",
+        label: "Aardvark Shared",
+        sublabel: "Endpoint B",
+        terminalTargetId: 503,
+      }),
+      createGraphNode({
+        id: "terminal-alpha-1",
+        kind: "terminal_target",
+        label: "Alpha Shared",
+        sublabel: "Endpoint A",
+        terminalTargetId: 504,
+      }),
+    ],
+    edges: [
+      createGraphEdge({
+        id: "edge-alpha-null-2",
+        kind: "model_to_terminal_target",
+        sourceNodeId: "model-alpha",
+        targetNodeId: "terminal-alpha-2",
+        sourceLabel: "Alpha Root",
+        targetLabel: "Alpha Shared",
+      }),
+      createGraphEdge({
+        id: "edge-beta-null",
+        kind: "model_to_terminal_target",
+        sourceNodeId: "model-beta",
+        targetNodeId: "terminal-beta-1",
+        sourceLabel: "Beta Root",
+        targetLabel: "Aardvark Shared",
+      }),
+      createGraphEdge({
+        id: "edge-alpha-positioned",
+        kind: "model_to_terminal_target",
+        sourceNodeId: "model-alpha",
+        targetNodeId: "terminal-positioned",
+        sourceLabel: "Alpha Root",
+        targetLabel: "Position First",
+        position: 0,
+      }),
+      createGraphEdge({
+        id: "edge-alpha-null-1",
+        kind: "model_to_terminal_target",
+        sourceNodeId: "model-alpha",
+        targetNodeId: "terminal-alpha-1",
+        sourceLabel: "Alpha Root",
+        targetLabel: "Alpha Shared",
+      }),
+    ],
+  };
+}
+
+function createFallbackRoutingGraph() {
+  return {
+    nodes: [
+      createGraphNode({
+        id: "connected-endpoint",
+        kind: "endpoint",
+        label: "Connected Endpoint",
+        endpointId: 401,
+      }),
+      createGraphNode({
+        id: "orphan-endpoint",
+        kind: "endpoint",
+        label: "Orphan Endpoint",
+        endpointId: 402,
+      }),
+      createGraphNode({
+        id: "orphan-terminal-target",
+        kind: "terminal_target",
+        label: "Orphan Target",
+        sublabel: "Endpoint O",
+        terminalTargetId: 601,
+      }),
+      createGraphNode({
+        id: "cycle-model-b",
+        kind: "model",
+        label: "Cycle Model B",
+        modelConfigId: 302,
+        modelId: "cycle-model-b",
+      }),
+      createGraphNode({
+        id: "connected-terminal-target",
+        kind: "terminal_target",
+        label: "Connected Target",
+        sublabel: "Endpoint C",
+        terminalTargetId: 602,
+      }),
+      createGraphNode({
+        id: "orphan-model",
+        kind: "model",
+        label: "Orphan Model",
+        modelConfigId: 303,
+        modelId: "orphan-model",
+      }),
+      createGraphNode({
+        id: "cycle-model-a",
+        kind: "model",
+        label: "Cycle Model A",
+        modelConfigId: 301,
+        modelId: "cycle-model-a",
+      }),
+    ],
+    edges: [
+      createGraphEdge({
+        id: "cycle-edge-b-a",
+        kind: "model_to_model",
+        sourceNodeId: "cycle-model-b",
+        targetNodeId: "cycle-model-a",
+        sourceLabel: "Cycle Model B",
+        targetLabel: "Cycle Model A",
+        position: 1,
+      }),
+      createGraphEdge({
+        id: "broken-source-edge",
+        kind: "model_to_terminal_target",
+        sourceNodeId: "missing-model",
+        targetNodeId: "connected-terminal-target",
+        sourceLabel: "Missing Model",
+        targetLabel: "Connected Target",
+        position: 0,
+      }),
+      createGraphEdge({
+        id: "connected-binding",
+        kind: "terminal_target_to_endpoint",
+        sourceNodeId: "connected-terminal-target",
+        targetNodeId: "connected-endpoint",
+        sourceLabel: "Connected Target",
+        targetLabel: "Connected Endpoint",
+      }),
+      createGraphEdge({
+        id: "cycle-target-edge",
+        kind: "model_to_terminal_target",
+        sourceNodeId: "cycle-model-b",
+        targetNodeId: "connected-terminal-target",
+        sourceLabel: "Cycle Model B",
+        targetLabel: "Connected Target",
+        position: 0,
+      }),
+      createGraphEdge({
+        id: "cycle-edge-a-b",
+        kind: "model_to_model",
+        sourceNodeId: "cycle-model-a",
+        targetNodeId: "cycle-model-b",
+        sourceLabel: "Cycle Model A",
+        targetLabel: "Cycle Model B",
+        position: 0,
+      }),
+      createGraphEdge({
+        id: "broken-target-edge",
+        kind: "terminal_target_to_endpoint",
+        sourceNodeId: "connected-terminal-target",
+        targetNodeId: "missing-endpoint",
+        sourceLabel: "Connected Target",
+        targetLabel: "Missing Endpoint",
+      }),
+    ],
+  };
+}
+
+function createGraphNode(overrides) {
+  return {
+    id: "graph-node",
+    kind: "model",
+    label: "Graph Node",
+    sublabel: null,
+    status: "enabled",
+    modelConfigId: null,
+    modelId: null,
+    terminalTargetId: null,
+    endpointId: null,
+    active: null,
+    healthStatus: null,
+    activeTerminalTargetCount: 0,
+    requestCount24h: 0,
+    successCount24h: 0,
+    errorCount24h: 0,
+    successRate24h: null,
+    lastRequestAt: null,
+    ...overrides,
+  };
+}
+
+function createGraphEdge(overrides) {
+  return {
+    id: "graph-edge",
+    kind: "model_to_model",
+    sourceNodeId: "source-node",
+    targetNodeId: "target-node",
+    sourceLabel: "Source Node",
+    targetLabel: "Target Node",
+    enabled: true,
+    position: null,
+    activeTerminalTargetCount: 0,
+    requestCount24h: 0,
+    successCount24h: 0,
+    errorCount24h: 0,
+    successRate24h: null,
+    ...overrides,
+  };
+}
 
 function createTopologyGraph() {
   return {

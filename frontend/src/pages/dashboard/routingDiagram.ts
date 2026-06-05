@@ -14,9 +14,20 @@ export type {
   RoutingDiagramMobileRelation,
   RoutingDiagramMobileSection,
 } from "./routing-diagram/routingDiagramLayout";
+export type {
+  RoutingDiagramFlowBounds,
+  RoutingDiagramFlowEdge,
+  RoutingDiagramFlowLayout,
+  RoutingDiagramFlowNode,
+} from "./routing-diagram/routingDiagramFlowLayout";
 export {
   getRoutingDiagramEmptyState,
   getRoutingDiagramGraph,
   getRoutingDiagramMobileData,
   getRoutingDiagramSummary,
 } from "./routing-diagram/routingDiagramLayout";
+export {
+  getRoutingDiagramFlowLayout,
+  ROUTING_DIAGRAM_FLOW_EDGE_TYPE,
+  ROUTING_DIAGRAM_FLOW_NODE_TYPE,
+} from "./routing-diagram/routingDiagramFlowLayout";

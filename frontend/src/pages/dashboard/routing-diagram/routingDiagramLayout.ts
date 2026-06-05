@@ -112,6 +112,7 @@ export function getRoutingDiagramGraph(data: RoutingDiagramData): RoutingDiagram
       sourceLabel: sourceNode?.label ?? edge.source_node_id,
       targetLabel: targetNode?.label ?? edge.target_node_id,
       enabled: edge.enabled ?? null,
+      position: edge.position ?? null,
       activeTerminalTargetCount: rollup.activeTerminalTargetCount,
       requestCount24h: rollup.requestCount24h,
       successCount24h: rollup.successCount24h,
@@ -219,6 +220,7 @@ type RoutingDiagramLinkKindCarrier = {
   source_node_id: string;
   target_node_id: string;
   enabled?: boolean | null;
+  position?: number | null;
 };
 
 function normalizeRoutingDiagramNode(
@@ -291,6 +293,7 @@ function normalizeRoutingDiagramLinkKind(
     source_node_id: edge.source_node_id,
     target_node_id: edge.target_node_id,
     enabled: edge.enabled ?? null,
+    position: edge.position ?? null,
   };
 }
 

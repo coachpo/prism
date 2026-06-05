@@ -37,6 +37,7 @@ export interface RoutingDiagramLink {
   sourceLabel: string;
   targetLabel: string;
   enabled: boolean | null;
+  position: number | null;
   activeTerminalTargetCount: number;
   requestCount24h: number;
   successCount24h: number;
