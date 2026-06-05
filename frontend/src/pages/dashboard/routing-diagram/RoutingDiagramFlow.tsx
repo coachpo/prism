@@ -186,13 +186,14 @@ export function RoutingDiagramFlow({
       visualization={
         <div
           data-testid="routing-diagram-desktop"
-          className="relative overflow-hidden rounded-xl border border-border/70 bg-background/60"
+          className="relative w-full overflow-hidden rounded-xl border border-border/70 bg-background/60"
           style={{ height: chartHeight }}
           onPointerLeave={clearInspector}
           onFocusCapture={handleFocusCapture}
           onKeyDownCapture={handleKeyDownCapture}
         >
           <ReactFlow<RoutingDiagramFlowCanvasNode, RoutingDiagramFlowCanvasEdge>
+            className="h-full w-full"
             fitView
             minZoom={0.35}
             maxZoom={1}

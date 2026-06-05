@@ -402,11 +402,9 @@ async function expectNoDesktopNodeOverlap(diagram: Locator) {
 
 test.describe("dashboard routing shell", () => {
   test("keeps the desktop routing shell chrome and React Flow drill-down behavior", async ({ page }) => {
-    const consoleErrors: string[] = [];
+    const consoleMessages: Array<{ text: string; type: string }> = [];
     page.on("console", (message) => {
-      if (message.type() === "error") {
-        consoleErrors.push(message.text());
-      }
+      consoleMessages.push({ text: message.text(), type: message.type() });
     });
 
     await page.setViewportSize(desktopViewport);
@@ -447,10 +445,22 @@ test.describe("dashboard routing shell", () => {
       "Inactive",
     ]);
     expect(
-      consoleErrors.filter(
-        (message) =>
-          message.includes("cannot be a descendant") || message.includes("cannot contain a nested"),
-      ),
+      consoleMessages
+        .filter(({ type }) => type === "error")
+        .map(({ text }) => text)
+        .filter(
+          (message) =>
+            message.includes("cannot be a descendant") || message.includes("cannot contain a nested"),
+        ),
+    ).toEqual([]);
+    expect(
+      consoleMessages
+        .map(({ text }) => text)
+        .filter(
+          (message) =>
+            /react flow|reactflow/i.test(message) &&
+            /(parent container|width and height)/i.test(message),
+        ),
     ).toEqual([]);
     await expect(routingCard.getByText("Disabled Model", { exact: true })).toBeVisible();
     await expect(routingCard.getByText("Primary Target", { exact: true })).toBeVisible();
@@ -488,6 +498,10 @@ test.describe("dashboard routing shell", () => {
     await page.goto("/dashboard?tab=overview");
 
     const routingCard = getRoutingCard(page);
+    const helperCopy = routingCard.getByText(/Desktop shows the backend-owned routing graph/i);
+    const actionHint = routingCard.getByText(
+      "Activate model or endpoint targets to open details or request logs",
+    );
     const modelAction = routingCard
       .getByRole("article")
       .filter({ has: page.getByRole("heading", { name: "Model A", level: 5 }) })
@@ -497,10 +511,17 @@ test.describe("dashboard routing shell", () => {
     await expect(page.getByTestId("routing-diagram-mobile")).toBeVisible();
     await expect(page.getByTestId("routing-diagram-desktop")).toHaveCount(0);
     await expect(routingCard.getByText(/Desktop shows the backend-owned routing graph/i)).toBeVisible();
-    await expect(
-      routingCard.getByText("Activate model or endpoint targets to open details or request logs"),
-    ).toBeVisible();
+    await expect(actionHint).toBeVisible();
     await expectNoHorizontalOverflow(page, routingCard);
+
+    const [helperBox, actionBox] = await Promise.all([
+      helperCopy.boundingBox(),
+      actionHint.boundingBox(),
+    ]);
+
+    expect(helperBox).not.toBeNull();
+    expect(actionBox).not.toBeNull();
+    expect(actionBox!.y).toBeGreaterThanOrEqual((helperBox!.y + helperBox!.height) - 1);
     await tabUntilFocused(page, modelAction);
     await expect(modelAction).toBeFocused();
     await expect(modelAction).toBeInViewport();

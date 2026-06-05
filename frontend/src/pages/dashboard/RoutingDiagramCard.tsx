@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   getRoutingDiagramEmptyState,
   getRoutingDiagramGraph,
@@ -31,26 +31,32 @@ export function RoutingDiagramCard({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = containerRef.current;
-    if (!element || typeof ResizeObserver === "undefined") {
+    if (!element) {
       return;
     }
 
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) {
-        return;
-      }
+    const updateWidth = () => {
+      setContainerWidth(element.getBoundingClientRect().width);
+    };
 
-      setContainerWidth(entry.contentRect.width);
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateWidth();
     });
 
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
 
-  const isCompact = containerWidth > 0 && containerWidth < 640;
+  const hasMeasuredContainer = containerWidth > 0;
+  const isCompact = hasMeasuredContainer && containerWidth < 640;
   const chartHeight = isCompact ? 320 : 460;
 
   const graphData = useMemo(() => {
@@ -108,11 +114,18 @@ export function RoutingDiagramCard({
           data && hasChartContent ? (
             isCompact ? (
               <RoutingDiagramMobileList mobileData={mobileData} onActivateNode={activateNode} />
-            ) : (
+            ) : hasMeasuredContainer ? (
               <RoutingDiagramFlow
                 graphData={graphData}
                 chartHeight={chartHeight}
                 onActivateNode={activateNode}
+              />
+            ) : (
+              <div
+                data-testid="routing-diagram-desktop-pending"
+                className="w-full rounded-xl border border-border/70 bg-background/60"
+                style={{ height: chartHeight }}
+                aria-hidden="true"
               />
             )
           ) : null
