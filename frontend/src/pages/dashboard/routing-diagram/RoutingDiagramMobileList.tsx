@@ -3,8 +3,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
-import { RoutingDiagramChartShell } from "./RoutingDiagramChartShell";
 import { RoutingDiagramLegend } from "./RoutingDiagramLegend";
+import { RoutingDiagramVisualizationShell } from "./RoutingDiagramVisualizationShell";
 import type {
   RoutingDiagramMobileData,
   RoutingDiagramMobileNode,
@@ -29,7 +29,7 @@ export function RoutingDiagramMobileList({
   }, [mobileData.sections]);
 
   return (
-    <RoutingDiagramChartShell
+    <RoutingDiagramVisualizationShell
       visualization={
         <div className="grid gap-3" data-testid="routing-diagram-mobile">
           {mobileData.sections.map((section) => (
@@ -60,7 +60,7 @@ export function RoutingDiagramMobileList({
       }
     >
       <RoutingDiagramLegend />
-    </RoutingDiagramChartShell>
+    </RoutingDiagramVisualizationShell>
   );
 }
 

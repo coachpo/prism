@@ -31,7 +31,7 @@ export interface RoutingLinkShapeProps {
   payload?: RoutingDiagramGraphEdge;
 }
 
-export interface RoutingDiagramTooltipProps {
+export interface RoutingDiagramChartTooltipProps {
   active?: boolean;
   payload?: Array<{
     payload?: {

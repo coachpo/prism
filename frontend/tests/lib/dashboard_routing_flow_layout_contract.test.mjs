@@ -3,6 +3,9 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
 import { createTsModuleLoader } from "../helpers/loadTsModule.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,6 +18,35 @@ const dashboardMessages = {
   routingNoRecentTraffic: "No routed traffic in the last 24h",
   routingNoRecentTrafficDescription:
     "The selected profile already has routes, but Prism recorded no successful terminal-target traffic in the last 24 hours.",
+};
+const routingInspectorMessages = {
+  dashboard: {
+    ...dashboardMessages,
+    routingNodeType: "Node type",
+    routingActiveConnections: "Active connections",
+    routing24hSuccessRate: "24h success rate",
+    routingLegendNoData: "No data",
+    routing24hTotalRequests: "24h total requests",
+    routing24hHealth: "24h health",
+    routing24hSuccessfulRequests: "24h successful requests",
+    routing24hErrors: "24h errors",
+    routingActionOpenModelDetail: "Open model detail",
+    reviewRequests: "Review requests",
+    routingLegendHealthy: "Healthy",
+    routingLegendDegraded: "Degraded",
+    routingLegendFailing: "Failing",
+    routingEndpointNodeType: "Endpoint",
+    routingModelNodeType: "Model",
+  },
+  requestLogs: {
+    view: "View",
+  },
+  modelDetail: {
+    connections: "Connections",
+    healthHealthy: "Healthy",
+    healthUnknown: "Unknown",
+    healthUnhealthy: "Unhealthy",
+  },
 };
 
 const { load } = createTsModuleLoader({
@@ -37,6 +69,38 @@ const {
   getRoutingDiagramMobileData,
   getRoutingDiagramSummary,
 } = load(path.join(frontendDir, "src/pages/dashboard/routingDiagram.ts"));
+
+function formatNumber(value, locale = "en-US", options = undefined) {
+  return new Intl.NumberFormat(locale, options).format(value);
+}
+
+function loadRoutingDiagramInspectorContentModule() {
+  const { load: loadInspector } = createTsModuleLoader({
+    rootDir: frontendDir,
+    mocks: {
+      "@/i18n/format": {
+        compareStringsForLocale: (left, right) => String(left).localeCompare(String(right), "en"),
+        formatNumber,
+        getCurrentLocale: () => "en-US",
+      },
+      "@/i18n/useLocale": {
+        useLocale: () => ({
+          formatNumber: (value) => formatNumber(value),
+          messages: routingInspectorMessages,
+        }),
+      },
+    },
+  });
+
+  return loadInspector(
+    path.join(frontendDir, "src/pages/dashboard/routing-diagram/RoutingDiagramInspectorContent.tsx"),
+  );
+}
+
+function renderRoutingDiagramInspectorContent(props) {
+  const { RoutingDiagramInspectorContent } = loadRoutingDiagramInspectorContentModule();
+  return renderToStaticMarkup(createElement(RoutingDiagramInspectorContent, props));
+}
 
 test("normalizes topology graph into renderer-agnostic graph", () => {
   const graph = getRoutingDiagramGraph(createTopologyGraph());
@@ -147,6 +211,42 @@ test("keeps shell semantics derived from raw topology data when invalid edges co
     title: dashboardMessages.routingNoRecentTraffic,
     description: dashboardMessages.routingNoRecentTrafficDescription,
   });
+});
+
+test("renders node inspector content from explicit graph node input", () => {
+  const graph = getRoutingDiagramGraph(createTopologyGraph());
+  const node = graph.nodes.find((item) => item.id === "model-101");
+
+  assert.ok(node);
+  const markup = renderRoutingDiagramInspectorContent({ node });
+
+  assert.match(markup, /Model A/);
+  assert.match(markup, /model-a/);
+  assert.match(markup, /Node type/);
+  assert.match(markup, /Model/);
+  assert.match(markup, /Active connections/);
+  assert.match(markup, /24h success rate/);
+  assert.match(markup, /97\.62%/);
+  assert.match(markup, /24h total requests/);
+  assert.match(markup, /View/);
+  assert.match(markup, /Open model detail/);
+});
+
+test("renders edge inspector content from explicit graph edge input", () => {
+  const graph = getRoutingDiagramGraph(createTopologyGraph());
+  const edge = graph.edges.find((item) => item.id === "terminal-target-binding-501");
+
+  assert.ok(edge);
+  const markup = renderRoutingDiagramInspectorContent({ edge });
+
+  assert.match(markup, /Primary Target/);
+  assert.match(markup, /Endpoint A/);
+  assert.match(markup, /24h health/);
+  assert.match(markup, /Degraded/);
+  assert.match(markup, /24h success rate/);
+  assert.match(markup, /97\.62%/);
+  assert.match(markup, /24h successful requests/);
+  assert.match(markup, /24h errors/);
 });
 
 function createTopologyGraph() {

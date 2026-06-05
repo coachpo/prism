@@ -9,15 +9,15 @@ import {
 } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 
-interface RoutingDiagramChartShellProps {
+interface RoutingDiagramVisualizationShellProps {
   children?: ReactNode;
   visualization: ReactNode;
 }
 
-export function RoutingDiagramChartShell({
+export function RoutingDiagramVisualizationShell({
   children,
   visualization,
-}: RoutingDiagramChartShellProps) {
+}: RoutingDiagramVisualizationShellProps) {
   const { messages } = useLocale();
 
   return (

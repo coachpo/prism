@@ -1,12 +1,18 @@
 import { useMemo } from "react";
 import { ResponsiveContainer, Sankey, Tooltip as RechartsTooltip } from "recharts";
-import { RoutingDiagramChartShell } from "./RoutingDiagramChartShell";
+import { RoutingDiagramInspectorContent } from "./RoutingDiagramInspectorContent";
 import { RoutingDiagramLegend } from "./RoutingDiagramLegend";
 import { RoutingDiagramLinkShape } from "./RoutingDiagramLinkShape";
 import { RoutingDiagramNodeShape } from "./RoutingDiagramNodeShape";
-import { RoutingDiagramTooltip } from "./RoutingDiagramTooltip";
+import { RoutingDiagramVisualizationShell } from "./RoutingDiagramVisualizationShell";
+import {
+  getChartPayload,
+  isRoutingDiagramLink,
+  isRoutingDiagramNode,
+} from "./routingDiagramChartUtils";
 import type {
   RoutingDiagramChartProps,
+  RoutingDiagramChartTooltipProps,
   RoutingLinkShapeProps,
   RoutingNodeShapeProps,
 } from "./routingDiagramChartTypes";
@@ -37,7 +43,7 @@ export function RoutingDiagramChart({
   const chartData = useMemo(() => getRoutingDiagramSankeyData(graphData), [graphData]);
 
   return (
-    <RoutingDiagramChartShell
+    <RoutingDiagramVisualizationShell
       visualization={
         <div data-testid="routing-diagram-sankey" style={{ height: chartHeight }}>
           <ResponsiveContainer width="100%" height="100%">
@@ -60,7 +66,7 @@ export function RoutingDiagramChart({
               <RechartsTooltip
                 cursor={false}
                 wrapperStyle={{ outline: "none" }}
-                content={<RoutingDiagramTooltip />}
+                content={<RoutingDiagramChartTooltip />}
               />
             </Sankey>
           </ResponsiveContainer>
@@ -68,8 +74,29 @@ export function RoutingDiagramChart({
       }
     >
       <RoutingDiagramLegend />
-    </RoutingDiagramChartShell>
+    </RoutingDiagramVisualizationShell>
   );
+}
+
+function RoutingDiagramChartTooltip({
+  active,
+  payload,
+}: RoutingDiagramChartTooltipProps) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  const chartPayload = getChartPayload(getChartPayload(payload[0]));
+
+  if (isRoutingDiagramNode(chartPayload)) {
+    return <RoutingDiagramInspectorContent node={chartPayload} />;
+  }
+
+  if (isRoutingDiagramLink(chartPayload)) {
+    return <RoutingDiagramInspectorContent edge={chartPayload} />;
+  }
+
+  return null;
 }
 
 function getRoutingDiagramSankeyData(graphData: RoutingDiagramGraph): RoutingDiagramSankeyData {
