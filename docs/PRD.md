@@ -20,7 +20,7 @@ Single operator (developer/power user) running the application locally or on a l
 ## 4. Core Features
 
 ### 4.1 Multi-Family Proxy
-- Transparent proxy for OpenAI, Anthropic, and Gemini path families
+- Operation-registered proxy support for explicit OpenAI Chat Completions, Responses, Images, Anthropic Messages/count-token, and Gemini generate/stream/count-token operations
 - Supports both streaming (SSE) and non-streaming responses
 - Preserves native request/response formats per API family
 - Runtime compatibility is fixed by `api_family`

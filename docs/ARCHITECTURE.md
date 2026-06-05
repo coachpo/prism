@@ -62,7 +62,7 @@ backend/
 frontend/
 ├── src/
 │   ├── main.tsx                # Entry point
-│   ├── App.tsx                 # BrowserRouter + AppLayout + public auth routes + protected shell routes
+│   ├── App.tsx                 # BrowserRouter + public auth routes + protected Page shell routes
 │   ├── context/
 │   │   ├── ProfileContext.tsx  # Selected profile vs active profile state bootstrapped from /api/profiles/bootstrap
 │   │   └── AuthContext.tsx     # Operator auth bootstrap, refresh, and session state
@@ -70,15 +70,18 @@ frontend/
 │   │   ├── api.ts              # Typed API client + /api scoped X-Profile-Id injection
 │   │   ├── types.ts            # TypeScript contracts aligned with backend schemas
 │   │   ├── costing.ts          # Micros and currency formatting helpers
+│   │   ├── reportingCurrency.ts # Shared reporting-currency cache and normalization
 │   │   ├── timezone.ts         # Shared timezone formatting helpers
 │   │   └── configImportValidation.ts # Config import validation for the current configuration format
 │   ├── hooks/
-│   │   ├── useConnectionNavigation.ts # Resolve connection owner + navigate to model detail
+│   │   ├── usePolling.ts       # Shared polling helper
 │   │   ├── useRealtimeData.ts  # WebSocket-backed live refresh helper
 │   │   └── useTimezone.ts      # Shared timezone formatting helper
 │   ├── components/
-│   │   ├── layout/AppLayout.tsx # Provider-based sidebar shell + route-metadata breadcrumb chrome
-│   │   ├── statistics/         # Spending and token visualization helpers
+│   │   ├── layout/page.tsx     # Protected shell wrapper with sidebar provider and Outlet
+│   │   ├── layout/app-layout/  # Sidebar, header, profile switcher, nav metadata, and version label
+│   │   ├── loadbalance/        # Shared loadbalance renderers
+│   │   ├── statistics/         # Shared statistics renderers
 │   │   └── ui/                 # shadcn/ui components
 │   └── pages/
 │       ├── DashboardPage.tsx
@@ -104,8 +107,8 @@ frontend/
 - Prism is a monorepo: `backend/` and `frontend/` are root-owned directories that share the root launcher, release helper, and CI wiring.
 - Root local orchestration lives in `start.sh`: it loads the root `.env`, starts PostgreSQL from `backend/docker-compose.yml`, validates that the selected bootstrap config keeps the launcher's local host and database contract, and launches the Go backend service on the bootstrap file's configured port.
 - `./start.sh full` launches the frontend on `5173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at that effective backend port so browser traffic stays same-origin.
-- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; the backend canonical defaults are the source of truth for fresh seeds, the only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`.
-- Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; encrypted bootstrap files must be replaced before boot, and there is no compatibility mode for older bootstrap file shapes. Missing files are seeded once. Existing valid files are preserved until an operator resets manually by stopping Prism, removing or relocating the file, and restarting.
+- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; backend-native fresh seeds default the database URL to `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, while `start.sh` sets `DATABASE_URL` to the local launcher PostgreSQL DSN on host port `15432` before seeding.
+- Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; encrypted bootstrap files must be replaced before boot. Missing files are seeded once, and the entrypoint has a narrow repair path for stale files rejected only because they still contain retired `docsEnabled`. Other invalid legacy shapes fail validation. Existing valid files are preserved until an operator resets manually by stopping Prism, removing or relocating the file, and restarting.
 - The backend image runs as `prism:prism`, UID/GID `1000:1000`. Container deployments that bind mount `/app/config` or any other `PRISM_CONFIG_PATH` parent must make that host directory writable by UID/GID `1000:1000`; new and existing root-owned mounts should be prepared once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
 - Operational telemetry is startup-JSON-owned: the top-level `telemetry` section configures OTLP endpoint, protocol, compression, timeout, auth, TLS, metrics, and traces. Prism does not use long-lived `OTEL_*` environment variables as the steady-state config source.

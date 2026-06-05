@@ -22,7 +22,7 @@ Prism does not expose a backend-local `/metrics` operations endpoint. Configure 
 
 ### 1.0 Bootstrap Config
 
-The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle, and it has no compatibility mode for older bootstrap shapes. Backend-owned canonical defaults are the source of truth for freshly seeded files, including disabled telemetry. API-managed writes update the file and immediately apply fields that are marked `hot_apply`; structural fields, including every telemetry exporter/metrics/tracing field, are durable for the next Prism start. Existing valid files are preserved until the operator resets manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
+The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle. Backend-owned canonical defaults are the source of truth for freshly seeded files, including disabled telemetry and a standalone database URL on port `5432` unless `DATABASE_URL` is set; the root launcher sets `DATABASE_URL` to the local PostgreSQL DSN on host port `15432` before local seeding. The entrypoint has a narrow repair path for stale files rejected only because they still contain the retired `docsEnabled` field; other invalid legacy shapes fail validation. API-managed writes update the file and immediately apply fields that are marked `hot_apply`; structural fields, including every telemetry exporter/metrics/tracing field, are durable for the next Prism start. Existing valid files are preserved until the operator resets manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
 
 #### Get Bootstrap Config
 ```
@@ -84,27 +84,7 @@ GET is a read of the managed file plus the live applied baseline. Current respon
       "smtp": null
     },
     "telemetry": {
-      "enabled": true,
-      "exporter": {
-        "endpoint": "http://otel-collector:4318",
-        "protocol": "http/protobuf",
-        "compression": "gzip",
-        "timeout": "10s",
-        "auth": {
-          "mode": "authorization_header"
-        },
-        "tls": {
-          "insecure_skip_verify": false,
-          "ca_file": null
-        }
-      },
-      "metrics": {
-        "enabled": true
-      },
-      "traces": {
-        "enabled": true,
-        "sampling_ratio": 1
-      }
+      "enabled": false
     }
   },
   "secrets": {
@@ -124,9 +104,9 @@ GET is a read of the managed file plus the live applied baseline. Current respon
       "masked": ""
     },
     "telemetry.exporter.auth.authorizationHeader": {
-      "configured": true,
+      "configured": false,
       "editable": true,
-      "masked": "set"
+      "masked": ""
     }
   }
 }

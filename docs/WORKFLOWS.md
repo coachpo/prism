@@ -2,9 +2,9 @@
 
 This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the live Go backend API surface, and the markdown API reference.
 
-Validated again against current repo surfaces on 2026-05-10:
-- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.3.21`, which is the current backend/frontend version surface.
-- The protected frontend route shell in `frontend/src/App.tsx` mounts `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/sidecars`; analytics lives under `/dashboard?tab=analytics`.
+Validated again against current repo surfaces on 2026-06-05:
+- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.4.0`, which is the current backend/frontend version surface.
+- The protected frontend route shell in `frontend/src/App.tsx` mounts `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, and `/request-logs`; analytics lives under `/dashboard?tab=analytics`.
 
 ## Evidence Sources
 
@@ -330,11 +330,15 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `POST /v1/images/generations`
+- `POST /v1/images/edits`
 - `POST /v1/messages`
+- `POST /v1/messages/count_tokens`
 - `POST /v1beta/models/{model}:generateContent`
 - `POST /v1beta/models/{model}:streamGenerateContent`
+- `POST /v1beta/models/{model}:countTokens`
 
-These routes are implemented in `backend/internal/httpapi/runtime/runtime.go` plus the related helpers under `backend/internal/httpapi/runtime/`, and they are intentionally separate from `/api/*` management routes.
+These routes are allowlisted in `backend/internal/httpapi/runtime/operations.go` and implemented by the shared runtime helpers under `backend/internal/httpapi/runtime/`, and they are intentionally separate from `/api/*` management routes.
 
 ## 9. Priority Operations Runbook
 

@@ -724,6 +724,7 @@ Global normal-retention policy for partitioned log tables.
 
 Retention semantics:
 - Normal retention is global across all profiles and implemented by durable `log_retention` jobs with `profile_id = 0`.
+- `backend/internal/platform/logretention` maintains a 15-day future partition horizon for the four managed log tables.
 - Whole child partitions with upper bound `<= cutoff` are dropped. Only the cutoff-overlapping boundary child receives bounded row cleanup and `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
 - Managed partition diagnostics should read `pg_class`, `pg_inherits`, `pg_total_relation_size`, `pg_relation_size`, and `pg_class.reltoastrelid` so operators can see root, child, and TOAST relations without mutating data.
 - Partitioned retention manages the current log-table set only; historical log storage shapes are not rewritten into current partitions.

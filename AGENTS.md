@@ -1,4 +1,4 @@
-<!-- Generated: 2026-05-31 | branch: main | commit: cb6e42f -->
+<!-- Generated: 2026-06-05 | branch: main | commit: 8331297 -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -24,8 +24,6 @@ prism/
 │       └── lib/AGENTS.md
 ├── docs/
 │   ├── AGENTS.md
-│   ├── archive/
-│   │   └── AGENTS.md
 │   └── ...
 ├── .omo/
 │   ├── plans/
@@ -72,8 +70,7 @@ prism/
 - `frontend/src/hooks/AGENTS.md`: shared hook handoff for realtime subscriptions, polling, and timezone formatting.
 - `frontend/src/lib/AGENTS.md`: typed backend/browser integration handoff for `api/`, websocket helpers, reference data, and reporting currency; `api/` and `websocket/` own split-helper leaves.
 - `frontend/tests/AGENTS.md`: frontend Playwright e2e, startup/request-log/model-detail seam coverage, and lib contract boundary.
-- `docs/AGENTS.md`: docs ownership, source-of-truth routing, archive boundaries, and active-plan handoff out of `docs/`.
-- `docs/archive/AGENTS.md`: archive boundary for finished notes and retained evidence.
+- `docs/AGENTS.md`: docs ownership, source-of-truth routing, and active-plan/evidence handoff out of `docs/`.
 
 ## SHARED FACTS
 - `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend `5173` and PostgreSQL `15432`, and follows the selected bootstrap file's backend port; fresh seeds default that port to `8000`.
@@ -82,7 +79,7 @@ prism/
 - The runtime contract is operation-registered. Supported routes are allowlisted in `backend/internal/httpapi/runtime/operations.go`, and unsupported or wrong-method requests reject before provider transport, telemetry, audit, feedback, or durable runtime side effects.
 - Runtime request extraction, non-stream parsing, stream terminal classification, media multipart handling, and token-count behavior are split across `operation_request_hooks.go`, `operation_response_hooks.go`, `operation_stream_hooks.go`, and `operation_media_hooks.go` beside the shared runtime executor.
 - `operation_name` is persisted in `request_logs` and `usage_request_events`, and the route matrix plus hook residency are regression-backed in backend runtime tests.
-- Plaintext bootstrap startup is file-backed. Backend-owned canonical defaults are the source of truth for fresh seeds: `0.0.0.0:8000`, CORS `5173`, pool total `24`, split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`. Runtime buffering is automatic and internal. Existing valid files are preserved until manual reset by stop, remove or relocate, and restart.
+- Plaintext bootstrap startup is file-backed. Backend-owned canonical defaults are the source of truth for fresh seeds: `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS `5173`, pool total `24`, split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`; the root launcher sets `DATABASE_URL` to local PostgreSQL on host port `15432`. Runtime buffering is automatic and internal. Existing valid files are preserved until manual reset by stop, remove or relocate, and restart.
 - Mail delivery is bootstrap-managed and disabled by default. Enabled SMTP validates at startup; invalid enabled mail config must fail rather than falling back to no-op delivery.
 - Backend database capacity is split into named lanes for runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs. Background or management work must not borrow protected proxy capacity.
 - Partitioned log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; runtime writers ensure daily partitions, and the low-priority platform worker maintains a 15-day horizon.
@@ -109,7 +106,7 @@ prism/
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
 - Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/realtime/AGENTS.md`, `backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `backend/internal/httpapi/management/configbundle/AGENTS.md`, `backend/internal/httpapi/management/settings/AGENTS.md`, `backend/internal/httpapi/management/auth/AGENTS.md`, `backend/internal/httpapi/management/sidecars/AGENTS.md`, `backend/internal/httpapi/management/connections/AGENTS.md`, `backend/internal/httpapi/management/configrules/AGENTS.md`, `backend/internal/httpapi/management/endpoints/AGENTS.md`, `backend/internal/httpapi/management/loadbalance/AGENTS.md`, `backend/internal/httpapi/management/models/AGENTS.md`, `backend/internal/httpapi/management/profiles/AGENTS.md`, `backend/internal/httpapi/management/stats/AGENTS.md`, `backend/internal/httpapi/management/vendors/AGENTS.md`, `backend/internal/httpapi/management/audit/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
-- Docs provenance, archive naming, and active-plan handoff: `docs/AGENTS.md`, `docs/archive/AGENTS.md`, `.omo/plans/`, `.omo/evidence/`
+- Docs provenance, active-plan handoff, and live evidence routing: `docs/AGENTS.md`, `.omo/plans/`, `.omo/evidence/`
 
 ## COMMANDS
 ```bash
@@ -134,7 +131,7 @@ cd frontend && pnpm run test:e2e
 - Keep backend container docs aligned with `backend/Dockerfile`, especially non-root `prism:prism` ownership and `/app/config/config.json` defaults.
 - Keep partitioned log-retention docs aligned with the four managed tables, runtime partition ensuring, management retention jobs, and the low-priority platform worker.
 - Keep `README.md` aligned with the same launcher, release, and deploy facts.
-- Keep active implementation plans out of `docs/`; store working plans under `.omo/plans/`, use `.omo/evidence/` for live execution artifacts, and reserve `docs/archive/` for finished notes or retained evidence.
+- Keep active implementation plans and live execution artifacts out of `docs/`; store working plans under `.omo/plans/` and run evidence under `.omo/evidence/`.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
@@ -151,4 +148,4 @@ cd frontend && pnpm run test:e2e
 - Do not put request-path side effects back inline when durable outboxes, after-commit wakeups, and background workers own those flows.
 - Do not bypass partitioned log-retention ownership with direct cleanup or partition creation outside `backend/internal/platform/logretention/` and runtime partition ensuring.
 - Do not change backend container execution or bootstrap-path ownership contracts without updating Dockerfile contract tests and docs.
-- Do not strand upgrade guidance in archive notes or compatibility layers when the live docs or owning AGENTS tree can state the target contract directly.
+- Do not strand upgrade guidance in transient run notes or compatibility layers when the live docs or owning AGENTS tree can state the target contract directly.

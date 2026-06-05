@@ -1,7 +1,7 @@
 # DOCS REFERENCE MAP
 
 ## OVERVIEW
-`docs/` holds Prism's normative architecture, API, and data-model docs, plus supporting references and archive material. Active working plans live outside `docs/` under `../.omo/plans/`; live execution artifacts belong in `../.omo/evidence/`; archive notes never outrank live docs or owning code AGENTS files.
+`docs/` holds Prism's normative architecture, API, and data-model docs plus supporting references. Active working plans live outside `docs/` under `../.omo/plans/`; live execution artifacts belong in `../.omo/evidence/`; transient run notes never outrank live docs or owning code AGENTS files.
 
 ## STRUCTURE
 ```text
@@ -14,17 +14,14 @@ docs/
 ├── REQUESTS_PAGE.md
 ├── SMOKE_TEST_PLAN.md
 ├── WORKFLOWS.md
-├── TEST_CASE_GENERATION_METHODOLOGY.md
-└── archive/
-    └── AGENTS.md
+└── TEST_CASE_GENERATION_METHODOLOGY.md
 ```
 
 ## OWNERSHIP
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source-of-truth trio.
 - `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
-- `archive/` holds the boundary file plus dated finished notes and retained evidence, including the 2026-05-10 sidecars live-smoke record.
-- Archived run notes use `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`.
 - Active working plans belong in `../.omo/plans/`, not under `docs/`.
+- Live execution evidence and LLM test-run records belong in `../.omo/evidence/`, not under `docs/`.
 
 ## WHERE TO LOOK
 - Launcher, release, and deploy facts: `../README.md`, `../start.sh`, `../release.sh`, `../deploy.sh`, `../frontend/.env.example`
@@ -41,7 +38,6 @@ docs/
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
 - Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
 - Active working plans and live execution evidence: `../.omo/plans/`, `../.omo/evidence/`
-- Archive boundary rules and retained smoke evidence: `archive/AGENTS.md`, `archive/`
 
 ## CONVENTIONS
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
@@ -56,11 +52,9 @@ docs/
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
 - Keep sidecar docs aligned with `/sidecars`, `/api/sidecars/*`, the baseline sidecar schema, the low-priority sidecar sync worker, and the rule that CLIProxyAPI owns live auth/provider state.
-- Keep live sidecar implementation contracts, including the strict `/auth-files` top-level `files` envelope rule, in `../backend/internal/httpapi/management/sidecars/AGENTS.md`; archive run notes are evidence only.
+- Keep live sidecar implementation contracts, including the strict `/auth-files` top-level `files` envelope rule, in `../backend/internal/httpapi/management/sidecars/AGENTS.md`; run notes are evidence only.
 - State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
-- Keep active plans out of `docs/`. Use `../.omo/plans/` plus `../.omo/evidence/` while work is in flight, and move only finished notes or retained evidence into `archive/`.
-- Keep archive wording tight: finished notes first, optional evidence only when needed, never treat archive notes as canonical docs.
-- Keep archived test run notes on the `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md` pattern.
+- Keep active plans and execution evidence out of `docs/`. Use `../.omo/plans/` plus `../.omo/evidence/` while work is in flight.
 - Keep `REQUESTS_PAGE.md` subordinate to the live request-log route and tests. When request-log audit, clipboard, proxy-key usage, or reporting-currency behavior changes, refresh the page AGENTS and backend runtime tests before supporting prose.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
@@ -72,9 +66,9 @@ docs/
 - Do not add generic framework or tool explainers.
 - Do not invent CI jobs, unsupported routes, unsupported providers, or extra compose files.
 - Do not reintroduce any live-plan sink under `docs/`.
-- Do not treat archived notes as the source of truth when a live doc or child AGENTS file already owns the topic.
+- Do not treat transient run notes as the source of truth when a live doc or child AGENTS file already owns the topic.
 - Do not leave active implementation details stranded only in `docs/` when the owning backend or frontend AGENTS tree should carry the implementation map.
-- Do not leave CLIProxyAPI envelope rules, route contracts, or other live sidecar details canonical only in `docs/archive/`.
+- Do not leave CLIProxyAPI envelope rules, route contracts, or other live sidecar details canonical only in `.omo/evidence/`.
 - Do not describe bootstrap config as DB-backed, encrypted, hot-reloaded, or merged with PostgreSQL profile/vendor bundle import.
 - Do not document log retention as a generic cleanup query; it is partitioned-log ownership across runtime writers, management jobs, and platform maintenance.
 
