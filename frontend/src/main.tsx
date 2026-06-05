@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes"
 import { LocaleProvider } from "@/i18n/LocaleProvider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
+import "@xyflow/react/dist/style.css"
 import "./index.css"
 import App from "./App.tsx"
 

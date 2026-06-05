@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -153,7 +154,14 @@ function loadRoutingDiagramFlowEdgeModule() {
     rootDir: frontendDir,
     mocks: {
       "@xyflow/react": {
-        BaseEdge: ({ path, ...props }) => createElement("path", { ...props, d: path }),
+        BaseEdge: (props) => {
+          const { interactionWidth, path, ...rest } = props;
+          return createElement("path", {
+            ...rest,
+            d: path,
+            "data-hit-area-width": interactionWidth ?? undefined,
+          });
+        },
         getBezierPath: ({ sourceX, sourceY, targetX, targetY }) => [
           `M ${sourceX},${sourceY} C ${sourceX + 44},${sourceY} ${targetX - 44},${targetY} ${targetX},${targetY}`,
           sourceX,
@@ -551,7 +559,9 @@ test("maps edge health to bezier style values", () => {
     strokeWidth: 6,
   });
   assert.match(markup, /data-testid="routing-diagram-edge-access-target-1002"/);
+  assert.match(markup, /data-testid="routing-diagram-edge-hit-area-access-target-1002"/);
   assert.match(markup, /aria-label="Model A to Primary Target"/);
+  assert.match(markup, /data-hit-area-width="24"/);
   assert.match(markup, /d="M 12,24 C 56,24 168,96 212,96"/);
   assert.doesNotMatch(markup, /role="button"/);
   assert.doesNotMatch(markup, /onclick=/i);
@@ -580,6 +590,165 @@ test("keeps stable edge ids across repeated flow adaptation", () => {
     firstLayout.edges.map((edge) => edge.data.id),
     firstLayout.edges.map((edge) => edge.id),
   );
+});
+
+function loadRoutingDiagramFlowModule() {
+  let capturedReactFlowProps = null;
+
+  const { load: loadFlow } = createTsModuleLoader({
+    rootDir: frontendDir,
+    mocks: {
+      "@xyflow/react": {
+        Handle: ({ position, style, type }) =>
+          createElement("span", {
+            "data-testid": "mock-flow-handle",
+            "data-handle-position": position,
+            "data-handle-style": JSON.stringify(style ?? {}),
+            "data-handle-type": type,
+          }),
+        Position: { Left: "left", Right: "right" },
+        ReactFlow: (props) => {
+          capturedReactFlowProps = props;
+          const renderedNodes = (props.nodes ?? []).map((node) => {
+            const NodeComponent = props.nodeTypes?.[node.type];
+            return NodeComponent
+              ? createElement(NodeComponent, { key: node.id, data: node.data, id: node.id })
+              : null;
+          });
+          const renderedEdges = (props.edges ?? []).map((edge) => {
+            const EdgeComponent = props.edgeTypes?.[edge.type];
+            return EdgeComponent
+              ? createElement(EdgeComponent, {
+                  key: edge.id,
+                  data: edge.data,
+                  id: edge.id,
+                  sourceX: 12,
+                  sourceY: 24,
+                  targetX: 212,
+                  targetY: 96,
+                })
+              : null;
+          });
+
+          return createElement(
+            "div",
+            { "data-testid": "mock-react-flow" },
+            renderedNodes,
+            renderedEdges,
+            props.children,
+          );
+        },
+      },
+      "./RoutingDiagramFlowEdge": {
+        RoutingDiagramFlowEdge: ({ data, id }) =>
+          createElement("div", { "data-testid": `mock-flow-edge-${data?.id ?? id}` }, data?.id ?? id),
+      },
+      "./RoutingDiagramFlowNode": {
+        RoutingDiagramFlowNode: ({ data, onActivateNode }) =>
+          createElement("article", {
+            "data-testid": `mock-flow-node-${data.id}`,
+            "data-has-activate": typeof onActivateNode === "function" ? "true" : "false",
+          }, data.label),
+      },
+      "./RoutingDiagramInspectorContent": {
+        RoutingDiagramInspectorContent: ({ edge, node }) =>
+          createElement("div", { "data-testid": "mock-routing-diagram-inspector-content" }, node?.id ?? edge?.id ?? ""),
+      },
+      "./RoutingDiagramLegend": {
+        RoutingDiagramLegend: () => createElement("div", { "data-testid": "mock-routing-diagram-legend" }, "Legend"),
+      },
+      "./RoutingDiagramVisualizationShell": {
+        RoutingDiagramVisualizationShell: ({ children, visualization }) =>
+          createElement("section", { "data-testid": "mock-routing-diagram-shell" }, children, visualization),
+      },
+    },
+  });
+
+  return {
+    ...loadFlow(
+      path.join(frontendDir, "src/pages/dashboard/routing-diagram/RoutingDiagramFlow.tsx"),
+    ),
+    getCapturedReactFlowProps: () => capturedReactFlowProps,
+  };
+}
+
+function renderRoutingDiagramFlow(props) {
+  const { RoutingDiagramFlow, getCapturedReactFlowProps } = loadRoutingDiagramFlowModule();
+  const markup = renderToStaticMarkup(createElement(RoutingDiagramFlow, props));
+
+  return {
+    markup,
+    reactFlowProps: getCapturedReactFlowProps(),
+  };
+}
+
+test("imports React Flow stylesheet once from main entrypoint", () => {
+  const source = readFileSync(path.join(frontendDir, "src/main.tsx"), "utf8");
+  const matches = source.match(/@xyflow\/react\/dist\/style\.css/g) ?? [];
+
+  assert.equal(matches.length, 1);
+});
+
+test("renders read-only desktop flow surface with fixed height and non-focusable wrappers", () => {
+  const graph = getRoutingDiagramGraph(createTopologyGraph());
+  const flowLayout = getRoutingDiagramFlowLayout(graph);
+  const { markup, reactFlowProps } = renderRoutingDiagramFlow({
+    chartHeight: 420,
+    graphData: graph,
+    onActivateNode: () => {},
+  });
+
+  assert.match(markup, /data-testid="mock-routing-diagram-shell"/);
+  assert.match(markup, /data-testid="routing-diagram-desktop"/);
+  assert.match(markup, /data-testid="routing-diagram-inspector"/);
+  assert.match(markup, /style="height:420px"/);
+  assert.match(markup, /data-testid="mock-routing-diagram-legend"/);
+  assert.equal((markup.match(/data-testid="mock-flow-handle"/g) ?? []).length, graph.nodes.length * 2);
+  assert.ok(reactFlowProps);
+  assert.equal(reactFlowProps.fitView, true);
+  assert.equal(reactFlowProps.minZoom, 0.35);
+  assert.equal(reactFlowProps.maxZoom, 1);
+  assert.equal(reactFlowProps.nodesDraggable, false);
+  assert.equal(reactFlowProps.nodesConnectable, false);
+  assert.equal(reactFlowProps.elementsSelectable, false);
+  assert.equal(reactFlowProps.nodesFocusable, false);
+  assert.equal(reactFlowProps.edgesFocusable, false);
+  assert.equal(reactFlowProps.disableKeyboardA11y, true);
+  assert.equal(reactFlowProps.panOnDrag, false);
+  assert.equal(reactFlowProps.panOnScroll, false);
+  assert.equal(reactFlowProps.zoomOnScroll, false);
+  assert.equal(reactFlowProps.zoomOnPinch, false);
+  assert.equal(reactFlowProps.zoomOnDoubleClick, false);
+  assert.deepEqual(reactFlowProps.proOptions, { hideAttribution: true });
+  assert.deepEqual(
+    reactFlowProps.nodes.map((node) => ({
+      draggable: node.draggable,
+      focusable: node.focusable,
+      id: node.id,
+      selectable: node.selectable,
+      type: node.type,
+    })),
+    flowLayout.nodes.map((node) => ({
+      draggable: false,
+      focusable: false,
+      id: node.id,
+      selectable: false,
+      type: "routing-diagram-node",
+    })),
+  );
+});
+
+test("clears the controlled inspector seam on pointer leave or Escape without editor chrome", () => {
+  const source = readFileSync(
+    path.join(frontendDir, "src/pages/dashboard/routing-diagram/RoutingDiagramFlow.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /data-testid="routing-diagram-inspector"/);
+  assert.match(source, /onPointerLeave=\{[^}]+\}/);
+  assert.match(source, /Escape/);
+  assert.doesNotMatch(source, /\bControls\b/);
+  assert.doesNotMatch(source, /\bMiniMap\b/);
 });
 
 function summarizeFlowNodes(layout) {

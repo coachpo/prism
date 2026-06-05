@@ -18,6 +18,7 @@ export interface RoutingDiagramFlowEdgeProps {
   markerEnd?: string;
   style?: CSSProperties;
   data?: RoutingDiagramFlowLayoutEdge["data"];
+  onInspectEdge?: (edge: RoutingDiagramFlowLayoutEdge["data"]) => void;
 }
 
 export function RoutingDiagramFlowEdge({
@@ -31,6 +32,7 @@ export function RoutingDiagramFlowEdge({
   markerEnd,
   style,
   data,
+  onInspectEdge,
 }: RoutingDiagramFlowEdgeProps) {
   const { messages } = useLocale();
   const [edgePath] = getBezierPath({
@@ -45,13 +47,28 @@ export function RoutingDiagramFlowEdge({
   const edgeId = data?.id ?? id;
 
   return (
-    <BaseEdge
-      path={edgePath}
-      markerEnd={markerEnd}
-      aria-label={data ? messages.dashboard.routingLinkAria(data.sourceLabel, data.targetLabel) : messages.dashboard.routingLink}
-      className="transition-opacity duration-150"
-      data-testid={`routing-diagram-edge-${edgeId}`}
-      style={{ ...style, ...edgeStyle }}
-    />
+    <>
+      <BaseEdge
+        path={edgePath}
+        markerEnd={markerEnd}
+        interactionWidth={24}
+        aria-label={data ? messages.dashboard.routingLinkAria(data.sourceLabel, data.targetLabel) : messages.dashboard.routingLink}
+        className="transition-opacity duration-150"
+        data-testid={`routing-diagram-edge-${edgeId}`}
+        style={{ ...style, ...edgeStyle }}
+      />
+      {data ? (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={24}
+          pointerEvents="stroke"
+          aria-hidden="true"
+          data-testid={`routing-diagram-edge-hit-area-${edgeId}`}
+          onMouseEnter={() => onInspectEdge?.(data)}
+        />
+      ) : null}
+    </>
   );
 }
