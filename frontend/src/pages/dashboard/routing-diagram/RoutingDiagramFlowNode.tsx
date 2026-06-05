@@ -7,7 +7,7 @@ import {
   isRoutingDiagramInteractiveNode,
   isRoutingDiagramMutedNode,
   truncateLabel,
-} from "./routingDiagramChartUtils";
+} from "./routingDiagramPresentationUtils";
 
 export interface RoutingDiagramFlowNodeProps {
   data: RoutingDiagramFlowLayoutNode["data"];
@@ -41,7 +41,7 @@ export function RoutingDiagramFlowNode({
     >
       <div
         className={cn(
-          "grid gap-3 rounded-xl border border-border/70 bg-background/90 p-3 shadow-none transition-opacity",
+          "grid gap-2.5 rounded-xl border border-border/70 bg-background/90 p-3 shadow-none transition-opacity",
           muted && "border-dashed opacity-70",
         )}
       >
@@ -81,11 +81,11 @@ export function RoutingDiagramFlowNode({
             type="button"
             variant="outline"
             size="xs"
-            className="h-auto min-h-[var(--density-control-h-xs)] w-full justify-start whitespace-normal rounded-lg border-border/70 px-3 py-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="h-auto min-h-[var(--density-control-h-xs)] w-full justify-start overflow-hidden rounded-lg border-border/70 px-3 py-1.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label={actionLabel ?? undefined}
             onClick={() => onActivateNode?.(data)}
           >
-            {actionText}
+            <span className="block w-full truncate">{actionText}</span>
           </Button>
         ) : null}
       </div>

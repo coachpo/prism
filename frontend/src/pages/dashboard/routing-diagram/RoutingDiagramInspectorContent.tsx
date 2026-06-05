@@ -1,7 +1,7 @@
 import {
   formatSuccessRate,
   getRouteHealthState,
-} from "./routingDiagramChartUtils";
+} from "./routingDiagramPresentationUtils";
 import type {
   RoutingDiagramGraphEdge,
   RoutingDiagramGraphNode,

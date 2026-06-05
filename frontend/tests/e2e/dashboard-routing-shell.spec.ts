@@ -210,6 +210,7 @@ function createRequestLogsResponse() {
     offset: 0,
     filter_options: {
       endpoints: [],
+      models: [],
     },
   };
 }
@@ -347,6 +348,58 @@ async function expectNoHorizontalOverflow(page: Page, locator: Locator) {
   expect(elementDimensions.scrollWidth).toBeLessThanOrEqual(elementDimensions.clientWidth);
 }
 
+async function expectNoDesktopNodeOverlap(diagram: Locator) {
+  const overlaps = await diagram.locator(".react-flow__node[data-id]").evaluateAll((elements) => {
+    const nodes = elements.map((element) => {
+      const wrapperRect = element.getBoundingClientRect();
+      const article = element.querySelector("article");
+      const articleRect = article ? article.getBoundingClientRect() : wrapperRect;
+      return {
+        id: element.getAttribute("data-id"),
+        columnX: Math.round(wrapperRect.x),
+        top: articleRect.y,
+        bottom: articleRect.y + articleRect.height,
+      };
+    });
+
+    const byColumn = new Map<number, typeof nodes>();
+    for (const node of nodes) {
+      const items = byColumn.get(node.columnX) ?? [];
+      items.push(node);
+      byColumn.set(node.columnX, items);
+    }
+
+    const detected = [] as Array<{
+      columnX: number;
+      previous: string | null;
+      current: string | null;
+      previousBottom: number;
+      currentTop: number;
+    }>;
+
+    for (const [columnX, items] of byColumn.entries()) {
+      items.sort((left, right) => left.top - right.top);
+      for (let index = 1; index < items.length; index += 1) {
+        const previous = items[index - 1];
+        const current = items[index];
+        if (current.top < previous.bottom - 1) {
+          detected.push({
+            columnX,
+            previous: previous.id,
+            current: current.id,
+            previousBottom: previous.bottom,
+            currentTop: current.top,
+          });
+        }
+      }
+    }
+
+    return detected;
+  });
+
+  expect(overlaps).toEqual([]);
+}
+
 test.describe("dashboard routing shell", () => {
   test("keeps the desktop routing shell chrome and React Flow drill-down behavior", async ({ page }) => {
     const consoleErrors: string[] = [];
@@ -373,6 +426,7 @@ test.describe("dashboard routing shell", () => {
 
     await expect(routingCard).toBeVisible();
     await expect(desktopDiagram).toBeVisible();
+    await expectNoDesktopNodeOverlap(desktopDiagram);
     await expect(page.getByTestId("routing-diagram-mobile")).toHaveCount(0);
     await expect(routingCard.getByText(/Desktop shows the backend-owned routing graph/i)).toBeVisible();
     await expect(
@@ -422,6 +476,9 @@ test.describe("dashboard routing shell", () => {
     await expect(endpointAction).toBeInViewport();
     await endpointAction.press("Enter");
     await expect(page).toHaveURL(/\/request-logs\?endpoint_id=201$/);
+    await expect(page.getByRole("heading", { name: "Request Logs" })).toBeVisible();
+    await expect(page.locator('input[name="request_id_lookup"]')).toBeVisible();
+    await expect(page.locator('input[name="ingress_request_id"]')).toBeVisible();
   });
 
   test("covers the compact routing list at 390x844 with keyboard drill-down and no overflow", async ({ page }) => {

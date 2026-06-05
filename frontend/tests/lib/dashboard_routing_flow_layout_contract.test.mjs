@@ -357,11 +357,11 @@ test("produces deterministic flow layout positions", () => {
 
   assert.deepEqual(secondLayout, firstLayout);
   assert.deepEqual(summarizeFlowNodes(firstLayout), [
-    { id: "model-101", x: 40, y: 24, width: 224, height: 60 },
-    { id: "model-102", x: 432, y: 24, width: 224, height: 60 },
-    { id: "terminal-target-501", x: 432, y: 112, width: 208, height: 60 },
-    { id: "terminal-target-502", x: 432, y: 200, width: 208, height: 60 },
-    { id: "endpoint-201", x: 824, y: 24, width: 224, height: 60 },
+    { id: "model-101", x: 40, y: 24, width: 224, height: 176 },
+    { id: "model-102", x: 432, y: 24, width: 224, height: 176 },
+    { id: "terminal-target-501", x: 432, y: 224, width: 208, height: 160 },
+    { id: "terminal-target-502", x: 432, y: 408, width: 208, height: 160 },
+    { id: "endpoint-201", x: 824, y: 24, width: 224, height: 176 },
   ]);
   assert.deepEqual(
     firstLayout.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })),
@@ -373,38 +373,38 @@ test("produces deterministic flow layout positions", () => {
       { id: "terminal-target-binding-502", source: "terminal-target-502", target: "endpoint-201" },
     ],
   );
-  assert.deepEqual(firstLayout.bounds, { x: 0, y: 0, width: 1088, height: 284 });
+  assert.deepEqual(firstLayout.bounds, { x: 0, y: 0, width: 1088, height: 592 });
 });
 
 test("stably orders tied nodes by position label and id", () => {
   const layout = getRoutingDiagramFlowLayout(createStableOrderingGraph());
 
   assert.deepEqual(summarizeFlowNodes(layout), [
-    { id: "model-alpha", x: 40, y: 24, width: 224, height: 60 },
-    { id: "model-beta", x: 40, y: 112, width: 224, height: 60 },
-    { id: "terminal-positioned", x: 432, y: 24, width: 208, height: 60 },
-    { id: "terminal-alpha-1", x: 432, y: 112, width: 208, height: 60 },
-    { id: "terminal-alpha-2", x: 432, y: 200, width: 208, height: 60 },
-    { id: "terminal-beta-1", x: 432, y: 288, width: 208, height: 60 },
+    { id: "model-alpha", x: 40, y: 24, width: 224, height: 176 },
+    { id: "model-beta", x: 40, y: 224, width: 224, height: 176 },
+    { id: "terminal-positioned", x: 432, y: 24, width: 208, height: 160 },
+    { id: "terminal-alpha-1", x: 432, y: 208, width: 208, height: 160 },
+    { id: "terminal-alpha-2", x: 432, y: 392, width: 208, height: 160 },
+    { id: "terminal-beta-1", x: 432, y: 576, width: 208, height: 160 },
   ]);
   assert.deepEqual(
     getRoutingDiagramFlowLayout(createStableOrderingGraph()).nodes.map((node) => node.id),
     layout.nodes.map((node) => node.id),
   );
-  assert.deepEqual(layout.bounds, { x: 0, y: 0, width: 680, height: 372 });
+  assert.deepEqual(layout.bounds, { x: 0, y: 0, width: 680, height: 760 });
 });
 
 test("applies fallback placement for cycles or orphan nodes", () => {
   const layout = getRoutingDiagramFlowLayout(createFallbackRoutingGraph());
 
   assert.deepEqual(summarizeFlowNodes(layout), [
-    { id: "cycle-model-a", x: 40, y: 24, width: 224, height: 60 },
-    { id: "orphan-model", x: 40, y: 112, width: 224, height: 60 },
-    { id: "cycle-model-b", x: 432, y: 24, width: 224, height: 60 },
-    { id: "orphan-terminal-target", x: 432, y: 112, width: 208, height: 60 },
-    { id: "connected-terminal-target", x: 824, y: 24, width: 208, height: 60 },
-    { id: "orphan-endpoint", x: 824, y: 112, width: 224, height: 60 },
-    { id: "connected-endpoint", x: 1216, y: 24, width: 224, height: 60 },
+    { id: "cycle-model-a", x: 40, y: 24, width: 224, height: 176 },
+    { id: "orphan-model", x: 40, y: 224, width: 224, height: 176 },
+    { id: "cycle-model-b", x: 432, y: 24, width: 224, height: 176 },
+    { id: "orphan-terminal-target", x: 432, y: 224, width: 208, height: 160 },
+    { id: "connected-terminal-target", x: 824, y: 24, width: 208, height: 160 },
+    { id: "orphan-endpoint", x: 824, y: 208, width: 224, height: 176 },
+    { id: "connected-endpoint", x: 1216, y: 24, width: 224, height: 176 },
   ]);
   assert.deepEqual(layout.edges.map((edge) => edge.id), [
     "cycle-edge-a-b",
@@ -412,7 +412,7 @@ test("applies fallback placement for cycles or orphan nodes", () => {
     "cycle-target-edge",
     "connected-binding",
   ]);
-  assert.deepEqual(layout.bounds, { x: 0, y: 0, width: 1480, height: 196 });
+  assert.deepEqual(layout.bounds, { x: 0, y: 0, width: 1480, height: 424 });
 });
 
 test("renders interactive flow node buttons with stable test ids", () => {
@@ -459,7 +459,7 @@ test("renders interactive flow node buttons with stable test ids", () => {
 
   assert.match(endpointMarkup, /data-testid="routing-diagram-node-endpoint-endpoint-201"/);
   assert.match(endpointMarkup, /<button[^>]*type="button"[^>]*aria-label="View Request Logs: Endpoint A"/);
-  assert.match(endpointMarkup, />View Request Logs<\/button>/);
+  assert.match(endpointMarkup, /<span class="block w-full truncate">View Request Logs<\/span><\/button>/);
   assert.match(endpointMarkup, /2 active targets/);
 });
 

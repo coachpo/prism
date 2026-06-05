@@ -51,7 +51,7 @@ export function RoutingDiagramCard({
   }, []);
 
   const isCompact = containerWidth > 0 && containerWidth < 640;
-  const chartHeight = isCompact ? 320 : 420;
+  const chartHeight = isCompact ? 320 : 460;
 
   const graphData = useMemo(() => {
     return data ? getRoutingDiagramGraph(data) : { nodes: [], edges: [] };

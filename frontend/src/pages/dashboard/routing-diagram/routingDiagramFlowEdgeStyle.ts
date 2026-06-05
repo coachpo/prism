@@ -1,6 +1,6 @@
 import type { RoutingDiagramFlowEdge as RoutingDiagramFlowLayoutEdge } from "../routingDiagram";
 
-import { getRouteHealthColor } from "./routingDiagramChartUtils";
+import { getRouteHealthColor } from "./routingDiagramPresentationUtils";
 
 export interface RoutingDiagramFlowEdgeStyle {
   stroke: string;

@@ -8,8 +8,9 @@ import type {
 
 const MODEL_AND_ENDPOINT_WIDTH = 224;
 const TERMINAL_TARGET_WIDTH = 208;
-const NODE_HEIGHT = 60;
-const ROW_GAP = 28;
+const MODEL_AND_ENDPOINT_HEIGHT = 176;
+const TERMINAL_TARGET_HEIGHT = 160;
+const ROW_GAP = 24;
 const COLUMN_GAP = 168;
 const HORIZONTAL_PADDING = 40;
 const VERTICAL_PADDING = 24;
@@ -53,7 +54,9 @@ type FlowLayoutNodeRecord = {
   node: RoutingDiagramGraphNode;
   column: number;
   row: number;
+  y: number;
   width: number;
+  height: number;
   orphan: boolean;
 };
 
@@ -96,7 +99,9 @@ export function getRoutingDiagramFlowLayout(
       node,
       column: columnByNodeId.get(node.id) ?? 0,
       row: 0,
+      y: VERTICAL_PADDING,
       width: getNodeWidth(node.kind),
+      height: getNodeHeight(node.kind),
       orphan: isOrphanNode(node, incomingEdgesByTarget, outgoingEdgesBySource),
     };
     const records = recordsByColumn.get(record.column) ?? [];
@@ -113,9 +118,12 @@ export function getRoutingDiagramFlowLayout(
       compareColumnRecords(left, right, columnByNodeId, rowOrderByNodeId, incomingEdgesByTarget),
     );
 
+    let currentY = VERTICAL_PADDING;
     records.forEach((record, index) => {
       record.row = index;
+      record.y = currentY;
       rowOrderByNodeId.set(record.node.id, index);
+      currentY += record.height + ROW_GAP;
     });
   }
 
@@ -128,10 +136,10 @@ export function getRoutingDiagramFlowLayout(
       data: record.node,
       position: {
         x: xByColumn.get(columnId) ?? HORIZONTAL_PADDING,
-        y: VERTICAL_PADDING + record.row * (NODE_HEIGHT + ROW_GAP),
+        y: record.y,
       },
       width: record.width,
-      height: NODE_HEIGHT,
+      height: record.height,
       sourcePosition: "right",
       targetPosition: "left",
     }));
@@ -467,7 +475,7 @@ function getLayoutBounds(nodes: RoutingDiagramFlowNode[]): RoutingDiagramFlowBou
     return Math.max(maxValue, node.position.x + (node.width ?? getNodeWidth(node.data.kind)));
   }, 0);
   const maxBottom = nodes.reduce((maxValue, node) => {
-    return Math.max(maxValue, node.position.y + (node.height ?? NODE_HEIGHT));
+    return Math.max(maxValue, node.position.y + (node.height ?? getNodeHeight(node.data.kind)));
   }, 0);
 
   return {
@@ -480,6 +488,10 @@ function getLayoutBounds(nodes: RoutingDiagramFlowNode[]): RoutingDiagramFlowBou
 
 function getNodeWidth(kind: RoutingDiagramNodeKind): number {
   return kind === "terminal_target" ? TERMINAL_TARGET_WIDTH : MODEL_AND_ENDPOINT_WIDTH;
+}
+
+function getNodeHeight(kind: RoutingDiagramNodeKind): number {
+  return kind === "terminal_target" ? TERMINAL_TARGET_HEIGHT : MODEL_AND_ENDPOINT_HEIGHT;
 }
 
 function hasIncomingModelEdge(

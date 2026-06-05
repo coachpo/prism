@@ -10,7 +10,7 @@ routing-diagram/
 ├── routingDiagramLayout.ts
 ├── routingDiagramFlowLayout.ts
 ├── routingDiagramFlowEdgeStyle.ts
-├── routingDiagramChartUtils.ts
+├── routingDiagramPresentationUtils.ts
 ├── RoutingDiagramFlow.tsx
 ├── RoutingDiagramFlowEdge.tsx
 ├── RoutingDiagramFlowNode.tsx
@@ -25,7 +25,7 @@ routing-diagram/
 - Public barrel and parent card entrypoints: `../routingDiagram.ts`, `../RoutingDiagramCard.tsx`
 - Backend-aligned diagram payload contracts: `routingDiagramContracts.ts`
 - Layout math and flow layout adapters: `routingDiagramLayout.ts`, `routingDiagramFlowLayout.ts`, `routingDiagramFlowEdgeStyle.ts`
-- Shared rendering helpers for node labels, state, and route health: `routingDiagramChartUtils.ts`
+- Shared rendering helpers for node labels, state, and route health: `routingDiagramPresentationUtils.ts`
 - React Flow desktop rendering, visualization shell, inspector content, node rendering, legend, and mobile list rendering: `RoutingDiagramFlow.tsx`, `RoutingDiagramVisualizationShell.tsx`, `RoutingDiagramFlowEdge.tsx`, `RoutingDiagramFlowNode.tsx`, `RoutingDiagramInspectorContent.tsx`, `RoutingDiagramLegend.tsx`, `RoutingDiagramMobileList.tsx`
 - E2E seam for routing shell chrome, model-node activation, aggregate strategy counts, and exact request-log handoff: `../../../../tests/e2e/dashboard-routing-shell.spec.ts`
 
