@@ -37,15 +37,24 @@ const routingInspectorMessages = {
     routingLegendFailing: "Failing",
     routingEndpointNodeType: "Endpoint",
     routingModelNodeType: "Model",
+    activeTargets: (value) => `${value} active targets`,
+    successfulRequests24h: (value) => `${value} successful requests in 24h`,
   },
   requestLogs: {
     view: "View",
   },
   modelDetail: {
+    active: "Active",
     connections: "Connections",
+    disabled: "Disabled",
     healthHealthy: "Healthy",
     healthUnknown: "Unknown",
     healthUnhealthy: "Unhealthy",
+    inactive: "Inactive",
+    viewRequestLogs: "View Request Logs",
+  },
+  modelsUi: {
+    viewModelDetails: (label) => `View Model Details: ${label}`,
   },
 };
 
@@ -101,6 +110,42 @@ function loadRoutingDiagramInspectorContentModule() {
 function renderRoutingDiagramInspectorContent(props) {
   const { RoutingDiagramInspectorContent } = loadRoutingDiagramInspectorContentModule();
   return renderToStaticMarkup(createElement(RoutingDiagramInspectorContent, props));
+}
+
+function loadRoutingDiagramFlowNodeModule() {
+  const { load: loadFlowNode } = createTsModuleLoader({
+    rootDir: frontendDir,
+    mocks: {
+      "@/components/ui/badge": {
+        Badge: ({ children, ...props }) => createElement("span", props, children),
+      },
+      "@/components/ui/button": {
+        Button: ({ children, ...props }) => createElement("button", props, children),
+      },
+      "@/i18n/format": {
+        formatNumber,
+        getCurrentLocale: () => "en-US",
+      },
+      "@/i18n/useLocale": {
+        useLocale: () => ({
+          formatNumber: (value) => formatNumber(value),
+          messages: routingInspectorMessages,
+        }),
+      },
+      "@/lib/utils": {
+        cn: (...parts) => parts.filter(Boolean).join(" "),
+      },
+    },
+  });
+
+  return loadFlowNode(
+    path.join(frontendDir, "src/pages/dashboard/routing-diagram/RoutingDiagramFlowNode.tsx"),
+  );
+}
+
+function renderRoutingDiagramFlowNode(props) {
+  const { RoutingDiagramFlowNode } = loadRoutingDiagramFlowNodeModule();
+  return renderToStaticMarkup(createElement(RoutingDiagramFlowNode, props));
 }
 
 test("normalizes topology graph into renderer-agnostic graph", () => {
@@ -313,6 +358,84 @@ test("applies fallback placement for cycles or orphan nodes", () => {
     "connected-binding",
   ]);
   assert.deepEqual(layout.bounds, { x: 0, y: 0, width: 1480, height: 196 });
+});
+
+test("renders interactive flow node buttons with stable test ids", () => {
+  const modelMarkup = renderRoutingDiagramFlowNode({
+    data: {
+      ...createGraphNode({
+        id: "model-101",
+        kind: "model",
+        label: "Model A",
+        sublabel: "model-a",
+        modelConfigId: 101,
+        modelId: "model-a",
+        status: "disabled",
+      }),
+      requestCount24h: 42,
+      successCount24h: 41,
+      errorCount24h: 1,
+      successRate24h: 97.61904761904762,
+    },
+    onActivateNode: () => {},
+  });
+  const endpointMarkup = renderRoutingDiagramFlowNode({
+    data: createGraphNode({
+      id: "endpoint-201",
+      kind: "endpoint",
+      label: "Endpoint A",
+      sublabel: "https://endpoint-a.example/v1",
+      endpointId: 201,
+      activeTerminalTargetCount: 2,
+      requestCount24h: 42,
+      successCount24h: 41,
+      errorCount24h: 1,
+      successRate24h: 97.61904761904762,
+    }),
+    onActivateNode: () => {},
+  });
+
+  assert.match(modelMarkup, /data-testid="routing-diagram-node-model-model-101"/);
+  assert.match(modelMarkup, /data-muted="true"/);
+  assert.match(modelMarkup, /<button[^>]*type="button"[^>]*aria-label="View Model Details: Model A"/);
+  assert.match(modelMarkup, /View Model Details: Model A/);
+  assert.match(modelMarkup, /model-a/);
+  assert.match(modelMarkup, /Disabled/);
+
+  assert.match(endpointMarkup, /data-testid="routing-diagram-node-endpoint-endpoint-201"/);
+  assert.match(endpointMarkup, /<button[^>]*type="button"[^>]*aria-label="View Request Logs: Endpoint A"/);
+  assert.match(endpointMarkup, />View Request Logs<\/button>/);
+  assert.match(endpointMarkup, /2 active targets/);
+});
+
+test("renders terminal target node without button semantics", () => {
+  const markup = renderRoutingDiagramFlowNode({
+    data: createGraphNode({
+      id: "terminal-target-501",
+      kind: "terminal_target",
+      label: "Primary Target",
+      sublabel: "Endpoint A",
+      terminalTargetId: 501,
+      active: false,
+      status: "inactive",
+      activeTerminalTargetCount: 1,
+      requestCount24h: 42,
+      successCount24h: 41,
+      errorCount24h: 1,
+      successRate24h: 97.61904761904762,
+    }),
+    onActivateNode: () => {},
+  });
+
+  assert.match(markup, /data-testid="routing-diagram-node-terminal-target-terminal-target-501"/);
+  assert.match(markup, /data-muted="true"/);
+  assert.doesNotMatch(markup, /<button/);
+  assert.doesNotMatch(markup, /role="button"/);
+  assert.doesNotMatch(markup, /tabindex=/i);
+  assert.match(markup, /Endpoint A/);
+  assert.match(markup, /Connections/);
+  assert.match(markup, /Inactive/);
+  assert.match(markup, /41 successful requests in 24h/);
 });
 
 function summarizeFlowNodes(layout) {
