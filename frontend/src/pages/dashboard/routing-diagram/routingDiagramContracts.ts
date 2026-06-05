@@ -51,12 +51,11 @@ export interface RoutingDiagramSummary {
   recentRequestTotal24h: number;
 }
 
-export interface RoutingDiagramChartNode extends RoutingDiagramNode {
-  value: number;
-}
+export type RoutingDiagramGraphNode = RoutingDiagramNode;
 
-export interface RoutingDiagramChartLink extends RoutingDiagramLink {
-  source: number;
-  target: number;
-  value: number;
+export type RoutingDiagramGraphEdge = RoutingDiagramLink;
+
+export interface RoutingDiagramGraph {
+  nodes: RoutingDiagramGraphNode[];
+  edges: RoutingDiagramGraphEdge[];
 }

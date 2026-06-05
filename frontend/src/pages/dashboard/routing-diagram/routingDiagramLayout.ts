@@ -1,7 +1,8 @@
 import type {
-  RoutingDiagramChartLink,
-  RoutingDiagramChartNode,
   RoutingDiagramData,
+  RoutingDiagramGraph,
+  RoutingDiagramGraphEdge,
+  RoutingDiagramGraphNode,
   RoutingDiagramLinkKind,
   RoutingDiagramNode,
   RoutingDiagramNodeKind,
@@ -30,7 +31,7 @@ export interface RoutingDiagramMobileRelation {
   sublabel: string | null;
 }
 
-export interface RoutingDiagramMobileNode extends RoutingDiagramChartNode {
+export interface RoutingDiagramMobileNode extends RoutingDiagramGraphNode {
   incoming: RoutingDiagramMobileRelation[];
   outgoing: RoutingDiagramMobileRelation[];
 }
@@ -44,9 +45,7 @@ export interface RoutingDiagramMobileData {
   sections: RoutingDiagramMobileSection[];
 }
 
-export function getRoutingDiagramChartData(
-  data: RoutingDiagramData,
-): { nodes: RoutingDiagramChartNode[]; links: RoutingDiagramChartLink[] } {
+export function getRoutingDiagramGraph(data: RoutingDiagramData): RoutingDiagramGraph {
   const nodes = data.nodes
     .map(normalizeRoutingDiagramNode)
     .filter((value): value is NormalizedRoutingDiagramNode => value !== null);
@@ -56,10 +55,6 @@ export function getRoutingDiagramChartData(
     .filter((edge): edge is RoutingDiagramLinkKindCarrier => edge !== null)
     .filter((edge) => nodeById.has(edge.source_node_id) && nodeById.has(edge.target_node_id))
     .sort(compareEdgesByPriority);
-
-  if (nodes.length === 0 || edges.length === 0) {
-    return { nodes: [], links: [] };
-  }
 
   const outgoingEdgesBySource = new Map<string, RoutingDiagramLinkKindCarrier[]>();
   const incomingEdgesByTarget = new Map<string, RoutingDiagramLinkKindCarrier[]>();
@@ -74,8 +69,8 @@ export function getRoutingDiagramChartData(
   }
 
   const terminalTargetCache = new Map<string, string[]>();
-  const chartNodes = nodes
-    .map<RoutingDiagramChartNode>((node) => {
+  const graphNodes = nodes
+    .map<RoutingDiagramGraphNode>((node) => {
       const terminalTargetIds = collectReachableTerminalTargetIdsForNode(
         node.id,
         nodeById,
@@ -92,14 +87,12 @@ export function getRoutingDiagramChartData(
         successCount24h: node.kind === "terminal_target" ? node.successCount24h : rollup.successCount24h,
         errorCount24h: node.kind === "terminal_target" ? node.errorCount24h : rollup.errorCount24h,
         successRate24h: node.kind === "terminal_target" ? node.successRate24h : rollup.successRate24h,
-        value: Math.max(rollup.activeTerminalTargetCount, 1),
       };
     })
     .sort(compareNodesByPriority);
-  const chartNodeById = new Map(chartNodes.map((node) => [node.id, node]));
-  const nodeIndex = new Map(chartNodes.map((node, index) => [node.id, index]));
+  const graphNodeById = new Map(graphNodes.map((node) => [node.id, node]));
 
-  const chartLinks = edges.map<RoutingDiagramChartLink>((edge) => {
+  const graphEdges = edges.map<RoutingDiagramGraphEdge>((edge) => {
     const terminalTargetIds = collectReachableTerminalTargetIdsForEdge(
       edge,
       nodeById,
@@ -108,8 +101,8 @@ export function getRoutingDiagramChartData(
       terminalTargetCache,
     );
     const rollup = buildTerminalTargetRollup(terminalTargetIds, nodeById);
-    const sourceNode = chartNodeById.get(edge.source_node_id);
-    const targetNode = chartNodeById.get(edge.target_node_id);
+    const sourceNode = graphNodeById.get(edge.source_node_id);
+    const targetNode = graphNodeById.get(edge.target_node_id);
 
     return {
       id: edge.id,
@@ -124,22 +117,16 @@ export function getRoutingDiagramChartData(
       successCount24h: rollup.successCount24h,
       errorCount24h: rollup.errorCount24h,
       successRate24h: rollup.successRate24h,
-      source: nodeIndex.get(edge.source_node_id) ?? 0,
-      target: nodeIndex.get(edge.target_node_id) ?? 0,
-      value: Math.max(rollup.activeTerminalTargetCount, 1),
     };
   });
 
-  return { nodes: chartNodes, links: chartLinks };
+  return { nodes: graphNodes, edges: graphEdges };
 }
 
-export function getRoutingDiagramMobileData(chartData: {
-  nodes: RoutingDiagramChartNode[];
-  links: RoutingDiagramChartLink[];
-}): RoutingDiagramMobileData {
-  const nodeById = new Map(chartData.nodes.map((node) => [node.id, node]));
+export function getRoutingDiagramMobileData(graphData: RoutingDiagramGraph): RoutingDiagramMobileData {
+  const nodeById = new Map(graphData.nodes.map((node) => [node.id, node]));
   const relationsByNodeId = new Map(
-    chartData.nodes.map((node) => [
+    graphData.nodes.map((node) => [
       node.id,
       {
         incoming: [] as RoutingDiagramMobileRelation[],
@@ -148,24 +135,24 @@ export function getRoutingDiagramMobileData(chartData: {
     ]),
   );
 
-  for (const link of chartData.links) {
-    const sourceNode = nodeById.get(link.sourceNodeId);
-    const targetNode = nodeById.get(link.targetNodeId);
+  for (const edge of graphData.edges) {
+    const sourceNode = nodeById.get(edge.sourceNodeId);
+    const targetNode = nodeById.get(edge.targetNodeId);
     if (!sourceNode || !targetNode) {
       continue;
     }
 
     relationsByNodeId.get(sourceNode.id)?.outgoing.push({
-      id: link.id,
-      linkKind: link.kind,
+      id: edge.id,
+      linkKind: edge.kind,
       nodeId: targetNode.id,
       nodeKind: targetNode.kind,
       label: targetNode.label,
       sublabel: targetNode.sublabel,
     });
     relationsByNodeId.get(targetNode.id)?.incoming.push({
-      id: link.id,
-      linkKind: link.kind,
+      id: edge.id,
+      linkKind: edge.kind,
       nodeId: sourceNode.id,
       nodeKind: sourceNode.kind,
       label: sourceNode.label,
@@ -177,7 +164,7 @@ export function getRoutingDiagramMobileData(chartData: {
     sections: (["model", "terminal_target", "endpoint"] as const)
       .map((kind) => ({
         kind,
-        nodes: chartData.nodes
+        nodes: graphData.nodes
           .filter((node) => node.kind === kind)
           .map((node) => {
             const relations = relationsByNodeId.get(node.id);
@@ -450,8 +437,8 @@ function getSuccessfulRequestCount(
 }
 
 function compareNodesByPriority(
-  left: RoutingDiagramChartNode,
-  right: RoutingDiagramChartNode,
+  left: RoutingDiagramGraphNode,
+  right: RoutingDiagramGraphNode,
 ): number {
   const priorityByKind: Record<RoutingDiagramNodeKind, number> = {
     model: 0,

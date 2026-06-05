@@ -1,7 +1,8 @@
 export type {
-  RoutingDiagramChartLink,
-  RoutingDiagramChartNode,
   RoutingDiagramData,
+  RoutingDiagramGraph,
+  RoutingDiagramGraphEdge,
+  RoutingDiagramGraphNode,
   RoutingDiagramLink,
   RoutingDiagramNode,
   RoutingDiagramNodeKind,
@@ -14,8 +15,8 @@ export type {
   RoutingDiagramMobileSection,
 } from "./routing-diagram/routingDiagramLayout";
 export {
-  getRoutingDiagramChartData,
   getRoutingDiagramEmptyState,
+  getRoutingDiagramGraph,
   getRoutingDiagramMobileData,
   getRoutingDiagramSummary,
 } from "./routing-diagram/routingDiagramLayout";

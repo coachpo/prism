@@ -1,14 +1,12 @@
 import type {
-  RoutingDiagramChartLink,
-  RoutingDiagramChartNode,
+  RoutingDiagramGraph,
+  RoutingDiagramGraphEdge,
+  RoutingDiagramGraphNode,
   RoutingDiagramNode,
 } from "../routingDiagram";
 
 export interface RoutingDiagramChartProps {
-  chartData: {
-    nodes: RoutingDiagramChartNode[];
-    links: RoutingDiagramChartLink[];
-  };
+  graphData: RoutingDiagramGraph;
   chartHeight: number;
   isCompact: boolean;
   onActivateNode: (node: RoutingDiagramNode) => void;
@@ -19,7 +17,7 @@ export interface RoutingNodeShapeProps {
   y?: number;
   width?: number;
   height?: number;
-  payload?: RoutingDiagramChartNode;
+  payload?: RoutingDiagramGraphNode;
 }
 
 export interface RoutingLinkShapeProps {
@@ -30,7 +28,7 @@ export interface RoutingLinkShapeProps {
   targetY?: number;
   targetControlX?: number;
   linkWidth?: number;
-  payload?: RoutingDiagramChartLink;
+  payload?: RoutingDiagramGraphEdge;
 }
 
 export interface RoutingDiagramTooltipProps {

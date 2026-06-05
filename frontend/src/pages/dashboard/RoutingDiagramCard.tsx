@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  getRoutingDiagramChartData,
   getRoutingDiagramEmptyState,
+  getRoutingDiagramGraph,
   getRoutingDiagramMobileData,
   getRoutingDiagramSummary,
   type RoutingDiagramData,
@@ -53,13 +53,13 @@ export function RoutingDiagramCard({
   const isCompact = containerWidth > 0 && containerWidth < 640;
   const chartHeight = isCompact ? 320 : 420;
 
-  const chartData = useMemo(() => {
-    return data ? getRoutingDiagramChartData(data) : { nodes: [], links: [] };
+  const graphData = useMemo(() => {
+    return data ? getRoutingDiagramGraph(data) : { nodes: [], edges: [] };
   }, [data]);
 
   const mobileData = useMemo(() => {
-    return getRoutingDiagramMobileData(chartData);
-  }, [chartData]);
+    return getRoutingDiagramMobileData(graphData);
+  }, [graphData]);
 
   const summary = useMemo(() => {
     return data ? getRoutingDiagramSummary(data) : null;
@@ -90,7 +90,7 @@ export function RoutingDiagramCard({
     messages.dashboard.routingNoRecentTrafficDescription,
   ]);
 
-  const hasChartContent = chartData.nodes.length > 0 && chartData.links.length > 0;
+  const hasChartContent = graphData.nodes.length > 0 && graphData.edges.length > 0;
 
   const activateNode = (node: RoutingDiagramNode) => {
     if (node.kind === "model" && node.modelConfigId !== null) {
@@ -110,7 +110,7 @@ export function RoutingDiagramCard({
               <RoutingDiagramMobileList mobileData={mobileData} onActivateNode={activateNode} />
             ) : (
               <RoutingDiagramChart
-                chartData={chartData}
+                graphData={graphData}
                 chartHeight={chartHeight}
                 isCompact={isCompact}
                 onActivateNode={activateNode}

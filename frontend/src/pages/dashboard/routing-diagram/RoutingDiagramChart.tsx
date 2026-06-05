@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ResponsiveContainer, Sankey, Tooltip as RechartsTooltip } from "recharts";
 import { RoutingDiagramChartShell } from "./RoutingDiagramChartShell";
 import { RoutingDiagramLegend } from "./RoutingDiagramLegend";
@@ -9,13 +10,32 @@ import type {
   RoutingLinkShapeProps,
   RoutingNodeShapeProps,
 } from "./routingDiagramChartTypes";
+import type {
+  RoutingDiagramGraph,
+  RoutingDiagramGraphEdge,
+  RoutingDiagramGraphNode,
+} from "../routingDiagram";
+
+type RoutingDiagramSankeyNode = RoutingDiagramGraphNode & { value: number };
+type RoutingDiagramSankeyLink = RoutingDiagramGraphEdge & {
+  source: number;
+  target: number;
+  value: number;
+};
+
+type RoutingDiagramSankeyData = {
+  nodes: RoutingDiagramSankeyNode[];
+  links: RoutingDiagramSankeyLink[];
+};
 
 export function RoutingDiagramChart({
-  chartData,
+  graphData,
   chartHeight,
   isCompact,
   onActivateNode,
 }: RoutingDiagramChartProps) {
+  const chartData = useMemo(() => getRoutingDiagramSankeyData(graphData), [graphData]);
+
   return (
     <RoutingDiagramChartShell
       visualization={
@@ -50,4 +70,24 @@ export function RoutingDiagramChart({
       <RoutingDiagramLegend />
     </RoutingDiagramChartShell>
   );
+}
+
+function getRoutingDiagramSankeyData(graphData: RoutingDiagramGraph): RoutingDiagramSankeyData {
+  const nodes = graphData.nodes.map<RoutingDiagramSankeyNode>((node) => ({
+    ...node,
+    value: Math.max(node.activeTerminalTargetCount, 1),
+  }));
+  const nodeIndex = new Map(nodes.map((node, index) => [node.id, index]));
+
+  return {
+    nodes,
+    links: graphData.edges
+      .filter((edge) => nodeIndex.has(edge.sourceNodeId) && nodeIndex.has(edge.targetNodeId))
+      .map<RoutingDiagramSankeyLink>((edge) => ({
+        ...edge,
+        source: nodeIndex.get(edge.sourceNodeId) ?? 0,
+        target: nodeIndex.get(edge.targetNodeId) ?? 0,
+        value: Math.max(edge.activeTerminalTargetCount, 1),
+      })),
+  };
 }
