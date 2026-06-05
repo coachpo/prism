@@ -1,7 +1,4 @@
-import type {
-  RoutingDiagramLink,
-  RoutingDiagramNode,
-} from "../routingDiagram";
+import type { RoutingDiagramNode } from "../routingDiagram";
 import { formatNumber, getCurrentLocale } from "@/i18n/format";
 
 export const ROUTE_HEALTH_COLOR = {
@@ -19,14 +16,6 @@ export function truncateLabel(value: string, limit: number): string {
   }
 
   return `${value.slice(0, Math.max(limit - 3, 1))}...`;
-}
-
-export function getChartPayload(item: unknown): unknown {
-  if (!isRecord(item)) {
-    return undefined;
-  }
-
-  return item.payload;
 }
 
 export function getRouteHealthColor(successRate: number | null, requestCount: number): string {
@@ -74,28 +63,4 @@ export function isRoutingDiagramMutedNode(node: RoutingDiagramNode): boolean {
   return node.kind === "terminal_target"
     ? node.active === false || node.status === "inactive"
     : node.status === "disabled";
-}
-
-export function isRoutingDiagramNode(value: unknown): value is RoutingDiagramNode {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.label === "string" &&
-    (value.kind === "endpoint" || value.kind === "model" || value.kind === "terminal_target")
-  );
-}
-
-export function isRoutingDiagramLink(value: unknown): value is RoutingDiagramLink {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.sourceNodeId === "string" &&
-    typeof value.targetNodeId === "string" &&
-    typeof value.sourceLabel === "string" &&
-    typeof value.targetLabel === "string"
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
