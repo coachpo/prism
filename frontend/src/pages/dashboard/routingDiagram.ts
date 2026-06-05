@@ -26,6 +26,8 @@ export {
   getRoutingDiagramMobileData,
   getRoutingDiagramSummary,
 } from "./routing-diagram/routingDiagramLayout";
+export { RoutingDiagramFlow } from "./routing-diagram/RoutingDiagramFlow";
+export { RoutingDiagramMobileList } from "./routing-diagram/RoutingDiagramMobileList";
 export {
   getRoutingDiagramFlowLayout,
   ROUTING_DIAGRAM_FLOW_EDGE_TYPE,

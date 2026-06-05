@@ -4,11 +4,11 @@ import {
   getRoutingDiagramGraph,
   getRoutingDiagramMobileData,
   getRoutingDiagramSummary,
+  RoutingDiagramFlow,
+  RoutingDiagramMobileList,
   type RoutingDiagramData,
   type RoutingDiagramNode,
 } from "./routingDiagram";
-import { RoutingDiagramChart } from "./routing-diagram/RoutingDiagramChart";
-import { RoutingDiagramMobileList } from "./routing-diagram/RoutingDiagramMobileList";
 import { useLocale } from "@/i18n/useLocale";
 import { RoutingDiagramShell } from "./RoutingDiagramShell";
 
@@ -109,10 +109,9 @@ export function RoutingDiagramCard({
             isCompact ? (
               <RoutingDiagramMobileList mobileData={mobileData} onActivateNode={activateNode} />
             ) : (
-              <RoutingDiagramChart
+              <RoutingDiagramFlow
                 graphData={graphData}
                 chartHeight={chartHeight}
-                isCompact={isCompact}
                 onActivateNode={activateNode}
               />
             )
