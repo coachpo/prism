@@ -148,6 +148,53 @@ function renderRoutingDiagramFlowNode(props) {
   return renderToStaticMarkup(createElement(RoutingDiagramFlowNode, props));
 }
 
+function loadRoutingDiagramFlowEdgeModule() {
+  const { load: loadFlowEdge } = createTsModuleLoader({
+    rootDir: frontendDir,
+    mocks: {
+      "@xyflow/react": {
+        BaseEdge: ({ path, ...props }) => createElement("path", { ...props, d: path }),
+        getBezierPath: ({ sourceX, sourceY, targetX, targetY }) => [
+          `M ${sourceX},${sourceY} C ${sourceX + 44},${sourceY} ${targetX - 44},${targetY} ${targetX},${targetY}`,
+          sourceX,
+          sourceY,
+          targetX,
+          targetY,
+        ],
+      },
+      "@/i18n/useLocale": {
+        useLocale: () => ({
+          messages: {
+            dashboard: {
+              routingLink: "Routing link",
+              routingLinkAria: (sourceLabel, targetLabel) => `${sourceLabel} to ${targetLabel}`,
+            },
+          },
+        }),
+      },
+    },
+  });
+
+  return loadFlowEdge(
+    path.join(frontendDir, "src/pages/dashboard/routing-diagram/RoutingDiagramFlowEdge.tsx"),
+  );
+}
+
+function renderRoutingDiagramFlowEdge(props) {
+  const { RoutingDiagramFlowEdge } = loadRoutingDiagramFlowEdgeModule();
+  return renderToStaticMarkup(createElement(RoutingDiagramFlowEdge, props));
+}
+
+function loadRoutingDiagramFlowEdgeStyleModule() {
+  const { load: loadFlowEdgeStyle } = createTsModuleLoader({
+    rootDir: frontendDir,
+  });
+
+  return loadFlowEdgeStyle(
+    path.join(frontendDir, "src/pages/dashboard/routing-diagram/routingDiagramFlowEdgeStyle.ts"),
+  );
+}
+
 test("normalizes topology graph into renderer-agnostic graph", () => {
   const graph = getRoutingDiagramGraph(createTopologyGraph());
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
@@ -436,6 +483,103 @@ test("renders terminal target node without button semantics", () => {
   assert.match(markup, /Connections/);
   assert.match(markup, /Inactive/);
   assert.match(markup, /41 successful requests in 24h/);
+});
+
+test("maps edge health to bezier style values", () => {
+  const { getRoutingDiagramFlowEdgeStyle } = loadRoutingDiagramFlowEdgeStyleModule();
+  const healthyStyle = getRoutingDiagramFlowEdgeStyle(
+    createGraphEdge({
+      id: "access-target-1002",
+      kind: "model_to_terminal_target",
+      sourceNodeId: "model-101",
+      targetNodeId: "terminal-target-501",
+      sourceLabel: "Model A",
+      targetLabel: "Primary Target",
+      activeTerminalTargetCount: 4,
+      requestCount24h: 42,
+      successCount24h: 42,
+      errorCount24h: 0,
+      successRate24h: 99.25,
+    }),
+  );
+  const noTrafficStyle = getRoutingDiagramFlowEdgeStyle(
+    createGraphEdge({
+      id: "terminal-target-binding-502",
+      kind: "terminal_target_to_endpoint",
+      sourceNodeId: "terminal-target-502",
+      targetNodeId: "endpoint-201",
+      sourceLabel: "Backup Target",
+      targetLabel: "Endpoint A",
+      activeTerminalTargetCount: 8,
+      requestCount24h: 0,
+      successCount24h: 0,
+      errorCount24h: 0,
+      successRate24h: null,
+    }),
+  );
+  const markup = renderRoutingDiagramFlowEdge({
+    id: "access-target-1002",
+    sourceX: 12,
+    sourceY: 24,
+    targetX: 212,
+    targetY: 96,
+    sourcePosition: "right",
+    targetPosition: "left",
+    data: createGraphEdge({
+      id: "access-target-1002",
+      kind: "model_to_terminal_target",
+      sourceNodeId: "model-101",
+      targetNodeId: "terminal-target-501",
+      sourceLabel: "Model A",
+      targetLabel: "Primary Target",
+      activeTerminalTargetCount: 4,
+      requestCount24h: 42,
+      successCount24h: 42,
+      errorCount24h: 0,
+      successRate24h: 99.25,
+    }),
+  });
+
+  assert.deepEqual(healthyStyle, {
+    stroke: "#10b981",
+    strokeOpacity: 0.38,
+    strokeWidth: 5,
+  });
+  assert.deepEqual(noTrafficStyle, {
+    stroke: "#64748b",
+    strokeOpacity: 0.24,
+    strokeWidth: 6,
+  });
+  assert.match(markup, /data-testid="routing-diagram-edge-access-target-1002"/);
+  assert.match(markup, /aria-label="Model A to Primary Target"/);
+  assert.match(markup, /d="M 12,24 C 56,24 168,96 212,96"/);
+  assert.doesNotMatch(markup, /role="button"/);
+  assert.doesNotMatch(markup, /onclick=/i);
+});
+
+test("keeps stable edge ids across repeated flow adaptation", () => {
+  const graph = getRoutingDiagramGraph(createTopologyGraph());
+  const firstLayout = getRoutingDiagramFlowLayout(graph);
+  const secondLayout = getRoutingDiagramFlowLayout(graph);
+
+  assert.deepEqual(
+    firstLayout.edges.map((edge) => edge.id),
+    [
+      "access-target-1001",
+      "access-target-1002",
+      "access-target-1003",
+      "terminal-target-binding-501",
+      "terminal-target-binding-502",
+    ],
+  );
+  assert.deepEqual(
+    firstLayout.edges.map((edge) => edge.id),
+    secondLayout.edges.map((edge) => edge.id),
+  );
+  assert.deepEqual(
+    firstLayout.edges.map((edge) => edge.data.id),
+    firstLayout.edges.map((edge) => edge.id),
+  );
 });
 
 function summarizeFlowNodes(layout) {
