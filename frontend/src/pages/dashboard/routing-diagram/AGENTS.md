@@ -1,7 +1,7 @@
 # FRONTEND DASHBOARD ROUTING DIAGRAM KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/dashboard/routing-diagram/` owns the routing visualization internals behind `../routingDiagram.ts` and `../RoutingDiagramCard.tsx`: backend-aligned chart contracts, layout math, and diagram-specific render helpers.
+`pages/dashboard/routing-diagram/` owns the routing visualization internals behind `../routingDiagram.ts` and `../RoutingDiagramCard.tsx`: backend-aligned chart contracts, layout math, renderer-specific flow helpers, and diagram-specific render helpers.
 
 ## STRUCTURE
 ```
@@ -10,10 +10,14 @@ routing-diagram/
 ├── routingDiagramLayout.ts
 ├── routingDiagramChartTypes.ts
 ├── routingDiagramChartUtils.ts
-├── RoutingDiagramChart.tsx
-├── RoutingDiagramChartShell.tsx
+├── routingDiagramFlowLayout.ts
+├── routingDiagramFlowEdgeStyle.ts
+├── RoutingDiagramFlow.tsx
+├── RoutingDiagramFlowEdge.tsx
+├── RoutingDiagramFlowNode.tsx
+├── RoutingDiagramInspectorContent.tsx
 ├── RoutingDiagramLegend.tsx
-├── RoutingDiagramTooltip.tsx
+├── RoutingDiagramMobileList.tsx
 ├── RoutingDiagramNodeShape.tsx
 └── RoutingDiagramLinkShape.tsx
 ```
@@ -22,8 +26,8 @@ routing-diagram/
 
 - Public barrel and parent card entrypoints: `../routingDiagram.ts`, `../RoutingDiagramCard.tsx`
 - Backend-aligned diagram payload contracts: `routingDiagramContracts.ts`
-- Layout math, empty-state shaping, and chart-data helpers: `routingDiagramLayout.ts`, `routingDiagramChartTypes.ts`, `routingDiagramChartUtils.ts`
-- Chart shell, node or link shapes, legend, and tooltip rendering: `RoutingDiagramChart.tsx`, `RoutingDiagramChartShell.tsx`, `RoutingDiagramNodeShape.tsx`, `RoutingDiagramLinkShape.tsx`, `RoutingDiagramLegend.tsx`, `RoutingDiagramTooltip.tsx`
+- Layout math, empty-state shaping, chart-data helpers, and flow layout adapters: `routingDiagramLayout.ts`, `routingDiagramChartTypes.ts`, `routingDiagramChartUtils.ts`, `routingDiagramFlowLayout.ts`, `routingDiagramFlowEdgeStyle.ts`
+- Flow desktop rendering, inspector content, node or link shapes, legend, and mobile list rendering: `RoutingDiagramFlow.tsx`, `RoutingDiagramFlowEdge.tsx`, `RoutingDiagramFlowNode.tsx`, `RoutingDiagramInspectorContent.tsx`, `RoutingDiagramNodeShape.tsx`, `RoutingDiagramLinkShape.tsx`, `RoutingDiagramLegend.tsx`, `RoutingDiagramMobileList.tsx`
 - E2E seam for routing shell chrome, model-node activation, aggregate strategy counts, and exact request-log handoff: `../../../../tests/e2e/dashboard-routing-shell.spec.ts`
 
 ## CONVENTIONS

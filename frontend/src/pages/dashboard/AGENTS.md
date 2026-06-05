@@ -23,7 +23,7 @@ dashboard/
 ├── DashboardPageSkeleton.tsx       # Overview loading shell
 ├── routingDiagram.ts               # Barrel over routing-diagram internals
 └── routing-diagram/
-    ├── AGENTS.md                   # Diagram-local layout, realtime patching, aggregation, and chart helpers
+    ├── AGENTS.md                   # Diagram-local layout, flow rendering, and renderer-specific helpers
     └── ...
 ```
 
@@ -42,7 +42,7 @@ dashboard/
 
 ## CHILD DOCS
 
-- `routing-diagram/AGENTS.md`: routing-diagram aggregation, realtime patching, layout math, chart helpers, and render shapes.
+- `routing-diagram/AGENTS.md`: routing-diagram layout math, flow rendering, mobile fallback, and renderer-specific helpers.
 
 ## CONVENTIONS
 
@@ -51,7 +51,7 @@ dashboard/
 - Keep dashboard live state on `useDashboardRealtime.ts` and the shared `useRealtimeData()` hook.
 - Keep the overview-versus-analytics tab split on `queryParams.ts` and `useDashboardPageState.ts` instead of local component state.
 - Reconnect and manual refresh should reconcile through REST bootstrap data. The backend push contract is still `dashboard.update` only.
-- Treat `routingDiagram.ts` as the barrel entrypoint for routing visualization and let `routing-diagram/AGENTS.md` own the layout, aggregation, realtime, and chart-helper split beneath it.
+- Treat `routingDiagram.ts` as the barrel entrypoint for routing visualization and let `routing-diagram/AGENTS.md` own the layout, flow rendering, and mobile fallback split beneath it.
 - Keep overview presentation components focused on rendering. Bootstrap, payload shaping, and merge logic belong in the dashboard hooks.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
