@@ -10,6 +10,7 @@ sidecars/
 ├── routes.go               # Instance CRUD, connection test, response shaping, credential masks
 ├── routes_sync.go          # Manual sync, auth-file reads, auth-file models, provider reads, sync status
 ├── routes_mutations.go     # Auth-file status, fields, and delete mutations
+├── actions.go              # Auth-file action safety and sensitive-text/redaction heuristics
 ├── client.go               # CLIProxyAPI management client and network policy gates
 ├── providers.go            # Provider inventory normalization
 ├── sync.go                 # Sync orchestration and management-auth pause state
@@ -23,9 +24,9 @@ sidecars/
 - Route list and global mount contract: `service.go`.
 - Instance CRUD, masked credential state, and connection test: `routes.go`.
 - Manual sync, live auth-file reads, provider inventory, provider snapshots, and sync status: `routes_sync.go`, `sync.go`, `providers.go`.
-- Auth-file status, field, and delete mutations: `routes_mutations.go`.
+- Auth-file status, field, delete mutations, and action safety checks: `routes_mutations.go`, `actions.go`.
 - Strict CLIProxyAPI path allowlist and envelope contract: `client.go`, `cliproxy_contract_test.go`, `routes_removed_surfaces_test.go`.
-- Durable sidecar tables and worker wiring: `store.go`, `worker.go`, `../../../platform/lifecycle/production.go`.
+- Durable sidecar tables and worker wiring: `store.go`, `store_test.go`, `worker.go`, `worker_test.go`, `../../../platform/lifecycle/production.go`.
 
 ## CONVENTIONS
 - Treat sidecar management as global instance control-plane state; it does not use selected-profile `X-Profile-Id` scope.

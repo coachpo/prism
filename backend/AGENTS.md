@@ -32,7 +32,7 @@ backend/
 - `internal/httpapi/runtime/AGENTS.md`: explicit runtime operation registry, request planning, hook collections, telemetry outbox, feedback pipeline, partition ensuring, and runtime side-effect seams.
 - `internal/httpapi/realtime/AGENTS.md`: mounted `/api/realtime/ws` websocket delivery, connection-manager ownership, and async dashboard plus analytics publishers.
 - `internal/httpapi/management/bootstrapconfig/AGENTS.md`: file-backed startup bootstrap API, validate/apply planning, hot-apply publication, and failed-hot-apply reporting.
-- `internal/httpapi/management/configbundle/AGENTS.md`: profile bundle and vendor catalog export/preview/import, preview tokens, bundle secret encryption, and after-import hooks.
+- `internal/httpapi/management/configbundle/AGENTS.md`: profile bundle and vendor catalog export/preview/import, preview tokens, bundle secret encryption, context overflow promotion target validation, and after-import hooks.
 - `internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and retention-job endpoints.
 - `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, password-reset and verification delivery, proxy-key, realtime auth-state, and runtime-cache seams.
 - `internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registrations, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
@@ -40,7 +40,7 @@ backend/
 - `internal/httpapi/management/configrules/AGENTS.md`: selected-profile header-blocklist and user-agent/client mapping rules under `/api/config/*`.
 - `internal/httpapi/management/endpoints/AGENTS.md`: selected-profile endpoint CRUD, encrypted API keys, ordering, and connection dropdown support.
 - `internal/httpapi/management/loadbalance/AGENTS.md`: selected-profile load-balance strategy CRUD, canonical defaults, current state, and event reads.
-- `internal/httpapi/management/models/AGENTS.md`: selected-profile unified model CRUD, public model-target authoring, private connection target preservation, and endpoint model lookups.
+- `internal/httpapi/management/models/AGENTS.md`: selected-profile unified model CRUD, public model-target authoring, context overflow promotion targets, private connection target preservation, and endpoint model lookups.
 - `internal/httpapi/management/profiles/AGENTS.md`: profile lifecycle, active/bootstrap state, activation checks, and soft deletion.
 - `internal/httpapi/management/stats/AGENTS.md`: selected-profile observability reads, request logs, dashboard snapshots, metrics, and invalidation.
 - `internal/httpapi/management/vendors/AGENTS.md`: global vendor catalog CRUD, presentation metadata, audit preferences, and model usage lookup.
@@ -57,10 +57,10 @@ backend/
 - `internal/platform/logretention/` owns daily partitions, 15-day horizon creation, retention deletes, and low-priority partition maintenance for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - `internal/httpapi/management/` fans out into mounted management subpackages for auth, bootstrapconfig, configbundle, configrules, connections, endpoints, loadbalance, models, profiles, settings, sidecars, stats, vendors, and audit.
 - `internal/httpapi/management/bootstrapconfig/` owns GET/validate/PUT for the file-backed bootstrap document plus planned changes, apply capabilities, hot-apply publication, and `failed_hot_apply_fields` reporting.
-- `internal/httpapi/management/configbundle/` owns profile bundle and vendor catalog export/preview/import, preview-token validation, bundle secret encryption, and after-profile-import hooks.
+- `internal/httpapi/management/configbundle/` owns profile bundle and vendor catalog export/preview/import, preview-token validation, bundle secret encryption, context overflow promotion target validation, and after-profile-import hooks.
 - `internal/httpapi/management/sidecars/` owns global CLIProxyAPI sidecar control-plane routes, live auth-file reads and mutations, optional provider inventory, and the low-priority sync worker.
 - `internal/httpapi/management/settings/` owns global log-retention settings and management-job creation in addition to profile-scoped costing and timezone settings.
-- `internal/httpapi/runtime/` owns the operation-registered runtime contract under the mounted `/v1` and `/v1beta` prefixes: request ingress resolution, model binding, request/response/stream/media hooks, telemetry outbox enqueue, request logging, `operation_name` persistence, and runtime partition ensuring.
+- `internal/httpapi/runtime/` owns the operation-registered runtime contract under the mounted `/v1` and `/v1beta` prefixes: request ingress resolution, model binding, request/response/stream/media hooks, context overflow promotion replay decisions, telemetry outbox enqueue, request logging, `operation_name` persistence, and runtime partition ensuring.
 - Management and runtime API behavior is documented in the markdown docs, with runtime proxy routes documented as an explicit allowlist rather than broad vendor path families.
 - `Dockerfile` builds from the monorepo root, copies migrations, runs as `prism:prism` (`1000:1000`), and defaults `PRISM_CONFIG_PATH` to `/app/config/config.json`.
 - `tests/contract/`, `tests/integration/`, `tests/runtime/`, and `tests/priority/` are the checked-in Go regression packages.

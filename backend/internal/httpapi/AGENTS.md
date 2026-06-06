@@ -1,7 +1,7 @@
 # BACKEND HTTP API KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/internal/httpapi/` owns mounted backend HTTP handlers and shared handler seams. It splits the management API, runtime proxy surface, realtime websocket delivery, proxy-key usage capture, log-retention job endpoints, and request-context helpers while platform code owns server assembly.
+`backend/internal/httpapi/` owns mounted backend HTTP handlers and shared handler seams. It splits the management API, runtime proxy surface, realtime websocket delivery, proxy-key usage capture, management settings job routes, and request-context helpers while platform code owns server assembly.
 
 ## STRUCTURE
 ```text
@@ -17,7 +17,8 @@ httpapi/
 - Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, `management/sidecars/`, `management/stats/`, `management/vendors/`, `management/audit/`
 - Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/connections/AGENTS.md`, `management/configrules/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/stats/AGENTS.md`, `management/vendors/AGENTS.md`
 - Startup bootstrap ownership: `management/bootstrapconfig/AGENTS.md`, `management/bootstrapconfig/service.go`
-- Config bundle and vendor catalog ownership: `management/configbundle/AGENTS.md`, `management/configbundle/service.go`, `management/configbundle/routes.go`
+- Config bundle, vendor catalog, and context overflow promotion target import/export ownership: `management/configbundle/AGENTS.md`, `management/configbundle/service.go`, `management/configbundle/routes.go`, `management/configbundle/import.go`, `management/configbundle/store.go`
+- Model CRUD, access-target, exact-facade, and context overflow promotion target authoring: `management/models/AGENTS.md`, `management/models/routes.go`, `management/models/store.go`
 - Management auth status/session/bootstrap, password-reset or verification delivery, proxy-key, realtime auth-state, and runtime-cache seams: `management/auth/AGENTS.md`
 - Global sidecar registration, CLIProxyAPI sync, auth/provider inventory, direct auth-file mutation, and worker seams: `management/sidecars/AGENTS.md`
 - Runtime proxy leaf, operation registry, ingress rejection semantics, planning helpers, and hook collections: `runtime/AGENTS.md`, `runtime/operations.go`, `runtime/service.go`, `runtime/runtime.go`, `runtime/planning_snapshot.go`, `runtime/proxy_selector_helpers.go`, `runtime/operation_request_hooks.go`, `runtime/operation_response_hooks.go`, `runtime/operation_stream_hooks.go`, `runtime/operation_media_hooks.go`

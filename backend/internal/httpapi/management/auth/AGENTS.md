@@ -5,8 +5,8 @@
 
 ## WHERE TO LOOK
 - Route mounting and handlers: `routes.go`, `service.go`
-- Auth settings, runtime cache, and route construction: `service.go`, `runtime_config.go`, `runtime_cache.go`
-- Session persistence and refresh-token lifecycle: `store.go`, `types.go`, `tokens.go`
+- Auth settings, runtime cache, auth-decision telemetry, and route construction: `service.go`, `runtime_config.go`, `runtime_cache.go`, `telemetry.go`
+- Session persistence and refresh-token lifecycle: `store.go`, `types.go`, `tokens.go`, `routes_test.go`, `store_test.go`, `runtime_cache_test.go`
 - Cookie and request-token helpers: `cookies.go`, `request_tokens.go`
 - Proxy API key capture and usage writer: `proxy_key_usage_writer.go`, `../../proxykeyusage/`
 - Password-reset and email-verification outbox coverage: `email_outbox_phase6_test.go`, `../../../platform/email/`

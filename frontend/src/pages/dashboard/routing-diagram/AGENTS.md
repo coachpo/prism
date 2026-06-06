@@ -27,6 +27,7 @@ routing-diagram/
 - Layout math and flow layout adapters: `routingDiagramLayout.ts`, `routingDiagramFlowLayout.ts`, `routingDiagramFlowEdgeStyle.ts`
 - Shared rendering helpers for node labels, state, and route health: `routingDiagramPresentationUtils.ts`
 - React Flow desktop rendering, visualization shell, inspector content, node rendering, legend, and mobile list rendering: `RoutingDiagramFlow.tsx`, `RoutingDiagramVisualizationShell.tsx`, `RoutingDiagramFlowEdge.tsx`, `RoutingDiagramFlowNode.tsx`, `RoutingDiagramInspectorContent.tsx`, `RoutingDiagramLegend.tsx`, `RoutingDiagramMobileList.tsx`
+- Layout and renderer seam contract: `../../../../tests/lib/dashboard_routing_flow_layout_contract.test.mjs`
 - E2E seam for routing shell chrome, model-node activation, aggregate strategy counts, and exact request-log handoff: `../../../../tests/e2e/dashboard-routing-shell.spec.ts`
 
 ## CONVENTIONS

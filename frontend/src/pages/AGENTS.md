@@ -11,18 +11,19 @@
 ## DOMAINS
 - Auth entry and recovery: `LoginPage.tsx`, `ForgotPasswordPage.tsx`, `ResetPasswordPage.tsx`
 - Observability: `DashboardPage.tsx`, dashboard analytics content from `statistics/`, and `RequestLogsPage.tsx`
-- Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is where model-only public access targets, model-private connection management, and explicit Ban Policy strategy assignment surfaces live
+- Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is where model-only public access targets, context overflow promotion target authoring, model-private connection management, and explicit Ban Policy strategy assignment surfaces live
 - Access control and runtime credentials: `ProxyApiKeysPage.tsx`
 - Global sidecar control plane: `SidecarsPage.tsx`, `sidecars/AGENTS.md`
 - Settings shell: `SettingsPage.tsx` with Profile, Global, and Startup tabs, plus `settings/sections/`, `settings/dialogs/`, `settings/startup/`, and `settings/costing/`
 
 ## WHERE TO LOOK
 - Mounted route list, public auth split, and protected shell boundary: `../App.tsx`
-- Dashboard, model detail, request logs, settings, startup bootstrap, sidecars, and dashboard-owned statistics leaf maps: `dashboard/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `settings/startup/AGENTS.md`, `sidecars/AGENTS.md`, `statistics/AGENTS.md`
-- Settings nested ownership split: `settings/sections/AGENTS.md`, `settings/dialogs/AGENTS.md`, `settings/startup/AGENTS.md`, `settings/costing/AGENTS.md`
+- Dashboard, React Flow routing diagram, model detail, request logs, settings, startup bootstrap, sidecars, and dashboard-owned statistics leaf maps: `dashboard/AGENTS.md`, `dashboard/routing-diagram/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `settings/startup/AGENTS.md`, `sidecars/AGENTS.md`, `statistics/AGENTS.md`
+- Settings nested ownership split: `settings/sections/AGENTS.md`, `settings/sections/authentication/AGENTS.md`, `settings/sections/billing-currency/AGENTS.md`, `settings/dialogs/AGENTS.md`, `settings/startup/AGENTS.md`, `settings/costing/AGENTS.md`
 
 ## CHILD DOCS
 - `dashboard/AGENTS.md`
+- `dashboard/routing-diagram/AGENTS.md`
 - `endpoints/AGENTS.md`
 - `loadbalance-strategies/AGENTS.md`
 - `model-detail/AGENTS.md`

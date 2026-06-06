@@ -9,7 +9,7 @@ api/
 ├── core.ts           # API base, credentials, X-Profile-Id injection, refresh retry, query builder
 ├── profileScope.ts   # Management-route matcher for selected-profile headers
 ├── authSettings.ts   # Auth bootstrap/session/login/logout, settings.auth, and proxy keys
-├── management.ts     # Profiles, vendors, models, loadbalance strategies, endpoints, connections, pricing templates
+├── management.ts     # Profiles, vendors, models, promotion targets, loadbalance strategies, endpoints, connections, pricing templates
 ├── observability.ts  # Stats, usage snapshot, bootstrap config, config import/export, config rules, audit, loadbalance events/current-state, settings costing/timezone/retention
 └── sidecars.ts       # Global sidecar registration, sync, inventory, mutations
 ```
@@ -19,7 +19,7 @@ api/
 - Shared request rules, cookie credentials, `ApiError`, auth-refresh retry, and `X-Profile-Id` injection for selected management routes: `core.ts`
 - Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`
 - Cookie-auth bootstrap/session flows, settings auth endpoints, and proxy-key endpoints: `authSettings.ts`
-- Global profile/vendor management plus profile-scoped model, access-target, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
+- Global profile/vendor management plus profile-scoped model, context overflow promotion target, access-target, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
 - Observability, usage snapshot, throughput, bootstrap-config get/validate/update, config import/export, header-blocklist and user-agent/client rules, audit, loadbalance current state/events, and settings costing/timezone/retention clients: `observability.ts`
 - Global sidecar CRUD, test-connection, sync, auth/provider inventory, and direct auth-file mutations: `sidecars.ts`
 - Runtime operation paths `/v1` and `/v1beta` stay outside this client split; launcher/Vite proxying passes them through and backend runtime owns allowlist enforcement.
@@ -30,6 +30,7 @@ api/
 - Keep `core.ts` as the only place that injects `X-Profile-Id`, applies cookie credentials, and performs one refresh retry for eligible `/api/*` requests.
 - Keep `profileScope.ts` as the only route matcher deciding which management calls receive `X-Profile-Id`; `/api/sidecars/*` stays global and unscoped.
 - Keep grouped endpoint surfaces in their existing modules instead of expanding `api.ts` into a second implementation layer.
+- Keep model payload normalization in `management.ts`, including the server-shaped `context_overflow_promotion_target_id` field.
 - Keep auth/settings nesting in `authSettings.ts` and `api.settings` aligned with the backend route structure.
 - Keep observability-side query building centralized through `buildQuery()` and typed param objects, including bootstrap-config validation/update requests and config-rule clients consumed by settings surfaces.
 - Import statistics through the public `stats` export from `../api.ts` when a caller needs the standalone stats helper; use `api.stats` when staying on the grouped facade.

@@ -1,7 +1,7 @@
 # FRONTEND KNOWLEDGE BASE
 
 ## OVERVIEW
-`frontend/` is Prism's monorepo-owned React 19/Vite management dashboard. It owns the browser-side management contract, mounted route surface, protected-shell provider handoff, checked-in shadcn/ui registry config, and the production `dist/` server while keeping this doc as the router for the frontend directory.
+`frontend/` is Prism's monorepo-owned React 19/Vite management dashboard. It owns the browser-side management contract, mounted route surface, protected-shell provider handoff, checked-in shadcn/ui registry config, React Flow-backed dashboard routing visualization, and the production `dist/` server while keeping this doc as the router for the frontend directory.
 
 ## STRUCTURE
 ```text
@@ -53,7 +53,7 @@ frontend/
 - Mounted routes, auth/public split, protected shell mounts, and profile/reporting-currency provider handoff: `src/App.tsx`
 - Shell chrome, sidebar entries, profile-prefixed navigation, version label, and profile switcher: `src/components/AGENTS.md`, `src/components/layout/app-layout/AGENTS.md`
 - Shared widgets, shell-safe controls, and design-system wrappers: `src/components/AGENTS.md`, `src/components/ui/AGENTS.md`
-- shadcn registry config and Tailwind entrypoint: `components.json`, `src/index.css`
+- shadcn registry config, Tailwind entrypoint, and React Flow dependency/CSS import: `components.json`, `package.json`, `src/index.css`, `src/main.tsx`
 - Provider stack and browser mount (`LocaleProvider` -> `ThemeProvider` -> `TooltipProvider` -> `App` + `Toaster`): `src/main.tsx`
 - Auth bootstrap, selected-profile `X-Profile-Id` scoping, selected-profile versus active-runtime separation, and reporting-currency readiness: `src/context/AGENTS.md`, `src/context/auth/AGENTS.md`, `src/context/profile/AGENTS.md`, `src/context/ReportingCurrencyContext.tsx`
 - Typed API boundary, shared request plumbing, and reporting-currency cache and normalization: `src/lib/AGENTS.md`, `src/lib/api/AGENTS.md`, `src/lib/reportingCurrency.ts`, `src/lib/api.ts`
@@ -73,6 +73,8 @@ frontend/
 - Treat `src/App.tsx` as the source of truth for routes and shell boundaries.
 - Keep selected profile separate from active runtime routing. `selectedProfile` scopes profile-scoped management APIs; it does not switch proxy traffic or global sidecar management.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
+- Keep dashboard routing visualization on the React Flow-backed `src/pages/dashboard/routing-diagram/` leaf; `@xyflow/react` CSS is imported once from `src/main.tsx`.
+- Keep model context overflow promotion target authoring in `src/pages/models/` and typed/import validation in `src/lib/`; do not spread that field through unrelated page state.
 - Keep backend access on the typed `src/lib/api.ts` boundary and the modules it re-exports.
 - Keep backend startup configuration on the Startup tab and typed bootstrap API surface rather than inventing new frontend env-based settings channels. `VITE_API_BASE` plus launcher proxy envs are transport wiring only.
 - Keep startup bootstrap rendering dependent on backend-provided values. The frontend owns no canonical backend startup default table; fresh defaults are backend source of truth, including `8000`, `5173`, `15432`, `300s`, and `10s`.
