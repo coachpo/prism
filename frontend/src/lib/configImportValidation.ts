@@ -214,6 +214,7 @@ const ModelImportSchema = z.strictObject({
   facade_enabled: z.boolean().optional(),
   facade_selection_policy: FacadeSelectionPolicyImportSchema,
   facade_fallback_policy: FacadeFallbackPolicyImportSchema,
+  context_overflow_promotion_target_id: z.string().nullable().optional(),
   is_enabled: z.boolean().optional(),
   access_targets: z.array(AccessTargetImportSchema),
 }).superRefine((model, context) => {

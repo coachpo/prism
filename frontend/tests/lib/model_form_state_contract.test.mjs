@@ -358,6 +358,7 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     default_output_token_reserve: "4096",
     max_context_utilization: "0.90",
     preferred_context_utilization_threshold: "0.70",
+    context_overflow_promotion_target_id: "",
     access_targets: [
       { target_type: "connection", connection_id: 77, position: 4, is_enabled: true },
       { target_type: "model", target_model_id: "target-model", position: 9, is_enabled: true },
@@ -387,6 +388,7 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     default_output_token_reserve: 4096,
     max_context_utilization: 0.9,
     preferred_context_utilization_threshold: 0.7,
+    context_overflow_promotion_target_id: null,
     access_targets: expectedAccessTargets,
   });
 
@@ -401,6 +403,7 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     default_output_token_reserve: 4096,
     max_context_utilization: 0.9,
     preferred_context_utilization_threshold: 0.7,
+    context_overflow_promotion_target_id: null,
     access_targets: expectedAccessTargets,
   });
 });

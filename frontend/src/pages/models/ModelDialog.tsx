@@ -16,20 +16,22 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { ManagedModelConfigListItem } from "@/lib/api/management";
 import { cn } from "@/lib/utils";
-import type { LoadbalanceStrategy, ModelConfigListItem, Vendor } from "@/lib/types";
+import type { LoadbalanceStrategy, Vendor } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
 import { setApiFamilyOnForm, setDisplayNameOnForm, setModelIdOnForm } from "./modelFormState";
 
 type Props = {
-  editingModel: ModelConfigListItem | null;
+  editingModel: ManagedModelConfigListItem | null;
   formData: ModelFormData;
   formError: string | null;
   isDialogOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
-  targetModelsForApiFamily: ModelConfigListItem[];
+  promotionTargetModelsForApiFamily: ManagedModelConfigListItem[];
+  targetModelsForApiFamily: ManagedModelConfigListItem[];
   vendors: Vendor[];
   setFormData: (value: ModelFormData | ((prev: ModelFormData) => ModelFormData)) => void;
   setIsDialogOpen: (open: boolean) => void;
@@ -59,12 +61,27 @@ function CapabilityField({ children, description, error, id, label }: Capability
   );
 }
 
+const NO_PROMOTION_TARGET_VALUE = "__none__";
+const OVERFLOW_PROMOTION_TARGET_LABEL = "Overflow promotion target";
+const OVERFLOW_PROMOTION_TARGET_DESCRIPTION = "Optional selected-profile model ID for one replay when a non-stream response proves context overflow. Prism validates eligibility on save.";
+const OVERFLOW_PROMOTION_TARGET_PLACEHOLDER = "Select model";
+const OVERFLOW_PROMOTION_TARGET_NONE_LABEL = "None";
+const OVERFLOW_PROMOTION_TARGET_PREFIX = "context_overflow_promotion_target_id";
+
+function formatPromotionTargetOptionLabel(model: ManagedModelConfigListItem) {
+  if (model.display_name && model.display_name !== model.model_id) {
+    return `${model.display_name} (${model.model_id})`;
+  }
+  return model.model_id;
+}
+
 export function ModelDialog({
   editingModel,
   formData,
   formError,
   isDialogOpen,
   loadbalanceStrategies,
+  promotionTargetModelsForApiFamily,
   targetModelsForApiFamily,
   vendors,
   setFormData,
@@ -103,13 +120,26 @@ export function ModelDialog({
       || formError === messages.modelsData.preferredContextUtilizationThresholdExceedsMaxContextUtilization
       ? formError
       : null;
+  const promotionTargetError = formError?.startsWith(OVERFLOW_PROMOTION_TARGET_PREFIX)
+    ? formError
+    : null;
   const hasCapabilityValidationError = Boolean(
     contextWindowTokensError
       || defaultOutputTokenReserveError
       || maxContextUtilizationError
       || preferredContextUtilizationThresholdError,
   );
-  const accessTargetsError = hasCapabilityValidationError ? null : formError;
+  const hasInlineFieldError = hasCapabilityValidationError || Boolean(promotionTargetError);
+  const accessTargetsError = hasInlineFieldError ? null : formError;
+  const promotionTargetValue = formData.context_overflow_promotion_target_id.trim() === ""
+    ? NO_PROMOTION_TARGET_VALUE
+    : formData.context_overflow_promotion_target_id;
+  const selectedPromotionTarget = promotionTargetModelsForApiFamily.find(
+    (model) => model.model_id === formData.context_overflow_promotion_target_id,
+  );
+  const selectedPromotionTargetLabel = selectedPromotionTarget
+    ? formatPromotionTargetOptionLabel(selectedPromotionTarget)
+    : formData.context_overflow_promotion_target_id.trim() || null;
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -124,7 +154,7 @@ export function ModelDialog({
           <input type="hidden" name="loadbalance_strategy_id" value={loadbalanceStrategyValue} />
           <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
           <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
-            {formError && !hasCapabilityValidationError ? (
+            {formError && !hasInlineFieldError ? (
               <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {formError}
               </div>
@@ -262,6 +292,53 @@ export function ModelDialog({
                     aria-invalid={Boolean(preferredContextUtilizationThresholdError) || undefined}
                   />
                 </CapabilityField>
+
+                <div className="sm:col-span-2 xl:col-span-4">
+                  <CapabilityField
+                    id="model-overflow-promotion-target"
+                    label={OVERFLOW_PROMOTION_TARGET_LABEL}
+                    description={OVERFLOW_PROMOTION_TARGET_DESCRIPTION}
+                    error={promotionTargetError}
+                  >
+                    <Select
+                      value={promotionTargetValue}
+                      onValueChange={(value) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          context_overflow_promotion_target_id:
+                            value === NO_PROMOTION_TARGET_VALUE ? "" : value,
+                        }))}
+                    >
+                      <SelectTrigger
+                        id="model-overflow-promotion-target"
+                        className="h-auto w-full min-w-0 max-w-full items-start py-2 text-left whitespace-normal"
+                        aria-invalid={Boolean(promotionTargetError) || undefined}
+                      >
+                        <SelectValue placeholder={OVERFLOW_PROMOTION_TARGET_PLACEHOLDER}>
+                          {selectedPromotionTargetLabel ? (
+                            <span className="min-w-0 whitespace-normal break-words leading-5">
+                              {selectedPromotionTargetLabel}
+                            </span>
+                          ) : null}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
+                        <SelectItem value={NO_PROMOTION_TARGET_VALUE}>
+                          <span className="block whitespace-normal break-words pr-4 leading-5">
+                            {OVERFLOW_PROMOTION_TARGET_NONE_LABEL}
+                          </span>
+                        </SelectItem>
+                        {promotionTargetModelsForApiFamily.map((model) => (
+                          <SelectItem key={model.id} value={model.model_id}>
+                            <span className="block whitespace-normal break-words pr-4 leading-5">
+                              {formatPromotionTargetOptionLabel(model)}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </CapabilityField>
+                </div>
               </div>
             </div>
 

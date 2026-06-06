@@ -709,6 +709,50 @@ test("context-capability-authoring: config import accepts backend-valid sparse r
   expect(routes.getImportedPayloads()).toEqual([importBundle]);
 });
 
+test("context-capability-authoring: promotion target config import accepts backend-exported field", async ({ page }) => {
+  const routes = await mockSettingsRoutes(page);
+  const importBundle = {
+    ...buildProfileImportBundle("routing"),
+    models: [
+      {
+        ...buildProfileImportBundle("routing").models[0],
+        context_overflow_promotion_target_id: "leaf-model",
+      },
+      buildProfileImportBundle("routing").models[1],
+    ],
+  };
+
+  await page.goto("/settings#backup");
+  const backupSection = page.locator("section#backup");
+  const applyButton = backupSection.getByTestId("profile-import-apply");
+
+  await expect(backupSection).toBeVisible();
+  await backupSection.getByTestId("profile-import-file").setInputFiles({
+    name: "profile-import-promotion-target.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(importBundle)),
+  });
+  await expect(backupSection.getByText("Loaded profile-import-promotion-target.json: 0 endpoints, 1 strategies, 2 models, 0 top-level connections.")).toBeVisible();
+
+  await backupSection.getByTestId("profile-import-preview").click();
+
+  await expect(backupSection.getByText("Preview status")).toBeVisible();
+  await expect(applyButton).toBeEnabled();
+
+  const previewRequests = routes.getPreviewRequests();
+  expect(previewRequests).toHaveLength(1);
+  expect(previewRequests[0]).toEqual({
+    payload: importBundle,
+    previewToken: "profile-preview-token-1",
+    profileHeader: "1",
+  });
+
+  await applyButton.click();
+
+  await expect(page.getByText("Imported 0 endpoints, 1 strategies, 2 models, 0 top-level connections")).toBeVisible();
+  expect(routes.getImportedPayloads()).toEqual([importBundle]);
+});
+
 test("context-capability-authoring: config import surfaces structured routing preview issues", async ({ page }) => {
   const routes = await mockSettingsRoutes(page, {
     previewErrorResponseFactory: () => ({

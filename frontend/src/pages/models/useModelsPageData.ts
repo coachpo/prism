@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { ApiError } from "@/lib/api/core";
+import type { ManagedModelConfigListItem } from "@/lib/api/management";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import {
   getSharedLoadbalanceStrategies,
@@ -9,7 +11,6 @@ import {
 } from "@/lib/referenceData";
 import type {
   LoadbalanceStrategy,
-  ModelConfigListItem,
   Vendor,
 } from "@/lib/types";
 import { toast } from "sonner";
@@ -19,6 +20,7 @@ import {
   DEFAULT_MODEL_FORM_DATA,
   getAccessTargetModelsForApiFamily,
   getAccessTargetOptionKeys,
+  getPromotionTargetModelsForApiFamily,
   type ModelFormData,
   type ModelFormValidationError,
   setLoadbalanceStrategyIdOnForm,
@@ -52,14 +54,76 @@ function getModelValidationMessage(
   }
 }
 
+function getTrimmedString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getModelSaveErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.detail && typeof error.detail === "object") {
+    const detail = error.detail as {
+      code?: unknown;
+      detail?: unknown;
+      field?: unknown;
+      message?: unknown;
+      routing_plan_issues?: unknown;
+    };
+
+    if (Array.isArray(detail.routing_plan_issues)) {
+      const routingPlanIssue = detail.routing_plan_issues.find(
+        (issue): issue is { code?: unknown; field?: unknown; message?: unknown; path?: unknown } =>
+          !!issue && typeof issue === "object",
+      );
+
+      if (routingPlanIssue) {
+        const code = getTrimmedString(routingPlanIssue.code);
+        const field = getTrimmedString(routingPlanIssue.field) || getTrimmedString(routingPlanIssue.path);
+        const message = getTrimmedString(routingPlanIssue.message);
+
+        if (message && field && code) {
+          return `${field} (${code}): ${message}`;
+        }
+        if (message && code) {
+          return `${code}: ${message}`;
+        }
+        if (message) {
+          return message;
+        }
+      }
+    }
+
+    const structuredDetail = detail.detail && typeof detail.detail === "object"
+      ? detail.detail as {
+          code?: unknown;
+          field?: unknown;
+          message?: unknown;
+        }
+      : detail;
+    const code = getTrimmedString(structuredDetail.code);
+    const field = getTrimmedString(structuredDetail.field);
+    const message = getTrimmedString(structuredDetail.message);
+
+    if (message && field && code) {
+      return `${field} (${code}): ${message}`;
+    }
+    if (message && code) {
+      return `${code}: ${message}`;
+    }
+    if (message) {
+      return message;
+    }
+  }
+
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function useModelsPageData(revision: number) {
   const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([]);
-  const [models, setModels] = useState<ModelConfigListItem[]>([]);
+  const [models, setModels] = useState<ManagedModelConfigListItem[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingModel, setEditingModel] = useState<ModelConfigListItem | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<ModelConfigListItem | null>(null);
+  const [editingModel, setEditingModel] = useState<ManagedModelConfigListItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ManagedModelConfigListItem | null>(null);
   const [search, setSearch] = useState("");
   const [formData, setFormData] = useState<ModelFormData>(DEFAULT_MODEL_FORM_DATA);
   const [formError, setFormError] = useState<string | null>(null);
@@ -67,7 +131,7 @@ export function useModelsPageData(revision: number) {
 
   const applyBootstrapData = useCallback((data: {
     loadbalanceStrategiesData: LoadbalanceStrategy[];
-    modelsData: ModelConfigListItem[];
+    modelsData: ManagedModelConfigListItem[];
     vendorsData: Vendor[];
   }) => {
     setLoadbalanceStrategies(data.loadbalanceStrategiesData);
@@ -83,7 +147,7 @@ export function useModelsPageData(revision: number) {
     ]).then(
       ([loadbalanceStrategiesData, modelsData, vendorsData]) => ({
         loadbalanceStrategiesData,
-        modelsData,
+        modelsData: modelsData as ManagedModelConfigListItem[],
         vendorsData,
       })
     );
@@ -115,7 +179,7 @@ export function useModelsPageData(revision: number) {
     };
   }, [applyBootstrapData, fetchData, revision]);
 
-  const commitModels = (updater: (current: ModelConfigListItem[]) => ModelConfigListItem[]) => {
+  const commitModels = (updater: (current: ManagedModelConfigListItem[]) => ManagedModelConfigListItem[]) => {
     setModels((current) => {
       const next = updater(current);
       setSharedModels(revision, next);
@@ -123,7 +187,7 @@ export function useModelsPageData(revision: number) {
     });
   };
 
-  const handleOpenDialog = async (model?: ModelConfigListItem) => {
+  const handleOpenDialog = async (model?: ManagedModelConfigListItem) => {
     if (model) {
       setEditingModel(model);
       setFormData(createEditModelFormData(model));
@@ -200,7 +264,7 @@ export function useModelsPageData(revision: number) {
       }
       setIsDialogOpen(false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : messages.modelsData.saveFailed;
+      const message = getModelSaveErrorMessage(error, messages.modelsData.saveFailed);
       setFormError(message);
       toast.error(message);
     }
@@ -224,6 +288,10 @@ export function useModelsPageData(revision: number) {
     models,
     formData.api_family ?? "openai",
     editingModel ? formData.model_id : undefined,
+  );
+  const promotionTargetModelsForApiFamily = getPromotionTargetModelsForApiFamily(
+    models,
+    formData.api_family ?? "openai",
   );
 
   const filtered = useMemo(
@@ -262,6 +330,7 @@ export function useModelsPageData(revision: number) {
     modelMetrics24h,
     modelSpend30dMicros,
     models,
+    promotionTargetModelsForApiFamily,
     targetModelsForApiFamily,
     vendors,
     search,

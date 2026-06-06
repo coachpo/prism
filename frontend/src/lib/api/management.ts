@@ -42,6 +42,22 @@ import type {
 import { normalizeFailureStatusCodes } from "../loadbalanceRoutingPolicy";
 import { request } from "./core";
 
+export type ManagedModelConfigListItem = ModelConfigListItem & {
+  context_overflow_promotion_target_id: string | null;
+};
+
+export type ManagedModelConfig = ModelConfig & {
+  context_overflow_promotion_target_id: string | null;
+};
+
+export type ManagedModelConfigCreate = ModelConfigCreate & {
+  context_overflow_promotion_target_id?: string | null;
+};
+
+export type ManagedModelConfigUpdate = ModelConfigUpdate & {
+  context_overflow_promotion_target_id?: string | null;
+};
+
 type RawLoadbalanceBanPolicyFields = {
   legacy_strategy_type?: unknown;
   failure_status_codes?: unknown;
@@ -79,12 +95,12 @@ type RawModelAccessTarget = Omit<ModelAccessTarget, "weight" | "target_priority"
   target_priority?: unknown;
 };
 
-type RawModelConfigListItem = Omit<ModelConfigListItem, "loadbalance_strategy" | "access_targets"> & {
+type RawModelConfigListItem = Omit<ManagedModelConfigListItem, "loadbalance_strategy" | "access_targets"> & {
   loadbalance_strategy: RawLoadbalanceStrategySummary | null;
   access_targets: RawModelAccessTarget[];
 };
 
-type RawModelConfig = Omit<ModelConfig, "loadbalance_strategy" | "access_targets"> & {
+type RawModelConfig = Omit<ManagedModelConfig, "loadbalance_strategy" | "access_targets"> & {
   loadbalance_strategy: RawLoadbalanceStrategySummary | null;
   access_targets: RawModelAccessTarget[];
 };
@@ -118,6 +134,16 @@ function normalizeNumber(value: unknown, field: string) {
 
 function unsupportedManagementModel(reason: string): never {
   throw new Error(`Unsupported model contract from management API: ${reason}`);
+}
+
+function normalizeOptionalString(value: unknown, field: string): string | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    unsupportedManagementModel(field);
+  }
+  return value;
 }
 
 function normalizeOptionalPositiveInteger(value: unknown, field: string): number | null {
@@ -257,17 +283,25 @@ function normalizeLoadbalanceStrategy(strategy: RawLoadbalanceStrategy): Loadbal
   };
 }
 
-function normalizeModelConfigListItem(model: RawModelConfigListItem): ModelConfigListItem {
+function normalizeModelConfigListItem(model: RawModelConfigListItem): ManagedModelConfigListItem {
   return {
     ...model,
+    context_overflow_promotion_target_id: normalizeOptionalString(
+      model.context_overflow_promotion_target_id,
+      "context_overflow_promotion_target_id",
+    ),
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(model.loadbalance_strategy),
     access_targets: model.access_targets.map(normalizeModelAccessTarget),
   };
 }
 
-function normalizeModelConfig(model: RawModelConfig): ModelConfig {
+function normalizeModelConfig(model: RawModelConfig): ManagedModelConfig {
   return {
     ...model,
+    context_overflow_promotion_target_id: normalizeOptionalString(
+      model.context_overflow_promotion_target_id,
+      "context_overflow_promotion_target_id",
+    ),
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(model.loadbalance_strategy),
     access_targets: model.access_targets.map(normalizeModelAccessTarget),
   };
@@ -333,12 +367,12 @@ export const models = {
     ),
   get: (id: number) =>
     request<RawModelConfig>(`/api/models/${id}`).then(normalizeModelConfig),
-  create: (data: ModelConfigCreate) =>
+  create: (data: ManagedModelConfigCreate) =>
     request<RawModelConfig>("/api/models", {
       method: "POST",
       body: JSON.stringify(data),
     }).then(normalizeModelConfig),
-  update: (id: number, data: ModelConfigUpdate) =>
+  update: (id: number, data: ManagedModelConfigUpdate) =>
     request<RawModelConfig>(`/api/models/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),

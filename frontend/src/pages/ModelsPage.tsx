@@ -67,6 +67,7 @@ export function ModelsPage() {
         formError={data.formError}
         isDialogOpen={data.isDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
+        promotionTargetModelsForApiFamily={data.promotionTargetModelsForApiFamily}
         targetModelsForApiFamily={data.targetModelsForApiFamily}
         vendors={data.vendors}
         setFormData={data.setFormData}
@@ -78,7 +79,7 @@ export function ModelsPage() {
       <DeleteModelDialog
         deleteTarget={data.deleteTarget}
         onDelete={data.handleDelete}
-        setDeleteTarget={data.setDeleteTarget}
+        setDeleteTarget={(model) => data.setDeleteTarget(model as typeof data.deleteTarget)}
       />
     </div>
   );

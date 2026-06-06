@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, Eye, Plus, Server, Trash2 } from "lucide-react";
+import { ChevronDown, Eye, Pencil, Plus, Server, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { CopyButton } from "@/components/CopyButton";
 import { EmptyState } from "@/components/EmptyState";
@@ -15,13 +15,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import type { ManagedModelConfigListItem } from "@/lib/api/management";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { formatMoneyMicros } from "@/lib/costing";
-import type { ModelConfigListItem } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { cn, formatApiFamily } from "@/lib/utils";
 import {
@@ -34,22 +34,22 @@ const UNKNOWN_VENDOR_KEY = "unknown-vendor";
 const STATUS_ORDER = [
   {
     key: "enabled",
-    matches: (model: ModelConfigListItem) => model.is_enabled,
+    matches: (model: ManagedModelConfigListItem) => model.is_enabled,
   },
   {
     key: "disabled",
-    matches: (model: ModelConfigListItem) => !model.is_enabled,
+    matches: (model: ManagedModelConfigListItem) => !model.is_enabled,
   },
 ] as const;
 
 type Props = {
-  filtered: ModelConfigListItem[];
-  handleOpenDialog: (model?: ModelConfigListItem) => void;
+  filtered: ManagedModelConfigListItem[];
+  handleOpenDialog: (model?: ManagedModelConfigListItem) => void;
   metricsLoading: boolean;
   modelMetrics24h: Record<number, ModelDerivedMetric>;
   modelSpend30dMicros: Record<number, number>;
   search: string;
-  setDeleteTarget: (model: ModelConfigListItem) => void;
+  setDeleteTarget: (model: ManagedModelConfigListItem) => void;
 };
 
 type SharedRenderProps = Pick<
@@ -58,14 +58,15 @@ type SharedRenderProps = Pick<
   | "modelMetrics24h"
   | "modelSpend30dMicros"
   | "setDeleteTarget"
+  | "handleOpenDialog"
 > & {
   currencySymbol: string;
-  onNavigate: (model: ModelConfigListItem) => void;
+  onNavigate: (model: ManagedModelConfigListItem) => void;
 };
 
 type VendorGroup = {
   groupKey: string;
-  models: ModelConfigListItem[];
+  models: ManagedModelConfigListItem[];
   vendor: {
     key?: string | null;
     name?: string | null;
@@ -75,15 +76,15 @@ type VendorGroup = {
   isUnknown: boolean;
 };
 
-function resolveApiFamily(model: ModelConfigListItem) {
+function resolveApiFamily(model: ManagedModelConfigListItem) {
   return model.api_family ?? "openai";
 }
 
-function isUnknownVendor(model: ModelConfigListItem) {
+function isUnknownVendor(model: ManagedModelConfigListItem) {
   return !model.vendor || model.vendor.key === UNKNOWN_VENDOR_KEY || isKnownUnknownVendorLabel(model.vendor.name);
 }
 
-function resolveVendorName(model: ModelConfigListItem, unknownVendorLabel: string) {
+function resolveVendorName(model: ManagedModelConfigListItem, unknownVendorLabel: string) {
   if (isUnknownVendor(model)) {
     return unknownVendorLabel;
   }
@@ -91,11 +92,11 @@ function resolveVendorName(model: ModelConfigListItem, unknownVendorLabel: strin
   return model.vendor?.name?.trim() || model.vendor?.key?.trim() || unknownVendorLabel;
 }
 
-function orderVendorModels(models: ModelConfigListItem[]) {
+function orderVendorModels(models: ManagedModelConfigListItem[]) {
   return STATUS_ORDER.flatMap(({ matches }) => models.filter((model) => matches(model)));
 }
 
-function groupModels(filtered: ModelConfigListItem[], unknownVendorLabel: string): VendorGroup[] {
+function groupModels(filtered: ManagedModelConfigListItem[], unknownVendorLabel: string): VendorGroup[] {
   const groups = new Map<string, VendorGroup>();
 
   filtered.forEach((model) => {
@@ -188,7 +189,7 @@ function InlineMetaDivider() {
 }
 
 function getTargetSummary(
-  model: ModelConfigListItem,
+  model: ManagedModelConfigListItem,
   formatNumber: (value: number) => string,
   needsTarget: string,
   targetsLabel: (count: string) => string,
@@ -207,15 +208,24 @@ function getTargetSummary(
   return `${targetsLabel(formatNumber(model.access_targets.length))} · ${firstTargetLabel(firstLabel)}`;
 }
 
+function getOverflowPromotionSummary(model: ManagedModelConfigListItem) {
+  const promotionTargetId = model.context_overflow_promotion_target_id?.trim();
+  if (!promotionTargetId) {
+    return null;
+  }
+  return `Overflow promote → ${promotionTargetId}`;
+}
+
 function ModelRow({
   currencySymbol,
+  handleOpenDialog,
   metricsLoading,
   model,
   modelMetrics24h,
   modelSpend30dMicros,
   onNavigate,
   setDeleteTarget,
-}: SharedRenderProps & { model: ModelConfigListItem }) {
+}: SharedRenderProps & { model: ManagedModelConfigListItem }) {
   const { formatNumber, locale, messages } = useLocale();
   const strategyCopy = messages.loadbalanceStrategyCopy;
   const copy = messages.modelsUi;
@@ -234,6 +244,7 @@ function ModelRow({
     detailCopy.firstTarget,
     detailCopy.connectionFallback,
   );
+  const overflowPromotionSummary = getOverflowPromotionSummary(model);
   const apiFamilyLabel = formatApiFamily(resolveApiFamily(model));
   const statusLabel = model.is_enabled ? detailCopy.enabled : detailCopy.disabled;
   const statusIntent = model.is_enabled ? "success" : "danger";
@@ -298,6 +309,12 @@ function ModelRow({
           <InlineMetaText>{strategySummary}</InlineMetaText>
           <InlineMetaDivider />
           <InlineMetaText>{targetSummary}</InlineMetaText>
+          {overflowPromotionSummary ? (
+            <>
+              <InlineMetaDivider />
+              <InlineMetaText intent="info">{overflowPromotionSummary}</InlineMetaText>
+            </>
+          ) : null}
           <InlineMetaDivider />
           <InlineMetaText>{apiFamilyLabel}</InlineMetaText>
           <InlineMetaDivider />
@@ -326,13 +343,20 @@ function ModelRow({
 
       <div className="flex shrink-0 items-center justify-end gap-2 pt-0.5">
         <IconActionGroup>
-            <IconActionButton
-              aria-label={copy.viewModelDetails(title)}
-              size="icon-sm"
-              onClick={() => onNavigate(model)}
-            >
-              <Eye className="h-3.5 w-3.5" />
-            </IconActionButton>
+          <IconActionButton
+            aria-label={`${copy.editModel}: ${title}`}
+            size="icon-sm"
+            onClick={() => handleOpenDialog(model)}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </IconActionButton>
+          <IconActionButton
+            aria-label={copy.viewModelDetails(title)}
+            size="icon-sm"
+            onClick={() => onNavigate(model)}
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </IconActionButton>
           <IconActionButton
             aria-label={copy.deleteModelDescription(title)}
             size="icon-sm"
@@ -350,6 +374,7 @@ function ModelRow({
 function VendorSection({
   currencySymbol,
   group,
+  handleOpenDialog,
   isExpanded,
   metricsLoading,
   modelMetrics24h,
@@ -413,6 +438,7 @@ function VendorSection({
               <ModelRow
                 key={model.id}
                 currencySymbol={currencySymbol}
+                handleOpenDialog={handleOpenDialog}
                 metricsLoading={metricsLoading}
                 model={model}
                 modelMetrics24h={modelMetrics24h}
@@ -480,6 +506,7 @@ export function ModelsTable({
           key={group.groupKey}
           currencySymbol={currencyState.currency.symbol}
           group={group}
+          handleOpenDialog={handleOpenDialog}
           isExpanded={search.trim().length > 0 || (expandedGroups[group.groupKey] ?? true)}
           metricsLoading={metricsLoading}
           modelMetrics24h={modelMetrics24h}

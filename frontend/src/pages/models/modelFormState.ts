@@ -6,10 +6,13 @@ import type {
   ModelAccessTargetMutation,
   ModelConfig,
   ModelConfigListItem,
-  ModelConfigUpdate,
-  ModelConfigCreate,
   Vendor,
 } from "@/lib/types";
+import type {
+  ManagedModelConfigCreate,
+  ManagedModelConfigListItem,
+  ManagedModelConfigUpdate,
+} from "@/lib/api/management";
 
 export type SubmitEventLike = Pick<Event, "preventDefault">;
 
@@ -23,6 +26,7 @@ export interface ModelFormData {
   default_output_token_reserve: string;
   max_context_utilization: string;
   preferred_context_utilization_threshold: string;
+  context_overflow_promotion_target_id: string;
   access_targets: ModelAccessTargetMutation[];
   is_enabled: boolean;
   last_auto_display_name?: string | null;
@@ -44,6 +48,7 @@ const DEFAULT_CONTEXT_WINDOW_TOKENS = "";
 const DEFAULT_OUTPUT_TOKEN_RESERVE = "4096";
 const DEFAULT_MAX_CONTEXT_UTILIZATION = "0.90";
 const DEFAULT_PREFERRED_CONTEXT_UTILIZATION_THRESHOLD = "";
+const DEFAULT_CONTEXT_OVERFLOW_PROMOTION_TARGET_ID = "";
 const DEFAULT_MODEL_TARGET_WEIGHT = 1;
 const DEFAULT_MODEL_TARGET_PRIORITY = 0;
 
@@ -57,6 +62,7 @@ export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   default_output_token_reserve: DEFAULT_OUTPUT_TOKEN_RESERVE,
   max_context_utilization: DEFAULT_MAX_CONTEXT_UTILIZATION,
   preferred_context_utilization_threshold: DEFAULT_PREFERRED_CONTEXT_UTILIZATION_THRESHOLD,
+  context_overflow_promotion_target_id: DEFAULT_CONTEXT_OVERFLOW_PROMOTION_TARGET_ID,
   access_targets: [],
   is_enabled: false,
   last_auto_display_name: "",
@@ -102,6 +108,11 @@ function parseOptionalUtilizationField(value: string): number | null {
   }
   const parsedValue = Number(value);
   return Number.isFinite(parsedValue) && parsedValue > 0 && parsedValue <= 1 ? parsedValue : null;
+}
+
+function normalizeOptionalModelIdField(value: string | null | undefined): string | null {
+  const trimmedValue = value?.trim() ?? "";
+  return trimmedValue === "" ? null : trimmedValue;
 }
 
 function parseRequiredUtilizationField(value: string): number | null {
@@ -356,7 +367,7 @@ export function updateModelAccessTargetTierSemantics(
   );
 }
 
-type EditableModelFormSource =
+type EditableModelFormSource = (
   | Pick<
       ModelConfig,
       |
@@ -386,7 +397,10 @@ type EditableModelFormSource =
         | "preferred_context_utilization_threshold"
         | "access_targets"
         | "is_enabled"
-    >;
+    >
+) & {
+  context_overflow_promotion_target_id?: string | null;
+};
 
 export function getModelConnections(
   model: Pick<ModelConfig, "access_targets"> | Pick<ModelConfigListItem, "access_targets">,
@@ -410,6 +424,7 @@ export function createEditModelFormData(model: EditableModelFormSource): ModelFo
     default_output_token_reserve: stringifyCapabilityValue(model.default_output_token_reserve),
     max_context_utilization: stringifyCapabilityValue(model.max_context_utilization),
     preferred_context_utilization_threshold: stringifyCapabilityValue(model.preferred_context_utilization_threshold),
+    context_overflow_promotion_target_id: model.context_overflow_promotion_target_id ?? "",
     access_targets: normalizeAccessTargetMutations(
       model.access_targets.map(accessTargetToMutation).filter((target): target is ModelAccessTargetMutation => target !== null),
     ),
@@ -429,6 +444,7 @@ export function createNewModelFormData(_vendors: Vendor[], loadbalanceStrategyId
     default_output_token_reserve: DEFAULT_MODEL_FORM_DATA.default_output_token_reserve,
     max_context_utilization: DEFAULT_MODEL_FORM_DATA.max_context_utilization,
     preferred_context_utilization_threshold: DEFAULT_MODEL_FORM_DATA.preferred_context_utilization_threshold,
+    context_overflow_promotion_target_id: DEFAULT_MODEL_FORM_DATA.context_overflow_promotion_target_id,
     access_targets: [...DEFAULT_MODEL_FORM_DATA.access_targets],
     is_enabled: DEFAULT_MODEL_FORM_DATA.is_enabled,
     last_auto_display_name: DEFAULT_MODEL_FORM_DATA.last_auto_display_name,
@@ -554,10 +570,13 @@ function getNormalizedCapabilityState(formData: ModelFormData) {
     default_output_token_reserve: defaultOutputTokenReserve,
     max_context_utilization: maxContextUtilization,
     preferred_context_utilization_threshold: preferredContextUtilizationThreshold,
+    context_overflow_promotion_target_id: normalizeOptionalModelIdField(
+      formData.context_overflow_promotion_target_id,
+    ),
   };
 }
 
-export function toModelCreatePayload(formData: ModelFormData): ModelConfigCreate {
+export function toModelCreatePayload(formData: ModelFormData): ManagedModelConfigCreate {
   const normalizedDisplayName = formData.display_name?.trim() || formData.model_id.trim();
   return {
     vendor_id: formData.vendor_id ?? null,
@@ -570,7 +589,7 @@ export function toModelCreatePayload(formData: ModelFormData): ModelConfigCreate
   };
 }
 
-export function toModelUpdatePayload(formData: ModelFormData): ModelConfigUpdate {
+export function toModelUpdatePayload(formData: ModelFormData): ManagedModelConfigUpdate {
   return {
     vendor_id: formData.vendor_id ?? null,
     api_family: formData.api_family,
@@ -593,6 +612,7 @@ export function setApiFamilyOnForm(formData: ModelFormData, apiFamily: ApiFamily
   return {
     ...formData,
     api_family: apiFamily,
+    context_overflow_promotion_target_id: "",
     access_targets: [],
   };
 }
@@ -611,17 +631,36 @@ export function setDisplayNameOnForm(formData: ModelFormData, displayName: strin
   return { ...formData, display_name: displayName };
 }
 
-export function getAccessTargetModelsForApiFamily(
-  models: ModelConfigListItem[],
+type ApiFamilyModelOption = {
+  api_family: ApiFamily;
+  model_id: string;
+};
+
+export function getAccessTargetModelsForApiFamily<T extends ApiFamilyModelOption>(
+  models: T[],
   apiFamily: ApiFamily,
   excludedModelId?: string,
-): ModelConfigListItem[] {
+): T[] {
   return models.filter(
     (model) => model.api_family === apiFamily && (!excludedModelId || model.model_id !== excludedModelId),
   );
 }
 
-export function toModelListItem(model: ModelConfig, existing?: ModelConfigListItem): ModelConfigListItem {
+export function getPromotionTargetModelsForApiFamily<T extends ApiFamilyModelOption>(
+  models: T[],
+  apiFamily: ApiFamily,
+): T[] {
+  return models.filter((model) => model.api_family === apiFamily);
+}
+
+type ModelListItemSource = ModelConfig & {
+  context_overflow_promotion_target_id?: string | null;
+};
+
+export function toModelListItem(
+  model: ModelListItemSource,
+  existing?: ModelConfigListItem,
+): ManagedModelConfigListItem {
   const connections = getModelConnections(model);
   return {
     id: model.id,
@@ -637,6 +676,7 @@ export function toModelListItem(model: ModelConfig, existing?: ModelConfigListIt
     default_output_token_reserve: model.default_output_token_reserve,
     max_context_utilization: model.max_context_utilization,
     preferred_context_utilization_threshold: model.preferred_context_utilization_threshold,
+    context_overflow_promotion_target_id: model.context_overflow_promotion_target_id ?? null,
     access_targets: model.access_targets,
     is_enabled: model.is_enabled,
     connection_count: connections.length,

@@ -18,6 +18,14 @@ interface UseConfigBackupDataInput {
   selectedProfileId: number | null;
 }
 
+type ParsedConfigImportRequest = ConfigImportRequest & {
+  models: Array<
+    ConfigImportRequest["models"][number] & {
+      context_overflow_promotion_target_id?: string | null;
+    }
+  >;
+};
+
 function buildProfileConfigExportFilename(mode: ConfigExportMode, now: Date = new Date()) {
   const date = now.toISOString().split("T")[0];
   return mode === "dangerous"
@@ -42,7 +50,7 @@ export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConf
   const [previewing, setPreviewing] = useState(false);
   const [exportSecretsAcknowledged, setExportSecretsAcknowledged] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [parsedConfig, setParsedConfig] = useState<ConfigImportRequest | null>(null);
+  const [parsedConfig, setParsedConfig] = useState<ParsedConfigImportRequest | null>(null);
   const [previewResult, setPreviewResult] = useState<ConfigImportPreviewResponse | null>(null);
   const [previewInvalidationReason, setPreviewInvalidationReason] =
     useState<PreviewInvalidationReason | null>(null);
@@ -157,7 +165,7 @@ export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConf
         throw new Error(messages.settingsBackupData.invalidConfigPayload(errors));
       }
 
-      setParsedConfig(validation.data as ConfigImportRequest);
+      setParsedConfig(validation.data as ParsedConfigImportRequest);
     } catch (error) {
       if (currentSelectionTokenRef.current !== selectionToken) {
         return;

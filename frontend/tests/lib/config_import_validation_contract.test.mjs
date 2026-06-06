@@ -180,6 +180,48 @@ test("config import schema accepts backend-exported facade model fields", () => 
   );
 });
 
+test("config import schema accepts backend-exported overflow promotion target field", () => {
+  const payload = buildValidConfigImport();
+  payload.connections = [];
+  payload.profile_settings.endpoint_fx_mappings = [];
+  payload.models = [
+    {
+      vendor_key: "openai",
+      api_family: "openai",
+      model_id: "gpt-4o-router",
+      display_name: "GPT 4o Router",
+      loadbalance_strategy_name: "Default single",
+      ...liveAuthoringCapabilityDefaults,
+      context_overflow_promotion_target_id: "gpt-4o-terminal",
+      is_enabled: true,
+      access_targets: [
+        {
+          position: 0,
+          is_enabled: true,
+          target_type: "model",
+          target_model_id: "gpt-4o-terminal",
+          weight: 3,
+          target_priority: 0,
+        },
+      ],
+    },
+    {
+      vendor_key: "openai",
+      api_family: "openai",
+      model_id: "gpt-4o-terminal",
+      display_name: "GPT 4o Terminal",
+      loadbalance_strategy_name: "Default single",
+      ...liveAuthoringCapabilityDefaults,
+      is_enabled: true,
+      access_targets: [],
+    },
+  ];
+
+  const parsed = ConfigImportSchema.parse(payload);
+
+  assert.equal(parsed.models[0].context_overflow_promotion_target_id, "gpt-4o-terminal");
+});
+
 test("config import schema rejects profile bundles before v3", () => {
   const payload = buildValidConfigImport();
   payload.version = payload.version - 1;
