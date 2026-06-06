@@ -56,6 +56,7 @@ import {
   parseNullableInteger,
   parseOrigins,
   summarizeApplyResult,
+  summarizeBootstrapFileState,
   validateStartupValues,
   type DangerousConfirmation,
   type FieldErrors,
@@ -607,7 +608,7 @@ export function SettingsStartupTab() {
   const smtpValues = mailValues.smtp ?? smtpValuesForNewOrIncompleteMailConfig();
   const mailEnabled = Boolean(mailValues.enabled);
   const smtpControlsDisabled = controlsDisabled || !mailEnabled;
-  const currentApplySummary = summarizeApplyResult(bootstrapConfig.apply_result, copy);
+  const currentApplySummary = summarizeBootstrapFileState(bootstrapConfig, copy);
   const fieldEffect = (field: string) => <FieldEffectBadge capability={bootstrapConfig.apply_capabilities[field]} copy={copy} />;
   const sectionEffect = (fields: string[]) => <SectionEffectBadge capabilities={bootstrapConfig.apply_capabilities} copy={copy} fields={fields} />;
 
@@ -618,9 +619,9 @@ export function SettingsStartupTab() {
         <AlertTitle>{copy.startupBootstrapConfigTitle}</AlertTitle>
         <AlertDescription>{copy.startupBootstrapConfigDescription}</AlertDescription>
       </Alert>
-      {bootstrapConfig.apply_result ? (
+      {bootstrapConfig.apply_result || currentApplySummary.status === "warning" ? (
         <Alert variant={currentApplySummary.status === "error" ? "destructive" : "default"}>
-          <RefreshCw />
+          {bootstrapConfig.apply_result ? <RefreshCw /> : <AlertCircle />}
           <AlertTitle>{currentApplySummary.badge}</AlertTitle>
           <AlertDescription>{currentApplySummary.message}</AlertDescription>
         </Alert>

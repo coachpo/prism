@@ -750,6 +750,30 @@ export function summarizeApplyResult(applyResult: BootstrapConfigApplyResult | u
   };
 }
 
+export function summarizeBootstrapFileState(bootstrapConfig: BootstrapConfigResponse, copy: SettingsStartupCopy) {
+  if (bootstrapConfig.apply_result) {
+    return summarizeApplyResult(bootstrapConfig.apply_result, copy);
+  }
+
+  if (bootstrapConfig.file_revision !== bootstrapConfig.loaded_revision || bootstrapConfig.document_etag !== bootstrapConfig.loaded_document_etag) {
+    return {
+      badge: copy.fileDiffersFromRunningPrism,
+      message: copy.fileDiffersFromRunningPrismDescription,
+      toast: copy.alreadyUpToDateToast,
+      status: "warning" as ValidationStatus,
+      variant: "secondary" as const,
+    };
+  }
+
+  return {
+    badge: copy.loaded,
+    message: copy.fileStatusDescription,
+    toast: copy.alreadyUpToDateToast,
+    status: "success" as ValidationStatus,
+    variant: "outline" as const,
+  };
+}
+
 export function buildApplyResultRows(applyResult: BootstrapConfigApplyResult | undefined, copy: SettingsStartupCopy): ValidationRow[] {
   if (!applyResult) {
     return [{ field: "save", message: copy.noEffectiveChangesWritten, status: "success" }];

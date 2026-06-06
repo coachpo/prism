@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,18 +23,18 @@ import (
 )
 
 const (
-	routeTestDatabasePassword                      = "route-db-password"
-	routeTestDatabaseQueryPassword                 = "route-query-password"
-	routeTestDatabaseSSLPassword                   = "route-ssl-password"
-	routeTestDatabaseURL                           = "postgres://prism:" + routeTestDatabasePassword + "@db.route.internal:5432/prism?sslmode=disable&password=" + routeTestDatabaseQueryPassword + "&sslpassword=" + routeTestDatabaseSSLPassword
-	routeTestNextDatabasePassword                  = "route-next-db-password"
-	routeTestNextDatabaseURL                       = "postgres://prism:" + routeTestNextDatabasePassword + "@db.next.internal:5432/prism?sslmode=disable"
-	routeTestReplacementJWTSecret                  = "route-replacement-jwt-secret"
-	routeTestRuntimeReplacementSecret              = "route-runtime-replacement-secret"
-	routeTestTelemetryAuthorizationHeader                 = "Bearer route-telemetry-secret"
-	routeTestRuntimeSideEffectsAttemptTimeoutField        = "runtime.side_effects.attempt_timeout"
-	routeTestRuntimeRoutingPlannerModeField               = "runtime.routing.planner_mode"
-	routeTestRuntimeRoutingOpenAITranslationModeField     = "runtime.routing.openai_terminal_translation_mode"
+	routeTestDatabasePassword                         = "route-db-password"
+	routeTestDatabaseQueryPassword                    = "route-query-password"
+	routeTestDatabaseSSLPassword                      = "route-ssl-password"
+	routeTestDatabaseURL                              = "postgres://prism:" + routeTestDatabasePassword + "@db.route.internal:5432/prism?sslmode=disable&password=" + routeTestDatabaseQueryPassword + "&sslpassword=" + routeTestDatabaseSSLPassword
+	routeTestNextDatabasePassword                     = "route-next-db-password"
+	routeTestNextDatabaseURL                          = "postgres://prism:" + routeTestNextDatabasePassword + "@db.next.internal:5432/prism?sslmode=disable"
+	routeTestReplacementJWTSecret                     = "route-replacement-jwt-secret"
+	routeTestRuntimeReplacementSecret                 = "route-runtime-replacement-secret"
+	routeTestTelemetryAuthorizationHeader             = "Bearer route-telemetry-secret"
+	routeTestRuntimeSideEffectsAttemptTimeoutField    = "runtime.side_effects.attempt_timeout"
+	routeTestRuntimeRoutingPlannerModeField           = "runtime.routing.planner_mode"
+	routeTestRuntimeRoutingOpenAITranslationModeField = "runtime.routing.openai_terminal_translation_mode"
 )
 
 var (
@@ -349,6 +352,7 @@ func TestBootstrapConfigRoutePutRestartOnlyDoesNotPublishHotRuntime(t *testing.T
 	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{"server.port"})
 	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
 	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
+	assertLoadedMetadata(t, body, snapshot.FileRevision, snapshot.DocumentETag)
 
 	getResponse := fixture.do(t, http.MethodGet, "/api/config/bootstrap", nil)
 	requireStatus(t, getResponse, http.StatusOK)
@@ -359,6 +363,7 @@ func TestBootstrapConfigRoutePutRestartOnlyDoesNotPublishHotRuntime(t *testing.T
 	assertStringSetEqual(t, getBody.ApplyResult.RestartRequiredFields, []string{"server.port"})
 	assertStringSetEqual(t, getBody.ApplyResult.PendingHotApplyFields, []string{})
 	assertStringSetEqual(t, getBody.ApplyResult.FailedHotApplyFields, []string{})
+	assertLoadedMetadata(t, getBody, snapshot.FileRevision, snapshot.DocumentETag)
 }
 
 func TestBootstrapConfigRoutePutPublishesHotApplyRuntimeAfterWrite(t *testing.T) {
@@ -374,6 +379,9 @@ func TestBootstrapConfigRoutePutPublishesHotApplyRuntimeAfterWrite(t *testing.T)
 		}
 		if got := writtenSettings.RuntimeTransport().RequestTimeout; got != 301*time.Second {
 			t.Fatalf("expected canonical file write before publish to include request timeout 301s, got %s", got)
+		}
+		if got := writtenSettings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 2 || got.M3MaxConcurrent != 1 {
+			t.Fatalf("expected canonical file write before publish to include admission 2/1, got %+v", got)
 		}
 	}
 	service, err := NewService(settings, Options{
@@ -392,6 +400,8 @@ func TestBootstrapConfigRoutePutPublishesHotApplyRuntimeAfterWrite(t *testing.T)
 	request := bootstrapRouteRequestForSnapshot(t, snapshot)
 	request.Values.Auth.AccessTokenTTLSeconds = routeIntPtr(2400)
 	request.Values.Runtime.Transport.RequestTimeout = routeStringPtr("301s")
+	request.Values.Database.ManagementAdmission.M2MaxConcurrent = routeIntPtr(2)
+	request.Values.Database.ManagementAdmission.M3MaxConcurrent = routeIntPtr(1)
 
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/config/bootstrap", bytes.NewReader(mustMarshalBootstrapRouteJSON(t, request))))
@@ -406,13 +416,32 @@ func TestBootstrapConfigRoutePutPublishesHotApplyRuntimeAfterWrite(t *testing.T)
 	if got := hotRuntime.published.RuntimeTransport().RequestTimeout; got != 301*time.Second {
 		t.Fatalf("expected published hot request timeout 301s, got %s", got)
 	}
+	if got := hotRuntime.published.ManagementAdmissionBudget(); got.M2MaxConcurrent != 2 || got.M3MaxConcurrent != 1 {
+		t.Fatalf("expected published hot admission 2/1, got %+v", got)
+	}
 	body := decodeBootstrapConfigResponse(t, response)
 	if body.RestartRequired || body.ApplyResult == nil {
 		t.Fatalf("expected hot-only successful apply without restart, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
 	}
-	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{"auth.access_token_ttl_seconds", "runtime.transport.request_timeout"})
+	assertLoadedMetadataMatchesFile(t, body)
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{
+		"auth.access_token_ttl_seconds",
+		"runtime.transport.request_timeout",
+		"database.management_admission.m2_max_concurrent",
+		"database.management_admission.m3_max_concurrent",
+	})
 	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
 	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
+
+	getResponse := httptest.NewRecorder()
+	router.ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/api/config/bootstrap", nil))
+
+	requireStatus(t, getResponse, http.StatusOK)
+	getBody := decodeBootstrapConfigResponse(t, getResponse)
+	if getBody.RestartRequired || getBody.ApplyResult != nil {
+		t.Fatalf("expected successful hot-only GET to report no drift, got restart=%v result=%+v", getBody.RestartRequired, getBody.ApplyResult)
+	}
+	assertLoadedMetadataMatchesFile(t, getBody)
 }
 
 func TestBootstrapConfigRoutePutValidatesHotApplyBeforeWrite(t *testing.T) {
@@ -468,6 +497,7 @@ func TestBootstrapConfigRoutePutPublishFailureReturnsApplyResultAndPendingRetry(
 	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{})
 	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{"auth.access_token_ttl_seconds"})
 	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{"auth.access_token_ttl_seconds"})
+	assertLoadedMetadata(t, body, snapshot.FileRevision, snapshot.DocumentETag)
 	detail := decodeErrorDetailMap(t, response)
 	if detail["message"] != "Failed to apply bootstrap config" || !containsStringValue(detail["failed_hot_apply_fields"], "auth.access_token_ttl_seconds") {
 		t.Fatalf("expected structured apply failure detail, got %+v", detail)
@@ -492,6 +522,7 @@ func TestBootstrapConfigRoutePutPublishFailureReturnsApplyResultAndPendingRetry(
 	}
 	assertStringSetEqual(t, getBody.ApplyResult.PendingHotApplyFields, []string{"auth.access_token_ttl_seconds"})
 	assertStringSetEqual(t, getBody.ApplyResult.FailedHotApplyFields, []string{})
+	assertLoadedMetadata(t, getBody, snapshot.FileRevision, snapshot.DocumentETag)
 
 	hotRuntime.publishErr = nil
 	retryRequest := bootstrapRouteRequestForSnapshot(t, writtenSnapshot)
@@ -508,6 +539,7 @@ func TestBootstrapConfigRoutePutPublishFailureReturnsApplyResultAndPendingRetry(
 	assertStringSetEqual(t, retryBody.ApplyResult.AppliedNowFields, []string{"auth.access_token_ttl_seconds"})
 	assertStringSetEqual(t, retryBody.ApplyResult.PendingHotApplyFields, []string{})
 	assertStringSetEqual(t, retryBody.ApplyResult.FailedHotApplyFields, []string{})
+	assertLoadedMetadataMatchesFile(t, retryBody)
 
 	finalGetResponse := fixture.do(t, http.MethodGet, "/api/config/bootstrap", nil)
 	requireStatus(t, finalGetResponse, http.StatusOK)
@@ -515,6 +547,7 @@ func TestBootstrapConfigRoutePutPublishFailureReturnsApplyResultAndPendingRetry(
 	if finalGetBody.RestartRequired || finalGetBody.ApplyResult != nil {
 		t.Fatalf("expected retry to clear pending GET effects, got restart=%v result=%+v", finalGetBody.RestartRequired, finalGetBody.ApplyResult)
 	}
+	assertLoadedMetadataMatchesFile(t, finalGetBody)
 }
 
 func TestBootstrapConfigRoutePutPublishesOnlyHotProjectedSettings(t *testing.T) {
@@ -556,13 +589,43 @@ func TestBootstrapConfigRoutePutPublishesOnlyHotProjectedSettings(t *testing.T) 
 	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{config.BootstrapConfigSecretDatabaseURL})
 	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
 	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
-	_, writtenSettings, err := manager.LoadBootstrapConfigDocument(path)
+	assertLoadedMetadata(t, body, snapshot.FileRevision, snapshot.DocumentETag)
+	writtenSnapshot, writtenSettings, err := manager.LoadBootstrapConfigDocument(path)
 	if err != nil {
 		t.Fatalf("load written bootstrap config: %v", err)
 	}
 	if writtenSettings.DatabaseURL != routeTestNextDatabaseURL {
 		t.Fatal("expected restart-only database URL to persist to file")
 	}
+
+	revertRequest := bootstrapRouteRequestForSnapshot(t, writtenSnapshot)
+	revertRequest.SecretUpdates[config.BootstrapConfigSecretDatabaseURL] = config.BootstrapConfigSecretUpdate{Action: config.BootstrapConfigSecretActionReplace, Value: routeStringPtr(routeTestDatabaseURL)}
+	revertRequest.Confirmations = []string{config.BootstrapConfigConfirmationDatabaseURLChange}
+	revertResponse := httptest.NewRecorder()
+	router.ServeHTTP(revertResponse, httptest.NewRequest(http.MethodPut, "/api/config/bootstrap", bytes.NewReader(mustMarshalBootstrapRouteJSON(t, revertRequest))))
+
+	requireStatus(t, revertResponse, http.StatusOK)
+	if hotRuntime.validateCalls != 1 || hotRuntime.publishCalls != 1 {
+		t.Fatalf("expected revert-to-live PUT not to republish hot runtime, got validate=%d publish=%d", hotRuntime.validateCalls, hotRuntime.publishCalls)
+	}
+	revertBody := decodeBootstrapConfigResponse(t, revertResponse)
+	if revertBody.RestartRequired || revertBody.ApplyResult == nil {
+		t.Fatalf("expected revert-to-live PUT to clear restart drift, got restart=%v result=%+v", revertBody.RestartRequired, revertBody.ApplyResult)
+	}
+	assertStringSetEqual(t, revertBody.ApplyResult.AppliedNowFields, []string{})
+	assertStringSetEqual(t, revertBody.ApplyResult.RestartRequiredFields, []string{})
+	assertStringSetEqual(t, revertBody.ApplyResult.PendingHotApplyFields, []string{})
+	assertStringSetEqual(t, revertBody.ApplyResult.FailedHotApplyFields, []string{})
+	assertLoadedMetadataMatchesFile(t, revertBody)
+
+	finalGetResponse := httptest.NewRecorder()
+	router.ServeHTTP(finalGetResponse, httptest.NewRequest(http.MethodGet, "/api/config/bootstrap", nil))
+	requireStatus(t, finalGetResponse, http.StatusOK)
+	finalGetBody := decodeBootstrapConfigResponse(t, finalGetResponse)
+	if finalGetBody.RestartRequired || finalGetBody.ApplyResult != nil {
+		t.Fatalf("expected revert-to-live GET to report no drift, got restart=%v result=%+v", finalGetBody.RestartRequired, finalGetBody.ApplyResult)
+	}
+	assertLoadedMetadataMatchesFile(t, finalGetBody)
 }
 
 func TestBootstrapConfigRoutePutHotOnlyCORSAppliesNewOriginWithoutRestart(t *testing.T) {
@@ -839,6 +902,91 @@ func TestBootstrapConfigRouteConcurrentPUTsSerializeAndKeepReadableConfig(t *tes
 	if finalSettings.AuthAccessTokenTTLSeconds != 2100 || finalSettings.AuthRefreshTokenTTLSeconds != 2200 {
 		t.Fatalf("expected final config to include both serialized updates, got access=%d refresh=%d", finalSettings.AuthAccessTokenTTLSeconds, finalSettings.AuthRefreshTokenTTLSeconds)
 	}
+}
+
+func TestBootstrapConfigRouteValidateWaitsForInFlightHotApplyMetadata(t *testing.T) {
+	previousMaxProcs := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previousMaxProcs) })
+	t.Setenv("DATABASE_URL", routeTestDatabaseURL)
+	path := filepath.Join(t.TempDir(), "bootstrap-config.json")
+	currentTime := routeTestCreatedAt
+	seedManager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{TimeNow: func() time.Time { return currentTime }})
+	if _, err := seedManager.LoadOrSeed(path); err != nil {
+		t.Fatalf("seed temp bootstrap config: %v", err)
+	}
+	currentTime = routeTestUpdatedAt
+	snapshot, settings, err := seedManager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load temp bootstrap config snapshot: %v", err)
+	}
+
+	var observeValidateReads atomic.Bool
+	var releasedHotApply atomic.Bool
+	var validateReadBeforeRelease atomic.Bool
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{
+		TimeNow: func() time.Time { return currentTime },
+		ReadFile: func(path string) ([]byte, error) {
+			if observeValidateReads.Load() && !releasedHotApply.Load() {
+				validateReadBeforeRelease.Store(true)
+			}
+			return os.ReadFile(path)
+		},
+	})
+	hotRuntime := newBlockingHotApplyRuntime()
+	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
+	putRequest := bootstrapRouteRequestForSnapshot(t, snapshot)
+	putRequest.Values.Auth.AccessTokenTTLSeconds = routeIntPtr(2100)
+
+	putDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		putDone <- fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", putRequest)
+	}()
+
+	<-hotRuntime.firstPublishStarted
+	writtenSnapshot, _, err := seedManager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load config after blocked hot apply write: %v", err)
+	}
+	validateRequest := bootstrapRouteRequestForSnapshot(t, writtenSnapshot)
+	validateBody := newSignalOnEOFReadCloser(mustMarshalBootstrapRouteJSON(t, validateRequest))
+	request := httptest.NewRequest(http.MethodPost, "/api/config/bootstrap/validate", validateBody)
+	request.Header.Set("Content-Type", "application/json")
+	observeValidateReads.Store(true)
+	validateDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		response := httptest.NewRecorder()
+		fixture.router.ServeHTTP(response, request)
+		validateDone <- response
+	}()
+
+	<-validateBody.done
+	for range 10 {
+		runtime.Gosched()
+	}
+	if validateReadBeforeRelease.Load() {
+		releasedHotApply.Store(true)
+		close(hotRuntime.releaseFirstPublish)
+		<-putDone
+		<-validateDone
+		t.Fatal("expected validate to wait for in-flight hot apply before reading bootstrap config")
+	}
+
+	releasedHotApply.Store(true)
+	close(hotRuntime.releaseFirstPublish)
+	putResponse := <-putDone
+	validateResponse := <-validateDone
+
+	requireStatus(t, putResponse, http.StatusOK)
+	putBody := decodeBootstrapConfigResponse(t, putResponse)
+	assertStringSetEqual(t, putBody.ApplyResult.AppliedNowFields, []string{"auth.access_token_ttl_seconds"})
+	assertLoadedMetadataMatchesFile(t, putBody)
+
+	requireStatus(t, validateResponse, http.StatusOK)
+	responseBody := decodeBootstrapConfigResponse(t, validateResponse)
+	if responseBody.RestartRequired || responseBody.PlannedChanges == nil || responseBody.PlannedChanges.RestartRequired || len(responseBody.PlannedChanges.ChangedFields) != 0 {
+		t.Fatalf("expected no-op validate to wait for coherent hot-applied metadata, got restart=%v planned=%+v", responseBody.RestartRequired, responseBody.PlannedChanges)
+	}
+	assertLoadedMetadataMatchesFile(t, responseBody)
 }
 
 func TestBootstrapConfigRoutesRejectStaleOrMissingExpectations(t *testing.T) {
@@ -1239,6 +1387,32 @@ func mustMarshalBootstrapRouteJSON(t *testing.T, value any) []byte {
 	return payload
 }
 
+type signalOnEOFReadCloser struct {
+	reader *bytes.Reader
+	done   chan struct{}
+	once   sync.Once
+}
+
+func newSignalOnEOFReadCloser(payload []byte) *signalOnEOFReadCloser {
+	return &signalOnEOFReadCloser{
+		reader: bytes.NewReader(payload),
+		done:   make(chan struct{}),
+	}
+}
+
+func (r *signalOnEOFReadCloser) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if err == io.EOF {
+		r.once.Do(func() { close(r.done) })
+	}
+	return n, err
+}
+
+func (r *signalOnEOFReadCloser) Close() error {
+	r.once.Do(func() { close(r.done) })
+	return nil
+}
+
 func bootstrapRouteRequestForSnapshot(t *testing.T, snapshot config.BootstrapConfigSnapshot) config.BootstrapConfigUpdateRequest {
 	t.Helper()
 	values := cloneBootstrapRouteValues(t, snapshot.Values)
@@ -1453,6 +1627,18 @@ func assertStringSetEqual(t *testing.T, got []string, want []string) {
 	slices.Sort(sortedWant)
 	if !slices.Equal(sortedGot, sortedWant) {
 		t.Fatalf("unexpected string set\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func assertLoadedMetadataMatchesFile(t *testing.T, body config.BootstrapConfigResponse) {
+	t.Helper()
+	assertLoadedMetadata(t, body, body.FileRevision, body.DocumentETag)
+}
+
+func assertLoadedMetadata(t *testing.T, body config.BootstrapConfigResponse, revision int, documentETag string) {
+	t.Helper()
+	if body.LoadedRevision != revision || body.LoadedDocumentETag != documentETag {
+		t.Fatalf("unexpected loaded metadata: loaded revision/etag=%d/%q want %d/%q, file revision/etag=%d/%q", body.LoadedRevision, body.LoadedDocumentETag, revision, documentETag, body.FileRevision, body.DocumentETag)
 	}
 }
 

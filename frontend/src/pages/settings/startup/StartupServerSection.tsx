@@ -272,7 +272,7 @@ export function StartupFileStatusCard({ bootstrapConfig, copy, currentApplySumma
           <span className="text-muted-foreground">{copy.state}</span>
           <span className="flex items-center gap-2">
             <Badge variant={bootstrapConfig.writable ? "secondary" : "destructive"}>{bootstrapConfig.writable ? copy.writable : copy.readOnly}</Badge>
-            <Badge variant={bootstrapConfig.apply_result ? currentApplySummary.variant : "outline"}>{bootstrapConfig.apply_result ? currentApplySummary.badge : copy.loaded}</Badge>
+            <Badge variant={currentApplySummary.variant}>{currentApplySummary.badge}</Badge>
           </span>
         </div>
       </CardContent>

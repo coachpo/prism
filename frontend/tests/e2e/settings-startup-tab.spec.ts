@@ -441,6 +441,55 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
 });
 
+test("initial startup revision drift shows neutral running-file status", async ({ page }) => {
+  const response = createBootstrapResponse();
+  response.file_revision = 8;
+
+  await mockSettingsStartupRoutes(page, { bootstrapResponse: response });
+  await openReadyStartupTab(page);
+
+  await expect(page.getByText("File differs from running Prism").first()).toBeVisible();
+  await expect(page.getByText("The saved bootstrap file metadata differs from the metadata loaded by the running Prism process.")).toBeVisible();
+});
+
+test("initial startup etag drift shows neutral running-file status", async ({ page }) => {
+  const response = createBootstrapResponse();
+  response.document_etag = "etag-8";
+
+  await mockSettingsStartupRoutes(page, { bootstrapResponse: response });
+  await openReadyStartupTab(page);
+
+  await expect(page.getByText("File differs from running Prism").first()).toBeVisible();
+  await expect(page.getByText("The saved bootstrap file metadata differs from the metadata loaded by the running Prism process.")).toBeVisible();
+});
+
+test("startup save result copy takes precedence over neutral running-file drift", async ({ page }) => {
+  await mockSettingsStartupRoutes(page, {
+    updateResponse: (payload, current) => ({
+      ...current,
+      file_revision: current.file_revision + 1,
+      document_etag: "etag-saved-8",
+      updated_at: "2026-04-28T12:05:00Z",
+      restart_required: false,
+      apply_result: {
+        applied_now_fields: ["runtime.transport.request_timeout"],
+        restart_required_fields: [],
+        unchanged_fields: [],
+        pending_hot_apply_fields: [],
+        failed_hot_apply_fields: [],
+      },
+      values: payload.values,
+    }),
+  });
+
+  await openReadyStartupTab(page);
+  await page.getByRole("textbox", { name: "Request timeout" }).fill("45s");
+  await page.getByRole("button", { name: "Save startup config" }).click();
+
+  await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
+  await expect(page.getByText("File differs from running Prism")).toHaveCount(0);
+});
+
 test("startup default advanced disclosures stay collapsed until opened", async ({ page }) => {
   await mockSettingsStartupRoutes(page);
 

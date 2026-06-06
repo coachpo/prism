@@ -692,6 +692,8 @@ export interface Messages {
     fileRevision: string;
     fileStatusDescription: string;
     fileStatusTitle: string;
+    fileDiffersFromRunningPrism: string;
+    fileDiffersFromRunningPrismDescription: string;
     fixClientErrorsBeforeBackendValidation: string;
     hostChangeLabel: string;
     hotApplyChangesStaged: (count: number) => string;
@@ -2911,6 +2913,8 @@ export const enMessages: Messages = {
     fileRevision: "File revision",
     fileStatusDescription: "Concurrency metadata for the selected PRISM_CONFIG_PATH file.",
     fileStatusTitle: "File status",
+    fileDiffersFromRunningPrism: "File differs from running Prism",
+    fileDiffersFromRunningPrismDescription: "The saved bootstrap file metadata differs from the metadata loaded by the running Prism process.",
     fixClientErrorsBeforeBackendValidation: "Fix client-side validation errors before backend validation.",
     hostChangeLabel: "Server host changes where Prism listens after restart",
     hotApplyChangesStaged: (count) => `${count} immediate ${count === 1 ? "change" : "changes"} staged`,

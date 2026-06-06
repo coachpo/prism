@@ -33,12 +33,18 @@ type Service struct {
 	loadedDocumentETag string
 	loadedSettings     config.Settings
 	liveSettings       config.Settings
-	liveMu             sync.RWMutex
+	stateMu            sync.RWMutex
 	manager            config.BootstrapConfigManager
 	writable           func(string) bool
 	corsOriginProvider platformcors.OriginProvider
 	hotApplyRuntime    config.BootstrapConfigHotApplyRuntime
 	writeMu            sync.Mutex
+}
+
+type runtimeState struct {
+	liveSettings       config.Settings
+	loadedRevision     int
+	loadedDocumentETag string
 }
 
 func NewService(settings config.Settings, options Options) (*Service, error) {
@@ -87,18 +93,20 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 
 func (s *Service) handleGetBootstrapConfig(w http.ResponseWriter, r *http.Request) {
 	corsSnapshot := s.corsSnapshot()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	snapshot, currentSettings, err := s.loadCurrentSnapshot()
 	if err != nil {
 		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
-	liveSettings := s.currentLiveSettings()
-	options, err := currentResponseOptions(liveSettings, currentSettings)
+	state := s.currentRuntimeState()
+	options, err := currentResponseOptions(state.liveSettings, currentSettings)
 	if err != nil {
 		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to classify bootstrap config effects")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.responseForSnapshot(snapshot, currentSettings, liveSettings, options))
+	writeJSON(w, http.StatusOK, s.responseForSnapshot(snapshot, currentSettings, state, options))
 }
 
 func (s *Service) handleValidateBootstrapConfig(w http.ResponseWriter, r *http.Request) {
@@ -108,12 +116,14 @@ func (s *Service) handleValidateBootstrapConfig(w http.ResponseWriter, r *http.R
 		writeError(w, r, corsSnapshot, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	_, currentSettings, err := s.loadCurrentSnapshot()
 	if err != nil {
 		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
-	liveSettings := s.currentLiveSettings()
+	state := s.currentRuntimeState()
 
 	prepared, err := s.manager.ValidateBootstrapConfigUpdate(s.configPath, requestBody)
 	if err != nil {
@@ -125,13 +135,13 @@ func (s *Service) handleValidateBootstrapConfig(w http.ResponseWriter, r *http.R
 		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
-	plannedDiff, err := diffBootstrapResponseSettings(liveSettings, preparedSettings)
+	plannedDiff, err := diffBootstrapResponseSettings(state.liveSettings, preparedSettings)
 	if err != nil {
 		writePrepareError(w, r, corsSnapshot, err)
 		return
 	}
 	plannedChanges := config.BootstrapConfigPlannedChangesFromDiff(plannedDiff)
-	writeJSON(w, http.StatusOK, s.responseForSnapshot(prepared.Snapshot, preparedSettings, liveSettings, config.BootstrapConfigResponseOptions{PlannedChanges: &plannedChanges}))
+	writeJSON(w, http.StatusOK, s.responseForSnapshot(prepared.Snapshot, preparedSettings, state, config.BootstrapConfigResponseOptions{PlannedChanges: &plannedChanges}))
 }
 
 func (s *Service) handlePutBootstrapConfig(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +159,7 @@ func (s *Service) handlePutBootstrapConfig(w http.ResponseWriter, r *http.Reques
 		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
-	liveSettings := s.currentLiveSettings()
+	state := s.currentRuntimeState()
 	prepared, err := s.manager.PrepareBootstrapConfigUpdate(s.configPath, requestBody)
 	if err != nil {
 		writePrepareError(w, r, corsSnapshot, err)
@@ -160,13 +170,13 @@ func (s *Service) handlePutBootstrapConfig(w http.ResponseWriter, r *http.Reques
 		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
-	applyDiff, err := diffBootstrapResponseSettings(liveSettings, preparedSettings)
+	applyDiff, err := diffBootstrapResponseSettings(state.liveSettings, preparedSettings)
 	if err != nil {
 		writePrepareError(w, r, corsSnapshot, err)
 		return
 	}
 	applyResult := config.BootstrapConfigApplyResultFromDiff(applyDiff)
-	hotApplySettings := s.hotApplySettings(liveSettings, preparedSettings)
+	hotApplySettings := s.hotApplySettings(state.liveSettings, preparedSettings)
 	if err := s.validateHotApply(hotApplySettings, applyDiff); err != nil {
 		writePrepareError(w, r, corsSnapshot, err)
 		return
@@ -177,10 +187,15 @@ func (s *Service) handlePutBootstrapConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := s.publishHotApply(hotApplySettings, applyDiff, &applyResult); err != nil {
-		writeApplyFailure(w, s.responseForSnapshot(snapshot, preparedSettings, liveSettings, config.BootstrapConfigResponseOptions{ApplyResult: &applyResult}))
+		writeApplyFailure(w, s.responseForSnapshot(snapshot, preparedSettings, state, config.BootstrapConfigResponseOptions{ApplyResult: &applyResult}))
 		return
 	}
-	writeJSON(w, http.StatusOK, s.responseForSnapshot(snapshot, preparedSettings, s.currentLiveSettings(), config.BootstrapConfigResponseOptions{ApplyResult: &applyResult}))
+	responseState := state
+	advanceLoadedMetadata := shouldAdvanceLoadedMetadata(applyResult)
+	if len(applyResult.AppliedNowFields) > 0 || advanceLoadedMetadata {
+		responseState = s.setAppliedRuntimeState(hotApplySettings, snapshot, advanceLoadedMetadata)
+	}
+	writeJSON(w, http.StatusOK, s.responseForSnapshot(snapshot, preparedSettings, responseState, config.BootstrapConfigResponseOptions{ApplyResult: &applyResult}))
 }
 
 func (s *Service) loadCurrentSnapshot() (config.BootstrapConfigSnapshot, config.Settings, error) {
@@ -188,26 +203,39 @@ func (s *Service) loadCurrentSnapshot() (config.BootstrapConfigSnapshot, config.
 	return snapshot, settings, err
 }
 
-func (s *Service) responseForSnapshot(snapshot config.BootstrapConfigSnapshot, currentSettings config.Settings, liveSettings config.Settings, options config.BootstrapConfigResponseOptions) config.BootstrapConfigResponse {
-	return config.BuildBootstrapConfigResponse(snapshot, currentSettings, liveSettings, s.loadedRevision, s.loadedDocumentETag, s.writable(s.configPath), options)
+func (s *Service) responseForSnapshot(snapshot config.BootstrapConfigSnapshot, currentSettings config.Settings, state runtimeState, options config.BootstrapConfigResponseOptions) config.BootstrapConfigResponse {
+	return config.BuildBootstrapConfigResponse(snapshot, currentSettings, state.liveSettings, state.loadedRevision, state.loadedDocumentETag, s.writable(s.configPath), options)
 }
 
-func (s *Service) currentLiveSettings() config.Settings {
+func (s *Service) currentRuntimeState() runtimeState {
 	if s == nil {
-		return config.Settings{}
+		return runtimeState{}
 	}
-	s.liveMu.RLock()
-	defer s.liveMu.RUnlock()
-	return s.liveSettings
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return runtimeState{
+		liveSettings:       s.liveSettings,
+		loadedRevision:     s.loadedRevision,
+		loadedDocumentETag: s.loadedDocumentETag,
+	}
 }
 
-func (s *Service) setLiveSettings(settings config.Settings) {
+func (s *Service) setAppliedRuntimeState(settings config.Settings, snapshot config.BootstrapConfigSnapshot, advanceLoadedMetadata bool) runtimeState {
 	if s == nil {
-		return
+		return runtimeState{}
 	}
-	s.liveMu.Lock()
-	defer s.liveMu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 	s.liveSettings = settings
+	if advanceLoadedMetadata {
+		s.loadedRevision = snapshot.FileRevision
+		s.loadedDocumentETag = strings.TrimSpace(snapshot.DocumentETag)
+	}
+	return runtimeState{
+		liveSettings:       s.liveSettings,
+		loadedRevision:     s.loadedRevision,
+		loadedDocumentETag: s.loadedDocumentETag,
+	}
 }
 
 func (s *Service) hotApplySettings(liveSettings config.Settings, requested config.Settings) config.Settings {
@@ -236,6 +264,10 @@ func (s *Service) validateHotApply(settings config.Settings, diff config.Bootstr
 	return s.hotApplyRuntime.Validate(settings)
 }
 
+func shouldAdvanceLoadedMetadata(result config.BootstrapConfigApplyResult) bool {
+	return len(result.PendingHotApplyFields) == 0 && len(result.RestartRequiredFields) == 0 && len(result.FailedHotApplyFields) == 0
+}
+
 func (s *Service) publishHotApply(settings config.Settings, diff config.BootstrapConfigFieldDiff, result *config.BootstrapConfigApplyResult) error {
 	if s == nil || s.hotApplyRuntime == nil || len(diff.ChangedHotApplyFields) == 0 {
 		return nil
@@ -254,7 +286,6 @@ func (s *Service) publishHotApply(settings config.Settings, diff config.Bootstra
 		result.AppliedNowFields = append([]string(nil), diff.ChangedHotApplyFields...)
 		result.PendingHotApplyFields = []string{}
 	}
-	s.setLiveSettings(settings)
 	return nil
 }
 

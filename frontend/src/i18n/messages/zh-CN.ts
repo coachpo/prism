@@ -697,6 +697,8 @@ export const zhCNMessages: Messages = {
     fileRevision: "文件修订版",
     fileStatusDescription: "所选 PRISM_CONFIG_PATH 文件的并发元数据。",
     fileStatusTitle: "文件状态",
+    fileDiffersFromRunningPrism: "文件与运行中的 Prism 不一致",
+    fileDiffersFromRunningPrismDescription: "已保存的启动引导文件元数据与运行中的 Prism 进程已加载的元数据不同。",
     fixClientErrorsBeforeBackendValidation: "后端验证前请先修复客户端验证错误。",
     hostChangeLabel: "服务器主机变更会改变 Prism 重启后的监听地址",
     hotApplyChangesStaged: (count) => `已暂存 ${count} 个立即应用变更`,
