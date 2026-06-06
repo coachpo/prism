@@ -58,6 +58,89 @@ func TestObservability_FacadeTranslatedRejectionPersistsDecisionMetadataAndTrace
 	}
 }
 
+func TestPromotionObservabilityPreservesTranslationAttrs(t *testing.T) {
+	startedAt := time.Date(2026, 6, 5, 10, 30, 0, 0, time.UTC)
+	completedAt := startedAt.Add(1100 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	sourceResolvedTargetModelID := "source-translated-model"
+	promotedResolvedTargetModelID := "promoted-translated-model"
+	sourceSelectedTerminalTargetID := intPtr(101)
+	promotedSelectedTerminalTargetID := intPtr(202)
+	sourceConnection := runtimeConnection{ID: 101, Endpoint: runtimeEndpoint{ID: 1001, BaseURL: "https://translated-source.example"}}
+	promotedConnection := runtimeConnection{ID: 202, Endpoint: runtimeEndpoint{ID: 2002, BaseURL: "https://translated-promoted.example"}}
+	sourcePlan := requestPlan{
+		ProfileID:                10,
+		RequestedModelID:         "public-model",
+		ResolvedTargetModelID:    &sourceResolvedTargetModelID,
+		RequestedVendorID:        intPtr(1),
+		RequestedVendorKey:       stringPtr("openai"),
+		RequestedVendorName:      stringPtr("OpenAI"),
+		APIFamily:                "openai",
+		RuntimeOperation:         RuntimeOperation{Name: "openai.responses", PathTemplate: "/v1/responses"},
+		ReportCurrencySnapshot:   runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		RequestContextEstimation: &requestContextEstimation{Method: openAIResponsesContextEstimationMethod, EstimatedInputTokens: 700, ReservedOutputTokens: 1024, EstimatedTotalContextTokens: 1724, UsableContextWindowTokens: intPtr(180000)},
+		SelectedTerminalTargetID: sourceSelectedTerminalTargetID,
+		ContextRouting: &runtimeContextRoutingDecision{
+			Policy:                            "cheapest_eligible_context",
+			SelectedTerminalTargetID:          sourceSelectedTerminalTargetID,
+			SelectedContextBand:               stringPtr(runtimeContextBandPreferred),
+			SelectedUsableContextWindowTokens: intPtr(180000),
+			UsableContextWindowTokens:         intPtr(180000),
+		},
+	}
+	promotedPlan := requestPlan{
+		RequestedModelID:         "promoted-model",
+		ResolvedTargetModelID:    &promotedResolvedTargetModelID,
+		SelectedTerminalTargetID: promotedSelectedTerminalTargetID,
+		ContextRouting: &runtimeContextRoutingDecision{
+			Policy:                            "cheapest_eligible_context",
+			SelectedTerminalTargetID:          promotedSelectedTerminalTargetID,
+			SelectedContextBand:               stringPtr(runtimeContextBandPreferred),
+			SelectedUsableContextWindowTokens: intPtr(360000),
+			UsableContextWindowTokens:         intPtr(360000),
+		},
+		TerminalAttempts: []runtimeTerminalAttempt{{Connection: promotedConnection, TranslationMode: TranslationModeOpenAIResponsesToChatCompletions, EffectiveRequestPath: "/v1/chat/completions"}},
+	}
+	sourceExecution := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusBadRequest},
+		Connection:            sourceConnection,
+		ResolvedTargetModelID: &sourceResolvedTargetModelID,
+		AttemptCount:          1,
+		Attempts:              []executionAttempt{{Connection: sourceConnection, ResolvedTargetModelID: sourceResolvedTargetModelID, StatusCode: http.StatusBadRequest, ResponseTimeMS: 250, CompletedAt: startedAt.Add(250 * time.Millisecond), UpstreamOperationName: openAIUpstreamOperationChatCompletions, UpstreamRequestPath: "/v1/chat/completions", OperationTranslationMode: TranslationModeOpenAIResponsesToChatCompletions}},
+	}
+	promotedExecution := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusOK},
+		Connection:            promotedConnection,
+		ResolvedTargetModelID: &promotedResolvedTargetModelID,
+		AttemptCount:          1,
+		Attempts:              []executionAttempt{{Connection: promotedConnection, ResolvedTargetModelID: promotedResolvedTargetModelID, StatusCode: http.StatusOK, ResponseTimeMS: 850, CompletedAt: completedAt, UpstreamOperationName: openAIUpstreamOperationChatCompletions, UpstreamRequestPath: "/v1/chat/completions", OperationTranslationMode: TranslationModeOpenAIResponsesToChatCompletions}},
+	}
+
+	finalPlan := mergeContextOverflowPromotedPlan(sourcePlan, promotedPlan, sourceExecution, promotedExecution, cliProxyAPIOverflowClassification{Promotable: true, ErrorCode: "context_length_exceeded", Classifier: cliProxyAPIOverflowClassifierErrorCode})
+	finalExecution := mergeContextOverflowPromotedExecution(sourceExecution, promotedExecution)
+	envelope := service.buildRuntimeTelemetryEnvelope(finalPlan, finalExecution, request, startedAt, runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(7), OutputTokens: intPtr(3), TotalTokens: intPtr(10)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming})
+
+	finalRequestLog := envelope.RequestLogs[1]
+	assertRuntimeStringPtr(t, finalRequestLog.UpstreamOperationName, openAIUpstreamOperationChatCompletions, "promoted translated request-log upstream operation")
+	assertRuntimeStringPtr(t, finalRequestLog.OperationTranslationMode, string(TranslationModeOpenAIResponsesToChatCompletions), "promoted translated request-log translation mode")
+	assertRuntimeStringPtr(t, finalRequestLog.UpstreamRequestPath, "/v1/chat/completions", "promoted translated request-log upstream request path")
+	assertRuntimeContextOverflowPromotionDecision(t, finalRequestLog.ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionEstimationModeEstimated, sourceResolvedTargetModelID, 101, promotedResolvedTargetModelID, 202, 180000, 360000, 1, 2, runtimeContextOverflowPromotionResultPromotedSuccess)
+	assertRuntimeStringPtr(t, envelope.UsageEvent.UpstreamOperationName, openAIUpstreamOperationChatCompletions, "promoted translated usage-event upstream operation")
+	assertRuntimeStringPtr(t, envelope.UsageEvent.OperationTranslationMode, string(TranslationModeOpenAIResponsesToChatCompletions), "promoted translated usage-event translation mode")
+	assertRuntimeStringPtr(t, envelope.UsageEvent.UpstreamRequestPath, "/v1/chat/completions", "promoted translated usage-event upstream request path")
+
+	planAttrs := attributesByKey(runtimeTracePlanAttributes(finalPlan))
+	if !planAttrs[runtimeTraceAttrContextOverflowPromotion].AsBool() || planAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || planAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != openAIUpstreamOperationChatCompletions || planAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || planAttrs[runtimeTraceAttrContextOverflowPromotionFromModelID].AsString() != sourceResolvedTargetModelID || planAttrs[runtimeTraceAttrContextOverflowPromotionToModelID].AsString() != promotedResolvedTargetModelID {
+		t.Fatalf("expected additive translation + promotion plan trace attrs, got %+v", planAttrs)
+	}
+	envelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(envelope))
+	if !envelopeAttrs[runtimeTraceAttrContextOverflowPromotion].AsBool() || envelopeAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || envelopeAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != openAIUpstreamOperationChatCompletions || envelopeAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || envelopeAttrs[runtimeTraceAttrContextOverflowPromotionFromModelID].AsString() != sourceResolvedTargetModelID || envelopeAttrs[runtimeTraceAttrContextOverflowPromotionToModelID].AsString() != promotedResolvedTargetModelID {
+		t.Fatalf("expected additive translation + promotion envelope trace attrs, got %+v", envelopeAttrs)
+	}
+}
+
 func TestObservability_TranslatedResponseAuditUsesUpstreamBody(t *testing.T) {
 	startedAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
 	completedAt := startedAt.Add(900 * time.Millisecond)

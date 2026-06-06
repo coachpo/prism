@@ -16,15 +16,20 @@ func (snapshot *planningSnapshot) terminalTargetsByID() map[int]runtimeConnectio
 }
 
 func (s *Service) resolveLegacyExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, translationEligibility requestTranslationEligibilitySummary, contextEstimation *requestContextEstimation, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
+	return s.resolveLegacyExecutionTargetFromSnapshotWithOptions(profileID, snapshot, requestedModel, requestOperation, translationEligibility, contextEstimation, false, referenceNow)
+}
+
+func (s *Service) resolveLegacyExecutionTargetFromSnapshotWithOptions(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, translationEligibility requestTranslationEligibilitySummary, contextEstimation *requestContextEstimation, allowMissingContextEstimation bool, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
 	ctx := runtimeAccessResolutionContext{
-		RequestedModelID:         requestedModel.ModelID,
-		RequestedAPIFamily:       requestedModel.APIFamily,
-		RequestOperation:         requestOperation,
-		TranslationEligibility:   translationEligibility,
-		RequestContextEstimation: contextEstimation,
-		VisitedModelIDs:          map[int]struct{}{},
-		ConsideredModelPath:      appendRuntimeModelPath(nil, requestedModel.ModelID),
-		ReferenceNow:             referenceNow,
+		RequestedModelID:              requestedModel.ModelID,
+		RequestedAPIFamily:            requestedModel.APIFamily,
+		RequestOperation:              requestOperation,
+		TranslationEligibility:        translationEligibility,
+		RequestContextEstimation:      contextEstimation,
+		AllowMissingContextEstimation: allowMissingContextEstimation,
+		VisitedModelIDs:               map[int]struct{}{},
+		ConsideredModelPath:           appendRuntimeModelPath(nil, requestedModel.ModelID),
+		ReferenceNow:                  referenceNow,
 	}
 	resolved, err := s.resolveLegacyRequestedModelExecutionTargetFromSnapshot(profileID, snapshot, requestedModel, ctx)
 	if err != nil {
@@ -84,7 +89,7 @@ func (s *Service) resolveLegacyExactOpenAIFacadeModelAccessFromSnapshot(profileI
 	if err := validateRuntimeModelFacadePolicies(model); err != nil {
 		return runtimeResolvedAccessPlan{}, err
 	}
-	if ctx.RequestContextEstimation == nil {
+	if ctx.rejectsMissingContextEstimation() {
 		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 	}
 
@@ -169,7 +174,7 @@ func (s *Service) resolveLegacyExactOpenAIFacadeModelAccessFromSnapshot(profileI
 			return runtimeResolvedAccessPlan{}, translationRejection
 		}
 		facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, eligibleTotalWeight, skippedTerminalTargets, translatedRejectedCount)
-		if contextFitEvaluated {
+		if contextFitEvaluated && ctx.RequestContextEstimation != nil {
 			return runtimeResolvedAccessPlan{}, &noContextEligibleTargetsError{
 				requestedModelID:                 ctx.RequestedModelID,
 				estimatedTotalContextTokens:      ctx.RequestContextEstimation.EstimatedTotalContextTokens,
@@ -214,7 +219,7 @@ func (s *Service) resolveLegacyModelAccessFromSnapshot(profileID int, snapshot *
 	if !ok {
 		return runtimeResolvedAccessPlan{}, fmt.Errorf("model %q is missing loadbalance_strategy", model.ModelID)
 	}
-	if strategy.IsCheapestEligibleContextStrategy() && ctx.RequestContextEstimation == nil {
+	if strategy.IsCheapestEligibleContextStrategy() && ctx.rejectsMissingContextEstimation() {
 		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 	}
 
@@ -338,7 +343,7 @@ func (s *Service) resolveLegacyCheapestEligibleContextModelAccess(profileID int,
 	resolved.SelectedTerminalTargetID = intPtr(selectedCandidate.resolved.TerminalAttempts[0].Connection.ID)
 	resolved.ContextRouting = buildRuntimeContextRoutingDecision(strategy, ctx.RequestContextEstimation, &selectedCandidate, runtimeContextRoutingCostRankingMethod, largestUsableContextWindowTokens, skippedTerminalTargets)
 	resolved.LargestUsableContextWindowTokens = largestUsableContextWindowTokens
-	resolved.ContextFitEvaluated = true
+	resolved.ContextFitEvaluated = contextFitEvaluated
 	return resolved, nil
 }
 
@@ -360,16 +365,18 @@ func (s *Service) evaluateLegacyAccessTargetCandidateFromSnapshot(profileID int,
 		return evaluation, nil
 	}
 
-	evaluation.contextFitEvaluated = true
 	terminalAttempt := candidate.TerminalAttempts[0]
 	usableContextWindowTokens := usableContextWindowTokensForConnection(terminalAttempt.Connection)
 	if usableContextWindowTokens > evaluation.largestUsableContextWindowTokens {
 		evaluation.largestUsableContextWindowTokens = usableContextWindowTokens
 	}
 	contextBand := classifyRequestContextBandLegacy(ctx.RequestContextEstimation, terminalAttempt.Connection)
-	if contextBand == runtimeContextEligibilityBandIneligible {
-		evaluation.skippedTerminalTargets = append(evaluation.skippedTerminalTargets, buildRuntimeContextRoutingSkippedTerminalTarget(terminalAttempt.Connection, ctx.RequestContextEstimation, usableContextWindowTokens))
-		return evaluation, nil
+	if ctx.RequestContextEstimation != nil {
+		evaluation.contextFitEvaluated = true
+		if contextBand == runtimeContextEligibilityBandIneligible {
+			evaluation.skippedTerminalTargets = append(evaluation.skippedTerminalTargets, buildRuntimeContextRoutingSkippedTerminalTarget(terminalAttempt.Connection, ctx.RequestContextEstimation, usableContextWindowTokens))
+			return evaluation, nil
+		}
 	}
 
 	costMicros, priced := estimateRuntimeBlendedRequestCost(terminalAttempt.Connection, ctx.RequestContextEstimation)

@@ -1182,6 +1182,38 @@ func (telemetry runtimeTelemetryEnvelopeContext) attemptContext(index int) runti
 	}
 }
 
+func runtimeContextOverflowPromotionForTelemetry(plan requestPlan) *runtimeContextOverflowPromotionDecision {
+	if plan.ContextRouting == nil {
+		return nil
+	}
+	return plan.ContextRouting.ContextOverflowPromotion
+}
+
+func selectedTerminalTargetIDForAttempt(plan requestPlan, attempt runtimeTelemetryAttemptContext) *int {
+	promotion := runtimeContextOverflowPromotionForTelemetry(plan)
+	if promotion == nil {
+		return plan.selectedTerminalTargetID()
+	}
+	if promotion.SourceAttemptCount > 0 && attempt.attemptNumber <= promotion.SourceAttemptCount {
+		if promotion.FromSelectedTerminalTargetID != nil {
+			return cloneRuntimeIntPointer(promotion.FromSelectedTerminalTargetID)
+		}
+		return plan.selectedTerminalTargetID()
+	}
+	if promotion.ToSelectedTerminalTargetID != nil {
+		return cloneRuntimeIntPointer(promotion.ToSelectedTerminalTargetID)
+	}
+	return plan.selectedTerminalTargetID()
+}
+
+func selectedTerminalTargetIDForUsageEvent(plan requestPlan) *int {
+	promotion := runtimeContextOverflowPromotionForTelemetry(plan)
+	if promotion != nil && promotion.ToSelectedTerminalTargetID != nil {
+		return cloneRuntimeIntPointer(promotion.ToSelectedTerminalTargetID)
+	}
+	return plan.selectedTerminalTargetID()
+}
+
 func buildRuntimeRequestLogRows(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext) []requestLogInsert {
 	requestLogs := make([]requestLogInsert, 0, len(telemetry.attempts))
 	for index := range telemetry.attempts {
@@ -1205,7 +1237,7 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 		VendorName:                    plan.RequestedVendorName,
 		EndpointID:                    intPtr(attempt.attempt.Connection.Endpoint.ID),
 		ConnectionID:                  intPtr(attempt.attempt.Connection.ID),
-		SelectedTerminalTargetID:      plan.selectedTerminalTargetID(),
+		SelectedTerminalTargetID:      selectedTerminalTargetIDForAttempt(plan, attempt),
 		ProxyAPIKeyID:                 proxyKeyIDPointer(telemetry.proxyKey),
 		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(telemetry.proxyKey),
 		IngressRequestID:              telemetry.ingressRequestID,
@@ -1364,7 +1396,7 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		OperationTranslationMode: executionAttemptTranslationMode(finalAttempt),
 		EndpointID:               intPtr(result.Connection.Endpoint.ID),
 		ConnectionID:             intPtr(result.Connection.ID),
-		SelectedTerminalTargetID: plan.selectedTerminalTargetID(),
+		SelectedTerminalTargetID: selectedTerminalTargetIDForUsageEvent(plan),
 		ProxyAPIKeyID:            proxyKeyIDPointer(telemetry.proxyKey),
 		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(telemetry.proxyKey),
 		StatusCode:               result.Response.StatusCode,

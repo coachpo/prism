@@ -53,7 +53,7 @@ func resolveRequestedModelLegacy(input requestPlanningInput, operation resolvedR
 }
 
 func (s *Service) resolveRequestPlanTargetLegacy(input requestPlanningInput, operation resolvedRequestOperation, requestedModel runtimeModelRecord, contextEstimation *requestContextEstimation) (resolvedExecutionTarget, error) {
-	resolved, err := s.resolveLegacyExecutionTargetFromSnapshot(input.ActiveProfileID, input.Snapshot, requestedModel, operation.Match.Operation, input.TranslationEligibility, contextEstimation, s.nowUTC())
+	resolved, err := s.resolveLegacyExecutionTargetFromSnapshotWithOptions(input.ActiveProfileID, input.Snapshot, requestedModel, operation.Match.Operation, input.TranslationEligibility, contextEstimation, input.AllowMissingContextEstimation, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
@@ -89,14 +89,19 @@ func (s *Service) buildRequestPlanFromSnapshotLegacyCore(request *http.Request, 
 	if err != nil {
 		return requestPlan{}, err
 	}
-	contextEstimation, err := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
-	if err != nil {
-		return requestPlan{}, err
-	}
 	input.TranslationEligibility = buildRequestTranslationEligibilitySummaryForRollout(operation.Match.Operation, input.RawBody, s.resolvedOpenAITerminalTranslationMode())
+	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
+	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
 	target, err := s.resolveRequestPlanTargetLegacy(input, operation, requestedModel, contextEstimation)
 	if err != nil {
+		var runtimeErr *domainError
+		if contextEstimationErr != nil && !input.AllowMissingContextEstimation && (!errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode) {
+			return requestPlan{}, contextEstimationErr
+		}
 		return requestPlan{}, attachRuntimePlanningFailureTelemetry(err, input, operation, requestedModel)
+	}
+	if contextEstimationErr != nil && !input.AllowMissingContextEstimation {
+		return requestPlan{}, contextEstimationErr
 	}
 	return assembleRequestPlan(input, operation, target, contextEstimation)
 }
@@ -117,15 +122,16 @@ func (s *Service) buildRequestPlanFromSnapshotEnforcedCore(request *http.Request
 	}
 	input.TranslationEligibility = buildRequestTranslationEligibilitySummaryForRollout(operation.Match.Operation, input.RawBody, s.resolvedOpenAITerminalTranslationMode())
 	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
+	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
 	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
 	if err != nil {
 		var runtimeErr *domainError
-		if contextEstimationErr != nil && (!errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode) {
+		if contextEstimationErr != nil && !input.AllowMissingContextEstimation && (!errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode) {
 			return requestPlan{}, contextEstimationErr
 		}
 		return requestPlan{}, attachRuntimePlanningFailureTelemetry(err, input, operation, requestedModel)
 	}
-	if contextEstimationErr != nil {
+	if contextEstimationErr != nil && !input.AllowMissingContextEstimation {
 		return requestPlan{}, contextEstimationErr
 	}
 	return assembleRequestPlan(input, operation, target, contextEstimation)

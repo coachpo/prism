@@ -68,6 +68,155 @@ func TestRuntimeCheapestEligibleContextNoFitReturns413WithoutUpstreamAttemptOrBa
 	}
 }
 
+func TestResponsesEstimationUnavailablePassesThrough(t *testing.T) {
+	harnessFactories := []struct {
+		name    string
+		factory func(testing.TB) *runtimeHarness
+	}{
+		{name: "legacy", factory: newRuntimeHarness},
+		{name: "enforced", factory: newEnforcedRuntimeHarness},
+	}
+
+	for _, test := range harnessFactories {
+		t.Run(test.name, func(t *testing.T) {
+			harness := test.factory(t)
+			profileID := harness.activeProfileID(t)
+			upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "responses-estimation-unavailable"})
+			route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "responses-estimation-unavailable-public", "responses-estimation-unavailable-target", upstream.baseURL("/responses/estimation-unavailable"), "responses-estimation-unavailable-key", "responses_reasoning_none")
+
+			response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+				"model":                route.PublicModelID,
+				"previous_response_id": "resp_123",
+				"input":                "routable unavailable responses request",
+			}, nil)
+			assertStatus(t, response, http.StatusOK)
+			assertProxySelectorRequestSequence(t, upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+				Path:    "/responses/estimation-unavailable/v1/responses",
+				ModelID: route.TargetModelID,
+			}})
+		})
+	}
+}
+
+func TestChatCompletionsEstimationUnavailablePassesThrough(t *testing.T) {
+	harnessFactories := []struct {
+		name    string
+		factory func(testing.TB) *runtimeHarness
+	}{
+		{name: "legacy", factory: newRuntimeHarness},
+		{name: "enforced", factory: newEnforcedRuntimeHarness},
+	}
+
+	for _, test := range harnessFactories {
+		t.Run(test.name, func(t *testing.T) {
+			harness := test.factory(t)
+			profileID := harness.activeProfileID(t)
+			upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chat-estimation-unavailable"})
+			route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "chat-estimation-unavailable-public", "chat-estimation-unavailable-target", upstream.baseURL("/chat/estimation-unavailable"), "chat-estimation-unavailable-key", "chat_completions_reasoning_none")
+
+			response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+				"model": route.PublicModelID,
+				"messages": []map[string]any{{
+					"role": "user",
+					"content": []map[string]any{{
+						"type": "image_url",
+						"image_url": map[string]any{
+							"url":    "https://example.invalid/image.png",
+							"detail": "high",
+						},
+					}},
+				}},
+			}, nil)
+			assertStatus(t, response, http.StatusOK)
+			assertProxySelectorRequestSequence(t, upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+				Path:    "/chat/estimation-unavailable/v1/chat/completions",
+				ModelID: route.TargetModelID,
+			}})
+		})
+	}
+}
+
+func TestContextWindowExceededNoFitStillReturns413(t *testing.T) {
+	harnessFactories := []struct {
+		name    string
+		factory func(testing.TB) *runtimeHarness
+	}{
+		{name: "legacy", factory: newRuntimeHarness},
+		{name: "enforced", factory: newEnforcedRuntimeHarness},
+	}
+
+	for _, test := range harnessFactories {
+		t.Run(test.name, func(t *testing.T) {
+			harness := test.factory(t)
+			profileID := harness.activeProfileID(t)
+			suffix := randomSuffix()
+			publicModelID := "context-window-exceeded-public-" + suffix
+			strategyID := harness.seedLegacyStrategy(t, profileID, "context-window-exceeded-"+suffix, "cheapest_eligible_context")
+			publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
+			smallEndpointID := harness.seedEndpoint(t, profileID, "context-window-exceeded-small-"+suffix, harness.upstream.baseURL("/context-window-exceeded/small"), "context-window-exceeded-small-key", 0)
+			largeEndpointID := harness.seedEndpoint(t, profileID, "context-window-exceeded-large-"+suffix, harness.upstream.baseURL("/context-window-exceeded/large"), "context-window-exceeded-large-key", 1)
+			smallConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, smallEndpointID, "context-window-exceeded-small-connection-"+suffix, nil, nil, 0)
+			largeConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, largeEndpointID, "context-window-exceeded-large-connection-"+suffix, nil, nil, 1)
+			setRuntimeHarnessConnectionContextCapabilities(t, harness, smallConnectionID, 200, 4_096, 1.0)
+			setRuntimeHarnessConnectionContextCapabilities(t, harness, largeConnectionID, 400, 4_096, 1.0)
+			harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+			response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+				"messages":              []map[string]any{{"role": "user", "content": "oversized request"}},
+				"model":                 publicModelID,
+				"max_completion_tokens": 600,
+			}, nil)
+			assertStatus(t, response, http.StatusRequestEntityTooLarge)
+			payload := runtimeResponsePayload(t, response)
+			if payload["error"] != "context_window_exceeded" {
+				t.Fatalf("expected context_window_exceeded payload, got %+v", payload)
+			}
+			if got := len(harness.upstream.requestsSnapshot()); got != 0 {
+				t.Fatalf("expected no upstream requests for no-fit 413, got %d", got)
+			}
+		})
+	}
+}
+
+func TestTranslatedUnsupportedShapeStillRejectsBeforeTransport(t *testing.T) {
+	harnessFactories := []struct {
+		name    string
+		factory func(testing.TB) *runtimeHarness
+	}{
+		{name: "enforced", factory: newEnforcedRuntimeHarness},
+	}
+
+	for _, test := range harnessFactories {
+		t.Run(test.name, func(t *testing.T) {
+			harness := test.factory(t)
+			profileID := harness.activeProfileID(t)
+			suffix := randomSuffix()
+			modelID := "translated-unsupported-shape-" + suffix
+			strategyID := harness.seedLegacyStrategy(t, profileID, "translated-unsupported-shape-"+suffix, "fill-first")
+			modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
+			upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "translated-unsupported-shape"})
+			endpointID := harness.seedEndpoint(t, profileID, "translated-unsupported-shape-endpoint-"+suffix, upstream.baseURL("/translated/unsupported-shape"), "translated-unsupported-shape-key", 0)
+			chatOnlyVariant := "chat_completions_reasoning_none"
+			harness.seedConnectionWithOpenAIProbeVariant(t, profileID, modelConfigID, endpointID, "translated-unsupported-shape-connection-"+suffix, nil, nil, 0, &chatOnlyVariant)
+			harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+			response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+				"model":                modelID,
+				"previous_response_id": "resp_123",
+				"input":                "unsupported translated responses shape",
+			}, nil)
+			assertStatus(t, response, http.StatusBadRequest)
+			payload := runtimeResponsePayload(t, response)
+			if payload["error"] != "openai_request_translation_unsupported" || payload["unsupported_reason"] != "responses_previous_response_id" {
+				t.Fatalf("expected translated unsupported-shape rejection payload, got %+v", payload)
+			}
+			if got := len(upstream.requestsSnapshot()); got != 0 {
+				t.Fatalf("expected translated unsupported shape to avoid upstream calls, got %d", got)
+			}
+		})
+	}
+}
+
 func TestRuntimeCheapestEligibleContextSelectsLargerNestedTerminalBeforeUpstreamAttempt(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)

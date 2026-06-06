@@ -13,35 +13,49 @@ import (
 )
 
 const (
-	runtimeTraceAttrOperationName             = "prism.runtime.operation_name"
-	runtimeTraceAttrUpstreamOperationName     = "prism.runtime.upstream_operation_name"
-	runtimeTraceAttrOperationTranslationMode  = "prism.runtime.operation_translation_mode"
-	runtimeTraceAttrUpstreamRequestPath       = "prism.runtime.upstream_request_path"
-	runtimeTraceAttrPreferredContextBand      = "prism.runtime.preferred_context_band"
-	runtimeTraceAttrSelectedTerminalTargetID  = "prism.runtime.selected_terminal_target_id"
-	runtimeTraceAttrFacadeModelID             = "prism.runtime.facade_model_id"
-	runtimeTraceAttrFacadeSelectedTargetModel = "prism.runtime.facade_selected_target_model_id"
-	runtimeTraceAttrFacadeSelectedWeight      = "prism.runtime.facade_selected_weight"
-	runtimeTraceAttrFacadeEligibleTotalWeight = "prism.runtime.facade_eligible_total_weight"
-	runtimeTraceAttrFacadeExclusionSummary    = "prism.runtime.facade_exclusion_summary"
-	runtimeTraceAttrPlannerVersion            = "prism.runtime.planner_version"
-	runtimeTraceAttrPlannerMode               = "prism.runtime.planner_mode"
-	runtimeTraceAttrPlannerDecision           = "prism.runtime.planner_decision"
-	runtimeTraceAttrPlannerPolicy             = "prism.runtime.planner_policy"
-	runtimeTraceAttrPlannerSelectedTier       = "prism.runtime.planner_selected_tier_priority"
-	runtimeTraceAttrPlannerSkippedTargets     = "prism.runtime.planner_skipped_terminal_targets"
-	runtimeTraceAttrShadowComparisonResult    = "prism.runtime.shadow_comparison_result"
-	runtimeTraceAttrShadowMismatchReasons     = "prism.runtime.shadow_mismatch_reasons"
-	runtimeTraceAttrAPIFamily                 = "prism.runtime.api_family"
-	runtimeTraceAttrStreaming                 = "prism.runtime.streaming"
-	runtimeTraceAttrStatusClass               = "prism.runtime.status_class"
-	runtimeTraceAttrStreamOutcome             = "prism.runtime.stream_outcome"
-	runtimeTraceAttrBodyMode                  = "prism.runtime.body_mode"
-	runtimeTraceAttrAttemptResult             = "prism.runtime.attempt_result"
-	runtimeTraceAttrFeedbackKind              = "prism.runtime.feedback_kind"
-	runtimeTraceAttrEnqueueStatus             = "prism.runtime.enqueue_status"
-	runtimeTraceAttrHTTPMethod                = "http.request.method"
-	runtimeTraceAttrHTTPStatus                = "http.response.status_code"
+	runtimeTraceAttrOperationName                                         = "prism.runtime.operation_name"
+	runtimeTraceAttrUpstreamOperationName                                 = "prism.runtime.upstream_operation_name"
+	runtimeTraceAttrOperationTranslationMode                              = "prism.runtime.operation_translation_mode"
+	runtimeTraceAttrUpstreamRequestPath                                   = "prism.runtime.upstream_request_path"
+	runtimeTraceAttrPreferredContextBand                                  = "prism.runtime.preferred_context_band"
+	runtimeTraceAttrSelectedTerminalTargetID                              = "prism.runtime.selected_terminal_target_id"
+	runtimeTraceAttrContextOverflowPromotion                              = "prism.runtime.context_overflow_promotion"
+	runtimeTraceAttrContextOverflowPromotionFromModelID                   = "prism.runtime.context_overflow_promotion.from_model_id"
+	runtimeTraceAttrContextOverflowPromotionToModelID                     = "prism.runtime.context_overflow_promotion.to_model_id"
+	runtimeTraceAttrContextOverflowPromotionTriggerStatus                 = "prism.runtime.context_overflow_promotion.trigger_status"
+	runtimeTraceAttrContextOverflowPromotionTriggerCode                   = "prism.runtime.context_overflow_promotion.trigger_code"
+	runtimeTraceAttrContextOverflowPromotionTriggerClassifier             = "prism.runtime.context_overflow_promotion.trigger_classifier"
+	runtimeTraceAttrContextOverflowPromotionEstimationMode                = "prism.runtime.context_overflow_promotion.estimation_mode"
+	runtimeTraceAttrContextOverflowPromotionFromSelectedTerminalTargetID  = "prism.runtime.context_overflow_promotion.from_selected_terminal_target_id"
+	runtimeTraceAttrContextOverflowPromotionToSelectedTerminalTargetID    = "prism.runtime.context_overflow_promotion.to_selected_terminal_target_id"
+	runtimeTraceAttrContextOverflowPromotionFromUsableContextWindowTokens = "prism.runtime.context_overflow_promotion.from_usable_context_window_tokens"
+	runtimeTraceAttrContextOverflowPromotionToUsableContextWindowTokens   = "prism.runtime.context_overflow_promotion.to_usable_context_window_tokens"
+	runtimeTraceAttrContextOverflowPromotionSourceAttemptCount            = "prism.runtime.context_overflow_promotion.source_attempt_count"
+	runtimeTraceAttrContextOverflowPromotionFinalAttemptCount             = "prism.runtime.context_overflow_promotion.final_attempt_count"
+	runtimeTraceAttrContextOverflowPromotionResult                        = "prism.runtime.context_overflow_promotion.result"
+	runtimeTraceAttrFacadeModelID                                         = "prism.runtime.facade_model_id"
+	runtimeTraceAttrFacadeSelectedTargetModel                             = "prism.runtime.facade_selected_target_model_id"
+	runtimeTraceAttrFacadeSelectedWeight                                  = "prism.runtime.facade_selected_weight"
+	runtimeTraceAttrFacadeEligibleTotalWeight                             = "prism.runtime.facade_eligible_total_weight"
+	runtimeTraceAttrFacadeExclusionSummary                                = "prism.runtime.facade_exclusion_summary"
+	runtimeTraceAttrPlannerVersion                                        = "prism.runtime.planner_version"
+	runtimeTraceAttrPlannerMode                                           = "prism.runtime.planner_mode"
+	runtimeTraceAttrPlannerDecision                                       = "prism.runtime.planner_decision"
+	runtimeTraceAttrPlannerPolicy                                         = "prism.runtime.planner_policy"
+	runtimeTraceAttrPlannerSelectedTier                                   = "prism.runtime.planner_selected_tier_priority"
+	runtimeTraceAttrPlannerSkippedTargets                                 = "prism.runtime.planner_skipped_terminal_targets"
+	runtimeTraceAttrShadowComparisonResult                                = "prism.runtime.shadow_comparison_result"
+	runtimeTraceAttrShadowMismatchReasons                                 = "prism.runtime.shadow_mismatch_reasons"
+	runtimeTraceAttrAPIFamily                                             = "prism.runtime.api_family"
+	runtimeTraceAttrStreaming                                             = "prism.runtime.streaming"
+	runtimeTraceAttrStatusClass                                           = "prism.runtime.status_class"
+	runtimeTraceAttrStreamOutcome                                         = "prism.runtime.stream_outcome"
+	runtimeTraceAttrBodyMode                                              = "prism.runtime.body_mode"
+	runtimeTraceAttrAttemptResult                                         = "prism.runtime.attempt_result"
+	runtimeTraceAttrFeedbackKind                                          = "prism.runtime.feedback_kind"
+	runtimeTraceAttrEnqueueStatus                                         = "prism.runtime.enqueue_status"
+	runtimeTraceAttrHTTPMethod                                            = "http.request.method"
+	runtimeTraceAttrHTTPStatus                                            = "http.response.status_code"
 
 	runtimeTraceValueUnknown  = "unknown"
 	runtimeTraceBodyStreaming = "streaming"
@@ -136,6 +150,7 @@ func runtimeTraceAttemptAttributionAttributes(operation RuntimeOperation, transl
 		if contextRouting.SelectedTerminalTargetID != nil {
 			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *contextRouting.SelectedTerminalTargetID))
 		}
+		attrs = append(attrs, runtimeTraceContextOverflowPromotionAttributes(contextRouting)...)
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(contextRouting)...)
 		attrs = append(attrs, runtimeTracePlannerTraceAttributes(contextRouting.PlannerTrace)...)
 	}
@@ -159,6 +174,48 @@ func runtimeTraceFacadeSelectionAttributes(contextRouting *runtimeContextRouting
 	}
 	if facadeSelection.ExclusionSummary != nil && strings.TrimSpace(*facadeSelection.ExclusionSummary) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrFacadeExclusionSummary, strings.TrimSpace(*facadeSelection.ExclusionSummary)))
+	}
+	return attrs
+}
+
+func runtimeTraceContextOverflowPromotionAttributes(contextRouting *runtimeContextRoutingDecision) []attribute.KeyValue {
+	if contextRouting == nil || contextRouting.ContextOverflowPromotion == nil {
+		return nil
+	}
+	promotion := contextRouting.ContextOverflowPromotion
+	attrs := []attribute.KeyValue{
+		attribute.Bool(runtimeTraceAttrContextOverflowPromotion, true),
+		attribute.Int(runtimeTraceAttrContextOverflowPromotionTriggerStatus, promotion.TriggerStatus),
+		attribute.Int(runtimeTraceAttrContextOverflowPromotionSourceAttemptCount, promotion.SourceAttemptCount),
+		attribute.Int(runtimeTraceAttrContextOverflowPromotionFinalAttemptCount, promotion.FinalAttemptCount),
+		attribute.String(runtimeTraceAttrContextOverflowPromotionResult, runtimeTracePolicy.contextOverflowPromotionResult(promotion.Result)),
+	}
+	if strings.TrimSpace(promotion.TriggerClassifier) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionTriggerClassifier, runtimeTracePolicy.contextOverflowPromotionClassifier(promotion.TriggerClassifier)))
+	}
+	if promotion.TriggerErrorCode != nil && strings.TrimSpace(*promotion.TriggerErrorCode) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionTriggerCode, runtimeTracePolicy.contextOverflowPromotionTriggerCode(*promotion.TriggerErrorCode)))
+	}
+	if strings.TrimSpace(promotion.EstimationMode) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationMode, runtimeTracePolicy.contextOverflowPromotionEstimationMode(promotion.EstimationMode)))
+	}
+	if promotion.FromResolvedTargetModelID != nil && strings.TrimSpace(*promotion.FromResolvedTargetModelID) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionFromModelID, strings.TrimSpace(*promotion.FromResolvedTargetModelID)))
+	}
+	if promotion.ToResolvedTargetModelID != nil && strings.TrimSpace(*promotion.ToResolvedTargetModelID) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionToModelID, strings.TrimSpace(*promotion.ToResolvedTargetModelID)))
+	}
+	if promotion.FromSelectedTerminalTargetID != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionFromSelectedTerminalTargetID, *promotion.FromSelectedTerminalTargetID))
+	}
+	if promotion.ToSelectedTerminalTargetID != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionToSelectedTerminalTargetID, *promotion.ToSelectedTerminalTargetID))
+	}
+	if promotion.FromUsableContextWindowTokens != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionFromUsableContextWindowTokens, *promotion.FromUsableContextWindowTokens))
+	}
+	if promotion.ToUsableContextWindowTokens != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionToUsableContextWindowTokens, *promotion.ToUsableContextWindowTokens))
 	}
 	return attrs
 }
@@ -234,6 +291,7 @@ func runtimeTracePlanningFailureAttributes(failure runtimePlanningFailureTelemet
 		if failure.ContextRouting.SelectedTerminalTargetID != nil {
 			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *failure.ContextRouting.SelectedTerminalTargetID))
 		}
+		attrs = append(attrs, runtimeTraceContextOverflowPromotionAttributes(failure.ContextRouting)...)
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(failure.ContextRouting)...)
 		attrs = append(attrs, runtimeTracePlannerTraceAttributes(failure.ContextRouting.PlannerTrace)...)
 	}
@@ -263,6 +321,7 @@ func runtimeTraceEnvelopeAttributes(envelope runtimeTelemetryEnvelope) []attribu
 		if envelope.UsageEvent.ContextRouting.SelectedTerminalTargetID != nil {
 			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *envelope.UsageEvent.ContextRouting.SelectedTerminalTargetID))
 		}
+		attrs = append(attrs, runtimeTraceContextOverflowPromotionAttributes(envelope.UsageEvent.ContextRouting)...)
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(envelope.UsageEvent.ContextRouting)...)
 		attrs = append(attrs, runtimeTracePlannerTraceAttributes(envelope.UsageEvent.ContextRouting.PlannerTrace)...)
 	}
@@ -405,6 +464,42 @@ func (policy runtimeTraceAttributePolicy) plannerPolicy(value string) string {
 func (policy runtimeTraceAttributePolicy) preferredContextBand(value string) string {
 	switch strings.TrimSpace(value) {
 	case runtimeContextBandPreferred, runtimeContextBandDiscretionary:
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) contextOverflowPromotionResult(value string) string {
+	switch strings.TrimSpace(value) {
+	case runtimeContextOverflowPromotionResultPromotedSuccess:
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) contextOverflowPromotionClassifier(value string) string {
+	switch strings.TrimSpace(value) {
+	case cliProxyAPIOverflowClassifierErrorCode, cliProxyAPIOverflowClassifierMessageText:
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) contextOverflowPromotionTriggerCode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "context_length_exceeded", "context_too_large":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) contextOverflowPromotionEstimationMode(value string) string {
+	switch strings.TrimSpace(value) {
+	case runtimeContextOverflowPromotionEstimationModeEstimated, runtimeContextOverflowPromotionEstimationModePassThrough:
 		return strings.TrimSpace(value)
 	default:
 		return runtimeTraceValueUnknown

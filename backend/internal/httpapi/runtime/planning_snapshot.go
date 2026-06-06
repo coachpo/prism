@@ -202,15 +202,16 @@ const (
 )
 
 type runtimeAccessResolutionContext struct {
-	RequestedModelID         string
-	RequestedAPIFamily       string
-	RequestOperation         RuntimeOperation
-	TranslationEligibility   requestTranslationEligibilitySummary
-	RequestContextEstimation *requestContextEstimation
-	VisitedModelIDs          map[int]struct{}
-	ConsideredModelPath      []string
-	Depth                    int
-	ReferenceNow             time.Time
+	RequestedModelID              string
+	RequestedAPIFamily            string
+	RequestOperation              RuntimeOperation
+	TranslationEligibility        requestTranslationEligibilitySummary
+	RequestContextEstimation      *requestContextEstimation
+	AllowMissingContextEstimation bool
+	VisitedModelIDs               map[int]struct{}
+	ConsideredModelPath           []string
+	Depth                         int
+	ReferenceNow                  time.Time
 }
 
 type runtimeResolvedAccessPlan struct {
@@ -224,6 +225,10 @@ type runtimeResolvedAccessPlan struct {
 	LargestUsableContextWindowTokens int
 	ContextFitEvaluated              bool
 	TranslationRejection             *domainError
+}
+
+func (ctx runtimeAccessResolutionContext) rejectsMissingContextEstimation() bool {
+	return ctx.RequestContextEstimation == nil && !ctx.AllowMissingContextEstimation
 }
 
 type runtimeContextEligibilityBand int
@@ -286,23 +291,32 @@ func (err *noContextEligibleTargetsError) Error() string {
 }
 
 func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, translationEligibility requestTranslationEligibilitySummary, contextEstimation *requestContextEstimation, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
+	return s.resolveExecutionTargetFromSnapshotWithOptions(profileID, snapshot, requestedModel, requestOperation, translationEligibility, contextEstimation, false, referenceNow)
+}
+
+func (s *Service) resolveExecutionTargetFromSnapshotWithOptions(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, translationEligibility requestTranslationEligibilitySummary, contextEstimation *requestContextEstimation, allowMissingContextEstimation bool, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
 	routingPlan, err := snapshot.compiledRoutingPlan()
 	if err != nil {
 		return runtimeResolvedAccessPlan{}, err
 	}
-	return s.resolveExecutionTargetFromRoutingPlan(profileID, routingPlan, requestedModel, requestOperation, translationEligibility, contextEstimation, referenceNow)
+	return s.resolveExecutionTargetFromRoutingPlanWithOptions(profileID, routingPlan, requestedModel, requestOperation, translationEligibility, contextEstimation, allowMissingContextEstimation, referenceNow)
 }
 
 func (s *Service) resolveExecutionTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, translationEligibility requestTranslationEligibilitySummary, contextEstimation *requestContextEstimation, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
+	return s.resolveExecutionTargetFromRoutingPlanWithOptions(profileID, routingPlan, requestedModel, requestOperation, translationEligibility, contextEstimation, false, referenceNow)
+}
+
+func (s *Service) resolveExecutionTargetFromRoutingPlanWithOptions(profileID int, routingPlan *runtimeRoutingPlan, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, translationEligibility requestTranslationEligibilitySummary, contextEstimation *requestContextEstimation, allowMissingContextEstimation bool, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
 	ctx := runtimeAccessResolutionContext{
-		RequestedModelID:         requestedModel.ModelID,
-		RequestedAPIFamily:       requestedModel.APIFamily,
-		RequestOperation:         requestOperation,
-		TranslationEligibility:   translationEligibility,
-		RequestContextEstimation: contextEstimation,
-		VisitedModelIDs:          map[int]struct{}{},
-		ConsideredModelPath:      appendRuntimeModelPath(nil, requestedModel.ModelID),
-		ReferenceNow:             referenceNow,
+		RequestedModelID:              requestedModel.ModelID,
+		RequestedAPIFamily:            requestedModel.APIFamily,
+		RequestOperation:              requestOperation,
+		TranslationEligibility:        translationEligibility,
+		RequestContextEstimation:      contextEstimation,
+		AllowMissingContextEstimation: allowMissingContextEstimation,
+		VisitedModelIDs:               map[int]struct{}{},
+		ConsideredModelPath:           appendRuntimeModelPath(nil, requestedModel.ModelID),
+		ReferenceNow:                  referenceNow,
 	}
 	resolved, err := s.resolveRequestedModelExecutionTargetFromRoutingPlan(profileID, routingPlan, requestedModel, ctx)
 	if err != nil {
@@ -422,11 +436,11 @@ func (s *Service) resolveExactFacadeModelAccessFromRoutingPlan(profileID int, ro
 			}
 			return runtimeResolvedAccessPlan{}, translationRejection
 		}
-		if ctx.RequestContextEstimation == nil {
+		if ctx.rejectsMissingContextEstimation() {
 			return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 		}
 		facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, peerSelection.eligibleTotalWeight, peerSelection.skippedTerminalTargets, peerSelection.translatedRejectedCount)
-		if peerSelection.contextFitEvaluated {
+		if peerSelection.contextFitEvaluated && ctx.RequestContextEstimation != nil {
 			return runtimeResolvedAccessPlan{}, &noContextEligibleTargetsError{
 				requestedModelID:                 ctx.RequestedModelID,
 				estimatedTotalContextTokens:      ctx.RequestContextEstimation.EstimatedTotalContextTokens,
@@ -438,7 +452,7 @@ func (s *Service) resolveExactFacadeModelAccessFromRoutingPlan(profileID int, ro
 		}
 		return runtimeResolvedAccessPlan{}, &noEligibleTargetsError{requestedModelID: ctx.RequestedModelID, facadeSelection: facadeSelection}
 	}
-	if ctx.RequestContextEstimation == nil {
+	if ctx.rejectsMissingContextEstimation() {
 		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 	}
 	selectedCandidate := peerSelection.selectedCandidate
@@ -538,7 +552,7 @@ func (s *Service) resolveModelAccessFromRoutingPlan(profileID int, routingPlan *
 		return runtimeResolvedAccessPlan{}, err
 	}
 	if peerSelection.selectedCandidate != nil {
-		if strategy.IsCheapestEligibleContextStrategy() && ctx.RequestContextEstimation == nil {
+		if strategy.IsCheapestEligibleContextStrategy() && ctx.rejectsMissingContextEstimation() {
 			return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 		}
 		resolved := peerSelection.selectedCandidate.resolved
@@ -592,7 +606,7 @@ func (s *Service) resolveModelAccessFromRoutingPlan(profileID int, routingPlan *
 	if peerSelection.translationRejection != nil {
 		return runtimeResolvedAccessPlan{}, peerSelection.translationRejection
 	}
-	if strategy.IsCheapestEligibleContextStrategy() && ctx.RequestContextEstimation == nil {
+	if strategy.IsCheapestEligibleContextStrategy() && ctx.rejectsMissingContextEstimation() {
 		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 	}
 	if peerSelection.contextFitEvaluated && ctx.RequestContextEstimation != nil {
@@ -661,7 +675,7 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, routi
 			}
 			return runtimeResolvedAccessPlan{}, translationRejection
 		}
-		if ctx.RequestContextEstimation == nil {
+		if ctx.rejectsMissingContextEstimation() {
 			return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 		}
 		if contextFitEvaluated && ctx.RequestContextEstimation != nil {
@@ -675,7 +689,7 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, routi
 		}
 		return runtimeResolvedAccessPlan{}, &noEligibleTargetsError{requestedModelID: ctx.RequestedModelID}
 	}
-	if ctx.RequestContextEstimation == nil {
+	if ctx.rejectsMissingContextEstimation() {
 		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 	}
 	sort.SliceStable(eligibleCandidates, func(left int, right int) bool {
@@ -689,7 +703,7 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, routi
 	resolved.SelectedTerminalTargetID = intPtr(selectedCandidate.resolved.TerminalAttempts[0].Connection.ID)
 	resolved.ContextRouting = buildRuntimeContextRoutingDecision(strategy, ctx.RequestContextEstimation, &selectedCandidate, runtimeContextRoutingCostRankingMethod, largestUsableContextWindowTokens, skippedTerminalTargets)
 	resolved.LargestUsableContextWindowTokens = largestUsableContextWindowTokens
-	resolved.ContextFitEvaluated = true
+	resolved.ContextFitEvaluated = contextFitEvaluated
 	return resolved, nil
 }
 
@@ -1324,7 +1338,7 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 			COALESCE(vendors.audit_enabled, FALSE), COALESCE(vendors.audit_capture_bodies, FALSE), model_configs.loadbalance_strategy_id,
 			model_configs.facade_enabled, model_configs.facade_selection_policy, model_configs.facade_fallback_policy,
 			model_configs.context_window_tokens, model_configs.default_output_token_reserve, model_configs.max_context_utilization,
-			model_configs.preferred_context_utilization_threshold
+			model_configs.preferred_context_utilization_threshold, model_configs.context_overflow_promotion_target_id
 		FROM model_configs
 		LEFT JOIN vendors ON vendors.id = model_configs.vendor_id
 		WHERE model_configs.profile_id = $1 AND model_configs.is_enabled = TRUE
@@ -1348,8 +1362,9 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		var defaultOutputTokenReserve sql.NullInt32
 		var maxContextUtilization sql.NullFloat64
 		var preferredContextUtilizationThreshold sql.NullFloat64
+		var contextOverflowPromotionTargetID sql.NullString
 		item := runtimeModelRecord{}
-		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &vendorID, &vendorKey, &vendorName, &item.AuditEnabled, &item.AuditCaptureBodies, &strategyID, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization, &preferredContextUtilizationThreshold); err != nil {
+		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &vendorID, &vendorKey, &vendorName, &item.AuditEnabled, &item.AuditCaptureBodies, &strategyID, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization, &preferredContextUtilizationThreshold, &contextOverflowPromotionTargetID); err != nil {
 			return nil, fmt.Errorf("scan enabled model for profile %d: %w", profileID, err)
 		}
 		if _, exists := items[item.ModelID]; exists {
@@ -1365,6 +1380,7 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		item.DefaultOutputTokenReserve = nullableInt32(defaultOutputTokenReserve)
 		item.MaxContextUtilization = nullableFloat64(maxContextUtilization)
 		item.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
+		item.ContextOverflowPromotionTargetID = nullableString(contextOverflowPromotionTargetID)
 		item.VendorID = nullableInt32(vendorID)
 		item.VendorKey = nullableString(vendorKey)
 		item.VendorName = nullableString(vendorName)

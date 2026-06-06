@@ -454,6 +454,267 @@ func TestObservability_FacadeNoEligiblePlanningFailurePersistsDecisionMetadataAn
 	}
 }
 
+func TestObservabilityRecordsSourceAndPromotedAttempts(t *testing.T) {
+	startedAt := time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(1200 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := newRuntimeTelemetryEnvelopeRequest(completedAt)
+
+	sourceResolvedTargetModelID := "source-model"
+	promotedResolvedTargetModelID := "promoted-model"
+	sourceSelectedTerminalTargetID := intPtr(11)
+	promotedSelectedTerminalTargetID := intPtr(22)
+	sourceConnectionOne := runtimeConnection{ID: 11, Endpoint: runtimeEndpoint{ID: 111, BaseURL: "https://source-one.example"}}
+	sourceConnectionTwo := runtimeConnection{ID: 12, Endpoint: runtimeEndpoint{ID: 112, BaseURL: "https://source-two.example"}}
+	promotedConnection := runtimeConnection{ID: 22, Endpoint: runtimeEndpoint{ID: 222, BaseURL: "https://promoted.example"}}
+	sourcePlan := requestPlan{
+		ProfileID:                42,
+		RequestedModelID:         "public-model",
+		ResolvedTargetModelID:    &sourceResolvedTargetModelID,
+		RequestedVendorID:        intPtr(1),
+		RequestedVendorKey:       stringPtr("openai"),
+		RequestedVendorName:      stringPtr("OpenAI"),
+		APIFamily:                "openai",
+		RuntimeOperation:         RuntimeOperation{Name: "openai.chat_completions", PathTemplate: "/v1/chat/completions"},
+		ReportCurrencySnapshot:   runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		RequestContextEstimation: &requestContextEstimation{Method: openAIChatContextEstimationMethod, EstimatedInputTokens: 1200, ReservedOutputTokens: 4000, EstimatedTotalContextTokens: 5200, UsableContextWindowTokens: intPtr(243000)},
+		SelectedTerminalTargetID: sourceSelectedTerminalTargetID,
+		ContextRouting: &runtimeContextRoutingDecision{
+			Policy:                            "cheapest_eligible_context",
+			SelectedTerminalTargetID:          sourceSelectedTerminalTargetID,
+			SelectedUsableContextWindowTokens: intPtr(243000),
+			UsableContextWindowTokens:         intPtr(243000),
+		},
+	}
+	promotedPlan := requestPlan{
+		RequestedModelID:         "promoted-model",
+		ResolvedTargetModelID:    &promotedResolvedTargetModelID,
+		SelectedTerminalTargetID: promotedSelectedTerminalTargetID,
+		ContextRouting: &runtimeContextRoutingDecision{
+			Policy:                            "cheapest_eligible_context",
+			SelectedTerminalTargetID:          promotedSelectedTerminalTargetID,
+			SelectedUsableContextWindowTokens: intPtr(900000),
+			UsableContextWindowTokens:         intPtr(900000),
+		},
+		TerminalAttempts: []runtimeTerminalAttempt{{Connection: promotedConnection}},
+	}
+	sourceExecution := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusBadRequest},
+		Connection:            sourceConnectionTwo,
+		ResolvedTargetModelID: &sourceResolvedTargetModelID,
+		AttemptCount:          2,
+		Attempts: []executionAttempt{
+			{Connection: sourceConnectionOne, ResolvedTargetModelID: sourceResolvedTargetModelID, RequestHeaders: map[string]string{"User-Agent": "source-upstream-1"}, StatusCode: http.StatusServiceUnavailable, ResponseTimeMS: 150, CompletedAt: startedAt.Add(150 * time.Millisecond)},
+			{Connection: sourceConnectionTwo, ResolvedTargetModelID: sourceResolvedTargetModelID, RequestHeaders: map[string]string{"User-Agent": "source-upstream-2"}, StatusCode: http.StatusBadRequest, ResponseTimeMS: 350, CompletedAt: startedAt.Add(350 * time.Millisecond)},
+		},
+	}
+	promotedExecution := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusOK},
+		Connection:            promotedConnection,
+		ResolvedTargetModelID: &promotedResolvedTargetModelID,
+		AttemptCount:          1,
+		Attempts:              []executionAttempt{{Connection: promotedConnection, ResolvedTargetModelID: promotedResolvedTargetModelID, RequestHeaders: map[string]string{"User-Agent": "promoted-upstream"}, StatusCode: http.StatusOK, ResponseTimeMS: 600, CompletedAt: completedAt}},
+	}
+
+	finalPlan := mergeContextOverflowPromotedPlan(sourcePlan, promotedPlan, sourceExecution, promotedExecution, cliProxyAPIOverflowClassification{Promotable: true, ErrorCode: "context_length_exceeded", Classifier: cliProxyAPIOverflowClassifierErrorCode})
+	finalExecution := mergeContextOverflowPromotedExecution(sourceExecution, promotedExecution)
+	envelope := service.buildRuntimeTelemetryEnvelope(finalPlan, finalExecution, request, startedAt, runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(9), OutputTokens: intPtr(5), TotalTokens: intPtr(14)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming})
+
+	if len(envelope.RequestLogs) != 3 {
+		t.Fatalf("expected three request-log rows, got %d", len(envelope.RequestLogs))
+	}
+	for index, requestLog := range envelope.RequestLogs {
+		if requestLog.AttemptNumber != index+1 {
+			t.Fatalf("expected attempt_number=%d, got %+v", index+1, requestLog)
+		}
+		if requestLog.IngressRequestID != envelope.UsageEvent.IngressRequestID {
+			t.Fatalf("expected shared ingress_request_id, got request_log=%q usage_event=%q", requestLog.IngressRequestID, envelope.UsageEvent.IngressRequestID)
+		}
+	}
+	assertRuntimeIntPtr(t, envelope.RequestLogs[0].SelectedTerminalTargetID, 11, "first source selected terminal target")
+	assertRuntimeIntPtr(t, envelope.RequestLogs[1].SelectedTerminalTargetID, 11, "overflow source selected terminal target")
+	assertRuntimeIntPtr(t, envelope.RequestLogs[2].SelectedTerminalTargetID, 22, "promoted selected terminal target")
+	assertRuntimeStringPtr(t, envelope.RequestLogs[0].ResolvedTargetModelID, sourceResolvedTargetModelID, "first source resolved target model")
+	assertRuntimeStringPtr(t, envelope.RequestLogs[1].ResolvedTargetModelID, sourceResolvedTargetModelID, "overflow source resolved target model")
+	assertRuntimeStringPtr(t, envelope.RequestLogs[2].ResolvedTargetModelID, promotedResolvedTargetModelID, "promoted resolved target model")
+	assertRuntimeContextOverflowPromotionDecision(t, envelope.RequestLogs[1].ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionEstimationModeEstimated, sourceResolvedTargetModelID, 11, promotedResolvedTargetModelID, 22, 243000, 900000, 2, 3, runtimeContextOverflowPromotionResultPromotedSuccess)
+	assertRuntimeContextOverflowPromotionDecision(t, envelope.RequestLogs[2].ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionEstimationModeEstimated, sourceResolvedTargetModelID, 11, promotedResolvedTargetModelID, 22, 243000, 900000, 2, 3, runtimeContextOverflowPromotionResultPromotedSuccess)
+	assertRuntimeIntPtr(t, envelope.UsageEvent.SelectedTerminalTargetID, 22, "usage event promoted selected terminal target")
+	assertRuntimeStringPtr(t, envelope.UsageEvent.ResolvedTargetModelID, promotedResolvedTargetModelID, "usage event promoted resolved target model")
+	if envelope.UsageEvent.AttemptCount != 3 {
+		t.Fatalf("expected usage event attempt_count=3, got %+v", envelope.UsageEvent)
+	}
+	assertRuntimeContextOverflowPromotionDecision(t, envelope.UsageEvent.ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionEstimationModeEstimated, sourceResolvedTargetModelID, 11, promotedResolvedTargetModelID, 22, 243000, 900000, 2, 3, runtimeContextOverflowPromotionResultPromotedSuccess)
+}
+
+func TestUsageEventUsesFinalPromotedResponse(t *testing.T) {
+	startedAt := time.Date(2026, 6, 5, 9, 30, 0, 0, time.UTC)
+	completedAt := startedAt.Add(1600 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := newRuntimeTelemetryEnvelopeRequest(completedAt)
+
+	sourceResolvedTargetModelID := "source-model"
+	promotedResolvedTargetModelID := "promoted-model"
+	sourceSelectedTerminalTargetID := intPtr(31)
+	promotedSelectedTerminalTargetID := intPtr(41)
+	sourceConnection := runtimeConnection{ID: 31, Endpoint: runtimeEndpoint{ID: 311, BaseURL: "https://source.example"}}
+	promotedConnectionOne := runtimeConnection{ID: 41, Endpoint: runtimeEndpoint{ID: 411, BaseURL: "https://promoted-one.example"}}
+	promotedConnectionTwo := runtimeConnection{ID: 42, Endpoint: runtimeEndpoint{ID: 412, BaseURL: "https://promoted-two.example"}}
+	sourcePlan := requestPlan{
+		ProfileID:                7,
+		RequestedModelID:         "public-model",
+		ResolvedTargetModelID:    &sourceResolvedTargetModelID,
+		RequestedVendorID:        intPtr(1),
+		RequestedVendorKey:       stringPtr("openai"),
+		RequestedVendorName:      stringPtr("OpenAI"),
+		APIFamily:                "openai",
+		RuntimeOperation:         RuntimeOperation{Name: "openai.chat_completions", PathTemplate: "/v1/chat/completions"},
+		ReportCurrencySnapshot:   runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		SelectedTerminalTargetID: sourceSelectedTerminalTargetID,
+		ContextRouting: &runtimeContextRoutingDecision{
+			Policy:                            "cheapest_eligible_context",
+			SelectedTerminalTargetID:          sourceSelectedTerminalTargetID,
+			SelectedUsableContextWindowTokens: intPtr(200000),
+			UsableContextWindowTokens:         intPtr(200000),
+		},
+	}
+	promotedPlan := requestPlan{
+		RequestedModelID:         "promoted-model",
+		ResolvedTargetModelID:    &promotedResolvedTargetModelID,
+		SelectedTerminalTargetID: promotedSelectedTerminalTargetID,
+		ContextRouting: &runtimeContextRoutingDecision{
+			Policy:                            "cheapest_eligible_context",
+			SelectedTerminalTargetID:          promotedSelectedTerminalTargetID,
+			SelectedUsableContextWindowTokens: intPtr(400000),
+			UsableContextWindowTokens:         intPtr(400000),
+		},
+		TerminalAttempts: []runtimeTerminalAttempt{{Connection: promotedConnectionOne}, {Connection: promotedConnectionTwo}},
+	}
+	sourceExecution := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusUnprocessableEntity},
+		Connection:            sourceConnection,
+		ResolvedTargetModelID: &sourceResolvedTargetModelID,
+		AttemptCount:          1,
+		Attempts:              []executionAttempt{{Connection: sourceConnection, ResolvedTargetModelID: sourceResolvedTargetModelID, StatusCode: http.StatusUnprocessableEntity, ResponseTimeMS: 200, CompletedAt: startedAt.Add(200 * time.Millisecond)}},
+	}
+	promotedExecution := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusOK},
+		Connection:            promotedConnectionTwo,
+		ResolvedTargetModelID: &promotedResolvedTargetModelID,
+		AttemptCount:          2,
+		Attempts: []executionAttempt{
+			{Connection: promotedConnectionOne, ResolvedTargetModelID: promotedResolvedTargetModelID, StatusCode: http.StatusServiceUnavailable, ResponseTimeMS: 500, CompletedAt: startedAt.Add(500 * time.Millisecond)},
+			{Connection: promotedConnectionTwo, ResolvedTargetModelID: promotedResolvedTargetModelID, StatusCode: http.StatusOK, ResponseTimeMS: 900, CompletedAt: completedAt},
+		},
+	}
+
+	finalPlan := mergeContextOverflowPromotedPlan(sourcePlan, promotedPlan, sourceExecution, promotedExecution, cliProxyAPIOverflowClassification{Promotable: true, ErrorCode: "context_too_large", Classifier: cliProxyAPIOverflowClassifierErrorCode})
+	finalExecution := mergeContextOverflowPromotedExecution(sourceExecution, promotedExecution)
+	envelope := service.buildRuntimeTelemetryEnvelope(finalPlan, finalExecution, request, startedAt, runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(12), OutputTokens: intPtr(8), TotalTokens: intPtr(20)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming})
+
+	if len(envelope.RequestLogs) != 3 {
+		t.Fatalf("expected three request-log rows, got %d", len(envelope.RequestLogs))
+	}
+	if envelope.RequestLogs[0].TotalTokens != nil || envelope.RequestLogs[1].TotalTokens != nil {
+		t.Fatalf("expected pre-final attempts to omit final usage, got %+v %+v", envelope.RequestLogs[0], envelope.RequestLogs[1])
+	}
+	assertRuntimeIntPtr(t, envelope.RequestLogs[2].TotalTokens, 20, "final promoted request-log total tokens")
+	assertRuntimeStringPtr(t, envelope.UsageEvent.ResolvedTargetModelID, promotedResolvedTargetModelID, "usage event final resolved target model")
+	assertRuntimeIntPtr(t, envelope.UsageEvent.ConnectionID, 42, "usage event final connection")
+	assertRuntimeIntPtr(t, envelope.UsageEvent.SelectedTerminalTargetID, 41, "usage event promoted selected terminal target")
+	assertRuntimeIntPtr(t, envelope.UsageEvent.InputTokens, 12, "usage event final input tokens")
+	assertRuntimeIntPtr(t, envelope.UsageEvent.OutputTokens, 8, "usage event final output tokens")
+	assertRuntimeIntPtr(t, envelope.UsageEvent.TotalTokens, 20, "usage event final total tokens")
+	if envelope.UsageEvent.StatusCode != http.StatusOK || envelope.UsageEvent.AttemptCount != 3 {
+		t.Fatalf("expected final usage event status/attempt_count from promoted response, got %+v", envelope.UsageEvent)
+	}
+}
+
+func TestPromotionObservabilityPreservesFacadeSelection(t *testing.T) {
+	startedAt := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(1400 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := newRuntimeTelemetryEnvelopeRequest(completedAt)
+
+	sourceResolvedTargetModelID := "facade-child-model"
+	promotedResolvedTargetModelID := "promoted-model"
+	sourceSelectedTerminalTargetID := intPtr(51)
+	promotedSelectedTerminalTargetID := intPtr(61)
+	sourceConnection := runtimeConnection{ID: 51, Endpoint: runtimeEndpoint{ID: 511, BaseURL: "https://facade-source.example"}}
+	promotedConnection := runtimeConnection{ID: 61, Endpoint: runtimeEndpoint{ID: 611, BaseURL: "https://facade-promoted.example"}}
+	facadeSelection := &runtimeFacadeSelectionDecision{
+		FacadeModelID:         "facade-public-model",
+		SelectedTargetModelID: stringPtr(sourceResolvedTargetModelID),
+		SelectedWeight:        intPtr(1),
+		EligibleTotalWeight:   intPtr(2),
+		ExclusionReasons:      []runtimeFacadeExclusionReason{{Reason: runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow, Count: 1}},
+		ExclusionSummary:      stringPtr("estimated_context_exceeds_usable_window=1"),
+	}
+	sourcePlan := requestPlan{
+		ProfileID:                9,
+		RequestedModelID:         "facade-public-model",
+		ResolvedTargetModelID:    &sourceResolvedTargetModelID,
+		RequestedVendorID:        intPtr(1),
+		RequestedVendorKey:       stringPtr("openai"),
+		RequestedVendorName:      stringPtr("OpenAI"),
+		APIFamily:                "openai",
+		RuntimeOperation:         RuntimeOperation{Name: "openai.chat_completions", PathTemplate: "/v1/chat/completions"},
+		ReportCurrencySnapshot:   runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+		RequestContextEstimation: &requestContextEstimation{Method: openAIChatContextEstimationMethod, EstimatedInputTokens: 900, ReservedOutputTokens: 2048, EstimatedTotalContextTokens: 2948, UsableContextWindowTokens: intPtr(250000)},
+		SelectedTerminalTargetID: sourceSelectedTerminalTargetID,
+		ContextRouting: &runtimeContextRoutingDecision{
+			Policy:                            runtimeFacadeSelectionPolicyWeightedEligibleContext,
+			SelectedTerminalTargetID:          sourceSelectedTerminalTargetID,
+			SelectedUsableContextWindowTokens: intPtr(250000),
+			UsableContextWindowTokens:         intPtr(250000),
+			FacadeSelection:                   facadeSelection,
+		},
+	}
+	promotedPlan := requestPlan{
+		RequestedModelID:         "promoted-model",
+		ResolvedTargetModelID:    &promotedResolvedTargetModelID,
+		SelectedTerminalTargetID: promotedSelectedTerminalTargetID,
+		ContextRouting: &runtimeContextRoutingDecision{
+			Policy:                            "cheapest_eligible_context",
+			SelectedTerminalTargetID:          promotedSelectedTerminalTargetID,
+			SelectedUsableContextWindowTokens: intPtr(700000),
+			UsableContextWindowTokens:         intPtr(700000),
+		},
+		TerminalAttempts: []runtimeTerminalAttempt{{Connection: promotedConnection}},
+	}
+	sourceExecution := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusBadRequest},
+		Connection:            sourceConnection,
+		ResolvedTargetModelID: &sourceResolvedTargetModelID,
+		AttemptCount:          1,
+		Attempts:              []executionAttempt{{Connection: sourceConnection, ResolvedTargetModelID: sourceResolvedTargetModelID, StatusCode: http.StatusBadRequest, ResponseTimeMS: 300, CompletedAt: startedAt.Add(300 * time.Millisecond)}},
+	}
+	promotedExecution := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusOK},
+		Connection:            promotedConnection,
+		ResolvedTargetModelID: &promotedResolvedTargetModelID,
+		AttemptCount:          1,
+		Attempts:              []executionAttempt{{Connection: promotedConnection, ResolvedTargetModelID: promotedResolvedTargetModelID, StatusCode: http.StatusOK, ResponseTimeMS: 700, CompletedAt: completedAt}},
+	}
+
+	finalPlan := mergeContextOverflowPromotedPlan(sourcePlan, promotedPlan, sourceExecution, promotedExecution, cliProxyAPIOverflowClassification{Promotable: true, ErrorCode: "context_length_exceeded", Classifier: cliProxyAPIOverflowClassifierErrorCode})
+	finalExecution := mergeContextOverflowPromotedExecution(sourceExecution, promotedExecution)
+	envelope := service.buildRuntimeTelemetryEnvelope(finalPlan, finalExecution, request, startedAt, runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(10), OutputTokens: intPtr(4), TotalTokens: intPtr(14)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming})
+
+	assertRuntimeFacadeSelectionDecision(t, envelope.RequestLogs[1].ContextRouting.FacadeSelection, "facade-public-model", stringPtr(sourceResolvedTargetModelID), intPtr(1), intPtr(2), stringPtr("estimated_context_exceeds_usable_window=1"))
+	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-public-model", stringPtr(sourceResolvedTargetModelID), intPtr(1), intPtr(2), stringPtr("estimated_context_exceeds_usable_window=1"))
+	assertRuntimeContextOverflowPromotionDecision(t, envelope.UsageEvent.ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionEstimationModeEstimated, sourceResolvedTargetModelID, 51, promotedResolvedTargetModelID, 61, 250000, 700000, 1, 2, runtimeContextOverflowPromotionResultPromotedSuccess)
+
+	planAttrs := attributesByKey(runtimeTracePlanAttributes(finalPlan))
+	if !planAttrs[runtimeTraceAttrContextOverflowPromotion].AsBool() || planAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || planAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != sourceResolvedTargetModelID || planAttrs[runtimeTraceAttrFacadeSelectedWeight].AsInt64() != 1 || planAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 2 || planAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" || planAttrs[runtimeTraceAttrContextOverflowPromotionFromModelID].AsString() != sourceResolvedTargetModelID || planAttrs[runtimeTraceAttrContextOverflowPromotionToModelID].AsString() != promotedResolvedTargetModelID || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerStatus].AsInt64() != 400 || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerCode].AsString() != "context_length_exceeded" || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerClassifier].AsString() != cliProxyAPIOverflowClassifierErrorCode || planAttrs[runtimeTraceAttrContextOverflowPromotionResult].AsString() != runtimeContextOverflowPromotionResultPromotedSuccess {
+		t.Fatalf("expected additive facade + promotion plan trace attrs, got %+v", planAttrs)
+	}
+	envelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(envelope))
+	if !envelopeAttrs[runtimeTraceAttrContextOverflowPromotion].AsBool() || envelopeAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || envelopeAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != sourceResolvedTargetModelID || envelopeAttrs[runtimeTraceAttrContextOverflowPromotionFromModelID].AsString() != sourceResolvedTargetModelID || envelopeAttrs[runtimeTraceAttrContextOverflowPromotionToModelID].AsString() != promotedResolvedTargetModelID || envelopeAttrs[runtimeTraceAttrContextOverflowPromotionTriggerCode].AsString() != "context_length_exceeded" || envelopeAttrs[runtimeTraceAttrContextOverflowPromotionResult].AsString() != runtimeContextOverflowPromotionResultPromotedSuccess {
+		t.Fatalf("expected additive facade + promotion envelope trace attrs, got %+v", envelopeAttrs)
+	}
+}
+
 func newRuntimeTelemetryEnvelopeRequest(proxyKeyLastUsedAt time.Time) *http.Request {
 	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, "runtime-envelope-characterization")
 	ctx = requestcontext.WithRuntimeProxyKey(ctx, requestcontext.RuntimeProxyKeySnapshot{
@@ -490,6 +751,20 @@ func assertRuntimeFacadeSelectionDecision(t *testing.T, got *runtimeFacadeSelect
 	if wantExclusionSummary != nil && len(got.ExclusionReasons) == 0 {
 		t.Fatalf("expected exclusion reasons for summary %q, got %+v", *wantExclusionSummary, got)
 	}
+}
+
+func assertRuntimeContextOverflowPromotionDecision(t *testing.T, got *runtimeContextOverflowPromotionDecision, wantTriggerStatus int, wantTriggerErrorCode string, wantTriggerClassifier string, wantEstimationMode string, wantFromResolvedTargetModelID string, wantFromSelectedTerminalTargetID int, wantToResolvedTargetModelID string, wantToSelectedTerminalTargetID int, wantFromUsableContextWindowTokens int, wantToUsableContextWindowTokens int, wantSourceAttemptCount int, wantFinalAttemptCount int, wantResult string) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("expected context overflow promotion decision, got nil")
+	}
+	if got.TriggerStatus != wantTriggerStatus || dereferenceString(got.TriggerErrorCode) != wantTriggerErrorCode || got.TriggerClassifier != wantTriggerClassifier || got.EstimationMode != wantEstimationMode || dereferenceString(got.FromResolvedTargetModelID) != wantFromResolvedTargetModelID || dereferenceString(got.ToResolvedTargetModelID) != wantToResolvedTargetModelID || got.SourceAttemptCount != wantSourceAttemptCount || got.FinalAttemptCount != wantFinalAttemptCount || got.Result != wantResult {
+		t.Fatalf("unexpected context overflow promotion decision: %+v", got)
+	}
+	assertRuntimeIntPtr(t, got.FromSelectedTerminalTargetID, wantFromSelectedTerminalTargetID, "promotion from selected terminal target")
+	assertRuntimeIntPtr(t, got.ToSelectedTerminalTargetID, wantToSelectedTerminalTargetID, "promotion to selected terminal target")
+	assertRuntimeIntPtr(t, got.FromUsableContextWindowTokens, wantFromUsableContextWindowTokens, "promotion from usable context window")
+	assertRuntimeIntPtr(t, got.ToUsableContextWindowTokens, wantToUsableContextWindowTokens, "promotion to usable context window")
 }
 
 func assertRuntimeIntPtr(t *testing.T, got *int, want int, label string) {

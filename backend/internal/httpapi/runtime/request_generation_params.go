@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -302,6 +303,26 @@ func decodeRequestContextEstimationPayload(rawBody []byte) (map[string]any, erro
 
 func contextEstimationUnavailableDomainError() error {
 	return &domainError{StatusCode: http.StatusBadRequest, ErrorCode: contextEstimationUnavailableErrorCode, Detail: contextEstimationUnavailableDetail}
+}
+
+func allowContextEstimationUnavailablePassThrough(operation RuntimeOperation, err error) bool {
+	if !isContextEstimationUnavailableError(err) {
+		return false
+	}
+	switch strings.TrimSpace(operation.Name) {
+	case "openai.chat_completions", "openai.responses":
+		return true
+	default:
+		return false
+	}
+}
+
+func isContextEstimationUnavailableError(err error) bool {
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) || domainErr == nil {
+		return false
+	}
+	return strings.TrimSpace(domainErr.ErrorCode) == contextEstimationUnavailableErrorCode
 }
 
 func resolveReservedOutputTokens(explicitMaxOutputTokens *int, defaultOutputReserve *int) int {

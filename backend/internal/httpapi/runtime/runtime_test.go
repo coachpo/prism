@@ -139,56 +139,139 @@ func TestBuildRequestPlanCarriesRequestContextEstimation(t *testing.T) {
 	}
 }
 
-func TestBuildRequestPlan_ContextEstimationUnavailableReturns400(t *testing.T) {
-	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+func TestBuildRequestPlan_ContextEstimationUnavailablePassesThrough(t *testing.T) {
+	serviceFactories := []struct {
+		name    string
+		service func() *Service
+	}{
+		{name: "legacy", service: newRequestPlanUnitService},
+		{name: "enforced", service: newEnforcedRequestPlanUnitService},
+	}
 
-	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o","previous_response_id":"resp_123","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	var domainErr *domainError
-	if !errors.As(err, &domainErr) {
-		t.Fatalf("expected domain error, got %v", err)
-	}
-	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != contextEstimationUnavailableErrorCode || domainErr.Detail != contextEstimationUnavailableDetail {
-		t.Fatalf("expected pinned context-estimation error, got %+v", domainErr)
-	}
-	responseRecorder := httptest.NewRecorder()
-	writeDomainError(responseRecorder, err)
-	response := responseRecorder.Result()
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected status 400, got %d", response.StatusCode)
-	}
-	var payload struct {
-		Error  string `json:"error"`
-		Detail string `json:"detail"`
-	}
-	if decodeErr := json.NewDecoder(response.Body).Decode(&payload); decodeErr != nil {
-		t.Fatalf("decode context-estimation error response: %v", decodeErr)
-	}
-	if payload.Error != contextEstimationUnavailableErrorCode || payload.Detail != contextEstimationUnavailableDetail {
-		t.Fatalf("expected pinned 400 contract, got %+v", payload)
+	for _, test := range serviceFactories {
+		t.Run(test.name+"/responses", func(t *testing.T) {
+			service := test.service()
+			snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
+			model := snapshot.ModelsByID["gpt-4o"]
+			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+			contextWindowTokens := 16_384
+			responsesVariant := "responses_reasoning_none"
+			addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_711, 9_711, 0, requestPlanConnectionTargetOptions{
+				contextWindowTokens:        &contextWindowTokens,
+				maxContextUtilization:      1.0,
+				openAIProbeEndpointVariant: &responsesVariant,
+				openAIUpstreamOperation:    stringPtr(openAIUpstreamOperationResponses),
+			})
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+			if err != nil {
+				t.Fatalf("build request plan: %v", err)
+			}
+			if plan.RequestContextEstimation != nil {
+				t.Fatalf("expected unavailable responses estimation to pass through without planner estimate, got %+v", plan.RequestContextEstimation)
+			}
+			if plan.EffectiveRequestPath != "/v1/responses" {
+				t.Fatalf("expected native responses path, got %q", plan.EffectiveRequestPath)
+			}
+			if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_711 {
+				t.Fatalf("expected selected terminal target 2711, got %+v", plan.SelectedTerminalTargetID)
+			}
+		})
 	}
 }
 
-func TestBuildRequestPlan_DoesNotCallTransportForPreflightEstimation(t *testing.T) {
-	service := newRequestPlanUnitService()
-	transport := &ingressRoundTripRecorder{}
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+func TestBuildRequestPlan_ContextEstimationUnavailableChatPassesThroughWithoutTransportCall(t *testing.T) {
+	serviceFactories := []struct {
+		name    string
+		service func() *Service
+	}{
+		{name: "legacy", service: newRequestPlanUnitService},
+		{name: "enforced", service: newEnforcedRequestPlanUnitService},
+	}
 
-	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png","detail":"high"}}]}]}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
-	var domainErr *domainError
-	if !errors.As(err, &domainErr) {
-		t.Fatalf("expected domain error, got %v", err)
+	for _, test := range serviceFactories {
+		t.Run(test.name+"/chat", func(t *testing.T) {
+			service := test.service()
+			transport := &ingressRoundTripRecorder{}
+			snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
+			model := snapshot.ModelsByID["gpt-4o"]
+			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+			contextWindowTokens := 16_384
+			chatVariant := "chat_completions_reasoning_none"
+			addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_712, 9_712, 0, requestPlanConnectionTargetOptions{
+				contextWindowTokens:        &contextWindowTokens,
+				maxContextUtilization:      1.0,
+				openAIProbeEndpointVariant: &chatVariant,
+				openAIUpstreamOperation:    stringPtr(openAIUpstreamOperationChatCompletions),
+			})
+			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png","detail":"high"}}]}]}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
+			if err != nil {
+				t.Fatalf("build request plan: %v", err)
+			}
+			if plan.RequestContextEstimation != nil {
+				t.Fatalf("expected unavailable chat estimation to pass through without planner estimate, got %+v", plan.RequestContextEstimation)
+			}
+			if plan.EffectiveRequestPath != "/v1/chat/completions" {
+				t.Fatalf("expected native chat path, got %q", plan.EffectiveRequestPath)
+			}
+			if got := transport.calls.Load(); got != 0 {
+				t.Fatalf("expected request planning to avoid transport calls, got %d", got)
+			}
+		})
 	}
-	if domainErr.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 context-estimation failure, got %+v", domainErr)
+}
+
+func TestBuildRequestPlan_ContextEstimationUnavailableTranslatedShapeStillRejects(t *testing.T) {
+	serviceFactories := []struct {
+		name    string
+		service func() *Service
+	}{
+		{name: "legacy", service: newRequestPlanUnitService},
+		{name: "enforced", service: newEnforcedRequestPlanUnitService},
 	}
-	if got := transport.calls.Load(); got != 0 {
-		t.Fatalf("expected preflight estimation to avoid transport calls, got %d", got)
+
+	for _, test := range serviceFactories {
+		t.Run(test.name+"/responses-previous-response-id", func(t *testing.T) {
+			service := test.service()
+			transport := &ingressRoundTripRecorder{}
+			snapshot := newRequestPlanSnapshot(
+				runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
+				runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-target-model"},
+			)
+			addRequestPlanProxyTarget(snapshot, "responses-public", "chat-target-model")
+			child := snapshot.ModelsByID["chat-target-model"]
+			snapshot.AccessTargetsBySourceModelID[child.ID] = nil
+			contextWindowTokens := 8_192
+			chatVariant := "chat_completions_reasoning_none"
+			addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_713, 9_713, 0, requestPlanConnectionTargetOptions{
+				contextWindowTokens:        &contextWindowTokens,
+				maxContextUtilization:      1.0,
+				openAIProbeEndpointVariant: &chatVariant,
+				openAIUpstreamOperation:    stringPtr(openAIUpstreamOperationChatCompletions),
+			})
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+			_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
+			var domainErr *domainError
+			if !errors.As(err, &domainErr) {
+				t.Fatalf("expected domain error, got %v", err)
+			}
+			if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
+				t.Fatalf("expected translated unsupported-shape 400, got %+v", domainErr)
+			}
+			if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_previous_response_id" {
+				t.Fatalf("expected unsupported reason responses_previous_response_id, got %+v", domainErr.Fields)
+			}
+			if got := transport.calls.Load(); got != 0 {
+				t.Fatalf("expected translated unsupported shape to avoid transport calls, got %d", got)
+			}
+		})
 	}
 }
 
