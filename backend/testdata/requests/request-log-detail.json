@@ -75,7 +75,22 @@
           "usable_context_window_tokens": 512,
           "estimated_total_context_tokens": 1039
         }
-      ]
+      ],
+      "context_overflow_promotion": {
+        "trigger_status": 400,
+        "trigger_error_code": "context_length_exceeded",
+        "trigger_classifier": "context_length_exceeded",
+        "estimation_mode": "preflight_estimated",
+        "from_resolved_target_model_id": "gpt-4o",
+        "from_selected_terminal_target_id": 22,
+        "to_resolved_target_model_id": "gpt-4o-native",
+        "to_selected_terminal_target_id": 34,
+        "from_usable_context_window_tokens": 4096,
+        "to_usable_context_window_tokens": 8192,
+        "source_attempt_count": 1,
+        "final_attempt_count": 2,
+        "result": "promoted_success"
+      }
     },
     "endpoint_label": "Primary OpenAI",
     "endpoint_base_url": "https://api.openai.com",

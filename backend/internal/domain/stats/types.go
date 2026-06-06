@@ -144,6 +144,22 @@ type RequestLogShadowComparisonResult struct {
 	MismatchReasons []string `json:"mismatch_reasons,omitempty"`
 }
 
+type RequestLogContextOverflowPromotion struct {
+	TriggerStatus                 int     `json:"trigger_status"`
+	TriggerErrorCode              *string `json:"trigger_error_code,omitempty"`
+	TriggerClassifier             string  `json:"trigger_classifier"`
+	EstimationMode                string  `json:"estimation_mode,omitempty"`
+	FromResolvedTargetModelID     *string `json:"from_resolved_target_model_id,omitempty"`
+	FromSelectedTerminalTargetID  *int    `json:"from_selected_terminal_target_id,omitempty"`
+	ToResolvedTargetModelID       *string `json:"to_resolved_target_model_id,omitempty"`
+	ToSelectedTerminalTargetID    *int    `json:"to_selected_terminal_target_id,omitempty"`
+	FromUsableContextWindowTokens *int    `json:"from_usable_context_window_tokens,omitempty"`
+	ToUsableContextWindowTokens   *int    `json:"to_usable_context_window_tokens,omitempty"`
+	SourceAttemptCount            int     `json:"source_attempt_count"`
+	FinalAttemptCount             int     `json:"final_attempt_count"`
+	Result                        string  `json:"result"`
+}
+
 type RequestLogPlannerTrace struct {
 	PlannerVersion         string                             `json:"planner_version"`
 	PlannerMode            string                             `json:"planner_mode,omitempty"`
@@ -176,6 +192,7 @@ type RequestLogContextRouting struct {
 	SkippedTerminalTargets             []RequestLogContextRoutingSkippedTerminalTarget `json:"skipped_terminal_targets,omitempty"`
 	FacadeSelection                    *RequestLogFacadeSelection                      `json:"facade_selection,omitempty"`
 	PlannerTrace                       *RequestLogPlannerTrace                         `json:"planner_trace,omitempty"`
+	ContextOverflowPromotion           *RequestLogContextOverflowPromotion             `json:"context_overflow_promotion,omitempty"`
 }
 
 type RequestLogDetailRouting struct {
