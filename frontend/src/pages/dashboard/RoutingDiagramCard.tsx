@@ -3,7 +3,6 @@ import {
   getRoutingDiagramEmptyState,
   getRoutingDiagramGraph,
   getRoutingDiagramMobileData,
-  getRoutingDiagramSummary,
   RoutingDiagramFlow,
   RoutingDiagramMobileList,
   type RoutingDiagramData,
@@ -27,9 +26,12 @@ export function RoutingDiagramCard({
   onSelectModel,
   onDrillDownRequests,
 }: RoutingDiagramCardProps) {
-  const { formatNumber, messages } = useLocale();
+  const { messages } = useLocale();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window === "undefined" ? 0 : window.innerHeight,
+  );
 
   useLayoutEffect(() => {
     const element = containerRef.current;
@@ -37,27 +39,32 @@ export function RoutingDiagramCard({
       return;
     }
 
-    const updateWidth = () => {
+    const updateMeasurements = () => {
       setContainerWidth(element.getBoundingClientRect().width);
+      setViewportHeight(window.innerHeight);
     };
 
-    updateWidth();
+    updateMeasurements();
+    window.addEventListener("resize", updateMeasurements);
 
     if (typeof ResizeObserver === "undefined") {
-      return;
+      return () => window.removeEventListener("resize", updateMeasurements);
     }
 
     const observer = new ResizeObserver(() => {
-      updateWidth();
+      updateMeasurements();
     });
 
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      window.removeEventListener("resize", updateMeasurements);
+      observer.disconnect();
+    };
   }, []);
 
   const hasMeasuredContainer = containerWidth > 0;
   const isCompact = hasMeasuredContainer && containerWidth < 640;
-  const chartHeight = isCompact ? 320 : 560;
+  const chartHeight = isCompact ? 320 : Math.max(760, viewportHeight - 120);
 
   const graphData = useMemo(() => {
     return data ? getRoutingDiagramGraph(data) : { nodes: [], edges: [] };
@@ -66,10 +73,6 @@ export function RoutingDiagramCard({
   const mobileData = useMemo(() => {
     return getRoutingDiagramMobileData(graphData);
   }, [graphData]);
-
-  const summary = useMemo(() => {
-    return data ? getRoutingDiagramSummary(data) : null;
-  }, [data]);
 
   const emptyState = useMemo(() => {
     if (!data) {
@@ -142,26 +145,7 @@ export function RoutingDiagramCard({
             : undefined
         }
         error={error}
-        headerContent={
-          summary ? (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
-              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.endpointCount(formatNumber(summary.endpointCount))}
-              </span>
-              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.modelCount(formatNumber(summary.modelCount))}
-              </span>
-              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.activeTargets(formatNumber(summary.activeTargetCount))}
-              </span>
-              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.successfulRequests24h(
-                  formatNumber(summary.recentRequestTotal24h),
-                )}
-              </span>
-            </div>
-          ) : null
-        }
+        headerContent={null}
         loading={loading}
       />
     </div>

@@ -520,11 +520,8 @@ test.describe("dashboard routing shell", () => {
     await expect.poll(async () => {
       const box = await desktopDiagram.boundingBox();
       return Math.round(box?.height ?? 0);
-    }).toBeGreaterThanOrEqual(540);
-    await expect(summaryPills.getByText("1 endpoint")).toBeVisible();
-    await expect(summaryPills.getByText("2 models")).toBeVisible();
-    await expect(summaryPills.getByText("1 active target")).toBeVisible();
-    await expect(summaryPills.getByText("42 successful requests in 24h")).toBeVisible();
+    }).toBeGreaterThanOrEqual(760);
+    await expect(summaryPills).toHaveCount(0);
     await expect(zoomInControl).toBeVisible();
     await expect(zoomOutControl).toBeVisible();
     await expect(fitViewControl).toBeVisible();
