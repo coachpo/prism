@@ -348,6 +348,74 @@ async function expectNoHorizontalOverflow(page: Page, locator: Locator) {
   expect(elementDimensions.scrollWidth).toBeLessThanOrEqual(elementDimensions.clientWidth);
 }
 
+async function getViewportTransform(diagram: Locator) {
+  return diagram.locator(".react-flow__viewport").evaluate((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return "";
+    }
+
+    return element.style.transform;
+  });
+}
+
+async function dragLocatorBy(
+  page: Page,
+  locator: Locator,
+  {
+    deltaX,
+    deltaY,
+    startXRatio = 0.5,
+    startYRatio = 0.5,
+  }: {
+    deltaX: number;
+    deltaY: number;
+    startXRatio?: number;
+    startYRatio?: number;
+  },
+) {
+  await expect(locator).toBeVisible();
+  const box = await locator.boundingBox();
+
+  expect(box).not.toBeNull();
+
+  const startX = box!.x + (box!.width * startXRatio);
+  const startY = box!.y + (box!.height * startYRatio);
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 12 });
+  await page.mouse.up();
+}
+
+function getBoundingBoxOrigin(box: NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>) {
+  return {
+    x: Math.round(box.x),
+    y: Math.round(box.y),
+  };
+}
+
+function expectBoundingBoxDistance(
+  current: { x: number; y: number },
+  reference: { x: number; y: number },
+  {
+    max,
+    min,
+  }: {
+    max?: number;
+    min?: number;
+  },
+) {
+  const distance = Math.hypot(current.x - reference.x, current.y - reference.y);
+
+  if (typeof max === "number") {
+    expect(distance).toBeLessThanOrEqual(max);
+  }
+
+  if (typeof min === "number") {
+    expect(distance).toBeGreaterThanOrEqual(min);
+  }
+}
+
 async function expectNoDesktopNodeOverlap(diagram: Locator) {
   const overlaps = await diagram.locator(".react-flow__node[data-id]").evaluateAll((elements) => {
     const nodes = elements.map((element) => {
@@ -410,33 +478,64 @@ test.describe("dashboard routing shell", () => {
     await page.setViewportSize(desktopViewport);
     await mockDashboardRoutes(page);
 
-    await page.goto("/dashboard?tab=overview");
+    await page.goto("/dashboard?tab=routing");
+    await expect(page).toHaveURL(/\/dashboard\?tab=routing$/);
+    await expect(page.getByRole("tab")).toHaveText(["Overview", "Analytics", "Routing"]);
+    await expect(page.getByRole("tab", { name: "Routing" })).toHaveAttribute("aria-selected", "true");
 
     const routingCard = getRoutingCard(page);
     const summaryPills = routingCard.locator('[aria-live="polite"]');
-    const legendLabels = routingCard.locator(
-      '[data-slot="card-content"] > div:first-child > span > span.font-medium',
-    );
+    const legendLabels = routingCard
+      .getByTestId("routing-diagram-legend")
+      .locator("span.font-medium");
     const desktopDiagram = routingCard.getByTestId("routing-diagram-desktop");
-    const modelAction = desktopDiagram
-      .getByTestId("routing-diagram-node-model-model-101")
-      .getByRole("button", { name: "View model details for Model A" });
+    const flowPane = desktopDiagram.locator(".react-flow__pane");
+    const modelNode = desktopDiagram.getByTestId("routing-diagram-node-model-model-101");
+    const modelAction = modelNode.getByRole("button", { name: "View model details for Model A" });
+    const zoomInControl = desktopDiagram.getByRole("button", { name: /zoom in/i });
+    const zoomOutControl = desktopDiagram.getByRole("button", { name: /zoom out/i });
+    const fitViewControl = desktopDiagram.getByRole("button", { name: /fit view/i });
 
     await expect(routingCard).toBeVisible();
+    await expect(routingCard).not.toHaveAttribute("data-slot", "card");
+    await expect(routingCard.locator('[data-slot="card"]')).toHaveCount(0);
     await expect(desktopDiagram).toBeVisible();
     await expectNoDesktopNodeOverlap(desktopDiagram);
     await expect(page.getByTestId("routing-diagram-mobile")).toHaveCount(0);
-    await expect(routingCard.getByText(/Desktop shows the backend-owned routing graph/i)).toBeVisible();
+    await expect(
+      routingCard.getByText(/Desktop shows the backend-owned routing graph/i),
+    ).toHaveCount(0);
     await expect(
       routingCard.getByText("Activate model or endpoint targets to open details or request logs"),
-    ).toBeVisible();
-    await expect(routingCard.getByText(/Entry Model -> Planner -> Access Targets -> Terminal Target -> Endpoint/i)).toBeVisible();
-    await expect(routingCard.getByText(/terminal-target topology after planner and access-target resolution/i)).toBeVisible();
-    await expect(routingCard.getByText(/browser does not reconstruct graph edges from management reads/i)).toBeVisible();
+    ).toHaveCount(0);
+    await expect(
+      routingCard.getByText(/Entry Model -> Planner -> Access Targets -> Terminal Target -> Endpoint/i),
+    ).toHaveCount(0);
+    await expect(
+      routingCard.getByText(/terminal-target topology after planner and access-target resolution/i),
+    ).toHaveCount(0);
+    await expect(
+      routingCard.getByText(/browser does not reconstruct graph edges from management reads/i),
+    ).toHaveCount(0);
+    await expect.poll(async () => {
+      const box = await desktopDiagram.boundingBox();
+      return Math.round(box?.height ?? 0);
+    }).toBeGreaterThanOrEqual(540);
     await expect(summaryPills.getByText("1 endpoint")).toBeVisible();
     await expect(summaryPills.getByText("2 models")).toBeVisible();
     await expect(summaryPills.getByText("1 active target")).toBeVisible();
     await expect(summaryPills.getByText("42 successful requests in 24h")).toBeVisible();
+    await expect(zoomInControl).toBeVisible();
+    await expect(zoomOutControl).toBeVisible();
+    await expect(fitViewControl).toBeVisible();
+
+    const viewportTransformBeforeZoom = await getViewportTransform(desktopDiagram);
+    await zoomInControl.click();
+    await expect.poll(() => getViewportTransform(desktopDiagram)).not.toBe(viewportTransformBeforeZoom);
+    const viewportTransformAfterZoomIn = await getViewportTransform(desktopDiagram);
+    await zoomOutControl.click();
+    await expect.poll(() => getViewportTransform(desktopDiagram)).not.toBe(viewportTransformAfterZoomIn);
+
     await expect(legendLabels).toHaveText([
       "Model",
       "Terminal Targets",
@@ -466,13 +565,43 @@ test.describe("dashboard routing shell", () => {
     await expect(routingCard.getByText("Primary Target", { exact: true })).toBeVisible();
     await expect(routingCard.getByText("Backup Target", { exact: true })).toBeVisible();
 
+    const viewportTransformBeforePan = await getViewportTransform(desktopDiagram);
+    await dragLocatorBy(page, flowPane, {
+      deltaX: -120,
+      deltaY: -72,
+      startXRatio: 0.9,
+      startYRatio: 0.85,
+    });
+    const viewportTransformAfterPan = await getViewportTransform(desktopDiagram);
+
+    expect(viewportTransformAfterPan).not.toBe(viewportTransformBeforePan);
+
+    await fitViewControl.click();
+    await expect.poll(() => getViewportTransform(desktopDiagram)).not.toBe(viewportTransformAfterPan);
+
+    const modelNodeBeforeDrag = await modelNode.boundingBox();
+    expect(modelNodeBeforeDrag).not.toBeNull();
+
+    await dragLocatorBy(page, modelNode, {
+      deltaX: 64,
+      deltaY: 44,
+      startXRatio: 0.25,
+      startYRatio: 0.2,
+    });
+
+    const modelNodeAfterDrag = await modelNode.boundingBox();
+    expect(modelNodeAfterDrag).not.toBeNull();
+    expect(modelNodeAfterDrag!.x).not.toBe(modelNodeBeforeDrag!.x);
+    expect(modelNodeAfterDrag!.y).not.toBe(modelNodeBeforeDrag!.y);
+
     await tabUntilFocused(page, modelAction);
     await expect(modelAction).toBeFocused();
     await expect(modelAction).toBeInViewport();
     await modelAction.press("Enter");
     await expect(page).toHaveURL(/\/models\/101$/);
 
-    await page.goto("/dashboard?tab=overview");
+    await page.goto("/dashboard?tab=routing");
+    await expect(page).toHaveURL(/\/dashboard\?tab=routing$/);
     const refreshedRoutingCard = getRoutingCard(page);
     const endpointAction = refreshedRoutingCard
       .getByTestId("routing-diagram-desktop")
@@ -491,17 +620,67 @@ test.describe("dashboard routing shell", () => {
     await expect(page.locator('input[name="ingress_request_id"]')).toBeVisible();
   });
 
+  test("preserves dragged desktop node positions across benign routing rerenders", async ({ page }) => {
+    await page.setViewportSize(desktopViewport);
+    await mockDashboardRoutes(page);
+
+    await page.goto("/dashboard?tab=routing");
+    await expect(page).toHaveURL(/\/dashboard\?tab=routing$/);
+
+    const routingCard = getRoutingCard(page);
+    const desktopDiagram = routingCard.getByTestId("routing-diagram-desktop");
+    const modelNode = desktopDiagram.getByTestId("routing-diagram-node-model-model-101");
+    const refreshButton = page.getByRole("button", { name: /refresh dashboard/i });
+
+    await expect(desktopDiagram).toBeVisible();
+
+    const modelNodeBeforeDrag = await modelNode.boundingBox();
+    expect(modelNodeBeforeDrag).not.toBeNull();
+
+    await dragLocatorBy(page, modelNode, {
+      deltaX: 72,
+      deltaY: 48,
+      startXRatio: 0.25,
+      startYRatio: 0.2,
+    });
+
+    const modelNodeAfterDrag = await modelNode.boundingBox();
+    expect(modelNodeAfterDrag).not.toBeNull();
+
+    const beforeDragOrigin = getBoundingBoxOrigin(modelNodeBeforeDrag!);
+    const afterDragOrigin = getBoundingBoxOrigin(modelNodeAfterDrag!);
+
+    expectBoundingBoxDistance(afterDragOrigin, beforeDragOrigin, { min: 40 });
+
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes("/api/stats/dashboard") &&
+          response.request().method() === "GET" &&
+          response.status() === 200,
+      ),
+      refreshButton.click(),
+    ]);
+
+    await expect(refreshButton).toBeEnabled();
+
+    const modelNodeAfterRefresh = await modelNode.boundingBox();
+    expect(modelNodeAfterRefresh).not.toBeNull();
+
+    const afterRefreshOrigin = getBoundingBoxOrigin(modelNodeAfterRefresh!);
+
+    expectBoundingBoxDistance(afterRefreshOrigin, afterDragOrigin, { max: 6 });
+    expectBoundingBoxDistance(afterRefreshOrigin, beforeDragOrigin, { min: 40 });
+  });
+
   test("covers the compact routing list at 390x844 with keyboard drill-down and no overflow", async ({ page }) => {
     await page.setViewportSize(mobileViewport);
     await mockDashboardRoutes(page);
 
-    await page.goto("/dashboard?tab=overview");
+    await page.goto("/dashboard?tab=routing");
+    await expect(page).toHaveURL(/\/dashboard\?tab=routing$/);
 
     const routingCard = getRoutingCard(page);
-    const helperCopy = routingCard.getByText(/Desktop shows the backend-owned routing graph/i);
-    const actionHint = routingCard.getByText(
-      "Activate model or endpoint targets to open details or request logs",
-    );
     const modelAction = routingCard
       .getByRole("article")
       .filter({ has: page.getByRole("heading", { name: "Model A", level: 5 }) })
@@ -510,25 +689,24 @@ test.describe("dashboard routing shell", () => {
     await expect(routingCard).toBeVisible();
     await expect(page.getByTestId("routing-diagram-mobile")).toBeVisible();
     await expect(page.getByTestId("routing-diagram-desktop")).toHaveCount(0);
-    await expect(routingCard.getByText(/Desktop shows the backend-owned routing graph/i)).toBeVisible();
-    await expect(actionHint).toBeVisible();
+    await expect(
+      routingCard.getByText(/Desktop shows the backend-owned routing graph/i),
+    ).toHaveCount(0);
+    await expect(
+      routingCard.getByText("Activate model or endpoint targets to open details or request logs"),
+    ).toHaveCount(0);
+    await expect(
+      routingCard.getByText(/Entry Model -> Planner -> Access Targets -> Terminal Target -> Endpoint/i),
+    ).toHaveCount(0);
     await expectNoHorizontalOverflow(page, routingCard);
-
-    const [helperBox, actionBox] = await Promise.all([
-      helperCopy.boundingBox(),
-      actionHint.boundingBox(),
-    ]);
-
-    expect(helperBox).not.toBeNull();
-    expect(actionBox).not.toBeNull();
-    expect(actionBox!.y).toBeGreaterThanOrEqual((helperBox!.y + helperBox!.height) - 1);
     await tabUntilFocused(page, modelAction);
     await expect(modelAction).toBeFocused();
     await expect(modelAction).toBeInViewport();
     await modelAction.press("Enter");
     await expect(page).toHaveURL(/\/models\/101$/);
 
-    await page.goto("/dashboard?tab=overview");
+    await page.goto("/dashboard?tab=routing");
+    await expect(page).toHaveURL(/\/dashboard\?tab=routing$/);
     const refreshedRoutingCard = getRoutingCard(page);
     const endpointAction = refreshedRoutingCard
       .getByRole("article")
@@ -547,7 +725,8 @@ test.describe("dashboard routing shell", () => {
   test("does not render the removed routing strategy mix card", async ({ page }) => {
     await mockDashboardRoutes(page);
 
-    await page.goto("/dashboard?tab=overview");
+    await page.goto("/dashboard?tab=routing");
+    await expect(page).toHaveURL(/\/dashboard\?tab=routing$/);
 
     await expect(page.getByText("Routing strategy mix")).toHaveCount(0);
     await expect(page.getByText("Legacy strategy 1")).toHaveCount(0);

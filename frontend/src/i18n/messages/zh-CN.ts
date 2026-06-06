@@ -74,6 +74,7 @@ export const zhCNMessages: Messages = {
     noApiFamilyActivity: "暂无 API 家族活动",
     noApiFamilyActivityDescription: "处理过流量后，这里会显示按 API 家族统计的请求分布。",
     overviewTab: "概览",
+    routingTab: "路由",
     performanceSnapshot: "性能概览",
     performanceSnapshotDescription: "当前运行配置概览（24 小时）",
     routingDiagramLoadFailed: "路由图数据加载失败。仪表盘其余部分仍可正常使用。",

@@ -452,13 +452,13 @@ test("renders interactive flow node buttons with stable test ids", () => {
 
   assert.match(modelMarkup, /data-testid="routing-diagram-node-model-model-101"/);
   assert.match(modelMarkup, /data-muted="true"/);
-  assert.match(modelMarkup, /<button[^>]*type="button"[^>]*aria-label="View Model Details: Model A"/);
+  assert.match(modelMarkup, /<button[^>]*type="button"[^>]*class="[^"]*nodrag[^"]*nopan[^"]*"[^>]*aria-label="View Model Details: Model A"/);
   assert.match(modelMarkup, /View Model Details: Model A/);
   assert.match(modelMarkup, /model-a/);
   assert.match(modelMarkup, /Disabled/);
 
   assert.match(endpointMarkup, /data-testid="routing-diagram-node-endpoint-endpoint-201"/);
-  assert.match(endpointMarkup, /<button[^>]*type="button"[^>]*aria-label="View Request Logs: Endpoint A"/);
+  assert.match(endpointMarkup, /<button[^>]*type="button"[^>]*class="[^"]*nodrag[^"]*nopan[^"]*"[^>]*aria-label="View Request Logs: Endpoint A"/);
   assert.match(endpointMarkup, /<span class="block w-full truncate">View Request Logs<\/span><\/button>/);
   assert.match(endpointMarkup, /2 active targets/);
 });
@@ -599,6 +599,12 @@ function loadRoutingDiagramFlowModule() {
     rootDir: frontendDir,
     mocks: {
       "@xyflow/react": {
+        Controls: ({ orientation, showInteractive }) =>
+          createElement("div", {
+            "data-testid": "mock-flow-controls",
+            "data-orientation": orientation ?? "vertical",
+            "data-show-interactive": String(showInteractive ?? true),
+          }),
         Handle: ({ position, style, type }) =>
           createElement("span", {
             "data-testid": "mock-flow-handle",
@@ -638,6 +644,7 @@ function loadRoutingDiagramFlowModule() {
             props.children,
           );
         },
+        useNodesState: (initialNodes) => [initialNodes, () => {}, () => {}],
       },
       "./RoutingDiagramFlowEdge": {
         RoutingDiagramFlowEdge: ({ data, id }) =>
@@ -682,6 +689,14 @@ function renderRoutingDiagramFlow(props) {
   };
 }
 
+function loadRoutingDiagramFlowStateModule() {
+  const { load } = createTsModuleLoader({ rootDir: frontendDir });
+
+  return load(
+    path.join(frontendDir, "src/pages/dashboard/routing-diagram/routingDiagramFlowState.ts"),
+  );
+}
+
 test("imports React Flow stylesheet once from main entrypoint", () => {
   const source = readFileSync(path.join(frontendDir, "src/main.tsx"), "utf8");
   const matches = source.match(/@xyflow\/react\/dist\/style\.css/g) ?? [];
@@ -689,7 +704,7 @@ test("imports React Flow stylesheet once from main entrypoint", () => {
   assert.equal(matches.length, 1);
 });
 
-test("renders read-only desktop flow surface with fixed height and non-focusable wrappers", () => {
+test("renders interactive desktop flow surface with controls and draggable nodes", () => {
   const graph = getRoutingDiagramGraph(createTopologyGraph());
   const flowLayout = getRoutingDiagramFlowLayout(graph);
   const { markup, reactFlowProps } = renderRoutingDiagramFlow({
@@ -703,21 +718,23 @@ test("renders read-only desktop flow surface with fixed height and non-focusable
   assert.match(markup, /data-testid="routing-diagram-inspector"/);
   assert.match(markup, /style="height:420px"/);
   assert.match(markup, /data-testid="mock-routing-diagram-legend"/);
+  assert.match(markup, /data-testid="mock-flow-controls"/);
+  assert.doesNotMatch(markup, /class="nodrag nopan"/);
   assert.equal((markup.match(/data-testid="mock-flow-handle"/g) ?? []).length, graph.nodes.length * 2);
   assert.ok(reactFlowProps);
   assert.equal(reactFlowProps.fitView, true);
   assert.equal(reactFlowProps.minZoom, 0.35);
-  assert.equal(reactFlowProps.maxZoom, 1);
-  assert.equal(reactFlowProps.nodesDraggable, false);
+  assert.ok(reactFlowProps.maxZoom > 1);
+  assert.equal(reactFlowProps.nodesDraggable, true);
   assert.equal(reactFlowProps.nodesConnectable, false);
   assert.equal(reactFlowProps.elementsSelectable, false);
   assert.equal(reactFlowProps.nodesFocusable, false);
   assert.equal(reactFlowProps.edgesFocusable, false);
   assert.equal(reactFlowProps.disableKeyboardA11y, true);
-  assert.equal(reactFlowProps.panOnDrag, false);
+  assert.equal(reactFlowProps.panOnDrag, true);
   assert.equal(reactFlowProps.panOnScroll, false);
-  assert.equal(reactFlowProps.zoomOnScroll, false);
-  assert.equal(reactFlowProps.zoomOnPinch, false);
+  assert.equal(reactFlowProps.zoomOnScroll, true);
+  assert.equal(reactFlowProps.zoomOnPinch, true);
   assert.equal(reactFlowProps.zoomOnDoubleClick, false);
   assert.deepEqual(reactFlowProps.proOptions, { hideAttribution: true });
   assert.deepEqual(
@@ -729,7 +746,7 @@ test("renders read-only desktop flow surface with fixed height and non-focusable
       type: node.type,
     })),
     flowLayout.nodes.map((node) => ({
-      draggable: false,
+      draggable: true,
       focusable: false,
       id: node.id,
       selectable: false,
@@ -738,7 +755,60 @@ test("renders read-only desktop flow surface with fixed height and non-focusable
   );
 });
 
-test("clears the controlled inspector seam on pointer leave or Escape without editor chrome", () => {
+test("preserves dragged node positions across same-layout flow refreshes", () => {
+  const graph = getRoutingDiagramGraph(createTopologyGraph());
+  const refreshedTopology = createTopologyGraph();
+  refreshedTopology.nodes[2].recent_request_count = 84;
+  refreshedTopology.nodes[2].recent_success_rate = 98.8;
+  const refreshedGraph = getRoutingDiagramGraph(refreshedTopology);
+  const { reactFlowProps: initialReactFlowProps } = renderRoutingDiagramFlow({
+    chartHeight: 420,
+    graphData: graph,
+    onActivateNode: () => {},
+  });
+  const { reactFlowProps: refreshedReactFlowProps } = renderRoutingDiagramFlow({
+    chartHeight: 420,
+    graphData: refreshedGraph,
+    onActivateNode: () => {},
+  });
+  const {
+    getRoutingDiagramFlowLayoutSignature,
+    reconcileRoutingDiagramFlowNodes,
+  } = loadRoutingDiagramFlowStateModule();
+
+  assert.equal(
+    getRoutingDiagramFlowLayoutSignature(getRoutingDiagramFlowLayout(graph)),
+    getRoutingDiagramFlowLayoutSignature(getRoutingDiagramFlowLayout(refreshedGraph)),
+  );
+
+  const draggedNodes = initialReactFlowProps.nodes.map((node) =>
+    node.id === "model-101"
+      ? {
+          ...node,
+          position: {
+            x: node.position.x + 72,
+            y: node.position.y + 48,
+          },
+        }
+      : node,
+  );
+  const reconciledNodes = reconcileRoutingDiagramFlowNodes(
+    draggedNodes,
+    refreshedReactFlowProps.nodes,
+  );
+  const draggedModelNode = draggedNodes.find((node) => node.id === "model-101");
+  const reconciledModelNode = reconciledNodes.find((node) => node.id === "model-101");
+  const refreshedModelNode = refreshedGraph.nodes.find((node) => node.id === "model-101");
+
+  assert.ok(draggedModelNode);
+  assert.ok(reconciledModelNode);
+  assert.ok(refreshedModelNode);
+  assert.deepEqual(reconciledModelNode.position, draggedModelNode.position);
+  assert.equal(reconciledModelNode.data.graphNode.requestCount24h, refreshedModelNode.requestCount24h);
+  assert.equal(reconciledModelNode.data.graphNode.successRate24h, refreshedModelNode.successRate24h);
+});
+
+test("keeps inspector seam and desktop controls without extra editor chrome", () => {
   const source = readFileSync(
     path.join(frontendDir, "src/pages/dashboard/routing-diagram/RoutingDiagramFlow.tsx"),
     "utf8",
@@ -747,7 +817,8 @@ test("clears the controlled inspector seam on pointer leave or Escape without ed
   assert.match(source, /data-testid="routing-diagram-inspector"/);
   assert.match(source, /onPointerLeave=\{[^}]+\}/);
   assert.match(source, /Escape/);
-  assert.doesNotMatch(source, /\bControls\b/);
+  assert.match(source, /\bControls\b/);
+  assert.match(source, /showInteractive=\{false\}/);
   assert.doesNotMatch(source, /\bMiniMap\b/);
 });
 

@@ -158,6 +158,17 @@ async function mockAggregateOverviewRoutes(
 }
 
 test.describe("dashboard aggregate overview regression", () => {
+  test("canonicalizes an invalid dashboard tab back to overview", async ({ page }) => {
+    await mockAggregateOverviewRoutes(page);
+
+    await page.goto("/dashboard?tab=bogus");
+
+    await expect(page).toHaveURL(/\/dashboard\?tab=overview$/);
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByRole("tab")).toHaveText(["Overview", "Analytics", "Routing"]);
+    await expect(page.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+  });
+
   test("loads overview with one aggregate request and no legacy fan-out", async ({ page }) => {
     const requests: ApiRequestRecord[] = [];
 
@@ -171,10 +182,10 @@ test.describe("dashboard aggregate overview regression", () => {
     await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({ timeout: routeReadyTimeout });
-    await expect(page.getByText("Routing Target Health")).toBeVisible();
-    await expect(page.getByText("2 models")).toBeVisible();
-    await expect(page.getByText("1 active target")).toBeVisible();
-    await expect(page.getByText("Disabled Model", { exact: true })).toBeVisible();
+    await expect(page.getByRole("tab")).toHaveText(["Overview", "Analytics", "Routing"]);
+    await expect(page.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("routing-diagram-card")).toHaveCount(0);
+    await expect(page.getByText("Routing Target Health")).toHaveCount(0);
     await expect(page.getByText("Top Models by Spend")).toBeVisible();
     await expect(page.getByText("Model A Spend Label")).toBeVisible();
 
@@ -224,8 +235,10 @@ test.describe("dashboard aggregate overview regression", () => {
     await page.goto("/dashboard?tab=overview");
 
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-    await expect(page.getByText("No active routes")).toBeVisible();
-    await expect(page.getByText("Create an entry model and enable at least one terminal target so Prism can publish this selected-profile routing topology.")).toBeVisible();
+    await expect(page.getByRole("tab")).toHaveText(["Overview", "Analytics", "Routing"]);
+    await expect(page.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("routing-diagram-card")).toHaveCount(0);
+    await expect(page.getByText("No active routes")).toHaveCount(0);
     await expect(page.getByText("No recent activity")).toBeVisible();
     await expect(page.getByText("No spending data")).toBeVisible();
     await expect(page.getByText("0 total requests")).toBeVisible();
@@ -249,7 +262,6 @@ test.describe("dashboard aggregate overview regression", () => {
       consoleWarnings,
       screenshotPath: emptyScreenshotPath,
       visibleEmptyStates: [
-        "No active routes",
         "No recent activity",
         "No spending data",
         "0 total requests",

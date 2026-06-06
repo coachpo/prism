@@ -1,15 +1,19 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type FocusEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
+  Controls,
   Handle,
   Position,
   ReactFlow,
+  useNodesState,
   type Edge,
   type EdgeProps,
   type Node,
@@ -26,6 +30,10 @@ import {
   ROUTING_DIAGRAM_FLOW_EDGE_TYPE,
   ROUTING_DIAGRAM_FLOW_NODE_TYPE,
 } from "./routingDiagramFlowLayout";
+import {
+  getRoutingDiagramFlowLayoutSignature,
+  reconcileRoutingDiagramFlowNodes,
+} from "./routingDiagramFlowState";
 import { RoutingDiagramFlowEdge } from "./RoutingDiagramFlowEdge";
 import { RoutingDiagramFlowNode } from "./RoutingDiagramFlowNode";
 import { RoutingDiagramInspectorContent } from "./RoutingDiagramInspectorContent";
@@ -86,22 +94,36 @@ export function RoutingDiagramFlow({
 }: RoutingDiagramFlowProps) {
   const [inspector, setInspector] = useState<RoutingDiagramInspectorState>(null);
   const flowLayout = useMemo(() => getRoutingDiagramFlowLayout(graphData), [graphData]);
+  const flowLayoutSignature = useMemo(
+    () => getRoutingDiagramFlowLayoutSignature(flowLayout),
+    [flowLayout],
+  );
+  const flowLayoutSignatureRef = useRef(flowLayoutSignature);
+  const onActivateNodeRef = useRef(onActivateNode);
   const graphNodeById = useMemo(() => {
     return new Map(graphData.nodes.map((node) => [node.id, node]));
   }, [graphData.nodes]);
 
-  const nodes = useMemo<RoutingDiagramFlowCanvasNode[]>(() => {
+  useEffect(() => {
+    onActivateNodeRef.current = onActivateNode;
+  }, [onActivateNode]);
+
+  const handleActivateNode = useCallback((node: RoutingDiagramGraphNode) => {
+    onActivateNodeRef.current?.(node);
+  }, []);
+
+  const flowNodes = useMemo<RoutingDiagramFlowCanvasNode[]>(() => {
     return flowLayout.nodes.map((node) => ({
       id: node.id,
       type: node.type,
-      data: { graphNode: node.data, onActivateNode },
+      data: { graphNode: node.data, onActivateNode: handleActivateNode },
       position: node.position,
       width: node.width,
       height: node.height,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       className: "bg-transparent border-0 shadow-none",
-      draggable: false,
+      draggable: true,
       selectable: false,
       focusable: false,
       style: {
@@ -111,7 +133,19 @@ export function RoutingDiagramFlow({
         width: node.width,
       },
     }));
-  }, [flowLayout.nodes, onActivateNode]);
+  }, [flowLayout.nodes, handleActivateNode]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<RoutingDiagramFlowCanvasNode>(flowNodes);
+
+  useEffect(() => {
+    setNodes((currentNodes) => {
+      if (flowLayoutSignatureRef.current !== flowLayoutSignature) {
+        flowLayoutSignatureRef.current = flowLayoutSignature;
+        return flowNodes;
+      }
+
+      return reconcileRoutingDiagramFlowNodes(currentNodes, flowNodes);
+    });
+  }, [flowLayoutSignature, flowNodes, setNodes]);
 
   const clearInspector = useCallback(() => {
     setInspector(null);
@@ -196,26 +230,29 @@ export function RoutingDiagramFlow({
             className="h-full w-full"
             fitView
             minZoom={0.35}
-            maxZoom={1}
+            maxZoom={2}
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
-            nodesDraggable={false}
+            onNodesChange={onNodesChange}
+            nodesDraggable={true}
             nodesConnectable={false}
             elementsSelectable={false}
             nodesFocusable={false}
             edgesFocusable={false}
             disableKeyboardA11y={true}
-            panOnDrag={false}
+            panOnDrag={true}
             panOnScroll={false}
-            zoomOnScroll={false}
-            zoomOnPinch={false}
+            zoomOnScroll={true}
+            zoomOnPinch={true}
             zoomOnDoubleClick={false}
             proOptions={{ hideAttribution: true }}
             onNodeMouseEnter={handleNodeMouseEnter}
             onEdgeMouseEnter={handleEdgeMouseEnter}
-          />
+          >
+            <Controls showInteractive={false} />
+          </ReactFlow>
           <div
             data-testid="routing-diagram-inspector"
             className="pointer-events-none absolute right-4 top-4 z-10"
@@ -237,9 +274,7 @@ function RoutingDiagramFlowCanvasNodeComponent({
   return (
     <>
       <Handle type="target" position={Position.Left} isConnectable={false} style={HIDDEN_HANDLE_STYLE} />
-      <div className="nodrag nopan">
-        <RoutingDiagramFlowNode data={data.graphNode} onActivateNode={data.onActivateNode} />
-      </div>
+      <RoutingDiagramFlowNode data={data.graphNode} onActivateNode={data.onActivateNode} />
       <Handle type="source" position={Position.Right} isConnectable={false} style={HIDDEN_HANDLE_STYLE} />
     </>
   );

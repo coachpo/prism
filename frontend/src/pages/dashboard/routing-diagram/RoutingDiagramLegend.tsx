@@ -4,7 +4,10 @@ export function RoutingDiagramLegend() {
   const { messages } = useLocale();
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+    <div
+      data-testid="routing-diagram-legend"
+      className="mb-4 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground"
+    >
       <LegendPill label={messages.dashboard.routingModelNodeType} color="var(--chart-1)" />
       <LegendPill label={messages.modelDetail.connections} color="var(--chart-4)" />
       <LegendPill label={messages.dashboard.routingEndpointNodeType} color="var(--chart-2)" />

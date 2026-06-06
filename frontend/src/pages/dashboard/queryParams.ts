@@ -1,4 +1,4 @@
-export const DASHBOARD_TAB_OPTIONS = ["overview", "analytics"] as const;
+export const DASHBOARD_TAB_OPTIONS = ["overview", "analytics", "routing"] as const;
 export type DashboardTab = (typeof DASHBOARD_TAB_OPTIONS)[number];
 
 export const DEFAULTS = {

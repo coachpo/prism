@@ -81,7 +81,7 @@ export function RoutingDiagramFlowNode({
             type="button"
             variant="outline"
             size="xs"
-            className="h-auto min-h-[var(--density-control-h-xs)] w-full justify-start overflow-hidden rounded-lg border-border/70 px-3 py-1.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="nodrag nopan h-auto min-h-[var(--density-control-h-xs)] w-full justify-start overflow-hidden rounded-lg border-border/70 px-3 py-1.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label={actionLabel ?? undefined}
             onClick={() => onActivateNode?.(data)}
           >

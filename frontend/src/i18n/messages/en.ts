@@ -72,6 +72,7 @@ export interface Messages {
     noSpendingData: string;
     noSpendingDataDescription: string;
     overviewTab: string;
+    routingTab: string;
     performanceSnapshot: string;
     performanceSnapshotDescription: string;
     routingDiagramLoadFailed: string;
@@ -2265,6 +2266,7 @@ export const enMessages: Messages = {
     noApiFamilyActivity: "No API family activity",
     noApiFamilyActivityDescription: "API family request distribution appears after traffic is processed.",
     overviewTab: "Overview",
+    routingTab: "Routing",
     performanceSnapshot: "Performance Snapshot",
     performanceSnapshotDescription: "Current operational profile (24h)",
     routingDiagramLoadFailed:

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   getRoutingDiagramEmptyState,
   getRoutingDiagramGraph,
@@ -57,7 +57,7 @@ export function RoutingDiagramCard({
 
   const hasMeasuredContainer = containerWidth > 0;
   const isCompact = hasMeasuredContainer && containerWidth < 640;
-  const chartHeight = isCompact ? 320 : 460;
+  const chartHeight = isCompact ? 320 : 560;
 
   const graphData = useMemo(() => {
     return data ? getRoutingDiagramGraph(data) : { nodes: [], edges: [] };
@@ -98,14 +98,17 @@ export function RoutingDiagramCard({
 
   const hasChartContent = graphData.nodes.length > 0 && graphData.edges.length > 0;
 
-  const activateNode = (node: RoutingDiagramNode) => {
-    if (node.kind === "model" && node.modelConfigId !== null) {
-      onSelectModel(node.modelConfigId);
-    }
-    if (node.kind === "endpoint" && node.endpointId !== null && onDrillDownRequests) {
-      onDrillDownRequests({ endpoint_id: node.endpointId });
-    }
-  };
+  const activateNode = useCallback(
+    (node: RoutingDiagramNode) => {
+      if (node.kind === "model" && node.modelConfigId !== null) {
+        onSelectModel(node.modelConfigId);
+      }
+      if (node.kind === "endpoint" && node.endpointId !== null && onDrillDownRequests) {
+        onDrillDownRequests({ endpoint_id: node.endpointId });
+      }
+    },
+    [onDrillDownRequests, onSelectModel],
+  );
 
   return (
     <div ref={containerRef}>
