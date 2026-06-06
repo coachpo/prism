@@ -524,6 +524,7 @@ Request:
   "facade_enabled": true,
   "facade_selection_policy": "weighted_eligible_context",
   "facade_fallback_policy": "redistribute_ineligible_weight",
+  "context_overflow_promotion_target_id": "gpt-4o-large",
   "access_targets": [
     {
       "target_type": "model",
@@ -548,6 +549,7 @@ Validation rules:
 - Submitted `target_type="connection"`, `connection_id`, or `target_connection_id` entries are rejected. Private connection rows are managed from model detail through model-scoped connection routes.
 - Every public model target requires `target_model_id` and `position`; `weight` and `target_priority` are optional on input and default to `1` / `position` when omitted. Positions must stay contiguous starting at `0`; supplied `weight` values must be `>= 1`; supplied `target_priority` values must be `>= 0`.
 - Context capability fields are validated on create and update. `default_output_token_reserve` defaults to `4096`, `max_context_utilization` defaults to `0.90`, utilization values must be greater than `0` and less than or equal to `1`, and reserve must be at least `1` when supplied. `preferred_context_utilization_threshold` is nullable; `null` means no preferred band, while a supplied value must be less than or equal to `max_context_utilization`.
+- `context_overflow_promotion_target_id` is nullable. When set, it must name an enabled same-profile, same-`api_family`, non-facade model with a strictly larger effective usable context window. It must not point to the same model or to a model that resolves back to the same terminal target as the source.
 - Nested facades are rejected at write time: public model targets cannot point at facade-enabled target models, and enabling `facade_enabled = true` on a model that already has inbound model-target referrers is rejected.
 - Model target self-reference and target cycles are rejected.
 - Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its private connections with the owning target rows.
@@ -571,6 +573,7 @@ Request (all fields optional):
   "facade_enabled": true,
   "facade_selection_policy": "weighted_eligible_context",
   "facade_fallback_policy": "redistribute_ineligible_weight",
+  "context_overflow_promotion_target_id": "gpt-4o-large",
   "access_targets": [],
   "is_enabled": true
 }
@@ -966,6 +969,7 @@ Response `200`:
       "facade_enabled": false,
       "facade_selection_policy": null,
       "facade_fallback_policy": null,
+      "context_overflow_promotion_target_id": null,
       "is_enabled": true,
       "access_targets": [
         {
@@ -1007,6 +1011,7 @@ Profile export semantics:
 - Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
 - Profile bundles preserve top-level private connection records, model `access_targets`, same-family model routing, exact-facade model flags (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), and attached loadbalance strategy references. Each exported `connection_ref` must be owned by exactly one model access target.
 - Export serializes exact facade state by exact model ID only. Release 1 profile bundles do not include regex matcher fields or capability-metadata facade expansion.
+- Export includes `models[].context_overflow_promotion_target_id` as a nullable exact model ID. Import validates the same enabled, same-family, non-facade, larger-window target rules as model CRUD.
 - Exported model-to-model access targets carry explicit `weight` and `target_priority`. Internal connection targets continue to omit both metadata fields.
 - Export and preview always serialize effective context capability defaults explicitly: omitted model or connection reserves become `default_output_token_reserve: 4096`, and omitted utilization becomes `max_context_utilization: 0.90`. Import may accept legacy omissions, but it normalizes them before persistence and any later export.
 
@@ -1572,14 +1577,7 @@ Wrong methods on supported runtime paths return a Prism JSON `405` response befo
 
 When the attached strategy is `cheapest_eligible_context`, Prism performs local preflight context estimation before provider transport for OpenAI Chat Completions and OpenAI Responses requests that have deterministic request-local input. The estimator methods are `openai_chat_heuristic_v1` and `openai_responses_heuristic_v1`. They add estimated input tokens plus an explicit request output limit when present, then `default_output_token_reserve`, then fallback `4096`. Hard-fit legality uses `floor(context_window_tokens * max_context_utilization)`, with the default utilization normalized to `0.90`. The nullable `preferred_context_utilization_threshold` creates an optional preferred band at `floor(context_window_tokens * preferred_context_utilization_threshold)`; `null` means no preferred band. Fitting candidates above the preferred band but within hard fit are discretionary, and candidates above hard fit are ineligible.
 
-Unsafe request shapes that cannot be bounded locally return HTTP `400` with:
-
-```json
-{
-  "error": "context_estimation_unavailable",
-  "detail": "Preflight context estimation is unavailable for this request shape."
-}
-```
+When Prism cannot bound an OpenAI Chat Completions or Responses request locally, it passes the request through the normal resolved target path instead of returning local `400 context_estimation_unavailable`. This pass-through is non-stream and stream agnostic at the planning layer, but later overflow replay is non-stream only. Prism still returns local failures for non-OpenAI operations, unsupported translated shapes, and other planner errors that are not missing context estimation.
 
 When context fit is evaluated and no terminal target fits, Prism returns HTTP `413` before provider transport with:
 
@@ -1598,7 +1596,7 @@ The matching request-log detail can include `routing.context_routing` with `poli
 
 OpenAI Chat Completions and Responses targets can be siblings for runtime planning. Translation eligibility is explicit and terminal-target based: native-capable targets keep `operation_translation_mode = "none"`, while compatible sibling targets may use `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses` only when the selected connection's `openai_upstream_operation` differs from ingress and the request shape is in Prism's supported subset. Blank or default probe metadata resolves request-side translation as native Responses capability, not as a translated Chat target.
 
-Unsupported translated request shapes reject before provider transport with `openai_request_translation_unsupported` when translation compatibility is the blocker. Public Responses requests with `previous_response_id` still reject earlier as `context_estimation_unavailable` because preflight context estimation cannot bound that stateful shape before the translated-shape checker runs.
+Unsupported translated request shapes reject before provider transport with `openai_request_translation_unsupported` when translation compatibility is the blocker. Public Responses requests with stateful shapes such as `previous_response_id` can pass through when missing context estimation is the only blocker, but they still reject if translation compatibility fails.
 
 Translated non-stream and stream responses are rewritten back to the ingress operation shape for the client. Runtime usage remains canonical from the raw upstream payload or terminal stream event, translated responses strip unsafe entity headers before writing to the client, and audit body capture stays upstream-native rather than translated.
 
@@ -1618,6 +1616,24 @@ Facade planner behavior:
 Release 1 exact facade routing does not add regex model matching, capability-metadata expansion, frontend facade authoring, or response-body model rewriting.
 
 Facade rejections stay aligned with the selected child evaluation branch before provider transport: translated-shape rejection returns `400 openai_request_translation_unsupported`, hard no-fit returns `413 context_window_exceeded`, and no eligible child target returns `503`.
+
+### 2.2D CLIProxyAPI context overflow promotion
+
+The known upstream for context overflow promotion is CLIProxyAPI, not official OpenAI. Prism does not claim one official OpenAI-shaped overflow envelope. CLIProxyAPI can serve native OpenAI-compatible and translated sibling-operation paths through different executors, so Prism treats promotion as a conservative Prism-classified replay path over the response it actually receives.
+
+Promotion scope is intentionally narrow:
+- Only `openai.chat_completions` and `openai.responses` are eligible.
+- Only non-stream responses are eligible. Streaming promotion is not implemented in v1.
+- Replay happens before downstream commit from the shared non-stream response branch.
+- Replay uses the original buffered ingress body exactly once.
+- Only a model's explicit `context_overflow_promotion_target_id` can be used. Prism never searches sibling facade targets, pricing metadata, display names, or vendor rows for a larger model.
+- Strict-mode promotion is not implemented in v1.
+
+The selected-child exact-facade restriction is preserved. If a public facade selected one child model, promotion eligibility is evaluated on that selected child only. Prism does not reopen the facade sibling set, and no sibling retry is allowed after child selection.
+
+The classifier is status plus body, never status alone. Eligible statuses are `400`, `413`, `422`, and body-confirmed `429`. Plain `429` never promotes; rate-limit, quota, capacity, auth, model lookup, malformed JSON, and ambiguous validation bodies are returned without promotion unless the body carries explicit context-overflow evidence. Native non-stream paths can classify OpenAI-style top-level `error` objects or unambiguous flat CLIProxyAPI gateway JSON. Translated non-stream paths accept only top-level `error` objects; translated flat-gateway JSON is rejected for promotion in v1 and the original source response is returned.
+
+If promotion starts, Prism closes the source response body and executes the promoted model once. The promoted model can still use its own ordinary terminal strategy, but a second promotion is never attempted. Final status, usage, pricing, and `usage_request_events` attribution come from the final response returned to the client. Failed source attempts remain visible as attempt-level `request_logs` rows and optional audit rows under the same `ingress_request_id`.
 
 ### 2.3 OpenAI Operations
 

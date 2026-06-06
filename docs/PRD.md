@@ -54,8 +54,11 @@ Single operator (developer/power user) running the application locally or on a l
   - Each connection can optionally define `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited
   - Limiter state is persisted in PostgreSQL `UNLOGGED` tables and is intentionally ephemeral after crash or unclean shutdown
 - Proxy request forwarding may apply compatibility normalizations while preserving API-family-native response formats
+- CLIProxyAPI context overflow promotion is available only for non-stream OpenAI Chat Completions and Responses attempts, only before downstream commit, and only once to a model's explicit `context_overflow_promotion_target_id`. The known upstream for this path is CLIProxyAPI, not official OpenAI, so Prism requires body-confirmed overflow evidence; plain `429` never promotes. Native paths can use OpenAI-style or unambiguous flat gateway JSON bodies, while translated paths reject flat gateway JSON for promotion in v1. Exact facades keep their selected child restriction and never reopen siblings.
 - All failover attempts (including failed ones) are logged to `request_logs` for observability. When a connection returns a failover-triggering status code (`403`, `429`, `500`, `502`, `503`, `529`) or encounters a connection/timeout error, the failed attempt is logged before trying the next connection.
+- Failed source attempts from context overflow promotion are logged as attempt-level observability, while final usage, status, and pricing ownership come from the final returned response.
 - Failover, recovery, and probe-eligibility transitions are persisted as `loadbalance_events` for audit and observability.
+
 ### 4.5 Profile-Scoped Endpoints & Model Connections
 - **Vendors** remain global publisher metadata shared across profiles.
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.

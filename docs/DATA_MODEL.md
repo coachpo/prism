@@ -26,6 +26,7 @@ model_configs (profile-scoped)
   context_window_tokens, default_output_token_reserve, max_context_utilization,
   preferred_context_utilization_threshold,
   facade_enabled, facade_selection_policy, facade_fallback_policy,
+  context_overflow_promotion_target_id,
   is_enabled
   created_at, updated_at
   UNIQUE(profile_id, model_id)
@@ -344,6 +345,7 @@ Maps a model ID to optional vendor metadata, fixed api family, and routing behav
 | facade_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Enables Release 1 exact-ID OpenAI facade routing for this requested model |
 | facade_selection_policy | VARCHAR(64) | NULLABLE | Exact facade selection policy; when facade routing is enabled, Release 1 accepts only `weighted_eligible_context` |
 | facade_fallback_policy | VARCHAR(64) | NULLABLE | Exact facade ineligible-weight policy; when facade routing is enabled, Release 1 accepts only `redistribute_ineligible_weight` |
+| context_overflow_promotion_target_id | VARCHAR(200) | NULLABLE | Exact model ID for one-shot CLIProxyAPI context overflow promotion target |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -355,6 +357,7 @@ Constraints:
 - Release 1 exact facade routing is keyed by the requested model's exact `model_id`; there is no regex matcher or capability-metadata expansion in the persisted model contract.
 - `facade_enabled = true` is OpenAI-only and requires canonical `facade_selection_policy = weighted_eligible_context` plus `facade_fallback_policy = redistribute_ineligible_weight`.
 - Management and config-bundle validation reject nested facades: public model targets cannot point at facade-enabled target models, and enabling facade routing on a model with inbound model-target referrers is rejected.
+- `context_overflow_promotion_target_id` is nullable and model-scoped. When set, it must reference an enabled same-profile, same-`api_family`, non-facade model with a strictly larger effective usable context window, and it must not resolve to the same model or same terminal target as the source.
 - Context capability defaults are normalized by management and config-bundle imports. Missing reserves become `4096`, missing utilization becomes `0.90`, and missing `preferred_context_utilization_threshold` becomes `null`. Utilization values must be greater than `0` and less than or equal to `1`; the preferred threshold must be less than or equal to `max_context_utilization` when provided.
 
 ### 2.3A `model_access_targets` (profile-scoped model access metadata)
@@ -578,7 +581,7 @@ Telemetry rows for every proxy attempt with immutable profile attribution captur
 | provider_correlation_id | VARCHAR(255) | NULLABLE | Best-effort provider-visible correlation ID |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target before execution or no-fit rejection |
-| context_routing | JSONB | NULLABLE | Preflight context-routing metadata, skipped-target reasons, and optional nested `facade_selection` metadata |
+| context_routing | JSONB | NULLABLE | Preflight context-routing metadata, skipped-target reasons, optional nested `facade_selection`, and optional nested `context_overflow_promotion` metadata |
 | proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot used for the request |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Display-name snapshot for the proxy key at request time |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
@@ -602,6 +605,7 @@ Request-log semantics:
 - Exact facade attempts keep that same top-level split: `model_id` stays the requested public facade ID, `resolved_target_model_id` stays the selected child model ID, and optional `context_routing.facade_selection` is additive planner metadata rather than a replacement for those top-level fields.
 - `operation_name` and `request_path` remain ingress-led. `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` are additive upstream attribution for native or translated attempts.
 - `selected_terminal_target_id` can differ from `connection_id` when the planner selected one terminal target but execution later failed over to another attempt. Exact facade routing adds no sibling-target failover after child selection; any later retry remains inside the selected child model's own terminal strategy. No-fit `413` rows keep executed target fields null and preserve skipped-target detail in `context_routing`.
+- Context overflow promotion stores additive `context_routing.context_overflow_promotion` detail for the CLIProxyAPI-specific, non-stream, one-shot replay path. Source overflow rows keep the source resolved model and terminal target, promoted rows keep the promoted resolved model and terminal target, and both stay grouped by the same `ingress_request_id`.
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 - Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
@@ -626,7 +630,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target for the finalized request |
-| context_routing | JSONB | NULLABLE | Preflight context-routing metadata copied from runtime planning, including optional nested `facade_selection` metadata |
+| context_routing | JSONB | NULLABLE | Preflight context-routing metadata copied from runtime planning, including optional nested `facade_selection` and `context_overflow_promotion` metadata |
 | proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Proxy key name at event time |
 | attempt_count | INTEGER | NOT NULL | Number of upstream attempts that contributed to the finalized event |
@@ -643,6 +647,7 @@ Usage-event semantics:
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
 - Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
 - Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, context-routing metadata when it exists, and additive ingress/upstream operation attribution. Exact facade events preserve the same top-level requested/resolved model split as request logs and carry facade planner detail only through nested `context_routing.facade_selection`. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
+- When context overflow promotion occurs, final usage ownership belongs to the final returned response only. The final usage event uses the final response status, usage, pricing, resolved target model, selected terminal target, and `attempt_count` across source plus promoted phases; failed source overflow attempts remain attempt-level rows and may have null usage.
 - Explicit `"0"` pricing contributes zero-cost component micros on priced events. Rows with absent or invalid pricing snapshots, or missing FX data, remain unpriced with `MISSING_PRICE_DATA`.
 
 ### 2.12 `audit_logs` (partitioned immutable profile attribution)
@@ -1047,10 +1052,10 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 
 ## 7. Config Import/Export Versioning
 
-- Canonical profile export format is Go-era config version `3` with `bundle_kind = profile_config`, top-level private `connections`, `models[].access_targets[]`, exact-facade model fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable model `vendor_key`, and model `api_family`.
+- Canonical profile export format is Go-era config version `3` with `bundle_kind = profile_config`, top-level private `connections`, `models[].access_targets[]`, exact-facade model fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), nullable `models[].context_overflow_promotion_target_id`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable model `vendor_key`, and model `api_family`.
 - Planner rollout remains bootstrap-owned only: the temporary `runtime.routing.plannerMode` and `runtime.routing.openaiTerminalTranslationMode` fields live in plaintext startup config, not in profile bundle persistence, and Phase 8 does not add a routing graph table or bump the profile bundle version.
 - Canonical global vendor export format is Go-era config version `1` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts version-3 profile bundles only and validates top-level private connections, ordered model access targets, exact Release 1 facade fields, explicit Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, context capability fields, five concrete pricing fields, and encrypted `secret_payload` entries. Version-3 profile import rejects any `connection_ref` used by multiple models or colliding with existing private ownership, rejects regex/capability facade expansion and nested facades, normalizes missing facade fields to `facade_enabled = false` with nil policies, normalizes missing model-target `weight` / `target_priority` to `1` / `position`, normalizes missing/null/blank pricing inputs to `"0"`, and serializes effective context defaults explicitly as `default_output_token_reserve = 4096` and `max_context_utilization = 0.90` before validation/export.
+- Profile import accepts version-3 profile bundles only and validates top-level private connections, ordered model access targets, exact Release 1 facade fields, nullable context overflow promotion targets, explicit Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, context capability fields, five concrete pricing fields, and encrypted `secret_payload` entries. Version-3 profile import rejects any `connection_ref` used by multiple models or colliding with existing private ownership, rejects regex/capability facade expansion and nested facades, validates promotion targets as enabled same-family non-facade models with larger effective usable windows, normalizes missing facade fields to `facade_enabled = false` with nil policies, normalizes missing model-target `weight` / `target_priority` to `1` / `position`, normalizes missing/null/blank pricing inputs to `"0"`, and serializes effective context defaults explicitly as `default_output_token_reserve = 4096` and `max_context_utilization = 0.90` before validation/export.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
 - Persisted rows created by import always receive fresh database IDs; the version-3 profile bundle contract omits internal IDs entirely and relies on name-based references.

@@ -18,6 +18,7 @@ The request-log route now uses split HTTP contracts: a slim list payload for bro
 - Expose linked audit payloads only when needed.
 - Support drill-down entry points from dashboard and model-detail views.
 - Show requested model identity separately from the final target model chosen by unified access-target resolution.
+- Show CLIProxyAPI context overflow promotion as grouped attempt-level observability, with final usage/status owned by the final returned response.
 
 ## 3. Non-Goals
 
@@ -122,7 +123,8 @@ Grouped request-tracking workflow:
 
 - `request_id` remains a one-row deep link for exact attempt investigation.
 - `ingress_request_id` groups multiple attempt rows from one incoming runtime request without changing `request_id` semantics.
-- The overview tab should surface `ingress_request_id`, `attempt_number`, and `provider_correlation_id` so operators can distinguish Prism grouping from upstream correlation.
+- For CLIProxyAPI context overflow promotion, grouped rows show the failed source attempt and the one-shot promoted attempt together. Plain `429` source attempts are not assumed to be overflow; only body-confirmed overflow attempts carry promotion metadata.
+- The overview tab should surface `ingress_request_id`, `attempt_number`, `provider_correlation_id`, and `context_routing.context_overflow_promotion` when present so operators can distinguish Prism grouping from upstream correlation and final response ownership.
 
 ### 7.3 Table Workflow
 
