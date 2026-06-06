@@ -109,6 +109,8 @@ type importedModelPayload struct {
 	FacadeEnabled                        bool
 	FacadeSelectionPolicy                *string
 	FacadeFallbackPolicy                 *string
+	ContextOverflowPromotionTargetID     *string
+	ContextOverflowPromotionTargetSet    bool
 	IsEnabled                            bool
 	AccessTargets                        []importedAccessTargetPayload
 }

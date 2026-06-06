@@ -54,6 +54,7 @@ type modelCreateRequest struct {
 	FacadeEnabled                        *bool                      `json:"facade_enabled"`
 	FacadeSelectionPolicy                *string                    `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 *string                    `json:"facade_fallback_policy"`
+	ContextOverflowPromotionTargetID     *string                    `json:"context_overflow_promotion_target_id"`
 	AccessTargets                        []modelAccessTargetRequest `json:"access_targets"`
 	IsEnabled                            *bool                      `json:"is_enabled"`
 }
@@ -161,6 +162,7 @@ type modelUpdateRequest struct {
 	FacadeEnabled                        optionalBool          `json:"facade_enabled"`
 	FacadeSelectionPolicy                optionalString        `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 optionalString        `json:"facade_fallback_policy"`
+	ContextOverflowPromotionTargetID     optionalString        `json:"context_overflow_promotion_target_id"`
 	AccessTargets                        optionalAccessTargets `json:"access_targets"`
 	IsEnabled                            optionalBool          `json:"is_enabled"`
 }
@@ -305,6 +307,7 @@ type modelConfigListResponse struct {
 	FacadeEnabled                        bool                        `json:"facade_enabled"`
 	FacadeSelectionPolicy                *string                     `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 *string                     `json:"facade_fallback_policy"`
+	ContextOverflowPromotionTargetID     *string                     `json:"context_overflow_promotion_target_id"`
 	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
 	IsEnabled                            bool                        `json:"is_enabled"`
 	ConnectionCount                      int                         `json:"connection_count"`
@@ -332,6 +335,7 @@ type modelConfigResponse struct {
 	FacadeEnabled                        bool                        `json:"facade_enabled"`
 	FacadeSelectionPolicy                *string                     `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 *string                     `json:"facade_fallback_policy"`
+	ContextOverflowPromotionTargetID     *string                     `json:"context_overflow_promotion_target_id"`
 	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
 	IsEnabled                            bool                        `json:"is_enabled"`
 	CreatedAt                            time.Time                   `json:"created_at"`

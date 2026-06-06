@@ -16,7 +16,10 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
 
-var expectedPrismMigrationVersions = []string{migrate.DefaultBaselineVersion}
+var expectedPrismMigrationVersions = []string{
+	migrate.DefaultBaselineVersion,
+	"000002_context_overflow_promotion_target",
+}
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

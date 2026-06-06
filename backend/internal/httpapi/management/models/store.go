@@ -41,6 +41,7 @@ type modelRecord struct {
 	FacadeEnabled                        bool
 	FacadeSelectionPolicy                *string
 	FacadeFallbackPolicy                 *string
+	ContextOverflowPromotionTargetID     *string
 	IsEnabled                            bool
 	CreatedAt                            time.Time
 	UpdatedAt                            time.Time
@@ -125,7 +126,7 @@ type endpointModelConnectionRow struct {
 	ReachableModelData   modelRecord
 }
 
-const modelRecordSelectColumns = `model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.loadbalance_strategy_id, model_configs.context_window_tokens, model_configs.default_output_token_reserve, model_configs.max_context_utilization, model_configs.preferred_context_utilization_threshold, model_configs.facade_enabled, model_configs.facade_selection_policy, model_configs.facade_fallback_policy, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at`
+const modelRecordSelectColumns = `model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.loadbalance_strategy_id, model_configs.context_window_tokens, model_configs.default_output_token_reserve, model_configs.max_context_utilization, model_configs.preferred_context_utilization_threshold, model_configs.facade_enabled, model_configs.facade_selection_policy, model_configs.facade_fallback_policy, model_configs.context_overflow_promotion_target_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at`
 
 func listModelRecords(ctx context.Context, exec queryExecutor, profileID int) ([]modelRecord, error) {
 	rows, err := exec.Query(ctx, `SELECT `+modelRecordSelectColumns+` FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
@@ -332,7 +333,7 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 			AND (model_access_targets.target_connection_id IS NOT NULL OR (model_access_targets.target_model_config_id IS NOT NULL AND NOT model_access_targets.target_model_config_id = ANY(terminal_reachability.path)))
 	)
 	SELECT DISTINCT connections.endpoint_id, connections.id, connections.is_active,
-		source_models.id, source_models.profile_id, source_models.vendor_id, source_models.api_family, source_models.model_id, source_models.display_name, source_models.loadbalance_strategy_id, source_models.context_window_tokens, source_models.default_output_token_reserve, source_models.max_context_utilization, source_models.preferred_context_utilization_threshold, source_models.facade_enabled, source_models.facade_selection_policy, source_models.facade_fallback_policy, source_models.is_enabled, source_models.created_at, source_models.updated_at
+		source_models.id, source_models.profile_id, source_models.vendor_id, source_models.api_family, source_models.model_id, source_models.display_name, source_models.loadbalance_strategy_id, source_models.context_window_tokens, source_models.default_output_token_reserve, source_models.max_context_utilization, source_models.preferred_context_utilization_threshold, source_models.facade_enabled, source_models.facade_selection_policy, source_models.facade_fallback_policy, source_models.context_overflow_promotion_target_id, source_models.is_enabled, source_models.created_at, source_models.updated_at
 	FROM terminal_reachability
 	JOIN connections ON connections.id = terminal_reachability.terminal_connection_id AND connections.profile_id = $1
 	JOIN model_configs AS source_models ON source_models.id = terminal_reachability.root_model_config_id AND source_models.profile_id = $1
@@ -356,7 +357,8 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 		var preferredContextUtilizationThreshold sql.NullFloat64
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
-		if err := rows.Scan(&row.EndpointID, &row.TerminalConnectionID, &row.ConnectionIsActive, &row.ReachableModelData.ID, &row.ReachableModelData.ProfileID, &vendorID, &row.ReachableModelData.APIFamily, &row.ReachableModelData.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &row.ReachableModelData.DefaultOutputTokenReserve, &row.ReachableModelData.MaxContextUtilization, &preferredContextUtilizationThreshold, &row.ReachableModelData.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &row.ReachableModelData.IsEnabled, &row.ReachableModelData.CreatedAt, &row.ReachableModelData.UpdatedAt); err != nil {
+		var contextOverflowPromotionTargetID sql.NullString
+		if err := rows.Scan(&row.EndpointID, &row.TerminalConnectionID, &row.ConnectionIsActive, &row.ReachableModelData.ID, &row.ReachableModelData.ProfileID, &vendorID, &row.ReachableModelData.APIFamily, &row.ReachableModelData.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &row.ReachableModelData.DefaultOutputTokenReserve, &row.ReachableModelData.MaxContextUtilization, &preferredContextUtilizationThreshold, &row.ReachableModelData.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &row.ReachableModelData.IsEnabled, &row.ReachableModelData.CreatedAt, &row.ReachableModelData.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan reachable endpoint model row: %w", err)
 		}
 		row.ReachableModelData.VendorID = nullableInt32(vendorID)
@@ -366,6 +368,7 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 		row.ReachableModelData.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 		row.ReachableModelData.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
 		row.ReachableModelData.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
+		row.ReachableModelData.ContextOverflowPromotionTargetID = nullableStringValue(contextOverflowPromotionTargetID)
 		row.ReachableModelID = row.ReachableModelData.ID
 		items = append(items, row)
 	}
@@ -449,7 +452,7 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 	for _, modelID := range modelIDs {
 		args = append(args, modelID)
 	}
-	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.weight, model_access_targets.target_priority, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.vendor_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.context_window_tokens, target_models.default_output_token_reserve, target_models.max_context_utilization, target_models.preferred_context_utilization_threshold, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.weight, model_access_targets.target_priority, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.vendor_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.context_window_tokens, target_models.default_output_token_reserve, target_models.max_context_utilization, target_models.preferred_context_utilization_threshold, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.context_overflow_promotion_target_id, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query model access targets for profile %d: %w", profileID, err)
@@ -470,7 +473,8 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 		var preferredContextUtilizationThreshold sql.NullFloat64
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
-		if err := rows.Scan(&record.ID, &record.ProfileID, &record.SourceModelConfigID, &targetModelID, &record.Position, &weight, &targetPriority, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt, &target.ID, &target.ProfileID, &vendorID, &target.APIFamily, &target.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &target.DefaultOutputTokenReserve, &target.MaxContextUtilization, &preferredContextUtilizationThreshold, &target.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &target.IsEnabled, &target.CreatedAt, &target.UpdatedAt); err != nil {
+		var contextOverflowPromotionTargetID sql.NullString
+		if err := rows.Scan(&record.ID, &record.ProfileID, &record.SourceModelConfigID, &targetModelID, &record.Position, &weight, &targetPriority, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt, &target.ID, &target.ProfileID, &vendorID, &target.APIFamily, &target.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &target.DefaultOutputTokenReserve, &target.MaxContextUtilization, &preferredContextUtilizationThreshold, &target.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &target.IsEnabled, &target.CreatedAt, &target.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan model access target: %w", err)
 		}
 		record.Weight = nullableInt32(weight)
@@ -482,6 +486,7 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 		target.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 		target.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
 		target.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
+		target.ContextOverflowPromotionTargetID = nullableStringValue(contextOverflowPromotionTargetID)
 		record.TargetModelConfigID = intPtr(targetModelID)
 		record.TargetModel = &target
 		items[record.SourceModelConfigID] = append(items[record.SourceModelConfigID], record)
@@ -849,7 +854,7 @@ func deleteConnectionRow(ctx context.Context, exec queryExecutor, connectionID i
 
 func insertModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
 	var createdID int
-	if err := tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`, record.ProfileID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), record.IsEnabled, record.CreatedAt, record.UpdatedAt).Scan(&createdID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`, record.ProfileID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.ContextOverflowPromotionTargetID), record.IsEnabled, record.CreatedAt, record.UpdatedAt).Scan(&createdID); err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
 		}
@@ -860,7 +865,7 @@ func insertModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecor
 }
 
 func updateModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
-	if _, err := tx.Exec(ctx, `UPDATE model_configs SET vendor_id = $2, api_family = $3, model_id = $4, display_name = $5, loadbalance_strategy_id = $6, context_window_tokens = $7, default_output_token_reserve = $8, max_context_utilization = $9, preferred_context_utilization_threshold = $10, facade_enabled = $11, facade_selection_policy = $12, facade_fallback_policy = $13, is_enabled = $14, updated_at = $15 WHERE id = $1`, record.ID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), record.IsEnabled, record.UpdatedAt); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE model_configs SET vendor_id = $2, api_family = $3, model_id = $4, display_name = $5, loadbalance_strategy_id = $6, context_window_tokens = $7, default_output_token_reserve = $8, max_context_utilization = $9, preferred_context_utilization_threshold = $10, facade_enabled = $11, facade_selection_policy = $12, facade_fallback_policy = $13, context_overflow_promotion_target_id = $14, is_enabled = $15, updated_at = $16 WHERE id = $1`, record.ID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.ContextOverflowPromotionTargetID), record.IsEnabled, record.UpdatedAt); err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
 		}
@@ -891,8 +896,9 @@ func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, erro
 	var preferredContextUtilizationThreshold sql.NullFloat64
 	var facadeSelectionPolicy sql.NullString
 	var facadeFallbackPolicy sql.NullString
+	var contextOverflowPromotionTargetID sql.NullString
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &vendorID, &record.APIFamily, &record.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &record.DefaultOutputTokenReserve, &record.MaxContextUtilization, &preferredContextUtilizationThreshold, &record.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &vendorID, &record.APIFamily, &record.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &record.DefaultOutputTokenReserve, &record.MaxContextUtilization, &preferredContextUtilizationThreshold, &record.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return modelRecord{}, err
 	}
 	record.VendorID = nullableInt32(vendorID)
@@ -902,6 +908,7 @@ func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, erro
 	record.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 	record.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
 	record.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
+	record.ContextOverflowPromotionTargetID = nullableStringValue(contextOverflowPromotionTargetID)
 	return record, nil
 }
 
@@ -1070,7 +1077,7 @@ func deriveOpenAIUpstreamOperation(apiFamily string, probeEndpointVariant *strin
 }
 
 func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, counts map[int]modelConnectionCounts, health map[string]modelHealthStats) modelConfigListResponse {
-	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: record.ContextOverflowPromotionTargetID, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.VendorID != nil {
 		if vendor, ok := vendors[*record.VendorID]; ok {
 			response.Vendor = vendorResponseFromRecord(vendor)
@@ -1093,7 +1100,7 @@ func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, st
 }
 
 func buildModelDetailResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord) modelConfigResponse {
-	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: record.ContextOverflowPromotionTargetID, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.VendorID != nil {
 		if vendor, ok := vendors[*record.VendorID]; ok {
 			response.Vendor = vendorResponseFromRecord(vendor)
@@ -1323,7 +1330,7 @@ func intSliceFromInt32(values []int32) []int {
 
 func placeholders(start int, count int) string {
 	parts := make([]string, count)
-	for index := 0; index < count; index++ {
+	for index := range count {
 		parts[index] = fmt.Sprintf("$%d", start+index)
 	}
 	return strings.Join(parts, ", ")

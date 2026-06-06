@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"sort"
@@ -19,14 +20,21 @@ import (
 )
 
 const (
-	canonicalProfileBundleVersion                    = 3
-	canonicalVendorCatalogVersion                    = 1
-	canonicalProfileBundleKind                       = "profile_config"
-	canonicalVendorCatalogKind                       = "vendor_catalog"
-	facadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
-	facadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
-	facadeEnabledRequiresOpenAIDetail                = "facade_enabled requires api_family 'openai'"
-	nestedFacadesNotSupportedDetail                  = "nested facades are not supported"
+	canonicalProfileBundleVersion                       = 3
+	canonicalVendorCatalogVersion                       = 1
+	canonicalProfileBundleKind                          = "profile_config"
+	canonicalVendorCatalogKind                          = "vendor_catalog"
+	facadeSelectionPolicyWeightedEligibleContext        = "weighted_eligible_context"
+	facadeFallbackPolicyRedistributeIneligibleWeight    = "redistribute_ineligible_weight"
+	facadeEnabledRequiresOpenAIDetail                   = "facade_enabled requires api_family 'openai'"
+	nestedFacadesNotSupportedDetail                     = "nested facades are not supported"
+	importPromotionTargetField                          = "context_overflow_promotion_target_id"
+	promotionTargetValidationCodeUnknown                = "unknown_target"
+	promotionTargetValidationCodeSelf                   = "self_target"
+	promotionTargetValidationCodeDisabled               = "disabled_target"
+	promotionTargetValidationCodeFacade                 = "facade_target"
+	promotionTargetValidationCodeAPIFamilyMismatch      = "api_family_mismatch"
+	promotionTargetValidationCodeContextWindowNotLarger = "context_window_not_larger"
 )
 
 var validImportAPIFamilies = map[string]struct{}{
@@ -78,6 +86,9 @@ func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, 
 		return profileImportPreviewResponse{}, err
 	}
 	if err := validateExistingProfileConnectionOwnership(ctx, exec, profileID); err != nil {
+		return profileImportPreviewResponse{}, err
+	}
+	if err := validateImportedPromotionTargets(data.Models, data.Connections); err != nil {
 		return profileImportPreviewResponse{}, err
 	}
 
@@ -175,6 +186,9 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 		return profileImportResponse{}, err
 	}
 	if err := validateExistingProfileConnectionOwnership(ctx, exec, profileID); err != nil {
+		return profileImportResponse{}, err
+	}
+	if err := validateImportedPromotionTargets(data.Models, data.Connections); err != nil {
 		return profileImportResponse{}, err
 	}
 
@@ -586,6 +600,8 @@ func normalizeImportedModels(models []modelExport) []importedModelPayload {
 			FacadeEnabled:                        model.FacadeEnabled,
 			FacadeSelectionPolicy:                normalizeImportedOptionalString(model.FacadeSelectionPolicy, true),
 			FacadeFallbackPolicy:                 normalizeImportedOptionalString(model.FacadeFallbackPolicy, true),
+			ContextOverflowPromotionTargetID:     normalizeImportedOptionalString(model.ContextOverflowPromotionTargetID, false),
+			ContextOverflowPromotionTargetSet:    model.ContextOverflowPromotionTargetID != nil,
 			IsEnabled:                            model.IsEnabled,
 			AccessTargets:                        normalizeImportedAccessTargets(model.AccessTargets),
 		})
@@ -631,6 +647,136 @@ func normalizeImportedOptionalString(value *string, lower bool) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+type importedPromotionTargetTerminalStats struct {
+	LargestUsableContextWindowTokens int
+}
+
+type importedPromotionConnectionStats struct {
+	UsableContextWindowTokens int
+}
+
+func importedPromotionTargetIssuePath(modelIndex int) string {
+	return importedModelIssuePath(modelIndex, importPromotionTargetField)
+}
+
+func importedPromotionTargetValidationIssueError(modelIndex int, code string, detail string) error {
+	return routingPlanValidationIssueError(code, importedPromotionTargetIssuePath(modelIndex), detail)
+}
+
+func validateImportedPromotionTargets(models []modelExport, connections []connectionExport) error {
+	importedModels := normalizeImportedModels(models)
+	if len(importedModels) == 0 {
+		return nil
+	}
+	connectionStatsByRef, err := buildImportedPromotionConnectionStats(importedModels, connections)
+	if err != nil {
+		return err
+	}
+	modelsByID := make(map[string]importedModelPayload, len(importedModels))
+	for _, model := range importedModels {
+		modelsByID[model.ModelID] = model
+	}
+	statsByModelID := map[string]importedPromotionTargetTerminalStats{}
+	for modelIndex, model := range importedModels {
+		if !model.ContextOverflowPromotionTargetSet {
+			continue
+		}
+		if model.ContextOverflowPromotionTargetID == nil {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an imported model")
+		}
+		target, ok := modelsByID[*model.ContextOverflowPromotionTargetID]
+		if !ok {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an imported model")
+		}
+		if target.ModelID == model.ModelID {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeSelf, "context_overflow_promotion_target_id cannot reference the source model")
+		}
+		if !target.IsEnabled {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeDisabled, "context_overflow_promotion_target_id must reference an enabled model")
+		}
+		if target.FacadeEnabled {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeFacade, "context_overflow_promotion_target_id must reference a non-facade model")
+		}
+		if target.APIFamily != model.APIFamily {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
+		}
+		sourceStats := collectImportedPromotionTargetTerminalStats(model, modelsByID, connectionStatsByRef, statsByModelID)
+		targetStats := collectImportedPromotionTargetTerminalStats(target, modelsByID, connectionStatsByRef, statsByModelID)
+		if targetStats.LargestUsableContextWindowTokens <= sourceStats.LargestUsableContextWindowTokens {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeContextWindowNotLarger, "context_overflow_promotion_target_id must reference a model with a strictly larger usable context window")
+		}
+	}
+	return nil
+}
+
+func buildImportedPromotionConnectionStats(models []importedModelPayload, connections []connectionExport) (map[string]importedPromotionConnectionStats, error) {
+	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(models)
+	if err != nil {
+		return nil, err
+	}
+	connectionOwnerSettings := buildImportedConnectionOwnerSettings(models, modelSettingsByModelID)
+	statsByRef := make(map[string]importedPromotionConnectionStats, len(connections))
+	for _, connection := range connections {
+		connectionRef := strings.TrimSpace(connection.Ref)
+		settings, hasOwnerSettings := connectionOwnerSettings[connectionRef]
+		if !hasOwnerSettings {
+			settings = contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
+		}
+		resolvedSettings, err := contextcapability.NormalizeConnectionSettings(settings, connection.ContextWindowTokens, connection.DefaultOutputTokenReserve, connection.MaxContextUtilization, connection.PreferredContextUtilizationThreshold)
+		if err != nil {
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' preferred_context_utilization_threshold %s", connectionRef, err.Error())}
+		}
+		statsByRef[connectionRef] = importedPromotionConnectionStats{UsableContextWindowTokens: importedPromotionUsableContextWindowTokens(resolvedSettings)}
+	}
+	return statsByRef, nil
+}
+
+func collectImportedPromotionTargetTerminalStats(model importedModelPayload, modelsByID map[string]importedModelPayload, connectionStatsByRef map[string]importedPromotionConnectionStats, statsByModelID map[string]importedPromotionTargetTerminalStats) importedPromotionTargetTerminalStats {
+	if stats, ok := statsByModelID[model.ModelID]; ok {
+		return stats
+	}
+	stats := importedPromotionTargetTerminalStats{}
+	for _, target := range model.AccessTargets {
+		if !target.IsEnabled {
+			continue
+		}
+		switch target.TargetType {
+		case "connection":
+			if target.ConnectionRef == nil {
+				continue
+			}
+			connectionStats, ok := connectionStatsByRef[*target.ConnectionRef]
+			if ok && connectionStats.UsableContextWindowTokens > stats.LargestUsableContextWindowTokens {
+				stats.LargestUsableContextWindowTokens = connectionStats.UsableContextWindowTokens
+			}
+		case "model":
+			if target.TargetModelID == nil {
+				continue
+			}
+			targetModel, ok := modelsByID[*target.TargetModelID]
+			if !ok || !targetModel.IsEnabled || targetModel.FacadeEnabled {
+				continue
+			}
+			targetStats := collectImportedPromotionTargetTerminalStats(targetModel, modelsByID, connectionStatsByRef, statsByModelID)
+			if targetStats.LargestUsableContextWindowTokens > stats.LargestUsableContextWindowTokens {
+				stats.LargestUsableContextWindowTokens = targetStats.LargestUsableContextWindowTokens
+			}
+		}
+	}
+	statsByModelID[model.ModelID] = stats
+	return stats
+}
+
+func importedPromotionUsableContextWindowTokens(settings contextcapability.Settings) int {
+	if settings.ContextWindowTokens == nil || *settings.ContextWindowTokens <= 0 {
+		return 0
+	}
+	if settings.MaxContextUtilization <= 0 || settings.MaxContextUtilization > 1 {
+		return 0
+	}
+	return int(math.Floor(float64(*settings.ContextWindowTokens) * settings.MaxContextUtilization))
 }
 
 func validateImportedModelVendorRef(model importedModelPayload, vendorKeys map[string]struct{}) error {
@@ -1504,7 +1650,7 @@ func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor,
 		}
 		strategyID := strategyIDsByName[*model.LoadbalanceStrategyName]
 		var modelConfigID int
-		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15) RETURNING id`, profileID, vendorID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16) RETURNING id`, profileID, vendorID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), nullableString(model.ContextOverflowPromotionTargetID), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
 			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", model.ModelID, err)
 		}
 		modelIDsByModelID[model.ModelID] = modelConfigID
