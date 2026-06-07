@@ -23,9 +23,9 @@ export function RequestLogPayloadBlock({ title, content, emptyState }: RequestLo
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">{title}</p>
         <Button
           variant="outline"
           size="sm"
@@ -33,12 +33,12 @@ export function RequestLogPayloadBlock({ title, content, emptyState }: RequestLo
           disabled={!hasContent}
           onClick={handleCopy}
         >
-          <Copy className="h-3 w-3" />
+          <Copy data-icon="inline-start" />
           {messages.requestLogs.copy}
         </Button>
       </div>
-      <ScrollArea className="h-56 rounded-xl border border-zinc-800 bg-zinc-950 shadow-inner">
-        <pre className="min-h-full whitespace-pre-wrap break-all p-3 text-[11px] leading-5 text-zinc-50">
+      <ScrollArea className="h-56 rounded-xl border border-border/70 bg-muted/45 shadow-inner">
+        <pre className="min-h-full max-w-full whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-5 text-foreground [overflow-wrap:anywhere]">
           {hasContent ? content : emptyState ?? messages.requestLogs.noCaptured(title.toLowerCase())}
         </pre>
       </ScrollArea>

@@ -71,10 +71,10 @@ function statusIntent(code: number) {
 }
 
 function latencyColor(ms: number): string {
-  if (ms < 500) return "text-emerald-600 dark:text-emerald-400";
+  if (ms < 500) return "text-success";
   if (ms < 2000) return "text-foreground";
-  if (ms < 5000) return "text-amber-600 dark:text-amber-400 font-medium";
-  return "text-red-600 dark:text-red-400 font-bold";
+  if (ms < 5000) return "font-medium text-warning";
+  return "font-bold text-destructive";
 }
 
 function getSingleClientDisplay(row: RequestLogListItem): string {
@@ -148,8 +148,8 @@ export function getColumns(): ColumnDef[] {
       grow: 0,
       render: (row, fmt) => (
         <div className="flex items-center gap-2">
-          {row.status_code >= 500 && <AlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-          {row.response_time_ms >= 5000 && row.status_code < 500 && <Clock className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+          {row.status_code >= 500 && <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />}
+          {row.response_time_ms >= 5000 && row.status_code < 500 && <Clock className="h-3.5 w-3.5 shrink-0 text-warning" />}
           <span className="truncate text-xs text-muted-foreground font-mono">{fmt(row.created_at)}</span>
         </div>
       ),

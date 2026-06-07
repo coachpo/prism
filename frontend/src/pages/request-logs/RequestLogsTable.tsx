@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FileSearch } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
+import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -53,19 +54,19 @@ const SKELETON_ROW_KEYS = [
 function getRowTone(row: RequestLogListItem, isSelected: boolean) {
   if (isSelected) {
     return {
-      row: "border-sky-500/20 bg-sky-500/[0.08] hover:bg-sky-500/[0.12]",
+      row: "border-info/20 bg-info/[0.08] hover:bg-info/[0.12]",
     };
   }
 
   if (row.status_code >= 500) {
     return {
-      row: "border-red-500/15 bg-red-500/[0.06] hover:bg-red-500/[0.10]",
+      row: "border-destructive/20 bg-destructive/[0.06] hover:bg-destructive/[0.10]",
     };
   }
 
   if (row.status_code >= 400 || row.response_time_ms >= 20000) {
     return {
-      row: "border-amber-500/15 bg-amber-500/[0.05] hover:bg-amber-500/[0.09]",
+      row: "border-warning/20 bg-warning/[0.06] hover:bg-warning/[0.10]",
     };
   }
 
@@ -189,17 +190,12 @@ export function RequestLogsTable({
               ))}
             </div>
           ) : items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/70 bg-muted/30">
-                <FileSearch className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm font-medium">{messages.requestLogs.noRequestLogsMatchSlice}</p>
-                <p className="text-xs text-muted-foreground">
-                  {messages.statistics.adjustFiltersOrTimeRange}
-                </p>
-              </div>
-            </div>
+            <EmptyState
+              className="py-20"
+              icon={<FileSearch className="h-6 w-6" />}
+              title={messages.requestLogs.noRequestLogsMatchSlice}
+              description={messages.statistics.adjustFiltersOrTimeRange}
+            />
           ) : (
             <div style={{ height: totalHeight, position: "relative" }}>
               {items.slice(startIndex, endIndex).map((row, i) => {
@@ -272,11 +268,11 @@ export function RequestLogsTable({
         </div>
 
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full" disabled={!hasPrev} onClick={onPreviousPage}>
-            <ChevronLeft className="h-4 w-4" />
+          <Button variant="outline" size="icon" className="size-8 rounded-full" disabled={!hasPrev} onClick={onPreviousPage}>
+            <ChevronLeft />
           </Button>
-          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full" disabled={!hasNext} onClick={onNextPage}>
-            <ChevronRight className="h-4 w-4" />
+          <Button variant="outline" size="icon" className="size-8 rounded-full" disabled={!hasNext} onClick={onNextPage}>
+            <ChevronRight />
           </Button>
         </div>
       </div>

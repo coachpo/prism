@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
+import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
+import { SemanticCallout } from "@/components/SemanticCallout";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
@@ -10,7 +12,7 @@ import { RequestFocusBanner } from "./request-logs/RequestFocusBanner";
 import { FiltersBar } from "./request-logs/FiltersBar";
 import { RequestLogsTable } from "./request-logs/RequestLogsTable";
 import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
-import { SearchX, AlertCircle } from "lucide-react";
+import { SearchX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DetailTab } from "./request-logs/queryParams";
 
@@ -104,32 +106,22 @@ export function RequestLogsPage() {
       )}
 
       {surfaceError && (
-        <div className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          <p>{surfaceError}</p>
-        </div>
+        <SemanticCallout intent="danger" description={surfaceError} />
       )}
 
       {showExactNotFound ? (
-        <div
-          className="flex flex-col items-center justify-center gap-3 rounded-lg border bg-card py-24 text-center shadow-sm"
-          data-testid="request-log-not-found"
-        >
-          <div className="rounded-full bg-muted p-4 mb-2">
-            <SearchX className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <h3 className="text-lg font-medium">{messages.requestLogs.requestNotFound}</h3>
-          <p className="text-sm text-muted-foreground max-w-sm">
-            {messages.requestLogs.requestNotFoundDescription(state.request_id)}
-          </p>
-          <Button
-            variant="outline"
-            className="mt-4"
-            onClick={actions.clearRequest}
-          >
-            {messages.requestLogs.returnToRequestList}
-          </Button>
-        </div>
+        <EmptyState
+          className="rounded-xl border border-border/70 bg-card py-24 shadow-sm"
+          testId="request-log-not-found"
+          icon={<SearchX className="h-6 w-6" />}
+          title={messages.requestLogs.requestNotFound}
+          description={messages.requestLogs.requestNotFoundDescription(state.request_id)}
+          action={(
+            <Button variant="outline" onClick={actions.clearRequest}>
+              {messages.requestLogs.returnToRequestList}
+            </Button>
+          )}
+        />
       ) : (
         <RequestLogsTable
           items={items}

@@ -39,7 +39,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-[var(--density-page-gap)] pb-8">
       <PageHeader
         title={messages.settingsPage.settingsTitle}
         description={messages.settingsPage.settingsDescription}
@@ -48,14 +48,15 @@ export function SettingsPage() {
       <Tabs
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as typeof activeTab)}
+        className="flex flex-col gap-4"
       >
-        <TabsList>
-          <TabsTrigger value={SETTINGS_TABS.profile}>{messages.settingsPage.profileTab}</TabsTrigger>
-          <TabsTrigger value={SETTINGS_TABS.global}>{messages.settingsPage.globalTab}</TabsTrigger>
-          <TabsTrigger value={SETTINGS_TABS.startup}>{messages.settingsPage.startupTab}</TabsTrigger>
+        <TabsList className="w-full justify-start overflow-x-auto rounded-xl bg-muted/70 p-1 sm:w-fit">
+          <TabsTrigger className="h-8" value={SETTINGS_TABS.profile}>{messages.settingsPage.profileTab}</TabsTrigger>
+          <TabsTrigger className="h-8" value={SETTINGS_TABS.global}>{messages.settingsPage.globalTab}</TabsTrigger>
+          <TabsTrigger className="h-8" value={SETTINGS_TABS.startup}>{messages.settingsPage.startupTab}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value={SETTINGS_TABS.profile}>
+        <TabsContent className="mt-0" value={SETTINGS_TABS.profile}>
           <SettingsProfileTab
             activeSectionId={activeSectionId}
             auditConfigurationRef={auditConfigurationRef}
@@ -65,11 +66,11 @@ export function SettingsPage() {
           />
         </TabsContent>
 
-        <TabsContent value={SETTINGS_TABS.global}>
+        <TabsContent className="mt-0" value={SETTINGS_TABS.global}>
           <SettingsGlobalTab data={data} />
         </TabsContent>
 
-        <TabsContent value={SETTINGS_TABS.startup}>
+        <TabsContent className="mt-0" value={SETTINGS_TABS.startup}>
           <SettingsStartupTab />
         </TabsContent>
       </Tabs>

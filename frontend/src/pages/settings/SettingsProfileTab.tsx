@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { Badge } from "@/components/ui/badge";
+import { SemanticCallout } from "@/components/SemanticCallout";
 import { useLocale } from "@/i18n/useLocale";
 import { SettingsSectionsNav } from "./SettingsSectionsNav";
 import type { SettingsPageData } from "./useSettingsPageData";
@@ -26,17 +26,15 @@ export function SettingsProfileTab({
   const { messages } = useLocale();
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <Badge variant="outline" className="w-fit">
-          {messages.settingsPage.profileScopedSettings}
-        </Badge>
-        <p className="text-sm text-muted-foreground">
-          {messages.settingsPage.profileScopedDescription(data.selectedProfileLabel)}
-        </p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <SemanticCallout
+        intent="info"
+        title={messages.settingsPage.profileScopedSettings}
+        description={messages.settingsPage.profileScopedDescription(data.selectedProfileLabel)}
+        className="py-2.5"
+      />
 
-      <div className="space-y-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6 lg:space-y-0">
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6">
         <aside className="lg:sticky lg:top-4 lg:h-fit">
           <SettingsSectionsNav
             activeSectionId={activeSectionId ?? ""}
@@ -44,7 +42,7 @@ export function SettingsProfileTab({
           />
         </aside>
 
-        <div className="space-y-6">
+        <div className="flex flex-col gap-5">
           <BackupSection
             selectedProfileLabel={data.selectedProfileLabel}
             exportSecretsAcknowledged={data.exportSecretsAcknowledged}

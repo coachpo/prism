@@ -1,6 +1,7 @@
 import { AlertTriangle, Coins, Copy, FileText } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
+import { SemanticCallout } from "@/components/SemanticCallout";
 import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -268,39 +269,36 @@ export function RequestLogOverviewTab({
       </Card>
 
       {formattedErrorDetail ? (
-        <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-3 shadow-sm sm:p-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
-            <div className="min-w-0 flex-1 space-y-3">
-              <ValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="space-y-1">
-                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-red-700 dark:text-red-300">{messages.requestLogs.errorDetail}</p>
-                  <p className="text-xs text-red-700/85 dark:text-red-300/85">
-                    {hasFormattedErrorDetail
-                      ? messages.requestLogs.formattedForReadability
-                      : messages.requestLogs.capturedFailureDetail}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 rounded-full border-red-500/20 px-2.5 text-[11px] text-red-700 hover:border-red-500/40 hover:bg-red-500/10 dark:text-red-200"
-                  onClick={handleCopyErrorDetail}
-                >
-                  <Copy className="h-3 w-3" />
-                  {messages.requestLogs.copy}
-                </Button>
+        <SemanticCallout intent="danger" icon={<AlertTriangle />} className="shadow-sm">
+          <div className="flex min-w-0 flex-col gap-3">
+            <ValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="flex flex-col gap-1">
+                <p className="text-xs font-medium uppercase tracking-[0.16em]">{messages.requestLogs.errorDetail}</p>
+                <p className="text-xs">
+                  {hasFormattedErrorDetail
+                    ? messages.requestLogs.formattedForReadability
+                    : messages.requestLogs.capturedFailureDetail}
+                </p>
               </div>
-
-              <ScrollArea className="max-h-56 rounded-lg border border-red-500/15 bg-background/85 shadow-inner">
-                <pre className="max-w-full whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-5 text-foreground [overflow-wrap:anywhere]">
-                  {formattedErrorDetail}
-                </pre>
-              </ScrollArea>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 rounded-full border-destructive/20 px-2.5 text-[11px] text-destructive hover:border-destructive/40 hover:bg-destructive/10"
+                onClick={handleCopyErrorDetail}
+              >
+                <Copy data-icon="inline-start" />
+                {messages.requestLogs.copy}
+              </Button>
             </div>
+
+            <ScrollArea className="max-h-56 rounded-lg border border-destructive/15 bg-background/85 shadow-inner">
+              <pre className="max-w-full whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-5 text-foreground [overflow-wrap:anywhere]">
+                {formattedErrorDetail}
+              </pre>
+            </ScrollArea>
           </div>
-        </div>
+        </SemanticCallout>
       ) : null}
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]" data-testid="request-log-overview-grid">

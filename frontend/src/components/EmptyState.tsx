@@ -8,9 +8,10 @@ interface EmptyStateProps {
   description?: string;
   action?: ReactNode;
   className?: string;
+  testId?: string;
 }
 
-export function EmptyState({ icon, title, description, action, className }: EmptyStateProps) {
+export function EmptyState({ icon, title, description, action, className, testId }: EmptyStateProps) {
   return (
     <div
       className={cn(
@@ -18,6 +19,7 @@ export function EmptyState({ icon, title, description, action, className }: Empt
         "py-[var(--density-empty-pad-y)]",
         className
       )}
+      data-testid={testId}
     >
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
         {icon ?? <FileX className="h-6 w-6" />}

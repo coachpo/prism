@@ -14,6 +14,18 @@ type DownloadCapture = {
   href: string;
 } | null;
 
+const appReadyTimeout = 30_000;
+
+async function gotoBackupSection(page: Page) {
+  await page.goto("/settings#backup");
+  await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: appReadyTimeout });
+  await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: appReadyTimeout });
+
+  const backupSection = page.locator("section#backup");
+  await expect(backupSection).toBeVisible({ timeout: appReadyTimeout });
+  return backupSection;
+}
+
 function createProfile() {
   return {
     id: 1,
@@ -371,9 +383,7 @@ test("context-capability-authoring: config export safe export uses the redacted 
   const routes = await mockSettingsRoutes(page);
   const expectedBundle = createSafeExportBundle();
 
-  await page.goto("/settings#backup");
-  const backupSection = page.locator("section#backup");
-  await expect(backupSection).toBeVisible();
+  const backupSection = await gotoBackupSection(page);
 
   const downloadPromise = page.waitForEvent("download");
   await backupSection.getByTestId("profile-export-safe").click();
@@ -401,11 +411,8 @@ test("context-capability-authoring: config export dangerous export stays disable
   const routes = await mockSettingsRoutes(page);
   const expectedBundle = createDangerousExportBundle();
 
-  await page.goto("/settings#backup");
-  const backupSection = page.locator("section#backup");
+  const backupSection = await gotoBackupSection(page);
   const dangerousButton = backupSection.getByTestId("profile-export-dangerous");
-
-  await expect(backupSection).toBeVisible();
   await expect(backupSection.getByText("This path returns the full secret-bearing profile bundle, including encrypted secret payload entries and reusable endpoint secret refs. Use it only for disaster recovery.")).toBeVisible();
   await expect(dangerousButton).toBeDisabled();
 

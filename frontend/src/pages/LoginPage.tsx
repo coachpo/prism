@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import { useTheme } from "next-themes";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -14,6 +14,8 @@ import { TopographyBackground } from "@/components/ui/topography";
 import { useAuth } from "@/context/useAuth";
 import { useLocale } from "@/i18n/useLocale";
 import type { LoginSessionDuration } from "@/lib/types";
+
+type LoginFormSubmitEvent = Parameters<NonNullable<ComponentProps<"form">["onSubmit"]>>[0];
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -40,7 +42,7 @@ export function LoginPage() {
     return <Navigate to={nextPath || "/dashboard"} replace />;
   }
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: LoginFormSubmitEvent) => {
     event.preventDefault();
     setSubmitting(true);
     try {
@@ -83,7 +85,9 @@ export function LoginPage() {
 
         <div className="relative flex min-h-screen flex-col">
           <div className="flex items-center justify-between px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
-            <div />
+            <div className="rounded-full border border-border/60 bg-background/70 px-3 py-1 text-xs font-medium tracking-tight shadow-sm backdrop-blur-xl">
+              Prism
+            </div>
 
             <div className="flex items-center gap-2">
               <LanguageSwitcher
@@ -98,49 +102,49 @@ export function LoginPage() {
           </div>
 
           <div className="mx-auto flex w-full max-w-6xl flex-1 items-center justify-center px-4 pb-8 pt-6 sm:px-6 sm:pb-10 lg:px-8">
-            <Card className="w-full max-w-[420px] border-border/70 bg-background/78 shadow-2xl shadow-primary/10 backdrop-blur-2xl">
-              <CardHeader className="pb-6">
-                <CardTitle className="text-2xl tracking-tight">{messages.auth.signIn}</CardTitle>
-                <CardDescription className="sr-only">
+            <Card className="w-full max-w-[440px] overflow-hidden border-border/70 bg-card/90 shadow-2xl shadow-primary/10 backdrop-blur-2xl">
+              <CardHeader className="gap-2 border-b border-border/60 pb-5">
+                <CardTitle className="text-2xl font-semibold tracking-tight sm:text-3xl">{messages.auth.signIn}</CardTitle>
+                <CardDescription className="max-w-sm text-sm leading-6">
                   {messages.auth.signInDescription}
                 </CardDescription>
               </CardHeader>
 
-              <CardContent className="space-y-6">
-                <form className="space-y-5" onSubmit={handleSubmit}>
-                  <div className="space-y-2">
+              <CardContent>
+                <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="username">{messages.auth.username}</Label>
                     <Input
                       id="username"
                       name="username"
-                      autoComplete="off"
+                      autoComplete="username"
                       value={username}
                       onChange={(event) => setUsername(event.target.value)}
-                      className="bg-background/80"
+                      className="bg-background/90"
                     />
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="password">{messages.auth.password}</Label>
                     <Input
                       id="password"
                       name="password"
                       type="password"
-                      autoComplete="off"
+                      autoComplete="current-password"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
-                      className="bg-background/80"
+                      className="bg-background/90"
                     />
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="session-duration">{messages.auth.keepSignedInFor}</Label>
                     <Select
                       key={locale}
                       value={sessionDuration}
                       onValueChange={(value: LoginSessionDuration) => setSessionDuration(value)}
                     >
-                      <SelectTrigger id="session-duration" className="bg-background/80">
+                      <SelectTrigger id="session-duration" className="bg-background/90">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -155,7 +159,7 @@ export function LoginPage() {
                     <Button
                       type="button"
                       variant="link"
-                      className="justify-start px-0 text-muted-foreground"
+                      className="justify-start px-0 text-muted-foreground hover:text-foreground"
                       onClick={() => navigate("/forgot-password")}
                     >
                       {messages.auth.forgotPasswordQuestion}

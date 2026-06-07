@@ -7,8 +7,8 @@ import { formatApiFamily } from "@/lib/utils";
 
 export function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[92px_minmax(0,1fr)] items-start gap-2.5 py-1 text-sm">
-      <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</span>
+    <div className="grid gap-1.5 py-1.5 text-sm sm:grid-cols-[minmax(7rem,0.38fr)_minmax(0,1fr)] sm:gap-3">
+      <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
       <div className="min-w-0 text-sm font-medium text-foreground">{children}</div>
     </div>
   );
@@ -44,7 +44,7 @@ export function SectionCard({
 }) {
   return (
     <Card className="border-border/70 shadow-sm">
-      <CardHeader className="space-y-0 px-3 py-2">
+      <CardHeader className="px-3 py-2.5">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
           <Icon className="h-4 w-4 text-muted-foreground" />
           {title}

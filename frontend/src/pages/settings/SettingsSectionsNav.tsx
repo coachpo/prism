@@ -22,17 +22,17 @@ export function SettingsSectionsNav({
   };
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className="border-border/70 bg-card/80">
+      <CardHeader className="pb-2">
         <CardTitle className="text-sm">{messages.settingsPage.sectionsTitle}</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-1">
+      <CardContent className="flex flex-col gap-1">
         {SETTINGS_SECTIONS.map((section) => (
           <Button
             key={section.id}
             type="button"
             variant={activeSectionId === section.id ? "secondary" : "ghost"}
-            className="w-full justify-start"
+            className="h-8 w-full justify-start px-2.5 text-sm"
             onClick={() => onJumpToSection(section.id)}
           >
             {labels[section.id]}

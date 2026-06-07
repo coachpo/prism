@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { SemanticCallout } from "@/components/SemanticCallout";
 import { useLocale } from "@/i18n/useLocale";
 import type { SettingsPageData } from "./useSettingsPageData";
 import { DeleteVendorDialog } from "./dialogs/DeleteVendorDialog";
@@ -15,15 +15,13 @@ export function SettingsGlobalTab({ data }: SettingsGlobalTabProps) {
   const { messages } = useLocale();
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <Badge variant="outline" className="w-fit">
-          {messages.settingsPage.globalSettings}
-        </Badge>
-        <p className="text-sm text-muted-foreground">
-          {messages.settingsPage.globalSettingsDescription}
-        </p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <SemanticCallout
+        intent="muted"
+        title={messages.settingsPage.globalSettings}
+        description={messages.settingsPage.globalSettingsDescription}
+        className="py-2.5"
+      />
 
       <AuthenticationSection
         authSettings={data.authSettings}

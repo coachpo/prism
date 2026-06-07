@@ -12,6 +12,18 @@ const facadePolicyDefaults = {
   facade_fallback_policy: "redistribute_ineligible_weight" as const,
 };
 
+const appReadyTimeout = 30_000;
+
+async function gotoBackupSection(page: Page) {
+  await page.goto("/settings#backup");
+  await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: appReadyTimeout });
+  await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: appReadyTimeout });
+
+  const backupSection = page.locator("section#backup");
+  await expect(backupSection).toBeVisible({ timeout: appReadyTimeout });
+  return backupSection;
+}
+
 type ProfileImportBundle = ReturnType<typeof buildProfileImportBundle>;
 
 type PreviewRequestCapture = {
@@ -593,11 +605,8 @@ test("context-capability-authoring: config import requires an explicit preview b
   const routes = await mockSettingsRoutes(page);
   const importBundle = buildProfileImportBundle("alpha");
 
-  await page.goto("/settings#backup");
-  const backupSection = page.locator("section#backup");
+  const backupSection = await gotoBackupSection(page);
   const applyButton = backupSection.getByTestId("profile-import-apply");
-
-  await expect(backupSection).toBeVisible();
   await backupSection.getByTestId("profile-import-file").setInputFiles({
     name: "profile-import-alpha.json",
     mimeType: "application/json",
@@ -651,11 +660,8 @@ test("context-capability-authoring: config import keeps apply disabled and surfa
   });
   const importBundle = buildProfileImportBundle("alpha");
 
-  await page.goto("/settings#backup");
-  const backupSection = page.locator("section#backup");
+  const backupSection = await gotoBackupSection(page);
   const applyButton = backupSection.getByTestId("profile-import-apply");
-
-  await expect(backupSection).toBeVisible();
   await backupSection.getByTestId("profile-import-file").setInputFiles({
     name: "profile-import-alpha.json",
     mimeType: "application/json",
@@ -678,11 +684,8 @@ test("context-capability-authoring: config import accepts backend-valid sparse r
   const routes = await mockSettingsRoutes(page);
   const importBundle = buildProfileImportBundle("routing");
 
-  await page.goto("/settings#backup");
-  const backupSection = page.locator("section#backup");
+  const backupSection = await gotoBackupSection(page);
   const applyButton = backupSection.getByTestId("profile-import-apply");
-
-  await expect(backupSection).toBeVisible();
   await backupSection.getByTestId("profile-import-file").setInputFiles({
     name: "profile-import-routing.json",
     mimeType: "application/json",
@@ -722,11 +725,8 @@ test("context-capability-authoring: promotion target config import accepts backe
     ],
   };
 
-  await page.goto("/settings#backup");
-  const backupSection = page.locator("section#backup");
+  const backupSection = await gotoBackupSection(page);
   const applyButton = backupSection.getByTestId("profile-import-apply");
-
-  await expect(backupSection).toBeVisible();
   await backupSection.getByTestId("profile-import-file").setInputFiles({
     name: "profile-import-promotion-target.json",
     mimeType: "application/json",
@@ -789,11 +789,8 @@ test("context-capability-authoring: config import surfaces structured routing pr
     ],
   };
 
-  await page.goto("/settings#backup");
-  const backupSection = page.locator("section#backup");
+  const backupSection = await gotoBackupSection(page);
   const applyButton = backupSection.getByTestId("profile-import-apply");
-
-  await expect(backupSection).toBeVisible();
   await backupSection.getByTestId("profile-import-file").setInputFiles({
     name: "profile-import-routing-invalid.json",
     mimeType: "application/json",
@@ -813,11 +810,8 @@ test("context-capability-authoring: config import invalidates a stale preview wh
   const firstBundle = buildProfileImportBundle("alpha");
   const secondBundle = buildProfileImportBundle("beta");
 
-  await page.goto("/settings#backup");
-  const backupSection = page.locator("section#backup");
+  const backupSection = await gotoBackupSection(page);
   const applyButton = backupSection.getByTestId("profile-import-apply");
-
-  await expect(backupSection).toBeVisible();
   await backupSection.getByTestId("profile-import-file").setInputFiles({
     name: "profile-import-alpha.json",
     mimeType: "application/json",
@@ -867,11 +861,8 @@ test("context-capability-authoring: config import invalidates a stale preview wh
   });
   const importBundle = buildProfileImportBundle("alpha");
 
-  await page.goto("/settings#backup");
-  const backupSection = page.locator("section#backup");
+  const backupSection = await gotoBackupSection(page);
   const applyButton = backupSection.getByTestId("profile-import-apply");
-
-  await expect(backupSection).toBeVisible();
   await backupSection.getByTestId("profile-import-file").setInputFiles({
     name: "profile-import-alpha.json",
     mimeType: "application/json",

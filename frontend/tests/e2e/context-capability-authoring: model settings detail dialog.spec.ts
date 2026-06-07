@@ -224,9 +224,9 @@ test("context-capability-authoring: model settings clears blank context window t
 
   const dialog = page.getByRole("dialog", { name: "Model Settings" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("Update the selected-profile entry model, its routing defaults, and the policy it uses to reach terminal targets.")).toBeVisible();
+  await expect(dialog.getByText("Update the selected-profile entry model, its routing defaults, and its grouped model fallback targets before terminal-target routing takes over.")).toBeVisible();
   await expect(dialog.getByText("Set the entry-model context window, reserve, max utilization, and preferred band before terminal-target overrides apply.")).toBeVisible();
-  await expect(dialog.getByText("Choose the Ban Policy and terminal-target selection family for this entry model.")).toBeVisible();
+  await expect(dialog.getByText("Choose the Ban Policy for this entry model and adjust grouped model fallback targets here. Model-private terminal targets stay on Model Detail.")).toBeVisible();
   await expect(dialog.getByText(contextWindowHelperCopy)).toBeVisible();
   await expect(dialog.locator("#edit-context-window-tokens")).toHaveValue("65536");
   await expect(dialog.locator("#edit-preferred-context-utilization-threshold")).toHaveValue("0.7");
@@ -245,6 +245,7 @@ test("context-capability-authoring: model settings clears blank context window t
       model_id: "routed-openai",
       display_name: "Routed OpenAI",
       access_targets: [{ target_type: "model", target_model_id: "target-alpha", position: 0, weight: 1, target_priority: 0, is_enabled: true }],
+      context_overflow_promotion_target_id: null,
       loadbalance_strategy_id: 11,
       is_enabled: true,
       context_window_tokens: null,
