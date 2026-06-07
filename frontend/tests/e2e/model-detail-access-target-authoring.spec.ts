@@ -332,6 +332,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
       default_output_token_reserve: 4096,
       max_context_utilization: 0.9,
       preferred_context_utilization_threshold: null,
+      context_overflow_promotion_target_id: null,
     },
   ]);
 
@@ -367,6 +368,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
       default_output_token_reserve: 4096,
       max_context_utilization: 0.9,
       preferred_context_utilization_threshold: null,
+      context_overflow_promotion_target_id: null,
     },
     {
       vendor_id: null,
@@ -382,6 +384,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
       default_output_token_reserve: 4096,
       max_context_utilization: 0.9,
       preferred_context_utilization_threshold: null,
+      context_overflow_promotion_target_id: null,
     },
   ]);
 
@@ -541,19 +544,19 @@ test("private connection owner flows use model-scoped routes and hide cross-owne
   await editor.getByRole("button", { name: "New terminal target" }).click();
   await page.locator("#conn-selected-endpoint").click();
   await page.getByRole("option", { name: /Reusable OpenAI Endpoint/ }).click();
-  await page.locator("#conn-name").fill("Owner-created connection");
-  await page.getByRole("button", { name: "Save Connection" }).click();
+  await page.locator("#conn-name").fill("Owner-created terminal target");
+  await page.getByRole("button", { name: "Save Terminal Target" }).click();
   await expect.poll(() => requests.creates.length).toBe(1);
   expect(requests.creates[0]).toMatchObject({
     path: `/api/models/${modelConfigId}/connections`,
-    payload: { endpoint_id: endpoint.id, name: "Owner-created connection" },
+    payload: { endpoint_id: endpoint.id, name: "Owner-created terminal target" },
   });
 
-  await expect(editor.getByText("Owner-created connection")).toBeVisible();
+  await expect(editor.getByText("Owner-created terminal target")).toBeVisible();
 
   await editor.getByRole("button", { name: /Edit Owned primary/ }).click();
   await page.locator("#conn-name").fill("Owner renamed");
-  await page.getByRole("button", { name: "Save Connection" }).click();
+  await page.getByRole("button", { name: "Save Terminal Target" }).click();
   await expect.poll(() => requests.updates.length).toBe(1);
   expect(requests.updates[0]).toMatchObject({
     path: `/api/models/${modelConfigId}/connections/301`,

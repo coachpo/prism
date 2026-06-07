@@ -7,6 +7,9 @@ import type { Connection, ModelConfig } from "@/lib/types";
 import { getOwnedConnectionTarget, moveConnectionInList } from "./useModelDetailDataSupport";
 import { useConnectionHealthChecks } from "./useConnectionHealthChecks";
 
+const TERMINAL_TARGET_OWNER_MISMATCH = "Terminal Target owner does not match the current model";
+const SAVE_TERMINAL_TARGET_BEFORE_HEALTH_CHECK = "Save the terminal target before running a health check.";
+
 interface UseModelDetailConnectionFlowsInput {
   model: ModelConfig | null;
   modelConfigId?: number;
@@ -60,7 +63,7 @@ export function useModelDetailConnectionFlows({
   const handleHealthCheck = useCallback(
     async (connectionId: number) => {
       if (!getOwnedConnectionTarget(model, modelConfigId, connectionId)) {
-        toast.error("Connection owner does not match the current model");
+        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
         return;
       }
       const { successfulChecks, failedCount } = await runHealthChecks([connectionId]);
@@ -77,14 +80,14 @@ export function useModelDetailConnectionFlows({
 
   const handleDialogTestConnection = useCallback(async () => {
     if (!editingConnection) {
-      setDialogTestResult({ status: "error", detail: "Save the connection before running a health check." });
+      setDialogTestResult({ status: "error", detail: SAVE_TERMINAL_TARGET_BEFORE_HEALTH_CHECK });
       return;
     }
     setDialogTestingConnection(true);
     setDialogTestResult(null);
     try {
       if (!getOwnedConnectionTarget(model, modelConfigId, editingConnection.id)) {
-        setDialogTestResult({ status: "error", detail: "Connection owner does not match the current model." });
+        setDialogTestResult({ status: "error", detail: `${TERMINAL_TARGET_OWNER_MISMATCH}.` });
         return;
       }
       const result = await api.models.connections.healthCheck(modelConfigId as number, editingConnection.id);

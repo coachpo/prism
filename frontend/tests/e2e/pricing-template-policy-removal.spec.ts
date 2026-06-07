@@ -37,9 +37,18 @@ function createPricingTemplate(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function stubPricingTemplateRoutes(page: Page) {
+type PricingTemplateRouteOptions = {
+  connectionUsageItems?: unknown[];
+  deleteResponse?: {
+    body: unknown;
+    status: number;
+  };
+};
+
+async function stubPricingTemplateRoutes(page: Page, options: PricingTemplateRouteOptions = {}) {
   const profile = createProfile();
   const createPayloads: unknown[] = [];
+  const deleteRequests: string[] = [];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -77,6 +86,18 @@ async function stubPricingTemplateRoutes(page: Page) {
       return fulfillJson(createPricingTemplate({ cached_input_price: "0.05" }));
     }
 
+    if (pathname === "/api/pricing-templates/11/connections" && method === "GET") {
+      return fulfillJson({ items: options.connectionUsageItems ?? [] });
+    }
+
+    if (pathname === "/api/pricing-templates/11" && method === "DELETE") {
+      deleteRequests.push(pathname);
+      if (options.deleteResponse) {
+        return fulfillJson(options.deleteResponse.body, options.deleteResponse.status);
+      }
+      return fulfillJson({});
+    }
+
     if (pathname === "/api/pricing-templates" && method === "POST") {
       const payload = request.postDataJSON();
       createPayloads.push(payload);
@@ -99,7 +120,7 @@ async function stubPricingTemplateRoutes(page: Page) {
     return fulfillJson({ error: `Unhandled ${method} ${pathname}` }, 500);
   });
 
-  return { createPayloads };
+  return { createPayloads, deleteRequests };
 }
 
 test("pricing template dialog normalizes all prices and removes optional/default pricing copy", async ({ page }) => {
@@ -160,4 +181,87 @@ test("pricing template dialog normalizes all prices and removes optional/default
     cache_creation_price: "0",
     reasoning_price: "0",
   });
+});
+
+
+test("pricing template usage and preflight delete dependencies use terminal target labels", async ({ page }) => {
+  const usageRow = {
+    connection_id: 501,
+    connection_name: "Primary Target",
+    model_config_id: 101,
+    model_id: "gpt-4.1",
+    endpoint_id: 201,
+    endpoint_name: "OpenAI Primary",
+  };
+  const { deleteRequests } = await stubPricingTemplateRoutes(page, {
+    connectionUsageItems: [usageRow],
+  });
+
+  await page.goto("/pricing-templates");
+  const templateRow = page.getByRole("row").filter({ hasText: "Baseline USD" });
+  await templateRow.getByRole("button", { name: "View Usage Baseline USD" }).click();
+
+  let dialog = page.getByRole("dialog", { name: "Template Usage" });
+  await expect(dialog.getByText('Terminal targets currently using the "Baseline USD" template.')).toBeVisible();
+  await expect(dialog.getByRole("columnheader", { name: "Terminal Target" })).toBeVisible();
+  const usageTableRow = dialog.getByRole("row").filter({ hasText: "gpt-4.1" });
+  await expect(usageTableRow).toContainText("OpenAI Primary");
+  await expect(usageTableRow).toContainText("Primary Target");
+  await dialog.getByRole("button", { name: "Close" }).first().click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+
+  await templateRow.getByRole("button", { name: "Delete" }).click();
+
+  dialog = page.getByRole("dialog", { name: "Delete Pricing Template" });
+  await expect(dialog.getByRole("heading", { name: "Delete Pricing Template" })).toBeVisible();
+  await expect(dialog.getByText("Cannot delete this template because it is currently used by 1 terminal target.")).toBeVisible();
+  await expect(dialog.getByRole("columnheader", { name: "Terminal Target" })).toBeVisible();
+  const dependencyRow = dialog.getByRole("row").filter({ hasText: "gpt-4.1" });
+  await expect(dependencyRow).toContainText("OpenAI Primary");
+  await expect(dependencyRow).toContainText("Primary Target");
+  await expect(dialog.getByRole("button", { name: "Delete" })).toBeDisabled();
+  expect(deleteRequests).toEqual([]);
+});
+
+
+test("pricing template delete conflict relabels backend 409 connection rows", async ({ page }) => {
+  const rawBackendMessage = "Cannot delete pricing template that is referenced by connections";
+  await stubPricingTemplateRoutes(page, {
+    connectionUsageItems: [],
+    deleteResponse: {
+      status: 409,
+      body: {
+        detail: {
+          message: rawBackendMessage,
+          connections: [
+            {
+              connection_id: 502,
+              connection_name: "Backup Target",
+              model_config_id: 102,
+              model_id: "model-a",
+              endpoint_id: 202,
+              endpoint_name: "Endpoint A",
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  await page.goto("/pricing-templates");
+  const templateRow = page.getByRole("row").filter({ hasText: "Baseline USD" });
+  await templateRow.getByRole("button", { name: "Delete" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Delete Pricing Template" });
+  const deleteButton = dialog.getByRole("button", { name: "Delete" });
+  await expect(deleteButton).toBeEnabled();
+  await deleteButton.click();
+
+  await expect(dialog.getByText("Cannot delete this template because it is currently used by 1 terminal target.")).toBeVisible();
+  await expect(dialog.getByText(rawBackendMessage)).toHaveCount(0);
+  await expect(dialog.getByRole("columnheader", { name: "Terminal Target" })).toBeVisible();
+  const conflictRow = dialog.getByRole("row").filter({ hasText: "model-a" });
+  await expect(conflictRow).toContainText("Endpoint A");
+  await expect(conflictRow).toContainText("Backup Target");
+  await expect(deleteButton).toBeDisabled();
 });

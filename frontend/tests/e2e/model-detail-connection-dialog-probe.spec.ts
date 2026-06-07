@@ -468,7 +468,7 @@ test("OpenAI connection dialog exposes probe controls and sends the resolved raw
   await page.locator("#conn-probe-reasoning-mode").click();
   await page.getByRole("option", { name: /Disable reasoning/ }).click();
 
-  await page.getByRole("button", { name: "Save Connection" }).click();
+  await page.getByRole("button", { name: "Save Terminal Target" }).click();
   await expect.poll(() => savePayloads.length).toBe(1);
   expect(savePayloads[0]).toMatchObject({
     openai_probe_endpoint_variant: "chat_completions_reasoning_none",
@@ -512,7 +512,7 @@ test("editing an OpenAI connection hydrates the saved probe settings into both s
         id: 301,
         modelConfigId: 3,
         endpoint,
-        name: "Saved Connection",
+        name: "Saved Terminal Target",
         openaiProbeEndpointVariant: "chat_completions_reasoning_none",
       }),
     ],
@@ -520,7 +520,7 @@ test("editing an OpenAI connection hydrates the saved probe settings into both s
   await stubModelDetailRoutes(page, model);
 
   await page.goto("/models/3");
-  await page.getByRole("button", { name: "Edit Saved Connection" }).first().click();
+  await page.getByRole("button", { name: "Edit Saved Terminal Target" }).first().click();
 
   await expect(page.getByTestId("connection-dialog-probe-section")).toBeVisible();
   await expect(page.locator("#conn-probe-api")).toContainText("Chat Completions API");
@@ -566,7 +566,7 @@ test("context-capability-authoring: connection dialog submits mixed inherit and 
   await preferredField.getByRole("button", { name: "Override" }).click();
   await page.locator("#conn-preferred-context-utilization-threshold").fill("0.6");
 
-  await page.getByRole("button", { name: "Save Connection" }).click();
+  await page.getByRole("button", { name: "Save Terminal Target" }).click();
   await expect.poll(() => savePayloads.length).toBe(1);
   expect(savePayloads[0]).toMatchObject({
     context_window_tokens: null,
@@ -602,7 +602,7 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
         id: 301,
         modelConfigId: 5,
         endpoint,
-        name: "Saved Connection",
+        name: "Saved Terminal Target",
         openaiProbeEndpointVariant: "responses_minimal",
         contextWindowTokens: 16384,
         defaultOutputTokenReserve: 4096,
@@ -620,7 +620,7 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
   const { savePayloads } = await stubModelDetailRoutes(page, model);
 
   await page.goto("/models/5");
-  await page.getByRole("button", { name: "Edit Saved Connection" }).first().click();
+  await page.getByRole("button", { name: "Edit Saved Terminal Target" }).first().click();
 
   await expect(page.locator("#conn-context-window-tokens")).toHaveValue("16384");
   await expect(page.locator("#conn-max-context-utilization")).toHaveValue("0.9");
@@ -629,8 +629,8 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
   await expect(page.getByTestId("conn-context-window-tokens-field")).toContainText("Reset to model default");
   await expect(page.getByTestId("conn-preferred-context-utilization-threshold-field")).toContainText("Reset to model default");
 
-  await page.locator("#conn-name").fill("Saved Connection Renamed");
-  await page.getByRole("button", { name: "Save Connection" }).click();
+  await page.locator("#conn-name").fill("Saved Terminal Target Renamed");
+  await page.getByRole("button", { name: "Save Terminal Target" }).click();
   await expect.poll(() => savePayloads.length).toBe(1);
   expect(savePayloads[0]).toMatchObject({
     context_window_tokens: 16384,
@@ -639,7 +639,7 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
     preferred_context_utilization_threshold: 0.7,
   });
 
-  await page.getByRole("button", { name: "Edit Saved Connection Renamed" }).first().click();
+  await page.getByRole("button", { name: "Edit Saved Terminal Target Renamed" }).first().click();
   await expect(page.locator("#conn-context-window-tokens")).toHaveValue("16384");
   await expect(page.locator("#conn-max-context-utilization")).toHaveValue("0.9");
   await expect(page.locator("#conn-preferred-context-utilization-threshold")).toHaveValue("0.7");
@@ -670,7 +670,7 @@ test("context-capability-authoring: connection dialog blocks preferred threshold
   await utilizationField.getByRole("button", { name: "Override" }).click();
   await page.locator("#conn-max-context-utilization").fill("0.6");
 
-  await page.getByRole("button", { name: "Save Connection" }).click();
+  await page.getByRole("button", { name: "Save Terminal Target" }).click();
   await expect(page.getByText("Preferred context utilization threshold must be less than or equal to max context utilization.")).toBeVisible();
   expect(savePayloads).toHaveLength(0);
 });

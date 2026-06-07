@@ -12,7 +12,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 
 - **Operation-registered runtime support**: allowed routes are `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/images/generations`, `POST /v1/images/edits`, `POST /v1/messages`, `POST /v1/messages/count_tokens`, `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, and `POST /v1beta/models/{model}:countTokens`
 - **Not a full vendor API clone**: unsupported vendor routes are rejected before provider transport, telemetry, audit, or feedback side effects
-- **Model-private connections**: public model IDs resolve through ordered model targets, while each terminal connection is a model-private endpoint binding managed from model detail. Endpoints remain reusable across private connections
+- **Terminal Targets**: public model IDs resolve through ordered model targets, while each terminal target is a model-private endpoint binding managed from model detail. Endpoints remain reusable across Terminal Targets
 - **Explicit Ban Policy routing**: reusable load-balance strategies use `single`, `fill-first`, or `round-robin` routing plus retry-window settings, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and `off`, `temporary`, or `until_reset` ban modes
 - **Automatic buffering**: operation hooks handle streaming and internal buffered fallbacks for supported routes
 
@@ -21,7 +21,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 - **OpenTelemetry operations path**: startup JSON configures OTLP metrics and traces for a Collector or Grafana Alloy pipeline feeding Prometheus/Grafana/Tempo-style operations stacks
 - **Retained request history**: product-facing request logs, spending, usage snapshots, and dashboard aggregates remain in PostgreSQL for `/request-logs` and `/api/stats/*`
 - **Audit logging**: optional request/response body capture with header redaction
-- **Success-rate badges**: connection health based on recent request data
+- **Success-rate badges**: Terminal Target health based on recent request data
 - **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, restart-required OTLP telemetry fields, masked secret metadata, and explicit confirmation for dangerous structural changes
 - **Config export/import**: PostgreSQL-backed profile and vendor bundles with profile-scoped replace-mode import
 - **CLIProxyAPI sidecars**: global sidecar registrations, live auth-files, provider inventory, connection testing, manual sync, and direct auth-file mutations through `/sidecars` and `/api/sidecars/*`

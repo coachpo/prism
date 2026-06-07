@@ -131,6 +131,7 @@ export function DeletePricingTemplateDialog({
                           <TableRow>
                             <TableHead>{copy.model}</TableHead>
                             <TableHead>{copy.endpoint}</TableHead>
+                            <TableHead>{copy.terminalTargetColumn}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -138,6 +139,11 @@ export function DeletePricingTemplateDialog({
                             <TableRow key={row.connection_id}>
                               <TableCell className="font-medium">{row.model_id}</TableCell>
                               <TableCell>{row.endpoint_name}</TableCell>
+                              <TableCell>
+                                {row.connection_name || (
+                                  <span className="italic text-muted-foreground">{copy.unnamed}</span>
+                                )}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>

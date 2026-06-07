@@ -34,6 +34,9 @@ import {
 
 type ConnectionSubmitEvent = Pick<Event, "preventDefault">;
 
+const TERMINAL_TARGET_OWNER_MISMATCH = "Terminal Target owner does not match the current model";
+const TERMINAL_TARGETS_MANAGED_FROM_MODEL_DETAIL = "Manage Terminal Targets from the Model Detail Terminal Targets list.";
+
 interface UseModelDetailConnectionMutationsInput {
   id: string | undefined;
   revision: number;
@@ -97,7 +100,7 @@ export function useModelDetailConnectionMutations({
   const commitConnection = useCallback(
     (connection: Connection) => {
       if (!connectionBelongsToModel(connection, modelConfigId)) {
-        toast.error("Connection owner does not match the current model");
+        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
         return null;
       }
 
@@ -142,7 +145,7 @@ export function useModelDetailConnectionMutations({
       try {
         if (editingConnection) {
           if (!isOwnedConnectionTarget(model, modelConfigId, editingConnection.id)) {
-            toast.error("Connection owner does not match the current model");
+            toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
             return;
           }
           const updatedConnection = await api.models.connections.update(modelConfigId, editingConnection.id, { ...payload });
@@ -184,7 +187,7 @@ export function useModelDetailConnectionMutations({
     async (target: ModelAccessTargetMutation) => {
       if (!Number.isFinite(modelConfigId)) return;
       if (target.target_type !== "model") {
-        toast.error("Connection access targets are managed through model connections");
+        toast.error(TERMINAL_TARGETS_MANAGED_FROM_MODEL_DETAIL);
         return;
       }
       try {
@@ -205,7 +208,7 @@ export function useModelDetailConnectionMutations({
       if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
-        toast.error("Connection owner does not match the current model");
+        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
         return;
       }
       try {
@@ -226,7 +229,7 @@ export function useModelDetailConnectionMutations({
       if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
-        toast.error("Connection owner does not match the current model");
+        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
         return;
       }
       try {
@@ -271,7 +274,7 @@ export function useModelDetailConnectionMutations({
       if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
-        toast.error("Connection owner does not match the current model");
+        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
         return;
       }
       try {
@@ -290,7 +293,7 @@ export function useModelDetailConnectionMutations({
       try {
         if (!Number.isFinite(modelConfigId)) return;
         if (!isOwnedConnectionTarget(model, modelConfigId, connectionId)) {
-          toast.error("Connection owner does not match the current model");
+          toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
           return;
         }
         await api.models.connections.delete(modelConfigId, connectionId);
@@ -313,7 +316,7 @@ export function useModelDetailConnectionMutations({
       try {
         if (!Number.isFinite(modelConfigId)) return;
         if (!isOwnedConnectionTarget(model, modelConfigId, connection.id)) {
-          toast.error("Connection owner does not match the current model");
+          toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
           return;
         }
         const updatedConnection = await api.models.connections.update(modelConfigId, connection.id, { is_active: !connection.is_active });

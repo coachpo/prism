@@ -352,7 +352,7 @@ Maps a model ID to optional vendor metadata, fixed api family, and routing behav
 
 Constraints:
 - `UNIQUE(profile_id, model_id)`.
-- Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to model-private endpoint bindings.
+- Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to Terminal Targets, Prism's product-facing model-private endpoint bindings.
 - Runtime compatibility is checked against `api_family`.
 - Release 1 exact facade routing is keyed by the requested model's exact `model_id`; there is no regex matcher or capability-metadata expansion in the persisted model contract.
 - `facade_enabled = true` is OpenAI-only and requires canonical `facade_selection_policy = weighted_eligible_context` plus `facade_fallback_policy = redistribute_ineligible_weight`.
@@ -362,14 +362,14 @@ Constraints:
 
 ### 2.3A `model_access_targets` (profile-scoped model access metadata)
 
-Ordered access targets. Public authoring creates same-family model targets only. Internal connection targets are terminal ownership and routing edges from one source model to one model-private connection, while model targets may chain until a terminal private connection is reached.
+Ordered access targets. Public authoring creates same-family model targets only. Internal connection targets are terminal ownership and routing edges from one source model to one Terminal Target, while model targets may chain until a Terminal Target is reached.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | source_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Model owning the target list |
 | target_model_config_id | INTEGER | FK -> model_configs.id, NULLABLE, ON DELETE RESTRICT | Optional model target |
-| target_connection_id | INTEGER | FK -> connections.id, NULLABLE, ON DELETE RESTRICT | Optional private connection ownership and routing edge |
+| target_connection_id | INTEGER | FK -> connections.id, NULLABLE, ON DELETE RESTRICT | Optional Terminal Target ownership and routing edge |
 | position | INTEGER | NOT NULL, CHECK >= 0 | Zero-based contiguous authoring order |
 | weight | INTEGER | NULLABLE, CHECK >= 1 when present | Optional public model-target weighting metadata on input; backend defaults omitted public model-target values to `1`, while internal connection targets omit it |
 | target_priority | INTEGER | NULLABLE, CHECK >= 0 when present | Optional public model-target priority metadata on input; backend defaults omitted public model-target values to `position`, while internal connection targets omit it |
@@ -379,7 +379,7 @@ Constraints:
 - Each row references exactly one target model or target connection.
 - Source and target rows must stay in the same profile and same `api_family`.
 - Positions are normalized and validated as contiguous `0..N-1` in management contracts.
-- Public model targets may omit `weight` and `target_priority` on input; the backend defaults omitted values to `1` and `position`. Internal connection targets must leave both fields null.
+- Public model targets may omit `weight` and `target_priority` on input; the backend defaults omitted values to `1` and `position`. Internal Terminal Target entries must leave both fields null.
 - Release 1 exact facade routing consumes model-target `weight` values only for exact-ID OpenAI facades and redistributes weight across the eligible subset only. Connection-owner targets remain terminal routing edges, not public facade candidates.
 - Go management and config-bundle import validation rejects self-reference, cross-profile targets, cross-api-family targets, cycles, and nested facades; these relationship semantics are not enforced by database triggers.
 
@@ -437,9 +437,9 @@ Constraints and indexes:
 - Profile config export never emits plaintext `api_key`; the `version: 3` profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
 - Endpoints with no upstream credential export `api_key_secret_ref = null` and do not emit a bundle secret entry.
 
-### 2.5 `connections` (profile-scoped private endpoint bindings)
+### 2.5 `connections` (profile-scoped Terminal Target storage)
 
-Private endpoint bindings within one profile. Each connection is owned by exactly one model through `model_access_targets.target_connection_id`, while endpoints remain reusable across many private connections.
+Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. Each compatibility connection row is owned by exactly one model through `model_access_targets.target_connection_id`, while endpoints remain reusable across many Terminal Targets.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -453,18 +453,18 @@ Private endpoint bindings within one profile. Each connection is owned by exactl
 | max_context_utilization | DOUBLE PRECISION | NOT NULL, DEFAULT 0.9 | Hard-fit usable-window multiplier for preflight routing |
 | preferred_context_utilization_threshold | DOUBLE PRECISION | NULLABLE | Effective terminal-target preferred-band multiplier or inherited null |
 | preferred_context_utilization_threshold_overridden | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether the preferred threshold is explicitly overridden from the owner model |
-| qps_limit | INTEGER | NULLABLE | Per-connection QPS cap; `NULL` means unlimited |
+| qps_limit | INTEGER | NULLABLE | Per-Terminal Target QPS cap; `NULL` means unlimited |
 | max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
 | max_in_flight_stream | INTEGER | NULLABLE | Concurrent stream request cap; `NULL` means unlimited |
 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Active routing candidate |
 | priority | INTEGER | NOT NULL, DEFAULT 0 | Legacy fallback ordering hint for family-level reads; model routing order comes from access-target `position` |
-| name | TEXT | NULLABLE | Optional connection label |
+| name | TEXT | NULLABLE | Optional Terminal Target label |
 | auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
 | custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
 | health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `unknown`, `healthy`, `unhealthy` |
 | health_detail | TEXT | NULLABLE | Last health-check detail |
 | last_health_check | DATETIME | NULLABLE | Last health-check timestamp |
-| openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | OpenAI-family probe target and payload variant; `responses_minimal` is the default for OpenAI connections, while non-OpenAI connections persist `NULL` |
+| openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | OpenAI-family probe target and payload variant; `responses_minimal` is the default for OpenAI Terminal Targets, while non-OpenAI Terminal Targets persist `NULL` |
 | monitoring_probe_interval_seconds | INTEGER | NOT NULL, DEFAULT 300 | Reserved monitoring cadence field |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -473,18 +473,18 @@ Indexes include `idx_connections_profile_family_active_priority` for family-scop
 
 Connection invariants:
 - `api_family` is the compatibility source for access-target validation and runtime planning.
-- Product-facing routing surfaces present these rows as terminal targets while persisted compatibility remains `connections` and `target_type = "connection"`.
+- Product-facing routing surfaces present these rows as Terminal Targets while persisted compatibility remains `connections` and `target_type = "connection"`.
 - A connection can be referenced by exactly one model access target in the same profile.
 - The partial unique index `uq_model_access_targets_connection_owner` enforces one owner for every non-null `target_connection_id`.
-- Public model target authoring cannot attach private connections by ID. Model detail creates, updates, health-checks, and deletes private connections through model-scoped routes.
-- Deleting a private connection removes its owning `model_access_targets.target_connection_id` row in the same operation.
+- Public model target authoring cannot attach Terminal Targets by ID. Model detail creates, updates, health-checks, and deletes Terminal Targets through model-scoped routes.
+- Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
-- `preferred_context_utilization_threshold` is owner-scoped. A non-overridden connection inherits the owner model value, explicit `null` resets inheritance, and an overridden value must stay less than or equal to the effective `max_context_utilization`.
+- `preferred_context_utilization_threshold` is owner-scoped. A non-overridden Terminal Target inherits the owner model value, explicit `null` resets inheritance, and an overridden value must stay less than or equal to the effective `max_context_utilization`.
 - `openai_probe_endpoint_variant` derives OpenAI terminal-target operation capability for planning: blank or `responses_*` variants map to `openai.responses`, while `chat_completions_*` variants map to `openai.chat_completions`.
 
 ### 2.6 `pricing_templates` (profile-scoped reusable token pricing)
 
-Reusable token pricing definitions that can be attached to many connections within a profile.
+Reusable token pricing definitions that can be attached to many Terminal Targets within a profile.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -1052,10 +1052,10 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 
 ## 7. Config Import/Export Versioning
 
-- Canonical profile export format is Go-era config version `3` with `bundle_kind = profile_config`, top-level private `connections`, `models[].access_targets[]`, exact-facade model fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), nullable `models[].context_overflow_promotion_target_id`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable model `vendor_key`, and model `api_family`.
+- Canonical profile export format is Go-era config version `3` with `bundle_kind = profile_config`, top-level `connections` for Terminal Targets, `models[].access_targets[]`, exact-facade model fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), nullable `models[].context_overflow_promotion_target_id`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable model `vendor_key`, and model `api_family`.
 - Planner rollout remains bootstrap-owned only: the temporary `runtime.routing.plannerMode` and `runtime.routing.openaiTerminalTranslationMode` fields live in plaintext startup config, not in profile bundle persistence, and Phase 8 does not add a routing graph table or bump the profile bundle version.
 - Canonical global vendor export format is Go-era config version `1` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts version-3 profile bundles only and validates top-level private connections, ordered model access targets, exact Release 1 facade fields, nullable context overflow promotion targets, explicit Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, context capability fields, five concrete pricing fields, and encrypted `secret_payload` entries. Version-3 profile import rejects any `connection_ref` used by multiple models or colliding with existing private ownership, rejects regex/capability facade expansion and nested facades, validates promotion targets as enabled same-family non-facade models with larger effective usable windows, normalizes missing facade fields to `facade_enabled = false` with nil policies, normalizes missing model-target `weight` / `target_priority` to `1` / `position`, normalizes missing/null/blank pricing inputs to `"0"`, and serializes effective context defaults explicitly as `default_output_token_reserve = 4096` and `max_context_utilization = 0.90` before validation/export.
+- Profile import accepts version-3 profile bundles only and validates top-level `connections` for Terminal Targets, ordered model access targets, exact Release 1 facade fields, nullable context overflow promotion targets, explicit Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, context capability fields, five concrete pricing fields, and encrypted `secret_payload` entries. Version-3 profile import rejects any `connection_ref` used by multiple models or colliding with existing private ownership, rejects regex/capability facade expansion and nested facades, validates promotion targets as enabled same-family non-facade models with larger effective usable windows, normalizes missing facade fields to `facade_enabled = false` with nil policies, normalizes missing model-target `weight` / `target_priority` to `1` / `position`, normalizes missing/null/blank pricing inputs to `"0"`, and serializes effective context defaults explicitly as `default_output_token_reserve = 4096` and `max_context_utilization = 0.90` before validation/export.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
 - Persisted rows created by import always receive fresh database IDs; the version-3 profile bundle contract omits internal IDs entirely and relies on name-based references.

@@ -158,7 +158,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
   -> Shared core captures active profile snapshot at request start
   -> Gateway assigns one Prism `ingress_request_id` for the incoming runtime request
   -> Request setup resolves the requested model and its ordered access targets in active profile scope
-  -> Planner reaches the model's private connection target, applies the attached explicit Ban Policy strategy, and checks admission counters plus retry-window state
+  -> Planner reaches the model's Terminal Target, applies the attached explicit Ban Policy strategy, and checks admission counters plus retry-window state
   -> Executor claims the primary attempt lease and forwards the request to the selected endpoint
   -> Upstream responds with JSON
   -> Gateway returns JSON to client, releases any non-stream lease, persists one `request_logs` row for the attempt, and feeds the outcome back into runtime routing state
@@ -171,8 +171,8 @@ Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
   -> Operation registry resolves `anthropic.messages` and its body-bound model hook
   -> Shared core captures active profile snapshot
   -> Resolver loads ordered same-profile, same-api-family access targets
-  -> Model targets can chain to another model; connection targets are terminal
-  -> Executor plans attempts against terminal private connections
+  -> Model targets can chain to another model; compatibility connection targets are terminal
+  -> Executor plans attempts against Terminal Targets
   -> Upstream responds; request log keeps model_id as the requested model and resolved_target_model_id as the final target model for the attempt
   -> Gateway returns response to client
 ```
@@ -324,14 +324,14 @@ Promotion classification is body-aware. Plain `429` never promotes; only body-co
 
 ### 5.1 Concept
 
-Models resolve through ordered access targets. Public target authoring points only to other same-profile, same-`api_family` models. Private connection targets remain in `model_access_targets` as internal ownership and terminal routing edges from one source model to one terminal target backed by a connection row. Model targets can chain until a terminal private connection is reached, and the runtime records requested model, final target model, selected terminal target, endpoint, and context-routing metadata for observability. Release 1 facade routing remains exact-ID-only and backend-authored: the requested model still enters planning by exact `model_id`, not by regex or capability matching, and the facade layer selects one child model target before ordinary terminal-target execution continues.
+Models resolve through ordered access targets. Public target authoring points only to other same-profile, same-`api_family` models. Terminal Targets are the product-facing model-private endpoint bindings. They remain in `model_access_targets` as internal `connection` ownership and terminal routing edges backed by `connections` rows. Model targets can chain until a Terminal Target is reached, and the runtime records requested model, final target model, selected terminal target, endpoint, and context-routing metadata for observability. Release 1 facade routing remains exact-ID-only and backend-authored: the requested model still enters planning by exact `model_id`, not by regex or capability matching, and the facade layer selects one child model target before ordinary terminal-target execution continues.
 
 ### 5.2 Rules
 
 - Access targets must stay in the same profile and same `api_family`.
-- Connection targets are terminal and are presented as terminal targets in product-facing routing surfaces.
+- Compatibility connection targets are terminal and are presented as Terminal Targets in product-facing routing surfaces.
 - Model targets can chain, but cycles and self-targets are rejected.
-- Endpoints are reusable. Connections are model-private endpoint bindings created and managed from model detail through model-scoped connection routes.
+- Endpoints are reusable. Terminal Targets are created and managed from model detail through model-scoped connection routes while retaining `connections` and `connection_id` compatibility names.
 - Every access target carries explicit ordering metadata.
 - Model IDs are unique within a profile.
 - The gateway may normalize provider request payloads before forwarding, for example rewriting the requested model ID to the final target model ID for upstream compatibility. Release 1 exact facades do not add response-body model rewriting on the client-facing way back out.
@@ -359,17 +359,17 @@ Selected-profile management APIs use `X-Profile-Id` to read and edit profile-sco
 
 `GET /api/stats/dashboard` and realtime `dashboard.update.snapshot` include a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from selected-profile configuration and recent telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
 
-## 6. Connection Health Detection
+## 6. Terminal Target Health Detection
 
 ### 6.1 Concept
 
-Manual health checks use one lightweight probe runner so connection verification stays on the same api-family-aware wire contract as the rest of the runtime stack.
+Manual health checks use one lightweight probe runner so Terminal Target verification stays on the same api-family-aware wire contract as the rest of the runtime stack.
 
 ### 6.2 Health Probes (API-Family-Specific)
 
-Health checks send api-family-specific lightweight requests using the connection's configured model ID and a simple prompt. This validates full-chain URL routing, authentication, and model availability using the same URL-building logic as the proxy engine.
+Health checks send api-family-specific lightweight requests using the Terminal Target's configured model ID and a simple prompt. This validates full-chain URL routing, authentication, and model availability using the same URL-building logic as the proxy engine.
 
-- **OpenAI**: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on the connection's persisted `openai_probe_endpoint_variant`; current variants are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`.
+- **OpenAI**: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on the Terminal Target's persisted `openai_probe_endpoint_variant`; current variants are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`.
 - **Anthropic**: `POST {base_url}/v1/messages` with `{"model":"{model_id}","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
 - **Gemini**: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload and `maxOutputTokens: 1`.
 
@@ -379,22 +379,22 @@ Health checks send api-family-specific lightweight requests using the connection
 - `healthy` — Last check succeeded (2xx or 429)
 - `unhealthy` — Last check failed (401/403, connection error, timeout, other errors)
 
-### 6.4 Connection Success Rate Badge
+### 6.4 Terminal Target Success Rate Badge
 
-The primary visual health indicator for connections is the **success rate badge**, computed from `request_logs` data (not from the manual health check status).
+The primary visual health indicator for Terminal Targets is the **success rate badge**, computed from `request_logs` data and stored with compatibility `connection_id` attribution.
 
-- Success rate = `COUNT(2xx) / COUNT(*) * 100` per connection
+- Success rate = `COUNT(2xx) / COUNT(*) * 100` per Terminal Target
 - Badge colors: ≥98% green, 75-98% yellow, <75% red, N/A gray (no data)
-- Displayed in the connection list on the Model Detail page alongside the health tooltip state
+- Displayed in the Terminal Targets list on the Model Detail page alongside the health tooltip state
 - The manual health check still updates `health_status`/`health_detail` in the database and is shown in the tooltip
 
 ### 6.5 Model Health Aggregation
 
-Model-level health is computed by aggregating connection success rates:
+Model-level health is computed by aggregating Terminal Target success rates:
 
-- Weighted average across all connections: `SUM(success_count) / SUM(total_requests) * 100`
+- Weighted average across all Terminal Targets: `SUM(success_count) / SUM(total_requests) * 100`
 - Displayed on Dashboard and Models pages as a colored badge
-- Same color thresholds as connection badges
+- Same color thresholds as Terminal Target badges
 
 ### 6.4 Error Reporting
 

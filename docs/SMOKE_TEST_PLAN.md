@@ -247,18 +247,18 @@ Prepare seed state through API (not manual DB edits):
 | B14A | P0 | Move profile-scoped endpoint | `200`, returns reordered list; no-op stays stable; out-of-range `to_index` returns `422` |
 | B15 | P0 | Delete profile-scoped endpoint in use | `409` conflict |
 | B15A | P0 | Delete profile-scoped endpoint compacts later positions | Remaining endpoints are renumbered to contiguous `0..N-1` |
-| B16 | P0 | Create model-private connection | `201`, connection inherits owner model `api_family` |
+| B16 | P0 | Create Terminal Target | `201`, compatibility connection inherits owner model `api_family` |
 | B16A | P0 | Reject public connection target assignment | `400`, no arbitrary connection ID is attached to a model |
-| B17 | P0 | Reject conflicting private connection `api_family` | `400` |
-| B18 | P1 | List private connections | `200`, returns profile-scoped connections with endpoint and pricing metadata |
+| B17 | P0 | Reject conflicting Terminal Target `api_family` | `400` |
+| B18 | P1 | List Terminal Targets | `200`, returns profile-scoped compatibility connections with endpoint and pricing metadata |
 | B18A | P0 | List model access targets | `200`, returns ordered model and connection targets |
-| B19 | P0 | Update model-private connection through owner-scoped route with `custom_headers=null/{}` | Headers removed |
-| B20 | P1 | Update model-private connection through owner-scoped route omitting `custom_headers` | Existing headers retained |
+| B19 | P0 | Update Terminal Target through owner-scoped route with `custom_headers=null/{}` | Headers removed |
+| B20 | P1 | Update Terminal Target through owner-scoped route omitting `custom_headers` | Existing headers retained |
 | B20A | P0 | Reorder model access target | `200`, returns reordered targets; no-op stays stable; wrong model/profile combo returns `404`; out-of-range `to_index` returns `422` |
-| B20B | P0 | Connection payload containing access-target ordering fields | `422` validation error |
-| B21 | P1 | Delete model-private connection through owner-scoped route | `200`, connection and owner target row removed together |
-| B21A | P0 | Delete final enabled private connection target from enabled model | `400` until another enabled target exists or the model is disabled |
-| B21B | P0 | Read connection references | `200`, returns the private connection owner model target row |
+| B20B | P0 | Compatibility connection payload containing access-target ordering fields | `422` validation error |
+| B21 | P1 | Delete Terminal Target through owner-scoped route | `200`, compatibility connection and owner target row removed together |
+| B21A | P0 | Delete final enabled Terminal Target from enabled model | `400` until another enabled target exists or the model is disabled |
+| B21B | P0 | Read Terminal Target references | `200`, returns the compatibility connection owner model target row |
 
 ## C. Runtime Routing, Unified Access Targets, Headers, and Ban Policy
 
@@ -267,18 +267,18 @@ Prepare seed state through API (not manual DB edits):
 | C01 | P0 | OpenAI-compatible proxy call | Upstream response proxied as-is |
 | C02 | P0 | Anthropic non-stream proxy call | Upstream response proxied as-is |
 | C03 | P1 | Gemini route compatibility | Correct routing and auth behavior |
-| C04 | P0 | Unified access-target model request | Routed through ordered model and connection targets; requested model and final target model are logged separately |
+| C04 | P0 | Unified access-target model request | Routed through ordered model and Terminal Target compatibility edges; requested model and final target model are logged separately |
 | C05 | P0 | Unknown/disabled model | `404` |
 | C06 | P0 | Fill-first routing order | Lowest-position eligible target wins when Ban Policy state is otherwise equal |
-| C07 | P0 | Ban Policy retry-window path | First transient failure increments retry counters without blocking; threshold hit opens a retry window with backoff and jitter; expired windows allow the connection to be selected again in normal order |
-| C08 | P0 | Failover on `403/429/500/502/503/529` | Next connection attempted; `403` follows the configured Ban Policy status-code rules |
-| C09 | P0 | Failover on connection error/timeout | Next connection attempted; failure kind classified (`connect_error` / `timeout`) for Ban Policy state |
+| C07 | P0 | Ban Policy retry-window path | First transient failure increments retry counters without blocking; threshold hit opens a retry window with backoff and jitter; expired windows allow the Terminal Target to be selected again in normal order |
+| C08 | P0 | Failover on `403/429/500/502/503/529` | Next Terminal Target attempted; `403` follows the configured Ban Policy status-code rules |
+| C09 | P0 | Failover on connection error/timeout | Next Terminal Target attempted; failure kind classified (`connect_error` / `timeout`) for Ban Policy state |
 | C10 | P0 | Non-failover client error while Ban Policy state exists | Request returns upstream error; existing retry-window state is not force-cleared |
 | C11 | P0 | All failover attempts fail | `502` with last error detail |
-| C12 | P0 | No active connection targets | `503` |
+| C12 | P0 | No active Terminal Target compatibility edges | `503` |
 | C13 | P1 | Header merge order with custom override | Custom headers win over api-family/client headers |
-| C14 | P1 | Connection `custom_headers` override | Effective headers follow override |
-## D. Connection Health Check and URL Failsafe
+| C14 | P1 | Terminal Target `custom_headers` override | Effective headers follow override |
+## D. Terminal Target Health Check and URL Failsafe
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
@@ -539,20 +539,20 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 |---|---|---|---|
 | L01 | P0 | Create pricing template | `201`, template persisted with expected version and explicit token prices |
 | L02 | P0 | Update pricing template pricing fields | `200`, template `version` increments |
-| L03 | P0 | Update connection pricing template assignment | `200`, `pricing_template_id` updates |
+| L03 | P0 | Update Terminal Target pricing template assignment | `200`, `pricing_template_id` updates |
 | L04 | P0 | GET `/api/settings/costing` | Returns defaults |
 | L05 | P0 | PUT `/api/settings/costing` with FX mappings | `200`, settings persist |
 | L06 | P0 | PUT `/api/settings/costing` rejects `fx_rate <= 0` | `400` |
 | L07 | P0 | PUT `/api/settings/costing` rejects duplicate (model, endpoint) | `400` |
-| L08 | P0 | Proxy successful request with priced connection | `request_log` has cost fields populated |
+| L08 | P0 | Proxy successful request with priced Terminal Target | `request_log` has cost fields populated |
 | L09 | P0 | Proxy failed request | `billable_flag=false`, all `cost_micros=0` |
-| L10 | P0 | Proxy successful request with unpriced connection | `priced_flag=false`, `unpriced_reason` set |
+| L10 | P0 | Proxy successful request with unpriced Terminal Target | `priced_flag=false`, `unpriced_reason` set |
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export current format | Safe GET export returns `version: 3`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level private connections, ordered model access targets, pricing templates, and profile-scoped `profile_settings` |
+| L14 | P0 | Config export current format | Safe GET export returns `version: 3`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level `connections` for Terminal Targets, ordered model access targets, pricing templates, and profile-scoped `profile_settings` |
 | L15 | P0 | Config export with secrets | Dangerous POST export returns the full secret-bearing bundle and requires the dangerous-confirm header |
-| L16 | P0 | Config import current format | Preview and apply restore vendors, Ban Policy strategies, access targets, templates, connections, vendorless models, and settings into the target profile only |
+| L16 | P0 | Config import current format | Preview and apply restore vendors, Ban Policy strategies, access targets, templates, Terminal Targets represented as `connections`, vendorless models, and settings into the target profile only |
 | L17 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | L18 | P1 | FX conversion with custom rate | Correct converted cost |
 | L19 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
@@ -561,11 +561,11 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L22 | P1 | Older request logs without pricing data | Unpriced rows aggregate under `UNKNOWN` bucket when reason is null/empty |
 | L23 | P1 | Special token pricing uses explicit values | Templates use explicit token prices only |
 
-| L28 | P1 | Pricing template usage endpoint | `/connections` response matches current assignments |
+| L28 | P1 | Pricing template usage endpoint | `/connections` compatibility response matches current Terminal Target assignments |
 | L27 | P0 | Delete pricing template not in use | `200`/success response and template removed from list |
-| L26 | P0 | Delete pricing template in-use conflict | `409` conflict returns connection dependencies and UI shows them |
+| L26 | P0 | Delete pricing template in-use conflict | `409` conflict returns compatibility connection dependencies and UI shows Terminal Targets |
 | L25 | P0 | Pricing templates CRUD UI in Settings | List/create/edit actions persist and render correctly |
-| L24 | P0 | Clear connection pricing template assignment | `200`, `pricing_template_id=null` accepted |
+| L24 | P0 | Clear Terminal Target pricing template assignment | `200`, `pricing_template_id=null` accepted |
 | L29 | P0 | GET `/api/settings/timezone` | Returns current preference |
 | L30 | P0 | PUT `/api/settings/timezone` | `200`, preference persists |
 ## M. Profile Isolation and Context Semantics
@@ -589,7 +589,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | M13 | P0 | Access target exists only in another profile | Target resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=3`, `bundle_kind=profile_config`, top-level private connections, ordered model access targets, and safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
+| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=3`, `bundle_kind=profile_config`, top-level `connections` for Terminal Targets, ordered model access targets, and safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
 | M17 | P0 | Config import preview/apply binding | Apply only succeeds after preview returns a token and the same token is sent in `X-Prism-Preview-Token` |
 | M18 | P0 | Config import replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
 | M19 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |

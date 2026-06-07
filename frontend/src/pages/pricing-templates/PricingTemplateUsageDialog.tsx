@@ -84,7 +84,7 @@ export function PricingTemplateUsageDialog({
                         <TableRow>
                           <TableHead>{copy.model}</TableHead>
                           <TableHead>{copy.endpoint}</TableHead>
-                          <TableHead>{messages.requestLogs.connection}</TableHead>
+                          <TableHead>{copy.terminalTargetColumn}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

@@ -91,7 +91,7 @@ export interface Messages {
     routing24hSuccessfulRequests: string;
     routing24hTotalRequests: string;
     routingActionOpenModelDetail: string;
-    routingActiveConnections: string;
+    routingActiveTerminalTargets: string;
     routingChartActionHint: string;
     routingChartHint: string;
     routingEndpoint: string;
@@ -1678,6 +1678,7 @@ export interface Messages {
     deletePricingTemplateInUse: (count: string) => string;
     description: string;
     endpoint: string;
+    terminalTargetColumn: string;
     input: string;
     model: string;
     noTemplatesConfigured: string;
@@ -2308,7 +2309,7 @@ export const enMessages: Messages = {
     routing24hSuccessfulRequests: "24h successful requests",
     routing24hTotalRequests: "24h total requests",
     routingActionOpenModelDetail: "Open model detail",
-    routingActiveConnections: "Active terminal targets",
+    routingActiveTerminalTargets: "Active terminal targets",
     routingChartActionHint: "Activate model or endpoint targets to open details or request logs",
     routingChartHint: "Desktop shows the backend-owned routing graph. Compact widths switch to a topology list with the same model and endpoint drill-down targets.",
     routingEndpoint: "Endpoint",
@@ -3631,20 +3632,20 @@ export const enMessages: Messages = {
     cancel: "Cancel",
     checkedAt: (time) => `Checked ${time}`,
     checkingNow: "Checking now...",
-    connectionActions: "Terminal target actions",
-    connectionFallback: (id) => `Terminal target ${id}`,
+    connectionActions: "Terminal Target Actions",
+    connectionFallback: (id) => `Terminal Target ${id}`,
     currentTargetLabel: (targetId) => `${targetId} (current terminal target)`,
     connectionDialogDescription:
       "Configure where this model-private terminal target sends requests. Routing priority stays owned by drag-and-drop in the terminal-target list.",
-    connectionDisplayNamePlaceholder: "Connection display name",
-    connectionHealthy: "Connection Healthy",
+    connectionDisplayNamePlaceholder: "Terminal Target Display Name",
+    connectionHealthy: "Terminal Target Healthy",
     contextRoutingOverrides: "Context routing overrides",
     contextRoutingOverridesDescription:
       "Choose per field whether this terminal target inherits the entry model defaults or overrides them for this endpoint.",
     inheritedFromModel: (value) => `Inherited from model: ${value}`,
-    connectionNameOptional: "Name (Optional)",
-    connectionNameSummaryLabel: "Resolved Name",
-    connectionUnhealthy: "Connection Unhealthy",
+    connectionNameOptional: "Terminal Target Name (Optional)",
+    connectionNameSummaryLabel: "Resolved Terminal Target Name",
+    connectionUnhealthy: "Terminal Target Unhealthy",
     configuration: "Configuration",
     connections: "Terminal Targets",
     connectionsLoadOnDemandDescription:
@@ -3661,15 +3662,15 @@ export const enMessages: Messages = {
       `${failureSummary} opened a ${cooldown} retry window after ${failureKind}. Routing stays paused until ${blockedUntil ?? "the retry window closes"}.`,
     currentStateCounting: (failureSummary, failureKind) =>
       `Tracking ${failureSummary} after ${failureKind}. No retry window is currently open, but Ban Policy is still counting these signals.`,
-    currentStateManualBan: "This connection is banned until the operator dismisses it.",
+    currentStateManualBan: "This terminal target is banned until the operator dismisses it.",
     currentStateTemporaryBan: (until) =>
-      `This connection is banned until ${until ?? "the temporary ban expires"}.`,
+      `This terminal target is banned until ${until ?? "the temporary ban expires"}.`,
     lastLiveFailure: (time) => `Last live failure ${time}`,
     lastLiveSuccess: (time) => `Last live success ${time}`,
     liveP95Latency: (latency) => `Live P95 ${latency}`,
     customHeaders: "Custom Headers",
     customHeadersConfigured: (count) => `${count} configured`,
-    customHeadersDescription: "Add optional request headers that Prism should send with this connection.",
+    customHeadersDescription: "Add optional request headers that Prism should send with this terminal target.",
     delete: "Delete",
     disabled: "Disabled",
     displayName: "Display Name",
@@ -3690,7 +3691,7 @@ export const enMessages: Messages = {
     endpointSummaryLabel: "Endpoint",
     endpointSourceCreateHint:
       "Choose an existing endpoint or create one inline for this model-private terminal target.",
-    endpointSourceEditHint: "Switch this connection to another endpoint or create a new one.",
+    endpointSourceEditHint: "Switch this terminal target to another endpoint or create a new one.",
     failoverEvents: (count) => `Events: ${count}`,
     failoverLast: (value) => `Last: ${value}`,
     failoverSignals: "Failover-like signals (derived from 5xx)",
@@ -3741,7 +3742,7 @@ export const enMessages: Messages = {
     pricingOff: "Pricing Off",
     pricingOn: "Pricing On",
     pricingTemplate: "Pricing Template",
-    pricingTemplateHint: "Assign a pricing template to track costs for this connection.",
+    pricingTemplateHint: "Assign a pricing template to track costs for this terminal target.",
     pricingTemplatePlaceholder: "Select a pricing template...",
     pricingSummaryLabel: "Pricing",
     probeApi: "Probe API",
@@ -3763,7 +3764,7 @@ export const enMessages: Messages = {
     requests24h: "Requests (24h)",
     requestsLabel: "Requests",
     routingPriorityHint:
-      "New connections are appended as fallbacks. Drag and drop cards in the Model Detail list to adjust routing priority.",
+      "New terminal targets are appended as fallbacks. Drag and drop cards in the Model Detail list to adjust routing priority.",
     reasoningHandling: "Reasoning Handling",
     reasoningHandlingDefault: "Minimal payload",
     reasoningHandlingDefaultHint: "Send the smallest standard probe payload.",
@@ -3771,7 +3772,7 @@ export const enMessages: Messages = {
     reasoningHandlingDisabledHint: "Explicitly disable reasoning during the probe request.",
     resolvedProbeVariant: "Resolved Probe Variant",
     sampled5xxRate: "5xx rate (sampled)",
-    saveConnection: "Save Connection",
+    saveConnection: "Save Terminal Target",
     saveChanges: "Save Changes",
     selectEndpoint: "Select Endpoint",
     selectApiFamily: "Select API family",
@@ -3781,19 +3782,19 @@ export const enMessages: Messages = {
     selectStrategy: "Select strategy",
     selectVendor: "Select vendor",
     setup: "Setup",
-    setupDescription: "Choose where this connection sends requests and how Prism should label it.",
+    setupDescription: "Choose where this terminal target sends requests and how Prism should label it.",
     spend24h: (currencyCode) => `Spend (24h, ${currencyCode})`,
     summaryAndTest: "Summary & Test",
     summaryAndTestDescription:
-      "Review the effective connection configuration and run a preview health check before saving.",
+      "Review the effective terminal target configuration and run a preview health check before saving.",
     successfulRequests: (count) => `${count} successful`,
     routingObjective: "Strategy Type",
     strategyRecovery: "Strategy Recovery",
     advancedRequestSettings: "Advanced Request Settings",
     advancedRequestSettingsDescription:
-      "Tune optional request limits and custom headers for this connection.",
-    healthTestDescription: "Run a preview using the current unsaved configuration.",
-    testConnection: "Test Connection",
+      "Tune optional request limits and custom headers for this terminal target.",
+    healthTestDescription: "Run a preview using the current unsaved terminal target configuration.",
+    testConnection: "Test Terminal Target",
     testingConnection: "Testing...",
     targets: (count) => `${count} targets`,
     totalCost: (currencyCode) => `Total Cost (${currencyCode})`,
@@ -3807,14 +3808,14 @@ export const enMessages: Messages = {
     viewRequestLogs: "View Request Logs",
   },
   modelDetailData: {
-    connectionFallback: (id) => `Terminal target ${id}`,
-    connectionCreated: "Connection created",
-    connectionDeleted: "Connection deleted",
-    connectionTestFailed: "Connection test failed",
-    connectionUpdated: "Connection updated",
+    connectionFallback: (id) => `Terminal Target ${id}`,
+    connectionCreated: "Terminal Target created",
+    connectionDeleted: "Terminal Target deleted",
+    connectionTestFailed: "Terminal Target test failed",
+    connectionUpdated: "Terminal Target updated",
     enabledAccessTargetRequired: "Add at least one enabled same-family access target before saving an enabled model.",
     fetchModelDetailsFailed: "Failed to fetch model details",
-    deleteConnectionFailed: "Failed to delete connection",
+    deleteConnectionFailed: "Failed to delete terminal target",
     fillEndpointFields: "Please fill in all endpoint fields",
     healthCheckResult: (status, latencyMs) => `Health: ${status} (${latencyMs}ms)`,
     healthCheckFailed: "Health check failed",
@@ -3822,12 +3823,12 @@ export const enMessages: Messages = {
     modelUpdated: "Model updated",
     reorderPriorityReverted: "Order reverted.",
     resetBanPolicyStateFailed: "Failed to reset Ban Policy state",
-    saveConnectionFailed: "Failed to save connection",
+    saveConnectionFailed: "Failed to save terminal target",
     selectApiFamily: "Please select an API family",
     selectEndpoint: "Please select an endpoint",
     selectLoadbalanceStrategy: "Please select a loadbalance strategy for this model",
     selectVendor: "Please select a vendor",
-    toggleConnectionFailed: "Failed to toggle connection",
+    toggleConnectionFailed: "Failed to toggle terminal target",
     updateModelFailed: "Failed to update model",
   },
   modelDetailTabs: {
@@ -3902,7 +3903,7 @@ export const enMessages: Messages = {
     currentApiFamily: (apiFamily) => `Current API family: ${apiFamily}`,
     defaultOutputTokenReserve: "Default output token reserve",
     deleteModel: "Delete Model",
-    deleteModelDescription: (name) => `Are you sure you want to delete "${name}"? This will also remove its owned private connections. Endpoints remain reusable.`,
+    deleteModelDescription: (name) => `Are you sure you want to delete "${name}"? This will also remove its owned Terminal Targets. Endpoints remain reusable.`,
     displayNameOptional: "Display Name",
     editModel: "Edit Model",
     editModelEnabledDescription: "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments.",
@@ -3925,7 +3926,7 @@ export const enMessages: Messages = {
     noModelsMatchSearch: "No models match search",
     noModelsConfigured: "No models configured",
     noSameFamilyModelsAvailable: "No other same-family models are available. Save disabled now, or add a model fallback target later before enabling.",
-    noTerminalTargetsSelected: "No terminal targets are attached yet. Create or manage those terminal connections from Model Detail.",
+    noTerminalTargetsSelected: "No terminal targets are attached yet. Create or manage them from Model Detail.",
     optionalFriendlyName: "Optional friendly name",
     priority: (value) => `Priority ${value}`,
     routingTypeDescription:
@@ -3934,7 +3935,7 @@ export const enMessages: Messages = {
     selectSameFamilyModel: "Select fallback model",
     strategyNotConfigured: "Strategy not configured",
     terminalTargets: "Terminal targets",
-    terminalTargetsDescription: "Terminal connections stay outside the model fallback tier editor. Create, edit, and health-check them here without changing grouped model fallback tiers.",
+    terminalTargetsDescription: "Terminal Targets stay outside the model fallback tier editor. Create, edit, and health-check them here without changing grouped model fallback tiers.",
     targetMoveDown: (id) => `Move target ${id} down`,
     targetMoveUp: (id) => `Move target ${id} up`,
     targetRemove: (id) => `Remove target ${id}`,
@@ -3977,9 +3978,11 @@ export const enMessages: Messages = {
     currency: "Currency",
     deletePricingTemplate: "Delete Pricing Template",
     deletePricingTemplateDescription: (name) => `Are you sure you want to delete the template "${name}"?`,
-    deletePricingTemplateInUse: (count) => `Cannot delete this template because it is currently used by ${count} connection(s).`,
+    deletePricingTemplateInUse: (count) =>
+      `Cannot delete this template because it is currently used by ${count} ${count === "1" ? "terminal target" : "terminal targets"}.`,
     description: "Manage reusable pricing templates for models and endpoints",
     endpoint: "Endpoint",
+    terminalTargetColumn: "Terminal Target",
     input: "Input",
     model: "Model",
     noTemplatesConfigured: "No pricing templates configured.",
@@ -3989,8 +3992,8 @@ export const enMessages: Messages = {
     selectedProfileFallback: "the selected profile",
     tableTitle: "Pricing Templates",
     templateUsage: "Template Usage",
-    templateUsageDescription: (name) => `Connections currently using the "${name}" template.`,
-    templateUnused: "This template is not currently used by any connections.",
+    templateUsageDescription: (name) => `Terminal targets currently using the "${name}" template.`,
+    templateUnused: "This template is not currently used by any terminal targets.",
     title: "Pricing Templates",
     unnamed: "Unnamed",
     viewUsage: "View usage",
@@ -4402,7 +4405,7 @@ export const enMessages: Messages = {
     openPricingTemplates: "Open Pricing Templates",
     overviewTitle: "Overview",
     pricedRequests: (count) => `${count} priced`,
-    pricingDataMissingDescription: "Attach pricing templates to connections to unlock cost coverage on the statistics page.",
+    pricingDataMissingDescription: "Attach pricing templates to terminal targets to unlock cost coverage on the statistics page.",
     pricingDataMissingTitle: "Pricing data is missing for this time range",
     proxyApiKey: "Proxy API Key",
     proxyApiKeyStatisticsTitle: "Proxy API Key Statistics",

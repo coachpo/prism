@@ -26,7 +26,7 @@ export function RoutingDiagramInspectorContent({
         {node.sublabel ? <p className="mt-1 text-muted-foreground">{node.sublabel}</p> : null}
         <div className="mt-3 space-y-1.5">
           <TooltipRow label={messages.dashboard.routingNodeType} value={getNodeTypeLabel(node.kind, messages)} />
-          <TooltipRow label={messages.dashboard.routingActiveConnections} value={formatNumber(node.activeTerminalTargetCount)} />
+          <TooltipRow label={messages.dashboard.routingActiveTerminalTargets} value={formatNumber(node.activeTerminalTargetCount)} />
           <TooltipRow
             label={messages.dashboard.routing24hSuccessRate}
             value={
@@ -76,7 +76,7 @@ export function RoutingDiagramInspectorContent({
           <TooltipRow label={messages.dashboard.routing24hHealth} value={routeHealthLabel} />
           <TooltipRow label={messages.dashboard.routing24hSuccessRate} value={formattedSuccessRate} />
           <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(edge.requestCount24h)} />
-          <TooltipRow label={messages.dashboard.routingActiveConnections} value={formatNumber(edge.activeTerminalTargetCount)} />
+          <TooltipRow label={messages.dashboard.routingActiveTerminalTargets} value={formatNumber(edge.activeTerminalTargetCount)} />
           <TooltipRow label={messages.dashboard.routing24hSuccessfulRequests} value={formatNumber(edge.successCount24h)} />
           <TooltipRow label={messages.dashboard.routing24hErrors} value={formatNumber(edge.errorCount24h)} />
         </div>

@@ -6,6 +6,8 @@ export function RoutingDiagramLegend() {
   return (
     <div
       data-testid="routing-diagram-legend"
+      role="list"
+      aria-label={messages.dashboard.routingTitle}
       className="mb-4 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground"
     >
       <LegendPill label={messages.dashboard.routingModelNodeType} color="var(--chart-1)" />
@@ -27,7 +29,11 @@ function LegendPill({
   muted?: boolean;
 }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border bg-background/80 px-2.5 py-1">
+    <span
+      role="listitem"
+      aria-label={label}
+      className="inline-flex items-center gap-2 rounded-full border bg-background/80 px-2.5 py-1"
+    >
       <span
         className="h-2.5 w-2.5 rounded-full border"
         style={{

@@ -24,7 +24,7 @@ const routingInspectorMessages = {
   dashboard: {
     ...dashboardMessages,
     routingNodeType: "Node type",
-    routingActiveConnections: "Active connections",
+    routingActiveTerminalTargets: "Active terminal targets",
     routing24hSuccessRate: "24h success rate",
     routingLegendNoData: "No data",
     routing24hTotalRequests: "24h total requests",
@@ -46,7 +46,7 @@ const routingInspectorMessages = {
   },
   modelDetail: {
     active: "Active",
-    connections: "Connections",
+    connections: "Terminal Targets",
     disabled: "Disabled",
     healthHealthy: "Healthy",
     healthUnknown: "Unknown",
@@ -325,7 +325,7 @@ test("renders node inspector content from explicit graph node input", () => {
   assert.match(markup, /model-a/);
   assert.match(markup, /Node type/);
   assert.match(markup, /Model/);
-  assert.match(markup, /Active connections/);
+  assert.match(markup, /Active terminal targets/);
   assert.match(markup, /24h success rate/);
   assert.match(markup, /97\.62%/);
   assert.match(markup, /24h total requests/);
@@ -488,7 +488,7 @@ test("renders terminal target node without button semantics", () => {
   assert.doesNotMatch(markup, /role="button"/);
   assert.doesNotMatch(markup, /tabindex=/i);
   assert.match(markup, /Endpoint A/);
-  assert.match(markup, /Connections/);
+  assert.match(markup, /Terminal Targets/);
   assert.match(markup, /Inactive/);
   assert.match(markup, /41 successful requests in 24h/);
 });

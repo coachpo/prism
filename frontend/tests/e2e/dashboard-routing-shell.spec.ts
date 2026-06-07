@@ -485,12 +485,13 @@ test.describe("dashboard routing shell", () => {
 
     const routingCard = getRoutingCard(page);
     const summaryPills = routingCard.locator('[aria-live="polite"]');
-    const legendLabels = routingCard
-      .getByTestId("routing-diagram-legend")
-      .locator("span.font-medium");
+    const legend = routingCard.getByRole("list", { name: "Routing Target Health" });
+    const legendItems = legend.getByRole("listitem");
     const desktopDiagram = routingCard.getByTestId("routing-diagram-desktop");
     const flowPane = desktopDiagram.locator(".react-flow__pane");
     const modelNode = desktopDiagram.getByTestId("routing-diagram-node-model-model-101");
+    const primaryTargetNode = desktopDiagram.getByTestId("routing-diagram-node-terminal-target-terminal-target-501");
+    const backupTargetNode = desktopDiagram.getByTestId("routing-diagram-node-terminal-target-terminal-target-502");
     const modelAction = modelNode.getByRole("button", { name: "View model details for Model A" });
     const zoomInControl = desktopDiagram.getByRole("button", { name: /zoom in/i });
     const zoomOutControl = desktopDiagram.getByRole("button", { name: /zoom out/i });
@@ -533,13 +534,14 @@ test.describe("dashboard routing shell", () => {
     await zoomOutControl.click();
     await expect.poll(() => getViewportTransform(desktopDiagram)).not.toBe(viewportTransformAfterZoomIn);
 
-    await expect(legendLabels).toHaveText([
+    await expect(legendItems).toHaveText([
       "Model",
       "Terminal Targets",
       "Endpoint",
       "Disabled",
       "Inactive",
     ]);
+    await expect(legend.getByRole("listitem", { name: "Terminal Targets" })).toBeVisible();
     expect(
       consoleMessages
         .filter(({ type }) => type === "error")
@@ -561,6 +563,13 @@ test.describe("dashboard routing shell", () => {
     await expect(routingCard.getByText("Disabled Model", { exact: true })).toBeVisible();
     await expect(routingCard.getByText("Primary Target", { exact: true })).toBeVisible();
     await expect(routingCard.getByText("Backup Target", { exact: true })).toBeVisible();
+    await expect(primaryTargetNode.getByText("Terminal Targets · Active", { exact: true })).toBeVisible();
+    await expect(backupTargetNode.getByText("Terminal Targets · Inactive", { exact: true })).toBeVisible();
+    await primaryTargetNode.hover();
+    const inspector = desktopDiagram.getByTestId("routing-diagram-inspector");
+    await expect(inspector.getByText("Node type", { exact: true })).toBeVisible();
+    await expect(inspector.getByText("Terminal Targets", { exact: true })).toBeVisible();
+    await expect(inspector.getByText("Active terminal targets", { exact: true })).toBeVisible();
 
     const viewportTransformBeforePan = await getViewportTransform(desktopDiagram);
     await dragLocatorBy(page, flowPane, {
@@ -686,6 +695,7 @@ test.describe("dashboard routing shell", () => {
     await expect(routingCard).toBeVisible();
     await expect(page.getByTestId("routing-diagram-mobile")).toBeVisible();
     await expect(page.getByTestId("routing-diagram-desktop")).toHaveCount(0);
+    await expect(routingCard.getByRole("heading", { name: "Terminal Targets", level: 4 })).toBeVisible();
     await expect(
       routingCard.getByText(/Desktop shows the backend-owned routing graph/i),
     ).toHaveCount(0);

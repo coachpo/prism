@@ -485,7 +485,7 @@ Response `200`: Array of model objects.
 ```
 GET /api/models/{id}
 ```
-Response `200`: Full model object with nullable vendor metadata, required `api_family`, optional `loadbalance_strategy_id`, exact-facade fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), ordered `access_targets`, and attached private connection summaries in the effective profile scope. Public model target authoring uses only same-family model targets by exact `target_model_id`. Existing `target_type="connection"` rows are returned as internal ownership and runtime routing edges for the model's private connections. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`. These backend model routes are the authoritative Release 1 facade authoring surface; frontend facade authoring remains deferred.
+Response `200`: Full model object with nullable vendor metadata, required `api_family`, optional `loadbalance_strategy_id`, exact-facade fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), ordered `access_targets`, and attached Terminal Target summaries in the effective profile scope. Public model target authoring uses only same-family model targets by exact `target_model_id`. Existing `target_type="connection"` rows are returned as internal ownership and runtime routing edges for the model's Terminal Targets. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`. These backend model routes are the authoritative Release 1 facade authoring surface; frontend facade authoring remains deferred.
 
 #### Get Models by Endpoints (Batch)
 ```
@@ -497,13 +497,13 @@ Request:
   "endpoint_ids": [1, 2, 3]
 }
 ```
-Response `200`: `items[]`, where each item contains an `endpoint_id` and the models that can reach that endpoint through terminal private connections. Endpoints are reusable and may be referenced by private connections owned by different models.
+Response `200`: `items[]`, where each item contains an `endpoint_id` and the models that can reach that endpoint through Terminal Targets. Endpoints are reusable and may be referenced by Terminal Targets owned by different models.
 
 #### Get Models by Endpoint
 ```
 GET /api/models/by-endpoint/{endpoint_id}
 ```
-Response `200`: Array of models that can reach the endpoint through terminal private connections within the effective profile scope.
+Response `200`: Array of models that can reach the endpoint through Terminal Targets within the effective profile scope.
 
 #### Create Model
 ```
@@ -546,13 +546,13 @@ Validation rules:
 - `facade_enabled` defaults to `false`. When it is `true`, the model must use `api_family = "openai"`, `facade_selection_policy` must be exactly `"weighted_eligible_context"`, and `facade_fallback_policy` must be exactly `"redistribute_ineligible_weight"`.
 - Release 1 facade authoring is exact model-ID only. The management API does not accept regex matcher payloads or capability-metadata facade fields.
 - Public create and update payloads may author only ordered same-profile, same-`api_family` model targets by exact `target_model_id`.
-- Submitted `target_type="connection"`, `connection_id`, or `target_connection_id` entries are rejected. Private connection rows are managed from model detail through model-scoped connection routes.
+- Submitted `target_type="connection"`, `connection_id`, or `target_connection_id` entries are rejected. Terminal Target rows are managed from model detail through model-scoped connection routes.
 - Every public model target requires `target_model_id` and `position`; `weight` and `target_priority` are optional on input and default to `1` / `position` when omitted. Positions must stay contiguous starting at `0`; supplied `weight` values must be `>= 1`; supplied `target_priority` values must be `>= 0`.
 - Context capability fields are validated on create and update. `default_output_token_reserve` defaults to `4096`, `max_context_utilization` defaults to `0.90`, utilization values must be greater than `0` and less than or equal to `1`, and reserve must be at least `1` when supplied. `preferred_context_utilization_threshold` is nullable; `null` means no preferred band, while a supplied value must be less than or equal to `max_context_utilization`.
-- `context_overflow_promotion_target_id` is nullable. When set, it must name an enabled same-profile, same-`api_family`, non-facade model with a strictly larger effective usable context window. It must not point to the same model or to a model that resolves back to the same terminal target as the source.
+- `context_overflow_promotion_target_id` is nullable. When set, it must name an enabled same-profile, same-`api_family`, non-facade model with a strictly larger effective usable context window. It must not point to the same model or to a model that resolves back to the same Terminal Target as the source.
 - Nested facades are rejected at write time: public model targets cannot point at facade-enabled target models, and enabling `facade_enabled = true` on a model that already has inbound model-target referrers is rejected.
 - Model target self-reference and target cycles are rejected.
-- Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its private connections with the owning target rows.
+- Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its Terminal Targets with the owning target rows.
 
 #### Update Model
 ```
@@ -662,23 +662,23 @@ Response `200`: `{ "deleted": true }`.
 Returns `409` if any connections still reference this endpoint.
 After a successful delete, later endpoints in the same profile are compacted so `position` remains contiguous.
 
-### 1.4 Connections and Model Access Targets
+### 1.4 Terminal Targets and Model Access Targets
 
-Connections are model-private endpoint bindings within one profile. A connection carries its owner model's `api_family`, endpoint reference or inline endpoint create payload, health metadata, pricing template, and optional admission limits. Endpoints remain reusable, so many private connections may point at the same endpoint. `model_access_targets.target_type="connection"` is an internal ownership and runtime routing edge, not a public assignment surface for connection IDs.
+Terminal Targets are Prism's product term for model-private endpoint bindings within one profile. Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. A compatibility connection carries its owner model's `api_family`, endpoint reference or inline endpoint create payload, health metadata, pricing template, and optional admission limits. Endpoints remain reusable, so many Terminal Targets may point at the same endpoint. `model_access_targets.target_type="connection"` is an internal ownership and runtime routing edge, not a public assignment surface for connection IDs.
 
-#### List Connections
+#### List Terminal Targets Through `/api/connections`
 ```
 GET /api/connections
 ```
-Response `200`: Array of private connection objects in the effective profile. This is a read surface. Public `/api/connections` mutation routes reject writes and direct operators to model detail.
+Response `200`: Array of compatibility connection objects in the effective profile. This is a read surface for Terminal Targets. Public `/api/connections` mutation routes reject writes and direct operators to model detail.
 
-#### Get Connection
+#### Get Terminal Target Through `/api/connections/{connection_id}`
 ```
 GET /api/connections/{connection_id}
 ```
-Response `200`: Single private connection object in the effective profile. Returns `404` when the connection does not exist in that profile.
+Response `200`: Single compatibility connection object in the effective profile. Returns `404` when the connection does not exist in that profile.
 
-#### List Connections Attached to Models
+#### List Terminal Targets Attached to Models
 ```
 POST /api/models/connections/batch
 ```
@@ -688,9 +688,9 @@ Request:
   "model_config_ids": [1, 2, 3]
 }
 ```
-Response `200`: `items[]`, where each item contains a `model_config_id` and the private connections owned by that model's enabled or disabled internal connection targets, ordered by target position.
+Response `200`: `items[]`, where each item contains a `model_config_id` and the Terminal Targets owned by that model's enabled or disabled internal connection targets, ordered by target position.
 
-#### Create Model-Private Connection
+#### Create Terminal Target
 ```
 POST /api/models/{model_config_id}/connections
 ```
@@ -731,31 +731,31 @@ Request (inline endpoint creation):
   "max_in_flight_stream": null
 }
 ```
-Response `201`: Created private connection object plus its owner routing edge for the model.
+Response `201`: Created Terminal Target object, represented as a compatibility connection, plus its owner routing edge for the model.
 
 Create semantics:
 - Exactly one of `endpoint_id` or `endpoint_create` is required.
 - The connection `api_family` is derived from the owner model. A conflicting request value is rejected.
-- `priority` is rejected with `422`; connection ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
+- `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
 - Context capability fields inherit the owner model's effective values when omitted or reset to `null`, so terminal-target rows persist explicit request-time capability values. `preferred_context_utilization_threshold` follows the same owner-scoped override shape; inherited and explicit values must stay less than or equal to the effective `max_context_utilization`, and `null` means the terminal target has no preferred band.
 - `openai_probe_endpoint_variant` selects the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. The derived `openai_upstream_operation` capability is `openai.responses` for blank or `responses_*` variants and `openai.chat_completions` for `chat_completions_*` variants. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
-#### Update Model-Private Connection
+#### Update Terminal Target
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `context_window_tokens`, `default_output_token_reserve`, `max_context_utilization`, `preferred_context_utilization_threshold`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `context_window_tokens`, `default_output_token_reserve`, `max_context_utilization`, `preferred_context_utilization_threshold`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
 
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
-Response `200`: Updated private connection object. Public `PUT` or `PATCH /api/connections/{connection_id}` rejects mutation requests.
+Response `200`: Updated Terminal Target object, represented as a compatibility connection. Public `PUT` or `PATCH /api/connections/{connection_id}` rejects mutation requests.
 
-#### List Connection References
+#### List Terminal Target References
 ```
 GET /api/connections/{connection_id}/references
 ```
-Response `200`: Owner references for the private connection, wrapped with the requested connection id. A valid connection has one owner:
+Response `200`: Owner references for the Terminal Target, wrapped with the requested compatibility `connection_id`. A valid connection has one owner:
 ```json
 {
   "connection_id": 15,
@@ -772,23 +772,23 @@ Response `200`: Owner references for the private connection, wrapped with the re
 }
 ```
 
-#### Update Connection Pricing Template
+#### Update Terminal Target Pricing Template
 
-Pricing templates are assigned through the model-private connection update route by setting `pricing_template_id`. Public connection-level pricing-template mutation routes reject writes.
+Pricing templates are assigned through the Terminal Target update route by setting `pricing_template_id`. Public connection-level pricing-template mutation routes reject writes.
 
-#### Delete Model-Private Connection
+#### Delete Terminal Target
 ```
 DELETE /api/models/{model_config_id}/connections/{connection_id}
 ```
 Response `200`: `{ "deleted": true }`.
 
-Deletes the private connection and its internal owner access-target row together, subject to enabled-model target validation. Public `DELETE /api/connections/{connection_id}` rejects mutation requests.
+Deletes the Terminal Target and its internal owner access-target row together, subject to enabled-model target validation. Public `DELETE /api/connections/{connection_id}` rejects mutation requests.
 
-#### Health Check Model-Private Connection
+#### Health Check Terminal Target
 ```
 POST /api/models/{model_config_id}/connections/{connection_id}/health
 ```
-Sends an api-family-specific lightweight request using the owner model and persists the connection health result. The route validates URL routing, authentication, ownership, and model availability end to end. Public connection-level health-check mutation routes reject writes.
+Sends an api-family-specific lightweight request using the owner model and persists the Terminal Target health result. The route validates URL routing, authentication, ownership, and model availability end to end. Public connection-level health-check mutation routes reject writes.
 
 Response `200`:
 ```json
@@ -891,9 +891,9 @@ Response `200`: Updated pricing template object.
 DELETE /api/pricing-templates/{id}
 ```
 Response `200`: `{ "deleted": true }`.
-Returns `409` when the template is still referenced by connections; response `detail` includes a `connections` array with dependency details.
+Returns `409` when the template is still referenced by Terminal Targets; response `detail` includes a compatibility `connections` array with dependency details.
 
-#### List Connections Using Template
+#### List Terminal Targets Using Template
 ```
 GET /api/pricing-templates/{id}/connections
 ```
@@ -1116,7 +1116,7 @@ Response `200`:
 Profile import semantics:
 - Import is profile-targeted and replaces configuration in the effective profile only.
 - Other profiles are not deleted or mutated.
-- The profile import lanes replace profile-scoped rows only, including endpoints, private connections, model configs, model access targets, profile settings, loadbalance strategies, header blocklist rules, and user-agent client rules that belong to the effective profile.
+- The profile import lanes replace profile-scoped rows only, including endpoints, Terminal Targets represented as top-level private `connections`, model configs, model access targets, profile settings, loadbalance strategies, header blocklist rules, and user-agent client rules that belong to the effective profile.
 - Global vendor rows, other profiles, and request logs remain untouched.
 - `models[].vendor_key` is optional; when omitted or `null`, the imported model persists with `vendor_id = null` and `vendor = null`.
 - When `models[].vendor_key` is present, the backend resolves or creates the matching shared vendor row by that key only.
@@ -1133,9 +1133,9 @@ Profile import semantics:
 - Endpoints with `api_key_secret_ref: null` import as no-auth endpoints with an empty stored endpoint secret.
 - Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and exact `target_model_id` values.
-- Exported/imported models carry ordered `access_targets` entries with model targets and internally owned private connection targets plus `position` and `is_enabled` metadata.
-- Exported/imported private connections live at the top level and include `api_family`, endpoint and pricing-template name references, context capability fields including `preferred_context_utilization_threshold`, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields and no preferred band for the preferred-threshold field.
-- Import rejects `connection_ref` values used by multiple models, duplicate private connection ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
+- Exported/imported models carry ordered `access_targets` entries with model targets and internally owned Terminal Target compatibility entries plus `position` and `is_enabled` metadata.
+- Exported/imported Terminal Targets live at the top-level `connections` bundle key and include `api_family`, endpoint and pricing-template name references, context capability fields including `preferred_context_utilization_threshold`, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields and no preferred band for the preferred-threshold field.
+- Import rejects `connection_ref` values used by multiple models, duplicate Terminal Target ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
 - Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle v3 import normalizes missing, null, or blank pricing inputs for any of those fields to `"0"` before validation.
 - Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`, including `cheapest_eligible_context`.
 - Their explicit Ban Policy shape carries failure status codes, retry-window fields, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration. Import rejects removed keys and accepts only `off`, `temporary`, or `until_reset` for `ban_mode`.
@@ -1337,7 +1337,7 @@ Request:
 ```
 Response `200`: Updated timezone object.
 
-There is no standalone `/api/settings/monitoring` route or `/api/monitoring/*` family in the current live API contract. Current operator-facing observability and routing-health surfaces are provided through `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, and the manual connection health endpoints.
+There is no standalone `/api/settings/monitoring` route or `/api/monitoring/*` family in the current live API contract. Current operator-facing observability and routing-health surfaces are provided through `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, and the manual Terminal Target health endpoints.
 
 ---
 
@@ -3019,13 +3019,10 @@ Scope-control errors follow this format:
 | 404 | Resource not found |
 | 409 | Conflict (stale activation CAS version, profile capacity reached, or duplicate scoped identifier) |
 | 502 | Upstream service error |
-| 503 | No active connections available |
+| 503 | No active Terminal Targets available |
 
 ---
 
 ## 10. API Reference Source
 
 This markdown document is the source of truth for current runtime and management API semantics.
-agement API semantics.
-urce of truth for current runtime and management API semantics.
-agement API semantics.
