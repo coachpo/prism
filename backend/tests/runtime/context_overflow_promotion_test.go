@@ -3,11 +3,14 @@ package runtime_test
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 )
+
+const overflowAffinityCacheTestHeaderValue = "affinity-token"
 
 func TestNonStreamOverflowPromotesOnce(t *testing.T) {
 	harness := newRuntimeHarness(t)
@@ -338,6 +341,171 @@ func TestBodyConfirmed429Promotes(t *testing.T) {
 	}})
 }
 
+func TestOverflowAffinityCachePopulatesAfterSuccessfulPromotion(t *testing.T) {
+	fixture := newOverflowAffinityCacheRuntimeFixture(t, "populate-success", http.StatusBadRequest, runtimeOverflowErrorPayload("source overflow learns target"), http.StatusOK, map[string]any{
+		"id":     "chatcmpl-overflow-affinity-populated",
+		"object": "chat.completion",
+		"usage":  map[string]any{"prompt_tokens": 6, "completion_tokens": 4, "total_tokens": 10},
+	})
+
+	firstResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "first overflowing request", overflowAffinityCacheHeaders())
+	assertStatus(t, firstResponse, http.StatusOK)
+	secondResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "second matching request", overflowAffinityCacheHeaders())
+	assertStatus(t, secondResponse, http.StatusOK)
+
+	assertOverflowAffinityRequestSequence(t, fixture.sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/populate-success/source/v1/chat/completions",
+		ModelID: fixture.route.TargetModelID,
+	}})
+	assertOverflowAffinityRequestSequence(t, fixture.promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/populate-success/promoted/v1/chat/completions",
+		ModelID: fixture.promotedModelID,
+	}, {
+		Path:    "/overflow/affinity/populate-success/promoted/v1/chat/completions",
+		ModelID: fixture.promotedModelID,
+	}})
+}
+
+func TestOverflowAffinityCachePlain429DoesNotPopulate(t *testing.T) {
+	fixture := newOverflowAffinityCacheRuntimeFixture(t, "plain-429", http.StatusTooManyRequests, map[string]any{
+		"error": map[string]any{"message": "plain rate limit", "type": "server_error"},
+	}, http.StatusOK, map[string]any{"id": "chatcmpl-plain-429-should-not-run"})
+
+	firstResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "plain 429 first request", overflowAffinityCacheHeaders())
+	assertStatus(t, firstResponse, http.StatusTooManyRequests)
+	fixture.harness.runtimeService.RuntimeState().ResetProfile(fixture.profileID)
+	secondResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "plain 429 second request", overflowAffinityCacheHeaders())
+	assertStatus(t, secondResponse, http.StatusTooManyRequests)
+
+	assertOverflowAffinityRequestSequence(t, fixture.sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/plain-429/source/v1/chat/completions",
+		ModelID: fixture.route.TargetModelID,
+	}, {
+		Path:    "/overflow/affinity/plain-429/source/v1/chat/completions",
+		ModelID: fixture.route.TargetModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, fixture.promotedUpstream, "plain 429 promotion target")
+}
+
+func TestOverflowAffinityCacheSecondMatchingChatRequestStartsAtPromotionTarget(t *testing.T) {
+	fixture := newOverflowAffinityCacheRuntimeFixture(t, "second-matching", http.StatusBadRequest, runtimeOverflowErrorPayload("source overflow learns target"), http.StatusBadRequest, runtimeOverflowErrorPayload("promoted overflow stays final"))
+	firstResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "first overflowing request", overflowAffinityCacheHeaders())
+	assertStatus(t, firstResponse, http.StatusBadRequest)
+	secondResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "second matching request", overflowAffinityCacheHeaders())
+	assertStatus(t, secondResponse, http.StatusBadRequest)
+
+	assertOverflowAffinityRequestSequence(t, fixture.sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/second-matching/source/v1/chat/completions",
+		ModelID: fixture.route.TargetModelID,
+	}})
+	assertOverflowAffinityRequestSequence(t, fixture.promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/second-matching/promoted/v1/chat/completions",
+		ModelID: fixture.promotedModelID,
+	}, {
+		Path:    "/overflow/affinity/second-matching/promoted/v1/chat/completions",
+		ModelID: fixture.promotedModelID,
+	}})
+}
+
+func TestOverflowAffinityCacheSecondMatchingResponsesRequestStartsAtPromotionTarget(t *testing.T) {
+	fixture := newOverflowAffinityCacheRuntimeFixture(t, "second-matching-responses", http.StatusBadRequest, runtimeOverflowErrorPayload("source responses overflow learns target"), http.StatusOK, map[string]any{
+		"id":     "resp-overflow-affinity-promoted",
+		"object": "response",
+		"output": []map[string]any{},
+		"usage":  map[string]any{"input_tokens": 6, "output_tokens": 4, "total_tokens": 10},
+	})
+	firstResponse := performOverflowAffinityResponsesTextRequest(t, fixture.harness, fixture.route.PublicModelID, "first overflowing responses request", 64, overflowAffinityCacheHeaders())
+	assertStatus(t, firstResponse, http.StatusOK)
+	secondResponse := performOverflowAffinityResponsesTextRequest(t, fixture.harness, fixture.route.PublicModelID, "second matching responses request", 64, overflowAffinityCacheHeaders())
+	assertStatus(t, secondResponse, http.StatusOK)
+
+	assertOverflowAffinityRequestSequence(t, fixture.sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/second-matching-responses/source/v1/responses",
+		ModelID: fixture.route.TargetModelID,
+	}})
+	assertOverflowAffinityRequestSequence(t, fixture.promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/second-matching-responses/promoted/v1/responses",
+		ModelID: fixture.promotedModelID,
+	}, {
+		Path:    "/overflow/affinity/second-matching-responses/promoted/v1/responses",
+		ModelID: fixture.promotedModelID,
+	}})
+}
+
+func TestOverflowAffinityCacheDifferentAffinityUsesSourceFirst(t *testing.T) {
+	fixture := newOverflowAffinityCacheRuntimeFixture(t, "different-affinity", http.StatusBadRequest, runtimeOverflowErrorPayload("source overflow learns target"), http.StatusOK, map[string]any{"id": "chatcmpl-different-affinity-promoted"})
+
+	firstResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "first overflowing request", overflowAffinityCacheHeaders())
+	assertStatus(t, firstResponse, http.StatusOK)
+	secondResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "second request with different affinity", map[string]string{"x-session-affinity": "different-affinity-token"})
+	assertStatus(t, secondResponse, http.StatusOK)
+
+	assertOverflowAffinityRequestSequence(t, fixture.sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/different-affinity/source/v1/chat/completions",
+		ModelID: fixture.route.TargetModelID,
+	}, {
+		Path:    "/overflow/affinity/different-affinity/source/v1/chat/completions",
+		ModelID: fixture.route.TargetModelID,
+	}})
+	assertOverflowAffinityRequestSequence(t, fixture.promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/different-affinity/promoted/v1/chat/completions",
+		ModelID: fixture.promotedModelID,
+	}, {
+		Path:    "/overflow/affinity/different-affinity/promoted/v1/chat/completions",
+		ModelID: fixture.promotedModelID,
+	}})
+}
+
+func TestOverflowAffinityCacheMissingAffinityUsesSourceFirst(t *testing.T) {
+	t.Run("missing affinity", func(t *testing.T) {
+		fixture := newOverflowAffinityCacheRuntimeFixture(t, "missing-affinity", http.StatusBadRequest, runtimeOverflowErrorPayload("source overflow learns target"), http.StatusOK, map[string]any{"id": "chatcmpl-missing-affinity-promoted"})
+
+		firstResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "first overflowing request", overflowAffinityCacheHeaders())
+		assertStatus(t, firstResponse, http.StatusOK)
+		secondResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "second request without affinity", nil)
+		assertStatus(t, secondResponse, http.StatusOK)
+
+		assertOverflowAffinityRequestSequence(t, fixture.sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/overflow/affinity/missing-affinity/source/v1/chat/completions", ModelID: fixture.route.TargetModelID}, {Path: "/overflow/affinity/missing-affinity/source/v1/chat/completions", ModelID: fixture.route.TargetModelID}})
+		assertOverflowAffinityRequestSequence(t, fixture.promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/overflow/affinity/missing-affinity/promoted/v1/chat/completions", ModelID: fixture.promotedModelID}, {Path: "/overflow/affinity/missing-affinity/promoted/v1/chat/completions", ModelID: fixture.promotedModelID}})
+	})
+	t.Run("invalid affinity", func(t *testing.T) {
+		fixture := newOverflowAffinityCacheRuntimeFixture(t, "invalid-affinity", http.StatusBadRequest, runtimeOverflowErrorPayload("source overflow learns target"), http.StatusOK, map[string]any{"id": "chatcmpl-invalid-affinity-promoted"})
+
+		firstResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "first overflowing request", overflowAffinityCacheHeaders())
+		assertStatus(t, firstResponse, http.StatusOK)
+		secondResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "second request with invalid affinity", map[string]string{"x-session-affinity": strings.Repeat("x", 257)})
+		assertStatus(t, secondResponse, http.StatusOK)
+
+		assertOverflowAffinityRequestSequence(t, fixture.sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/overflow/affinity/invalid-affinity/source/v1/chat/completions", ModelID: fixture.route.TargetModelID}, {Path: "/overflow/affinity/invalid-affinity/source/v1/chat/completions", ModelID: fixture.route.TargetModelID}})
+		assertOverflowAffinityRequestSequence(t, fixture.promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/overflow/affinity/invalid-affinity/promoted/v1/chat/completions", ModelID: fixture.promotedModelID}, {Path: "/overflow/affinity/invalid-affinity/promoted/v1/chat/completions", ModelID: fixture.promotedModelID}})
+	})
+}
+
+func TestOverflowAffinityCacheStreamingRequestUsesSourceFirst(t *testing.T) {
+	fixture := newOverflowAffinityCacheRuntimeFixture(t, "streaming", http.StatusBadRequest, runtimeOverflowErrorPayload("streaming source overflow stays final"), http.StatusOK, map[string]any{"id": "chatcmpl-streaming-affinity-promoted"})
+
+	firstResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "first overflowing request", overflowAffinityCacheHeaders())
+	assertStatus(t, firstResponse, http.StatusOK)
+	streamingResponse := fixture.harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "streaming request must not use cache"}},
+		"model":    fixture.route.PublicModelID,
+		"stream":   true,
+	}, overflowAffinityCacheHeaders())
+	assertStatus(t, streamingResponse, http.StatusBadRequest)
+
+	assertOverflowAffinityRequestSequence(t, fixture.sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/streaming/source/v1/chat/completions",
+		ModelID: fixture.route.TargetModelID,
+	}, {
+		Path:    "/overflow/affinity/streaming/source/v1/chat/completions",
+		ModelID: fixture.route.TargetModelID,
+	}})
+	assertOverflowAffinityRequestSequence(t, fixture.promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/affinity/streaming/promoted/v1/chat/completions",
+		ModelID: fixture.promotedModelID,
+	}})
+}
+
 func TestStreamingOverflowDoesNotPromote(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -443,6 +611,84 @@ func TestTranslatedFlatGatewayJSONSkipsPromotion(t *testing.T) {
 		ModelID: route.TargetModelID,
 	}})
 	assertNoScriptedUpstreamRequests(t, promotedUpstream, "translated flat gateway promotion target")
+}
+
+type overflowAffinityCacheRuntimeFixture struct {
+	harness          *runtimeHarness
+	profileID        int
+	route            seededRuntimeRoute
+	sourceUpstream   *scriptedUpstream
+	promotedModelID  string
+	promotedUpstream *scriptedUpstream
+}
+
+func newOverflowAffinityCacheRuntimeFixture(t *testing.T, slug string, sourceStatus int, sourceBody map[string]any, promotedStatus int, promotedBody map[string]any) overflowAffinityCacheRuntimeFixture {
+	t.Helper()
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceUpstream := newScriptedUpstream(t, sourceStatus, sourceBody)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "overflow-affinity-" + slug + "-public-" + suffix,
+		TargetModelID:   "overflow-affinity-" + slug + "-source-" + suffix,
+		EndpointBaseURL: sourceUpstream.baseURL("/overflow/affinity/" + slug + "/source"),
+		EndpointAPIKey:  "overflow-affinity-" + slug + "-source-key",
+	})
+	promotedModelID := "overflow-affinity-" + slug + "-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, promotedStatus, promotedBody)
+	seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/affinity/"+slug+"/promoted"), "overflow-affinity-"+slug+"-promoted-key", nil, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+	return overflowAffinityCacheRuntimeFixture{
+		harness:          harness,
+		profileID:        profileID,
+		route:            route,
+		sourceUpstream:   sourceUpstream,
+		promotedModelID:  promotedModelID,
+		promotedUpstream: promotedUpstream,
+	}
+}
+
+func overflowAffinityCacheHeaders() map[string]string {
+	return map[string]string{"x-session-affinity": overflowAffinityCacheTestHeaderValue}
+}
+
+func performOverflowAffinityChatRequest(t *testing.T, harness *runtimeHarness, modelID string, content string, headers map[string]string) *http.Response {
+	t.Helper()
+	return harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": content}},
+		"model":    modelID,
+	}, headers)
+}
+
+func performOverflowAffinityResponsesTextRequest(t *testing.T, harness *runtimeHarness, modelID string, input string, maxOutputTokens int, headers map[string]string) *http.Response {
+	t.Helper()
+	return harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             input,
+		"model":             modelID,
+		"max_output_tokens": maxOutputTokens,
+	}, headers)
+}
+
+func assertOverflowAffinityRequestSequence(t *testing.T, requests []upstreamRequestSnapshot, want []proxySelectorExpectedRequest) {
+	t.Helper()
+	if len(requests) != len(want) {
+		actual := make([]proxySelectorExpectedRequest, 0, len(requests))
+		for _, request := range requests {
+			actual = append(actual, proxySelectorExpectedRequest{Path: request.Path, ModelID: requestModelID(t, request.Body)})
+		}
+		t.Fatalf("expected %d upstream requests, got %d path/model pairs: %+v", len(want), len(requests), actual)
+	}
+	for index, expected := range want {
+		if requests[index].Path != expected.Path {
+			t.Fatalf("expected upstream request %d path %q, got %q", index, expected.Path, requests[index].Path)
+		}
+		if got := requestModelID(t, requests[index].Body); got != expected.ModelID {
+			t.Fatalf("expected upstream request %d model %q, got %q", index, expected.ModelID, got)
+		}
+	}
 }
 
 func runtimeOverflowErrorPayload(message string) map[string]any {

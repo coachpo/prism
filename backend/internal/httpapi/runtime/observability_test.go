@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -255,6 +257,71 @@ func TestObservability_PreservesProviderUsageTruthWithContextRoutingMetadata(t *
 	assertRuntimeIntPtr(t, envelope.UsageEvent.InputTokens, 10, "usage event provider input tokens")
 	if envelope.UsageEvent.ContextRouting == nil || len(envelope.UsageEvent.ContextRouting.SkippedTerminalTargets) != 1 {
 		t.Fatalf("expected usage event context routing metadata, got %+v", envelope.UsageEvent.ContextRouting)
+	}
+}
+
+func TestObservability_OverflowAffinityCacheMetadataPersistsSafely(t *testing.T) {
+	const rawAffinity = "raw-observability-affinity"
+	const rawParent = "raw-observability-parent"
+	startedAt := time.Date(2026, 6, 7, 11, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(500 * time.Millisecond)
+	service := &Service{now: func() time.Time { return completedAt }}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	contextRouting := &runtimeContextRoutingDecision{
+		Policy: "cheapest_eligible_context",
+		ContextOverflowAffinity: &runtimeContextOverflowAffinityDecision{
+			State:                  runtimeContextOverflowAffinityStatePopulated,
+			AffinityHashPrefix:     "1111222233334444",
+			ParentHashPrefix:       stringPtr("aaaabbbbccccdddd"),
+			ContextBucket:          "0-16383",
+			SourceModelID:          "source-model",
+			PromotionTargetModelID: "promotion-target-model",
+		},
+	}
+	connection := runtimeConnection{ID: 22, Endpoint: runtimeEndpoint{ID: 202}}
+	plan := requestPlan{
+		ProfileID:             7,
+		RequestedModelID:      "public-model",
+		ResolvedTargetModelID: stringPtr("promotion-target-model"),
+		APIFamily:             "openai",
+		RuntimeOperation:      RuntimeOperation{Name: "openai.chat_completions"},
+		ContextRouting:        contextRouting,
+		TerminalAttempts:      []runtimeTerminalAttempt{{Connection: connection}},
+	}
+	result := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusOK},
+		Connection:            connection,
+		ResolvedTargetModelID: stringPtr("promotion-target-model"),
+		Attempts: []executionAttempt{{
+			Connection:               connection,
+			ResolvedTargetModelID:    "promotion-target-model",
+			StatusCode:               http.StatusOK,
+			ResponseTimeMS:           500,
+			CompletedAt:              completedAt,
+			UpstreamOperationName:    "openai.chat_completions",
+			UpstreamRequestPath:      "/v1/chat/completions",
+			OperationTranslationMode: TranslationModeNone,
+		}},
+	}
+	capture := runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(1), OutputTokens: intPtr(2), TotalTokens: intPtr(3)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
+
+	envelope := service.buildRuntimeTelemetryEnvelope(plan, result, request, startedAt, capture)
+	if len(envelope.RequestLogs) != 1 || envelope.RequestLogs[0].ContextRouting == nil || envelope.RequestLogs[0].ContextRouting.ContextOverflowAffinity == nil {
+		t.Fatalf("expected request-log overflow affinity metadata, got %+v", envelope.RequestLogs)
+	}
+	if envelope.UsageEvent.ContextRouting == nil || envelope.UsageEvent.ContextRouting.ContextOverflowAffinity == nil {
+		t.Fatalf("expected usage-event overflow affinity metadata, got %+v", envelope.UsageEvent.ContextRouting)
+	}
+	affinity := envelope.RequestLogs[0].ContextRouting.ContextOverflowAffinity
+	if affinity.State != runtimeContextOverflowAffinityStatePopulated || affinity.AffinityHashPrefix != "1111222233334444" || affinity.ParentHashPrefix == nil || *affinity.ParentHashPrefix != "aaaabbbbccccdddd" || affinity.ContextBucket != "0-16383" || affinity.SourceModelID != "source-model" || affinity.PromotionTargetModelID != "promotion-target-model" {
+		t.Fatalf("unexpected overflow affinity metadata: %+v", affinity)
+	}
+	serialized, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	if strings.Contains(string(serialized), rawAffinity) || strings.Contains(string(serialized), rawParent) {
+		t.Fatalf("serialized telemetry envelope leaked raw affinity material: %s", serialized)
 	}
 }
 

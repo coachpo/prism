@@ -51,3 +51,30 @@ func TestRuntimeGenerationVectorFreshnessRequiresEveryScope(t *testing.T) {
 		t.Fatal("expected lower model catalog generation to be stale")
 	}
 }
+
+func TestRuntimeGenerationVectorTokenIsDeterministic(t *testing.T) {
+	t.Parallel()
+
+	left := RuntimeGenerationVector{
+		"runtime_planning:global:*": 4,
+		"profile_runtime:global:*":  2,
+		"model_catalog:global:*":    8,
+	}
+	right := RuntimeGenerationVector{
+		"model_catalog:global:*":    8,
+		"profile_runtime:global:*":  2,
+		"runtime_planning:global:*": 4,
+	}
+	if runtimeGenerationVectorToken(left) != runtimeGenerationVectorToken(right) {
+		t.Fatal("expected generation vector token to ignore map iteration order")
+	}
+
+	changed := cloneRuntimeGenerationVector(left)
+	changed["runtime_planning:global:*"] = 5
+	if runtimeGenerationVectorToken(left) == runtimeGenerationVectorToken(changed) {
+		t.Fatal("expected generation vector token to change when planning generation changes")
+	}
+	if runtimeGenerationVectorToken(nil) != runtimeGenerationVectorToken(RuntimeGenerationVector{}) {
+		t.Fatal("expected nil and empty generation vectors to share the empty token")
+	}
+}

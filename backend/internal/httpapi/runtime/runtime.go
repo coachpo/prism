@@ -282,6 +282,19 @@ const (
 	runtimeContextOverflowPromotionEstimationModeEstimated   = "preflight_estimated"
 	runtimeContextOverflowPromotionEstimationModePassThrough = "estimation_unavailable_pass_through"
 	runtimeContextOverflowPromotionResultPromotedSuccess     = "promoted_success"
+
+	runtimeContextOverflowAffinityStateConsidered              = "considered"
+	runtimeContextOverflowAffinityStateAccepted                = "accepted"
+	runtimeContextOverflowAffinityStateRejectedRevalidation    = "rejected_revalidation"
+	runtimeContextOverflowAffinityStatePopulated               = "populated"
+	runtimeContextOverflowAffinityRejectionMissingAffinity     = "missing_affinity"
+	runtimeContextOverflowAffinityRejectionExpired             = "expired"
+	runtimeContextOverflowAffinityRejectionGenerationMismatch  = "generation_mismatch"
+	runtimeContextOverflowAffinityRejectionTargetChanged       = "target_changed"
+	runtimeContextOverflowAffinityRejectionTargetInvalid       = "target_invalid"
+	runtimeContextOverflowAffinityRejectionSameTerminal        = "same_terminal"
+	runtimeContextOverflowAffinityRejectionStreaming           = "streaming"
+	runtimeContextOverflowAffinityRejectionOperationIneligible = "operation_ineligible"
 )
 
 type runtimeContextOverflowPromotionDecision struct {
@@ -298,6 +311,16 @@ type runtimeContextOverflowPromotionDecision struct {
 	SourceAttemptCount            int     `json:"source_attempt_count"`
 	FinalAttemptCount             int     `json:"final_attempt_count"`
 	Result                        string  `json:"result"`
+}
+
+type runtimeContextOverflowAffinityDecision struct {
+	State                  string  `json:"state"`
+	AffinityHashPrefix     string  `json:"affinity_hash_prefix,omitempty"`
+	ParentHashPrefix       *string `json:"parent_hash_prefix,omitempty"`
+	ContextBucket          string  `json:"context_bucket,omitempty"`
+	SourceModelID          string  `json:"source_model_id,omitempty"`
+	PromotionTargetModelID string  `json:"promotion_target_model_id,omitempty"`
+	RejectionReason        *string `json:"rejection_reason,omitempty"`
 }
 
 type runtimeShadowComparisonResult struct {
@@ -338,6 +361,7 @@ type runtimeContextRoutingDecision struct {
 	FacadeSelection                    *runtimeFacadeSelectionDecision              `json:"facade_selection,omitempty"`
 	PlannerTrace                       *runtimePlannerTraceDecision                 `json:"planner_trace,omitempty"`
 	ContextOverflowPromotion           *runtimeContextOverflowPromotionDecision     `json:"context_overflow_promotion,omitempty"`
+	ContextOverflowAffinity            *runtimeContextOverflowAffinityDecision      `json:"context_overflow_affinity,omitempty"`
 }
 
 func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *runtimeContextRoutingDecision {
@@ -361,6 +385,7 @@ func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *
 		FacadeSelection:                    cloneRuntimeFacadeSelectionDecision(source.FacadeSelection),
 		PlannerTrace:                       cloneRuntimePlannerTraceDecision(source.PlannerTrace),
 		ContextOverflowPromotion:           cloneRuntimeContextOverflowPromotionDecision(source.ContextOverflowPromotion),
+		ContextOverflowAffinity:            cloneRuntimeContextOverflowAffinityDecision(source.ContextOverflowAffinity),
 	}
 	if cloned.Policy == "" {
 		cloned.Policy = source.Policy
@@ -389,6 +414,21 @@ func cloneRuntimeContextOverflowPromotionDecision(source *runtimeContextOverflow
 	}
 }
 
+func cloneRuntimeContextOverflowAffinityDecision(source *runtimeContextOverflowAffinityDecision) *runtimeContextOverflowAffinityDecision {
+	if source == nil {
+		return nil
+	}
+	return &runtimeContextOverflowAffinityDecision{
+		State:                  source.State,
+		AffinityHashPrefix:     source.AffinityHashPrefix,
+		ParentHashPrefix:       cloneRuntimeStringPointer(source.ParentHashPrefix),
+		ContextBucket:          source.ContextBucket,
+		SourceModelID:          source.SourceModelID,
+		PromotionTargetModelID: source.PromotionTargetModelID,
+		RejectionReason:        cloneRuntimeStringPointer(source.RejectionReason),
+	}
+}
+
 func attachRuntimeContextOverflowPromotionDecision(contextRouting *runtimeContextRoutingDecision, promotion *runtimeContextOverflowPromotionDecision) *runtimeContextRoutingDecision {
 	if promotion == nil {
 		return cloneRuntimeContextRoutingDecision(contextRouting)
@@ -398,6 +438,18 @@ func attachRuntimeContextOverflowPromotionDecision(contextRouting *runtimeContex
 	}
 	cloned := cloneRuntimeContextRoutingDecision(contextRouting)
 	cloned.ContextOverflowPromotion = cloneRuntimeContextOverflowPromotionDecision(promotion)
+	return cloned
+}
+
+func attachRuntimeContextOverflowAffinityDecision(contextRouting *runtimeContextRoutingDecision, affinity *runtimeContextOverflowAffinityDecision) *runtimeContextRoutingDecision {
+	if affinity == nil {
+		return cloneRuntimeContextRoutingDecision(contextRouting)
+	}
+	if contextRouting == nil {
+		return &runtimeContextRoutingDecision{ContextOverflowAffinity: cloneRuntimeContextOverflowAffinityDecision(affinity)}
+	}
+	cloned := cloneRuntimeContextRoutingDecision(contextRouting)
+	cloned.ContextOverflowAffinity = cloneRuntimeContextOverflowAffinityDecision(affinity)
 	return cloned
 }
 
@@ -581,36 +633,37 @@ type headerBlocklistRule struct {
 }
 
 type requestPlan struct {
-	RequestedModelID            string
-	ResolvedTargetModelID       *string
-	ResolvedPricingModelID      string
-	RequestedVendorID           *int
-	RequestedVendorKey          *string
-	RequestedVendorName         *string
-	ProfileID                   int
-	APIFamily                   string
-	RuntimeOperation            RuntimeOperation
-	RuntimeOperationPathParams  map[string]string
-	AuditEnabledAtRequest       bool
-	AuditCaptureBodiesAtRequest bool
-	ReportCurrencySnapshot      runtimeReportCurrencySnapshot
-	EffectiveRequestPath        string
-	RawRequestBody              []byte
-	UpstreamBody                []byte
-	IsStreamingRequest          bool
-	SelectedTerminalTargetID    *int
-	ContextRouting              *runtimeContextRoutingDecision
-	TerminalAttempts            []runtimeTerminalAttempt
-	Connections                 []runtimeConnection
-	RuntimeStates               map[int]loadbalance.RuntimeConnectionState
-	BlocklistRules              []headerBlocklistRule
-	ClientHeaders               map[string]string
-	FailoverStatusCodes         []int
-	Strategy                    loadbalance.RuntimeStrategy
-	RequestGenerationParams     requestGenerationParamsSnapshot
-	RequestContextEstimation    *requestContextEstimation
-	RequestGenerationSnapshot   func() requestGenerationParamsSnapshot
-	HTTPClient                  *http.Client
+	RequestedModelID                    string
+	ResolvedTargetModelID               *string
+	ResolvedPricingModelID              string
+	RequestedVendorID                   *int
+	RequestedVendorKey                  *string
+	RequestedVendorName                 *string
+	ProfileID                           int
+	APIFamily                           string
+	RuntimeOperation                    RuntimeOperation
+	RuntimeOperationPathParams          map[string]string
+	AuditEnabledAtRequest               bool
+	AuditCaptureBodiesAtRequest         bool
+	ReportCurrencySnapshot              runtimeReportCurrencySnapshot
+	EffectiveRequestPath                string
+	RawRequestBody                      []byte
+	UpstreamBody                        []byte
+	IsStreamingRequest                  bool
+	SelectedTerminalTargetID            *int
+	ContextRouting                      *runtimeContextRoutingDecision
+	TerminalAttempts                    []runtimeTerminalAttempt
+	Connections                         []runtimeConnection
+	RuntimeStates                       map[int]loadbalance.RuntimeConnectionState
+	BlocklistRules                      []headerBlocklistRule
+	ClientHeaders                       map[string]string
+	FailoverStatusCodes                 []int
+	Strategy                            loadbalance.RuntimeStrategy
+	RequestGenerationParams             requestGenerationParamsSnapshot
+	RequestContextEstimation            *requestContextEstimation
+	ContextOverflowPromotionPreselected bool
+	RequestGenerationSnapshot           func() requestGenerationParamsSnapshot
+	HTTPClient                          *http.Client
 }
 
 func (plan requestPlan) requiresReplayableRequestBody() bool {

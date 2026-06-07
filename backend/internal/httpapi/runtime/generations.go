@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -195,6 +197,23 @@ func runtimeGenerationVectorsEqual(left RuntimeGenerationVector, right RuntimeGe
 		}
 	}
 	return true
+}
+
+func runtimeGenerationVectorToken(vector RuntimeGenerationVector) string {
+	keys := make([]string, 0, len(vector))
+	for key := range vector {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	hash := sha256.New()
+	for _, key := range keys {
+		_, _ = hash.Write([]byte(key))
+		_, _ = hash.Write([]byte("="))
+		_, _ = hash.Write([]byte(strconv.FormatInt(vector[key], 10)))
+		_, _ = hash.Write([]byte("\n"))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func cloneRuntimeGenerationVector(source RuntimeGenerationVector) RuntimeGenerationVector {

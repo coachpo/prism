@@ -238,20 +238,25 @@ func (c *SharedCache) LoadPublishedActiveProfile() (profiledomain.Profile, error
 }
 
 func (c *SharedCache) LoadFreshActiveRuntimePlan(ctx context.Context) (profiledomain.Profile, *planningSnapshot, error) {
+	activeProfile, planning, _, err := c.loadFreshActiveRuntimePlanWithGenerationToken(ctx)
+	return activeProfile, planning, err
+}
+
+func (c *SharedCache) loadFreshActiveRuntimePlanWithGenerationToken(ctx context.Context) (profiledomain.Profile, *planningSnapshot, string, error) {
 	var zero profiledomain.Profile
 	snapshot, err := c.requireFreshPublishedSnapshot(ctx, RefreshRequest{ActiveProfile: true, PlanningAll: true})
 	if err != nil {
-		return zero, nil, err
+		return zero, nil, "", err
 	}
 	activeProfile := cloneProfile(snapshot.ActiveProfile)
 	planning, ok := snapshot.PlanningByProfileID[activeProfile.ID]
 	if !ok || planning == nil {
-		return zero, nil, fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, activeProfile.ID)
+		return zero, nil, "", fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, activeProfile.ID)
 	}
 	if err := validateRuntimePlanningSnapshotFacadePolicies(planning); err != nil {
-		return zero, nil, err
+		return zero, nil, "", err
 	}
-	return activeProfile, planning, nil
+	return activeProfile, planning, runtimeGenerationVectorToken(snapshot.GenerationVector), nil
 }
 
 func (c *SharedCache) LoadPublishedPlanningSnapshot(profileID int) (*planningSnapshot, error) {

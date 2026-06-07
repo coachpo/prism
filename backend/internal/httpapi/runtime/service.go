@@ -73,6 +73,7 @@ type Service struct {
 	dashboardUpdates              DashboardUpdatePublisher
 	analyticsUpdates              AnalyticsUpdatePublisher
 	cache                         *SharedCache
+	overflowAffinityCache         *overflowAffinityCache
 	runtimeState                  *loadbalancedomain.LocalRuntimeStateStore
 	runtimeMetrics                *runtimeMetrics
 	telemetryOutbox               *runtimeTelemetryOutbox
@@ -142,6 +143,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		dashboardUpdates:              options.DashboardUpdates,
 		analyticsUpdates:              options.AnalyticsUpdates,
 		cache:                         options.Cache,
+		overflowAffinityCache:         newOverflowAffinityCache(now),
 		runtimeState:                  runtimeState,
 		runtimeMetrics:                newRuntimeMetrics(),
 	}
@@ -443,14 +445,20 @@ func canStreamIncomingRequestBody(plan requestPlan, operation RuntimeOperation) 
 // multi-connection plan that may fail over or hedge.
 func (s *Service) handlePlannedProxy(w http.ResponseWriter, r *http.Request, plan requestPlan, bodySource *runtimeRequestBodySource) {
 	startedAt := s.nowUTC()
-	execution, err := s.executeRequest(r.Context(), r.Method, plan, r.URL.RawQuery, bodySource)
+	executionPlan := plan
+	executionBodySource := bodySource
+	if preselectedPlan, ok := s.preselectOverflowAffinityPromotionPlan(r, plan); ok {
+		executionPlan = preselectedPlan
+		executionBodySource = newBufferedRuntimeRequestBodySource(plan.RawRequestBody)
+	}
+	execution, err := s.executeRequest(r.Context(), r.Method, executionPlan, r.URL.RawQuery, executionBodySource)
 	if err != nil {
 		runtimeTraceMarkContextError(r.Context(), "runtime_execute_failed")
 		writeDomainError(w, err)
 		return
 	}
 	defer func() { _ = execution.Response.Body.Close() }()
-	s.writeProxyResponse(w, r, plan, execution, startedAt)
+	s.writeProxyResponse(w, r, executionPlan, execution, startedAt)
 }
 
 func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, plan requestPlan, execution executionResult, startedAt time.Time) {
@@ -547,6 +555,9 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			writeError(w, http.StatusBadGateway, "", "Failed to read promoted upstream response", nil)
 			return
 		}
+		if affinityMetadata := s.populateOverflowAffinityCacheAfterPromotion(r, plan, execution, promotedPlan, promotedExecution, sourceClassification); affinityMetadata != nil {
+			finalPlan.ContextRouting = attachRuntimeContextOverflowAffinityDecision(finalPlan.ContextRouting, affinityMetadata)
+		}
 		runtimeTraceSetStatusCode(responseSpan, finalExecution.Response.StatusCode)
 	}
 	responseCapture, err = s.writeBufferedNonStreamResponse(proxyWriter, finalPlan, finalExecution, finalRawBody)
@@ -629,7 +640,7 @@ func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCom
 }
 
 func planAllowsContextOverflowPromotion(plan requestPlan) bool {
-	if plan.IsStreamingRequest || len(plan.RawRequestBody) == 0 {
+	if plan.IsStreamingRequest || len(plan.RawRequestBody) == 0 || plan.ContextOverflowPromotionPreselected {
 		return false
 	}
 	switch strings.TrimSpace(plan.RuntimeOperation.Name) {
@@ -638,6 +649,195 @@ func planAllowsContextOverflowPromotion(plan requestPlan) bool {
 	default:
 		return false
 	}
+}
+
+func contextOverflowPromotionPlannedSourceModelID(plan requestPlan) string {
+	return contextOverflowPromotionSourceModelID(plan, executionResult{})
+}
+
+func (s *Service) preselectOverflowAffinityPromotionPlan(request *http.Request, sourcePlan requestPlan) (requestPlan, bool) {
+	if s == nil || s.cache == nil || s.overflowAffinityCache == nil || !planAllowsContextOverflowPromotion(sourcePlan) {
+		return requestPlan{}, false
+	}
+	sourceModelID := contextOverflowPromotionPlannedSourceModelID(sourcePlan)
+	if sourceModelID == "" {
+		return requestPlan{}, false
+	}
+	activeProfile, snapshot, generationToken, err := s.cache.loadFreshActiveRuntimePlanWithGenerationToken(request.Context())
+	if err != nil {
+		return requestPlan{}, false
+	}
+	return s.preselectOverflowAffinityPromotionPlanForSnapshot(request, sourcePlan, activeProfile.ID, snapshot, generationToken)
+}
+
+func (s *Service) preselectOverflowAffinityPromotionPlanForSnapshot(request *http.Request, sourcePlan requestPlan, activeProfileID int, snapshot *planningSnapshot, generationToken string) (requestPlan, bool) {
+	if s == nil || s.overflowAffinityCache == nil || !planAllowsContextOverflowPromotion(sourcePlan) || activeProfileID != sourcePlan.ProfileID || snapshot == nil {
+		return requestPlan{}, false
+	}
+	sourceModelID := contextOverflowPromotionPlannedSourceModelID(sourcePlan)
+	if sourceModelID == "" {
+		return requestPlan{}, false
+	}
+	sourceModel, found := snapshot.ModelsByID[sourceModelID]
+	if !found || sourceModel.ContextOverflowPromotionTargetID == nil {
+		return requestPlan{}, false
+	}
+	promotionTargetModelID := strings.TrimSpace(*sourceModel.ContextOverflowPromotionTargetID)
+	if promotionTargetModelID == "" || promotionTargetModelID == sourceModelID {
+		return requestPlan{}, false
+	}
+	if _, found := snapshot.ModelsByID[promotionTargetModelID]; !found {
+		return requestPlan{}, false
+	}
+	contextBucket := overflowAffinityContextBucket(sourcePlan.RequestContextEstimation)
+	sourceSelectedTerminalTargetID := sourcePlan.selectedTerminalTargetID()
+	key, _, ok := buildOverflowAffinityCacheKey(overflowAffinityCacheKeyInput{
+		profileID:                   sourcePlan.ProfileID,
+		operationName:               strings.TrimSpace(sourcePlan.RuntimeOperation.Name),
+		sourceResolvedModelID:       sourceModelID,
+		sourceSelectedTerminalID:    sourceSelectedTerminalTargetID,
+		configuredPromotionTargetID: promotionTargetModelID,
+		affinityHeaders:             request.Header,
+		processLocalSecret:          s.secretEncryptionKey,
+		routingGenerationToken:      generationToken,
+		contextBucket:               contextBucket,
+	})
+	if !ok {
+		return requestPlan{}, false
+	}
+	entry, found := s.overflowAffinityCache.get(key)
+	if !found {
+		return requestPlan{}, false
+	}
+	if !overflowAffinityCacheEntryMatchesPlan(entry, sourceModelID, sourceSelectedTerminalTargetID, promotionTargetModelID, generationToken, contextBucket) {
+		return requestPlan{}, false
+	}
+	promotedPlan, err := s.buildExplicitTargetRequestPlan(request, sourcePlan.RawRequestBody, s.runtimeProxyConfigSnapshot(), activeProfileID, snapshot, promotionTargetModelID)
+	if err != nil {
+		return requestPlan{}, false
+	}
+	if resolvedTargetModelID := strings.TrimSpace(dereferenceString(promotedPlan.ResolvedTargetModelID)); resolvedTargetModelID == "" || resolvedTargetModelID == sourceModelID {
+		return requestPlan{}, false
+	}
+	if promotedSelectedTerminalTargetID := promotedPlan.selectedTerminalTargetID(); promotedSelectedTerminalTargetID != nil && sourceSelectedTerminalTargetID != nil && *promotedSelectedTerminalTargetID == *sourceSelectedTerminalTargetID {
+		return requestPlan{}, false
+	}
+	affinityMetadata := buildRuntimeContextOverflowAffinityDecision(runtimeContextOverflowAffinityStateAccepted, entry, nil)
+	return mergeContextOverflowPreselectedPlan(sourcePlan, promotedPlan, affinityMetadata), true
+}
+
+func overflowAffinityCacheEntryMatchesPlan(entry overflowAffinityCacheEntry, sourceModelID string, sourceSelectedTerminalTargetID *int, promotionTargetModelID string, generationToken string, contextBucket string) bool {
+	return strings.TrimSpace(entry.sourceModelID) == sourceModelID &&
+		strings.TrimSpace(entry.promotionTargetID) == promotionTargetModelID &&
+		entry.sourceSelectedTerminalTargetID == overflowAffinityTerminalTargetKey(sourceSelectedTerminalTargetID) &&
+		entry.generationToken == generationToken &&
+		entry.contextBucket == contextBucket
+}
+
+func buildRuntimeContextOverflowAffinityDecision(state string, entry overflowAffinityCacheEntry, rejectionReason *string) *runtimeContextOverflowAffinityDecision {
+	state = strings.TrimSpace(state)
+	switch state {
+	case runtimeContextOverflowAffinityStateConsidered,
+		runtimeContextOverflowAffinityStateAccepted,
+		runtimeContextOverflowAffinityStateRejectedRevalidation,
+		runtimeContextOverflowAffinityStatePopulated:
+	default:
+		return nil
+	}
+	return &runtimeContextOverflowAffinityDecision{
+		State:                  state,
+		AffinityHashPrefix:     strings.TrimSpace(entry.affinityHashPrefix),
+		ParentHashPrefix:       cloneRuntimeStringPointer(entry.parentHashPrefix),
+		ContextBucket:          strings.TrimSpace(entry.contextBucket),
+		SourceModelID:          strings.TrimSpace(entry.sourceModelID),
+		PromotionTargetModelID: strings.TrimSpace(entry.promotionTargetID),
+		RejectionReason:        runtimeContextOverflowAffinityRejectionReasonPointer(rejectionReason),
+	}
+}
+
+func runtimeContextOverflowAffinityRejectionReasonPointer(rejectionReason *string) *string {
+	if rejectionReason == nil {
+		return nil
+	}
+	reason := strings.TrimSpace(*rejectionReason)
+	switch reason {
+	case runtimeContextOverflowAffinityRejectionMissingAffinity,
+		runtimeContextOverflowAffinityRejectionExpired,
+		runtimeContextOverflowAffinityRejectionGenerationMismatch,
+		runtimeContextOverflowAffinityRejectionTargetChanged,
+		runtimeContextOverflowAffinityRejectionTargetInvalid,
+		runtimeContextOverflowAffinityRejectionSameTerminal,
+		runtimeContextOverflowAffinityRejectionStreaming,
+		runtimeContextOverflowAffinityRejectionOperationIneligible:
+		return &reason
+	default:
+		return nil
+	}
+}
+
+func (s *Service) populateOverflowAffinityCacheAfterPromotion(request *http.Request, sourcePlan requestPlan, sourceExecution executionResult, promotedPlan requestPlan, promotedExecution executionResult, classification cliProxyAPIOverflowClassification) *runtimeContextOverflowAffinityDecision {
+	if s == nil || s.cache == nil || s.overflowAffinityCache == nil || !classification.Promotable || !planAllowsContextOverflowPromotion(sourcePlan) || promotedExecution.Response == nil {
+		return nil
+	}
+	sourceModelID := contextOverflowPromotionSourceModelID(sourcePlan, sourceExecution)
+	if sourceModelID == "" {
+		return nil
+	}
+	activeProfile, snapshot, generationToken, err := s.cache.loadFreshActiveRuntimePlanWithGenerationToken(request.Context())
+	if err != nil || snapshot == nil || activeProfile.ID != sourcePlan.ProfileID {
+		return nil
+	}
+	sourceModel, found := snapshot.ModelsByID[sourceModelID]
+	if !found || sourceModel.ContextOverflowPromotionTargetID == nil {
+		return nil
+	}
+	promotionTargetModelID := strings.TrimSpace(*sourceModel.ContextOverflowPromotionTargetID)
+	if promotionTargetModelID == "" || promotionTargetModelID == sourceModelID || strings.TrimSpace(promotedPlan.RequestedModelID) != promotionTargetModelID {
+		return nil
+	}
+	if _, found := snapshot.ModelsByID[promotionTargetModelID]; !found {
+		return nil
+	}
+	revalidatedPlan, err := s.buildExplicitTargetRequestPlan(request, sourcePlan.RawRequestBody, s.runtimeProxyConfigSnapshot(), activeProfile.ID, snapshot, promotionTargetModelID)
+	if err != nil || strings.TrimSpace(revalidatedPlan.RequestedModelID) != promotionTargetModelID {
+		return nil
+	}
+	promotedResolvedTargetModelID := strings.TrimSpace(dereferenceString(promotedExecution.ResolvedTargetModelID))
+	if promotedResolvedTargetModelID == "" {
+		promotedResolvedTargetModelID = strings.TrimSpace(dereferenceString(promotedPlan.ResolvedTargetModelID))
+	}
+	revalidatedResolvedTargetModelID := strings.TrimSpace(dereferenceString(revalidatedPlan.ResolvedTargetModelID))
+	if promotedResolvedTargetModelID == "" || revalidatedResolvedTargetModelID == "" || promotedResolvedTargetModelID != revalidatedResolvedTargetModelID {
+		return nil
+	}
+	sourceSelectedTerminalTargetID := sourcePlan.selectedTerminalTargetID()
+	if promotedSelectedTerminalTargetID := revalidatedPlan.selectedTerminalTargetID(); promotedSelectedTerminalTargetID != nil && sourceSelectedTerminalTargetID != nil && *promotedSelectedTerminalTargetID == *sourceSelectedTerminalTargetID {
+		return nil
+	}
+	contextBucket := overflowAffinityContextBucket(sourcePlan.RequestContextEstimation)
+	key, material, ok := buildOverflowAffinityCacheKey(overflowAffinityCacheKeyInput{
+		profileID:                   sourcePlan.ProfileID,
+		operationName:               strings.TrimSpace(sourcePlan.RuntimeOperation.Name),
+		sourceResolvedModelID:       sourceModelID,
+		sourceSelectedTerminalID:    sourceSelectedTerminalTargetID,
+		configuredPromotionTargetID: promotionTargetModelID,
+		affinityHeaders:             request.Header,
+		processLocalSecret:          s.secretEncryptionKey,
+		routingGenerationToken:      generationToken,
+		contextBucket:               contextBucket,
+	})
+	if !ok {
+		return nil
+	}
+	entry := buildOverflowAffinityCacheEntry(overflowAffinityCacheEntryInput{
+		promotionTargetID:        promotionTargetModelID,
+		sourceModelID:            sourceModelID,
+		sourceSelectedTerminalID: sourceSelectedTerminalTargetID,
+		generationToken:          generationToken,
+		contextBucket:            contextBucket,
+	}, material)
+	s.overflowAffinityCache.put(key, entry)
+	return buildRuntimeContextOverflowAffinityDecision(runtimeContextOverflowAffinityStatePopulated, entry, nil)
 }
 
 func contextOverflowPromotionSourceModelID(plan requestPlan, execution executionResult) string {
@@ -746,6 +946,31 @@ func mergeContextOverflowPromotedPlan(sourcePlan requestPlan, promotedPlan reque
 	}
 	merged.ContextRouting = attachRuntimeContextOverflowPromotionDecision(baseContextRouting, buildContextOverflowPromotionDecision(sourcePlan, sourceExecution, promotedPlan, promotedExecution, classification))
 	merged.SelectedTerminalTargetID = cloneRuntimeIntPointer(sourcePlan.SelectedTerminalTargetID)
+	return merged
+}
+
+func mergeContextOverflowPreselectedPlan(sourcePlan requestPlan, promotedPlan requestPlan, affinityMetadata *runtimeContextOverflowAffinityDecision) requestPlan {
+	merged := promotedPlan
+	merged.RequestedModelID = sourcePlan.RequestedModelID
+	merged.RequestedVendorID = sourcePlan.RequestedVendorID
+	merged.RequestedVendorKey = sourcePlan.RequestedVendorKey
+	merged.RequestedVendorName = sourcePlan.RequestedVendorName
+	merged.ProfileID = sourcePlan.ProfileID
+	merged.APIFamily = sourcePlan.APIFamily
+	merged.RuntimeOperation = sourcePlan.RuntimeOperation
+	merged.RuntimeOperationPathParams = cloneStringMap(sourcePlan.RuntimeOperationPathParams)
+	merged.RawRequestBody = append([]byte(nil), sourcePlan.RawRequestBody...)
+	merged.ReportCurrencySnapshot = sourcePlan.ReportCurrencySnapshot
+	merged.ClientHeaders = cloneStringMap(sourcePlan.ClientHeaders)
+	merged.RequestGenerationParams = sourcePlan.RequestGenerationParamsSnapshot()
+	merged.RequestContextEstimation = sourcePlan.RequestContextEstimation
+	merged.ContextRouting = sourcePlan.ContextRouting
+	if merged.ContextRouting == nil {
+		merged.ContextRouting = promotedPlan.ContextRouting
+	}
+	merged.ContextRouting = attachRuntimeContextOverflowAffinityDecision(merged.ContextRouting, affinityMetadata)
+	merged.SelectedTerminalTargetID = cloneRuntimeIntPointer(sourcePlan.SelectedTerminalTargetID)
+	merged.ContextOverflowPromotionPreselected = true
 	return merged
 }
 

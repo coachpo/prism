@@ -237,6 +237,83 @@ func TestRequestLogsDetailContractIncludesContextRoutingMetadata(t *testing.T) {
 	}
 }
 
+func TestRequestLogsOverflowAffinityCacheMetadataIsRedacted(t *testing.T) {
+	const rawAffinity = "affinity-token"
+	const rawParent = "parent-token-for-redaction"
+	fixture := newOverflowAffinityCacheRuntimeFixture(t, "request-logs-redacted", http.StatusBadRequest, runtimeOverflowErrorPayload("request-log cache metadata source overflow"), http.StatusOK, map[string]any{
+		"id":      "chatcmpl-overflow-affinity-request-log",
+		"object":  "chat.completion",
+		"choices": []map[string]any{{"index": 0, "message": map[string]any{"role": "assistant", "content": "promoted"}, "finish_reason": "stop"}},
+		"usage":   map[string]any{"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+	})
+	headers := map[string]string{"x-session-affinity": rawAffinity, "x-parent-session-id": rawParent}
+
+	firstResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "populate request-log cache metadata", headers)
+	assertStatus(t, firstResponse, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, fixture.harness.conn, fixture.profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	populatedDetail := latestRequestLogDetailPayload(t, fixture.harness, fixture.profileID)
+	assertOverflowAffinityDetailMetadataRedacted(t, populatedDetail, "populated", rawAffinity, rawParent)
+
+	secondResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "accepted request-log cache metadata", headers)
+	assertStatus(t, secondResponse, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, fixture.harness.conn, fixture.profileID, runtimeTelemetryCounts{RequestLogs: 3, UsageEvents: 2, OutboxRows: 0}, 5*time.Second)
+	acceptedDetail := latestRequestLogDetailPayload(t, fixture.harness, fixture.profileID)
+	assertOverflowAffinityDetailMetadataRedacted(t, acceptedDetail, "accepted", rawAffinity, rawParent)
+
+	var persistedRouting string
+	if err := fixture.harness.conn.QueryRow(context.Background(), `SELECT COALESCE(string_agg(context_routing::text, ' '), '') FROM request_logs WHERE profile_id = $1`, fixture.profileID).Scan(&persistedRouting); err != nil {
+		t.Fatalf("load persisted request-log context routing: %v", err)
+	}
+	var persistedUsageRouting string
+	if err := fixture.harness.conn.QueryRow(context.Background(), `SELECT COALESCE(string_agg(context_routing::text, ' '), '') FROM usage_request_events WHERE profile_id = $1`, fixture.profileID).Scan(&persistedUsageRouting); err != nil {
+		t.Fatalf("load persisted usage-event context routing: %v", err)
+	}
+	if strings.Contains(persistedRouting, rawAffinity) || strings.Contains(persistedRouting, rawParent) || strings.Contains(persistedUsageRouting, rawAffinity) || strings.Contains(persistedUsageRouting, rawParent) {
+		t.Fatalf("persisted context routing leaked raw affinity material: request_logs=%s usage_events=%s", persistedRouting, persistedUsageRouting)
+	}
+}
+
+func latestRequestLogDetailPayload(t *testing.T, harness *runtimeHarness, profileID int) map[string]any {
+	t.Helper()
+	var requestLogID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestLogID); err != nil {
+		t.Fatalf("load latest request log id: %v", err)
+	}
+	response := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	return payload
+}
+
+func assertOverflowAffinityDetailMetadataRedacted(t *testing.T, payload map[string]any, wantState string, rawAffinity string, rawParent string) {
+	t.Helper()
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal request-log detail payload: %v", err)
+	}
+	if strings.Contains(string(rawPayload), rawAffinity) || strings.Contains(string(rawPayload), rawParent) {
+		t.Fatalf("request-log detail leaked raw affinity material: %s", rawPayload)
+	}
+	routing := asMapRuntime(t, payload["routing"])
+	contextRouting := asMapRuntime(t, routing["context_routing"])
+	affinity := asMapRuntime(t, contextRouting["context_overflow_affinity"])
+	if affinity["state"] != wantState {
+		t.Fatalf("expected affinity cache state %q, got %+v", wantState, affinity)
+	}
+	prefix, ok := affinity["affinity_hash_prefix"].(string)
+	if !ok || len(prefix) != 16 || prefix == rawAffinity {
+		t.Fatalf("expected redacted 16-char affinity prefix, got %+v", affinity)
+	}
+	parentPrefix, ok := affinity["parent_hash_prefix"].(string)
+	if !ok || len(parentPrefix) != 16 || parentPrefix == rawParent {
+		t.Fatalf("expected redacted 16-char parent prefix, got %+v", affinity)
+	}
+	if affinity["context_bucket"] == "" || affinity["source_model_id"] == "" || affinity["promotion_target_model_id"] == "" {
+		t.Fatalf("expected safe cache metadata fields, got %+v", affinity)
+	}
+}
+
 func TestRequestLogsTranslatedOpenAIDetailPreservesIngressAndUpstreamAttribution(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)

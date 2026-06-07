@@ -161,19 +161,29 @@ type RequestLogContextOverflowPromotion struct {
 }
 
 type RequestLogPlannerTrace struct {
-	PlannerVersion         string                             `json:"planner_version"`
-	PlannerMode            string                             `json:"planner_mode,omitempty"`
-	Decision               string                             `json:"decision"`
-	Policy                 string                             `json:"policy,omitempty"`
-	AccessTargetID         *int                               `json:"access_target_id,omitempty"`
-	AccessTargetType       *string                            `json:"access_target_type,omitempty"`
-	SelectedTargetModelID  *string                            `json:"selected_target_model_id,omitempty"`
-	SelectedTierPriority   *int                               `json:"selected_tier_priority,omitempty"`
-	SelectedTerminalTargetID *int                             `json:"selected_terminal_target_id,omitempty"`
-	TranslationMode        *string                            `json:"translation_mode,omitempty"`
-	SkippedTerminalTargets int                                `json:"skipped_terminal_targets,omitempty"`
-	FacadeExclusionSummary *string                            `json:"facade_exclusion_summary,omitempty"`
-	ShadowComparisonResult *RequestLogShadowComparisonResult  `json:"shadow_comparison_result,omitempty"`
+	PlannerVersion           string                            `json:"planner_version"`
+	PlannerMode              string                            `json:"planner_mode,omitempty"`
+	Decision                 string                            `json:"decision"`
+	Policy                   string                            `json:"policy,omitempty"`
+	AccessTargetID           *int                              `json:"access_target_id,omitempty"`
+	AccessTargetType         *string                           `json:"access_target_type,omitempty"`
+	SelectedTargetModelID    *string                           `json:"selected_target_model_id,omitempty"`
+	SelectedTierPriority     *int                              `json:"selected_tier_priority,omitempty"`
+	SelectedTerminalTargetID *int                              `json:"selected_terminal_target_id,omitempty"`
+	TranslationMode          *string                           `json:"translation_mode,omitempty"`
+	SkippedTerminalTargets   int                               `json:"skipped_terminal_targets,omitempty"`
+	FacadeExclusionSummary   *string                           `json:"facade_exclusion_summary,omitempty"`
+	ShadowComparisonResult   *RequestLogShadowComparisonResult `json:"shadow_comparison_result,omitempty"`
+}
+
+type RequestLogContextOverflowAffinity struct {
+	State                  string  `json:"state"`
+	AffinityHashPrefix     string  `json:"affinity_hash_prefix,omitempty"`
+	ParentHashPrefix       *string `json:"parent_hash_prefix,omitempty"`
+	ContextBucket          string  `json:"context_bucket,omitempty"`
+	SourceModelID          string  `json:"source_model_id,omitempty"`
+	PromotionTargetModelID string  `json:"promotion_target_model_id,omitempty"`
+	RejectionReason        *string `json:"rejection_reason,omitempty"`
 }
 
 type RequestLogContextRouting struct {
@@ -193,6 +203,7 @@ type RequestLogContextRouting struct {
 	FacadeSelection                    *RequestLogFacadeSelection                      `json:"facade_selection,omitempty"`
 	PlannerTrace                       *RequestLogPlannerTrace                         `json:"planner_trace,omitempty"`
 	ContextOverflowPromotion           *RequestLogContextOverflowPromotion             `json:"context_overflow_promotion,omitempty"`
+	ContextOverflowAffinity            *RequestLogContextOverflowAffinity              `json:"context_overflow_affinity,omitempty"`
 }
 
 type RequestLogDetailRouting struct {

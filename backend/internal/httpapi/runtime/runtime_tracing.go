@@ -33,6 +33,13 @@ const (
 	runtimeTraceAttrContextOverflowPromotionSourceAttemptCount            = "prism.runtime.context_overflow_promotion.source_attempt_count"
 	runtimeTraceAttrContextOverflowPromotionFinalAttemptCount             = "prism.runtime.context_overflow_promotion.final_attempt_count"
 	runtimeTraceAttrContextOverflowPromotionResult                        = "prism.runtime.context_overflow_promotion.result"
+	runtimeTraceAttrContextOverflowAffinityState                          = "prism.runtime.context_overflow_affinity.state"
+	runtimeTraceAttrContextOverflowAffinityHashPrefix                     = "prism.runtime.context_overflow_affinity.affinity_hash_prefix"
+	runtimeTraceAttrContextOverflowAffinityParentHashPrefix               = "prism.runtime.context_overflow_affinity.parent_hash_prefix"
+	runtimeTraceAttrContextOverflowAffinityContextBucket                  = "prism.runtime.context_overflow_affinity.context_bucket"
+	runtimeTraceAttrContextOverflowAffinitySourceModelID                  = "prism.runtime.context_overflow_affinity.source_model_id"
+	runtimeTraceAttrContextOverflowAffinityPromotionTargetModelID         = "prism.runtime.context_overflow_affinity.promotion_target_model_id"
+	runtimeTraceAttrContextOverflowAffinityRejectionReason                = "prism.runtime.context_overflow_affinity.rejection_reason"
 	runtimeTraceAttrFacadeModelID                                         = "prism.runtime.facade_model_id"
 	runtimeTraceAttrFacadeSelectedTargetModel                             = "prism.runtime.facade_selected_target_model_id"
 	runtimeTraceAttrFacadeSelectedWeight                                  = "prism.runtime.facade_selected_weight"
@@ -151,6 +158,7 @@ func runtimeTraceAttemptAttributionAttributes(operation RuntimeOperation, transl
 			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *contextRouting.SelectedTerminalTargetID))
 		}
 		attrs = append(attrs, runtimeTraceContextOverflowPromotionAttributes(contextRouting)...)
+		attrs = append(attrs, runtimeTraceContextOverflowAffinityAttributes(contextRouting)...)
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(contextRouting)...)
 		attrs = append(attrs, runtimeTracePlannerTraceAttributes(contextRouting.PlannerTrace)...)
 	}
@@ -216,6 +224,33 @@ func runtimeTraceContextOverflowPromotionAttributes(contextRouting *runtimeConte
 	}
 	if promotion.ToUsableContextWindowTokens != nil {
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionToUsableContextWindowTokens, *promotion.ToUsableContextWindowTokens))
+	}
+	return attrs
+}
+
+func runtimeTraceContextOverflowAffinityAttributes(contextRouting *runtimeContextRoutingDecision) []attribute.KeyValue {
+	if contextRouting == nil || contextRouting.ContextOverflowAffinity == nil {
+		return nil
+	}
+	affinity := contextRouting.ContextOverflowAffinity
+	attrs := []attribute.KeyValue{attribute.String(runtimeTraceAttrContextOverflowAffinityState, strings.TrimSpace(affinity.State))}
+	if strings.TrimSpace(affinity.AffinityHashPrefix) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityHashPrefix, strings.TrimSpace(affinity.AffinityHashPrefix)))
+	}
+	if affinity.ParentHashPrefix != nil && strings.TrimSpace(*affinity.ParentHashPrefix) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityParentHashPrefix, strings.TrimSpace(*affinity.ParentHashPrefix)))
+	}
+	if strings.TrimSpace(affinity.ContextBucket) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityContextBucket, strings.TrimSpace(affinity.ContextBucket)))
+	}
+	if strings.TrimSpace(affinity.SourceModelID) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinitySourceModelID, strings.TrimSpace(affinity.SourceModelID)))
+	}
+	if strings.TrimSpace(affinity.PromotionTargetModelID) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityPromotionTargetModelID, strings.TrimSpace(affinity.PromotionTargetModelID)))
+	}
+	if affinity.RejectionReason != nil && strings.TrimSpace(*affinity.RejectionReason) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityRejectionReason, strings.TrimSpace(*affinity.RejectionReason)))
 	}
 	return attrs
 }
@@ -292,6 +327,7 @@ func runtimeTracePlanningFailureAttributes(failure runtimePlanningFailureTelemet
 			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *failure.ContextRouting.SelectedTerminalTargetID))
 		}
 		attrs = append(attrs, runtimeTraceContextOverflowPromotionAttributes(failure.ContextRouting)...)
+		attrs = append(attrs, runtimeTraceContextOverflowAffinityAttributes(failure.ContextRouting)...)
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(failure.ContextRouting)...)
 		attrs = append(attrs, runtimeTracePlannerTraceAttributes(failure.ContextRouting.PlannerTrace)...)
 	}
@@ -322,6 +358,7 @@ func runtimeTraceEnvelopeAttributes(envelope runtimeTelemetryEnvelope) []attribu
 			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *envelope.UsageEvent.ContextRouting.SelectedTerminalTargetID))
 		}
 		attrs = append(attrs, runtimeTraceContextOverflowPromotionAttributes(envelope.UsageEvent.ContextRouting)...)
+		attrs = append(attrs, runtimeTraceContextOverflowAffinityAttributes(envelope.UsageEvent.ContextRouting)...)
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(envelope.UsageEvent.ContextRouting)...)
 		attrs = append(attrs, runtimeTracePlannerTraceAttributes(envelope.UsageEvent.ContextRouting.PlannerTrace)...)
 	}

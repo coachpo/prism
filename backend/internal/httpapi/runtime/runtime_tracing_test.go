@@ -256,6 +256,71 @@ func TestRuntimeTracingTranslationAttributes(t *testing.T) {
 	}
 }
 
+func TestRuntimeTraceOverflowAffinityCacheAttributes(t *testing.T) {
+	const rawAffinity = "raw-session-affinity-value"
+	const rawParent = "raw-parent-session-id"
+	contextRouting := &runtimeContextRoutingDecision{
+		Policy: "cheapest_eligible_context",
+		ContextOverflowAffinity: &runtimeContextOverflowAffinityDecision{
+			State:                  runtimeContextOverflowAffinityStateAccepted,
+			AffinityHashPrefix:     "0123456789abcdef",
+			ParentHashPrefix:       stringPtr("abcdef0123456789"),
+			ContextBucket:          "16384-32767",
+			SourceModelID:          "source-model",
+			PromotionTargetModelID: "promotion-target-model",
+		},
+	}
+
+	planAttrs := attributesByKey(runtimeTracePlanAttributes(requestPlan{
+		APIFamily:          "openai",
+		RuntimeOperation:   RuntimeOperation{Name: "openai.chat_completions", APIFamily: "openai", PathTemplate: "/v1/chat/completions"},
+		IsStreamingRequest: false,
+		ContextRouting:     contextRouting,
+		TerminalAttempts: []runtimeTerminalAttempt{{
+			Connection:           runtimeConnection{ID: 34},
+			TranslationMode:      TranslationModeNone,
+			EffectiveRequestPath: "/v1/chat/completions",
+		}},
+	}))
+	if planAttrs[runtimeTraceAttrContextOverflowAffinityState].AsString() != runtimeContextOverflowAffinityStateAccepted || planAttrs[runtimeTraceAttrContextOverflowAffinityHashPrefix].AsString() != "0123456789abcdef" || planAttrs[runtimeTraceAttrContextOverflowAffinityParentHashPrefix].AsString() != "abcdef0123456789" || planAttrs[runtimeTraceAttrContextOverflowAffinityContextBucket].AsString() != "16384-32767" || planAttrs[runtimeTraceAttrContextOverflowAffinitySourceModelID].AsString() != "source-model" || planAttrs[runtimeTraceAttrContextOverflowAffinityPromotionTargetModelID].AsString() != "promotion-target-model" {
+		t.Fatalf("expected safe overflow affinity plan trace attributes, got %+v", planAttrs)
+	}
+	for key, value := range planAttrs {
+		if strings.Contains(value.AsString(), rawAffinity) || strings.Contains(value.AsString(), rawParent) {
+			t.Fatalf("trace attr %s leaked raw affinity material: %q", key, value.AsString())
+		}
+	}
+	envelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(runtimeTelemetryEnvelope{UsageEvent: usageEventInsert{
+		OperationName:  "openai.chat_completions",
+		APIFamily:      "openai",
+		StatusCode:     http.StatusOK,
+		StreamOutcome:  runtimeStreamOutcomeNotStreaming,
+		ContextRouting: contextRouting,
+	}}))
+	if envelopeAttrs[runtimeTraceAttrContextOverflowAffinityState].AsString() != runtimeContextOverflowAffinityStateAccepted || envelopeAttrs[runtimeTraceAttrContextOverflowAffinityHashPrefix].AsString() != "0123456789abcdef" {
+		t.Fatalf("expected safe overflow affinity envelope trace attributes, got %+v", envelopeAttrs)
+	}
+
+	rejectionReason := runtimeContextOverflowAffinityRejectionTargetInvalid
+	rejectedAttrs := attributesByKey(runtimeTracePlanAttributes(requestPlan{
+		APIFamily:          "openai",
+		RuntimeOperation:   RuntimeOperation{Name: "openai.responses", APIFamily: "openai", PathTemplate: "/v1/responses"},
+		IsStreamingRequest: false,
+		ContextRouting: &runtimeContextRoutingDecision{ContextOverflowAffinity: &runtimeContextOverflowAffinityDecision{
+			State:                  runtimeContextOverflowAffinityStateRejectedRevalidation,
+			AffinityHashPrefix:     "fedcba9876543210",
+			ContextBucket:          overflowAffinityUnknownContextBucket,
+			SourceModelID:          "source-model",
+			PromotionTargetModelID: "missing-target",
+			RejectionReason:        &rejectionReason,
+		}},
+		TerminalAttempts: []runtimeTerminalAttempt{{TranslationMode: TranslationModeNone, EffectiveRequestPath: "/v1/responses"}},
+	}))
+	if rejectedAttrs[runtimeTraceAttrContextOverflowAffinityState].AsString() != runtimeContextOverflowAffinityStateRejectedRevalidation || rejectedAttrs[runtimeTraceAttrContextOverflowAffinityRejectionReason].AsString() != runtimeContextOverflowAffinityRejectionTargetInvalid {
+		t.Fatalf("expected safe overflow affinity rejection trace attributes, got %+v", rejectedAttrs)
+	}
+}
+
 func installRuntimeTraceTestProvider(t *testing.T) *tracetest.SpanRecorder {
 	t.Helper()
 	previousProvider := otel.GetTracerProvider()
