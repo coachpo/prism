@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { FileText, Terminal } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import {
@@ -7,6 +8,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { RequestLogDetail } from "@/lib/types";
 import type { DetailTab } from "./queryParams";
@@ -84,6 +86,14 @@ export function RequestLogDetailSheet({
               </TabsContent>
 
               <TabsContent value="audit" className="mt-0">
+                <div className="mb-3 flex justify-end">
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to={`/request-logs/${request.summary.id}/audit`}>
+                      <Terminal data-icon="inline-start" />
+                      {messages.requestLogs.openDedicatedAuditPage}
+                    </Link>
+                  </Button>
+                </div>
                 <RequestLogAuditTab
                   audits={audits}
                   loading={auditLoading}

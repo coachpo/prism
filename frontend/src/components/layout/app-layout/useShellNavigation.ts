@@ -162,6 +162,30 @@ function buildBreadcrumbs(
       return [{ current: true, href: null, id: "request-logs", label: messages.nav.requestLogs }];
     }
 
+    case "request-log-audit": {
+      const requestId = matchedRoute.params.requestId;
+      return [
+        {
+          current: false,
+          href: "/request-logs",
+          id: "request-logs",
+          label: messages.nav.requestLogs,
+        },
+        {
+          current: false,
+          href: `/request-logs?request_id=${encodeURIComponent(requestId)}`,
+          id: "request-logs-request",
+          label: `#${requestId}`,
+        },
+        {
+          current: true,
+          href: null,
+          id: "request-log-audit",
+          label: messages.requestLogs.audit,
+        },
+      ];
+    }
+
     default:
       return [{ current: true, href: null, id: matchedRoute.route.id, label: routeLabel }];
   }

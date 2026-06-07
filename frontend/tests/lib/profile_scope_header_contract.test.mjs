@@ -23,6 +23,7 @@ test("profile scope helper marks profile config routes for X-Profile-Id attachme
     "/api/connections/12/references",
     "/api/pricing-templates/7/connections",
     "/api/stats/requests?limit=20",
+    "/api/audit/logs?request_log_id=101&from=2026-04-12T12%3A00%3A00.000Z&to=2026-04-13T12%3A00%3A00.000Z&limit=20",
     "/api/audit/logs/9",
     "/api/loadbalance/current-state?model_config_id=4",
     "/api/loadbalance/current-state/5/reset",

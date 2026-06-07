@@ -27,7 +27,7 @@ export type ShellSidebarItemId =
   | "pricing-templates"
   | "request-logs";
 
-export type ShellRouteId = ShellSidebarItemId | "model-detail";
+export type ShellRouteId = ShellSidebarItemId | "model-detail" | "request-log-audit";
 
 export interface ShellSidebarItemDefinition {
   groupId: ShellSidebarGroupId;
@@ -178,6 +178,13 @@ export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
       labelKey: "requestLogs",
       to: "/request-logs",
     },
+    sidebarItemId: "request-logs",
+  },
+  {
+    canonicalPath: "/request-logs/:requestId/audit",
+    id: "request-log-audit",
+    pathPattern: "/request-logs/:requestId/audit",
+    profileScoped: true,
     sidebarItemId: "request-logs",
   },
 ];

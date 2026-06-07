@@ -46,6 +46,9 @@ const ResetPasswordPage = lazy(() =>
 const RequestLogsPage = lazy(() =>
   import("@/pages/RequestLogsPage").then((module) => ({ default: module.RequestLogsPage }))
 );
+const RequestLogAuditPage = lazy(() =>
+  import("@/pages/request-logs/RequestLogAuditPage").then((module) => ({ default: module.RequestLogAuditPage }))
+);
 
 const PUBLIC_AUTH_PATHS = new Set(["/login", "/forgot-password", "/reset-password"]);
 
@@ -125,6 +128,7 @@ function App() {
             <Route path="/sidecars" element={withRouteSuspense(<SidecarsPage />)} />
             <Route path="/pricing-templates" element={withRouteSuspense(<PricingTemplatesPage />)} />
             <Route path="/request-logs" element={withRouteSuspense(<RequestLogsPage />)} />
+            <Route path="/request-logs/:requestId/audit" element={withRouteSuspense(<RequestLogAuditPage />)} />
           </Route>
         </Routes>
       </RoutedAuthProvider>

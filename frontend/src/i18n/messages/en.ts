@@ -1830,6 +1830,15 @@ export interface Messages {
     anyLatency: string;
     anyOutcome: string;
     audit: string;
+    auditDetailLoadFailed: string;
+    auditDetailLoadFailedTitle: string;
+    auditListLoadFailed: string;
+    auditListLoadFailedTitle: string;
+    auditPageDescription: string;
+    auditPageTitle: (id: string) => string;
+    auditRecordList: string;
+    auditRecordListDescription: (count: string) => string;
+    auditStreamingResponseBodyNotStored: string;
     billableOnly: string;
     cacheCreation: string;
     cacheRead: string;
@@ -1878,6 +1887,8 @@ export interface Messages {
     noRequestLogsMatchSlice: string;
     requestBody: string;
     requestHeaders: string;
+    requestLoadFailedTitle: string;
+    responseHeaders: string;
     search: string;
     searchPlaceholder: string;
     tokenRate: string;
@@ -1967,7 +1978,16 @@ export interface Messages {
     auditRequestBodyNotStoredMetadataOnly: string;
     auditResponseBodyNotStored: string;
     auditResponseBodyNotStoredMetadataOnly: string;
+    invalidAuditTimestampDescription: string;
+    invalidAuditTimestampTitle: string;
+    invalidRequestAuditRouteDescription: (id: string) => string;
+    invalidRequestAuditRouteTitle: string;
+    missingAuditRecordDescription: (id: string) => string;
+    missingAuditRecordTitle: string;
     noAuditRecords: string;
+    noAuditRecordsDescription: string;
+    openDedicatedAuditPage: string;
+    showDefaultAuditRecord: string;
     timeRange: string;
     tokenRange: string;
     triage: string;
@@ -4089,6 +4109,15 @@ export const enMessages: Messages = {
     anyLatency: "Any latency",
     anyOutcome: "Any outcome",
     audit: "Audit",
+    auditDetailLoadFailed: "The selected audit record could not be loaded.",
+    auditDetailLoadFailedTitle: "Audit record load failed",
+    auditListLoadFailed: "The audit record list for this request could not be loaded.",
+    auditListLoadFailedTitle: "Audit records load failed",
+    auditPageDescription: "Inspect the exact audit row, redacted headers, and stored request/response payloads captured for this request.",
+    auditPageTitle: (id) => `Request #${id} audit`,
+    auditRecordList: "Audit records",
+    auditRecordListDescription: (count) => `${count} linked audit record${count === "1" ? "" : "s"}`,
+    auditStreamingResponseBodyNotStored: "This streaming response body was not stored for this audit record.",
     billableOnly: "Billable only",
     cacheCreation: "Cache creation",
     cacheRead: "Cache read",
@@ -4139,6 +4168,8 @@ export const enMessages: Messages = {
     noRequestLogsMatchSlice: "No request logs match this slice",
     requestBody: "Request",
     requestHeaders: "Request headers",
+    requestLoadFailedTitle: "Request load failed",
+    responseHeaders: "Response headers",
     search: "Search",
     searchPlaceholder: "model, vendor, path, or error",
     tokenRate: "Output Rate",
@@ -4227,7 +4258,16 @@ export const enMessages: Messages = {
     auditRequestBodyNotStoredMetadataOnly: "Request body was intentionally not stored because this request used metadata-only audit capture.",
     auditResponseBodyNotStored: "Response body was not stored for this audit record.",
     auditResponseBodyNotStoredMetadataOnly: "Response body was intentionally not stored because this request used metadata-only audit capture.",
+    invalidAuditTimestampDescription: "Prism cannot derive the audit lookup window because this request has an invalid creation timestamp.",
+    invalidAuditTimestampTitle: "Invalid request timestamp",
+    invalidRequestAuditRouteDescription: (id) => `Request ID '${id}' is not a valid request-log identifier.`,
+    invalidRequestAuditRouteTitle: "Invalid request audit route",
+    missingAuditRecordDescription: (id) => `Audit record #${id} is not linked to this request in the request-time audit window.`,
+    missingAuditRecordTitle: "Audit record not found for this request",
     noAuditRecords: "No audit records found for this request.",
+    noAuditRecordsDescription: "Audit logging was enabled when this request started, but no matching audit records were returned for its request-time window.",
+    openDedicatedAuditPage: "Open full audit page",
+    showDefaultAuditRecord: "Show default audit record",
     timeRange: "Time range",
     tokenRange: "Token range",
     tokens: "Tokens",
