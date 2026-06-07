@@ -8,12 +8,12 @@ import (
 	"strings"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
-	"github.com/coachpo/prism/backend/internal/targetcompat"
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 )
 
 const (
-	runtimeAccessTargetTypeConnection = targetcompat.PersistedTerminalTargetType
-	runtimeAccessTargetTypeModel      = targetcompat.AccessTargetTypeModel
+	runtimeAccessTargetTypeConnection = modelrouting.TargetTypeTerminal
+	runtimeAccessTargetTypeModel      = modelrouting.TargetTypeModel
 )
 
 type runtimeRoundRobinTargetCursor interface {
@@ -67,10 +67,7 @@ func enabledRuntimeAccessTargets(targets []runtimeAccessTargetRecord) []runtimeA
 }
 
 func effectiveRuntimeAccessTargetWeight(target runtimeAccessTargetRecord) int {
-	if target.Weight > 0 {
-		return target.Weight
-	}
-	return runtimeActiveModelTargetDefaultWeight
+	return modelrouting.EffectiveModelTargetWeightValue(target.Weight)
 }
 
 func selectWeightedRuntimeAccessCandidate(profileID int, facadeModelConfigID int, candidates []runtimeResolvedAccessCandidate, cursor runtimeWeightedTargetCursor) *runtimeResolvedAccessCandidate {
@@ -104,19 +101,10 @@ func sortRuntimeAccessTargets(targets []runtimeAccessTargetRecord) {
 }
 
 func compareRuntimeAccessTargets(left runtimeAccessTargetRecord, right runtimeAccessTargetRecord) int {
-	if left.Position != right.Position {
-		if left.Position < right.Position {
-			return -1
-		}
-		return 1
-	}
-	if left.ID < right.ID {
-		return -1
-	}
-	if left.ID > right.ID {
-		return 1
-	}
-	return 0
+	return modelrouting.CompareAccessTargetOrder(
+		modelrouting.OrderKey{Position: left.Position, ID: left.ID},
+		modelrouting.OrderKey{Position: right.Position, ID: right.ID},
+	)
 }
 
 func runtimeAccessTargetSetHash(targets []runtimeAccessTargetRecord) string {

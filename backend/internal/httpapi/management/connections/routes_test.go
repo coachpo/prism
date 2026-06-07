@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
 func connectionStringRef(value string) *string {
@@ -74,7 +76,7 @@ func TestValidateLimiterAndAuthType(t *testing.T) {
 }
 
 func TestResolveOpenAIProbeEndpointVariantAndHelpers(t *testing.T) {
-	if got, err := resolveOpenAIProbeEndpointVariant("openai", nil); err != nil || got == nil || *got != defaultOpenAIProbeEndpointVariant {
+	if got, err := resolveOpenAIProbeEndpointVariant("openai", nil); err != nil || got == nil || *got != providercompat.DefaultOpenAIProbeEndpointVariant {
 		t.Fatalf("expected default OpenAI probe variant, got value=%#v err=%v", got, err)
 	}
 	if got, err := resolveOpenAIProbeEndpointVariant("openai", connectionStringRef("chat_completions_minimal")); err != nil || got == nil || *got != "chat_completions_minimal" {
@@ -106,6 +108,53 @@ func TestResolveOpenAIProbeEndpointVariantAndHelpers(t *testing.T) {
 	}
 }
 
+func TestDeriveOpenAIUpstreamOperationCharacterizesProbeVariants(t *testing.T) {
+	tests := []struct {
+		name      string
+		apiFamily string
+		variant   *string
+		want      *string
+	}{
+		{name: "nil variant defaults to responses", apiFamily: "openai", want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
+		{name: "blank variant defaults to responses", apiFamily: "openai", variant: connectionStringRef(" \t"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
+		{name: "responses minimal maps to responses", apiFamily: "openai", variant: connectionStringRef("responses_minimal"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
+		{name: "responses reasoning none maps to responses", apiFamily: "openai", variant: connectionStringRef(" responses_reasoning_none "), want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
+		{name: "chat completions minimal maps to chat completions", apiFamily: "openai", variant: connectionStringRef("chat_completions_minimal"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationChatCompletions)},
+		{name: "chat completions reasoning none maps to chat completions", apiFamily: "openai", variant: connectionStringRef("chat_completions_reasoning_none"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationChatCompletions)},
+		{name: "unknown openai variant falls back to responses", apiFamily: "openai", variant: connectionStringRef("unknown"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
+		{name: "api family comparison trims and ignores case", apiFamily: " OpenAI ", variant: connectionStringRef("chat_completions_minimal"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationChatCompletions)},
+		{name: "non openai family has no upstream operation", apiFamily: "anthropic", variant: connectionStringRef("chat_completions_minimal"), want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := providercompat.DeriveOpenAIUpstreamOperation(tt.apiFamily, tt.variant)
+			if (got == nil) != (tt.want == nil) {
+				t.Fatalf("expected %v, got %v", tt.want, got)
+			}
+			if got != nil && *got != *tt.want {
+				t.Fatalf("expected upstream operation %q, got %q", *tt.want, *got)
+			}
+		})
+	}
+}
+
+func TestResolveOpenAIProbeEndpointVariantCharacterizesAllAcceptedValues(t *testing.T) {
+	for _, variant := range []string{"responses_minimal", "responses_reasoning_none", "chat_completions_minimal", "chat_completions_reasoning_none"} {
+		t.Run(variant, func(t *testing.T) {
+			got, err := resolveOpenAIProbeEndpointVariant("openai", connectionStringRef(" "+variant+" "))
+			if err != nil {
+				t.Fatalf("expected variant %q to resolve, got %v", variant, err)
+			}
+			if got == nil || *got != variant {
+				t.Fatalf("expected normalized variant %q, got %#v", variant, got)
+			}
+		})
+	}
+	if got, err := resolveOpenAIProbeEndpointVariant("anthropic", connectionStringRef(" \t ")); err != nil || got != nil {
+		t.Fatalf("expected blank non-OpenAI variant to be ignored, got value=%#v err=%v", got, err)
+	}
+}
+
 func TestRouteInt(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/connections/42", nil)
 	routeContext := chi.NewRouteContext()
@@ -119,5 +168,41 @@ func TestRouteInt(t *testing.T) {
 	routeContext.URLParams.Values[0] = "bad"
 	if _, err := routeInt(request, "connection_id"); err == nil {
 		t.Fatal("expected invalid route param to fail")
+	}
+}
+
+func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.T) {
+	modelConfigID := 7
+	contextTokens := 128000
+	preferredThreshold := 0.82
+	name := "primary"
+	authType := "openai"
+	variant := "chat_completions_minimal"
+	upstreamOperation := providercompat.OpenAIUpstreamOperationChatCompletions
+	pricingTemplateID := 11
+	qpsLimit := 12
+	maxNonStream := 3
+	maxStream := 4
+	healthDetail := "ok"
+	checkedAt := time.Date(2026, time.June, 7, 12, 30, 0, 0, time.UTC)
+	now := time.Date(2026, time.June, 7, 12, 0, 0, 0, time.UTC)
+
+	connection := connectionResponse{
+		ID: 42, ProfileID: 5, ModelConfigID: &modelConfigID, APIFamily: "openai", EndpointID: 9,
+		ContextWindowTokens: &contextTokens, ContextWindowTokensOverridden: true,
+		DefaultOutputTokenReserve: 512, DefaultOutputTokenReserveOverridden: true,
+		MaxContextUtilization: 0.9, MaxContextUtilizationOverridden: true,
+		PreferredContextUtilizationThreshold: &preferredThreshold, PreferredContextUtilizationThresholdOverridden: true,
+		IsActive: true, Priority: 2, Name: &name, AuthType: &authType,
+		CustomHeaders: map[string]string{"X-Test": "1"}, OpenAIProbeEndpointVariant: &variant,
+		OpenAIUpstreamOperation: &upstreamOperation, PricingTemplateID: &pricingTemplateID,
+		QPSLimit: &qpsLimit, MaxInFlightNonStream: &maxNonStream, MaxInFlightStream: &maxStream,
+		PricingTemplate: &connectionPricingTemplateSummary{ID: 11, Name: "standard", PricingUnit: "tokens", PricingCurrencyCode: "USD", Version: 1},
+		HealthStatus:    "healthy", HealthDetail: &healthDetail, LastHealthCheck: &checkedAt,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	converted := connectionResponseFromTerminalTargetRecord(terminalTargetRecordFromConnectionResponse(connection))
+	if !reflect.DeepEqual(converted, connection) {
+		t.Fatalf("expected terminal-target adapter to preserve connection response\nwant: %#v\ngot:  %#v", connection, converted)
 	}
 }

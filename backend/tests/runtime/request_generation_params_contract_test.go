@@ -19,126 +19,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func TestRequestGenerationParams_TranslatedResponsesPreserveIngressAttribution(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
-		"id": "generation-translated-responses",
-		"choices": []map[string]any{{
-			"index":         0,
-			"finish_reason": "stop",
-			"message":       map[string]any{"role": "assistant", "content": "translated responses fixture"},
-		}},
-		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 13, "total_tokens": 20},
-	})
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "generation-translated-responses-public", "generation-translated-chat-target", upstream.baseURL("/generation/translated/responses"), "generation-translated-responses-key", "chat_completions_reasoning_none")
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "hidden translated responses prompt", "temperature": 0.4, "max_output_tokens": 256, "reasoning": map[string]any{"effort": "medium"}}, nil)
-	assertStatus(t, response, http.StatusOK)
-	requests := upstream.requestsSnapshot()
-	if len(requests) != 1 {
-		t.Fatalf("expected one translated upstream request, got %d", len(requests))
-	}
-	if requests[0].Path != "/generation/translated/responses/v1/chat/completions" {
-		t.Fatalf("expected translated upstream path %q, got %q", "/generation/translated/responses/v1/chat/completions", requests[0].Path)
-	}
-	if got := requestModelID(t, requests[0].Body); got != route.TargetModelID {
-		t.Fatalf("expected translated upstream model %q, got %q", route.TargetModelID, got)
-	}
-	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
-	assertLatestRequestGenerationParams(t, harness.conn, profileID, "complete", map[string]any{"provider": "openai", "temperature": 0.4, "max_output_tokens": float64(256), "max_output_tokens_source": "max_output_tokens", "reasoning": map[string]any{"effort": "medium", "source_field": "reasoning.effort"}})
-	assertLatestTranslatedIngressPlanningAttribution(t, harness.conn, profileID, "/v1/responses", route.ConnectionID, "openai_responses_heuristic_v1")
-}
-
-func TestRequestGenerationParams_TranslatedChatPreserveIngressAttribution(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
-		"id": "generation-translated-chat",
-		"output": []map[string]any{{
-			"type":    "message",
-			"role":    "assistant",
-			"content": []map[string]any{{"type": "output_text", "text": "translated chat fixture"}},
-		}},
-		"usage": map[string]any{"input_tokens": 7, "output_tokens": 13, "total_tokens": 20},
-	})
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "generation-translated-chat-public", "generation-translated-responses-target", upstream.baseURL("/generation/translated/chat"), "generation-translated-chat-key", "responses_reasoning_none")
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "hidden translated chat prompt"}}, "temperature": 0.7, "top_p": 0.9, "max_completion_tokens": 64, "reasoning_effort": "low"}, nil)
-	assertStatus(t, response, http.StatusOK)
-	requests := upstream.requestsSnapshot()
-	if len(requests) != 1 {
-		t.Fatalf("expected one translated upstream request, got %d", len(requests))
-	}
-	if requests[0].Path != "/generation/translated/chat/v1/responses" {
-		t.Fatalf("expected translated upstream path %q, got %q", "/generation/translated/chat/v1/responses", requests[0].Path)
-	}
-	if got := requestModelID(t, requests[0].Body); got != route.TargetModelID {
-		t.Fatalf("expected translated upstream model %q, got %q", route.TargetModelID, got)
-	}
-	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.chat_completions")
-	assertLatestRequestGenerationParams(t, harness.conn, profileID, "complete", map[string]any{"provider": "openai", "temperature": 0.7, "top_p": 0.9, "max_output_tokens": float64(64), "max_output_tokens_source": "max_completion_tokens", "reasoning": map[string]any{"effort": "low", "source_field": "reasoning_effort"}})
-	assertLatestTranslatedIngressPlanningAttribution(t, harness.conn, profileID, "/v1/chat/completions", route.ConnectionID, "openai_chat_heuristic_v1")
-}
-
-func TestRequestGenerationParams_TranslatedResponsesRejectionPreservesIngressAttribution(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "generation-translated-responses-rejection"})
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "generation-translated-rejection-public", "generation-translated-rejection-target", upstream.baseURL("/generation/translated/rejection"), "generation-translated-rejection-key", "chat_completions_reasoning_none")
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "hidden translated rejection prompt", "text": map[string]any{"format": "json_schema"}, "max_output_tokens": 64}, nil)
-	assertStatus(t, response, http.StatusBadRequest)
-	if got := len(upstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected translated rejection to avoid upstream calls, got %d", got)
-	}
-	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
-	assertLatestRequestGenerationParams(t, harness.conn, profileID, "complete", map[string]any{"provider": "openai", "max_output_tokens": float64(64), "max_output_tokens_source": "max_output_tokens"})
-	assertLatestTranslatedIngressPlanningAttribution(t, harness.conn, profileID, "/v1/responses", route.ConnectionID, "openai_responses_heuristic_v1")
-}
-
-func TestFacadeRequestGenerationParams_TranslatedResponsesRejectionPreservesIngressAttribution(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "generation-facade-translated-rejection"})
-	route := seedTranslatedOpenAIFacadeRoute(t, harness, profileID, "generation-facade-rejection-public", "generation-facade-rejection-target", upstream.baseURL("/generation/facade/translated/rejection"), "generation-facade-rejection-key", "chat_completions_reasoning_none")
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "hidden facade translated rejection prompt", "text": map[string]any{"format": "json_schema"}, "max_output_tokens": 64}, nil)
-	assertStatus(t, response, http.StatusBadRequest)
-	if got := len(upstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected facade translated rejection to avoid upstream calls, got %d", got)
-	}
-	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
-	assertLatestRequestGenerationParams(t, harness.conn, profileID, "complete", map[string]any{"provider": "openai", "max_output_tokens": float64(64), "max_output_tokens_source": "max_output_tokens"})
-	assertLatestTranslatedIngressPlanningAttribution(t, harness.conn, profileID, "/v1/responses", route.ConnectionID, "openai_responses_heuristic_v1")
-}
-
-func TestRequestGenerationParams_TranslatedChatRejectionPreservesIngressAttribution(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "generation-translated-chat-rejection"})
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "generation-translated-chat-rejection-public", "generation-translated-chat-rejection-target", upstream.baseURL("/generation/translated/chat-rejection"), "generation-translated-chat-rejection-key", "responses_reasoning_none")
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"model":                 route.PublicModelID,
-		"messages":              []map[string]any{{"role": "user", "content": "hidden translated chat rejection prompt"}},
-		"n":                     2,
-		"temperature":           0.7,
-		"max_completion_tokens": 32,
-	}, nil)
-	assertStatus(t, response, http.StatusBadRequest)
-	payload := runtimeResponsePayload(t, response)
-	if payload["unsupported_reason"] != "chat_multi_choice" {
-		t.Fatalf("expected translated chat rejection unsupported_reason chat_multi_choice, got %+v", payload)
-	}
-	if got := len(upstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected translated chat rejection to avoid upstream calls, got %d", got)
-	}
-	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.chat_completions")
-	assertLatestRequestGenerationParams(t, harness.conn, profileID, "complete", map[string]any{"provider": "openai", "temperature": 0.7, "max_output_tokens": float64(32), "max_output_tokens_source": "max_completion_tokens"})
-	assertLatestTranslatedIngressPlanningAttribution(t, harness.conn, profileID, "/v1/chat/completions", route.ConnectionID, "openai_chat_heuristic_v1")
-}
-
 func TestRuntimeRequestGenerationParamsPersistProviderMatrix(t *testing.T) {
 	t.Run("OpenAINonStreaming", func(t *testing.T) {
 		harness := newRuntimeHarness(t)
@@ -484,31 +364,6 @@ func newRuntimeImageEditMultipartBody(t *testing.T, model string) ([]byte, strin
 	return body.Bytes(), writer.FormDataContentType()
 }
 
-func seedTranslatedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAIProbeEndpointVariant string) seededRuntimeRoute {
-	t.Helper()
-	suffix := randomSuffix()
-	publicModelID := publicModelPrefix + "-" + suffix
-	targetModelID := targetModelPrefix + "-" + suffix
-	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
-	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-facade-public-"+suffix, "fill-first")
-	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &publicStrategyID)
-	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET facade_enabled = TRUE, facade_selection_policy = 'weighted_eligible_context', facade_fallback_policy = 'redistribute_ineligible_weight', updated_at = $2 WHERE id = $1`, publicModelConfigID, now); err != nil {
-		t.Fatalf("enable translated OpenAI facade model %d: %v", publicModelConfigID, err)
-	}
-	targetStrategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-facade-target-"+suffix, "cheapest_eligible_context")
-	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &targetStrategyID)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, targetModelConfigID, 0, 1, 0)
-	endpointID := harness.seedEndpoint(t, profileID, publicModelPrefix+"-endpoint-"+suffix, endpointBaseURL, endpointAPIKey, 0)
-	connectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAIProbeEndpointVariant)
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, 16_384, 1_024, 1.0, now); err != nil {
-		t.Fatalf("update translated OpenAI facade connection context capabilities: %v", err)
-	}
-	releaseRefresh()
-	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
-	return seededRuntimeRoute{PublicModelID: publicModelID, TargetModelID: targetModelID, ConnectionID: connectionID}
-}
-
 func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAIProbeEndpointVariant string) seededRuntimeRoute {
 	t.Helper()
 	suffix := randomSuffix()
@@ -526,48 +381,6 @@ func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profi
 	}
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return seededRuntimeRoute{PublicModelID: publicModelID, TargetModelID: targetModelID, ConnectionID: connectionID}
-}
-
-func assertLatestTranslatedIngressPlanningAttribution(t *testing.T, conn *pgx.Conn, profileID int, wantRequestPath string, wantSelectedTerminalTargetID int, wantEstimationMethod string) {
-	t.Helper()
-	waitForRuntimeTelemetryCounts(t, conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
-
-	var requestLogPath string
-	var requestLogSelectedTerminalTargetID sql.NullInt64
-	var requestLogEstimationMethod sql.NullString
-	var requestLogContextSelectedTerminalTargetID sql.NullInt64
-	if err := conn.QueryRow(context.Background(), `SELECT request_path, selected_terminal_target_id, context_routing->>'estimation_method', NULLIF(context_routing->>'selected_terminal_target_id', '')::bigint FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`, profileID, ingressRequestID).Scan(&requestLogPath, &requestLogSelectedTerminalTargetID, &requestLogEstimationMethod, &requestLogContextSelectedTerminalTargetID); err != nil {
-		t.Fatalf("load translated request-log attribution: %v", err)
-	}
-	if requestLogPath != wantRequestPath {
-		t.Fatalf("expected translated request_log request_path %q, got %q", wantRequestPath, requestLogPath)
-	}
-	if !requestLogSelectedTerminalTargetID.Valid || int(requestLogSelectedTerminalTargetID.Int64) != wantSelectedTerminalTargetID {
-		t.Fatalf("expected translated request_log selected_terminal_target_id %d, got %+v", wantSelectedTerminalTargetID, requestLogSelectedTerminalTargetID)
-	}
-	if !requestLogEstimationMethod.Valid || requestLogEstimationMethod.String != wantEstimationMethod {
-		t.Fatalf("expected translated request_log estimation_method %q, got %+v", wantEstimationMethod, requestLogEstimationMethod)
-	}
-	if !requestLogContextSelectedTerminalTargetID.Valid || int(requestLogContextSelectedTerminalTargetID.Int64) != wantSelectedTerminalTargetID {
-		t.Fatalf("expected translated request_log context_routing selected_terminal_target_id %d, got %+v", wantSelectedTerminalTargetID, requestLogContextSelectedTerminalTargetID)
-	}
-
-	var usageEventPath string
-	var usageEventSelectedTerminalTargetID sql.NullInt64
-	var usageEventEstimationMethod sql.NullString
-	if err := conn.QueryRow(context.Background(), `SELECT request_path, selected_terminal_target_id, context_routing->>'estimation_method' FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`, profileID, ingressRequestID).Scan(&usageEventPath, &usageEventSelectedTerminalTargetID, &usageEventEstimationMethod); err != nil {
-		t.Fatalf("load translated usage-event attribution: %v", err)
-	}
-	if usageEventPath != wantRequestPath {
-		t.Fatalf("expected translated usage_event request_path %q, got %q", wantRequestPath, usageEventPath)
-	}
-	if !usageEventSelectedTerminalTargetID.Valid || int(usageEventSelectedTerminalTargetID.Int64) != wantSelectedTerminalTargetID {
-		t.Fatalf("expected translated usage_event selected_terminal_target_id %d, got %+v", wantSelectedTerminalTargetID, usageEventSelectedTerminalTargetID)
-	}
-	if !usageEventEstimationMethod.Valid || usageEventEstimationMethod.String != wantEstimationMethod {
-		t.Fatalf("expected translated usage_event estimation_method %q, got %+v", wantEstimationMethod, usageEventEstimationMethod)
-	}
 }
 
 func assertLatestRuntimeOperationName(t *testing.T, conn *pgx.Conn, profileID int, want string) {

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 type TranslationMode string
@@ -41,70 +39,6 @@ type runtimeOpenAITranslationCapability struct {
 	StreamClass       openAITranslationCapabilityClass
 	UnsupportedReason string
 	HTTPStatus        int
-}
-
-type requestTranslationEligibility struct {
-	Supported  bool
-	Capability runtimeOpenAITranslationCapability
-	Rejection  *domainError
-}
-
-type requestTranslationEligibilitySummary struct {
-	byMode map[TranslationMode]requestTranslationEligibility
-}
-
-func buildRequestTranslationEligibilitySummary(operation RuntimeOperation, rawBody []byte) requestTranslationEligibilitySummary {
-	summary := requestTranslationEligibilitySummary{byMode: map[TranslationMode]requestTranslationEligibility{
-		TranslationModeNone: requestTranslationEligibilityFromCapability(newOpenAITranslationCapability(TranslationModeNone)),
-	}}
-	switch strings.TrimSpace(operation.Name) {
-	case openAIUpstreamOperationResponses:
-		mode := TranslationModeOpenAIResponsesToChatCompletions
-		summary.byMode[mode] = requestTranslationEligibilityFromCapability(classifyOpenAITranslationCapability(operation, rawBody, mode))
-	case openAIUpstreamOperationChatCompletions:
-		mode := TranslationModeOpenAIChatCompletionsToResponses
-		summary.byMode[mode] = requestTranslationEligibilityFromCapability(classifyOpenAITranslationCapability(operation, rawBody, mode))
-	}
-	return summary
-}
-
-func buildRequestTranslationEligibilitySummaryForRollout(operation RuntimeOperation, rawBody []byte, rolloutMode config.OpenAITerminalTranslationMode) requestTranslationEligibilitySummary {
-	summary := buildRequestTranslationEligibilitySummary(operation, rawBody)
-	if rolloutMode != config.OpenAITerminalTranslationModeOff {
-		return summary
-	}
-	filtered := requestTranslationEligibilitySummary{byMode: map[TranslationMode]requestTranslationEligibility{
-		TranslationModeNone: summary.byMode[TranslationModeNone],
-	}}
-	for _, mode := range []TranslationMode{TranslationModeOpenAIResponsesToChatCompletions, TranslationModeOpenAIChatCompletionsToResponses} {
-		if _, ok := summary.byMode[mode]; ok {
-			filtered.byMode[mode] = requestTranslationEligibility{Supported: false}
-		}
-	}
-	return filtered
-}
-
-func requestTranslationEligibilityFromCapability(capability runtimeOpenAITranslationCapability) requestTranslationEligibility {
-	rejection := capability.rejection()
-	return requestTranslationEligibility{Supported: rejection == nil, Capability: capability, Rejection: rejection}
-}
-
-func (summary requestTranslationEligibilitySummary) resolveTranslationMode(operation RuntimeOperation, connection runtimeConnection) (TranslationMode, bool, *domainError) {
-	mode := resolveTranslationMode(operation, connection.OpenAIUpstreamOperation, connection.OpenAIProbeEndpointVariant)
-	if mode == TranslationModeNone {
-		return TranslationModeNone, true, nil
-	}
-	eligibility, ok := summary.byMode[mode]
-	if ok && eligibility.Supported {
-		return mode, true, nil
-	}
-	if ok && eligibility.Rejection == nil {
-		return "", false, nil
-	}
-	if ok && eligibility.Rejection != nil {
-		return "", false, cloneDomainError(eligibility.Rejection)
-	}
-	return "", false, openAIRequestTranslationUnsupportedDomainError(mode, "unsupported_request_shape")
 }
 
 func newOpenAITranslationCapability(mode TranslationMode) runtimeOpenAITranslationCapability {
@@ -256,53 +190,6 @@ func resolveTranslationMode(operation RuntimeOperation, upstreamOperation *strin
 		}
 	}
 	return TranslationModeNone
-}
-
-func cloneDomainError(err *domainError) *domainError {
-	if err == nil {
-		return nil
-	}
-	cloned := &domainError{StatusCode: err.StatusCode, ErrorCode: err.ErrorCode, Detail: err.Detail}
-	if len(err.Fields) > 0 {
-		cloned.Fields = make(map[string]any, len(err.Fields))
-		for key, value := range err.Fields {
-			cloned.Fields[key] = value
-		}
-	}
-	cloned.ContextRouting = cloneRuntimeContextRoutingDecision(err.ContextRouting)
-	cloned.SelectedTerminalTargetID = cloneRuntimeIntPointer(err.SelectedTerminalTargetID)
-	cloned.ResolvedTargetModelID = cloneRuntimeStringPointer(err.ResolvedTargetModelID)
-	if err.PlanningFailure != nil {
-		planningFailure := *err.PlanningFailure
-		planningFailure.RequestGenerationParams = err.PlanningFailure.RequestGenerationParams.clone()
-		planningFailure.SelectedTerminalTargetID = cloneRuntimeIntPointer(err.PlanningFailure.SelectedTerminalTargetID)
-		planningFailure.ContextRouting = cloneRuntimeContextRoutingDecision(err.PlanningFailure.ContextRouting)
-		cloned.PlanningFailure = &planningFailure
-	}
-	return cloned
-}
-
-func decorateRequestTranslationRejection(err *domainError, selectedTerminalTargetID *int, contextRouting *runtimeContextRoutingDecision) *domainError {
-	if err == nil {
-		return nil
-	}
-	decorated := cloneDomainError(err)
-	if decorated.SelectedTerminalTargetID == nil {
-		decorated.SelectedTerminalTargetID = cloneRuntimeIntPointer(selectedTerminalTargetID)
-	}
-	if contextRouting != nil {
-		if decorated.ContextRouting == nil {
-			decorated.ContextRouting = cloneRuntimeContextRoutingDecision(contextRouting)
-		} else if contextRouting.FacadeSelection != nil && decorated.ContextRouting.FacadeSelection == nil {
-			mergedContextRouting := cloneRuntimeContextRoutingDecision(decorated.ContextRouting)
-			mergedContextRouting.FacadeSelection = cloneRuntimeFacadeSelectionDecision(contextRouting.FacadeSelection)
-			decorated.ContextRouting = mergedContextRouting
-		}
-	}
-	if decorated.SelectedTerminalTargetID == nil && decorated.ContextRouting != nil {
-		decorated.SelectedTerminalTargetID = cloneRuntimeIntPointer(decorated.ContextRouting.SelectedTerminalTargetID)
-	}
-	return decorated
 }
 
 func isRequestTranslationUnsupportedError(err error) (*domainError, bool) {

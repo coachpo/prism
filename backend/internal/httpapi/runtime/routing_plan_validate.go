@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
 type runtimeRoutingPlanValidationIssue struct {
@@ -252,10 +254,8 @@ func validateRuntimeRoutingPlanTerminalTargetIssues(issues []runtimeRoutingPlanV
 	if strings.TrimSpace(connection.Endpoint.BaseURL) == "" {
 		issues = appendRuntimeRoutingPlanValidationIssue(issues, "terminal_target_base_url_empty", path+".endpoint.base_url", fmt.Sprintf("terminal target %d has an empty endpoint base url", connection.ID))
 	}
-	if strings.TrimSpace(connection.APIFamily) == "openai" && connection.OpenAIUpstreamOperation != nil {
-		switch strings.TrimSpace(*connection.OpenAIUpstreamOperation) {
-		case "", openAIUpstreamOperationResponses, openAIUpstreamOperationChatCompletions:
-		default:
+	if providercompat.IsOpenAI(connection.APIFamily) && connection.OpenAIUpstreamOperation != nil {
+		if !providercompat.IsSupportedOpenAIUpstreamOperation(*connection.OpenAIUpstreamOperation) {
 			issues = appendRuntimeRoutingPlanValidationIssue(issues, "terminal_target_openai_upstream_operation_invalid", path+".openai_upstream_operation", fmt.Sprintf("terminal target %d has unsupported OpenAI upstream operation %q", connection.ID, *connection.OpenAIUpstreamOperation))
 		}
 	}

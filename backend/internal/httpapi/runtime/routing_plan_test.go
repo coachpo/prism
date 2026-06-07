@@ -122,7 +122,7 @@ func TestBuildRequestPlanFromSnapshotCompilesRoutingPlanLazily(t *testing.T) {
 	}
 	snapshot.ModelsByID = map[string]runtimeModelRecord{}
 	snapshot.AccessTargetsBySourceModelID = map[int][]runtimeAccessTargetRecord{}
-	snapshot.ConnectionsByID = map[int]runtimeConnection{}
+	snapshot.TerminalTargetsByID = map[int]runtimeConnection{}
 	snapshot.StrategiesByModelID = map[int]loadbalance.RuntimeStrategy{}
 
 	secondPlan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
@@ -251,9 +251,9 @@ func TestBuildRequestPlanFromSnapshotWeightedPeerFallsBackToTerminalOnlyWhenNoPe
 }
 
 func setRequestPlanConnectionContextWindow(snapshot *planningSnapshot, connectionID int, contextWindowTokens int) {
-	connection := snapshot.ConnectionsByID[connectionID]
+	connection := snapshot.TerminalTargetsByID[connectionID]
 	connection.ContextWindowTokens = intPtr(contextWindowTokens)
 	connection.DefaultOutputTokenReserve = 1_024
 	connection.MaxContextUtilization = 1.0
-	snapshot.ConnectionsByID[connectionID] = connection
+	snapshot.TerminalTargetsByID[connectionID] = connection
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 )
 
@@ -353,7 +354,7 @@ func validateExportedConnectionOwners(models []modelRow, accessTargetsByModelID 
 	for _, model := range models {
 		owner := connectionOwnerRef{ModelID: model.ModelID, DisplayName: model.DisplayName}
 		for _, target := range accessTargetsByModelID[model.ID] {
-			if target.TargetType != "connection" {
+			if !modelrouting.IsTerminalTargetType(target.TargetType) {
 				continue
 			}
 			if target.TargetConnectionID == nil {
@@ -464,8 +465,8 @@ func buildAccessTargetExports(model modelRow, accessTargets []accessTargetRow, c
 	exportedTargets := make([]accessTargetExport, 0, len(accessTargets))
 	for _, target := range accessTargets {
 		exportedTarget := accessTargetExport{Position: target.Position, IsEnabled: target.IsEnabled, TargetType: target.TargetType}
-		switch target.TargetType {
-		case "connection":
+		switch {
+		case modelrouting.IsTerminalTargetType(target.TargetType):
 			if target.TargetConnectionID == nil {
 				return nil, fmt.Errorf("load connection target for model %q", model.ModelID)
 			}
@@ -474,21 +475,13 @@ func buildAccessTargetExports(model modelRow, accessTargets []accessTargetRow, c
 				return nil, fmt.Errorf("load connection %d ref for model %q", *target.TargetConnectionID, model.ModelID)
 			}
 			exportedTarget.ConnectionRef = &ref
-		case "model":
+		case modelrouting.IsModelTargetType(target.TargetType):
 			if target.TargetModelID == nil || strings.TrimSpace(*target.TargetModelID) == "" {
 				return nil, fmt.Errorf("load model target for model %q", model.ModelID)
 			}
 			exportedTarget.TargetModelID = target.TargetModelID
-			weight := intPtrFromOptional(target.Weight)
-			if weight == nil {
-				weight = intPtr(1)
-			}
-			exportedTarget.Weight = weight
-			targetPriority := intPtrFromOptional(target.TargetPriority)
-			if targetPriority == nil {
-				targetPriority = intPtr(target.Position)
-			}
-			exportedTarget.TargetPriority = targetPriority
+			exportedTarget.Weight = intPtr(modelrouting.EffectiveModelTargetWeight(target.Weight))
+			exportedTarget.TargetPriority = intPtr(modelrouting.EffectiveModelTargetPriority(target.Position, target.TargetPriority))
 		default:
 			return nil, fmt.Errorf("load access target type %q for model %q", target.TargetType, model.ModelID)
 		}

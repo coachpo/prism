@@ -9,7 +9,7 @@ func compileRuntimeRoutingPlan(snapshot *planningSnapshot) (*runtimeRoutingPlan,
 	plan := &runtimeRoutingPlan{
 		ModelsByID:          make(map[string]runtimeRoutingPlanModel, len(snapshot.ModelsByID)),
 		ModelsByConfigID:    make(map[int]runtimeRoutingPlanModel, len(snapshot.ModelsByID)),
-		TerminalTargetsByID: make(map[int]runtimeConnection, len(snapshot.ConnectionsByID)),
+		TerminalTargetsByID: make(map[int]runtimeConnection, len(snapshot.TerminalTargetsByID)),
 	}
 
 	modelIDs := make([]string, 0, len(snapshot.ModelsByID))
@@ -33,13 +33,13 @@ func compileRuntimeRoutingPlan(snapshot *planningSnapshot) (*runtimeRoutingPlan,
 		plan.ModelsByConfigID[model.ID] = compiled
 	}
 
-	connectionIDs := make([]int, 0, len(snapshot.ConnectionsByID))
-	for connectionID := range snapshot.ConnectionsByID {
+	connectionIDs := make([]int, 0, len(snapshot.TerminalTargetsByID))
+	for connectionID := range snapshot.TerminalTargetsByID {
 		connectionIDs = append(connectionIDs, connectionID)
 	}
 	sort.Ints(connectionIDs)
 	for _, connectionID := range connectionIDs {
-		plan.TerminalTargetsByID[connectionID] = snapshot.ConnectionsByID[connectionID]
+		plan.TerminalTargetsByID[connectionID] = snapshot.TerminalTargetsByID[connectionID]
 	}
 	return plan, nil
 }

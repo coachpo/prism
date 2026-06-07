@@ -136,7 +136,6 @@ func (s *Service) handleUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 			return endpointResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
 		}
 
-		clearDependentRecoveryState := false
 		if requestBody.Name.Set {
 			endpointName := strings.TrimSpace(stringValue(requestBody.Name.Value))
 			if endpointName == "" {
@@ -152,27 +151,15 @@ func (s *Service) handleUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 			if warnings := endpointdomain.ValidateBaseURL(normalizedURL); len(warnings) > 0 {
 				return endpointResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: strings.Join(warnings, "; ")}
 			}
-			if normalizedURL != record.BaseURL {
-				clearDependentRecoveryState = true
-			}
 			record.BaseURL = normalizedURL
 		}
 		if requestBody.APIKey.Set && strings.TrimSpace(stringValue(requestBody.APIKey.Value)) != "" {
 			incomingAPIKey := stringValue(requestBody.APIKey.Value)
-			currentAPIKey, decryptErr := endpointdomain.DecryptSecret(record.APIKey, s.secretEncryptionKey)
-			if decryptErr != nil || currentAPIKey != incomingAPIKey {
-				clearDependentRecoveryState = true
-			}
 			encryptedAPIKey, encryptErr := endpointdomain.EncryptSecret(incomingAPIKey, s.secretEncryptionKey, s.now)
 			if encryptErr != nil {
 				return endpointResponse{}, encryptErr
 			}
 			record.APIKey = encryptedAPIKey
-		}
-		if clearDependentRecoveryState {
-			if _, err := listEndpointUsageRows(r.Context(), tx, profile.ID, record.ID); err != nil {
-				return endpointResponse{}, err
-			}
 		}
 		record.UpdatedAt = s.nowUTC()
 		updated, err := updateEndpointRecord(r.Context(), tx, record)
@@ -378,13 +365,11 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
-	var endpointErr *domainError
-	if errors.As(err, &endpointErr) {
+	if endpointErr, ok := errors.AsType[*domainError](err); ok {
 		writeError(w, r, corsSnapshot, endpointErr.StatusCode, endpointErr.Detail)
 		return
 	}
-	var profileErr *profiledomain.HTTPError
-	if errors.As(err, &profileErr) {
+	if profileErr, ok := errors.AsType[*profiledomain.HTTPError](err); ok {
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}

@@ -67,19 +67,19 @@ func TestTranslationCapability(t *testing.T) {
 			if capability.UnsupportedReason != test.wantReason {
 				t.Fatalf("expected unsupported reason %q, got %+v", test.wantReason, capability)
 			}
-			eligibility := requestTranslationEligibilityFromCapability(capability)
-			if eligibility.Supported != test.wantSupported {
-				t.Fatalf("expected supported=%v, got %+v", test.wantSupported, eligibility)
+			if capability.supported() != test.wantSupported {
+				t.Fatalf("expected supported=%v, got %+v", test.wantSupported, capability)
 			}
 			if !test.wantSupported {
-				if eligibility.Rejection == nil {
+				rejection := capability.rejection()
+				if rejection == nil {
 					t.Fatal("expected rejected capability to produce domain error")
 				}
-				if eligibility.Rejection.StatusCode != http.StatusBadRequest || eligibility.Rejection.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
-					t.Fatalf("expected pinned rejection contract, got %+v", eligibility.Rejection)
+				if rejection.StatusCode != http.StatusBadRequest || rejection.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
+					t.Fatalf("expected pinned rejection contract, got %+v", rejection)
 				}
-				if got := stringValue(eligibility.Rejection.Fields["unsupported_reason"]); got != test.wantReason {
-					t.Fatalf("expected rejection reason %q, got %+v", test.wantReason, eligibility.Rejection.Fields)
+				if got := stringValue(rejection.Fields["unsupported_reason"]); got != test.wantReason {
+					t.Fatalf("expected rejection reason %q, got %+v", test.wantReason, rejection.Fields)
 				}
 			}
 		})
@@ -197,35 +197,100 @@ func TestTranslateOpenAIRequestRejectsUnsupportedShape(t *testing.T) {
 	}
 }
 
-func TestBuildRequestPlan_TranslationEligibilityResponsesTranslationEligible(t *testing.T) {
-	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-target-model"},
-	)
-	addRequestPlanProxyTarget(snapshot, "responses-public", "chat-target-model")
-	child := snapshot.ModelsByID["chat-target-model"]
-	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
-	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_801, 9_801, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationChatCompletions)})
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"responses-public","input":"hello","max_output_tokens":24}`)
-	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	if err != nil {
-		t.Fatalf("build translated responses request plan: %v", err)
+func TestCodingAgentFormatBridgePlanRequestResponsesToChat(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	bridge := NewCodingAgentFormatBridge("safe_only")
+	connection := runtimeConnection{
+		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
+		OpenAIUpstreamOperation:    stringPtr(openAIUpstreamOperationChatCompletions),
 	}
-	if plan.EffectiveRequestPath != "/v1/chat/completions" {
-		t.Fatalf("expected translated effective request path, got %q", plan.EffectiveRequestPath)
+	rawBody := []byte(`{"model":"responses-public","input":"hello","max_output_tokens":24}`)
+
+	plan, translated, err := bridge.PlanRequest(operation, rawBody, "chat-target-model", connection)
+	if err != nil {
+		t.Fatalf("plan bridge responses-to-chat request: %v", err)
+	}
+	if !translated {
+		t.Fatal("expected bridge to translate responses request for chat target")
+	}
+	if plan.TranslationMode != TranslationModeOpenAIResponsesToChatCompletions {
+		t.Fatalf("expected responses-to-chat mode, got %q", plan.TranslationMode)
+	}
+	if plan.UpstreamRequestPath != "/v1/chat/completions" {
+		t.Fatalf("expected translated path /v1/chat/completions, got %q", plan.UpstreamRequestPath)
 	}
 	if got := extractModelFromBody(plan.UpstreamBody); got != "chat-target-model" {
 		t.Fatalf("expected translated target model chat-target-model, got %q", got)
 	}
-	if got := plan.TerminalAttempts[0].TranslationMode; got != TranslationModeOpenAIResponsesToChatCompletions {
-		t.Fatalf("expected responses-to-chat translation mode, got %q", got)
+}
+
+func TestCodingAgentFormatBridgePlanRequestChatToResponses(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	bridge := NewCodingAgentFormatBridge("safe_only")
+	connection := runtimeConnection{
+		OpenAIProbeEndpointVariant: stringPtr("responses_reasoning_none"),
+		OpenAIUpstreamOperation:    stringPtr(openAIUpstreamOperationResponses),
+	}
+	rawBody := []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":32}`)
+
+	plan, translated, err := bridge.PlanRequest(operation, rawBody, "responses-target-model", connection)
+	if err != nil {
+		t.Fatalf("plan bridge chat-to-responses request: %v", err)
+	}
+	if !translated {
+		t.Fatal("expected bridge to translate chat request for responses target")
+	}
+	if plan.TranslationMode != TranslationModeOpenAIChatCompletionsToResponses {
+		t.Fatalf("expected chat-to-responses mode, got %q", plan.TranslationMode)
+	}
+	if plan.UpstreamRequestPath != "/v1/responses" {
+		t.Fatalf("expected translated path /v1/responses, got %q", plan.UpstreamRequestPath)
+	}
+	if got := extractModelFromBody(plan.UpstreamBody); got != "responses-target-model" {
+		t.Fatalf("expected translated target model responses-target-model, got %q", got)
 	}
 }
 
-func TestBuildRequestPlan_TranslationEligibilityNativeSupportWins(t *testing.T) {
+func TestCodingAgentFormatBridgePlanRequestRejectsUnsupportedShape(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	bridge := NewCodingAgentFormatBridge("safe_only")
+	connection := runtimeConnection{
+		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
+		OpenAIUpstreamOperation:    stringPtr(openAIUpstreamOperationChatCompletions),
+	}
+	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"}}`)
+
+	_, translated, err := bridge.PlanRequest(operation, rawBody, "chat-target-model", connection)
+	if !translated {
+		t.Fatal("expected bridge to identify translation target")
+	}
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected domain error, got %v", err)
+	}
+	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode || domainErr.Detail != openAIRequestTranslationUnsupportedDetail {
+		t.Fatalf("expected pinned translation 400 contract, got %+v", domainErr)
+	}
+	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text" {
+		t.Fatalf("expected unsupported reason responses_text, got %+v", domainErr.Fields)
+	}
+}
+
+func TestBuildRequestPlan_NonNativeOpenAITargetIsNotSelectedByGenericPlanner(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"})
+	model := snapshot.ModelsByID["responses-public"]
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_821, 9_821, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationChatCompletions)})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"responses-public","input":"hello"}`)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'responses-public'.")
+}
+
+func TestBuildRequestPlan_NativeOpenAITargetWinsOverNonNative(t *testing.T) {
 	service := newRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"})
 	model := snapshot.ModelsByID["responses-public"]
@@ -235,6 +300,7 @@ func TestBuildRequestPlan_TranslationEligibilityNativeSupportWins(t *testing.T) 
 	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"}}`)
+
 	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
 		t.Fatalf("build native-support request plan: %v", err)
@@ -247,153 +313,6 @@ func TestBuildRequestPlan_TranslationEligibilityNativeSupportWins(t *testing.T) 
 	}
 	if got := plan.TerminalAttempts[0].TranslationMode; got != TranslationModeNone {
 		t.Fatalf("expected native support to use translation mode none, got %q", got)
-	}
-}
-
-func TestBuildRequestPlan_TranslationEligibilityRejectsUnsupportedShapeWithoutTransport(t *testing.T) {
-	service := newRequestPlanUnitService()
-	transport := &ingressRoundTripRecorder{}
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"})
-	model := snapshot.ModelsByID["responses-public"]
-	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
-	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_821, 9_821, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationChatCompletions)})
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"}}`)
-	_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
-	var domainErr *domainError
-	if !errors.As(err, &domainErr) {
-		t.Fatalf("expected domain error, got %v", err)
-	}
-	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode || domainErr.Detail != openAIRequestTranslationUnsupportedDetail {
-		t.Fatalf("expected pinned translation 400 contract, got %+v", domainErr)
-	}
-	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text" {
-		t.Fatalf("expected unsupported reason responses_text, got %+v", domainErr.Fields)
-	}
-	if got := transport.calls.Load(); got != 0 {
-		t.Fatalf("expected unsupported translated shape to avoid transport calls, got %d", got)
-	}
-}
-
-func TestBuildRequestPlan_TranslationPreservesResponsesIngressEstimation(t *testing.T) {
-	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-target-model"},
-	)
-	child := snapshot.ModelsByID["chat-target-model"]
-	setRequestPlanStrategyType(snapshot, child, "cheapest_eligible_context")
-	addRequestPlanProxyTarget(snapshot, "responses-public", "chat-target-model")
-	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
-	contextWindowTokens := 8_192
-	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_831, 9_831, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: 1.0, openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationChatCompletions)})
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"responses-public","input":"hello","max_output_tokens":24}`)
-	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	if err != nil {
-		t.Fatalf("build translated responses request plan: %v", err)
-	}
-	if plan.RuntimeOperation.Name != openAIUpstreamOperationResponses {
-		t.Fatalf("expected ingress operation %q, got %q", openAIUpstreamOperationResponses, plan.RuntimeOperation.Name)
-	}
-	if plan.EffectiveRequestPath != "/v1/chat/completions" {
-		t.Fatalf("expected translated effective request path, got %q", plan.EffectiveRequestPath)
-	}
-	if plan.RequestContextEstimation == nil || plan.RequestContextEstimation.Method != openAIResponsesContextEstimationMethod {
-		t.Fatalf("expected ingress responses estimation method %q, got %+v", openAIResponsesContextEstimationMethod, plan.RequestContextEstimation)
-	}
-	if plan.RequestContextEstimation.ReservedOutputTokens != 24 {
-		t.Fatalf("expected ingress responses reserved output tokens 24, got %+v", plan.RequestContextEstimation)
-	}
-	if plan.ContextRouting == nil || plan.ContextRouting.EstimationMethod == nil || *plan.ContextRouting.EstimationMethod != openAIResponsesContextEstimationMethod {
-		t.Fatalf("expected ingress responses context-routing metadata, got %+v", plan.ContextRouting)
-	}
-	if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_831 {
-		t.Fatalf("expected selected terminal target 2831, got %+v", plan.SelectedTerminalTargetID)
-	}
-	if plan.RequestGenerationParams.Status != requestGenerationParamsStatusComplete || plan.RequestGenerationParams.Params == nil || plan.RequestGenerationParams.Params.MaxOutputTokensSource == nil || *plan.RequestGenerationParams.Params.MaxOutputTokensSource != "max_output_tokens" {
-		t.Fatalf("expected ingress responses request-generation params, got %+v", plan.RequestGenerationParams)
-	}
-}
-
-func TestBuildRequestPlan_TranslationPreservesChatIngressEstimation(t *testing.T) {
-	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "chat-public"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "responses-target-model"},
-	)
-	child := snapshot.ModelsByID["responses-target-model"]
-	setRequestPlanStrategyType(snapshot, child, "cheapest_eligible_context")
-	addRequestPlanProxyTarget(snapshot, "chat-public", "responses-target-model")
-	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
-	contextWindowTokens := 8_192
-	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_832, 9_832, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: 1.0, openAIProbeEndpointVariant: stringPtr("responses_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationResponses)})
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":32,"reasoning_effort":"low"}`)
-	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	if err != nil {
-		t.Fatalf("build translated chat request plan: %v", err)
-	}
-	if plan.RuntimeOperation.Name != openAIUpstreamOperationChatCompletions {
-		t.Fatalf("expected ingress operation %q, got %q", openAIUpstreamOperationChatCompletions, plan.RuntimeOperation.Name)
-	}
-	if plan.EffectiveRequestPath != "/v1/responses" {
-		t.Fatalf("expected translated effective request path, got %q", plan.EffectiveRequestPath)
-	}
-	if plan.RequestContextEstimation == nil || plan.RequestContextEstimation.Method != openAIChatContextEstimationMethod {
-		t.Fatalf("expected ingress chat estimation method %q, got %+v", openAIChatContextEstimationMethod, plan.RequestContextEstimation)
-	}
-	if plan.RequestContextEstimation.ReservedOutputTokens != 32 {
-		t.Fatalf("expected ingress chat reserved output tokens 32, got %+v", plan.RequestContextEstimation)
-	}
-	if plan.ContextRouting == nil || plan.ContextRouting.EstimationMethod == nil || *plan.ContextRouting.EstimationMethod != openAIChatContextEstimationMethod {
-		t.Fatalf("expected ingress chat context-routing metadata, got %+v", plan.ContextRouting)
-	}
-	if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_832 {
-		t.Fatalf("expected selected terminal target 2832, got %+v", plan.SelectedTerminalTargetID)
-	}
-	if plan.RequestGenerationParams.Status != requestGenerationParamsStatusComplete || plan.RequestGenerationParams.Params == nil || plan.RequestGenerationParams.Params.MaxOutputTokensSource == nil || *plan.RequestGenerationParams.Params.MaxOutputTokensSource != "max_completion_tokens" {
-		t.Fatalf("expected ingress chat request-generation params, got %+v", plan.RequestGenerationParams)
-	}
-}
-
-func TestBuildRequestPlan_TranslationUnsupportedPreservesResponsesIngressEstimation(t *testing.T) {
-	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-target-model"},
-	)
-	child := snapshot.ModelsByID["chat-target-model"]
-	setRequestPlanStrategyType(snapshot, child, "cheapest_eligible_context")
-	addRequestPlanProxyTarget(snapshot, "responses-public", "chat-target-model")
-	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
-	contextWindowTokens := 8_192
-	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_841, 9_841, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: 1.0, openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationChatCompletions)})
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"},"max_output_tokens":48}`)
-	_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	var domainErr *domainError
-	if !errors.As(err, &domainErr) {
-		t.Fatalf("expected domain error, got %v", err)
-	}
-	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
-		t.Fatalf("expected translated unsupported-shape 400, got %+v", domainErr)
-	}
-	if domainErr.SelectedTerminalTargetID == nil || *domainErr.SelectedTerminalTargetID != 2_841 {
-		t.Fatalf("expected selected terminal target 2841 on translated rejection, got %+v", domainErr.SelectedTerminalTargetID)
-	}
-	if domainErr.ContextRouting == nil || domainErr.ContextRouting.EstimationMethod == nil || *domainErr.ContextRouting.EstimationMethod != openAIResponsesContextEstimationMethod {
-		t.Fatalf("expected ingress responses context-routing metadata on translated rejection, got %+v", domainErr.ContextRouting)
-	}
-	if domainErr.ContextRouting.SelectedTerminalTargetID == nil || *domainErr.ContextRouting.SelectedTerminalTargetID != 2_841 {
-		t.Fatalf("expected context-routing selected terminal target 2841 on translated rejection, got %+v", domainErr.ContextRouting)
-	}
-	if domainErr.ContextRouting.ReservedOutputTokens == nil || *domainErr.ContextRouting.ReservedOutputTokens != 48 {
-		t.Fatalf("expected translated rejection to keep reserved output tokens 48, got %+v", domainErr.ContextRouting)
 	}
 }
 

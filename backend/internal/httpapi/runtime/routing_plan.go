@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 )
 
 type runtimeRoutingPlan struct {
@@ -112,13 +113,13 @@ func (plan *runtimeRoutingPlan) terminalConnectionForAccessTarget(sourceModel ru
 	if !ok {
 		return runtimeConnection{}, false
 	}
-	if connection.ProfileID != sourceModel.ProfileID || !sameRuntimeAPIFamily(connection.APIFamily, sourceModel.APIFamily) {
+	if connection.ProfileID != sourceModel.ProfileID || !modelrouting.SameAPIFamily(connection.APIFamily, sourceModel.APIFamily) {
 		return runtimeConnection{}, false
 	}
 	if target.TargetConnectionProfileID != 0 && target.TargetConnectionProfileID != sourceModel.ProfileID {
 		return runtimeConnection{}, false
 	}
-	if strings.TrimSpace(target.TargetConnectionAPIFamily) != "" && !sameRuntimeAPIFamily(target.TargetConnectionAPIFamily, sourceModel.APIFamily) {
+	if strings.TrimSpace(target.TargetConnectionAPIFamily) != "" && !modelrouting.SameAPIFamily(target.TargetConnectionAPIFamily, sourceModel.APIFamily) {
 		return runtimeConnection{}, false
 	}
 	return connection, true
@@ -128,14 +129,14 @@ func (plan *runtimeRoutingPlan) modelForAccessTarget(sourceModel runtimeModelRec
 	if plan == nil || target.TargetModelConfigID == nil || !target.TargetModelEnabled {
 		return runtimeModelRecord{}, false, nil
 	}
-	if target.TargetModelProfileID != sourceModel.ProfileID || !sameRuntimeAPIFamily(target.TargetModelAPIFamily, sourceModel.APIFamily) {
+	if target.TargetModelProfileID != sourceModel.ProfileID || !modelrouting.SameAPIFamily(target.TargetModelAPIFamily, sourceModel.APIFamily) {
 		return runtimeModelRecord{}, false, nil
 	}
 	childModel, ok := plan.requestedModelByID(target.TargetModelID)
 	if !ok || childModel.ID != *target.TargetModelConfigID {
 		return runtimeModelRecord{}, false, nil
 	}
-	if childModel.ProfileID != sourceModel.ProfileID || !sameRuntimeAPIFamily(childModel.APIFamily, sourceModel.APIFamily) {
+	if childModel.ProfileID != sourceModel.ProfileID || !modelrouting.SameAPIFamily(childModel.APIFamily, sourceModel.APIFamily) {
 		return runtimeModelRecord{}, false, nil
 	}
 	if childModel.FacadeEnabled {

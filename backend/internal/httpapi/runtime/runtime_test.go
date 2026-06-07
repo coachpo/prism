@@ -16,6 +16,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
 func TestModelResolutionAndRewriteHelpers(t *testing.T) {
@@ -226,7 +227,7 @@ func TestBuildRequestPlan_ContextEstimationUnavailableChatPassesThroughWithoutTr
 	}
 }
 
-func TestBuildRequestPlan_ContextEstimationUnavailableTranslatedShapeStillRejects(t *testing.T) {
+func TestBuildRequestPlan_NonNativeTranslatedShapeDoesNotSelectGenericTarget(t *testing.T) {
 	serviceFactories := []struct {
 		name    string
 		service func() *Service
@@ -258,18 +259,9 @@ func TestBuildRequestPlan_ContextEstimationUnavailableTranslatedShapeStillReject
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
 			_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
-			var domainErr *domainError
-			if !errors.As(err, &domainErr) {
-				t.Fatalf("expected domain error, got %v", err)
-			}
-			if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
-				t.Fatalf("expected translated unsupported-shape 400, got %+v", domainErr)
-			}
-			if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_previous_response_id" {
-				t.Fatalf("expected unsupported reason responses_previous_response_id, got %+v", domainErr.Fields)
-			}
+			assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'responses-public'.")
 			if got := transport.calls.Load(); got != 0 {
-				t.Fatalf("expected translated unsupported shape to avoid transport calls, got %d", got)
+				t.Fatalf("expected generic planner rejection to avoid transport calls, got %d", got)
 			}
 		})
 	}
@@ -1146,7 +1138,7 @@ func TestResolveExecutionTarget_NoEligibleTargetsReturns503(t *testing.T) {
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "empty-openai"})
 	snapshot.AccessTargetsBySourceModelID[1] = nil
 
-	_, err := service.resolveExecutionTargetFromSnapshot(requestPlanTestProfileID, snapshot, snapshot.ModelsByID["empty-openai"], mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation, requestTranslationEligibilitySummary{}, nil, service.nowUTC())
+	_, err := service.resolveExecutionTargetFromSnapshot(requestPlanTestProfileID, snapshot, snapshot.ModelsByID["empty-openai"], mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation, nil, service.nowUTC())
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'empty-openai'.")
 }
 
@@ -2158,7 +2150,7 @@ func TestOpenAIProbeCapabilityDerivation(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := deriveOpenAIUpstreamOperation(test.apiFamily, test.variant)
+			got := providercompat.DeriveOpenAIUpstreamOperation(test.apiFamily, test.variant)
 			if test.want == nil {
 				if got != nil {
 					t.Fatalf("expected nil upstream operation, got %q", *got)
@@ -2283,7 +2275,7 @@ func TestRuntimeFacadeRejectsInvalidRecursiveTargetPolicies(t *testing.T) {
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, runtimeNestedFacadesNotSupportedDetail)
 }
 
-func TestRuntimeFacadeCandidateEvaluationReusesTranslatedRejection(t *testing.T) {
+func TestRuntimeFacadeCandidateEvaluationRejectsNonNativeChildWithoutTranslation(t *testing.T) {
 	service := newRequestPlanUnitService()
 	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
@@ -2308,7 +2300,7 @@ func TestRuntimeFacadeCandidateEvaluationReusesTranslatedRejection(t *testing.T)
 	rawBody := []byte(`{"model":"router-openai","input":"hello","text":{"format":"json_schema"},"max_output_tokens":48}`)
 	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, router)
 	if err != nil {
-		t.Fatalf("estimate facade translation rejection request context: %v", err)
+		t.Fatalf("estimate facade native-only request context: %v", err)
 	}
 
 	evaluation, err := service.evaluateAccessTargetCandidateFromSnapshot(
@@ -2320,31 +2312,13 @@ func TestRuntimeFacadeCandidateEvaluationReusesTranslatedRejection(t *testing.T)
 		newRuntimeAccessResolutionContextForTest(service, router, operationMatch.Operation, rawBody, estimation),
 	)
 	if err != nil {
-		t.Fatalf("evaluate facade translated rejection candidate: %v", err)
+		t.Fatalf("evaluate facade native-only candidate: %v", err)
 	}
 	if evaluation.eligibleCandidate != nil {
-		t.Fatalf("expected no eligible candidate for translated rejection, got %+v", evaluation.eligibleCandidate)
+		t.Fatalf("expected no eligible candidate for non-native child terminal, got %+v", evaluation.eligibleCandidate)
 	}
-	if evaluation.translatedRejectedCandidate != nil {
-		t.Fatalf("expected recursive translated rejection to reuse child decoration instead of local rejection ranking, got %+v", evaluation.translatedRejectedCandidate)
-	}
-	if evaluation.translationRejection == nil {
-		t.Fatal("expected translated rejection to be preserved on facade candidate evaluation")
-	}
-	if got := stringValue(evaluation.translationRejection.Fields["unsupported_reason"]); got != "responses_text" {
-		t.Fatalf("expected translated rejection reason responses_text, got %+v", evaluation.translationRejection.Fields)
-	}
-	if evaluation.translationRejection.StatusCode != http.StatusBadRequest || evaluation.translationRejection.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
-		t.Fatalf("expected pinned translated rejection contract, got %+v", evaluation.translationRejection)
-	}
-	if evaluation.translationRejection.SelectedTerminalTargetID == nil || *evaluation.translationRejection.SelectedTerminalTargetID != 2_841 {
-		t.Fatalf("expected selected terminal target 2841 on reused facade translation rejection, got %+v", evaluation.translationRejection.SelectedTerminalTargetID)
-	}
-	if evaluation.translationRejection.ContextRouting == nil || evaluation.translationRejection.ContextRouting.EstimationMethod == nil || *evaluation.translationRejection.ContextRouting.EstimationMethod != openAIResponsesContextEstimationMethod {
-		t.Fatalf("expected ingress responses estimation metadata on reused facade translation rejection, got %+v", evaluation.translationRejection.ContextRouting)
-	}
-	if evaluation.translationRejection.ContextRouting.ReservedOutputTokens == nil || *evaluation.translationRejection.ContextRouting.ReservedOutputTokens != 48 {
-		t.Fatalf("expected reused facade translation rejection to keep reserved output tokens 48, got %+v", evaluation.translationRejection.ContextRouting)
+	if evaluation.contextFitEvaluated {
+		t.Fatalf("expected non-native child terminal to be filtered before context fit evaluation")
 	}
 }
 
@@ -2382,8 +2356,8 @@ func TestRuntimeFacadeCandidateEvaluationReusesHardContextFiltering(t *testing.T
 	if err != nil {
 		t.Fatalf("evaluate facade hard-context candidate: %v", err)
 	}
-	if evaluation.eligibleCandidate != nil || evaluation.translatedRejectedCandidate != nil || evaluation.translationRejection != nil {
-		t.Fatalf("expected no eligible or translated candidate for hard-context facade rejection, got eligible=%+v translated=%+v rejection=%+v", evaluation.eligibleCandidate, evaluation.translatedRejectedCandidate, evaluation.translationRejection)
+	if evaluation.eligibleCandidate != nil {
+		t.Fatalf("expected no eligible candidate for hard-context facade rejection, got %+v", evaluation.eligibleCandidate)
 	}
 	if !evaluation.contextFitEvaluated || evaluation.largestUsableContextWindowTokens != smallContextWindowTokens {
 		t.Fatalf("expected facade hard-context evaluation to preserve largest usable window %d, got evaluated=%t usable=%d", smallContextWindowTokens, evaluation.contextFitEvaluated, evaluation.largestUsableContextWindowTokens)
@@ -2453,7 +2427,7 @@ func TestRuntimeFacadeCandidateEvaluationReusesPreferredContextCostAndRuntimeSta
 	seededAt := service.nowUTC().Add(-time.Minute)
 	bannedUntil := service.nowUTC().Add(time.Minute)
 	service.runtimeState.SeedConnectionState(requestPlanTestProfileID, child.ID, 2_861, loadbalance.RuntimeConnectionState{ConnectionID: 2_861, BanMode: "temporary", BannedUntilAt: &bannedUntil}, seededAt, seededAt)
-	selectedConnection := snapshot.ConnectionsByID[2_862]
+	selectedConnection := snapshot.TerminalTargetsByID[2_862]
 	expectedCostMicros, expectedPriced := estimateRuntimeBlendedRequestCost(selectedConnection, estimation)
 
 	evaluation, err := service.evaluateAccessTargetCandidateFromSnapshot(
@@ -2467,8 +2441,8 @@ func TestRuntimeFacadeCandidateEvaluationReusesPreferredContextCostAndRuntimeSta
 	if err != nil {
 		t.Fatalf("evaluate facade preferred-context candidate: %v", err)
 	}
-	if evaluation.translationRejection != nil || evaluation.translatedRejectedCandidate != nil || evaluation.eligibleCandidate == nil {
-		t.Fatalf("expected one eligible facade candidate with no translation rejection, got eligible=%+v translated=%+v rejection=%+v", evaluation.eligibleCandidate, evaluation.translatedRejectedCandidate, evaluation.translationRejection)
+	if evaluation.eligibleCandidate == nil {
+		t.Fatalf("expected one eligible facade candidate, got nil")
 	}
 	candidate := evaluation.eligibleCandidate
 	if candidate.contextBand != runtimeContextEligibilityBandPreferred {
@@ -2567,13 +2541,11 @@ func TestRuntimeExactOpenAIFacadeRequiresContextEstimation(t *testing.T) {
 	addRequestPlanConnectionTargetWithOptions(snapshot, targetModel, 2_911, 9_911, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, defaultOutputTokenReserve: 1_024, maxContextUtilization: 1.0})
 
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
-	rawBody := []byte(`{"model":"facade-router-openai","messages":[{"role":"user","content":"missing estimation should fail closed"}]}`)
 	_, err := service.resolveExecutionTargetFromSnapshot(
 		requestPlanTestProfileID,
 		snapshot,
 		facadeModel,
 		operationMatch.Operation,
-		buildRequestTranslationEligibilitySummary(operationMatch.Operation, rawBody),
 		nil,
 		service.nowUTC(),
 	)
@@ -2619,7 +2591,7 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 	snapshot := &planningSnapshot{
 		ModelsByID:                   map[string]runtimeModelRecord{},
 		AccessTargetsBySourceModelID: map[int][]runtimeAccessTargetRecord{},
-		ConnectionsByID:              map[int]runtimeConnection{},
+		TerminalTargetsByID:          map[int]runtimeConnection{},
 		StrategiesByModelID:          map[int]loadbalance.RuntimeStrategy{},
 		ReportCurrency:               runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
 	}
@@ -2636,7 +2608,7 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 		snapshot.ModelsByID[model.ModelID] = model
 		snapshot.StrategiesByModelID[model.ID] = strategy
 		connectionID := 1_000 + model.ID
-		snapshot.ConnectionsByID[connectionID] = runtimeConnection{
+		snapshot.TerminalTargetsByID[connectionID] = runtimeConnection{
 			ID:            connectionID,
 			ProfileID:     model.ProfileID,
 			APIFamily:     model.APIFamily,
@@ -2707,7 +2679,7 @@ func addRequestPlanConnectionTarget(snapshot *planningSnapshot, model runtimeMod
 }
 
 func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model runtimeModelRecord, connectionID int, targetID int, position int, options requestPlanConnectionTargetOptions) {
-	snapshot.ConnectionsByID[connectionID] = runtimeConnection{
+	snapshot.TerminalTargetsByID[connectionID] = runtimeConnection{
 		ID:                                   connectionID,
 		ProfileID:                            model.ProfileID,
 		APIFamily:                            model.APIFamily,
@@ -2750,7 +2722,6 @@ func newRuntimeAccessResolutionContextForTest(service *Service, model runtimeMod
 		RequestedModelID:         model.ModelID,
 		RequestedAPIFamily:       model.APIFamily,
 		RequestOperation:         operation,
-		TranslationEligibility:   buildRequestTranslationEligibilitySummary(operation, rawBody),
 		RequestContextEstimation: estimation,
 		VisitedModelIDs:          map[int]struct{}{model.ID: struct{}{}},
 		ConsideredModelPath:      appendRuntimeModelPath(nil, model.ModelID),

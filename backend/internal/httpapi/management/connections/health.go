@@ -17,15 +17,10 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
 const healthCheckRequestTimeout = 30 * time.Second
-
-type apiFamilyAuthConfig struct {
-	AuthHeader   string
-	AuthPrefix   string
-	ExtraHeaders map[string]string
-}
 
 type healthCheckProbeResult struct {
 	HealthStatus   string
@@ -54,26 +49,6 @@ type connectionHealthProbeInput struct {
 	OpenAIProbeEndpointVariant *string
 	HeaderBlocklistRules       []headerBlocklistRuleRecord
 	WritebackExpectedUpdatedAt *time.Time
-}
-
-var healthCheckAuthConfigs = map[string]apiFamilyAuthConfig{
-	"openai": {
-		AuthHeader:   "Authorization",
-		AuthPrefix:   "Bearer ",
-		ExtraHeaders: map[string]string{},
-	},
-	"anthropic": {
-		AuthHeader: "x-api-key",
-		AuthPrefix: "",
-		ExtraHeaders: map[string]string{
-			"anthropic-version": "2023-06-01",
-		},
-	},
-	"gemini": {
-		AuthHeader:   "Authorization",
-		AuthPrefix:   "Bearer ",
-		ExtraHeaders: map[string]string{},
-	},
 }
 
 func (s *Service) handleConnectionHealthCheck(w http.ResponseWriter, r *http.Request) {
@@ -290,34 +265,29 @@ func (s *Service) probeConnectionHealth(ctx context.Context, input connectionHea
 	if err != nil {
 		return healthCheckProbeResult{}, err
 	}
-	openAIVariant := defaultOpenAIProbeEndpointVariant
-	if input.OpenAIProbeEndpointVariant != nil && strings.TrimSpace(*input.OpenAIProbeEndpointVariant) != "" {
-		openAIVariant = strings.TrimSpace(*input.OpenAIProbeEndpointVariant)
-	}
-
-	endpointPingPath, endpointPingBody, err := buildHealthCheckRequest(input.APIFamily, input.ModelID, openAIVariant)
+	endpointPingRequest, err := providercompat.BuildHealthProbeRequest(input.APIFamily, input.ModelID, input.OpenAIProbeEndpointVariant)
 	if err != nil {
 		return healthCheckProbeResult{}, err
 	}
-	endpointPingURL, err := buildHealthCheckURL(input.Endpoint.BaseURL, endpointPingPath)
+	endpointPingURL, err := buildHealthCheckURL(input.Endpoint.BaseURL, endpointPingRequest.Path)
 	if err != nil {
 		return healthCheckProbeResult{}, err
 	}
-	endpointPingResult, err := s.executeHealthCheckRequest(ctx, endpointPingURL, headers, endpointPingBody)
+	endpointPingResult, err := s.executeHealthCheckRequest(ctx, endpointPingURL, headers, endpointPingRequest.Body)
 	if err != nil {
 		return healthCheckProbeResult{}, err
 	}
 	conversationResult := endpointPingResult
 	if endpointPingResult.HealthStatus == "healthy" {
-		conversationPath, conversationBody, err := buildHealthCheckRequest(input.APIFamily, input.ModelID, openAIVariant)
+		conversationRequest, err := providercompat.BuildHealthProbeRequest(input.APIFamily, input.ModelID, input.OpenAIProbeEndpointVariant)
 		if err != nil {
 			return healthCheckProbeResult{}, err
 		}
-		conversationURL, err := buildHealthCheckURL(input.Endpoint.BaseURL, conversationPath)
+		conversationURL, err := buildHealthCheckURL(input.Endpoint.BaseURL, conversationRequest.Path)
 		if err != nil {
 			return healthCheckProbeResult{}, err
 		}
-		conversationResult, err = s.executeHealthCheckRequest(ctx, conversationURL, headers, conversationBody)
+		conversationResult, err = s.executeHealthCheckRequest(ctx, conversationURL, headers, conversationRequest.Body)
 		if err != nil {
 			return healthCheckProbeResult{}, err
 		}
@@ -358,10 +328,7 @@ func (s *Service) buildHealthCheckHeaders(authType *string, apiFamily string, en
 	for key, value := range config.ExtraHeaders {
 		headers[key] = value
 	}
-	protectedHeaders := map[string]struct{}{strings.ToLower(config.AuthHeader): {}}
-	for key := range config.ExtraHeaders {
-		protectedHeaders[strings.ToLower(key)] = struct{}{}
-	}
+	protectedHeaders := config.ControlledHeaderNames()
 	for key, value := range customHeaders {
 		if _, protected := protectedHeaders[strings.ToLower(key)]; protected {
 			continue
@@ -420,48 +387,6 @@ func (s *Service) executeHealthCheckRequest(ctx context.Context, upstreamURL str
 	}, nil
 }
 
-func buildHealthCheckRequest(apiFamily string, modelID string, openAIVariant string) (string, map[string]any, error) {
-	switch apiFamily {
-	case "openai":
-		switch openAIVariant {
-		case "chat_completions_minimal", "chat_completions_reasoning_none":
-			body := map[string]any{
-				"model":      modelID,
-				"messages":   []map[string]any{{"role": "user", "content": "."}},
-				"max_tokens": 1,
-			}
-			if openAIVariant == "chat_completions_reasoning_none" {
-				body["reasoning_effort"] = "none"
-			}
-			return "/v1/chat/completions", body, nil
-		default:
-			body := map[string]any{
-				"model":             modelID,
-				"input":             []map[string]any{{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": "."}}}},
-				"max_output_tokens": 1,
-			}
-
-			if openAIVariant == "responses_reasoning_none" {
-				body["reasoning"] = map[string]any{"effort": "none"}
-			}
-			return "/v1/responses", body, nil
-		}
-	case "anthropic":
-		return "/v1/messages", map[string]any{
-			"model":      modelID,
-			"max_tokens": 1,
-			"messages":   []map[string]any{{"role": "user", "content": "."}},
-		}, nil
-	case "gemini":
-		return fmt.Sprintf("/v1beta/models/%s:generateContent", modelID), map[string]any{
-			"contents":         []map[string]any{{"role": "user", "parts": []map[string]any{{"text": "."}}}},
-			"generationConfig": map[string]any{"maxOutputTokens": 1},
-		}, nil
-	default:
-		return "", nil, fmt.Errorf("unsupported api_family %q for health check", apiFamily)
-	}
-}
-
 func buildHealthCheckURL(baseURL string, requestPath string) (string, error) {
 	parsedURL, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil {
@@ -478,16 +403,8 @@ func buildHealthCheckURL(baseURL string, requestPath string) (string, error) {
 	return parsedURL.String(), nil
 }
 
-func resolveHealthCheckAuthConfig(authType *string, apiFamily string) (apiFamilyAuthConfig, error) {
-	resolvedKey := strings.ToLower(strings.TrimSpace(apiFamily))
-	if authType != nil && strings.TrimSpace(*authType) != "" {
-		resolvedKey = strings.ToLower(strings.TrimSpace(*authType))
-	}
-	config, ok := healthCheckAuthConfigs[resolvedKey]
-	if !ok {
-		return apiFamilyAuthConfig{}, fmt.Errorf("unsupported auth_type: %s", resolvedKey)
-	}
-	return config, nil
+func resolveHealthCheckAuthConfig(authType *string, apiFamily string) (providercompat.AuthProfile, error) {
+	return providercompat.ResolveAuthProfile(authType, apiFamily)
 }
 
 func normalizeHeaderValue(value string) (string, bool) {

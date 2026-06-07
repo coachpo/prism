@@ -38,6 +38,10 @@ func (s *Service) resolvedOpenAITerminalTranslationMode() config.OpenAITerminalT
 	return s.openAITerminalTranslationMode
 }
 
+func (s *Service) codingAgentFormatBridge() CodingAgentFormatBridge {
+	return NewCodingAgentFormatBridge(s.resolvedOpenAITerminalTranslationMode())
+}
+
 func resolveRequestedModelLegacy(input requestPlanningInput, operation resolvedRequestOperation) (runtimeModelRecord, error) {
 	requestedModel, found := input.Snapshot.ModelsByID[operation.RequestedModelID]
 	if !found {
@@ -53,7 +57,7 @@ func resolveRequestedModelLegacy(input requestPlanningInput, operation resolvedR
 }
 
 func (s *Service) resolveRequestPlanTargetLegacy(input requestPlanningInput, operation resolvedRequestOperation, requestedModel runtimeModelRecord, contextEstimation *requestContextEstimation) (resolvedExecutionTarget, error) {
-	resolved, err := s.resolveLegacyExecutionTargetFromSnapshotWithOptions(input.ActiveProfileID, input.Snapshot, requestedModel, operation.Match.Operation, input.TranslationEligibility, contextEstimation, input.AllowMissingContextEstimation, s.nowUTC())
+	resolved, err := s.resolveLegacyExecutionTargetFromSnapshotWithOptions(input.ActiveProfileID, input.Snapshot, requestedModel, operation.Match.Operation, contextEstimation, input.AllowMissingContextEstimation, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
@@ -63,7 +67,7 @@ func (s *Service) resolveRequestPlanTargetLegacy(input requestPlanningInput, ope
 	if len(resolved.TerminalAttempts) == 0 {
 		return resolvedExecutionTarget{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: "No eligible targets available for model '" + operation.RequestedModelID + "'."}
 	}
-	selectedTerminalTargetID := intPtr(resolved.TerminalAttempts[0].Connection.ID)
+	selectedTerminalTargetID := &resolved.TerminalAttempts[0].Connection.ID
 	if resolved.ContextRouting != nil && resolved.ContextRouting.SelectedTerminalTargetID != nil {
 		selectedTerminalTargetID = cloneRuntimeIntPointer(resolved.ContextRouting.SelectedTerminalTargetID)
 	}
@@ -89,7 +93,6 @@ func (s *Service) buildRequestPlanFromSnapshotLegacyCore(request *http.Request, 
 	if err != nil {
 		return requestPlan{}, err
 	}
-	input.TranslationEligibility = buildRequestTranslationEligibilitySummaryForRollout(operation.Match.Operation, input.RawBody, s.resolvedOpenAITerminalTranslationMode())
 	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
 	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
 	target, err := s.resolveRequestPlanTargetLegacy(input, operation, requestedModel, contextEstimation)
@@ -120,7 +123,6 @@ func (s *Service) buildRequestPlanFromSnapshotEnforcedCore(request *http.Request
 	if err != nil {
 		return requestPlan{}, err
 	}
-	input.TranslationEligibility = buildRequestTranslationEligibilitySummaryForRollout(operation.Match.Operation, input.RawBody, s.resolvedOpenAITerminalTranslationMode())
 	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
 	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
 	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
@@ -176,15 +178,15 @@ func shadowComparableOutcomeFromError(err error) runtimeShadowComparableOutcome 
 func compareShadowOutcomes(servedPlan *requestPlan, servedErr error, shadowPlan *requestPlan, shadowErr error) *runtimeShadowComparisonResult {
 	served := runtimeShadowComparableOutcome{}
 	shadow := runtimeShadowComparableOutcome{}
-	if servedPlan != nil {
-		served = shadowComparableOutcomeFromPlan(*servedPlan)
-	} else if servedErr != nil {
+	if servedErr != nil {
 		served = shadowComparableOutcomeFromError(servedErr)
+	} else if servedPlan != nil {
+		served = shadowComparableOutcomeFromPlan(*servedPlan)
 	}
-	if shadowPlan != nil {
-		shadow = shadowComparableOutcomeFromPlan(*shadowPlan)
-	} else if shadowErr != nil {
+	if shadowErr != nil {
 		shadow = shadowComparableOutcomeFromError(shadowErr)
+	} else if shadowPlan != nil {
+		shadow = shadowComparableOutcomeFromPlan(*shadowPlan)
 	}
 	reasons := make([]string, 0, 5)
 	if served.hasPlan != shadow.hasPlan || served.hasError != shadow.hasError {

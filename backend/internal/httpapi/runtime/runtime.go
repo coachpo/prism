@@ -22,36 +22,18 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
-var apiFamilyAuthConfigs = map[string]apiFamilyAuthConfig{
-	"openai": {
-		AuthHeader:   "Authorization",
-		AuthPrefix:   "Bearer ",
-		ExtraHeaders: map[string]string{},
-	},
-	"anthropic": {
-		AuthHeader: "x-api-key",
-		AuthPrefix: "",
-		ExtraHeaders: map[string]string{
-			"anthropic-version": "2023-06-01",
-		},
-	},
-	"gemini": {
-		AuthHeader:   "Authorization",
-		AuthPrefix:   "Bearer ",
-		ExtraHeaders: map[string]string{},
-	},
-}
-
 const (
-	openAIUpstreamOperationResponses                        = "openai.responses"
-	openAIUpstreamOperationChatCompletions                  = "openai.chat_completions"
+	openAIUpstreamOperationResponses                        = providercompat.OpenAIUpstreamOperationResponses
+	openAIUpstreamOperationChatCompletions                  = providercompat.OpenAIUpstreamOperationChatCompletions
 	runtimeFacadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
 	runtimeFacadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
 	runtimeNestedFacadesNotSupportedDetail                  = "nested facades are not supported"
-	runtimeActiveModelTargetDefaultWeight                   = 1
+	runtimeActiveModelTargetDefaultWeight                   = modelrouting.DefaultModelTargetWeight
 )
 
 type runtimeFeedbackStore struct {
@@ -88,12 +70,6 @@ var clientAuthHeaders = map[string]struct{}{
 	"authorization":  {},
 	"x-api-key":      {},
 	"x-goog-api-key": {},
-}
-
-type apiFamilyAuthConfig struct {
-	AuthHeader   string
-	AuthPrefix   string
-	ExtraHeaders map[string]string
 }
 
 type runtimeModelRecord struct {
@@ -165,7 +141,7 @@ func invalidRuntimeFacadePolicyError(modelID string, detail string) error {
 }
 
 func isRuntimeExactOpenAIFacadeModel(model runtimeModelRecord) bool {
-	return model.FacadeEnabled && sameRuntimeAPIFamily(model.APIFamily, "openai") && model.FacadeSelectionPolicy != nil && *model.FacadeSelectionPolicy == runtimeFacadeSelectionPolicyWeightedEligibleContext
+	return model.FacadeEnabled && modelrouting.SameAPIFamily(model.APIFamily, "openai") && model.FacadeSelectionPolicy != nil && *model.FacadeSelectionPolicy == runtimeFacadeSelectionPolicyWeightedEligibleContext
 }
 
 func runtimeFacadeSelectionStrategy() loadbalance.RuntimeStrategy {
@@ -611,22 +587,6 @@ func runtimeUpstreamRequestPath(operation RuntimeOperation, mode TranslationMode
 	return stringPtr(trimmed)
 }
 
-func deriveOpenAIUpstreamOperation(apiFamily string, probeEndpointVariant *string) *string {
-	if !strings.EqualFold(strings.TrimSpace(apiFamily), "openai") {
-		return nil
-	}
-	variant := "responses_minimal"
-	if probeEndpointVariant != nil && strings.TrimSpace(*probeEndpointVariant) != "" {
-		variant = strings.TrimSpace(*probeEndpointVariant)
-	}
-	switch variant {
-	case "chat_completions_minimal", "chat_completions_reasoning_none":
-		return stringPtr(openAIUpstreamOperationChatCompletions)
-	default:
-		return stringPtr(openAIUpstreamOperationResponses)
-	}
-}
-
 type headerBlocklistRule struct {
 	MatchType string
 	Pattern   string
@@ -715,7 +675,6 @@ type requestPlanningInput struct {
 	ActiveProfileID               int
 	Snapshot                      *planningSnapshot
 	RoutingPlan                   *runtimeRoutingPlan
-	TranslationEligibility        requestTranslationEligibilitySummary
 	AllowMissingContextEstimation bool
 }
 
@@ -1111,7 +1070,6 @@ func (s *Service) buildExplicitTargetRequestPlanLegacyCore(request *http.Request
 	if err != nil {
 		return requestPlan{}, err
 	}
-	input.TranslationEligibility = buildRequestTranslationEligibilitySummaryForRollout(operation.Match.Operation, input.RawBody, s.resolvedOpenAITerminalTranslationMode())
 	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
 	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
 	target, err := s.resolveRequestPlanTargetLegacy(input, operation, requestedModel, contextEstimation)
@@ -1146,7 +1104,6 @@ func (s *Service) buildExplicitTargetRequestPlanEnforcedCore(request *http.Reque
 	if err != nil {
 		return requestPlan{}, err
 	}
-	input.TranslationEligibility = buildRequestTranslationEligibilitySummaryForRollout(operation.Match.Operation, input.RawBody, s.resolvedOpenAITerminalTranslationMode())
 	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
 	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
 	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
@@ -1227,7 +1184,7 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
-	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, input.TranslationEligibility, contextEstimation, input.AllowMissingContextEstimation, s.nowUTC())
+	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, contextEstimation, input.AllowMissingContextEstimation, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
@@ -1274,7 +1231,7 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 			return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
 		}
 	default:
-		translatedPath, translatedBody, err := translateOpenAIRequest(input.RawBody, attempt.TranslationMode, attempt.TargetModel.ModelID)
+		translatedPath, translatedBody, err := defaultCodingAgentFormatBridge().TranslateRequest(input.RawBody, attempt.TranslationMode, attempt.TargetModel.ModelID)
 		if err != nil {
 			return plannedUpstreamRequest{}, err
 		}
@@ -1433,7 +1390,7 @@ func runtimeConnectionRefs(connections []runtimeConnection) []loadbalance.Runtim
 	return refs
 }
 
-func orderConnectionsByID(connections []runtimeConnection, orderedIDs []int) []runtimeConnection {
+func orderTerminalTargetsByID(connections []runtimeConnection, orderedIDs []int) []runtimeConnection {
 	if len(orderedIDs) == 0 {
 		return nil
 	}
@@ -2015,18 +1972,6 @@ func (s *Service) buildUpstreamHeaders(connection runtimeConnection, apiFamily s
 		}
 	}
 	return sanitized, nil
-}
-
-func resolveAuthConfig(authType *string, apiFamily string) (apiFamilyAuthConfig, error) {
-	resolvedKey := strings.ToLower(strings.TrimSpace(apiFamily))
-	if authType != nil && strings.TrimSpace(*authType) != "" {
-		resolvedKey = strings.ToLower(strings.TrimSpace(*authType))
-	}
-	config, ok := apiFamilyAuthConfigs[resolvedKey]
-	if !ok {
-		return apiFamilyAuthConfig{}, fmt.Errorf("unsupported auth_type: %s", resolvedKey)
-	}
-	return config, nil
 }
 
 func buildUpstreamURL(baseURL string, requestPath string, requestQuery string) (string, error) {

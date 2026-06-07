@@ -203,70 +203,6 @@ func TestFacadeSelectionDoesNotReopenSiblings(t *testing.T) {
 	}})
 }
 
-func TestTranslatedTopLevelErrorPromotes(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("translated top-level overflow should promote"))
-	chatVariant := "chat_completions_reasoning_none"
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "overflow-translated-top-level-public", "overflow-translated-top-level-source", sourceUpstream.baseURL("/overflow/translated-top-level/source"), "overflow-translated-top-level-source-key", chatVariant)
-	promotedModelID := "overflow-translated-top-level-promoted-" + randomSuffix()
-	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
-		"id":    "chatcmpl-translated-top-level-promoted",
-		"model": promotedModelID,
-		"choices": []map[string]any{{
-			"index": 0,
-			"message": map[string]any{
-				"role":    "assistant",
-				"content": "translated promotion success",
-			},
-			"finish_reason": "stop",
-		}},
-		"usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 6, "total_tokens": 16},
-	})
-	_, promotedConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/translated-top-level/promoted"), "overflow-translated-top-level-promoted-key", &chatVariant, 32_768)
-	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
-
-	sourceEndpointID := loadRuntimeEndpointIDForConnection(t, harness, route.ConnectionID)
-	promotedEndpointID := loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID)
-
-	response := performProxySelectorResponsesTextRequest(t, harness, route.PublicModelID, "translated top-level overflow", 64)
-	assertStatus(t, response, http.StatusOK)
-	payload := runtimeResponsePayload(t, response)
-	if got, ok := payload["model"].(string); !ok || got != route.PublicModelID {
-		t.Fatalf("expected translated promoted response model %q, got %+v", route.PublicModelID, payload["model"])
-	}
-	output := payload["output"].([]any)
-	message := output[0].(map[string]any)
-	parts := message["content"].([]any)
-	if len(parts) != 1 || parts[0].(map[string]any)["text"].(string) != "translated promotion success" {
-		t.Fatalf("expected translated promoted output text, got %+v", message["content"])
-	}
-	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/overflow/translated-top-level/source/v1/chat/completions",
-		ModelID: route.TargetModelID,
-	}})
-	assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/overflow/translated-top-level/promoted/v1/chat/completions",
-		ModelID: promotedModelID,
-	}})
-	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 2, 2)
-	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
-	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
-		AttemptNumber: 1,
-		ConnectionID:  route.ConnectionID,
-		EndpointID:    sourceEndpointID,
-		StatusCode:    http.StatusBadRequest,
-		SuccessFlag:   false,
-	}, {
-		AttemptNumber: 2,
-		ConnectionID:  promotedConnectionID,
-		EndpointID:    promotedEndpointID,
-		StatusCode:    http.StatusOK,
-		SuccessFlag:   true,
-	}})
-}
-
 func TestPlain429DoesNotPromote(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -581,36 +517,6 @@ func TestPromotionDoesNotMultiHop(t *testing.T) {
 		ModelID: promotedModelID,
 	}})
 	assertNoScriptedUpstreamRequests(t, thirdUpstream, "second promotion target")
-}
-
-func TestTranslatedFlatGatewayJSONSkipsPromotion(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	sourceUpstream := newScriptedUpstream(t, http.StatusTooManyRequests, map[string]any{
-		"code":   "context_too_large",
-		"detail": "translated flat gateway overflow should stay on the source response",
-	})
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "overflow-translated-flat-public", "overflow-translated-flat-source", sourceUpstream.baseURL("/overflow/translated-flat/source"), "overflow-translated-flat-source-key", "chat_completions_reasoning_none")
-	promotedModelID := "overflow-translated-flat-promoted-" + randomSuffix()
-	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "resp-translated-flat-should-not-run"})
-	responsesVariant := "responses_reasoning_none"
-	seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/translated-flat/promoted"), "overflow-translated-flat-promoted-key", &responsesVariant, 32_768)
-	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
-
-	response := performProxySelectorResponsesTextRequest(t, harness, route.PublicModelID, "translated flat gateway overflow", 64)
-	assertStatus(t, response, http.StatusTooManyRequests)
-	payload := runtimeResponsePayload(t, response)
-	if payload["code"] != "context_too_large" || payload["detail"] != "translated flat gateway overflow should stay on the source response" {
-		t.Fatalf("expected translated flat gateway overflow body to survive unchanged, got %+v", payload)
-	}
-	if payload["error"] == "openai_response_translation_unsupported" {
-		t.Fatalf("expected translated flat gateway overflow to skip promotion without translation rejection, got %+v", payload)
-	}
-	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/overflow/translated-flat/source/v1/chat/completions",
-		ModelID: route.TargetModelID,
-	}})
-	assertNoScriptedUpstreamRequests(t, promotedUpstream, "translated flat gateway promotion target")
 }
 
 type overflowAffinityCacheRuntimeFixture struct {

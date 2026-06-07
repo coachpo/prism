@@ -15,9 +15,15 @@ const facadePolicyDefaults = {
 const appReadyTimeout = 30_000;
 
 async function gotoBackupSection(page: Page) {
-  await page.goto("/settings#backup");
+  await page.goto("/settings");
   await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: appReadyTimeout });
+  await expect(page.getByRole("tab", { name: "Profile" })).toBeVisible({ timeout: appReadyTimeout });
   await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: appReadyTimeout });
+
+  await page.evaluate(() => {
+    window.location.hash = "backup";
+  });
+  await expect(page).toHaveURL(/\/settings#backup$/);
 
   const backupSection = page.locator("section#backup");
   await expect(backupSection).toBeVisible({ timeout: appReadyTimeout });

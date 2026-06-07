@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/contextcapability"
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
@@ -1697,86 +1698,53 @@ func connectionAccessTargetsManagedError() error {
 }
 
 func validateAccessTargets(accessTargets []modelAccessTargetRequest) error {
-	seenTargets := map[string]struct{}{}
-	seenPositions := map[int]struct{}{}
-	for index, accessTarget := range accessTargets {
-		if !targetcompat.IsSupportedAccessTargetType(accessTarget.TargetType) {
-			return routingPlanValidationIssueError("target_type_invalid", accessTargetIssuePath(index, "target_type"), "target_type must be 'model' or 'connection'")
-		}
-		if accessTarget.Position < 0 {
-			return routingPlanValidationIssueError("target_position_invalid", accessTargetIssuePath(index, "position"), "position must be greater than or equal to 0")
-		}
-		if _, ok := seenPositions[accessTarget.Position]; ok {
-			return routingPlanValidationIssueError("target_position_duplicate", accessTargetIssuePath(index, "position"), "access_targets must contain unique position values")
-		}
-		seenPositions[accessTarget.Position] = struct{}{}
-		targetKey, err := validateAccessTargetPointerContract(index, accessTarget)
-		if err != nil {
-			return err
-		}
-		if err := validateAccessTargetMetadataContract(index, accessTarget); err != nil {
-			return err
-		}
-		if _, ok := seenTargets[targetKey]; ok {
-			return routingPlanValidationIssueError("target_duplicate", accessTargetIssuePath(index, ""), "access_targets must contain unique target references")
-		}
-		seenTargets[targetKey] = struct{}{}
-	}
-	return nil
+	issues := modelrouting.ValidateAuthoredAccessTargets(modelRoutingTargetsFromRequests(accessTargets), modelRoutingValidationOptions())
+	return modelRoutingIssuesError(issues)
 }
 
 func validateAccessTargetsForSourceModel(sourceModelID string, accessTargets []modelAccessTargetRequest) error {
-	sourceModelID = strings.TrimSpace(sourceModelID)
-	if sourceModelID == "" {
-		return nil
-	}
-	for index, accessTarget := range accessTargets {
-		if !targetcompat.IsModelAccessTargetType(accessTarget.TargetType) || accessTarget.TargetModelID == nil {
-			continue
-		}
-		if strings.TrimSpace(*accessTarget.TargetModelID) == sourceModelID {
-			return routingPlanValidationIssueError("model_graph_cycle", accessTargetIssuePath(index, "target_model_id"), "Model access target cannot target itself")
-		}
-	}
-	return nil
+	issues := modelrouting.ValidateSourceModelTargets(
+		modelrouting.ModelNode{ModelID: strings.TrimSpace(sourceModelID)},
+		modelRoutingTargetsFromRequests(accessTargets),
+		modelRoutingValidationOptions(),
+	)
+	return modelRoutingIssuesError(issues)
 }
 
-func validateAccessTargetPointerContract(index int, accessTarget modelAccessTargetRequest) (string, error) {
-	if targetcompat.IsModelAccessTargetType(accessTarget.TargetType) {
-		if accessTarget.TargetModelID == nil || strings.TrimSpace(*accessTarget.TargetModelID) == "" {
-			return "", routingPlanValidationIssueError("model_target_id_empty", accessTargetIssuePath(index, "target_model_id"), "target_model_id is required for model access targets")
-		}
-		if accessTarget.ConnectionID != nil {
-			return "", routingPlanValidationIssueError("model_target_has_connection", accessTargetIssuePath(index, "connection_id"), "connection_id must be omitted for model access targets")
-		}
-		return "model:" + strings.TrimSpace(*accessTarget.TargetModelID), nil
+func modelRoutingTargetsFromRequests(accessTargets []modelAccessTargetRequest) []modelrouting.AuthoredAccessTarget {
+	items := make([]modelrouting.AuthoredAccessTarget, 0, len(accessTargets))
+	for _, target := range accessTargets {
+		items = append(items, modelRoutingTargetFromRequest(target))
 	}
-	if accessTarget.ConnectionID == nil || *accessTarget.ConnectionID <= 0 {
-		return "", routingPlanValidationIssueError("connection_target_missing_connection", accessTargetIssuePath(index, "connection_id"), "connection_id is required for terminal targets")
-	}
-	if accessTarget.TargetModelID != nil && strings.TrimSpace(*accessTarget.TargetModelID) != "" {
-		return "", routingPlanValidationIssueError("connection_target_has_model", accessTargetIssuePath(index, "target_model_id"), "target_model_id must be omitted for terminal targets")
-	}
-	return fmt.Sprintf("connection:%d", *accessTarget.ConnectionID), nil
+	return items
 }
 
-func validateAccessTargetMetadataContract(index int, accessTarget modelAccessTargetRequest) error {
-	if targetcompat.IsTerminalTargetAccessTargetType(accessTarget.TargetType) {
-		if accessTarget.Weight != nil {
-			return routingPlanValidationIssueError("terminal_target_metadata_invalid", accessTargetIssuePath(index, "weight"), "weight must be omitted for terminal targets")
+func modelRoutingTargetFromRequest(target modelAccessTargetRequest) modelrouting.AuthoredAccessTarget {
+	return modelrouting.AuthoredAccessTarget{TargetType: target.TargetType, Position: target.Position, IsEnabled: target.IsEnabled, TargetModelID: target.TargetModelID, TerminalTargetID: target.ConnectionID, Weight: target.Weight, TargetPriority: target.TargetPriority}
+}
+
+func modelRoutingValidationOptions() modelrouting.ValidationOptions {
+	return modelrouting.ValidationOptions{IssuePath: func(code string, field string, index int, target modelrouting.AuthoredAccessTarget) string {
+		if code == "target_duplicate" {
+			return accessTargetIssuePath(index, "")
 		}
-		if accessTarget.TargetPriority != nil {
-			return routingPlanValidationIssueError("terminal_target_metadata_invalid", accessTargetIssuePath(index, "target_priority"), "target_priority must be omitted for terminal targets")
-		}
+		return accessTargetIssuePath(index, field)
+	}}
+}
+
+func modelRoutingIssuesError(issues []modelrouting.ValidationIssue) error {
+	if len(issues) == 0 {
 		return nil
 	}
-	if accessTarget.Weight != nil && *accessTarget.Weight <= 0 {
-		return routingPlanValidationIssueError("model_target_weight_invalid", accessTargetIssuePath(index, "weight"), "weight must be greater than 0")
+	return routingPlanValidationError(http.StatusBadRequest, issues[0].Message, modelRoutingValidationIssues(issues))
+}
+
+func modelRoutingValidationIssues(issues []modelrouting.ValidationIssue) []routingPlanValidationIssue {
+	items := make([]routingPlanValidationIssue, 0, len(issues))
+	for _, issue := range issues {
+		items = append(items, routingPlanValidationIssue{Code: issue.Code, Path: issue.Path, Message: issue.Message})
 	}
-	if accessTarget.TargetPriority != nil && *accessTarget.TargetPriority < 0 {
-		return routingPlanValidationIssueError("model_target_priority_invalid", accessTargetIssuePath(index, "target_priority"), "target_priority must be greater than or equal to 0")
-	}
-	return nil
+	return items
 }
 
 func resolvePersistedDisplayName(modelID string, displayName *string) *string {

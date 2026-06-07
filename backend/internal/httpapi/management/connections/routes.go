@@ -19,14 +19,8 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/coachpo/prism/backend/internal/providercompat"
 	"github.com/coachpo/prism/backend/internal/targetcompat"
-)
-
-const defaultOpenAIProbeEndpointVariant = "responses_minimal"
-
-const (
-	openAIUpstreamOperationResponses       = "openai.responses"
-	openAIUpstreamOperationChatCompletions = "openai.chat_completions"
 )
 
 const ownerScopedConnectionMutationDetail = "terminal target mutations must use owner-scoped routes under " + targetcompat.OwnerScopedConnectionRoutePath
@@ -240,11 +234,11 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 			CreatedAt:                  now,
 			UpdatedAt:                  now,
 		}
-		connectionID, err := insertConnection(r.Context(), tx, item)
+		connectionID, err := insertTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(item))
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		if err := insertOwnerConnectionTarget(r.Context(), tx, profile.ID, owner.ID, connectionID, position, now); err != nil {
+		if err := insertOwnerTerminalTargetAccess(r.Context(), tx, profile.ID, owner.ID, connectionID, position, now); err != nil {
 			return connectionResponse{}, err
 		}
 		created, found, err := loadModelConnectionRecord(r.Context(), tx, profile.ID, owner.ID, connectionID)
@@ -323,7 +317,7 @@ func (s *Service) handleUpdateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		if err := updateConnectionRow(r.Context(), tx, next); err != nil {
+		if err := updateTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(next)); err != nil {
 			return connectionResponse{}, err
 		}
 		updated, found, err := loadModelConnectionRecord(r.Context(), tx, profile.ID, owner.ID, current.ID)
@@ -355,15 +349,15 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		if apiFamily != owner.APIFamily {
+		if !providercompat.SameAPIFamily(apiFamily, owner.APIFamily) {
 			return connectionResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
 		}
 		next.APIFamily = apiFamily
 	}
-	if next.APIFamily != owner.APIFamily {
+	if !providercompat.SameAPIFamily(next.APIFamily, owner.APIFamily) {
 		return connectionResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection api_family must match owner model api_family"}
 	}
-	if next.APIFamily != "openai" {
+	if !providercompat.IsOpenAI(next.APIFamily) {
 		next.OpenAIProbeEndpointVariant = nil
 	}
 
@@ -547,7 +541,7 @@ func (s *Service) handleDeleteModelConnection(w http.ResponseWriter, r *http.Req
 		if err := deleteModelAccessTargetRow(r.Context(), tx, reference.TargetID); err != nil {
 			return deletedResponse{}, err
 		}
-		if err := deleteConnectionRow(r.Context(), tx, current.ID); err != nil {
+		if err := deleteTerminalTarget(r.Context(), tx, current.ID); err != nil {
 			return deletedResponse{}, err
 		}
 		if err := compactModelAccessTargetPositions(r.Context(), tx, profile.ID, owner.ID, s.nowUTC()); err != nil {
@@ -750,14 +744,14 @@ func validateLimiter(fieldName string, value *int) error {
 }
 
 func validateAPIFamily(value string, required bool) (string, error) {
-	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized := providercompat.NormalizeAPIFamily(value)
 	if normalized == "" {
 		if required {
 			return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family is required"}
 		}
 		return "", nil
 	}
-	if normalized != "openai" && normalized != "anthropic" && normalized != "gemini" {
+	if !providercompat.IsSupportedAPIFamily(normalized) {
 		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return normalized, nil
@@ -768,7 +762,7 @@ func validateOwnerScopedAPIFamily(value string, ownerAPIFamily string) error {
 	if err != nil {
 		return err
 	}
-	if apiFamily != "" && apiFamily != ownerAPIFamily {
+	if apiFamily != "" && !providercompat.SameAPIFamily(apiFamily, ownerAPIFamily) {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
 	}
 	return nil
@@ -780,7 +774,7 @@ func ensureConnectionAPIFamilyUpdateAllowed(ctx context.Context, exec queryExecu
 		return err
 	}
 	for _, reference := range references {
-		if reference.APIFamily != apiFamily {
+		if !providercompat.SameAPIFamily(reference.APIFamily, apiFamily) {
 			return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change api_family: models [%s] target this connection", joinConnectionReferenceModelIDs(references))}
 		}
 	}
@@ -812,48 +806,25 @@ func validateAuthType(value *string) (*string, error) {
 	if value == nil {
 		return nil, nil
 	}
-	normalized := strings.TrimSpace(*value)
-	if normalized == "" {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "auth_type must be one of 'openai', 'anthropic', or 'gemini'"}
-	}
-	normalized = strings.ToLower(normalized)
-	if normalized != "openai" && normalized != "anthropic" && normalized != "gemini" {
+	normalized := providercompat.NormalizeAPIFamily(*value)
+	if normalized == "" || !providercompat.IsSupportedAuthType(normalized) {
 		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "auth_type must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return &normalized, nil
 }
 
 func resolveOpenAIProbeEndpointVariant(apiFamily string, value *string) (*string, error) {
-	if apiFamily != "openai" {
-		if value != nil && strings.TrimSpace(*value) != "" {
-			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_probe_endpoint_variant is only supported for OpenAI-family connections"}
-		}
-		return nil, nil
+	variant, err := providercompat.NormalizeConnectionOpenAIProbeEndpointVariant(apiFamily, value)
+	if errors.Is(err, providercompat.ErrOpenAIProbeEndpointVariantUnsupported) {
+		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_probe_endpoint_variant is only supported for OpenAI-family connections"}
 	}
-	if value == nil || strings.TrimSpace(*value) == "" {
-		return stringPtr(defaultOpenAIProbeEndpointVariant), nil
-	}
-	normalized := strings.TrimSpace(*value)
-	if normalized != "responses_minimal" && normalized != "responses_reasoning_none" && normalized != "chat_completions_minimal" && normalized != "chat_completions_reasoning_none" {
+	if errors.Is(err, providercompat.ErrOpenAIProbeEndpointVariantInvalid) {
 		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_probe_endpoint_variant is invalid"}
 	}
-	return &normalized, nil
-}
-
-func deriveOpenAIUpstreamOperation(apiFamily string, probeEndpointVariant *string) *string {
-	if !strings.EqualFold(strings.TrimSpace(apiFamily), "openai") {
-		return nil
+	if err != nil {
+		return nil, err
 	}
-	variant := defaultOpenAIProbeEndpointVariant
-	if probeEndpointVariant != nil && strings.TrimSpace(*probeEndpointVariant) != "" {
-		variant = strings.TrimSpace(*probeEndpointVariant)
-	}
-	switch variant {
-	case "chat_completions_minimal", "chat_completions_reasoning_none":
-		return stringPtr(openAIUpstreamOperationChatCompletions)
-	default:
-		return stringPtr(openAIUpstreamOperationResponses)
-	}
+	return variant, nil
 }
 
 func normalizeHeaders(value map[string]string) map[string]string {

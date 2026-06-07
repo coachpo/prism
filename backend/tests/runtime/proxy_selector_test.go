@@ -178,42 +178,30 @@ func TestContextWindowExceededNoFitStillReturns413(t *testing.T) {
 	}
 }
 
-func TestTranslatedUnsupportedShapeStillRejectsBeforeTransport(t *testing.T) {
-	harnessFactories := []struct {
-		name    string
-		factory func(testing.TB) *runtimeHarness
-	}{
-		{name: "enforced", factory: newEnforcedRuntimeHarness},
+func TestNonNativeOpenAITargetIsNotSelectedByGenericPlanner(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "translated-unsupported-shape-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "translated-unsupported-shape-"+suffix, "fill-first")
+	modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "translated-unsupported-shape"})
+	endpointID := harness.seedEndpoint(t, profileID, "translated-unsupported-shape-endpoint-"+suffix, upstream.baseURL("/translated/unsupported-shape"), "translated-unsupported-shape-key", 0)
+	chatOnlyVariant := "chat_completions_reasoning_none"
+	harness.seedConnectionWithOpenAIProbeVariant(t, profileID, modelConfigID, endpointID, "translated-unsupported-shape-connection-"+suffix, nil, nil, 0, &chatOnlyVariant)
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"model":                modelID,
+		"previous_response_id": "resp_123",
+		"input":                "unsupported translated responses shape",
+	}, nil)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	if detail := runtimeResponseDetail(t, response); detail != "No eligible targets available for model '"+modelID+"'." {
+		t.Fatalf("expected no eligible target detail, got %q", detail)
 	}
-
-	for _, test := range harnessFactories {
-		t.Run(test.name, func(t *testing.T) {
-			harness := test.factory(t)
-			profileID := harness.activeProfileID(t)
-			suffix := randomSuffix()
-			modelID := "translated-unsupported-shape-" + suffix
-			strategyID := harness.seedLegacyStrategy(t, profileID, "translated-unsupported-shape-"+suffix, "fill-first")
-			modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
-			upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "translated-unsupported-shape"})
-			endpointID := harness.seedEndpoint(t, profileID, "translated-unsupported-shape-endpoint-"+suffix, upstream.baseURL("/translated/unsupported-shape"), "translated-unsupported-shape-key", 0)
-			chatOnlyVariant := "chat_completions_reasoning_none"
-			harness.seedConnectionWithOpenAIProbeVariant(t, profileID, modelConfigID, endpointID, "translated-unsupported-shape-connection-"+suffix, nil, nil, 0, &chatOnlyVariant)
-			harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
-
-			response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
-				"model":                modelID,
-				"previous_response_id": "resp_123",
-				"input":                "unsupported translated responses shape",
-			}, nil)
-			assertStatus(t, response, http.StatusBadRequest)
-			payload := runtimeResponsePayload(t, response)
-			if payload["error"] != "openai_request_translation_unsupported" || payload["unsupported_reason"] != "responses_previous_response_id" {
-				t.Fatalf("expected translated unsupported-shape rejection payload, got %+v", payload)
-			}
-			if got := len(upstream.requestsSnapshot()); got != 0 {
-				t.Fatalf("expected translated unsupported shape to avoid upstream calls, got %d", got)
-			}
-		})
+	if got := len(upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected non-native target to avoid upstream calls, got %d", got)
 	}
 }
 
@@ -335,7 +323,7 @@ func TestFacadeWeightedEligibleContextNoContextFitReturns413WithoutUpstreamAttem
 	}
 }
 
-func TestFacadeWeightedEligibleContextTranslationRejectionReturns400WithoutUpstreamAttempt(t *testing.T) {
+func TestFacadeWeightedEligibleContextSkipsNonNativeOpenAITarget(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
@@ -350,14 +338,13 @@ func TestFacadeWeightedEligibleContextTranslationRejectionReturns400WithoutUpstr
 	}})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 
-	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": publicModelID, "input": "facade translated rejection", "text": map[string]any{"format": "json_schema"}, "max_output_tokens": 64}, nil)
-	assertStatus(t, response, http.StatusBadRequest)
-	payload := runtimeResponsePayload(t, response)
-	if payload["unsupported_reason"] != "responses_text" {
-		t.Fatalf("expected facade translated rejection unsupported_reason responses_text, got %+v", payload)
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": publicModelID, "input": "facade native-only rejection", "text": map[string]any{"format": "json_schema"}, "max_output_tokens": 64}, nil)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	if detail := runtimeResponseDetail(t, response); detail != "No eligible targets available for model '"+publicModelID+"'." {
+		t.Fatalf("expected no eligible target detail, got %q", detail)
 	}
 	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected facade translated rejection to avoid upstream calls, got %d", got)
+		t.Fatalf("expected facade native-only rejection to avoid upstream calls, got %d", got)
 	}
 }
 
@@ -417,19 +404,16 @@ func TestProxySelectorTopologyCascadeOversizedCompatibleResponsesRouteToGPT54(t 
 	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek fallback tier")
 }
 
-func TestProxySelectorTopologyCascadeReachesDeepSeekOnlyAfterEarlierTiersAreIneligible(t *testing.T) {
+func TestProxySelectorTopologyCascadeDoesNotTranslateToDeepSeekAfterEarlierTiersAreIneligible(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	route := seedOpenAITopologyCascadeRoute(t, harness, profileID, "/proxy-selector/topology-cascade/deepseek")
 
 	response := performProxySelectorResponsesTextRequest(t, harness, route.PublicModelID, "large text-safe request", 1800)
-	assertStatus(t, response, http.StatusOK)
+	assertStatus(t, response, http.StatusRequestEntityTooLarge)
 	assertNoScriptedUpstreamRequests(t, route.PrimaryUpstream, "gpt-5.5 primary tier")
 	assertNoScriptedUpstreamRequests(t, route.GPT54Upstream, "gpt-5.4 long-context tier")
-	assertProxySelectorRequestSequence(t, route.DeepSeekUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    route.DeepSeekPathPrefix + "/v1/chat/completions",
-		ModelID: route.DeepSeekModelID,
-	}})
+	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek non-native tier")
 }
 
 func TestProxySelectorTopologyCascadeDirectGPT54UsesItsOwnLongContextTerminalPath(t *testing.T) {

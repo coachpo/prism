@@ -12,12 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
+	"github.com/coachpo/prism/backend/internal/providercompat"
 	"github.com/coachpo/prism/backend/internal/vendordomain"
-)
-
-const (
-	openAIUpstreamOperationResponses       = "openai.responses"
-	openAIUpstreamOperationChatCompletions = "openai.chat_completions"
 )
 
 type queryExecutor interface {
@@ -524,15 +521,15 @@ func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecuto
 }
 
 func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int, sourceModelConfigID *int, sourceModelID string, apiFamily string, accessTargets []modelAccessTargetRequest) ([]resolvedAccessTarget, error) {
-	orderedTargets := sortAccessTargetRequestsByPosition(accessTargets)
+	authoredTargets := modelrouting.SortAuthoredAccessTargets(modelRoutingTargetsFromRequests(accessTargets))
 	modelIDs := make([]string, 0)
 	connectionIDs := make([]int, 0)
-	for _, target := range orderedTargets {
-		switch target.TargetType {
-		case "model":
+	for _, target := range authoredTargets {
+		switch {
+		case modelrouting.IsModelTargetType(target.TargetType) && target.TargetModelID != nil:
 			modelIDs = append(modelIDs, strings.TrimSpace(*target.TargetModelID))
-		case "connection":
-			connectionIDs = append(connectionIDs, *target.ConnectionID)
+		case modelrouting.IsTerminalTargetType(target.TargetType) && target.TerminalTargetID != nil:
+			connectionIDs = append(connectionIDs, *target.TerminalTargetID)
 		}
 	}
 	modelsByID, err := loadTargetModelRecordsByModelIDs(ctx, exec, profileID, modelIDs)
@@ -544,50 +541,83 @@ func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int
 		return nil, err
 	}
 
-	resolved := make([]resolvedAccessTarget, 0, len(orderedTargets))
-	for _, target := range orderedTargets {
-		enabled := true
-		if target.IsEnabled != nil {
-			enabled = *target.IsEnabled
+	resolvedGraphTargets, issues := modelrouting.ResolveAuthoredAccessTargets(authoredTargets, modelrouting.ResolveOptions{
+		Source:              modelRoutingSourceNode(sourceModelConfigID, sourceModelID, profileID, apiFamily),
+		ModelsByID:          modelRoutingNodesByModelID(modelsByID),
+		TerminalTargetsByID: modelRoutingTerminalNodesByConnectionID(connectionsByID),
+		IssuePath:           modelRoutingResolveIssuePath,
+		IssueDetail:         modelRoutingResolveIssueDetail,
+	})
+	if err := modelRoutingIssuesError(issues); err != nil {
+		return nil, err
+	}
+	return resolvedAccessTargetsFromModelRouting(resolvedGraphTargets, modelsByID, connectionsByID), nil
+}
+
+func modelRoutingSourceNode(sourceModelConfigID *int, sourceModelID string, profileID int, apiFamily string) modelrouting.ModelNode {
+	configID := 0
+	if sourceModelConfigID != nil {
+		configID = *sourceModelConfigID
+	}
+	return modelrouting.ModelNode{ConfigID: configID, ProfileID: profileID, ModelID: strings.TrimSpace(sourceModelID), APIFamily: apiFamily, IsEnabled: true}
+}
+
+func modelRoutingNodesByModelID(modelsByID map[string]modelRecord) map[string]modelrouting.ModelNode {
+	items := make(map[string]modelrouting.ModelNode, len(modelsByID))
+	for modelID, record := range modelsByID {
+		items[strings.TrimSpace(modelID)] = modelrouting.ModelNode{ConfigID: record.ID, ProfileID: record.ProfileID, ModelID: record.ModelID, APIFamily: record.APIFamily, IsEnabled: record.IsEnabled, FacadeEnabled: record.FacadeEnabled}
+	}
+	return items
+}
+
+func modelRoutingTerminalNodesByConnectionID(connectionsByID map[int]connectionTargetSummary) map[int]modelrouting.TerminalTargetNode {
+	items := make(map[int]modelrouting.TerminalTargetNode, len(connectionsByID))
+	for connectionID, connection := range connectionsByID {
+		items[connectionID] = modelrouting.TerminalTargetNode{ID: connection.ID, ProfileID: connection.ProfileID, APIFamily: connection.APIFamily}
+	}
+	return items
+}
+
+func modelRoutingResolveIssuePath(_ string, field string, target modelrouting.AuthoredAccessTarget) string {
+	return accessTargetIssuePath(target.Position, field)
+}
+
+func modelRoutingResolveIssueDetail(code string, field string, target modelrouting.AuthoredAccessTarget) string {
+	switch code {
+	case "connection_target_missing_connection":
+		if target.TerminalTargetID != nil {
+			return fmt.Sprintf("Target connection %d not found", *target.TerminalTargetID)
 		}
-		targetPath := accessTargetIssuePath(target.Position, "")
-		switch target.TargetType {
-		case "model":
-			targetModelID := strings.TrimSpace(*target.TargetModelID)
-			model, ok := modelsByID[targetModelID]
+	case "target_api_family_mismatch":
+		if field == "target_model_id" {
+			return "Model access targets must use the same api_family as the source model"
+		}
+		return "Connection access targets must use the same api_family as the source model"
+	}
+	return ""
+}
+
+func resolvedAccessTargetsFromModelRouting(targets []modelrouting.ResolvedAccessTarget, modelsByID map[string]modelRecord, connectionsByID map[int]connectionTargetSummary) []resolvedAccessTarget {
+	items := make([]resolvedAccessTarget, 0, len(targets))
+	for _, target := range targets {
+		switch {
+		case modelrouting.IsModelTargetType(target.TargetType) && target.TargetModelID != nil:
+			model, ok := modelsByID[strings.TrimSpace(*target.TargetModelID)]
 			if !ok {
-				return nil, routingPlanValidationIssueError("model_target_missing_model", targetPath+".target_model_id", fmt.Sprintf("Target model '%s' not found", targetModelID))
-			}
-			if model.ModelID == sourceModelID || (sourceModelConfigID != nil && model.ID == *sourceModelConfigID) {
-				return nil, routingPlanValidationIssueError("model_graph_cycle", targetPath+".target_model_id", "Model access target cannot target itself")
-			}
-			if model.APIFamily != apiFamily {
-				return nil, routingPlanValidationIssueError("target_api_family_mismatch", targetPath+".target_model_id", "Model access targets must use the same api_family as the source model")
-			}
-			weight := 1
-			if target.Weight != nil {
-				weight = *target.Weight
-			}
-			targetPriority := target.Position
-			if target.TargetPriority != nil {
-				targetPriority = *target.TargetPriority
+				continue
 			}
 			modelCopy := model
-			resolved = append(resolved, resolvedAccessTarget{TargetType: "model", Position: target.Position, Weight: weight, TargetPriority: targetPriority, IsEnabled: enabled, Model: &modelCopy})
-		case "connection":
-			connectionID := *target.ConnectionID
-			connection, ok := connectionsByID[connectionID]
+			items = append(items, resolvedAccessTarget{TargetType: "model", Position: target.Position, Weight: target.Weight, TargetPriority: target.TargetPriority, IsEnabled: target.IsEnabled, Model: &modelCopy})
+		case modelrouting.IsTerminalTargetType(target.TargetType) && target.TerminalTargetID != nil:
+			connection, ok := connectionsByID[*target.TerminalTargetID]
 			if !ok {
-				return nil, routingPlanValidationIssueError("connection_target_missing_connection", targetPath+".connection_id", fmt.Sprintf("Target connection %d not found", connectionID))
-			}
-			if connection.APIFamily != apiFamily {
-				return nil, routingPlanValidationIssueError("target_api_family_mismatch", targetPath+".connection_id", "Connection access targets must use the same api_family as the source model")
+				continue
 			}
 			connectionCopy := connection
-			resolved = append(resolved, resolvedAccessTarget{TargetType: "connection", Position: target.Position, IsEnabled: enabled, Connection: &connectionCopy})
+			items = append(items, resolvedAccessTarget{TargetType: "connection", Position: target.Position, IsEnabled: target.IsEnabled, Connection: &connectionCopy})
 		}
 	}
-	return resolved, nil
+	return items
 }
 
 func loadTargetModelRecordsByModelIDs(ctx context.Context, exec queryExecutor, profileID int, modelIDs []string) (map[string]modelRecord, error) {
@@ -1047,7 +1077,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	item.AuthType = nullableStringValue(authType)
 	item.CustomHeaders = parseCustomHeaders(customHeaders)
 	item.OpenAIProbeEndpointVariant = nullableStringValue(openAIProbeEndpointVariant)
-	item.OpenAIUpstreamOperation = deriveOpenAIUpstreamOperation(item.APIFamily, item.OpenAIProbeEndpointVariant)
+	item.OpenAIUpstreamOperation = providercompat.DeriveOpenAIUpstreamOperation(item.APIFamily, item.OpenAIProbeEndpointVariant)
 	item.PricingTemplateID = nullableInt32(pricingTemplateID)
 	item.QPSLimit = nullableInt32(qpsLimit)
 	item.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
@@ -1058,22 +1088,6 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 		item.PricingTemplate = &connectionPricingTemplateSummary{ID: int(templateID.Int32), Name: templateName.String, PricingUnit: templatePricingUnit.String, PricingCurrencyCode: templatePricingCurrencyCode.String, Version: int(templateVersion.Int32)}
 	}
 	return item, nil
-}
-
-func deriveOpenAIUpstreamOperation(apiFamily string, probeEndpointVariant *string) *string {
-	if !strings.EqualFold(strings.TrimSpace(apiFamily), "openai") {
-		return nil
-	}
-	variant := "responses_minimal"
-	if probeEndpointVariant != nil && strings.TrimSpace(*probeEndpointVariant) != "" {
-		variant = strings.TrimSpace(*probeEndpointVariant)
-	}
-	switch variant {
-	case "chat_completions_minimal", "chat_completions_reasoning_none":
-		return stringPtr(openAIUpstreamOperationChatCompletions)
-	default:
-		return stringPtr(openAIUpstreamOperationResponses)
-	}
 }
 
 func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, counts map[int]modelConnectionCounts, health map[string]modelHealthStats) modelConfigListResponse {

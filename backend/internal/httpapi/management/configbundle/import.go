@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -13,8 +14,10 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/contextcapability"
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
+	"github.com/coachpo/prism/backend/internal/providercompat"
 	"github.com/coachpo/prism/backend/internal/vendordomain"
 	"github.com/jackc/pgx/v5"
 )
@@ -36,18 +39,6 @@ const (
 	promotionTargetValidationCodeAPIFamilyMismatch      = "api_family_mismatch"
 	promotionTargetValidationCodeContextWindowNotLarger = "context_window_not_larger"
 )
-
-var validImportAPIFamilies = map[string]struct{}{
-	"openai":    {},
-	"anthropic": {},
-	"gemini":    {},
-}
-
-var validConnectionAuthTypes = map[string]struct{}{
-	"openai":    {},
-	"anthropic": {},
-	"gemini":    {},
-}
 
 var importedPricingTemplateDecimalPattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
 
@@ -558,7 +549,7 @@ func validateImportedModels(models []modelExport, refs profileImportModelValidat
 			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate model_id: '%s'", modelID)}
 		}
 		seenModelIDs[modelID] = struct{}{}
-		if _, ok := validImportAPIFamilies[model.APIFamily]; !ok {
+		if !providercompat.IsSupportedAPIFamily(model.APIFamily) {
 			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown api family: '%s'", model.APIFamily)}
 		}
 		if err := validateImportedModelVendorRef(model, refs.vendorKeys); err != nil {
@@ -589,7 +580,7 @@ func normalizeImportedModels(models []modelExport) []importedModelPayload {
 	for _, model := range models {
 		items = append(items, importedModelPayload{
 			VendorKey:                            trimmedOptionalString(model.VendorKey),
-			APIFamily:                            strings.ToLower(strings.TrimSpace(model.APIFamily)),
+			APIFamily:                            providercompat.NormalizeAPIFamily(model.APIFamily),
 			ModelID:                              strings.TrimSpace(model.ModelID),
 			DisplayName:                          trimmedOptionalString(model.DisplayName),
 			LoadbalanceStrategyName:              trimmedOptionalString(model.LoadbalanceStrategyName),
@@ -612,18 +603,12 @@ func normalizeImportedModels(models []modelExport) []importedModelPayload {
 func normalizeImportedAccessTargets(targets []accessTargetExport) []importedAccessTargetPayload {
 	items := make([]importedAccessTargetPayload, 0, len(targets))
 	for _, target := range targets {
-		resolvedWeight := 1
-		if target.Weight != nil {
-			resolvedWeight = *target.Weight
-		}
-		resolvedTargetPriority := target.Position
-		if target.TargetPriority != nil {
-			resolvedTargetPriority = *target.TargetPriority
-		}
+		resolvedWeight := modelrouting.EffectiveModelTargetWeight(target.Weight)
+		resolvedTargetPriority := modelrouting.EffectiveModelTargetPriority(target.Position, target.TargetPriority)
 		items = append(items, importedAccessTargetPayload{
 			Position:               target.Position,
 			IsEnabled:              target.IsEnabled,
-			TargetType:             strings.ToLower(strings.TrimSpace(target.TargetType)),
+			TargetType:             modelrouting.NormalizeTargetType(target.TargetType),
 			ConnectionRef:          trimmedOptionalString(target.ConnectionRef),
 			TargetModelID:          trimmedOptionalString(target.TargetModelID),
 			Weight:                 target.Weight,
@@ -699,7 +684,7 @@ func validateImportedPromotionTargets(models []modelExport, connections []connec
 		if target.FacadeEnabled {
 			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeFacade, "context_overflow_promotion_target_id must reference a non-facade model")
 		}
-		if target.APIFamily != model.APIFamily {
+		if !modelrouting.SameAPIFamily(target.APIFamily, model.APIFamily) {
 			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
 		}
 		sourceStats := collectImportedPromotionTargetTerminalStats(model, modelsByID, connectionStatsByRef, statsByModelID)
@@ -742,8 +727,8 @@ func collectImportedPromotionTargetTerminalStats(model importedModelPayload, mod
 		if !target.IsEnabled {
 			continue
 		}
-		switch target.TargetType {
-		case "connection":
+		switch {
+		case modelrouting.IsTerminalTargetType(target.TargetType):
 			if target.ConnectionRef == nil {
 				continue
 			}
@@ -751,7 +736,7 @@ func collectImportedPromotionTargetTerminalStats(model importedModelPayload, mod
 			if ok && connectionStats.UsableContextWindowTokens > stats.LargestUsableContextWindowTokens {
 				stats.LargestUsableContextWindowTokens = connectionStats.UsableContextWindowTokens
 			}
-		case "model":
+		case modelrouting.IsModelTargetType(target.TargetType):
 			if target.TargetModelID == nil {
 				continue
 			}
@@ -835,7 +820,7 @@ func validateImportedFacadeConfiguration(modelIndex int, model importedModelPayl
 	if !model.FacadeEnabled {
 		return nil
 	}
-	if model.APIFamily != "openai" {
+	if !providercompat.IsOpenAI(model.APIFamily) {
 		return routingPlanValidationIssueError("model_api_family_invalid", importedModelIssuePath(modelIndex, "api_family"), facadeEnabledRequiresOpenAIDetail)
 	}
 	if model.FacadeSelectionPolicy == nil {
@@ -891,8 +876,8 @@ func validateImportedAccessTargets(modelIndex int, modelID string, apiFamily str
 			return err
 		}
 
-		switch target.TargetType {
-		case "connection":
+		switch {
+		case modelrouting.IsTerminalTargetType(target.TargetType):
 			if target.ConnectionRef == nil {
 				detail := fmt.Sprintf("Model '%s' connection access target must include connection_ref", modelID)
 				return routingPlanValidationIssueError("connection_target_missing_connection", importedAccessTargetIssuePath(modelIndex, targetIndex, "connection_ref"), detail)
@@ -906,7 +891,7 @@ func validateImportedAccessTargets(modelIndex int, modelID string, apiFamily str
 				detail := fmt.Sprintf("Model '%s' references unknown connection_ref '%s'", modelID, *target.ConnectionRef)
 				return routingPlanValidationIssueError("connection_target_missing_connection", importedAccessTargetIssuePath(modelIndex, targetIndex, "connection_ref"), detail)
 			}
-			if connection.APIFamily != apiFamily {
+			if !modelrouting.SameAPIFamily(connection.APIFamily, apiFamily) {
 				detail := fmt.Sprintf("Model '%s' cannot target cross-api-family connection_ref '%s'", modelID, *target.ConnectionRef)
 				return routingPlanValidationIssueError("target_api_family_mismatch", importedAccessTargetIssuePath(modelIndex, targetIndex, "connection_ref"), detail)
 			}
@@ -922,7 +907,7 @@ func validateImportedAccessTargets(modelIndex int, modelID string, apiFamily str
 			}
 			connectionOwners[*target.ConnectionRef] = owner
 			importedConnectionPairs[connectionPairKey(modelID, *target.ConnectionRef)] = struct{}{}
-		case "model":
+		case modelrouting.IsModelTargetType(target.TargetType):
 			if target.TargetModelID == nil {
 				detail := fmt.Sprintf("Model '%s' model access target must include target_model_id", modelID)
 				return routingPlanValidationIssueError("model_target_id_empty", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
@@ -950,7 +935,7 @@ func validateImportedAccessTargets(modelIndex int, modelID string, apiFamily str
 }
 
 func validateImportedAccessTargetMetadataContract(modelIndex int, targetIndex int, target importedAccessTargetPayload) error {
-	if target.TargetType == "connection" {
+	if modelrouting.IsTerminalTargetType(target.TargetType) {
 		if target.Weight != nil {
 			return routingPlanValidationIssueError("terminal_target_metadata_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "weight"), "weight must be omitted for terminal targets")
 		}
@@ -992,8 +977,8 @@ func validateImportedConnections(connections []connectionExport, refs profileImp
 		if _, ok := connectionRefs[connectionRef]; ok {
 			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate connection ref: '%s'", connectionRef)}
 		}
-		apiFamily := strings.ToLower(strings.TrimSpace(connection.APIFamily))
-		if _, ok := validImportAPIFamilies[apiFamily]; !ok {
+		apiFamily := providercompat.NormalizeAPIFamily(connection.APIFamily)
+		if !providercompat.IsSupportedAPIFamily(apiFamily) {
 			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' has unknown api family: '%s'", connectionRef, connection.APIFamily)}
 		}
 		if connection.QPSLimit != nil && *connection.QPSLimit < 1 {
@@ -1037,7 +1022,7 @@ func validateImportedAccessTargetReferences(models []importedModelPayload) error
 	enabledModelGraph := map[string][]string{}
 	for modelIndex, model := range models {
 		for targetIndex, target := range model.AccessTargets {
-			if target.TargetType != "model" || target.TargetModelID == nil {
+			if !modelrouting.IsModelTargetType(target.TargetType) || target.TargetModelID == nil {
 				continue
 			}
 			targetModel, ok := modelsByID[*target.TargetModelID]
@@ -1045,7 +1030,7 @@ func validateImportedAccessTargetReferences(models []importedModelPayload) error
 				detail := fmt.Sprintf("Model '%s' references unknown model access target '%s'", model.ModelID, *target.TargetModelID)
 				return routingPlanValidationIssueError("model_target_missing_model", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
 			}
-			if targetModel.APIFamily != model.APIFamily {
+			if !modelrouting.SameAPIFamily(targetModel.APIFamily, model.APIFamily) {
 				detail := fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", model.ModelID, *target.TargetModelID)
 				return routingPlanValidationIssueError("target_api_family_mismatch", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
 			}
@@ -1061,7 +1046,7 @@ func validateImportedAccessTargetReferences(models []importedModelPayload) error
 	if err := validateImportedModelsHaveEnabledRoutingTargets(models, modelIndexesByID, referencedModels); err != nil {
 		return err
 	}
-	return validateImportedModelGraphAcyclic(enabledModelGraph, modelIndexesByID)
+	return validateImportedModelGraphAcyclicWithModelRouting(enabledModelGraph, modelIndexesByID)
 }
 
 func validateImportedModelsHaveEnabledRoutingTargets(models []importedModelPayload, modelIndexesByID map[string]int, referencedModels map[string]struct{}) error {
@@ -1088,41 +1073,18 @@ func validateImportedModelsHaveEnabledRoutingTargets(models []importedModelPaylo
 	return nil
 }
 
-func validateImportedModelGraphAcyclic(graph map[string][]string, modelIndexesByID map[string]int) error {
-	state := map[string]int{}
+func validateImportedModelGraphAcyclicWithModelRouting(graph map[string][]string, modelIndexesByID map[string]int) error {
 	modelIDs := make([]string, 0, len(modelIndexesByID))
 	for modelID := range modelIndexesByID {
 		modelIDs = append(modelIDs, modelID)
 	}
-	sort.Strings(modelIDs)
-	var visit func(string, []string) error
-	visit = func(modelID string, stack []string) error {
-		switch state[modelID] {
-		case 1:
-			modelIndex := modelIndexesByID[modelID]
-			cycle := append(append([]string{}, stack...), modelID)
-			detail := fmt.Sprintf("Routing cycle detected for model '%s': %s", modelID, strings.Join(cycle, " -> "))
-			return routingPlanValidationIssueError("model_graph_cycle", importedModelIssuePath(modelIndex, "access_targets"), detail)
-		case 2:
-			return nil
-		}
-		state[modelID] = 1
-		children := append([]string{}, graph[modelID]...)
-		sort.Strings(children)
-		for _, child := range children {
-			if err := visit(child, append(stack, modelID)); err != nil {
-				return err
-			}
-		}
-		state[modelID] = 2
+	cycle := modelrouting.FindCycle(graph, modelIDs, modelrouting.LessString)
+	if cycle == nil {
 		return nil
 	}
-	for _, modelID := range modelIDs {
-		if err := visit(modelID, nil); err != nil {
-			return err
-		}
-	}
-	return nil
+	modelIndex := modelIndexesByID[cycle.Node]
+	detail := fmt.Sprintf("Routing cycle detected for model '%s': %s", cycle.Node, strings.Join(cycle.Path, " -> "))
+	return routingPlanValidationIssueError("model_graph_cycle", importedModelIssuePath(modelIndex, "access_targets"), detail)
 }
 
 func validateImportedProfileSettings(profileSettings *profileSettingsExport, connectionRefs map[string]importedConnectionValidationRef, importedConnectionPairs map[string]struct{}) error {
@@ -1603,7 +1565,7 @@ func buildImportedConnectionOwnerSettings(models []importedModelPayload, modelSe
 			continue
 		}
 		for _, target := range model.AccessTargets {
-			if target.TargetType != "connection" || target.ConnectionRef == nil {
+			if !modelrouting.IsTerminalTargetType(target.TargetType) || target.ConnectionRef == nil {
 				continue
 			}
 			items[*target.ConnectionRef] = ownerSettings
@@ -1669,7 +1631,7 @@ func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor,
 func insertImportedConnections(ctx context.Context, exec queryExecutor, profileID int, connections []connectionExport, endpointIDsByName map[string]int, pricingIDsByName map[string]int, connectionOwnerSettings map[string]contextcapability.Settings, connectionIDsByRef map[string]int, currentTime time.Time) (int, error) {
 	for _, connection := range connections {
 		connectionRef := strings.TrimSpace(connection.Ref)
-		apiFamily := strings.ToLower(strings.TrimSpace(connection.APIFamily))
+		apiFamily := providercompat.NormalizeAPIFamily(connection.APIFamily)
 		endpointName := strings.TrimSpace(connection.EndpointName)
 		pricingTemplateName := trimmedOptionalString(connection.PricingTemplateName)
 		probeVariant, err := normalizeOpenAIProbeEndpointVariant(apiFamily, connection.OpenAIProbeEndpointVariant)
@@ -1708,14 +1670,14 @@ func insertImportedAccessTargets(ctx context.Context, exec queryExecutor, profil
 		copy(sortedTargets, model.AccessTargets)
 		sort.SliceStable(sortedTargets, func(left int, right int) bool { return sortedTargets[left].Position < sortedTargets[right].Position })
 		for _, target := range sortedTargets {
-			switch target.TargetType {
-			case "connection":
-				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, $4, $5, $6, $6)`, profileID, sourceModelID, connectionIDsByRef[*target.ConnectionRef], target.Position, target.IsEnabled, currentTime); err != nil {
+			switch {
+			case modelrouting.IsTerminalTargetType(target.TargetType):
+				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, profileID, sourceModelID, modelrouting.TargetTypeTerminal, connectionIDsByRef[*target.ConnectionRef], target.Position, target.IsEnabled, currentTime); err != nil {
 					return fmt.Errorf("insert connection access target for model %q: %w", model.ModelID, err)
 				}
 				importedPairs[connectionPairKey(model.ModelID, *target.ConnectionRef)] = struct{}{}
-			case "model":
-				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, $5, $6, $7, $8, $8)`, profileID, sourceModelID, modelIDsByModelID[*target.TargetModelID], target.Position, target.ResolvedWeight, target.ResolvedTargetPriority, target.IsEnabled, currentTime); err != nil {
+			case modelrouting.IsModelTargetType(target.TargetType):
+				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`, profileID, sourceModelID, modelrouting.TargetTypeModel, modelIDsByModelID[*target.TargetModelID], target.Position, target.ResolvedWeight, target.ResolvedTargetPriority, target.IsEnabled, currentTime); err != nil {
 					return fmt.Errorf("insert model access target for model %q: %w", model.ModelID, err)
 				}
 			}
@@ -1889,27 +1851,25 @@ func resolveImportedPricingTemplateName(name *string, known map[string]struct{})
 }
 
 func normalizeOpenAIProbeEndpointVariant(apiFamily string, value *string) (*string, error) {
-	if value == nil {
-		return nil, nil
-	}
-	normalized := strings.ToLower(strings.TrimSpace(*value))
-	if apiFamily != "openai" {
+	variant, err := providercompat.NormalizeImportedOpenAIProbeEndpointVariant(apiFamily, value)
+	if errors.Is(err, providercompat.ErrOpenAIProbeEndpointVariantUnsupported) {
 		return nil, fmt.Errorf("must not include openai_probe_endpoint_variant outside the OpenAI API family")
 	}
-	switch normalized {
-	case "responses_minimal", "responses_reasoning_none", "chat_completions_minimal", "chat_completions_reasoning_none":
-		return stringPtr(normalized), nil
-	default:
+	if errors.Is(err, providercompat.ErrOpenAIProbeEndpointVariantInvalid) {
 		return nil, fmt.Errorf("has invalid openai_probe_endpoint_variant")
 	}
+	if err != nil {
+		return nil, err
+	}
+	return variant, nil
 }
 
 func validateConnectionAuthType(value *string) error {
 	if value == nil {
 		return nil
 	}
-	normalized := strings.ToLower(strings.TrimSpace(*value))
-	if _, ok := validConnectionAuthTypes[normalized]; !ok {
+	normalized := providercompat.NormalizeAPIFamily(*value)
+	if !providercompat.IsSupportedAuthType(normalized) {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "auth_type must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return nil
@@ -1919,7 +1879,7 @@ func normalizedOptionalAuthType(value *string) *string {
 	if value == nil {
 		return nil
 	}
-	normalized := strings.ToLower(strings.TrimSpace(*value))
+	normalized := providercompat.NormalizeAPIFamily(*value)
 	if normalized == "" {
 		return nil
 	}

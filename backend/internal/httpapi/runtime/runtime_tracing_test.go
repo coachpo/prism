@@ -372,14 +372,14 @@ func executeRuntimeTracingPlan(t *testing.T, service *Service, client *http.Clie
 func runtimeTracingSnapshot(apiFamily string, modelID string) *planningSnapshot {
 	model := runtimeModelRecord{ID: 1, ProfileID: requestPlanTestProfileID, APIFamily: apiFamily, ModelID: modelID}
 	snapshot := newRequestPlanSnapshot(model)
-	for connectionID, connection := range snapshot.ConnectionsByID {
+	for connectionID, connection := range snapshot.TerminalTargetsByID {
 		connection.Endpoint.BaseURL = "https://upstream.example/base"
 		connection.UpstreamAuth = &runtimeConnectionUpstreamAuthSnapshot{
 			AuthHeader:            "Authorization",
 			AuthValue:             "Bearer redacted",
 			ControlledHeaderNames: map[string]struct{}{"authorization": {}},
 		}
-		snapshot.ConnectionsByID[connectionID] = connection
+		snapshot.TerminalTargetsByID[connectionID] = connection
 	}
 	return snapshot
 }
