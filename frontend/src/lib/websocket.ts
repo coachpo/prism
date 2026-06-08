@@ -81,6 +81,8 @@ export interface WebSocketClientOptions {
   heartbeatInterval?: number;
 }
 
+const IDLE_CLOSE_GRACE_MS = 15_000;
+
 function shouldScheduleReconnect({
   isIntentionallyClosed,
   reconnectAttempts,
@@ -146,6 +148,7 @@ export class WebSocketClient {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private idleCloseTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly handlers: Set<RealtimeEventHandler> = new Set();
   private isIntentionallyClosed = false;
   private currentProfileId: number | null = null;
@@ -265,6 +268,7 @@ export class WebSocketClient {
     this.isIntentionallyClosed = true;
     this.currentProfileId = null;
     this.channelRefCounts = new Map();
+    this.cancelIdleClose();
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -285,6 +289,8 @@ export class WebSocketClient {
     channel: RealtimeChannel,
     scope?: RealtimeSubscriptionScope,
   ): void {
+    this.cancelIdleClose();
+
     if (this.currentProfileId !== null && this.currentProfileId !== profileId) {
       this.setProfile(profileId);
     } else {
@@ -320,6 +326,7 @@ export class WebSocketClient {
 
     if (!hasSubscriptions) {
       this.currentProfileId = null;
+      this.scheduleIdleClose();
     }
   }
 
@@ -330,9 +337,13 @@ export class WebSocketClient {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.send(buildUnsubscribeAllMessage());
     }
+
+    this.scheduleIdleClose();
   }
 
   setProfile(profileId: number): void {
+    this.cancelIdleClose();
+
     if (profileId === this.currentProfileId) {
       return;
     }
@@ -382,6 +393,8 @@ export class WebSocketClient {
     channel: RealtimeChannel,
     scope?: RealtimeSubscriptionScope,
   ): void {
+    this.cancelIdleClose();
+
     if (
       channel !== "analytics" ||
       profileId === null ||
@@ -428,6 +441,48 @@ export class WebSocketClient {
       channelRefCounts: this.channelRefCounts,
       send: this.send.bind(this),
     });
+  }
+
+  private scheduleIdleClose(): void {
+    if (this.idleCloseTimer || this.channelRefCounts.size > 0) {
+      return;
+    }
+
+    this.idleCloseTimer = setTimeout(() => {
+      this.idleCloseTimer = null;
+      this.closeIdleConnection();
+    }, IDLE_CLOSE_GRACE_MS);
+  }
+
+  private cancelIdleClose(): void {
+    if (!this.idleCloseTimer) {
+      return;
+    }
+
+    clearTimeout(this.idleCloseTimer);
+    this.idleCloseTimer = null;
+  }
+
+  private closeIdleConnection(): void {
+    if (this.channelRefCounts.size > 0) {
+      return;
+    }
+
+    this.isIntentionallyClosed = true;
+    this.shouldEmitReconnect = false;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.ws) {
+      this.ws.close();
+      return;
+    }
+
+    this.stopHeartbeat();
+    this.setConnectionState("disconnected");
   }
 
   private scheduleReconnect(): void {

@@ -60,6 +60,23 @@ ALTER SEQUENCE public.app_auth_settings_id_seq OWNED BY public.app_auth_settings
 
 
 --
+-- Name: login_throttle_ledger; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.login_throttle_ledger (
+    subject_key character varying(320) NOT NULL,
+    remote_address character varying(100) NOT NULL,
+    failure_count integer NOT NULL,
+    first_failed_at timestamp with time zone NOT NULL,
+    last_failed_at timestamp with time zone NOT NULL,
+    locked_until timestamp with time zone,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT ck_login_throttle_ledger_failure_count CHECK ((failure_count >= 0))
+);
+
+
+--
 -- Name: audit_logs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1783,6 +1800,14 @@ ALTER TABLE ONLY public.loadbalance_strategies
 
 
 --
+-- Name: login_throttle_ledger login_throttle_ledger_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.login_throttle_ledger
+    ADD CONSTRAINT login_throttle_ledger_pkey PRIMARY KEY (subject_key, remote_address);
+
+
+--
 -- Name: log_retention_settings log_retention_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2477,6 +2502,20 @@ CREATE UNIQUE INDEX uq_model_access_targets_source_target_connection ON public.m
 --
 
 CREATE UNIQUE INDEX uq_model_access_targets_source_target_model ON public.model_access_targets USING btree (source_model_config_id, target_model_config_id) WHERE (target_model_config_id IS NOT NULL);
+
+
+--
+-- Name: idx_login_throttle_ledger_locked_until; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_login_throttle_ledger_locked_until ON public.login_throttle_ledger USING btree (locked_until) WHERE (locked_until IS NOT NULL);
+
+
+--
+-- Name: idx_login_throttle_ledger_updated_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_login_throttle_ledger_updated_at ON public.login_throttle_ledger USING btree (updated_at);
 
 
 --

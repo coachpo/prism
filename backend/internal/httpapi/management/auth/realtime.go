@@ -10,6 +10,12 @@ type RealtimeAuthState struct {
 	AuthEnabled   bool
 	Username      string
 	Authenticated bool
+	SubjectID     int
+	TokenVersion  int
+}
+
+type RealtimeAuthRevocation struct {
+	SubjectID int
 }
 
 func (s *Service) ResolveRealtimeAuthState(ctx context.Context, rawToken string) (RealtimeAuthState, error) {
@@ -45,6 +51,8 @@ func (s *Service) ResolveRealtimeAuthState(ctx context.Context, rawToken string)
 	}
 
 	state.Authenticated = true
+	state.SubjectID = subjectID
+	state.TokenVersion = claims.TokenVersion
 	if claims.Username != "" {
 		state.Username = claims.Username
 	}

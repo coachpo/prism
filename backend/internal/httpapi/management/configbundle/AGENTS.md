@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT CONFIG BUNDLE KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/configbundle/` owns Prism's profile bundle and vendor-catalog export/import surface. It handles preview tokens, bundle-fingerprint validation, secret encryption/decryption, context overflow promotion target validation, and the after-import hook that keeps profile and vendor state aligned.
+`management/configbundle/` owns Prism's profile bundle and vendor-catalog export/import surface. It handles preview tokens, bundle-fingerprint validation, secret encryption/decryption, and context overflow promotion target validation. Cross-cutting runtime-cache and dashboard invalidation for successful imports is owned by platform HTTP management mutation middleware.
 
 ## STRUCTURE
 ```text
@@ -32,7 +32,7 @@ configbundle/
 - Keep context overflow promotion targets import-validated against imported model IDs, same `api_family`, enabled non-facade targets, and larger usable terminal context.
 - Keep preview-before-import semantics explicit; validated imports should require the preview token path that the backend issued for that exact bundle fingerprint.
 - Keep bundle-secret handling explicit and transactional; do not bury encryption/decryption in page code or shared settings helpers.
-- Keep effective-profile resolution and after-import hooks inside this package.
+- Keep effective-profile resolution inside this package; keep cross-cutting import side effects in the platform HTTP management mutation middleware instead of reintroducing package-local hooks.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

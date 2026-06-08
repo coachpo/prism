@@ -91,7 +91,7 @@ func TestRuntimeResponseStreamingIgnoresNestedSpoofedUsage(t *testing.T) {
 	assertLatestUsageEventUsage(t, harness.conn, profileID, 7, 13, 20)
 }
 
-func TestRuntimeLargeNonStreamResponseDoesNotFullyBuffer(t *testing.T) {
+func TestRuntimeLargeNonStreamResponseWaitsForDurableHandoffBeforeCommit(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newChunkedLargeResponseUpstream(t)
@@ -106,34 +106,29 @@ func TestRuntimeLargeNonStreamResponseDoesNotFullyBuffer(t *testing.T) {
 		EndpointAPIKey:  "phase-2-large-response-key",
 	})
 
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "stream the large non-sse response"}},
+	resultCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+"/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "wait for durable handoff before non-sse response commit"}},
 		"model":    route.PublicModelID,
 	}, nil)
-	assertStatus(t, response, http.StatusOK)
 	upstream.waitUntilFirstChunk(t, 5*time.Second)
 
-	readCh := make(chan readChunkResult, 1)
-	go func() {
-		buffer := make([]byte, 64)
-		n, err := response.Body.Read(buffer)
-		readCh <- readChunkResult{BytesRead: n, Err: err}
-	}()
-
 	select {
-	case result := <-readCh:
-		if result.Err != nil && result.Err != io.EOF {
-			t.Fatalf("expected streamed response bytes before upstream completion, got read error: %v", result.Err)
-		}
-		if result.BytesRead < 1 {
-			t.Fatalf("expected at least one streamed response byte before upstream completion, got %d", result.BytesRead)
-		}
+	case result := <-resultCh:
+		t.Fatalf("expected non-stream response to wait for upstream completion and durable handoff before commit, got %+v", result)
 	case <-time.After(runtimeStreamingAssertionDeadline):
-		t.Fatal("expected response body to become readable before upstream finished; non-SSE response is still fully buffered")
 	}
 
 	upstream.releaseResponse()
-	_, _ = io.Copy(io.Discard, response.Body)
+	result := awaitAsyncRequest(t, resultCh, 5*time.Second)
+	if result.Err != nil {
+		t.Fatalf("expected durable handoff response to complete after upstream release, got %v", result.Err)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("expected durable handoff response status 200, got %d with body %s", result.StatusCode, result.Body)
+	}
+	if !strings.Contains(result.Body, "chatcmpl-phase-2-large-response") {
+		t.Fatalf("expected provider body after durable handoff, got %s", result.Body)
+	}
 	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
 }
 

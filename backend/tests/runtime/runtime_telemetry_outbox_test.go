@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -315,7 +319,7 @@ func TestRuntimeTelemetryBacklogDoesNotConsumeExecutionPool(t *testing.T) {
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 2, OutboxRows: 0}, 5*time.Second)
 }
 
-func TestRuntimeAcceptedResponseDoesNotMaterializeSyncTelemetry(t *testing.T) {
+func TestRuntimeNonStreamSuccessWaitsForDurableTelemetryEnqueue(t *testing.T) {
 	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
 		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
 			Hooks: &runtimeapi.TelemetryOutboxHooks{
@@ -339,11 +343,151 @@ func TestRuntimeAcceptedResponseDoesNotMaterializeSyncTelemetry(t *testing.T) {
 		"messages": []map[string]any{{"role": "user", "content": "accepted responses must not fall back to inline sync telemetry materialization"}},
 		"model":    route.PublicModelID,
 	}, nil)
-	assertStatus(t, response, http.StatusOK)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	assertResponseField(t, response, "error", "runtime_observability_handoff_failed")
+	body := readResponseBody(t, response)
+	if strings.Contains(body, "chatcmpl-smoke") {
+		t.Fatalf("expected Prism handoff failure before provider body commit, got %s", body)
+	}
+	if got := len(harness.upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected provider request to succeed before durable handoff failure, got %d upstream requests", got)
+	}
 	time.Sleep(100 * time.Millisecond)
 	counts := loadRuntimeTelemetryCounts(t, harness.conn, profileID)
 	if counts != (runtimeTelemetryCounts{}) {
-		t.Fatalf("expected accepted response to avoid inline sync telemetry materialization after enqueue failure, got %+v", counts)
+		t.Fatalf("expected enqueue failure to avoid false-success telemetry materialization, got %+v", counts)
+	}
+}
+
+func TestRuntimeStreamingSuccessWaitsForAcceptedDurableTelemetryBeforeFirstByte(t *testing.T) {
+	gate := newRuntimeTelemetryMaterializeGate()
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
+		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
+			PollInterval: 25 * time.Millisecond,
+			Hooks: &runtimeapi.TelemetryOutboxHooks{
+				BeforeMaterialize: gate.Wait,
+			},
+		}},
+	})
+	profileID := harness.activeProfileID(t)
+	upstream := newBlockingSSEUpstream(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "telemetry-stream-accepted-public-" + randomSuffix(),
+		TargetModelID:   "telemetry-stream-accepted-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/telemetry/stream/accepted"),
+		EndpointAPIKey:  "telemetry-stream-accepted-key",
+	})
+
+	response := startRuntimeStreamRequest(t, harness.client, harness.url+"/v1/chat/completions", route.PublicModelID)
+	defer func() { _ = response.Body.Close() }()
+	upstream.waitUntilFirstChunk(t, 5*time.Second)
+	firstChunk := readRuntimeStreamChunk(t, response.Body)
+	if !strings.Contains(firstChunk, "telemetry-stream-first") {
+		t.Fatalf("expected first provider stream bytes after accepted durable handoff, got %q", firstChunk)
+	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{OutboxRows: 1}, 5*time.Second)
+
+	upstream.releaseTerminal()
+	rest, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("expected streaming request to finish after terminal release: %v", err)
+	}
+	body := firstChunk + string(rest)
+	if response.StatusCode != http.StatusOK || !strings.Contains(body, "[DONE]") {
+		t.Fatalf("expected successful streaming response, got status=%d body=%q", response.StatusCode, body)
+	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{OutboxRows: 1}, 5*time.Second)
+	gate.Release()
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+}
+
+func TestRuntimeStreamingAcceptedHandoffFailureReturns503BeforeFirstByte(t *testing.T) {
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
+		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
+			Hooks: &runtimeapi.TelemetryOutboxHooks{
+				EnqueueError: func() error {
+					return errors.New("forced streaming accepted enqueue failure")
+				},
+			},
+		}},
+	})
+	profileID := harness.activeProfileID(t)
+	upstream := newBlockingSSEUpstream(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "telemetry-stream-accepted-fail-public-" + randomSuffix(),
+		TargetModelID:   "telemetry-stream-accepted-fail-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/telemetry/stream/accepted-fail"),
+		EndpointAPIKey:  "telemetry-stream-accepted-fail-key",
+	})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "stream accepted handoff must happen before first byte"}},
+		"model":    route.PublicModelID,
+		"stream":   true,
+	}, nil)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	assertResponseField(t, response, "error", "runtime_observability_handoff_failed")
+	body := readResponseBody(t, response)
+	if strings.Contains(body, "telemetry-stream-first") || strings.Contains(body, "data:") {
+		t.Fatalf("expected handoff failure before stream byte commit, got %s", body)
+	}
+	if got := len(upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected provider request to open before accepted handoff failure, got %d upstream requests", got)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if counts := loadRuntimeTelemetryCounts(t, harness.conn, profileID); counts != (runtimeTelemetryCounts{}) {
+		t.Fatalf("expected accepted handoff failure to leave no telemetry rows, got %+v", counts)
+	}
+}
+
+func TestRuntimeStreamingTerminalHandoffFailureAfterPartialOutput(t *testing.T) {
+	var enqueueCalls atomic.Int32
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
+		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
+			Hooks: &runtimeapi.TelemetryOutboxHooks{
+				EnqueueError: func() error {
+					if enqueueCalls.Add(1) == 2 {
+						return errors.New("forced streaming terminal enqueue failure")
+					}
+					return nil
+				},
+			},
+		}},
+	})
+	profileID := harness.activeProfileID(t)
+	upstream := newBlockingSSEUpstream(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "telemetry-stream-terminal-fail-public-" + randomSuffix(),
+		TargetModelID:   "telemetry-stream-terminal-fail-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/telemetry/stream/terminal-fail"),
+		EndpointAPIKey:  "telemetry-stream-terminal-fail-key",
+	})
+
+	response := startRuntimeStreamRequest(t, harness.client, harness.url+"/v1/chat/completions", route.PublicModelID)
+	defer func() { _ = response.Body.Close() }()
+	upstream.waitUntilFirstChunk(t, 5*time.Second)
+	firstChunk := readRuntimeStreamChunk(t, response.Body)
+	if !strings.Contains(firstChunk, "telemetry-stream-first") {
+		t.Fatalf("expected partial provider output before terminal failure, got %q", firstChunk)
+	}
+
+	upstream.releaseTerminal()
+	rest, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("expected protocol-safe stream close after terminal handoff failure: %v", err)
+	}
+	body := firstChunk + string(rest)
+	if response.StatusCode != http.StatusOK || !strings.Contains(body, "runtime_observability_handoff_failed") {
+		t.Fatalf("expected terminal handoff failure to close with Prism SSE error, got status=%d body=%q", response.StatusCode, body)
+	}
+	if counts := loadRuntimeTelemetryCounts(t, harness.conn, profileID); counts.RequestLogs != 0 || counts.UsageEvents != 0 || counts.OutboxRows != 1 {
+		t.Fatalf("expected terminal failure to leave accepted durable row without false terminal materialization, got %+v", counts)
 	}
 }
 
@@ -439,6 +583,116 @@ type runtimeTelemetryCounts struct {
 	RequestLogs int
 	UsageEvents int
 	OutboxRows  int
+}
+
+type blockingSSEUpstream struct {
+	server      *httptest.Server
+	firstChunk  chan struct{}
+	terminal    chan struct{}
+	requests    []upstreamRequestSnapshot
+	mu          sync.Mutex
+	firstOnce   sync.Once
+	releaseOnce sync.Once
+}
+
+func newBlockingSSEUpstream(t *testing.T) *blockingSSEUpstream {
+	t.Helper()
+	upstream := &blockingSSEUpstream{
+		firstChunk: make(chan struct{}),
+		terminal:   make(chan struct{}),
+	}
+	upstream.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read blocking SSE upstream request body: %v", err)
+		}
+		_ = r.Body.Close()
+		upstream.mu.Lock()
+		upstream.requests = append(upstream.requests, upstreamRequestSnapshot{Method: r.Method, URL: r.URL.String(), Path: r.URL.Path, Query: r.URL.RawQuery, Headers: r.Header.Clone(), Body: append([]byte(nil), body...)})
+		upstream.mu.Unlock()
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("blocking SSE upstream writer does not support flushing")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: {\"id\":\"telemetry-stream-first\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}\n\n")
+		flusher.Flush()
+		upstream.firstOnce.Do(func() { close(upstream.firstChunk) })
+		<-upstream.terminal
+		_, _ = io.WriteString(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":13,\"total_tokens\":20}}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	t.Cleanup(func() {
+		upstream.releaseTerminal()
+		upstream.server.Close()
+	})
+	return upstream
+}
+
+func (u *blockingSSEUpstream) baseURL(path string) string {
+	return strings.TrimRight(u.server.URL, "/") + path
+}
+
+func (u *blockingSSEUpstream) waitUntilFirstChunk(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-u.firstChunk:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for first SSE chunk")
+	}
+}
+
+func (u *blockingSSEUpstream) releaseTerminal() {
+	u.releaseOnce.Do(func() { close(u.terminal) })
+}
+
+func (u *blockingSSEUpstream) requestsSnapshot() []upstreamRequestSnapshot {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	cloned := make([]upstreamRequestSnapshot, len(u.requests))
+	copy(cloned, u.requests)
+	return cloned
+}
+
+func startRuntimeStreamRequest(t *testing.T, client *http.Client, url string, modelID string) *http.Response {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodPost, url, strings.NewReader(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"stream durable telemetry"}],"stream":true}`, modelID)))
+	if err != nil {
+		t.Fatalf("build runtime stream request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("start runtime stream request: %v", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		t.Fatalf("expected runtime stream status 200, got %d body=%s", response.StatusCode, string(body))
+	}
+	return response
+}
+
+func readRuntimeStreamChunk(t *testing.T, reader io.Reader) string {
+	t.Helper()
+	buffer := make([]byte, 256)
+	readCh := make(chan readChunkResult, 1)
+	go func() {
+		n, err := reader.Read(buffer)
+		readCh <- readChunkResult{BytesRead: n, Err: err}
+	}()
+	select {
+	case result := <-readCh:
+		if result.Err != nil && result.Err != io.EOF {
+			t.Fatalf("read first runtime stream chunk: %v", result.Err)
+		}
+		return string(buffer[:result.BytesRead])
+	case <-time.After(runtimeStreamingAssertionDeadline):
+		t.Fatal("timed out waiting for first runtime stream chunk")
+		return ""
+	}
 }
 
 type runtimeTelemetryMaterializeGate struct {

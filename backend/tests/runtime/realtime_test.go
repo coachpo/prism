@@ -15,6 +15,7 @@ import (
 	"reflect"
 	goruntime "runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformemailoutbox "github.com/coachpo/prism/backend/internal/platform/email/outbox"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
@@ -40,6 +42,8 @@ type realtimeHarness struct {
 	realtimeService         *realtimeapi.Service
 	statsService            *managementstats.Service
 	asyncDashboardPublisher *realtimeapi.AsyncDashboardPublisher
+	mailer                  *realtimeCaptureMailer
+	emailOutbox             *platformemailoutbox.Store
 	fixedNow                time.Time
 }
 
@@ -187,6 +191,109 @@ func TestRealtimePong(t *testing.T) {
 	writeWebSocketJSON(t, conn, map[string]any{"type": "ping"})
 	assertRealtimeMessage(t, conn, map[string]any{"type": "pong"})
 	_ = conn.Close()
+}
+
+func TestRealtimeWebSocketReleasesManagementAdmissionAfterHandshake(t *testing.T) {
+	harness := newRealtimeHarnessWithConfig(t, realtimeHarnessConfig{
+		ManagementDatabasePoolBudget: config.DatabasePoolBudget{MaxConns: 3},
+		ManagementAdmissionBudget:    config.ManagementAdmissionBudget{M2MaxConcurrent: 1, M3MaxConcurrent: 1},
+	})
+	conn := harness.dialWebSocket(t, false)
+	defer func() { _ = conn.Close() }()
+	assertRealtimeMessageType(t, conn, "authenticated")
+	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
+
+	harness.loadDashboardSnapshot(t, harness.activeProfileID(t))
+}
+
+func TestRealtimeLogoutClosesOpenAuthenticatedWebSocket(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	seedRealtimeVerifiedAuthSettings(t, harness, "logout-admin", "logout-password-123", "logout@example.com")
+	loginResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{"username": "logout-admin", "password": "logout-password-123", "session_duration": "7_days"},
+		nil,
+	)
+	assertStatus(t, loginResponse, http.StatusOK)
+
+	conn := harness.dialWebSocket(t, true)
+	defer func() { _ = conn.Close() }()
+	assertRealtimeMessage(t, conn, map[string]any{"type": "authenticated", "username": "logout-admin"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
+
+	logoutResponse := harness.requestJSON(t, http.MethodPost, "/api/auth/logout", nil, nil)
+	assertStatus(t, logoutResponse, http.StatusOK)
+	assertWebSocketClosedWithCode(t, conn, websocket.ClosePolicyViolation)
+}
+
+func TestRealtimePasswordResetClosesOpenAuthenticatedWebSocket(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	seedRealtimeVerifiedAuthSettings(t, harness, "reset-ws-admin", "reset-ws-password-123", "reset-ws@example.com")
+	loginResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{"username": "reset-ws-admin", "password": "reset-ws-password-123", "session_duration": "7_days"},
+		nil,
+	)
+	assertStatus(t, loginResponse, http.StatusOK)
+
+	conn := harness.dialWebSocket(t, true)
+	defer func() { _ = conn.Close() }()
+	assertRealtimeMessage(t, conn, map[string]any{"type": "authenticated", "username": "reset-ws-admin"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
+
+	requestResponse := harness.requestJSON(t, http.MethodPost, "/api/auth/password-reset/request", map[string]any{"username_or_email": "reset-ws@example.com"}, nil)
+	assertStatus(t, requestResponse, http.StatusOK)
+	harness.processRealtimeEmailOutbox(t)
+	otpCode := harness.mailer.lastPasswordResetOTP(t)
+	confirmResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/api/auth/password-reset/confirm",
+		map[string]any{"otp_code": otpCode, "new_password": "reset-ws-password-456"},
+		nil,
+	)
+	assertStatus(t, confirmResponse, http.StatusOK)
+	assertWebSocketClosedWithCode(t, conn, websocket.ClosePolicyViolation)
+}
+
+func TestRealtimeSubjectLimiterRejectsExcessAuthenticatedSockets(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	seedRealtimeVerifiedAuthSettings(t, harness, "limited-admin", "limited-password-123", "limited@example.com")
+	loginResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{"username": "limited-admin", "password": "limited-password-123", "session_duration": "7_days"},
+		nil,
+	)
+	assertStatus(t, loginResponse, http.StatusOK)
+
+	connections := make([]*websocket.Conn, 0, 16)
+	defer func() {
+		for _, conn := range connections {
+			_ = conn.Close()
+		}
+	}()
+	for range 16 {
+		conn := harness.dialWebSocket(t, true)
+		assertRealtimeMessage(t, conn, map[string]any{"type": "authenticated", "username": "limited-admin"})
+		assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
+		connections = append(connections, conn)
+	}
+	overflowConn := harness.dialWebSocket(t, true)
+	assertWebSocketClosedWithCode(t, overflowConn, websocket.CloseTryAgainLater)
+	_ = overflowConn.Close()
+
+	_ = connections[0].Close()
+	connections = connections[1:]
+	replacementConn := harness.dialWebSocket(t, true)
+	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "authenticated", "username": "limited-admin"})
+	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "heartbeat"})
+	connections = append(connections, replacementConn)
 }
 
 func TestDashboardUpdatePayload(t *testing.T) {
@@ -563,7 +670,7 @@ func TestManagementAuthSettingsSnapshotInvalidation(t *testing.T) {
 	baselineConn := harness.dialWebSocket(t, true)
 	assertRealtimeMessage(t, baselineConn, map[string]any{"type": "authenticated", "username": "snapshot-admin"})
 	assertRealtimeMessage(t, baselineConn, map[string]any{"type": "heartbeat"})
-	_ = baselineConn.Close()
+	defer func() { _ = baselineConn.Close() }()
 
 	updatedPassword := "snapshot-password-456"
 	updateResponse := harness.requestJSON(
@@ -574,6 +681,7 @@ func TestManagementAuthSettingsSnapshotInvalidation(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, updateResponse, http.StatusOK)
+	assertWebSocketClosedWithCode(t, baselineConn, websocket.ClosePolicyViolation)
 
 	staleSession := harness.requestJSON(t, http.MethodGet, "/api/auth/session", nil, nil)
 	assertStatus(t, staleSession, http.StatusUnauthorized)
@@ -772,7 +880,9 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 }
 
 type realtimeHarnessConfig struct {
-	UseAsyncDashboardPublisher bool
+	UseAsyncDashboardPublisher   bool
+	ManagementDatabasePoolBudget config.DatabasePoolBudget
+	ManagementAdmissionBudget    config.ManagementAdmissionBudget
 }
 
 func newRealtimeHarnessWithConfig(t *testing.T, harnessConfig realtimeHarnessConfig) *realtimeHarness {
@@ -793,6 +903,12 @@ func newRealtimeHarnessWithConfig(t *testing.T, harnessConfig realtimeHarnessCon
 	fixedNow := time.Date(2026, time.April, 19, 12, 0, 0, 0, time.UTC)
 	upstream := newUpstreamRecorder(t)
 	settings := config.Settings{Host: "127.0.0.1", Port: 8000, AppEnv: config.EnvironmentProduction, DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "s16-runtime-secret", CORSAllowedOrigins: "http://localhost:5173,http://127.0.0.1:5173", AuthJWTSecret: "s16-runtime-jwt-secret", AuthAccessTokenTTLSeconds: 900, AuthRefreshTokenTTLSeconds: 604800, AuthResetCodeTTLSeconds: 600, AuthCookieName: "prism_access_token", AuthRefreshCookieName: "prism_refresh_token", AuthCookieSecure: false}
+	if harnessConfig.ManagementDatabasePoolBudget.MaxConns > 0 {
+		settings.ManagementDatabasePoolBudget = harnessConfig.ManagementDatabasePoolBudget
+	}
+	if harnessConfig.ManagementAdmissionBudget.M2MaxConcurrent > 0 || harnessConfig.ManagementAdmissionBudget.M3MaxConcurrent > 0 {
+		settings.ManagementAdmissionControlBudget = harnessConfig.ManagementAdmissionBudget
+	}
 	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
 	if err != nil {
 		t.Fatalf("create S16 pgx pool: %v", err)
@@ -815,7 +931,9 @@ func newRealtimeHarnessWithConfig(t *testing.T, harnessConfig realtimeHarnessCon
 	runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
 	dashboardSnapshots := statsdomain.NewDashboardAggregateStore()
 	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
-	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, RuntimeCache: runtimeAuthCache})
+	mailer := &realtimeCaptureMailer{}
+	emailOutbox := platformemailoutbox.NewStore(platformemailoutbox.Options{Pool: pool, Mailer: mailer, SecretEncryptionKey: settings.SecretEncryptionKey, WorkerID: "runtime-realtime-test"})
+	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, EmailOutbox: emailOutbox, RuntimeCache: runtimeAuthCache})
 	if err != nil {
 		t.Fatalf("build S16 auth service: %v", err)
 	}
@@ -866,7 +984,7 @@ func newRealtimeHarnessWithConfig(t *testing.T, harnessConfig realtimeHarnessCon
 	client := server.Client()
 	client.Jar = jar
 	baseHarness := &runtimeHarness{databaseName: databaseName, client: client, conn: conn, authService: authService, profilesService: profilesService, runtimeService: runtimeService, runtimeCache: runtimeCache, server: server, url: server.URL, upstream: upstream}
-	return &realtimeHarness{runtimeHarness: baseHarness, realtimeService: realtimeService, statsService: statsService, asyncDashboardPublisher: asyncDashboardPublisher, fixedNow: fixedNow}
+	return &realtimeHarness{runtimeHarness: baseHarness, realtimeService: realtimeService, statsService: statsService, asyncDashboardPublisher: asyncDashboardPublisher, mailer: mailer, emailOutbox: emailOutbox, fixedNow: fixedNow}
 }
 
 func (h *realtimeHarness) loadDashboardSnapshot(t *testing.T, profileID int) statsdomain.DashboardSnapshot {
@@ -1004,6 +1122,44 @@ func seedRealtimeVerifiedAuthSettings(t *testing.T, harness *realtimeHarness, us
 		t.Fatalf("seed realtime auth settings: %v", err)
 	}
 	harness.authService.InvalidateAppAuthSettingsSnapshot()
+}
+
+type realtimeCaptureMailer struct {
+	mu            sync.Mutex
+	passwordReset []string
+}
+
+func (m *realtimeCaptureMailer) SendEmailVerificationOTP(context.Context, string, string) error {
+	return nil
+}
+
+func (m *realtimeCaptureMailer) SendPasswordResetEmail(_ context.Context, _ string, otpCode string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.passwordReset = append(m.passwordReset, otpCode)
+	return nil
+}
+
+func (m *realtimeCaptureMailer) lastPasswordResetOTP(t *testing.T) string {
+	t.Helper()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.passwordReset) == 0 {
+		t.Fatal("expected captured password reset OTP")
+	}
+	return m.passwordReset[len(m.passwordReset)-1]
+}
+
+func (h *realtimeHarness) processRealtimeEmailOutbox(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if h == nil || h.emailOutbox == nil {
+		t.Fatal("email outbox is required")
+	}
+	if err := h.emailOutbox.ProcessDue(ctx); err != nil {
+		t.Fatalf("process realtime email outbox: %v", err)
+	}
 }
 
 type seededDashboardRoute struct {

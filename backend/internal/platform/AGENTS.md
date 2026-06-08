@@ -26,6 +26,7 @@ platform/
 ## WHERE TO LOOK
 - Production dependency graph, service registration, runtime cache bootstrap, scheduler start, and shutdown order: `lifecycle/production.go`, `lifecycle/app.go`
 - Router mounting, middleware, `/health`, `/api`, `/v1`, `/v1beta`, startup-JSON OTLP providers, and hot bootstrap runtime snapshots: `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/hot_bootstrap_runtime.go`, `telemetry/`, `db/telemetry.go`
+- Management route profile-scope and runtime-cache invalidation contract: `http/management_route_contract.json`, consumed by frontend and backend drift tests
 - Plaintext bootstrap contract, restart-required fields, hot-apply publishing, and safe secret metadata: `config/`
 - Startup migration and seed flow: `startup/`, `migrate/`, `../../migrations/`
 - DB lane budgets and pool handles: `db/`
@@ -45,6 +46,7 @@ platform/
 - Preserve existing valid bootstrap files during startup. To reset defaults, stop Prism, remove or relocate the bootstrap file, then restart so the missing-file seed path runs.
 - Keep database capacity lane-specific. Runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs must not borrow each other's protected budgets.
 - Keep request-path side effects on scheduler workers, durable outboxes, or after-commit wakeups.
+- When changing management route profile-scope or runtime-cache invalidation semantics, update `http/management_route_contract.json` with the code change instead of duplicating route expectations in frontend or backend tests.
 - Keep partitioned log-retention work on `logretention.Store` plus the low-priority `log_partition_maintenance` worker. Managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - Keep retention jobs low-priority and management-owned through `managementjobs/`; handlers should enqueue jobs, not run partition cleanup inline.
 - Keep shutdown sequencing explicit: HTTP shutdown, realtime shutdown, side-effect drain, scheduler stop, service close, then DB close.

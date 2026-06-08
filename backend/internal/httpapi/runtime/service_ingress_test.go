@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/platform/bodylimits"
 )
 
 type ingressTrackingBody struct {
@@ -130,6 +132,38 @@ func TestHandleStreamingProxyRejectsWrongMethod(t *testing.T) {
 	}
 }
 
+func TestHandleStreamingProxyRejectsOversizedRuntimeBodiesBeforePlanning(t *testing.T) {
+	tests := []struct {
+		name        string
+		path        string
+		contentType string
+		limitBytes  int64
+	}{
+		{name: "OpenAI chat completions JSON", path: "/v1/chat/completions", contentType: "application/json", limitBytes: bodylimits.RuntimeJSONRequestBodyLimitBytes},
+		{name: "OpenAI responses JSON", path: "/v1/responses", contentType: "application/json", limitBytes: bodylimits.RuntimeJSONRequestBodyLimitBytes},
+		{name: "Gemini generateContent JSON", path: "/v1beta/models/gemini-2.5-pro:generateContent", contentType: "application/json", limitBytes: bodylimits.RuntimeJSONRequestBodyLimitBytes},
+		{name: "OpenAI image edits multipart", path: "/v1/images/edits", contentType: "multipart/form-data; boundary=oversized", limitBytes: bodylimits.RuntimeMediaRequestBodyLimitBytes},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &ingressRoundTripRecorder{}
+			sideEffectSubmits := &atomic.Int32{}
+			service := newIngressTestService(transport, sideEffectSubmits)
+			body := newIngressTrackingBody(`{"model":"gpt-4o"}`)
+			request := httptest.NewRequest(http.MethodPost, test.path, nil)
+			request.Header.Set("Content-Type", test.contentType)
+			request.ContentLength = test.limitBytes + 1
+			request.Body = body
+
+			response := performIngressRequest(service, request)
+
+			assertRuntimeBodyTooLarge(t, response, test.limitBytes)
+			assertIngressRejectedBeforeBodyRead(t, body)
+			assertIngressNoProviderOrSideEffects(t, transport, sideEffectSubmits)
+		})
+	}
+}
+
 func performIngressRequest(service *Service, request *http.Request) *http.Response {
 	responseRecorder := httptest.NewRecorder()
 	service.handleStreamingProxy(responseRecorder, request)
@@ -154,6 +188,28 @@ func assertRuntimeJSONError(t *testing.T, response *http.Response, wantStatus in
 	}
 	if payload.Detail != wantDetail {
 		t.Fatalf("expected detail %q, got %q", wantDetail, payload.Detail)
+	}
+}
+
+func assertRuntimeBodyTooLarge(t *testing.T, response *http.Response, wantLimitBytes int64) {
+	t.Helper()
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusRequestEntityTooLarge {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusRequestEntityTooLarge, response.StatusCode, string(body))
+	}
+	if contentType := response.Header.Get("Content-Type"); contentType != "application/json; charset=utf-8" {
+		t.Fatalf("expected JSON content type, got %q", contentType)
+	}
+	var payload struct {
+		Error      string `json:"error"`
+		LimitBytes int64  `json:"limit_bytes"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode body-too-large response: %v", err)
+	}
+	if payload.Error != bodylimits.RequestBodyTooLargeCode || payload.LimitBytes != wantLimitBytes {
+		t.Fatalf("expected request_body_too_large limit %d, got %+v", wantLimitBytes, payload)
 	}
 }
 

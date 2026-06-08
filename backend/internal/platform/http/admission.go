@@ -17,11 +17,12 @@ import (
 const managementAdmissionTimeout = 60 * time.Second
 
 type managementRouteSpec struct {
-	name    string
-	method  string
-	pattern string
-	tier    priority.ManagementTier
-	timeout time.Duration
+	name                        string
+	method                      string
+	pattern                     string
+	tier                        priority.ManagementTier
+	timeout                     time.Duration
+	releaseAdmissionFromHandler bool
 }
 
 type hotAdmissionProvider interface {
@@ -142,7 +143,7 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "profile update", method: http.MethodPatch, pattern: "/profiles/{profile_id}", tier: priority.ManagementTierM2},
 	{name: "profile activate", method: http.MethodPost, pattern: "/profiles/{profile_id}/activate", tier: priority.ManagementTierM1},
 	{name: "profile delete", method: http.MethodDelete, pattern: "/profiles/{profile_id}", tier: priority.ManagementTierM2},
-	{name: "realtime websocket", method: http.MethodGet, pattern: "/realtime/ws", tier: priority.ManagementTierM3},
+	{name: "realtime websocket", method: http.MethodGet, pattern: "/realtime/ws", tier: priority.ManagementTierM3, releaseAdmissionFromHandler: true},
 	{name: "settings costing read", method: http.MethodGet, pattern: "/settings/costing", tier: priority.ManagementTierM2},
 	{name: "settings costing write", method: http.MethodPut, pattern: "/settings/costing", tier: priority.ManagementTierM2},
 	{name: "settings timezone read", method: http.MethodGet, pattern: "/settings/timezone", tier: priority.ManagementTierM2},
@@ -217,6 +218,12 @@ func (c *managementAdmissionController) Middleware(next http.Handler) http.Handl
 		recordAdmissionDecision(r.Context(), httpTelemetryBranchManagement, string(routeSpec.tier), err)
 		if err != nil {
 			writeAdmissionError(w, err)
+			return
+		}
+		if routeSpec.releaseAdmissionFromHandler {
+			requestContext = admission.WithRelease(requestContext, release)
+			defer release()
+			next.ServeHTTP(w, r.WithContext(requestContext))
 			return
 		}
 		defer release()

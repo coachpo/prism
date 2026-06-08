@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -8,65 +9,82 @@ import { createTsModuleLoader } from "../helpers/loadTsModule.mjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendDir = path.resolve(__dirname, "../..");
+const repoRoot = path.resolve(frontendDir, "..");
+const contractPath = path.join(
+  repoRoot,
+  "backend/internal/platform/http/management_route_contract.json",
+);
+const routeContract = JSON.parse(fs.readFileSync(contractPath, "utf8"));
 
 const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const { isProfileScopedManagementRoute } = load(
   path.join(frontendDir, "src/lib/api/profileScope.ts"),
 );
 
-test("profile scope helper marks profile config routes for X-Profile-Id attachment", () => {
-  const scopedRoutes = [
-    "/api/models",
-    "/api/models/14/connections/2/health",
-    "/api/loadbalance/strategies/defaults",
-    "/api/endpoints/connections",
-    "/api/connections/12/references",
-    "/api/pricing-templates/7/connections",
-    "/api/stats/requests?limit=20",
-    "/api/audit/logs?request_log_id=101&from=2026-04-12T12%3A00%3A00.000Z&to=2026-04-13T12%3A00%3A00.000Z&limit=20",
-    "/api/audit/logs/9",
-    "/api/loadbalance/current-state?model_config_id=4",
-    "/api/loadbalance/current-state/5/reset",
-    "/api/loadbalance/events?model_id=gpt-4o",
-    "/api/settings/costing",
-    "/api/settings/timezone",
-    "/api/config/profile/export",
-    "/api/config/profile/export/with-secrets",
-    "/api/config/profile/import",
-    "/api/config/profile/import/preview",
-    "/api/config/profile/import/preview?format=v1",
-    "/api/config/header-blocklist-rules/3",
-    "/api/config/user-agent-client-rules/8",
-  ];
+function samplePath(routePattern) {
+  return routePattern.replaceAll(/\{[^/]+\}/g, "7");
+}
 
-  for (const route of scopedRoutes) {
+function isNonInvalidating(row) {
+  return !row.invalidates_auth &&
+    !row.invalidates_active_profile &&
+    !row.invalidates_planning &&
+    !row.invalidates_all_planning;
+}
+
+test("profile scope helper matches profile-scoped rows in the route contract manifest", () => {
+  const scopedRows = routeContract.filter((row) => row.profile_scoped);
+  const scopedNonInvalidatingRows = scopedRows.filter(isNonInvalidating);
+
+  assert.equal(routeContract.length, 61, "manifest row count should stay locked");
+  assert.ok(scopedRows.length > 0, "manifest should include profile-scoped rows");
+  assert.ok(
+    scopedNonInvalidatingRows.length > 0,
+    "manifest should include profile-scoped non-invalidating reads",
+  );
+
+  for (const row of scopedRows) {
+    const route = samplePath(row.route_pattern);
     assert.equal(isProfileScopedManagementRoute(route), true, `${route} should be profile-scoped`);
+  }
+
+  for (const row of scopedNonInvalidatingRows) {
+    const route = `${samplePath(row.route_pattern)}?contract_probe=1`;
+    assert.equal(
+      isProfileScopedManagementRoute(route),
+      true,
+      `${route} should remain profile-scoped even when it does not invalidate runtime caches`,
+    );
   }
 });
 
-test("profile scope helper keeps vendor config and global routes without X-Profile-Id", () => {
-  const globalOrRuntimeRoutes = [
-    "/api/profiles",
-    "/api/profiles/bootstrap",
-    "/api/profiles/active",
-    "/api/vendors",
-    "/api/vendors/2/models",
-    "/api/auth/session",
-    "/api/settings/auth",
-    "/api/settings/auth/proxy-keys/4/rotate",
-    "/api/settings/log-retention",
-    "/api/maintenance/log-retention/jobs",
-    "/api/config/bootstrap",
-    "/api/config/vendors/export",
-    "/api/config/vendors/import/preview",
-    "/api/config/vendors/import",
-    "/api/config/vendors/import?dry_run=false",
+test("profile scope helper keeps non-profile-scoped manifest rows and runtime routes global", () => {
+  const globalRows = routeContract.filter((row) => !row.profile_scoped);
+
+  assert.ok(globalRows.length > 0, "manifest should include global management rows");
+  assert.ok(
+    globalRows.some((row) => row.invalidates_auth),
+    "manifest should include global auth invalidation rows",
+  );
+  assert.ok(
+    globalRows.some((row) => row.invalidates_active_profile),
+    "manifest should include global active-profile invalidation rows",
+  );
+  assert.ok(
+    globalRows.some((row) => row.invalidates_all_planning),
+    "manifest should include global all-planning invalidation rows",
+  );
+
+  for (const row of globalRows) {
+    const route = samplePath(row.route_pattern);
+    assert.equal(isProfileScopedManagementRoute(route), false, `${route} should stay global`);
+  }
+
+  for (const route of [
     "/api/realtime/ws",
     "/v1/chat/completions",
     "/v1beta/models/gemini:generateContent",
-  ];
-
-  for (const route of globalOrRuntimeRoutes) {
+  ]) {
     assert.equal(isProfileScopedManagementRoute(route), false, `${route} should stay global or runtime`);
   }
 });

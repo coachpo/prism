@@ -29,6 +29,7 @@ ENV NODE_ENV=production
 RUN apk add --no-cache curl
 
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/package.json ./package.json
 COPY server.mjs ./server.mjs
 
 EXPOSE 3000

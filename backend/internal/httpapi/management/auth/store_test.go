@@ -10,10 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-func authStringRef(value string) *string {
-	return &value
-}
-
 type testRuntimeAuthConfigProvider struct {
 	snapshot RuntimeAuthConfigSnapshot
 }
@@ -85,16 +81,20 @@ func TestNormalizeUsernameAndNotes(t *testing.T) {
 	if got := normalizeUsername(nil); got != nil {
 		t.Fatalf("expected nil username when source is nil, got %v", *got)
 	}
-	if got := normalizeUsername(authStringRef("  admin  ")); got == nil || *got != "admin" {
+	username := "  admin  "
+	if got := normalizeUsername(&username); got == nil || *got != "admin" {
 		t.Fatalf("expected trimmed username, got %#v", got)
 	}
-	if got := normalizeUsername(authStringRef("   ")); got != nil {
+	blankUsername := "   "
+	if got := normalizeUsername(&blankUsername); got != nil {
 		t.Fatalf("expected blank username to normalize to nil, got %v", *got)
 	}
-	if got := normalizeNotes(authStringRef("  ops key  ")); got == nil || *got != "ops key" {
+	notes := "  ops key  "
+	if got := normalizeNotes(&notes); got == nil || *got != "ops key" {
 		t.Fatalf("expected trimmed notes, got %#v", got)
 	}
-	if got := normalizeNotes(authStringRef("   ")); got != nil {
+	blankNotes := "   "
+	if got := normalizeNotes(&blankNotes); got != nil {
 		t.Fatalf("expected blank notes to normalize to nil, got %v", *got)
 	}
 }
@@ -126,6 +126,19 @@ func TestValidateProxyKeyNameAndEmail(t *testing.T) {
 		t.Fatal("expected overly long email to fail")
 	} else {
 		requireAuthDomainError(t, err, 400, "email must be at most 320 characters")
+	}
+}
+
+func TestLoginThrottleKeyNormalizesSubjectAndRemoteAddress(t *testing.T) {
+	key := loginThrottleKeyFor("  Admin@Example.COM  ", "  LOCALHOST  ")
+	if key.SubjectKey != "admin@example.com" || key.RemoteAddress != "localhost" {
+		t.Fatalf("unexpected throttle key: %+v", key)
+	}
+	if blankRemote := loginThrottleKeyFor("admin", "   "); blankRemote.RemoteAddress != "unknown" {
+		t.Fatalf("expected blank remote address to normalize to unknown, got %+v", blankRemote)
+	}
+	if key.advisoryLockID() != loginThrottleKeyFor("admin@example.com", "localhost").advisoryLockID() {
+		t.Fatal("expected equivalent throttle keys to share advisory lock id")
 	}
 }
 

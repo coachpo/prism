@@ -37,6 +37,7 @@ function loadUsagePageDataModule() {
         useRef: (value) => ({ current: value }),
         useState: (value) => [typeof value === "function" ? value() : value, () => undefined],
       },
+      "@/lib/api": { api: { stats: {} } },
       "@/i18n/useLocale": { useLocale: () => ({ messages: {} }) },
       "@/lib/referenceData": { getSharedModels: async () => [] },
       "./useUsageStatisticsRealtimeData": {

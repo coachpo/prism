@@ -148,3 +148,59 @@ func newCancellationTestPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 	return pool
 }
+
+func TestRealtimeLimiterEnforcesPerSubjectQuota(t *testing.T) {
+	limiter := newRealtimeLimiter()
+	releases := make([]func(), 0, maxRealtimeConnectionsPerSubject)
+	for range maxRealtimeConnectionsPerSubject {
+		release, ok := limiter.Acquire("subject:1")
+		if !ok {
+			t.Fatal("expected subject quota to admit connection")
+		}
+		releases = append(releases, release)
+	}
+	if release, ok := limiter.Acquire("subject:1"); ok {
+		release()
+		t.Fatal("expected subject quota rejection")
+	}
+	if release, ok := limiter.Acquire("subject:2"); !ok {
+		t.Fatal("expected another subject to remain admissible")
+	} else {
+		release()
+	}
+	releases[0]()
+	releases[0]()
+	if release, ok := limiter.Acquire("subject:1"); !ok {
+		t.Fatal("expected released subject slot to be reusable")
+	} else {
+		release()
+	}
+	for _, release := range releases[1:] {
+		release()
+	}
+}
+
+func TestRealtimeLimiterEnforcesGlobalQuota(t *testing.T) {
+	limiter := newRealtimeLimiter()
+	releases := make([]func(), 0, maxRealtimeConnections)
+	for index := range maxRealtimeConnections {
+		release, ok := limiter.Acquire("")
+		if !ok {
+			t.Fatalf("expected global quota to admit connection %d", index)
+		}
+		releases = append(releases, release)
+	}
+	if release, ok := limiter.Acquire("subject-overflow"); ok {
+		release()
+		t.Fatal("expected global quota rejection")
+	}
+	releases[0]()
+	if release, ok := limiter.Acquire("subject-overflow"); !ok {
+		t.Fatal("expected released global slot to be reusable")
+	} else {
+		release()
+	}
+	for _, release := range releases[1:] {
+		release()
+	}
+}

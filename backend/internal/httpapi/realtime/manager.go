@@ -23,13 +23,16 @@ type roomKey struct {
 }
 
 type RealtimeConnection struct {
-	id            string
-	socket        *websocket.Conn
-	writeMu       sync.Mutex
-	writeTimeout  time.Duration
-	profileID     *int
-	channels      map[roomKey]struct{}
-	authenticated bool
+	id               string
+	socket           *websocket.Conn
+	writeMu          sync.Mutex
+	writeTimeout     time.Duration
+	profileID        *int
+	channels         map[roomKey]struct{}
+	authenticated    bool
+	authSubjectID    int
+	authTokenVersion int
+	hasAuthSubject   bool
 }
 
 func (c *RealtimeConnection) SendJSON(payload any) bool {
@@ -99,6 +102,42 @@ func (m *ConnectionManager) GetConnection(connectionID string) *RealtimeConnecti
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.connections[connectionID]
+}
+
+func (m *ConnectionManager) MarkAuthenticated(connectionID string, subjectID int, tokenVersion int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	connection := m.connections[connectionID]
+	if connection == nil {
+		return false
+	}
+	connection.authenticated = true
+	if subjectID > 0 {
+		connection.authSubjectID = subjectID
+		connection.authTokenVersion = tokenVersion
+		connection.hasAuthSubject = true
+	}
+	return true
+}
+
+func (m *ConnectionManager) CloseAuthenticatedSubject(subjectID int, code int) int {
+	if m == nil || subjectID <= 0 {
+		return 0
+	}
+	m.mu.Lock()
+	connections := make([]*RealtimeConnection, 0)
+	for connectionID, connection := range m.connections {
+		if connection == nil || !connection.hasAuthSubject || connection.authSubjectID != subjectID {
+			continue
+		}
+		connections = append(connections, connection)
+		m.dropConnectionLocked(connectionID)
+	}
+	m.mu.Unlock()
+	for _, connection := range connections {
+		connection.closeWithCode(code)
+	}
+	return len(connections)
 }
 
 func (m *ConnectionManager) Subscribe(connectionID string, profileID int, channel string, preset ...string) bool {

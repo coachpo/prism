@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 
@@ -15,6 +16,10 @@ import (
 )
 
 const proxyKeyLimit = 100
+const loginThrottleFailureLimit = 5
+const loginThrottleWindow = 15 * time.Minute
+const loginThrottleLockoutDuration = 15 * time.Minute
+const loginThrottleLockoutDetail = "Too many login attempts. Please try again later."
 
 type domainError struct {
 	StatusCode int
@@ -107,12 +112,27 @@ type passwordResetChallengeRow struct {
 	CreatedAt     time.Time
 }
 
+type loginThrottleKey struct {
+	SubjectKey    string
+	RemoteAddress string
+}
+
+type loginThrottleDecision struct {
+	FailureCount int
+	LockedUntil  sql.NullTime
+}
+
 type sessionBundle struct {
 	SettingsRow      appAuthSettingsRow
 	AccessToken      string
 	RefreshToken     string
 	RefreshExpiresAt time.Time
 	SessionDuration  sessionDuration
+}
+
+type loginAuthenticationResult struct {
+	Bundle    sessionBundle
+	DomainErr *domainError
 }
 
 type authSettingsMutationResult struct {
@@ -211,18 +231,156 @@ func scanAppAuthSettings(scanner interface{ Scan(...any) error }) (appAuthSettin
 	return row, nil
 }
 
-func (s *Service) authenticateUser(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, username string, password string, duration sessionDuration, userAgent string, ipAddress string) (sessionBundle, error) {
+func loginThrottleKeyFor(username string, ipAddress string) loginThrottleKey {
+	return loginThrottleKey{
+		SubjectKey:    normalizeLoginThrottleSubject(username),
+		RemoteAddress: normalizeLoginThrottleRemoteAddress(ipAddress),
+	}
+}
+
+func normalizeLoginThrottleSubject(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func normalizeLoginThrottleRemoteAddress(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "unknown"
+	}
+	return strings.ToLower(trimmed)
+}
+
+func (key loginThrottleKey) advisoryLockID() int64 {
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(key.SubjectKey))
+	_, _ = hash.Write([]byte{0})
+	_, _ = hash.Write([]byte(key.RemoteAddress))
+	return int64(hash.Sum64())
+}
+
+func (s *Service) authenticateUser(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, username string, password string, duration sessionDuration, userAgent string, ipAddress string) (loginAuthenticationResult, error) {
 	settingsRow, err := s.loadOrCreateAppAuthSettings(ctx, tx)
 	if err != nil {
-		return sessionBundle{}, fmt.Errorf("load auth settings: %w", err)
+		return loginAuthenticationResult{}, fmt.Errorf("load auth settings: %w", err)
 	}
 	if !settingsRow.AuthEnabled {
-		return sessionBundle{}, &domainError{StatusCode: 400, Detail: "Authentication is not enabled"}
+		return loginAuthenticationResult{DomainErr: &domainError{StatusCode: 400, Detail: "Authentication is not enabled"}}, nil
+	}
+	throttleKey := loginThrottleKeyFor(username, ipAddress)
+	if err := s.lockLoginThrottleKey(ctx, tx, throttleKey); err != nil {
+		return loginAuthenticationResult{}, err
+	}
+	if err := s.requireLoginNotLocked(ctx, tx, throttleKey); err != nil {
+		if domainErr, ok := errors.AsType[*domainError](err); ok {
+			return loginAuthenticationResult{DomainErr: domainErr}, nil
+		}
+		return loginAuthenticationResult{}, err
 	}
 	if !settingsRow.Username.Valid || !settingsRow.PasswordHash.Valid || settingsRow.Username.String != username || !verifyPassword(password, settingsRow.PasswordHash.String) {
-		return sessionBundle{}, &domainError{StatusCode: 401, Detail: "Invalid credentials"}
+		if recordErr := s.recordLoginFailure(ctx, tx, throttleKey); recordErr != nil {
+			if domainErr, ok := errors.AsType[*domainError](recordErr); ok {
+				return loginAuthenticationResult{DomainErr: domainErr}, nil
+			}
+			return loginAuthenticationResult{}, recordErr
+		}
+		return loginAuthenticationResult{DomainErr: &domainError{StatusCode: 401, Detail: "Invalid credentials"}}, nil
 	}
-	return s.createSessionForSettingsRow(ctx, tx, authConfig, settingsRow, duration, userAgent, ipAddress, nil)
+	if err := s.clearLoginFailures(ctx, tx, throttleKey); err != nil {
+		return loginAuthenticationResult{}, err
+	}
+	bundle, err := s.createSessionForSettingsRow(ctx, tx, authConfig, settingsRow, duration, userAgent, ipAddress, nil)
+	if err != nil {
+		return loginAuthenticationResult{}, err
+	}
+	return loginAuthenticationResult{Bundle: bundle}, nil
+}
+
+func (s *Service) lockLoginThrottleKey(ctx context.Context, tx pgx.Tx, key loginThrottleKey) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1::bigint)`, key.advisoryLockID()); err != nil {
+		return fmt.Errorf("lock login throttle key: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) requireLoginNotLocked(ctx context.Context, tx pgx.Tx, key loginThrottleKey) error {
+	var lockedUntil sql.NullTime
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT locked_until
+		FROM login_throttle_ledger
+		WHERE subject_key = $1 AND remote_address = $2`,
+		key.SubjectKey,
+		key.RemoteAddress,
+	).Scan(&lockedUntil); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("load login throttle ledger: %w", err)
+	}
+	if lockedUntil.Valid && lockedUntil.Time.After(s.nowUTC()) {
+		return &domainError{StatusCode: 429, Detail: loginThrottleLockoutDetail}
+	}
+	return nil
+}
+
+func (s *Service) recordLoginFailure(ctx context.Context, tx pgx.Tx, key loginThrottleKey) error {
+	now := s.nowUTC()
+	windowStart := now.Add(-loginThrottleWindow)
+	lockoutUntil := now.Add(loginThrottleLockoutDuration)
+	decision := loginThrottleDecision{}
+	if err := tx.QueryRow(
+		ctx,
+		`INSERT INTO login_throttle_ledger (
+			subject_key,
+			remote_address,
+			failure_count,
+			first_failed_at,
+			last_failed_at,
+			locked_until,
+			created_at,
+			updated_at
+		) VALUES ($1, $2, 1, $3, $3, NULL::timestamp with time zone, $3, $3)
+		ON CONFLICT (subject_key, remote_address) DO UPDATE SET
+			failure_count = CASE
+				WHEN login_throttle_ledger.first_failed_at < $4 THEN 1
+				ELSE login_throttle_ledger.failure_count + 1
+			END,
+			first_failed_at = CASE
+				WHEN login_throttle_ledger.first_failed_at < $4 THEN $3
+				ELSE login_throttle_ledger.first_failed_at
+			END,
+			last_failed_at = $3,
+			locked_until = CASE
+				WHEN (CASE WHEN login_throttle_ledger.first_failed_at < $4 THEN 1 ELSE login_throttle_ledger.failure_count + 1 END) >= $5 THEN $6::timestamp with time zone
+				ELSE NULL::timestamp with time zone
+			END,
+			updated_at = $3
+		RETURNING failure_count, locked_until`,
+		key.SubjectKey,
+		key.RemoteAddress,
+		now,
+		windowStart,
+		loginThrottleFailureLimit,
+		lockoutUntil,
+	).Scan(&decision.FailureCount, &decision.LockedUntil); err != nil {
+		return fmt.Errorf("record login failure: %w", err)
+	}
+	if decision.LockedUntil.Valid && decision.LockedUntil.Time.After(now) {
+		return &domainError{StatusCode: 429, Detail: loginThrottleLockoutDetail}
+	}
+	return nil
+}
+
+func (s *Service) clearLoginFailures(ctx context.Context, tx pgx.Tx, key loginThrottleKey) error {
+	if _, err := tx.Exec(
+		ctx,
+		`DELETE FROM login_throttle_ledger WHERE subject_key = $1 AND remote_address = $2`,
+		key.SubjectKey,
+		key.RemoteAddress,
+	); err != nil {
+		return fmt.Errorf("clear login failures: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) createSessionForSettingsRow(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, settingsRow appAuthSettingsRow, duration sessionDuration, userAgent string, ipAddress string, refreshExpiry *time.Time) (sessionBundle, error) {
@@ -435,19 +593,24 @@ func (s *Service) revokeAllRefreshTokens(ctx context.Context, tx pgx.Tx, authSub
 	return nil
 }
 
-func (s *Service) revokeRefreshToken(ctx context.Context, tx pgx.Tx, rawRefreshToken string) error {
-	_, err := tx.Exec(
+func (s *Service) revokeRefreshToken(ctx context.Context, tx pgx.Tx, rawRefreshToken string) (*int, error) {
+	var authSubjectID int
+	err := tx.QueryRow(
 		ctx,
 		`UPDATE refresh_tokens
 		SET revoked_at = $2
-		WHERE token_hash = $1 AND revoked_at IS NULL`,
+		WHERE token_hash = $1 AND revoked_at IS NULL
+		RETURNING auth_subject_id`,
 		hashOpaqueToken(rawRefreshToken),
 		s.nowUTC(),
-	)
+	).Scan(&authSubjectID)
 	if err != nil {
-		return fmt.Errorf("revoke refresh token: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("revoke refresh token: %w", err)
 	}
-	return nil
+	return &authSubjectID, nil
 }
 
 func (s *Service) revokeRefreshTokenFamily(ctx context.Context, tx pgx.Tx, refreshTokenID int) error {
@@ -737,35 +900,35 @@ func (s *Service) loadLatestPasswordResetChallenge(ctx context.Context, exec que
 	return row, nil
 }
 
-func (s *Service) consumePasswordResetChallenge(ctx context.Context, tx pgx.Tx, otpCode string, newPassword string) error {
+func (s *Service) consumePasswordResetChallenge(ctx context.Context, tx pgx.Tx, otpCode string, newPassword string) (appAuthSettingsRow, error) {
 	settingsRow, err := s.loadOrCreateAppAuthSettings(ctx, tx)
 	if err != nil {
-		return fmt.Errorf("load auth settings: %w", err)
+		return appAuthSettingsRow{}, fmt.Errorf("load auth settings: %w", err)
 	}
 	challenge, err := s.loadLatestPasswordResetChallenge(ctx, tx, settingsRow.ID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return &domainError{StatusCode: 400, Detail: "Reset code is invalid or expired"}
+			return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "Reset code is invalid or expired"}
 		}
-		return fmt.Errorf("load password reset challenge: %w", err)
+		return appAuthSettingsRow{}, fmt.Errorf("load password reset challenge: %w", err)
 	}
 	now := s.nowUTC()
 	if challenge.ExpiresAt.Before(now) {
-		return &domainError{StatusCode: 400, Detail: "Reset code is invalid or expired"}
+		return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "Reset code is invalid or expired"}
 	}
 	if challenge.AttemptCount >= 5 {
-		return &domainError{StatusCode: 429, Detail: "Too many reset attempts"}
+		return appAuthSettingsRow{}, &domainError{StatusCode: 429, Detail: "Too many reset attempts"}
 	}
 	newAttemptCount := challenge.AttemptCount + 1
 	if !verifyOpaqueToken(otpCode, challenge.OTPHash) {
 		if _, err := tx.Exec(ctx, `UPDATE password_reset_challenges SET attempt_count = $2 WHERE id = $1`, challenge.ID, newAttemptCount); err != nil {
-			return fmt.Errorf("record password reset attempt: %w", err)
+			return appAuthSettingsRow{}, fmt.Errorf("record password reset attempt: %w", err)
 		}
-		return &domainError{StatusCode: 400, Detail: "Reset code is invalid or expired"}
+		return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "Reset code is invalid or expired"}
 	}
 	hash, err := hashPassword(newPassword)
 	if err != nil {
-		return err
+		return appAuthSettingsRow{}, err
 	}
 	if _, err := tx.Exec(
 		ctx,
@@ -774,23 +937,28 @@ func (s *Service) consumePasswordResetChallenge(ctx context.Context, tx pgx.Tx, 
 		now,
 		newAttemptCount,
 	); err != nil {
-		return fmt.Errorf("consume password reset challenge: %w", err)
+		return appAuthSettingsRow{}, fmt.Errorf("consume password reset challenge: %w", err)
 	}
 	if err := s.revokeAllRefreshTokens(ctx, tx, settingsRow.ID); err != nil {
-		return err
+		return appAuthSettingsRow{}, err
 	}
-	if _, err := tx.Exec(
+	scanner := tx.QueryRow(
 		ctx,
 		`UPDATE app_auth_settings
 		SET password_hash = $2, token_version = token_version + 1, must_change_password = FALSE, updated_at = $3
-		WHERE id = $1`,
+		WHERE id = $1
+		RETURNING id, auth_enabled, username, email, pending_email, password_hash, email_bound_at,
+			email_verification_code_hash, email_verification_expires_at, email_verification_attempt_count,
+			must_change_password, last_login_at, token_version, created_at, updated_at`,
 		settingsRow.ID,
 		hash,
 		now,
-	); err != nil {
-		return fmt.Errorf("update password reset auth settings: %w", err)
+	)
+	updatedRow, err := scanAppAuthSettings(scanner)
+	if err != nil {
+		return appAuthSettingsRow{}, fmt.Errorf("update password reset auth settings: %w", err)
 	}
-	return nil
+	return updatedRow, nil
 }
 
 func (s *Service) listProxyAPIKeys(ctx context.Context, exec queryExecutor) ([]proxyAPIKeyRow, error) {

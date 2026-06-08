@@ -44,7 +44,7 @@ prism/
 - `backend/internal/httpapi/runtime/AGENTS.md`: explicit runtime operation registry, request planning, operation hook collections, telemetry outbox, feedback pipeline, partition ensuring, and runtime side-effect seams.
 - `backend/internal/httpapi/realtime/AGENTS.md`: mounted `/api/realtime/ws` websocket contract, auth-gated session bootstrap, connection-manager ownership, and async dashboard plus analytics publishers.
 - `backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`: file-backed startup bootstrap API, validate/apply planning, hot-apply publication, and failed-hot-apply reporting.
-- `backend/internal/httpapi/management/configbundle/AGENTS.md`: profile bundle and vendor catalog export/preview/import, preview tokens, bundle secret encryption, and after-import hooks.
+- `backend/internal/httpapi/management/configbundle/AGENTS.md`: profile bundle and vendor catalog export/preview/import, preview tokens, bundle secret encryption, and import validation.
 - `backend/internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and maintenance-job creation seams.
 - `backend/internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, password-reset and verification delivery, proxy-key, realtime auth-state, and runtime-cache seams.
 - `backend/internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registration, sync, auth/provider inventory, direct auth-file mutation, and worker seams.

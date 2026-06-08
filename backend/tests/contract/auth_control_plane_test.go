@@ -82,6 +82,19 @@ type passwordResetSnapshot struct {
 	OTPHash      string
 }
 
+type loginThrottleSnapshot struct {
+	SubjectKey    string
+	RemoteAddress string
+	FailureCount  int
+	LockedUntil   *time.Time
+}
+
+type loginAttemptResult struct {
+	Status int
+	Body   string
+	Err    error
+}
+
 type appAuthSettingsRecord struct {
 	ID                            int
 	AuthEnabled                   bool
@@ -247,6 +260,118 @@ func TestAuthLoginRefreshLogout(t *testing.T) {
 			t.Fatalf("expected refresh token %d to be revoked after logout", token.ID)
 		}
 	}
+}
+
+func TestAuthLoginThrottleLocksUnknownAndKnownSubjectsGenerically(t *testing.T) {
+	harness := newContractHarness(t)
+	seedVerifiedAuthSettings(t, harness, "throttle-admin", "throttle-password-123", "throttle@example.com")
+
+	for attempt := 1; attempt < 5; attempt++ {
+		unknownResponse := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/api/auth/login", map[string]any{"username": "missing-admin", "password": "wrong-password", "session_duration": "7_days"}, nil)
+		assertErrorResponse(t, unknownResponse, http.StatusUnauthorized, "Invalid credentials")
+	}
+	unknownLockout := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/api/auth/login", map[string]any{"username": "missing-admin", "password": "wrong-password", "session_duration": "7_days"}, nil)
+	assertErrorResponse(t, unknownLockout, http.StatusTooManyRequests, "Too many login attempts. Please try again later.")
+
+	for attempt := 1; attempt < 5; attempt++ {
+		knownResponse := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/api/auth/login", map[string]any{"username": "throttle-admin", "password": "wrong-password", "session_duration": "7_days"}, nil)
+		assertErrorResponse(t, knownResponse, http.StatusUnauthorized, "Invalid credentials")
+	}
+	knownLockout := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/api/auth/login", map[string]any{"username": "throttle-admin", "password": "wrong-password", "session_duration": "7_days"}, nil)
+	assertErrorResponse(t, knownLockout, http.StatusTooManyRequests, "Too many login attempts. Please try again later.")
+
+	entries := loadLoginThrottleEntries(t, harness)
+	if len(entries) != 2 {
+		t.Fatalf("expected separate throttle ledger entries for known and unknown subjects, got %+v", entries)
+	}
+	for _, entry := range entries {
+		if entry.FailureCount != 5 || entry.LockedUntil == nil {
+			t.Fatalf("expected locked throttle entry after five failures, got %+v", entry)
+		}
+	}
+}
+
+func TestAuthLoginThrottleSuccessClearsCounter(t *testing.T) {
+	harness := newContractHarness(t)
+	seedVerifiedAuthSettings(t, harness, "reset-throttle-admin", "reset-throttle-password-123", "reset-throttle@example.com")
+
+	for attempt := 1; attempt < 5; attempt++ {
+		response := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/api/auth/login", map[string]any{"username": "reset-throttle-admin", "password": "wrong-password", "session_duration": "7_days"}, nil)
+		assertErrorResponse(t, response, http.StatusUnauthorized, "Invalid credentials")
+	}
+	if entries := loadLoginThrottleEntries(t, harness); len(entries) != 1 || entries[0].FailureCount != 4 {
+		t.Fatalf("expected four recorded failures before success, got %+v", entries)
+	}
+
+	success := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/api/auth/login", map[string]any{"username": "reset-throttle-admin", "password": "reset-throttle-password-123", "session_duration": "7_days"}, nil)
+	assertStatus(t, success, http.StatusOK)
+	if entries := loadLoginThrottleEntries(t, harness); len(entries) != 0 {
+		t.Fatalf("expected successful login to clear throttle ledger, got %+v", entries)
+	}
+
+	postResetFailure := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/api/auth/login", map[string]any{"username": "reset-throttle-admin", "password": "wrong-password", "session_duration": "7_days"}, nil)
+	assertErrorResponse(t, postResetFailure, http.StatusUnauthorized, "Invalid credentials")
+}
+
+func TestAuthLoginThrottleConcurrentFailuresPersistAndLock(t *testing.T) {
+	harness := newContractHarness(t)
+	seedVerifiedAuthSettings(t, harness, "concurrent-admin", "concurrent-password-123", "concurrent@example.com")
+
+	clients := make([]*http.Client, 0, 5)
+	for range 5 {
+		clients = append(clients, harness.newClient(t))
+	}
+	var waitGroup sync.WaitGroup
+	results := make(chan loginAttemptResult, 5)
+	for _, client := range clients {
+		waitGroup.Add(1)
+		go func(client *http.Client) {
+			defer waitGroup.Done()
+			results <- performLoginAttempt(harness, client, "concurrent-admin", "wrong-password")
+		}(client)
+	}
+	waitGroup.Wait()
+	close(results)
+
+	tooManyRequests := 0
+	unauthorized := 0
+	for result := range results {
+		if result.Err != nil {
+			t.Fatalf("concurrent login attempt failed: %v", result.Err)
+		}
+		switch result.Status {
+		case http.StatusUnauthorized:
+			unauthorized++
+		case http.StatusTooManyRequests:
+			tooManyRequests++
+		default:
+			t.Fatalf("expected concurrent failure to return 401 or 429, got %d body=%s", result.Status, result.Body)
+		}
+	}
+	if unauthorized+tooManyRequests != 5 || tooManyRequests == 0 {
+		t.Fatalf("expected five serialized failures with at least one lockout response, got unauthorized=%d lockout=%d", unauthorized, tooManyRequests)
+	}
+	entries := loadLoginThrottleEntries(t, harness)
+	if len(entries) != 1 || entries[0].FailureCount != 5 || entries[0].LockedUntil == nil {
+		t.Fatalf("expected concurrent failures to persist one locked ledger row, got %+v", entries)
+	}
+}
+
+func TestAuthLoginThrottlePersistsAcrossServiceRestart(t *testing.T) {
+	harness := newContractHarness(t)
+	seedVerifiedAuthSettings(t, harness, "persist-throttle-admin", "persist-throttle-password-123", "persist-throttle@example.com")
+
+	for range 5 {
+		response := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/api/auth/login", map[string]any{"username": "persist-throttle-admin", "password": "wrong-password", "session_duration": "7_days"}, nil)
+		if response.StatusCode != http.StatusUnauthorized && response.StatusCode != http.StatusTooManyRequests {
+			t.Fatalf("expected pre-restart failure to return 401 or 429, got %d", response.StatusCode)
+		}
+	}
+	harness.server.Close()
+
+	restarted := newContractHarnessForExistingDatabase(t, harness.dsn, &captureMailer{})
+	lockedAfterRestart := restarted.requestJSON(t, restarted.newClient(t), http.MethodPost, "/api/auth/login", map[string]any{"username": "persist-throttle-admin", "password": "persist-throttle-password-123", "session_duration": "7_days"}, nil)
+	assertErrorResponse(t, lockedAfterRestart, http.StatusTooManyRequests, "Too many login attempts. Please try again later.")
 }
 
 func TestAuthHotBootstrapRuntimeConfigAppliesToNewOperations(t *testing.T) {
@@ -1063,9 +1188,9 @@ func contractAuthSettings() config.Settings {
 	return config.Settings{
 		Host:                       "127.0.0.1",
 		Port:                       8000,
-		AppEnv:              config.EnvironmentProduction,
-		SecretEncryptionKey: "contract-secret",
-		CORSAllowedOrigins:  "http://localhost:5173,http://127.0.0.1:5173",
+		AppEnv:                     config.EnvironmentProduction,
+		SecretEncryptionKey:        "contract-secret",
+		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
 		AuthJWTSecret:              "contract-jwt-secret",
 		AuthAccessTokenTTLSeconds:  900,
 		AuthRefreshTokenTTLSeconds: 604800,
@@ -1073,6 +1198,13 @@ func contractAuthSettings() config.Settings {
 		AuthCookieName:             "prism_access_token",
 		AuthRefreshCookieName:      "prism_refresh_token",
 		AuthCookieSecure:           false,
+		ManagementDatabasePoolBudget: config.DatabasePoolBudget{
+			MaxConns: 12,
+		},
+		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{
+			M2MaxConcurrent: 3,
+			M3MaxConcurrent: 2,
+		},
 	}
 }
 
@@ -1144,6 +1276,61 @@ func newContractHarnessWithMailer(t *testing.T, authMailer managementauth.Mailer
 	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: capturedMailer, emailOutbox: emailOutbox, server: server, service: authService, runtimeService: nil, runtimeCache: runtimeCache, hotRuntime: hotRuntime, url: server.URL}
 }
 
+func newContractHarnessForExistingDatabase(t *testing.T, dsn string, authMailer managementauth.Mailer) *contractHarness {
+	t.Helper()
+	if authMailer == nil {
+		authMailer = &captureMailer{}
+	}
+	capturedMailer, _ := authMailer.(*captureMailer)
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	t.Cleanup(cancel)
+	conn := connectDatabase(t, testContext, dsn)
+	t.Cleanup(func() {
+		_ = conn.Close(context.Background())
+	})
+	settings := contractAuthSettings()
+	settings.DatabaseURL = dsn
+	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
+	if err != nil {
+		t.Fatalf("create restarted pgx pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
+	if err := runtimeCache.Bootstrap(testContext); err != nil {
+		t.Fatalf("bootstrap restarted runtime snapshot: %v", err)
+	}
+	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
+	hotRuntime, err := platformhttp.NewHotBootstrapConfigRuntime(settings)
+	if err != nil {
+		t.Fatalf("build restarted hot bootstrap runtime: %v", err)
+	}
+	emailOutbox := platformemailoutbox.NewStore(platformemailoutbox.Options{Pool: pool, Mailer: authMailer, SecretEncryptionKey: settings.SecretEncryptionKey, WorkerID: "contract-restart-test"})
+	authService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: hotRuntime, AuthRuntimeConfigProvider: hotRuntime, Pool: pool, EmailOutbox: emailOutbox, RuntimeCache: runtimeAuthCache})
+	if err != nil {
+		t.Fatalf("build restarted auth service: %v", err)
+	}
+	t.Cleanup(authService.Close)
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{
+		Version:                   "contract-restart-test",
+		AuthService:               authService,
+		RuntimeAuthService:        authService,
+		RuntimeCache:              runtimeCache,
+		HotBootstrapConfigRuntime: hotRuntime,
+	})
+	if err != nil {
+		t.Fatalf("build restarted handler: %v", err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("create restarted cookie jar: %v", err)
+	}
+	client := server.Client()
+	client.Jar = jar
+	return &contractHarness{client: client, conn: conn, dsn: dsn, mailer: capturedMailer, emailOutbox: emailOutbox, server: server, service: authService, runtimeCache: runtimeCache, hotRuntime: hotRuntime, url: server.URL}
+}
+
 func (h *contractHarness) processEmailOutbox(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1177,6 +1364,28 @@ func (h *contractHarness) newClient(t *testing.T) *http.Client {
 	client := h.server.Client()
 	client.Jar = jar
 	return client
+}
+
+func performLoginAttempt(harness *contractHarness, client *http.Client, username string, password string) loginAttemptResult {
+	payload, err := json.Marshal(map[string]any{"username": username, "password": password, "session_duration": "7_days"})
+	if err != nil {
+		return loginAttemptResult{Err: fmt.Errorf("marshal login attempt: %w", err)}
+	}
+	request, err := http.NewRequest(http.MethodPost, harness.url+"/api/auth/login", bytes.NewReader(payload))
+	if err != nil {
+		return loginAttemptResult{Err: fmt.Errorf("build login attempt: %w", err)}
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return loginAttemptResult{Err: fmt.Errorf("perform login attempt: %w", err)}
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return loginAttemptResult{Err: fmt.Errorf("read login attempt response: %w", err)}
+	}
+	return loginAttemptResult{Status: response.StatusCode, Body: strings.TrimSpace(string(body))}
 }
 
 func (h *contractHarness) requestJSON(t *testing.T, client *http.Client, method string, path string, body any, headers map[string]string) *http.Response {
@@ -1336,6 +1545,29 @@ func loadRefreshTokens(t *testing.T, harness *contractHarness) []refreshTokenSna
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate refresh tokens: %v", err)
+	}
+	return snapshots
+}
+
+func loadLoginThrottleEntries(t *testing.T, harness *contractHarness) []loginThrottleSnapshot {
+	t.Helper()
+	rows, err := harness.conn.Query(context.Background(), `SELECT subject_key, remote_address, failure_count, locked_until FROM login_throttle_ledger ORDER BY subject_key, remote_address`)
+	if err != nil {
+		t.Fatalf("query login throttle ledger: %v", err)
+	}
+	defer rows.Close()
+	var snapshots []loginThrottleSnapshot
+	for rows.Next() {
+		var lockedUntil sqlNullTime
+		var snapshot loginThrottleSnapshot
+		if err := rows.Scan(&snapshot.SubjectKey, &snapshot.RemoteAddress, &snapshot.FailureCount, &lockedUntil); err != nil {
+			t.Fatalf("scan login throttle ledger: %v", err)
+		}
+		snapshot.LockedUntil = lockedUntil.ptr()
+		snapshots = append(snapshots, snapshot)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate login throttle ledger: %v", err)
 	}
 	return snapshots
 }

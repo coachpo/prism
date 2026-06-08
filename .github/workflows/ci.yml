@@ -1,0 +1,209 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Run backend regression suites
+        working-directory: backend
+        run: go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
+
+      - name: Build backend
+        working-directory: backend
+        run: go build ./cmd/prism-backend
+
+  frontend-seams:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@10.30.1 --activate
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend seam tests
+        working-directory: frontend
+        run: pnpm run test:lib
+
+      - name: Run frontend server health tests
+        working-directory: frontend
+        run: pnpm run test:server
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm run build
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: pnpm run lint
+
+  frontend-config-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@10.30.1 --activate
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run focused config E2E suite
+        working-directory: frontend
+        run: pnpm run test:config
+
+  dependency-scanners:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Install govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run backend vulnerability scanner
+        working-directory: backend
+        run: govulncheck ./...
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@10.30.1 --activate
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend production dependency audit
+        working-directory: frontend
+        run: pnpm audit --prod --audit-level=high
+
+  container-scanners:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build backend container image for scan
+        run: docker build -t prism-backend:ci -f backend/Dockerfile .
+
+      - name: Build frontend container image for scan
+        run: |
+          docker build \
+            -t prism-frontend:ci \
+            -f frontend/Dockerfile \
+            --build-arg VITE_GIT_RUN_NUMBER=${{ github.run_number }} \
+            --build-arg VITE_GIT_REVISION=${GITHUB_SHA::7} \
+            frontend
+
+      - name: Install pinned Trivy
+        uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
+        with:
+          version: v0.68.2
+          cache: true
+
+      - name: Scan local container images with Trivy (non-blocking evidence)
+        shell: bash
+        run: |
+          mkdir -p trivy-reports
+          backend_status=0
+          frontend_status=0
+
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format sarif --output trivy-reports/prism-backend.sarif prism-backend:ci || backend_status=$?
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format table --output trivy-reports/prism-backend.txt prism-backend:ci || backend_status=$?
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format sarif --output trivy-reports/prism-frontend.sarif prism-frontend:ci || frontend_status=$?
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format table --output trivy-reports/prism-frontend.txt prism-frontend:ci || frontend_status=$?
+
+          {
+            echo "Prism container scanner policy"
+            echo "Generated at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "Scanned local images only: prism-backend:ci, prism-frontend:ci"
+            echo "Severity: HIGH,CRITICAL"
+            echo "Ignore unfixed: true"
+            echo "Exit code mode: 0 for vulnerability findings"
+            echo "Blocking: false"
+            echo "Rationale: Trivy advisory DB and network drift can make image-vulnerability gating unstable in this wave."
+            echo "Backend Trivy command status: ${backend_status}"
+            echo "Frontend Trivy command status: ${frontend_status}"
+          } > trivy-reports/status.txt
+
+          {
+            echo "### Container vulnerability scan evidence"
+            echo ""
+            echo "Trivy scans are non-blocking in this wave. Reports are uploaded as artifacts and statuses are recorded below."
+            echo ""
+            echo "- Backend image: \`prism-backend:ci\`, status \`${backend_status}\`"
+            echo "- Frontend image: \`prism-frontend:ci\`, status \`${frontend_status}\`"
+            echo "- Rationale: advisory DB and network drift can make container scanner gating unstable."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit 0
+
+      - name: Upload Trivy scan artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-local-image-reports
+          path: trivy-reports/
+          if-no-files-found: warn
+          retention-days: 14

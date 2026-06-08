@@ -39,6 +39,7 @@ func mountManagementBranch(router chi.Router, deps Dependencies, admissionContro
 	if deps.AuthService != nil {
 		managementHandler = deps.AuthService.ManagementMiddleware(managementHandler)
 	}
+	managementHandler = managementBodyLimitMiddleware(managementHandler)
 	managementHandler = (&managementAdmissionController{controller: admissionController, provider: admissionProvider}).Middleware(managementHandler)
 	managementHandler = newRuntimeCacheInvalidationMiddleware(deps.RuntimeCache, deps.RuntimeAuthService, deps.RuntimeState, deps.StatsService).Middleware(managementHandler)
 	managementHandler = managementIngressTelemetryMiddleware(managementHandler)

@@ -18,6 +18,7 @@ import (
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/platform/background"
+	"github.com/coachpo/prism/backend/internal/platform/bodylimits"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/logretention"
 )
@@ -76,6 +77,7 @@ type Service struct {
 	overflowAffinityCache         *overflowAffinityCache
 	runtimeState                  *loadbalancedomain.LocalRuntimeStateStore
 	runtimeMetrics                *runtimeMetrics
+	requireDurableSuccessHandoff  bool
 	telemetryOutbox               *runtimeTelemetryOutbox
 	feedbackPipeline              *runtimeFeedbackPipeline
 	runtimeSideEffects            *RuntimeSideEffectManager
@@ -146,6 +148,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		overflowAffinityCache:         newOverflowAffinityCache(now),
 		runtimeState:                  runtimeState,
 		runtimeMetrics:                newRuntimeMetrics(),
+		requireDurableSuccessHandoff:  true,
 	}
 	telemetryOptions := options.TelemetryOutbox
 	telemetryOptions.Scheduler = scheduler
@@ -371,6 +374,12 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	requestSpan.SetAttributes(runtimeTraceOperationAttributes(operationMatch.Operation)...)
 	resolveSpan.End()
 
+	requestBodyLimit := runtimeRequestBodyLimitBytes(operationMatch.Operation, r.Header.Get("Content-Type"))
+	if !limitRuntimeRequestBody(w, r, requestBodyLimit) {
+		runtimeTraceMarkError(requestSpan, bodylimits.RequestBodyTooLargeCode)
+		return
+	}
+
 	runtimeConfig := s.runtimeProxyConfigSnapshot()
 	planningStartedAt := s.nowUTC()
 	if canBuildStreamingRequestPlan(operationMatch.Operation) {
@@ -393,6 +402,9 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	rawBody, err := readBufferedRequestBody(r.Body)
 	if err != nil {
 		runtimeTraceMarkError(requestSpan, "request_plan_failed")
+		if bodylimits.WriteMaxBytesError(w, err, requestBodyLimit) {
+			return
+		}
 		writeError(w, http.StatusBadRequest, "", "Invalid request body", nil)
 		return
 	}
@@ -415,6 +427,30 @@ func readBufferedRequestBody(body io.Reader) ([]byte, error) {
 		return nil, nil
 	}
 	return rawBody, nil
+}
+
+func runtimeRequestBodyLimitBytes(operation RuntimeOperation, contentType string) int64 {
+	if runtimeOperationUsesMediaLimit(operation, contentType) {
+		return bodylimits.RuntimeMediaRequestBodyLimitBytes
+	}
+	return bodylimits.RuntimeJSONRequestBodyLimitBytes
+}
+
+func runtimeOperationUsesMediaLimit(operation RuntimeOperation, contentType string) bool {
+	hooks, ok := mediaHooksForOperation(operation)
+	return ok && hooks.RequestKind == operationMediaRequestKindImageEdit && multipartBoundary(contentType) != ""
+}
+
+func limitRuntimeRequestBody(w http.ResponseWriter, r *http.Request, limitBytes int64) bool {
+	if r == nil || limitBytes <= 0 {
+		return true
+	}
+	if r.ContentLength > limitBytes {
+		bodylimits.WriteRequestBodyTooLarge(w, limitBytes)
+		return false
+	}
+	bodylimits.LimitRequestBody(w, r, limitBytes)
+	return true
 }
 
 func (s *Service) buildProxyRequestPlan(r *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch) (requestPlan, error) {
@@ -477,14 +513,33 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			if translationMode == "" || translationMode == TranslationModeNone {
 				copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 				proxyWriter.WriteHeader(execution.Response.StatusCode)
+				acceptedRowID := int64(0)
+				if s.runtimeResponseRequiresDurableHandoff(execution) {
+					rowID, err := s.enqueueStreamingRuntimeActivityAcceptedBeforeResponse(plan, execution, r, startedAt)
+					if err != nil {
+						runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
+						writeRuntimeObservabilityHandoffError(w)
+						return
+					}
+					acceptedRowID = rowID
+					proxyWriter.Flush()
+				}
 				responseCapture, streamErr := s.codingAgentFormatBridge().ProxyEventStreamAndCaptureCompletedResponse(plan.RuntimeOperation, TranslationModeNone, plan.RequestedModelID, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
 				if streamErr != nil {
 					runtimeTraceMarkError(responseSpan, "response_handle_failed")
 					slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
 				}
 				runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
+				if acceptedRowID > 0 {
+					if err := s.finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID, plan, execution, r, startedAt, responseCapture); err != nil {
+						runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
+						writeRuntimeObservabilityHandoffStreamError(proxyWriter)
+						return
+					}
+				} else {
+					s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
+				}
 				proxyWriter.Commit()
-				s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 				return
 			}
 
@@ -498,19 +553,38 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			}
 			copyTranslatedResponseHeadersWithContentType(proxyWriter.Header(), execution.Response.Header, "text/event-stream")
 			proxyWriter.WriteHeader(execution.Response.StatusCode)
+			if s.runtimeResponseRequiresDurableHandoff(execution) {
+				if err := s.enqueueRuntimeActivityBeforeResponse(plan, execution, r, startedAt, responseCapture); err != nil {
+					runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
+					writeRuntimeObservabilityHandoffError(w)
+					return
+				}
+			} else {
+				s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
+			}
 			if _, err := proxyWriter.Write(translatedStream.Bytes()); err != nil {
 				runtimeTraceMarkError(responseSpan, "response_handle_failed")
 				return
 			}
 			runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
 			proxyWriter.Commit()
-			s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 			return
 		}
 	}
 	if !nonStreamResponseRequiresBufferedInspection(execution.Response.StatusCode, translationMode) {
 		copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 		proxyWriter.WriteHeader(execution.Response.StatusCode)
+		acceptedRowID := int64(0)
+		if s.runtimeResponseRequiresDurableHandoff(execution) {
+			rowID, err := s.enqueueStreamingRuntimeActivityAcceptedBeforeResponse(plan, execution, r, startedAt)
+			if err != nil {
+				runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
+				writeRuntimeObservabilityHandoffError(w)
+				return
+			}
+			acceptedRowID = rowID
+			proxyWriter.Flush()
+		}
 		passthroughCapture, passthroughErr := proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, translationMode, proxyWriter, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
 		responseCapture = passthroughCapture
 		if passthroughErr != nil {
@@ -521,8 +595,15 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			}
 		}
 		runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
+		if acceptedRowID > 0 {
+			if err := s.finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID, plan, execution, r, startedAt, responseCapture); err != nil {
+				runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
+				return
+			}
+		} else {
+			s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
+		}
 		proxyWriter.Commit()
-		s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 		return
 	}
 	sourceRawBody, err := readAndCloseRuntimeResponseBody(execution.Response)
@@ -574,8 +655,16 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		return
 	}
 	runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
+	if s.runtimeResponseRequiresDurableHandoff(finalExecution) {
+		if err := s.enqueueRuntimeActivityBeforeResponse(finalPlan, finalExecution, r, startedAt, responseCapture); err != nil {
+			runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
+			writeRuntimeObservabilityHandoffError(w)
+			return
+		}
+	} else {
+		s.recordRuntimeActivity(finalPlan, finalExecution, r, startedAt, responseCapture)
+	}
 	proxyWriter.Commit()
-	s.recordRuntimeActivity(finalPlan, finalExecution, r, startedAt, responseCapture)
 }
 
 func responseTranslationModeForExecution(plan requestPlan, execution executionResult) TranslationMode {
@@ -592,6 +681,25 @@ func nonStreamResponseRequiresBufferedInspection(statusCode int, translationMode
 		return true
 	}
 	return cliProxyAPIOverflowStatusAllowed(statusCode)
+}
+
+func (s *Service) runtimeResponseRequiresDurableHandoff(execution executionResult) bool {
+	return s != nil && s.requireDurableSuccessHandoff && execution.Response != nil && execution.Response.StatusCode >= http.StatusOK && execution.Response.StatusCode <= 299
+}
+
+func writeRuntimeObservabilityHandoffError(w http.ResponseWriter) {
+	writeError(w, http.StatusServiceUnavailable, "runtime_observability_handoff_failed", "Runtime observability handoff failed", nil)
+}
+
+func writeRuntimeObservabilityHandoffStreamError(w io.Writer) {
+	if w == nil {
+		return
+	}
+	_, _ = io.WriteString(w, "event: prism.error\n")
+	_, _ = io.WriteString(w, "data: {\"error\":\"runtime_observability_handoff_failed\",\"detail\":\"Runtime observability handoff failed\"}\n\n")
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func readAndCloseRuntimeResponseBody(response *http.Response) ([]byte, error) {
@@ -1039,13 +1147,14 @@ func (s *Service) tryContextOverflowPromotion(request *http.Request, sourcePlan 
 	return promotedPlan, promotedExecution, nil, true
 }
 
-// Downstream bytes become committed on the first header/body write. Once that
-// happens, the current attempt is definitive and the runtime must not pivot to
-// a retry or hedge winner because the client-visible response has already begun.
+// Downstream bytes become committed only when Commit or Flush runs. This keeps
+// buffered non-stream success responses reversible until the durable telemetry
+// handoff row is inserted.
 type runtimeDeferredCommitWriter struct {
 	dst        http.ResponseWriter
 	header     http.Header
 	statusCode int
+	body       bytes.Buffer
 	committed  bool
 }
 
@@ -1072,8 +1181,14 @@ func (writer *runtimeDeferredCommitWriter) WriteHeader(statusCode int) {
 }
 
 func (writer *runtimeDeferredCommitWriter) Write(payload []byte) (int, error) {
-	writer.Commit()
-	return writer.dst.Write(payload)
+	if writer.committed {
+		written, err := writer.dst.Write(payload)
+		if flusher, ok := writer.dst.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		return written, err
+	}
+	return writer.body.Write(payload)
 }
 
 func (writer *runtimeDeferredCommitWriter) Flush() {
@@ -1090,6 +1205,10 @@ func (writer *runtimeDeferredCommitWriter) Commit() {
 	copyResponseHeaders(writer.dst.Header(), writer.header)
 	writer.dst.WriteHeader(writer.statusCode)
 	writer.committed = true
+	if writer.body.Len() > 0 {
+		_, _ = writer.dst.Write(writer.body.Bytes())
+		writer.body.Reset()
+	}
 }
 
 func (writer *runtimeDeferredCommitWriter) Committed() bool {

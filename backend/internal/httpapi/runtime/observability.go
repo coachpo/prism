@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/proxykeyusage"
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
@@ -634,7 +635,12 @@ type runtimeTelemetryEnvelope struct {
 	UsageEvent    usageEventInsert            `json:"usage_event"`
 	ProxyKeyUsage *runtimeProxyKeyUsageSignal `json:"proxy_key_usage,omitempty"`
 	TraceContext  runtimeTraceContext         `json:"trace_context,omitempty"`
+	HandoffPhase  string                      `json:"handoff_phase,omitempty"`
 }
+
+const (
+	runtimeTelemetryHandoffPhaseStreamAccepted = "stream_accepted"
+)
 
 const (
 	runtimeMetricScopeName = "github.com/coachpo/prism/backend/internal/httpapi/runtime"
@@ -856,8 +862,7 @@ func (s *Service) recordRuntimeActivity(plan requestPlan, result executionResult
 	ctx := runtimeMetricContext(request)
 	ctx, span := startRuntimeSpan(ctx, "runtime.activity.record", runtimeTracePlanAttributes(plan)...)
 	defer span.End()
-	envelope := s.buildRuntimeTelemetryEnvelope(plan, result, request, startedAt, responseCapture)
-	envelope.TraceContext = runtimeTraceContextFromContext(ctx)
+	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
 	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
 	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
 	if submit := s.runtimeSideEffects.SubmitRuntimeActivityContext(ctx, intent); submit.Status != RuntimeSideEffectAccepted {
@@ -865,6 +870,91 @@ func (s *Service) recordRuntimeActivity(plan requestPlan, result executionResult
 		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueNotSubmitted)
 		slog.Error("failed to accept runtime activity telemetry intent", "reason", submit.Reason, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
 	}
+}
+
+func (s *Service) enqueueRuntimeActivityBeforeResponse(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) error {
+	if s == nil || s.runtimeSideEffects == nil {
+		return fmt.Errorf("runtime telemetry outbox unavailable")
+	}
+	ctx := runtimeMetricContext(request)
+	ctx, span := startRuntimeSpan(ctx, "runtime.activity.durable_handoff", runtimeTracePlanAttributes(plan)...)
+	defer span.End()
+	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
+	if err := s.validateRuntimeActivityHandoff(ctx, span, envelope); err != nil {
+		return err
+	}
+	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
+	if err := s.runtimeSideEffects.CommitRuntimeActivityBeforeResponse(ctx, intent); err != nil {
+		runtimeTraceMarkError(span, "runtime_activity_handoff_failed")
+		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueFailed)
+		return err
+	}
+	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
+	s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueAccepted)
+	return nil
+}
+
+func (s *Service) enqueueStreamingRuntimeActivityAcceptedBeforeResponse(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time) (int64, error) {
+	if s == nil || s.runtimeSideEffects == nil {
+		return 0, fmt.Errorf("runtime telemetry outbox unavailable")
+	}
+	ctx := runtimeMetricContext(request)
+	ctx, span := startRuntimeSpan(ctx, "runtime.activity.stream_accepted_handoff", runtimeTracePlanAttributes(plan)...)
+	defer span.End()
+	acceptedAt := s.nowUTC()
+	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, runtimeResponseCapture{CompletedAt: &acceptedAt, StreamOutcome: runtimeStreamOutcomeUnknown})
+	envelope.HandoffPhase = runtimeTelemetryHandoffPhaseStreamAccepted
+	if err := s.validateRuntimeActivityHandoff(ctx, span, envelope); err != nil {
+		return 0, err
+	}
+	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
+	rowID, err := s.runtimeSideEffects.CommitStreamingRuntimeActivityAcceptedBeforeResponse(ctx, intent)
+	if err != nil {
+		runtimeTraceMarkError(span, "runtime_activity_handoff_failed")
+		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueFailed)
+		return 0, err
+	}
+	s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueAccepted)
+	return rowID, nil
+}
+
+func (s *Service) finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID int64, plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) error {
+	if s == nil || s.runtimeSideEffects == nil {
+		return fmt.Errorf("runtime telemetry outbox unavailable")
+	}
+	ctx := runtimeTraceDetachedContext(runtimeMetricContext(request))
+	ctx, span := startRuntimeSpan(ctx, "runtime.activity.stream_terminal_handoff", runtimeTracePlanAttributes(plan)...)
+	defer span.End()
+	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
+	if err := s.validateRuntimeActivityHandoff(ctx, span, envelope); err != nil {
+		return err
+	}
+	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
+	if err := s.runtimeSideEffects.FinalizeStreamingRuntimeActivityBeforeCompletion(ctx, acceptedRowID, intent); err != nil {
+		runtimeTraceMarkError(span, "runtime_activity_handoff_failed")
+		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueFailed)
+		slog.Error("runtime streaming terminal telemetry handoff failed", "error", err, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
+		return err
+	}
+	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
+	s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueAccepted)
+	return nil
+}
+
+func (s *Service) validateRuntimeActivityHandoff(ctx context.Context, span trace.Span, envelope runtimeTelemetryEnvelope) error {
+	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
+	if err := intent.validate(); err != nil {
+		runtimeTraceMarkError(span, "runtime_activity_handoff_invalid")
+		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueNotSubmitted)
+		return err
+	}
+	return nil
+}
+
+func (s *Service) buildRuntimeActivityEnvelope(ctx context.Context, plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) runtimeTelemetryEnvelope {
+	envelope := s.buildRuntimeTelemetryEnvelope(plan, result, request, startedAt, responseCapture)
+	envelope.TraceContext = runtimeTraceContextFromContext(ctx)
+	return envelope
 }
 
 func (s *Service) recordRuntimePlanningFailure(request *http.Request, startedAt time.Time, err error) {

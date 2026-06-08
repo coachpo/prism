@@ -35,20 +35,22 @@ type Options struct {
 }
 
 type Service struct {
-	pool                      *pgxpool.Pool
-	ownsPool                  bool
-	emailOutbox               *outbox.Store
-	now                       func() time.Time
-	authJWTSecret             string
-	staticAuthRuntimeConfig   RuntimeAuthConfigSnapshot
-	authRuntimeConfigProvider RuntimeAuthConfigProvider
-	corsOriginProvider        platformcors.OriginProvider
-	proxyKeyPreviewSize       int
-	runtimeCache              *RuntimeCache
-	proxyKeyUsagePool         *pgxpool.Pool
-	proxyKeyUsageWriter       *proxyAPIKeyUsageWriter
-	authSettingsSnapshotMu    sync.RWMutex
-	authSettingsSnapshot      *AppAuthSettingsSnapshot
+	pool                            *pgxpool.Pool
+	ownsPool                        bool
+	emailOutbox                     *outbox.Store
+	now                             func() time.Time
+	authJWTSecret                   string
+	staticAuthRuntimeConfig         RuntimeAuthConfigSnapshot
+	authRuntimeConfigProvider       RuntimeAuthConfigProvider
+	corsOriginProvider              platformcors.OriginProvider
+	proxyKeyPreviewSize             int
+	runtimeCache                    *RuntimeCache
+	proxyKeyUsagePool               *pgxpool.Pool
+	proxyKeyUsageWriter             *proxyAPIKeyUsageWriter
+	authSettingsSnapshotMu          sync.RWMutex
+	authSettingsSnapshot            *AppAuthSettingsSnapshot
+	realtimeAuthRevocationMu        sync.RWMutex
+	realtimeAuthRevocationListeners []func(RealtimeAuthRevocation)
 }
 
 type authSubject struct {
@@ -171,6 +173,27 @@ func (s *Service) InvalidateRuntimeCache() {
 
 func (s *Service) InvalidateAppAuthSettingsSnapshot() {
 	s.invalidateAppAuthSettingsSnapshot()
+}
+
+func (s *Service) RegisterRealtimeAuthRevocationListener(listener func(RealtimeAuthRevocation)) {
+	if s == nil || listener == nil {
+		return
+	}
+	s.realtimeAuthRevocationMu.Lock()
+	defer s.realtimeAuthRevocationMu.Unlock()
+	s.realtimeAuthRevocationListeners = append(s.realtimeAuthRevocationListeners, listener)
+}
+
+func (s *Service) publishRealtimeAuthRevocation(event RealtimeAuthRevocation) {
+	if s == nil || event.SubjectID <= 0 {
+		return
+	}
+	s.realtimeAuthRevocationMu.RLock()
+	listeners := append([]func(RealtimeAuthRevocation){}, s.realtimeAuthRevocationListeners...)
+	s.realtimeAuthRevocationMu.RUnlock()
+	for _, listener := range listeners {
+		listener(event)
+	}
 }
 
 func (s *Service) enqueueProxyAPIKeyUsage(keyID int, lastUsedAt time.Time, lastUsedIP string) error {

@@ -129,8 +129,23 @@ func (o *runtimeTelemetryOutbox) RegisterBackgroundWorker(scheduler *background.
 }
 
 func (o *runtimeTelemetryOutbox) Enqueue(ctx context.Context, envelope runtimeTelemetryEnvelope) error {
-	ctx, span := startRuntimeSpan(ctx, "runtime.outbox.enqueue", runtimeTraceEnvelopeAttributes(envelope)...)
+	_, err := o.enqueue(ctx, envelope)
+	return err
+}
+
+func (o *runtimeTelemetryOutbox) EnqueueStreamingAccepted(ctx context.Context, envelope runtimeTelemetryEnvelope) (int64, error) {
+	envelope.HandoffPhase = runtimeTelemetryHandoffPhaseStreamAccepted
+	return o.enqueue(ctx, envelope)
+}
+
+func (o *runtimeTelemetryOutbox) FinalizeStreamingAccepted(ctx context.Context, rowID int64, envelope runtimeTelemetryEnvelope) error {
+	ctx, span := startRuntimeSpan(ctx, "runtime.outbox.stream_finalize", runtimeTraceEnvelopeAttributes(envelope)...)
 	defer span.End()
+	if rowID <= 0 {
+		runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueFailed)
+		runtimeTraceMarkError(span, "outbox_enqueue_failed")
+		return fmt.Errorf("runtime streaming telemetry accepted row id required")
+	}
 	if envelope.TraceContext.empty() {
 		envelope.TraceContext = runtimeTraceContextFromContext(ctx)
 	}
@@ -161,23 +176,83 @@ func (o *runtimeTelemetryOutbox) Enqueue(ctx context.Context, envelope runtimeTe
 		asyncmetrics.RecordOutcome(ctx, "runtime_telemetry_outbox", "enqueue", asyncmetrics.OutcomeUnavailable)
 		return fmt.Errorf("runtime telemetry outbox closed")
 	}
-	if _, err := o.telemetryPool.Exec(
+	commandTag, err := o.telemetryPool.Exec(
 		ctx,
-		`INSERT INTO runtime_telemetry_outbox (profile_id, ingress_request_id, payload, created_at) VALUES ($1, $2, $3, $4)`,
-		envelope.UsageEvent.ProfileID,
-		envelope.UsageEvent.IngressRequestID,
+		`UPDATE runtime_telemetry_outbox SET payload = $1, created_at = $2 WHERE id = $3 AND payload->>'handoff_phase' = $4`,
 		rawEnvelope,
 		envelope.UsageEvent.CreatedAt,
-	); err != nil {
+		rowID,
+		runtimeTelemetryHandoffPhaseStreamAccepted,
+	)
+	if err != nil {
 		runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueFailed)
 		runtimeTraceMarkError(span, "outbox_enqueue_failed")
 		asyncmetrics.RecordOutcome(ctx, "runtime_telemetry_outbox", "enqueue", asyncmetrics.OutcomeFailure)
-		return fmt.Errorf("enqueue runtime telemetry envelope: %w", err)
+		return fmt.Errorf("finalize runtime streaming telemetry envelope: %w", err)
+	}
+	if commandTag.RowsAffected() != 1 {
+		runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueFailed)
+		runtimeTraceMarkError(span, "outbox_enqueue_failed")
+		asyncmetrics.RecordOutcome(ctx, "runtime_telemetry_outbox", "enqueue", asyncmetrics.OutcomeFailure)
+		return fmt.Errorf("runtime streaming telemetry accepted row %d unavailable", rowID)
 	}
 	runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueAccepted)
 	asyncmetrics.RecordOutcome(ctx, "runtime_telemetry_outbox", "enqueue", asyncmetrics.OutcomeSuccess)
 	o.signal()
 	return nil
+}
+
+func (o *runtimeTelemetryOutbox) enqueue(ctx context.Context, envelope runtimeTelemetryEnvelope) (int64, error) {
+	ctx, span := startRuntimeSpan(ctx, "runtime.outbox.enqueue", runtimeTraceEnvelopeAttributes(envelope)...)
+	defer span.End()
+	if envelope.TraceContext.empty() {
+		envelope.TraceContext = runtimeTraceContextFromContext(ctx)
+	}
+	if o == nil || o.telemetryPool == nil {
+		runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueFailed)
+		runtimeTraceMarkError(span, "outbox_enqueue_failed")
+		return 0, fmt.Errorf("runtime telemetry outbox unavailable")
+	}
+	if err := o.enqueueError(); err != nil {
+		runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueFailed)
+		runtimeTraceMarkError(span, "outbox_enqueue_failed")
+		asyncmetrics.RecordOutcome(ctx, "runtime_telemetry_outbox", "enqueue", asyncmetrics.OutcomeFailure)
+		return 0, err
+	}
+	rawEnvelope, err := json.Marshal(envelope)
+	if err != nil {
+		runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueFailed)
+		runtimeTraceMarkError(span, "outbox_enqueue_failed")
+		asyncmetrics.RecordOutcome(ctx, "runtime_telemetry_outbox", "enqueue", asyncmetrics.OutcomeFailure)
+		return 0, fmt.Errorf("marshal runtime telemetry envelope: %w", err)
+	}
+	o.mu.Lock()
+	closed := o.closed
+	o.mu.Unlock()
+	if closed {
+		runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueFailed)
+		runtimeTraceMarkError(span, "outbox_enqueue_failed")
+		asyncmetrics.RecordOutcome(ctx, "runtime_telemetry_outbox", "enqueue", asyncmetrics.OutcomeUnavailable)
+		return 0, fmt.Errorf("runtime telemetry outbox closed")
+	}
+	var rowID int64
+	if err := o.telemetryPool.QueryRow(
+		ctx,
+		`INSERT INTO runtime_telemetry_outbox (profile_id, ingress_request_id, payload, created_at) VALUES ($1, $2, $3, $4) RETURNING id`,
+		envelope.UsageEvent.ProfileID,
+		envelope.UsageEvent.IngressRequestID,
+		rawEnvelope,
+		envelope.UsageEvent.CreatedAt,
+	).Scan(&rowID); err != nil {
+		runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueFailed)
+		runtimeTraceMarkError(span, "outbox_enqueue_failed")
+		asyncmetrics.RecordOutcome(ctx, "runtime_telemetry_outbox", "enqueue", asyncmetrics.OutcomeFailure)
+		return 0, fmt.Errorf("enqueue runtime telemetry envelope: %w", err)
+	}
+	runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueAccepted)
+	asyncmetrics.RecordOutcome(ctx, "runtime_telemetry_outbox", "enqueue", asyncmetrics.OutcomeSuccess)
+	o.signal()
+	return rowID, nil
 }
 
 func (o *runtimeTelemetryOutbox) Close() TelemetryOutboxCloseResult {
@@ -353,7 +428,8 @@ func loadNextRuntimeTelemetryOutboxRow(ctx context.Context, tx pgx.Tx) (runtimeT
 	var row runtimeTelemetryOutboxRow
 	err := tx.QueryRow(
 		ctx,
-		`SELECT id, payload FROM runtime_telemetry_outbox ORDER BY id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
+		`SELECT id, payload FROM runtime_telemetry_outbox WHERE COALESCE(payload->>'handoff_phase', '') <> $1 ORDER BY id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
+		runtimeTelemetryHandoffPhaseStreamAccepted,
 	).Scan(&row.ID, &row.Payload)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return runtimeTelemetryOutboxRow{}, false, nil

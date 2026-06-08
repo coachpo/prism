@@ -394,9 +394,9 @@ export const models = {
         body: JSON.stringify(data),
       }).then((targets) => targets.map(normalizeModelAccessTarget)),
     movePosition: (modelConfigId: number, targetId: number, toIndex: number) =>
-      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
+      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}/position`, {
         method: "PATCH",
-        body: JSON.stringify({ position: toIndex }),
+        body: JSON.stringify({ to_index: toIndex }),
       }).then((targets) => targets.map(normalizeModelAccessTarget)),
     delete: (modelConfigId: number, targetId: number) =>
       request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {

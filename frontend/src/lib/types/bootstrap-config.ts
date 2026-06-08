@@ -63,9 +63,15 @@ export interface BootstrapConfigRuntimeSideEffectsValues {
   attempt_timeout: string | null;
 }
 
+export interface BootstrapConfigRuntimeRoutingValues {
+  planner_mode: string | null;
+  openai_terminal_translation_mode: string | null;
+}
+
 export interface BootstrapConfigRuntimeValues {
   transport: BootstrapConfigRuntimeTransportValues;
   side_effects: BootstrapConfigRuntimeSideEffectsValues;
+  routing?: BootstrapConfigRuntimeRoutingValues;
 }
 
 export interface BootstrapConfigHTTPValues {

@@ -17,7 +17,7 @@ api/
 ## WHERE TO LOOK
 - Public import surface over these modules: `../api.ts`
 - Shared request rules, cookie credentials, `ApiError`, auth-refresh retry, and `X-Profile-Id` injection for selected management routes: `core.ts`
-- Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`
+- Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`; drift tests assert it against `../../../backend/internal/platform/http/management_route_contract.json`
 - Cookie-auth bootstrap/session flows, settings auth endpoints, and proxy-key endpoints: `authSettings.ts`
 - Global profile/vendor management plus profile-scoped model, context overflow promotion target, access-target, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
 - Observability, usage snapshot, throughput, bootstrap-config get/validate/update, config import/export, header-blocklist and user-agent/client rules, audit, loadbalance current state/events, and settings costing/timezone/retention clients: `observability.ts`
@@ -29,6 +29,7 @@ api/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `core.ts` as the only place that injects `X-Profile-Id`, applies cookie credentials, and performs one refresh retry for eligible `/api/*` requests.
 - Keep `profileScope.ts` as the only route matcher deciding which management calls receive `X-Profile-Id`; `/api/sidecars/*` stays global and unscoped.
+- When adding or changing profile-scoped management routes, update `backend/internal/platform/http/management_route_contract.json` in the same change so frontend drift tests keep the matcher in backend contract lockstep.
 - Keep grouped endpoint surfaces in their existing modules instead of expanding `api.ts` into a second implementation layer.
 - Keep model payload normalization in `management.ts`, including the server-shaped `context_overflow_promotion_target_id` field.
 - Keep auth/settings nesting in `authSettings.ts` and `api.settings` aligned with the backend route structure.

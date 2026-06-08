@@ -67,39 +67,71 @@ For subproject-specific setup and commands, use:
 
 ### Docker Compose
 
-> **Note**: there is no root full-stack `docker-compose.yml` in this repository. `backend/docker-compose.yml` only provisions PostgreSQL for local backend work. For a full deployment, create your own compose file based on the bootstrap-config mount, minimal external bootstrap env contract, and service layout documented in this repository.
+The root `docker-compose.yml` is the default local/self-hosted deployment bundle. It builds one Prism application image from the root `Dockerfile`, runs PostgreSQL as a separate internal service, publishes only the public Prism HTTP port, and persists both PostgreSQL data and the Prism bootstrap config in named volumes.
 
-If you create a `docker-compose.yml`, the frontend will commonly be published at `http://localhost:3000`, and the backend will listen on whatever port your chosen bootstrap file configures (`http://localhost:8000` is the fresh-seed default).
+```bash
+docker compose up --build
+docker compose up -d --build
+BUILD_FRONTEND=false docker compose up --build
 
-### Docker (manual)
+docker compose down
+docker compose down -v
+```
+
+`docker compose down` stops the stack while preserving the `prism_postgres_data` and `prism_config` volumes. `docker compose down -v` intentionally deletes both local volumes, including the PostgreSQL database and `/app/config/config.json` bootstrap file.
+
+Compose defaults to `http://localhost:8080`. The `prism` service mounts `prism_config` at `/app/config`, sets `PRISM_CONFIG_PATH=/app/config/config.json`, and sets `DATABASE_URL` to `postgres://prism:prism@postgres:5432/prism?sslmode=disable`. The `postgres` service uses `postgres:16-alpine`, stores data in `prism_postgres_data`, has a `pg_isready` healthcheck, and does not publish port `5432` to the host.
+
+Common `.env` overrides are `PRISM_PUBLIC_PORT`, `PRISM_NGINX_PORT`, `PRISM_BACKEND_UPSTREAM_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `BUILD_FRONTEND`, `VITE_API_BASE`, `VITE_GIT_RUN_NUMBER`, and `VITE_GIT_REVISION`. Leave `VITE_API_BASE` unset for same-origin production builds. If the persisted bootstrap file changes the backend listener port away from the fresh-seed default `8000`, set `PRISM_BACKEND_UPSTREAM_PORT` to the same value before restarting the container.
+
+### Docker (single image)
+
+The root single-image build is separate from the existing backend-only and frontend-only images. It contains the Go `prism-backend` binary, backend migrations and version file, optional built React static assets, Nginx for static serving and reverse proxying, and a signal-aware launcher for both backend and Nginx. It does not run `frontend/server.mjs`, does not run the Vite dev server, and does not include PostgreSQL.
+
+```bash
+docker build -t prism-single .
+docker build --build-arg BUILD_FRONTEND=false -t prism-single-backend-only .
+```
+
+The image exposes only public port `8080` by default. Nginx serves `/` from the built frontend, falls back to `/index.html` for frontend route refreshes, and proxies `/health`, `/api`, `/api/realtime/ws`, `/v1`, and `/v1beta` to the private backend upstream. `/api/realtime/ws` includes websocket upgrade headers. `BUILD_FRONTEND=false` skips the React build and serves a minimal fallback page at `/` while keeping backend proxy paths available.
+
+For direct Docker runs with an external PostgreSQL container:
+
+```bash
+docker network create prism-net
+
+docker run -d \
+  --name prism-postgres \
+  --network prism-net \
+  -e POSTGRES_DB=prism \
+  -e POSTGRES_USER=prism \
+  -e POSTGRES_PASSWORD=prism \
+  -v prism_postgres_data:/var/lib/postgresql/data \
+  postgres:16-alpine
+
+docker run --rm \
+  --network prism-net \
+  -p 8080:8080 \
+  -v prism_config:/app/config \
+  -e PRISM_CONFIG_PATH=/app/config/config.json \
+  -e DATABASE_URL="postgres://prism:prism@prism-postgres:5432/prism?sslmode=disable" \
+  prism-single
+```
+
+Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`. Freshly seeded files use backend-owned canonical defaults, including `0.0.0.0:8000`, CORS for local development, `runtime.transport.requestTimeout` as `"300s"`, and `runtime.sideEffects.attemptTimeout` as `"10s"`. Existing valid bootstrap files are preserved, even when they contain older values. If a persisted file already contains a different database URL or backend port, update it through `/settings#startup` or reset the config volume intentionally.
+
+The application image runs as `prism:prism`, UID/GID `1000:1000`. Named Compose volumes work out of the box. If you use a host bind mount for `/app/config`, make the host directory writable by UID/GID `1000:1000`, for example with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
+
+Assumptions and limitations: PostgreSQL is not bundled inside the application image, the default Compose password is only a local/self-hosted default meant to be overridden for real deployments, and a persisted bootstrap file remains Prism's source of truth for backend listener and database settings after first startup.
+
+### Docker (separate images)
+
+The existing `backend/Dockerfile`, `frontend/Dockerfile`, and GHCR workflow remain available for deployments that want separate backend and frontend containers with their own reverse proxy. In that mode, the backend image serves the Go API on its bootstrap-configured port, and the frontend image serves the built `dist/` output with `frontend/server.mjs` on port `3000`.
 
 ```bash
 docker pull ghcr.io/coachpo/prism-backend:latest
 docker pull ghcr.io/coachpo/prism-frontend:latest
-
-PRISM_CONFIG_DIR="/absolute/secure/path/prism-config"
-sudo mkdir -p "$PRISM_CONFIG_DIR"
-sudo chown -R 1000:1000 "$PRISM_CONFIG_DIR"
-sudo chmod 0700 "$PRISM_CONFIG_DIR"
-
-docker run -d \
-  --name prism-backend \
-  -p 8000:8000 \
-  -v "$PRISM_CONFIG_DIR:/app/config:rw" \
-  -e PRISM_CONFIG_PATH="/app/config/config.json" \
-  ghcr.io/coachpo/prism-backend:latest
-
-docker run -d \
-  --name prism-frontend \
-  -p 3000:3000 \
-  ghcr.io/coachpo/prism-frontend:latest
 ```
-
-Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`, with `config.json` as the default root launcher target. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; backend-native seeds default the database URL to `postgres://prism:prism@localhost:5432/prism?sslmode=disable`, while `./start.sh` sets `DATABASE_URL` to the local launcher PostgreSQL DSN on host port `15432`. If an encrypted bootstrap file is still on disk, replace it before booting. Freshly seeded files use backend-owned canonical defaults, including `0.0.0.0:8000`, CORS for `http://localhost:5173`, `runtime.transport.requestTimeout` as `"300s"`, and `runtime.sideEffects.attemptTimeout` as `"10s"`. Existing valid bootstrap files are preserved, even when they contain older values. To reset to the current defaults, stop Prism, remove or relocate the bootstrap file, then restart so the launcher or backend can seed a missing file.
-
-The backend image runs as `prism:prism`, UID/GID `1000:1000`. The bind-mounted directory that contains `PRISM_CONFIG_PATH`, such as `/absolute/secure/path/prism-config` for `/app/config/config.json`, must be writable by UID/GID `1000:1000` so the Startup API can create and replace the bootstrap file. For an existing root-owned bind mount, remediate the host directory once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
-
-The frontend image defaults to same-origin API calls. In production, put frontend and backend behind a reverse proxy and route `/` to frontend, `/api` to backend management handlers, and the supported runtime operation paths under `/v1` and `/v1beta` to backend runtime handlers.
 
 ---
 
@@ -159,6 +191,15 @@ pnpm run lint
 ```
 
 The frontend build injects `VITE_APP_VERSION` from `frontend/package.json` plus `VITE_GIT_RUN_NUMBER` and `VITE_GIT_REVISION` for the visible app-version label.
+
+### Security scanning policy
+
+The CI workflow treats backend and frontend dependency scanners as blocking release-safety gates:
+
+- Backend vulnerability scanning runs plain `govulncheck ./...` from `backend/`; the blocking step intentionally avoids machine-readable output modes that can exit successfully despite findings.
+- Frontend production dependency scanning runs `pnpm audit --prod --audit-level=high` from `frontend/` after `pnpm install --frozen-lockfile`; registry failures are not ignored or failed open.
+
+Container vulnerability scanning is evidence-only in this wave. CI locally builds `prism-backend:ci` and `prism-frontend:ci`, scans those exact local tags with pinned Trivy using `--severity HIGH,CRITICAL --ignore-unfixed --exit-code 0`, uploads the reports as artifacts, and writes an explicit non-blocking status summary. Container scans are not gating yet because Trivy advisory database and network drift can make image-vulnerability gating unstable even when the scanned source revision is unchanged. Release image publishing remains owned by `.github/workflows/docker-images.yml`; scanner evidence does not scan mutable remote `latest` tags.
 
 ---
 
@@ -250,6 +291,6 @@ Prism is designed for trusted local or LAN deployments:
 
 - Optional operator auth for `/api/*` and optional proxy API key enforcement for supported runtime operations under `/v1` and `/v1beta`
 - Endpoint API keys encrypted at rest in PostgreSQL
-- No rate limiting or abuse protection
+- Operator-login lockout after repeated failures; no general-purpose rate limiting or abuse protection
 
 Do not expose Prism directly to the public internet. Use a reverse proxy with authentication if remote access is needed.

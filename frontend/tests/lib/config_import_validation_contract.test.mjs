@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -220,6 +221,19 @@ test("config import schema accepts backend-exported overflow promotion target fi
   const parsed = ConfigImportSchema.parse(payload);
 
   assert.equal(parsed.models[0].context_overflow_promotion_target_id, "gpt-4o-terminal");
+});
+
+test("config bundle TypeScript DTOs expose overflow promotion target fields", () => {
+  const source = readFileSync(path.join(frontendDir, "src/lib/types/config-audit-settings.ts"), "utf8");
+
+  assert.match(
+    source,
+    /interface ConfigModelExport \{[\s\S]*?context_overflow_promotion_target_id: string \| null;[\s\S]*?\n\}/,
+  );
+  assert.match(
+    source,
+    /interface ConfigModelImport \{[\s\S]*?context_overflow_promotion_target_id\?: string \| null;[\s\S]*?\n\}/,
+  );
 });
 
 test("config import schema rejects profile bundles before v3", () => {

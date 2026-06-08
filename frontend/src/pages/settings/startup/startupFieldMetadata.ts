@@ -12,6 +12,7 @@ import type {
   BootstrapConfigDatabasePoolsValues,
   BootstrapConfigMailSMTPValues,
   BootstrapConfigMailValues,
+  BootstrapConfigRuntimeRoutingValues,
   BootstrapConfigTelemetryExporterValues,
   BootstrapConfigTelemetryValues,
   BootstrapConfigValues,
@@ -339,11 +340,23 @@ export function normalizeTelemetryValues(telemetry: BootstrapConfigTelemetryValu
   };
 }
 
+function normalizeRuntimeRoutingValues(routing: BootstrapConfigRuntimeRoutingValues | null | undefined): BootstrapConfigRuntimeRoutingValues | undefined {
+  if (!routing) {
+    return undefined;
+  }
+  return {
+    planner_mode: routing.planner_mode ?? null,
+    openai_terminal_translation_mode: routing.openai_terminal_translation_mode ?? null,
+  };
+}
+
 export function normalizeBootstrapValues(values: BootstrapConfigValues): BootstrapConfigValues {
   const nextValues = cloneValues(values);
+  const routing = normalizeRuntimeRoutingValues(nextValues.runtime.routing);
   nextValues.runtime = {
     transport: nextValues.runtime.transport,
     side_effects: nextValues.runtime.side_effects,
+    ...(routing ? { routing } : {}),
   };
   nextValues.database = {
     pools: normalizePostgresPools(nextValues),

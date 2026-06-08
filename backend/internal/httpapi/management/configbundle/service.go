@@ -1,13 +1,11 @@
 package configbundle
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -21,7 +19,6 @@ type Options struct {
 	BundleSecretEncrypter func(string) (string, error)
 	BundleSecretDecrypter func(string) (string, error)
 	BundleSecretKeyID     string
-	AfterProfileImport    func(context.Context, pgx.Tx) error
 }
 
 type Service struct {
@@ -34,7 +31,6 @@ type Service struct {
 	previewTokenKey       string
 	bundleSecretEncrypter func(string) (string, error)
 	bundleSecretDecrypter func(string) (string, error)
-	afterProfileImport    func(context.Context, pgx.Tx) error
 }
 
 type domainError struct {
@@ -101,7 +97,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		previewTokenKey:       bundleKey,
 		bundleSecretEncrypter: bundleSecretEncrypter,
 		bundleSecretDecrypter: bundleSecretDecrypter,
-		afterProfileImport:    options.AfterProfileImport,
 	}, nil
 }
 

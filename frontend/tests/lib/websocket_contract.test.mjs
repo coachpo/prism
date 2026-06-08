@@ -88,6 +88,38 @@ function loadClientModule(sentMessages) {
   };
 }
 
+function installFakeTimeouts() {
+  const nativeSetTimeout = globalThis.setTimeout;
+  const nativeClearTimeout = globalThis.clearTimeout;
+  let nextId = 1;
+  const timers = new Map();
+
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    const timerId = nextId;
+    nextId += 1;
+    timers.set(timerId, { callback: () => callback(...args), delay });
+    return timerId;
+  };
+
+  globalThis.clearTimeout = (timerId) => {
+    timers.delete(timerId);
+  };
+
+  return {
+    pendingDelays: () => Array.from(timers.values(), (timer) => timer.delay),
+    runNext: () => {
+      const [timerId, timer] = timers.entries().next().value ?? [];
+      assert.ok(timer, "expected a pending timeout");
+      timers.delete(timerId);
+      timer.callback();
+    },
+    restore: () => {
+      globalThis.setTimeout = nativeSetTimeout;
+      globalThis.clearTimeout = nativeClearTimeout;
+    },
+  };
+}
+
 test("websocket protocol builders include analytics preset scope only for analytics", () => {
   const protocol = loadProtocolModule();
 
@@ -333,4 +365,106 @@ test("websocket client profile switch and reconnect preserve scoped subscription
     { type: "subscribe", profile_id: 9, channel: "analytics", preset: "24h" },
   ]);
   client.disconnect();
+});
+
+
+test("websocket client closes idle socket after last subscription grace without reconnect", () => {
+  const timers = installFakeTimeouts();
+
+  try {
+    const sentMessages = [];
+    const { WebSocketClient, sockets } = loadClientModule(sentMessages);
+    const client = new WebSocketClient({ url: "ws://example.test/realtime", reconnectInterval: 1 });
+
+    client.connect();
+    sockets[0].open();
+    client.subscribeChannel(7, "dashboard");
+    sentMessages.length = 0;
+
+    client.unsubscribeChannel("dashboard");
+
+    assert.deepEqual(sentMessages, [{ type: "unsubscribe_channel", channel: "dashboard" }]);
+    assert.equal(sockets[0].readyState, WebSocket.OPEN);
+    assert.equal(client.getConnectionState(), "connected");
+    assert.deepEqual(timers.pendingDelays(), [15_000]);
+
+    timers.runNext();
+    assert.equal(sockets[0].readyState, WebSocket.CLOSED);
+    assert.equal(client.getConnectionState(), "disconnected");
+    assert.equal(sockets.length, 1);
+    assert.deepEqual(timers.pendingDelays(), []);
+  } finally {
+    timers.restore();
+  }
+});
+
+test("websocket client cancels pending idle close on new subscription", () => {
+  const timers = installFakeTimeouts();
+
+  try {
+    const sentMessages = [];
+    const { WebSocketClient, sockets } = loadClientModule(sentMessages);
+    const client = new WebSocketClient({ url: "ws://example.test/realtime" });
+
+    client.connect();
+    sockets[0].open();
+    client.subscribeChannel(7, "dashboard");
+    sentMessages.length = 0;
+
+    client.unsubscribeChannel("dashboard");
+    assert.deepEqual(timers.pendingDelays(), [15_000]);
+
+    client.connect();
+    assert.deepEqual(timers.pendingDelays(), [15_000]);
+
+    client.subscribeChannel(7, "dashboard");
+
+    assert.deepEqual(timers.pendingDelays(), []);
+    assert.equal(sockets[0].readyState, WebSocket.OPEN);
+    assert.deepEqual(sentMessages, [
+      { type: "unsubscribe_channel", channel: "dashboard" },
+      { type: "subscribe", profile_id: 7, channel: "dashboard" },
+    ]);
+    client.disconnect();
+  } finally {
+    timers.restore();
+  }
+});
+
+test("websocket client cancels pending idle close on refresh request or profile switch", () => {
+  const timers = installFakeTimeouts();
+
+  try {
+    const sentMessages = [];
+    const { WebSocketClient, sockets } = loadClientModule(sentMessages);
+    const refreshClient = new WebSocketClient({ url: "ws://example.test/realtime" });
+
+    refreshClient.connect();
+    sockets[0].open();
+    refreshClient.subscribeChannel(3, "analytics", { preset: "24h" });
+    refreshClient.unsubscribeChannel("analytics", { preset: "24h" });
+    assert.deepEqual(timers.pendingDelays(), [15_000]);
+
+    refreshClient.refreshChannel(3, "analytics", { preset: "24h" });
+
+    assert.deepEqual(timers.pendingDelays(), []);
+    assert.equal(sockets[0].readyState, WebSocket.OPEN);
+    refreshClient.disconnect();
+
+    const profileClient = new WebSocketClient({ url: "ws://example.test/realtime" });
+    profileClient.connect();
+    sockets.at(-1).open();
+    profileClient.subscribeChannel(4, "dashboard");
+    profileClient.unsubscribeChannel("dashboard");
+    assert.deepEqual(timers.pendingDelays(), [15_000]);
+
+    profileClient.setProfile(5);
+
+    assert.deepEqual(timers.pendingDelays(), []);
+    assert.equal(sockets.at(-1).readyState, WebSocket.OPEN);
+    profileClient.disconnect();
+    assert.ok(sentMessages.some((message) => message.type === "unsubscribe_channel"));
+  } finally {
+    timers.restore();
+  }
 });

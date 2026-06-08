@@ -15,6 +15,7 @@ import (
 
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
+	"github.com/coachpo/prism/backend/internal/platform/admission"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 )
@@ -74,6 +75,7 @@ type Service struct {
 	pendingAnalyticsUpdates    pendingAnalyticsUpdatePublisher
 	now                        func() time.Time
 	dashboardSnapshots         *statsdomain.DashboardAggregateStore
+	limiter                    *realtimeLimiter
 	upgrader                   websocket.Upgrader
 }
 
@@ -113,8 +115,10 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		latestAnalyticsSequenceIDs: map[string]int64{},
 		now:                        now,
 		dashboardSnapshots:         dashboardSnapshots,
+		limiter:                    newRealtimeLimiter(),
 	}
 	dashboardSnapshots.RegisterInvalidationListener(service.handleDashboardAggregateInvalidation)
+	options.AuthService.RegisterRealtimeAuthRevocationListener(service.handleRealtimeAuthRevocation)
 	service.upgrader = websocket.Upgrader{CheckOrigin: service.checkOrigin}
 	return service, nil
 }
@@ -153,6 +157,13 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	})
 }
 
+func (s *Service) handleRealtimeAuthRevocation(event managementauth.RealtimeAuthRevocation) {
+	if s == nil || s.manager == nil {
+		return
+	}
+	s.manager.CloseAuthenticatedSubject(event.SubjectID, websocket.ClosePolicyViolation)
+}
+
 func (s *Service) checkOrigin(request *http.Request) bool {
 	corsSnapshot := s.corsSnapshot()
 	origin := strings.TrimSpace(request.Header.Get("Origin"))
@@ -188,6 +199,9 @@ func (s *Service) checkOrigin(request *http.Request) bool {
 }
 
 func (s *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	releaseAdmission := admission.ReleaseFromContext(r.Context())
+	defer releaseAdmission()
+
 	socket, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -211,7 +225,19 @@ func (s *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	connection.authenticated = true
+	releaseLimiter, ok := s.limiter.Acquire(realtimeLimiterSubject(authState))
+	if !ok {
+		connection.closeWithCode(websocket.CloseTryAgainLater)
+		return
+	}
+	defer releaseLimiter()
+
+	if !s.manager.MarkAuthenticated(connectionID, authState.SubjectID, authState.TokenVersion) {
+		connection.closeWithCode(websocket.CloseInternalServerErr)
+		return
+	}
+	sessionContext := context.WithoutCancel(r.Context())
+	releaseAdmission()
 	if !connection.SendJSON(map[string]any{"type": "authenticated", "username": authState.Username}) {
 		return
 	}
@@ -219,7 +245,6 @@ func (s *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
 	for {
 		var message inboundMessage
 		if err := socket.ReadJSON(&message); err != nil {
@@ -231,7 +256,7 @@ func (s *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		if !s.handleInboundMessage(ctx, connectionID, connection, message) {
+		if !s.handleInboundMessage(sessionContext, connectionID, connection, message) {
 			return
 		}
 	}
@@ -434,6 +459,13 @@ func optionalPositiveProfileID(profileID int) *int {
 		return nil
 	}
 	return &profileID
+}
+
+func realtimeLimiterSubject(authState managementauth.RealtimeAuthState) string {
+	if !authState.AuthEnabled || !authState.Authenticated || authState.SubjectID <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("subject:%d", authState.SubjectID)
 }
 
 func stringPtr(value string) *string {

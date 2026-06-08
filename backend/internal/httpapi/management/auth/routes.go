@@ -258,7 +258,7 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid session duration")
 		return
 	}
-	bundle, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (sessionBundle, error) {
+	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (loginAuthenticationResult, error) {
 		return s.authenticateUser(
 			r.Context(),
 			tx,
@@ -274,16 +274,26 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	if result.DomainErr != nil {
+		writeDomainError(w, r, s.corsSnapshot(), result.DomainErr)
+		return
+	}
+	bundle := result.Bundle
 	s.setAuthCookies(w, authConfig, bundle.AccessToken, bundle.RefreshToken, bundle.RefreshExpiresAt, bundle.SessionDuration)
 	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: bundle.SettingsRow.AuthEnabled, Username: nullableString(bundle.SettingsRow.Username)})
 }
 
 func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 	authConfig := s.runtimeAuthConfigSnapshot()
+	var revokedSubjectID *int
 	if err := pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
 		cookie, cookieErr := r.Cookie(authConfig.RefreshCookieName)
 		if cookieErr == nil && strings.TrimSpace(cookie.Value) != "" {
-			return s.revokeRefreshToken(r.Context(), tx, cookie.Value)
+			subjectID, revokeErr := s.revokeRefreshToken(r.Context(), tx, cookie.Value)
+			if revokeErr != nil {
+				return revokeErr
+			}
+			revokedSubjectID = subjectID
 		}
 		return nil
 	}); err != nil {
@@ -294,6 +304,15 @@ func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 		return
+	}
+	if revokedSubjectID == nil {
+		if subject, ok := s.authSubjectFromAccessCookie(r, authConfig, settingsRow); ok {
+			subjectID := subject.ID
+			revokedSubjectID = &subjectID
+		}
+	}
+	if revokedSubjectID != nil {
+		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: *revokedSubjectID})
 	}
 	s.clearAuthCookies(w, authConfig)
 	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: settingsRow.AuthEnabled, Username: nil})
@@ -424,13 +443,17 @@ func (s *Service) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Requ
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if err := pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
+	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (appAuthSettingsRow, error) {
 		return s.consumePasswordResetChallenge(r.Context(), tx, strings.TrimSpace(requestBody.OTPCode), requestBody.NewPassword)
-	}); err != nil {
+	})
+	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	s.invalidateAppAuthSettingsSnapshot()
+	if updatedRow.AuthEnabled {
+		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: updatedRow.ID})
+	}
 	s.clearAuthCookies(w, authConfig)
 	writeJSON(w, http.StatusOK, successResponse{Success: true})
 }
@@ -464,6 +487,7 @@ func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) 
 	}
 	s.invalidateAppAuthSettingsSnapshot()
 	if result.SessionInvalidated {
+		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: result.Row.ID})
 		s.clearAuthCookies(w, authConfig)
 	}
 	writeJSON(w, http.StatusOK, s.buildAuthSettingsResponse(result.Row))
@@ -672,6 +696,7 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 		writeError(w, r, corsSnapshot, authErr.StatusCode, authErr.Detail)
 		return
 	}
+	slog.Error("auth handler internal error", "error", err)
 	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 

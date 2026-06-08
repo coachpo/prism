@@ -19,7 +19,6 @@ import (
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
 	"github.com/coachpo/prism/backend/internal/providercompat"
 	"github.com/coachpo/prism/backend/internal/vendordomain"
-	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -235,16 +234,6 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 	if err := insertImportedUserAgentClientRules(ctx, exec, profileID, data.UserAgentClientRules, currentTime); err != nil {
 		return profileImportResponse{}, err
 	}
-	if s.afterProfileImport != nil {
-		tx, ok := exec.(pgx.Tx)
-		if !ok {
-			return profileImportResponse{}, fmt.Errorf("config bundle import requires pgx transaction")
-		}
-		if err := s.afterProfileImport(ctx, tx); err != nil {
-			return profileImportResponse{}, err
-		}
-	}
-
 	return profileImportResponse{
 		EndpointsImported:        endpointsImported,
 		PricingTemplatesImported: pricingImported,
@@ -1932,14 +1921,6 @@ func nullableOptionalFloat64(value *float64) any {
 func stringPtr(value string) *string {
 	result := value
 	return &result
-}
-
-func nullableJSONString(value []byte) any {
-	if len(value) == 0 {
-		return nil
-	}
-
-	return string(value)
 }
 
 func nullableInt(values map[string]int, key *string) any {

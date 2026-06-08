@@ -115,6 +115,16 @@ export interface ConfigAccessTargetExport {
   target_priority?: number | null;
 }
 
+export interface ConfigAccessTargetImport {
+  position: number;
+  is_enabled: boolean;
+  target_type: "model" | "connection";
+  connection_ref?: string | null;
+  target_model_id?: string | null;
+  weight?: number | null;
+  target_priority?: number | null;
+}
+
 export interface ConfigModelExport {
   vendor_key: string | null;
   api_family: ApiFamily;
@@ -128,6 +138,7 @@ export interface ConfigModelExport {
   facade_enabled: boolean;
   facade_selection_policy: ConfigModelFacadeSelectionPolicy | null;
   facade_fallback_policy: ConfigModelFacadeFallbackPolicy | null;
+  context_overflow_promotion_target_id: string | null;
   is_enabled: boolean;
   access_targets: ConfigAccessTargetExport[];
 }
@@ -145,8 +156,9 @@ export interface ConfigModelImport {
   facade_enabled?: boolean;
   facade_selection_policy?: ConfigModelFacadeSelectionPolicy | null;
   facade_fallback_policy?: ConfigModelFacadeFallbackPolicy | null;
+  context_overflow_promotion_target_id?: string | null;
   is_enabled?: boolean;
-  access_targets: ConfigAccessTargetExport[];
+  access_targets: ConfigAccessTargetImport[];
 }
 
 export interface ConfigEndpointFxRateExport {

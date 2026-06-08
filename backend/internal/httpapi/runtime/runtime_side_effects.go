@@ -138,6 +138,54 @@ func (m *RuntimeSideEffectManager) SubmitRuntimeActivityContext(ctx context.Cont
 	return m.observeSubmit(RuntimeSideEffectSubmitResult{Status: RuntimeSideEffectAccepted, Reason: "accepted"})
 }
 
+func (m *RuntimeSideEffectManager) CommitRuntimeActivityBeforeResponse(ctx context.Context, intent RuntimeActivityIntent) error {
+	if m == nil || m.outbox == nil {
+		return fmt.Errorf("runtime telemetry outbox unavailable")
+	}
+	if intent.TraceContext.empty() {
+		intent.TraceContext = runtimeTraceContextFromContext(ctx)
+	}
+	if intent.Envelope.TraceContext.empty() {
+		intent.Envelope.TraceContext = intent.TraceContext
+	}
+	if err := intent.validate(); err != nil {
+		return err
+	}
+	return m.outbox.Enqueue(ctx, intent.Envelope)
+}
+
+func (m *RuntimeSideEffectManager) CommitStreamingRuntimeActivityAcceptedBeforeResponse(ctx context.Context, intent RuntimeActivityIntent) (int64, error) {
+	if m == nil || m.outbox == nil {
+		return 0, fmt.Errorf("runtime telemetry outbox unavailable")
+	}
+	if intent.TraceContext.empty() {
+		intent.TraceContext = runtimeTraceContextFromContext(ctx)
+	}
+	if intent.Envelope.TraceContext.empty() {
+		intent.Envelope.TraceContext = intent.TraceContext
+	}
+	if err := intent.validate(); err != nil {
+		return 0, err
+	}
+	return m.outbox.EnqueueStreamingAccepted(ctx, intent.Envelope)
+}
+
+func (m *RuntimeSideEffectManager) FinalizeStreamingRuntimeActivityBeforeCompletion(ctx context.Context, acceptedRowID int64, intent RuntimeActivityIntent) error {
+	if m == nil || m.outbox == nil {
+		return fmt.Errorf("runtime telemetry outbox unavailable")
+	}
+	if intent.TraceContext.empty() {
+		intent.TraceContext = runtimeTraceContextFromContext(ctx)
+	}
+	if intent.Envelope.TraceContext.empty() {
+		intent.Envelope.TraceContext = intent.TraceContext
+	}
+	if err := intent.validate(); err != nil {
+		return err
+	}
+	return m.outbox.FinalizeStreamingAccepted(ctx, acceptedRowID, intent.Envelope)
+}
+
 func (m *RuntimeSideEffectManager) Close() RuntimeSideEffectCloseResult {
 	if m == nil {
 		return RuntimeSideEffectCloseResult{Drained: true}

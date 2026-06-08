@@ -2,10 +2,13 @@ package platformhttp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -448,45 +451,131 @@ func routeKey(method string, route string) string {
 	return strings.ToUpper(method) + " " + normalizeManagementRoutePath(route)
 }
 
-func TestClassifyRuntimeCacheInvalidation(t *testing.T) {
+type managementRouteContractRow struct {
+	RoutePattern             string   `json:"route_pattern"`
+	Methods                  []string `json:"methods"`
+	ProfileScoped            bool     `json:"profile_scoped"`
+	InvalidatesAuth          bool     `json:"invalidates_auth"`
+	InvalidatesActiveProfile bool     `json:"invalidates_active_profile"`
+	InvalidatesPlanning      bool     `json:"invalidates_planning"`
+	InvalidatesAllPlanning   bool     `json:"invalidates_all_planning"`
+}
+
+var routeContractPlaceholderPattern = regexp.MustCompile(`\{[^/]+\}`)
+
+func loadManagementRouteContract(t *testing.T) []managementRouteContractRow {
+	t.Helper()
+
+	payload, err := os.ReadFile("management_route_contract.json")
+	if err != nil {
+		t.Fatalf("read management route contract manifest: %v", err)
+	}
+	var rows []managementRouteContractRow
+	if err := json.Unmarshal(payload, &rows); err != nil {
+		t.Fatalf("parse management route contract manifest: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("management route contract manifest is empty")
+	}
+	return rows
+}
+
+func sampleManagementRoutePath(routePattern string) string {
+	return routeContractPlaceholderPattern.ReplaceAllString(routePattern, "7")
+}
+
+func expectedRuntimeCacheInvalidationAction(row managementRouteContractRow, method string) runtimeCacheInvalidationAction {
+	if !isManagementMutationMethod(method) {
+		return runtimeCacheInvalidationAction{}
+	}
+	action := runtimeCacheInvalidationAction{
+		auth:          row.InvalidatesAuth,
+		activeProfile: row.InvalidatesActiveProfile,
+		planningAll:   row.InvalidatesAllPlanning,
+	}
+	if row.InvalidatesPlanning {
+		action.planningIDs = []int{42}
+	}
+	return action
+}
+
+func assertRuntimeCacheInvalidationActionEqual(t *testing.T, method string, path string, got runtimeCacheInvalidationAction, want runtimeCacheInvalidationAction) {
+	t.Helper()
+	if got.auth != want.auth || got.activeProfile != want.activeProfile || got.planningAll != want.planningAll || !reflect.DeepEqual(got.planningIDs, want.planningIDs) {
+		t.Fatalf("classifyRuntimeCacheInvalidation(%q, %q) = %+v, want %+v", method, path, got, want)
+	}
+}
+
+func TestManagementRouteContractClassifiesRuntimeCacheInvalidation(t *testing.T) {
 	t.Parallel()
 
-	testCases := []struct {
-		name      string
-		method    string
-		path      string
-		profileID string
-		want      runtimeCacheInvalidationAction
-	}{
-		{name: "auth settings write invalidates runtime auth", method: http.MethodPut, path: "/api/settings/auth", want: runtimeCacheInvalidationAction{auth: true}},
-		{name: "proxy key patch invalidates runtime auth", method: http.MethodPatch, path: "/api/settings/auth/proxy-keys/7", want: runtimeCacheInvalidationAction{auth: true}},
-		{name: "profile activation invalidates active profile", method: http.MethodPost, path: "/api/profiles/7/activate", want: runtimeCacheInvalidationAction{activeProfile: true}},
-		{name: "costing write invalidates one planning snapshot", method: http.MethodPut, path: "/api/settings/costing", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
-		{name: "owner-scoped connection create invalidates planning", method: http.MethodPost, path: "/api/models/7/connections", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
-		{name: "owner-scoped connection update invalidates planning", method: http.MethodPatch, path: "/api/models/7/connections/9", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
-		{name: "owner-scoped connection delete invalidates planning", method: http.MethodDelete, path: "/api/models/7/connections/9", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
-		{name: "model target create invalidates planning", method: http.MethodPost, path: "/api/models/7/targets", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
-		{name: "model target update invalidates planning", method: http.MethodPut, path: "/api/models/7/targets/9", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
-		{name: "model target metadata patch invalidates planning", method: http.MethodPatch, path: "/api/models/7/targets/9", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
-		{name: "model target move invalidates planning", method: http.MethodPatch, path: "/api/models/7/targets/9/position", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
-		{name: "model target delete invalidates planning", method: http.MethodDelete, path: "/api/models/7/targets/9", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
-		{name: "vendor write invalidates all planning snapshots", method: http.MethodPatch, path: "/api/vendors/9", want: runtimeCacheInvalidationAction{planningAll: true}},
-		{name: "preview route stays read only", method: http.MethodPost, path: "/api/config/profile/import/preview", profileID: "42", want: runtimeCacheInvalidationAction{}},
+	routeContract := loadManagementRouteContract(t)
+	seenAuthInvalidation := false
+	seenActiveProfileInvalidation := false
+	seenPlanningInvalidation := false
+	seenAllPlanningInvalidation := false
+	seenProfileScopedNonInvalidatingRead := false
+	seenProfileScopedNonInvalidatingMutation := false
+
+	for _, row := range routeContract {
+		path := sampleManagementRoutePath(row.RoutePattern)
+		if row.InvalidatesAuth {
+			seenAuthInvalidation = true
+		}
+		if row.InvalidatesActiveProfile {
+			seenActiveProfileInvalidation = true
+		}
+		if row.InvalidatesPlanning {
+			seenPlanningInvalidation = true
+		}
+		if row.InvalidatesAllPlanning {
+			seenAllPlanningInvalidation = true
+		}
+		if row.ProfileScoped && !row.InvalidatesAuth && !row.InvalidatesActiveProfile && !row.InvalidatesPlanning && !row.InvalidatesAllPlanning {
+			for _, method := range row.Methods {
+				normalizedMethod := strings.ToUpper(method)
+				if normalizedMethod == http.MethodGet {
+					seenProfileScopedNonInvalidatingRead = true
+				}
+				if isManagementMutationMethod(normalizedMethod) {
+					seenProfileScopedNonInvalidatingMutation = true
+				}
+			}
+		}
+
+		for _, method := range row.Methods {
+			method := strings.ToUpper(method)
+			t.Run(method+" "+row.RoutePattern, func(t *testing.T) {
+				t.Parallel()
+
+				header := http.Header{}
+				if row.ProfileScoped {
+					header.Set(profiledomain.ProfileIDHeader, "42")
+				}
+				got := classifyRuntimeCacheInvalidation(method, path, header)
+				want := expectedRuntimeCacheInvalidationAction(row, method)
+				assertRuntimeCacheInvalidationActionEqual(t, method, path, got, want)
+			})
+		}
 	}
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			header := http.Header{}
-			if testCase.profileID != "" {
-				header.Set(profiledomain.ProfileIDHeader, testCase.profileID)
-			}
-			got := classifyRuntimeCacheInvalidation(testCase.method, testCase.path, header)
-			if got.auth != testCase.want.auth || got.activeProfile != testCase.want.activeProfile || got.planningAll != testCase.want.planningAll || !reflect.DeepEqual(got.planningIDs, testCase.want.planningIDs) {
-				t.Fatalf("classifyRuntimeCacheInvalidation(%q, %q) = %+v, want %+v", testCase.method, testCase.path, got, testCase.want)
-			}
-		})
+	if !seenAuthInvalidation {
+		t.Fatal("manifest should include runtime auth invalidation rows")
+	}
+	if !seenActiveProfileInvalidation {
+		t.Fatal("manifest should include active-profile invalidation rows")
+	}
+	if !seenPlanningInvalidation {
+		t.Fatal("manifest should include selected-profile planning invalidation rows")
+	}
+	if !seenAllPlanningInvalidation {
+		t.Fatal("manifest should include all-planning invalidation rows")
+	}
+	if !seenProfileScopedNonInvalidatingRead {
+		t.Fatal("manifest should include profile-scoped non-invalidating read rows")
+	}
+	if !seenProfileScopedNonInvalidatingMutation {
+		t.Fatal("manifest should include profile-scoped non-invalidating mutation rows")
 	}
 }
 
