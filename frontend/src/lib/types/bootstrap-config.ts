@@ -64,7 +64,6 @@ export interface BootstrapConfigRuntimeSideEffectsValues {
 }
 
 export interface BootstrapConfigRuntimeRoutingValues {
-  planner_mode: string | null;
   openai_terminal_translation_mode: string | null;
 }
 

@@ -52,7 +52,6 @@ function buildBootstrapValues() {
       },
       side_effects: { attempt_timeout: "10s" },
       routing: {
-        planner_mode: "shadow",
         openai_terminal_translation_mode: "safe_only",
       },
     },
@@ -70,11 +69,10 @@ function buildBootstrapValues() {
   };
 }
 
-test("bootstrap value normalization preserves backend-owned runtime routing rollout fields", () => {
+test("bootstrap value normalization preserves OpenAI terminal translation routing field", () => {
   const normalized = normalizeBootstrapValues(buildBootstrapValues());
 
   assert.deepEqual(normalized.runtime.routing, {
-    planner_mode: "shadow",
     openai_terminal_translation_mode: "safe_only",
   });
 });

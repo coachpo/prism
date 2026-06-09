@@ -345,7 +345,6 @@ function normalizeRuntimeRoutingValues(routing: BootstrapConfigRuntimeRoutingVal
     return undefined;
   }
   return {
-    planner_mode: routing.planner_mode ?? null,
     openai_terminal_translation_mode: routing.openai_terminal_translation_mode ?? null,
   };
 }
