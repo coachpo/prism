@@ -179,7 +179,7 @@ func TestCountTokenHooksDoNotUseGenerationParsers(t *testing.T) {
 			if hooks.Provider != test.provider {
 				t.Fatalf("expected provider %q, got %q", test.provider, hooks.Provider)
 			}
-			responseHooks, ok := ResponseHooksForOperation(operation)
+			responseHooks, ok := responseHooksForOperation(operation)
 			if !ok {
 				t.Fatalf("expected dedicated response hooks for %s", operation.Name)
 			}

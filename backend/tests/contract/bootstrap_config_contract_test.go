@@ -35,8 +35,8 @@ func TestBootstrapConfigSchema(t *testing.T) {
 		if snapshot.Values.Runtime == nil || snapshot.Values.Runtime.SideEffects == nil || snapshot.Values.Runtime.SideEffects.AttemptTimeout == nil || *snapshot.Values.Runtime.SideEffects.AttemptTimeout != "10s" {
 			t.Fatalf("expected safe runtime side_effects attempt_timeout to be exposed, got %+v", snapshot.Values.Runtime)
 		}
-		if snapshot.Values.Runtime.Routing == nil || snapshot.Values.Runtime.Routing.PlannerMode == nil || *snapshot.Values.Runtime.Routing.PlannerMode != string(config.RuntimeRoutingPlannerModeLegacy) {
-			t.Fatalf("expected safe runtime routing planner_mode=legacy to be exposed, got %+v", snapshot.Values.Runtime)
+		if snapshot.Values.Runtime.Routing == nil {
+			t.Fatalf("expected safe runtime routing values to be exposed, got %+v", snapshot.Values.Runtime)
 		}
 		if snapshot.Values.Runtime.Routing.OpenAITerminalTranslationMode == nil || *snapshot.Values.Runtime.Routing.OpenAITerminalTranslationMode != string(config.OpenAITerminalTranslationModeOff) {
 			t.Fatalf("expected safe runtime routing openai_terminal_translation_mode=off to be exposed, got %+v", snapshot.Values.Runtime)
@@ -61,7 +61,7 @@ func TestBootstrapConfigSchema(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected missing request timeout to fail")
 		}
-		if !strings.Contains(err.Error(), "runtime.transport.requestTimeout is required") {
+		if !strings.Contains(err.Error(), "transport.requestTimeout is required") {
 			t.Fatalf("expected missing request timeout error, got %v", err)
 		}
 	})
@@ -73,7 +73,7 @@ func TestBootstrapConfigSchema(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected missing runtime side effects to fail")
 		}
-		if !strings.Contains(err.Error(), "runtime.sideEffects is required") {
+		if !strings.Contains(err.Error(), "sideEffects is required") {
 			t.Fatalf("expected missing runtime side effects error, got %v", err)
 		}
 	})
@@ -85,7 +85,7 @@ func TestBootstrapConfigSchema(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected missing runtime side effects attempt timeout to fail")
 		}
-		if !strings.Contains(err.Error(), "runtime.sideEffects.attemptTimeout is required") {
+		if !strings.Contains(err.Error(), "sideEffects.attemptTimeout is required") {
 			t.Fatalf("expected missing runtime side effects attempt timeout error, got %v", err)
 		}
 	})
@@ -185,10 +185,10 @@ func assertExistingBootstrapConfigWithRuntimeBufferingFieldFails(t *testing.T, k
 	_, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
 
 	if err == nil {
-		t.Fatalf("expected stale runtime.%s to fail", key)
+		t.Fatalf("expected stale %s to fail", key)
 	}
 	if !strings.Contains(err.Error(), fmt.Sprintf(`unknown field %q`, key)) {
-		t.Fatalf("expected unknown-field error for runtime.%s, got %v", key, err)
+		t.Fatalf("expected unknown-field error for %s, got %v", key, err)
 	}
 }
 
@@ -215,77 +215,70 @@ func TestBootstrapConfigValidation(t *testing.T) {
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["transport"].(map[string]any)["idleConnTimeout"] = "not-a-duration"
 			},
-			wantErr: "runtime.transport.idleConnTimeout must parse as a Go duration",
+			wantErr: "transport.idleConnTimeout must parse as a Go duration",
 		},
 		{
 			name: "invalid request timeout string",
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "not-a-duration"
 			},
-			wantErr: "runtime.transport.requestTimeout must parse as a Go duration",
+			wantErr: "transport.requestTimeout must parse as a Go duration",
 		},
 		{
 			name: "empty request timeout string",
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "   "
 			},
-			wantErr: "runtime.transport.requestTimeout must be at least 1 characters",
+			wantErr: "transport.requestTimeout must be at least 1 characters",
 		},
 		{
 			name: "zero request timeout",
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "0s"
 			},
-			wantErr: "runtime.transport.requestTimeout must be greater than zero",
+			wantErr: "transport.requestTimeout must be greater than zero",
 		},
 		{
 			name: "negative request timeout",
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "-1s"
 			},
-			wantErr: "runtime.transport.requestTimeout must be greater than zero",
+			wantErr: "transport.requestTimeout must be greater than zero",
 		},
 		{
 			name: "invalid side effects attempt timeout string",
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "not-a-duration"
 			},
-			wantErr: "runtime.sideEffects.attemptTimeout must parse as a Go duration",
+			wantErr: "sideEffects.attemptTimeout must parse as a Go duration",
 		},
 		{
 			name: "empty side effects attempt timeout string",
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "   "
 			},
-			wantErr: "runtime.sideEffects.attemptTimeout must be at least 1 characters",
+			wantErr: "sideEffects.attemptTimeout must be at least 1 characters",
 		},
 		{
 			name: "zero side effects attempt timeout",
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "0s"
 			},
-			wantErr: "runtime.sideEffects.attemptTimeout must be greater than zero",
+			wantErr: "sideEffects.attemptTimeout must be greater than zero",
 		},
 		{
 			name: "negative side effects attempt timeout",
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "-1s"
 			},
-			wantErr: "runtime.sideEffects.attemptTimeout must be greater than zero",
-		},
-		{
-			name: "invalid runtime routing planner mode",
-			mutate: func(payload map[string]any) {
-				payload["runtime"].(map[string]any)["routing"] = map[string]any{"plannerMode": "gradual"}
-			},
-			wantErr: "runtime.routing.plannerMode must be one of legacy, shadow, enforced",
+			wantErr: "sideEffects.attemptTimeout must be greater than zero",
 		},
 		{
 			name: "invalid runtime routing OpenAI terminal translation mode",
 			mutate: func(payload map[string]any) {
 				payload["runtime"].(map[string]any)["routing"] = map[string]any{"openaiTerminalTranslationMode": "all"}
 			},
-			wantErr: "runtime.routing.openaiTerminalTranslationMode must be one of off, safe_only",
+			wantErr: "routing.openaiTerminalTranslationMode must be one of off, safe_only",
 		},
 		{
 			name: "runtime execution pool min idle exceeds max",

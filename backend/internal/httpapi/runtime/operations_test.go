@@ -48,6 +48,8 @@ func TestResolveRuntimeOperation(t *testing.T) {
 		{name: "lowercase method", method: "post", path: "/v1/responses"},
 		{name: "unknown openai path", method: http.MethodPost, path: "/v1/completions"},
 		{name: "generic openai v1 path", method: http.MethodPost, path: "/v1/models"},
+		{name: "responses input tokens trailing slash", method: http.MethodPost, path: "/v1/responses/input_tokens/"},
+		{name: "responses compact nested path", method: http.MethodPost, path: "/v1/responses/compact/extra"},
 		{name: "chat completions trailing slash", method: http.MethodPost, path: "/v1/chat/completions/"},
 		{name: "anthropic trailing slash", method: http.MethodPost, path: "/v1/messages/"},
 		{name: "gemini missing action", method: http.MethodPost, path: "/v1beta/models/gemini-2.5-pro"},
@@ -74,6 +76,13 @@ func TestResolveRuntimeOperationIncludesCountTokens(t *testing.T) {
 		modelBinding     RuntimeOperationModelBindingSource
 		pathParams       map[string]string
 	}{
+		{
+			name:             "openai.responses.input_tokens",
+			path:             "/v1/responses/input_tokens",
+			apiFamily:        "openai",
+			hookCollectionID: runtimeHookCollectionOpenAIResponsesInputTokens,
+			modelBinding:     RuntimeOperationModelBindingBody,
+		},
 		{
 			name:             "anthropic.count_tokens",
 			path:             "/v1/messages/count_tokens",
@@ -192,6 +201,24 @@ func runtimeOperationExpectations() []runtimeOperationExpectation {
 			pathTemplate:       "/v1/responses",
 			samplePath:         "/v1/responses",
 			modelBindingSource: RuntimeOperationModelBindingBody,
+		},
+		{
+			name:               "openai.responses.input_tokens",
+			method:             http.MethodPost,
+			apiFamily:          "openai",
+			pathTemplate:       "/v1/responses/input_tokens",
+			samplePath:         "/v1/responses/input_tokens",
+			modelBindingSource: RuntimeOperationModelBindingBody,
+			hookCollectionID:   runtimeHookCollectionOpenAIResponsesInputTokens,
+		},
+		{
+			name:               "openai.responses.compact",
+			method:             http.MethodPost,
+			apiFamily:          "openai",
+			pathTemplate:       "/v1/responses/compact",
+			samplePath:         "/v1/responses/compact",
+			modelBindingSource: RuntimeOperationModelBindingBody,
+			hookCollectionID:   runtimeHookCollectionOpenAIResponsesCompact,
 		},
 		{
 			name:               "openai.images.generations",

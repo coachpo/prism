@@ -38,7 +38,7 @@ type BootstrapConfigManager struct {
 
 const (
 	BootstrapConfigSecretDatabaseURL                        = "database.url"
-	BootstrapConfigSecretRuntimeSecretEncryptionKey         = "runtime.secretEncryptionKey"
+	BootstrapConfigSecretRuntimeSecretEncryptionKey         = "secretEncryptionKey"
 	BootstrapConfigSecretAuthJWTSigningKey                  = "auth.jwtSigningKey"
 	BootstrapConfigSecretStateTransferBundleKey             = "stateTransfer.bundleEncryptionKey"
 	BootstrapConfigSecretMailSMTPPassword                   = "mail.smtp.password"
@@ -168,7 +168,6 @@ type BootstrapConfigRuntimeSideEffectsValues struct {
 }
 
 type BootstrapConfigRuntimeRoutingValues struct {
-	PlannerMode                   *string `json:"planner_mode"`
 	OpenAITerminalTranslationMode *string `json:"openai_terminal_translation_mode"`
 }
 
@@ -369,7 +368,6 @@ type bootstrapRuntimeSideEffects struct {
 }
 
 type bootstrapRuntimeRouting struct {
-	PlannerMode                   *string `json:"plannerMode,omitempty"`
 	OpenAITerminalTranslationMode *string `json:"openaiTerminalTranslationMode,omitempty"`
 }
 
@@ -1161,30 +1159,19 @@ func bootstrapRuntimeRoutingFromSafeValues(values *BootstrapConfigRuntimeRouting
 		values = defaultSafeBootstrapRuntimeRoutingValues()
 	}
 	return &bootstrapRuntimeRouting{
-		PlannerMode:                   cloneStringPointer(values.PlannerMode),
 		OpenAITerminalTranslationMode: cloneStringPointer(values.OpenAITerminalTranslationMode),
 	}
 }
 
 func defaultSafeBootstrapRuntimeRoutingValues() *BootstrapConfigRuntimeRoutingValues {
-	plannerMode := string(RuntimeRoutingPlannerModeLegacy)
 	translationMode := string(OpenAITerminalTranslationModeOff)
 	return &BootstrapConfigRuntimeRoutingValues{
-		PlannerMode:                   &plannerMode,
 		OpenAITerminalTranslationMode: &translationMode,
 	}
 }
 
-func dereferenceRuntimeRoutingPlannerMode(value *string) RuntimeRoutingPlannerMode {
-	parsed, err := parseRuntimeRoutingPlannerModeField("runtime.routing.plannerMode", value)
-	if err != nil {
-		return RuntimeRoutingPlannerModeLegacy
-	}
-	return parsed
-}
-
 func dereferenceOpenAITerminalTranslationMode(value *string) OpenAITerminalTranslationMode {
-	parsed, err := parseOpenAITerminalTranslationModeField("runtime.routing.openaiTerminalTranslationMode", value)
+	parsed, err := parseOpenAITerminalTranslationModeField("routing.openaiTerminalTranslationMode", value)
 	if err != nil {
 		return OpenAITerminalTranslationModeOff
 	}
@@ -1582,7 +1569,6 @@ func safeBootstrapRuntimeRoutingValues(routing *bootstrapRuntimeRouting) *Bootst
 		return defaultSafeBootstrapRuntimeRoutingValues()
 	}
 	return &BootstrapConfigRuntimeRoutingValues{
-		PlannerMode:                   stringPointer(string(dereferenceRuntimeRoutingPlannerMode(routing.PlannerMode))),
 		OpenAITerminalTranslationMode: stringPointer(string(dereferenceOpenAITerminalTranslationMode(routing.OpenAITerminalTranslationMode))),
 	}
 }
@@ -2020,14 +2006,14 @@ func (a bootstrapManagementAdmission) validate() error {
 }
 
 func (r bootstrapRuntime) validate() error {
-	if _, err := requiredTrimmedString("runtime.secretEncryptionKey", r.SecretEncryptionKey, 1, 0); err != nil {
+	if _, err := requiredTrimmedString("secretEncryptionKey", r.SecretEncryptionKey, 1, 0); err != nil {
 		return err
 	}
 	if r.Transport == nil {
-		return missingBootstrapFieldError("runtime.transport")
+		return missingBootstrapFieldError("transport")
 	}
 	if r.SideEffects == nil {
-		return missingBootstrapFieldError("runtime.sideEffects")
+		return missingBootstrapFieldError("sideEffects")
 	}
 	if err := r.Transport.validate(); err != nil {
 		return err
@@ -2042,43 +2028,40 @@ func (r bootstrapRuntime) validate() error {
 }
 
 func (t bootstrapRuntimeTransport) validate() error {
-	if _, err := requiredIntMin("runtime.transport.maxIdleConns", t.MaxIdleConns, 1); err != nil {
+	if _, err := requiredIntMin("transport.maxIdleConns", t.MaxIdleConns, 1); err != nil {
 		return err
 	}
-	if _, err := requiredIntMin("runtime.transport.maxIdleConnsPerHost", t.MaxIdleConnsPerHost, 1); err != nil {
+	if _, err := requiredIntMin("transport.maxIdleConnsPerHost", t.MaxIdleConnsPerHost, 1); err != nil {
 		return err
 	}
-	if _, err := requiredIntMin("runtime.transport.maxConnsPerHost", t.MaxConnsPerHost, 0); err != nil {
+	if _, err := requiredIntMin("transport.maxConnsPerHost", t.MaxConnsPerHost, 0); err != nil {
 		return err
 	}
-	if _, err := requiredTrimmedString("runtime.transport.requestTimeout", t.RequestTimeout, 1, 0); err != nil {
+	if _, err := requiredTrimmedString("transport.requestTimeout", t.RequestTimeout, 1, 0); err != nil {
 		return err
 	}
-	if _, err := requiredTrimmedString("runtime.transport.idleConnTimeout", t.IdleConnTimeout, 1, 0); err != nil {
+	if _, err := requiredTrimmedString("transport.idleConnTimeout", t.IdleConnTimeout, 1, 0); err != nil {
 		return err
 	}
-	if _, err := requiredTrimmedString("runtime.transport.responseHeaderTimeout", t.ResponseHeaderTimeout, 1, 0); err != nil {
+	if _, err := requiredTrimmedString("transport.responseHeaderTimeout", t.ResponseHeaderTimeout, 1, 0); err != nil {
 		return err
 	}
-	if _, err := requiredTrimmedString("runtime.transport.tlsHandshakeTimeout", t.TLSHandshakeTimeout, 1, 0); err != nil {
+	if _, err := requiredTrimmedString("transport.tlsHandshakeTimeout", t.TLSHandshakeTimeout, 1, 0); err != nil {
 		return err
 	}
-	if _, err := requiredTrimmedString("runtime.transport.expectContinueTimeout", t.ExpectContinueTimeout, 1, 0); err != nil {
+	if _, err := requiredTrimmedString("transport.expectContinueTimeout", t.ExpectContinueTimeout, 1, 0); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s bootstrapRuntimeSideEffects) validate() error {
-	_, err := requiredTrimmedString("runtime.sideEffects.attemptTimeout", s.AttemptTimeout, 1, 0)
+	_, err := requiredTrimmedString("sideEffects.attemptTimeout", s.AttemptTimeout, 1, 0)
 	return err
 }
 
 func (r bootstrapRuntimeRouting) validate() error {
-	if _, err := parseRuntimeRoutingPlannerModeField("runtime.routing.plannerMode", r.PlannerMode); err != nil {
-		return err
-	}
-	if _, err := parseOpenAITerminalTranslationModeField("runtime.routing.openaiTerminalTranslationMode", r.OpenAITerminalTranslationMode); err != nil {
+	if _, err := parseOpenAITerminalTranslationModeField("routing.openaiTerminalTranslationMode", r.OpenAITerminalTranslationMode); err != nil {
 		return err
 	}
 	return nil
@@ -2234,12 +2217,12 @@ func (d bootstrapConfigDocument) validateSemantics() error {
 		path  string
 		value *string
 	}{
-		{path: "runtime.transport.requestTimeout", value: d.Runtime.Transport.RequestTimeout},
-		{path: "runtime.transport.idleConnTimeout", value: d.Runtime.Transport.IdleConnTimeout},
-		{path: "runtime.transport.responseHeaderTimeout", value: d.Runtime.Transport.ResponseHeaderTimeout},
-		{path: "runtime.transport.tlsHandshakeTimeout", value: d.Runtime.Transport.TLSHandshakeTimeout},
-		{path: "runtime.transport.expectContinueTimeout", value: d.Runtime.Transport.ExpectContinueTimeout},
-		{path: "runtime.sideEffects.attemptTimeout", value: d.Runtime.SideEffects.AttemptTimeout},
+		{path: "transport.requestTimeout", value: d.Runtime.Transport.RequestTimeout},
+		{path: "transport.idleConnTimeout", value: d.Runtime.Transport.IdleConnTimeout},
+		{path: "transport.responseHeaderTimeout", value: d.Runtime.Transport.ResponseHeaderTimeout},
+		{path: "transport.tlsHandshakeTimeout", value: d.Runtime.Transport.TLSHandshakeTimeout},
+		{path: "transport.expectContinueTimeout", value: d.Runtime.Transport.ExpectContinueTimeout},
+		{path: "sideEffects.attemptTimeout", value: d.Runtime.SideEffects.AttemptTimeout},
 	} {
 		if _, err := parseDurationField(field.path, field.value); err != nil {
 			return err
@@ -2272,7 +2255,7 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	runtimeSecretEncryptionKey, err := requiredTrimmedString("runtime.secretEncryptionKey", d.Runtime.SecretEncryptionKey, 1, 0)
+	runtimeSecretEncryptionKey, err := requiredTrimmedString("secretEncryptionKey", d.Runtime.SecretEncryptionKey, 1, 0)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -2284,14 +2267,9 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	routingPlannerMode := RuntimeRoutingPlannerModeLegacy
 	openAITerminalTranslationMode := OpenAITerminalTranslationModeOff
 	if d.Runtime.Routing != nil {
-		routingPlannerMode, err = parseRuntimeRoutingPlannerModeField("runtime.routing.plannerMode", d.Runtime.Routing.PlannerMode)
-		if err != nil {
-			return Settings{}, err
-		}
-		openAITerminalTranslationMode, err = parseOpenAITerminalTranslationModeField("runtime.routing.openaiTerminalTranslationMode", d.Runtime.Routing.OpenAITerminalTranslationMode)
+		openAITerminalTranslationMode, err = parseOpenAITerminalTranslationModeField("routing.openaiTerminalTranslationMode", d.Runtime.Routing.OpenAITerminalTranslationMode)
 		if err != nil {
 			return Settings{}, err
 		}
@@ -2335,7 +2313,6 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      databaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
-		RuntimeRoutingPlannerMode:        routingPlannerMode,
 		OpenAITerminalTranslationMode:    openAITerminalTranslationMode,
 		Telemetry:                        telemetryConfig,
 		RuntimeTransportConfig:           runtimeTransport,
@@ -2650,38 +2627,38 @@ func (t *bootstrapTelemetryTraces) toTelemetryTracesConfig(telemetryEnabled bool
 }
 
 func (t bootstrapRuntimeTransport) toRuntimeTransportConfig() (RuntimeTransportConfig, error) {
-	maxIdleConns, err := requiredIntMin("runtime.transport.maxIdleConns", t.MaxIdleConns, 1)
+	maxIdleConns, err := requiredIntMin("transport.maxIdleConns", t.MaxIdleConns, 1)
 	if err != nil {
 		return RuntimeTransportConfig{}, err
 	}
-	maxIdleConnsPerHost, err := requiredIntMin("runtime.transport.maxIdleConnsPerHost", t.MaxIdleConnsPerHost, 1)
+	maxIdleConnsPerHost, err := requiredIntMin("transport.maxIdleConnsPerHost", t.MaxIdleConnsPerHost, 1)
 	if err != nil {
 		return RuntimeTransportConfig{}, err
 	}
-	maxConnsPerHost, err := requiredIntMin("runtime.transport.maxConnsPerHost", t.MaxConnsPerHost, 0)
+	maxConnsPerHost, err := requiredIntMin("transport.maxConnsPerHost", t.MaxConnsPerHost, 0)
 	if err != nil {
 		return RuntimeTransportConfig{}, err
 	}
-	requestTimeout, err := parseDurationField("runtime.transport.requestTimeout", t.RequestTimeout)
+	requestTimeout, err := parseDurationField("transport.requestTimeout", t.RequestTimeout)
 	if err != nil {
 		return RuntimeTransportConfig{}, err
 	}
 	if requestTimeout <= 0 {
-		return RuntimeTransportConfig{}, fmt.Errorf("bootstrap config field runtime.transport.requestTimeout must be greater than zero")
+		return RuntimeTransportConfig{}, fmt.Errorf("bootstrap config field transport.requestTimeout must be greater than zero")
 	}
-	idleConnTimeout, err := parseDurationField("runtime.transport.idleConnTimeout", t.IdleConnTimeout)
+	idleConnTimeout, err := parseDurationField("transport.idleConnTimeout", t.IdleConnTimeout)
 	if err != nil {
 		return RuntimeTransportConfig{}, err
 	}
-	responseHeaderTimeout, err := parseDurationField("runtime.transport.responseHeaderTimeout", t.ResponseHeaderTimeout)
+	responseHeaderTimeout, err := parseDurationField("transport.responseHeaderTimeout", t.ResponseHeaderTimeout)
 	if err != nil {
 		return RuntimeTransportConfig{}, err
 	}
-	tlsHandshakeTimeout, err := parseDurationField("runtime.transport.tlsHandshakeTimeout", t.TLSHandshakeTimeout)
+	tlsHandshakeTimeout, err := parseDurationField("transport.tlsHandshakeTimeout", t.TLSHandshakeTimeout)
 	if err != nil {
 		return RuntimeTransportConfig{}, err
 	}
-	expectContinueTimeout, err := parseDurationField("runtime.transport.expectContinueTimeout", t.ExpectContinueTimeout)
+	expectContinueTimeout, err := parseDurationField("transport.expectContinueTimeout", t.ExpectContinueTimeout)
 	if err != nil {
 		return RuntimeTransportConfig{}, err
 	}
@@ -2698,27 +2675,14 @@ func (t bootstrapRuntimeTransport) toRuntimeTransportConfig() (RuntimeTransportC
 }
 
 func (s bootstrapRuntimeSideEffects) toRuntimeSideEffectsConfig() (RuntimeSideEffectsConfig, error) {
-	attemptTimeout, err := parseDurationField("runtime.sideEffects.attemptTimeout", s.AttemptTimeout)
+	attemptTimeout, err := parseDurationField("sideEffects.attemptTimeout", s.AttemptTimeout)
 	if err != nil {
 		return RuntimeSideEffectsConfig{}, err
 	}
 	if attemptTimeout <= 0 {
-		return RuntimeSideEffectsConfig{}, fmt.Errorf("bootstrap config field runtime.sideEffects.attemptTimeout must be greater than zero")
+		return RuntimeSideEffectsConfig{}, fmt.Errorf("bootstrap config field sideEffects.attemptTimeout must be greater than zero")
 	}
 	return RuntimeSideEffectsConfig{AttemptTimeout: attemptTimeout}, nil
-}
-
-func parseRuntimeRoutingPlannerModeField(field string, value *string) (RuntimeRoutingPlannerMode, error) {
-	if value == nil || strings.TrimSpace(*value) == "" {
-		return RuntimeRoutingPlannerModeLegacy, nil
-	}
-	trimmed := strings.ToLower(strings.TrimSpace(*value))
-	switch RuntimeRoutingPlannerMode(trimmed) {
-	case RuntimeRoutingPlannerModeLegacy, RuntimeRoutingPlannerModeShadow, RuntimeRoutingPlannerModeEnforced:
-		return RuntimeRoutingPlannerMode(trimmed), nil
-	default:
-		return "", fmt.Errorf("bootstrap config field %s must be one of legacy, shadow, enforced", field)
-	}
 }
 
 func parseOpenAITerminalTranslationModeField(field string, value *string) (OpenAITerminalTranslationMode, error) {
@@ -2739,7 +2703,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 	managementAdmissionBudget := settings.ManagementAdmissionBudget()
 	runtimeTransport := settings.RuntimeTransport()
 	runtimeSideEffects := settings.RuntimeSideEffects()
-	routingPlannerMode := settings.RoutingPlannerMode()
 	openAITerminalTranslationMode := settings.ResolvedOpenAITerminalTranslationMode()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
 	databaseURL := strings.TrimSpace(settings.DatabaseURL)
@@ -2804,7 +2767,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 				AttemptTimeout: stringPointer(bootstrapDurationString(runtimeSideEffects.AttemptTimeout)),
 			},
 			Routing: &bootstrapRuntimeRouting{
-				PlannerMode:                   stringPointer(string(routingPlannerMode)),
 				OpenAITerminalTranslationMode: stringPointer(string(openAITerminalTranslationMode)),
 			},
 		},

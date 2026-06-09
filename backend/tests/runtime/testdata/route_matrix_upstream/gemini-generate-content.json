@@ -1,0 +1,14 @@
+{
+  "content_type": "application/json",
+  "headers": {
+    "authorization": "Bearer <api_key>",
+    "x-route-matrix": "route-matrix-gemini-generate-content"
+  },
+  "json_body": {
+    "contents": [{"parts": [{"text": "route matrix gemini generate"}], "role": "user"}],
+    "generationConfig": {"temperature": 0.44},
+    "model": "route-matrix-body-model-gemini-generate-content"
+  },
+  "method": "POST",
+  "path": "/route-matrix/gemini-generate-content/v1beta/models/<target_model>:generateContent"
+}

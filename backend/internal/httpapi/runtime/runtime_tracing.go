@@ -10,57 +10,59 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+
+	gatewayaccounting "github.com/coachpo/prism/backend/internal/gateway/accounting"
 )
 
 const (
-	runtimeTraceAttrOperationName                                         = "prism.runtime.operation_name"
-	runtimeTraceAttrUpstreamOperationName                                 = "prism.runtime.upstream_operation_name"
-	runtimeTraceAttrOperationTranslationMode                              = "prism.runtime.operation_translation_mode"
-	runtimeTraceAttrUpstreamRequestPath                                   = "prism.runtime.upstream_request_path"
-	runtimeTraceAttrPreferredContextBand                                  = "prism.runtime.preferred_context_band"
-	runtimeTraceAttrSelectedTerminalTargetID                              = "prism.runtime.selected_terminal_target_id"
-	runtimeTraceAttrContextOverflowPromotion                              = "prism.runtime.context_overflow_promotion"
-	runtimeTraceAttrContextOverflowPromotionFromModelID                   = "prism.runtime.context_overflow_promotion.from_model_id"
-	runtimeTraceAttrContextOverflowPromotionToModelID                     = "prism.runtime.context_overflow_promotion.to_model_id"
-	runtimeTraceAttrContextOverflowPromotionTriggerStatus                 = "prism.runtime.context_overflow_promotion.trigger_status"
-	runtimeTraceAttrContextOverflowPromotionTriggerCode                   = "prism.runtime.context_overflow_promotion.trigger_code"
-	runtimeTraceAttrContextOverflowPromotionTriggerClassifier             = "prism.runtime.context_overflow_promotion.trigger_classifier"
-	runtimeTraceAttrContextOverflowPromotionEstimationMode                = "prism.runtime.context_overflow_promotion.estimation_mode"
-	runtimeTraceAttrContextOverflowPromotionFromSelectedTerminalTargetID  = "prism.runtime.context_overflow_promotion.from_selected_terminal_target_id"
-	runtimeTraceAttrContextOverflowPromotionToSelectedTerminalTargetID    = "prism.runtime.context_overflow_promotion.to_selected_terminal_target_id"
-	runtimeTraceAttrContextOverflowPromotionFromUsableContextWindowTokens = "prism.runtime.context_overflow_promotion.from_usable_context_window_tokens"
-	runtimeTraceAttrContextOverflowPromotionToUsableContextWindowTokens   = "prism.runtime.context_overflow_promotion.to_usable_context_window_tokens"
-	runtimeTraceAttrContextOverflowPromotionSourceAttemptCount            = "prism.runtime.context_overflow_promotion.source_attempt_count"
-	runtimeTraceAttrContextOverflowPromotionFinalAttemptCount             = "prism.runtime.context_overflow_promotion.final_attempt_count"
-	runtimeTraceAttrContextOverflowPromotionResult                        = "prism.runtime.context_overflow_promotion.result"
-	runtimeTraceAttrContextOverflowAffinityState                          = "prism.runtime.context_overflow_affinity.state"
-	runtimeTraceAttrContextOverflowAffinityHashPrefix                     = "prism.runtime.context_overflow_affinity.affinity_hash_prefix"
-	runtimeTraceAttrContextOverflowAffinityParentHashPrefix               = "prism.runtime.context_overflow_affinity.parent_hash_prefix"
-	runtimeTraceAttrContextOverflowAffinityContextBucket                  = "prism.runtime.context_overflow_affinity.context_bucket"
-	runtimeTraceAttrContextOverflowAffinitySourceModelID                  = "prism.runtime.context_overflow_affinity.source_model_id"
-	runtimeTraceAttrContextOverflowAffinityPromotionTargetModelID         = "prism.runtime.context_overflow_affinity.promotion_target_model_id"
-	runtimeTraceAttrContextOverflowAffinityRejectionReason                = "prism.runtime.context_overflow_affinity.rejection_reason"
-	runtimeTraceAttrFacadeModelID                                         = "prism.runtime.facade_model_id"
-	runtimeTraceAttrFacadeSelectedTargetModel                             = "prism.runtime.facade_selected_target_model_id"
-	runtimeTraceAttrFacadeSelectedWeight                                  = "prism.runtime.facade_selected_weight"
-	runtimeTraceAttrFacadeEligibleTotalWeight                             = "prism.runtime.facade_eligible_total_weight"
-	runtimeTraceAttrFacadeExclusionSummary                                = "prism.runtime.facade_exclusion_summary"
-	runtimeTraceAttrPlannerVersion                                        = "prism.runtime.planner_version"
-	runtimeTraceAttrPlannerMode                                           = "prism.runtime.planner_mode"
-	runtimeTraceAttrPlannerDecision                                       = "prism.runtime.planner_decision"
-	runtimeTraceAttrPlannerPolicy                                         = "prism.runtime.planner_policy"
-	runtimeTraceAttrPlannerSelectedTier                                   = "prism.runtime.planner_selected_tier_priority"
-	runtimeTraceAttrPlannerSkippedTargets                                 = "prism.runtime.planner_skipped_terminal_targets"
-	runtimeTraceAttrShadowComparisonResult                                = "prism.runtime.shadow_comparison_result"
-	runtimeTraceAttrShadowMismatchReasons                                 = "prism.runtime.shadow_mismatch_reasons"
-	runtimeTraceAttrAPIFamily                                             = "prism.runtime.api_family"
-	runtimeTraceAttrStreaming                                             = "prism.runtime.streaming"
-	runtimeTraceAttrStatusClass                                           = "prism.runtime.status_class"
-	runtimeTraceAttrStreamOutcome                                         = "prism.runtime.stream_outcome"
-	runtimeTraceAttrBodyMode                                              = "prism.runtime.body_mode"
-	runtimeTraceAttrAttemptResult                                         = "prism.runtime.attempt_result"
-	runtimeTraceAttrFeedbackKind                                          = "prism.runtime.feedback_kind"
-	runtimeTraceAttrEnqueueStatus                                         = "prism.runtime.enqueue_status"
+	runtimeTraceAttrOperationName                                         = "prism.operation_name"
+	runtimeTraceAttrUpstreamOperationName                                 = "prism.upstream_operation_name"
+	runtimeTraceAttrOperationTranslationMode                              = "prism.operation_translation_mode"
+	runtimeTraceAttrUpstreamRequestPath                                   = "prism.upstream_request_path"
+	runtimeTraceAttrPreferredContextBand                                  = "prism.preferred_context_band"
+	runtimeTraceAttrSelectedTerminalTargetID                              = "prism.selected_terminal_target_id"
+	runtimeTraceAttrContextOverflowPromotion                              = "prism.context_overflow_promotion"
+	runtimeTraceAttrContextOverflowPromotionFromModelID                   = "prism.context_overflow_promotion.from_model_id"
+	runtimeTraceAttrContextOverflowPromotionToModelID                     = "prism.context_overflow_promotion.to_model_id"
+	runtimeTraceAttrContextOverflowPromotionTriggerStatus                 = "prism.context_overflow_promotion.trigger_status"
+	runtimeTraceAttrContextOverflowPromotionTriggerCode                   = "prism.context_overflow_promotion.trigger_code"
+	runtimeTraceAttrContextOverflowPromotionTriggerClassifier             = "prism.context_overflow_promotion.trigger_classifier"
+	runtimeTraceAttrContextOverflowPromotionEstimationMode                = "prism.context_overflow_promotion.estimation_mode"
+	runtimeTraceAttrContextOverflowPromotionFromSelectedTerminalTargetID  = "prism.context_overflow_promotion.from_selected_terminal_target_id"
+	runtimeTraceAttrContextOverflowPromotionToSelectedTerminalTargetID    = "prism.context_overflow_promotion.to_selected_terminal_target_id"
+	runtimeTraceAttrContextOverflowPromotionFromUsableContextWindowTokens = "prism.context_overflow_promotion.from_usable_context_window_tokens"
+	runtimeTraceAttrContextOverflowPromotionToUsableContextWindowTokens   = "prism.context_overflow_promotion.to_usable_context_window_tokens"
+	runtimeTraceAttrContextOverflowPromotionSourceAttemptCount            = "prism.context_overflow_promotion.source_attempt_count"
+	runtimeTraceAttrContextOverflowPromotionFinalAttemptCount             = "prism.context_overflow_promotion.final_attempt_count"
+	runtimeTraceAttrContextOverflowPromotionResult                        = "prism.context_overflow_promotion.result"
+	runtimeTraceAttrContextOverflowAffinityState                          = "prism.context_overflow_affinity.state"
+	runtimeTraceAttrContextOverflowAffinityHashPrefix                     = "prism.context_overflow_affinity.affinity_hash_prefix"
+	runtimeTraceAttrContextOverflowAffinityParentHashPrefix               = "prism.context_overflow_affinity.parent_hash_prefix"
+	runtimeTraceAttrContextOverflowAffinityContextBucket                  = "prism.context_overflow_affinity.context_bucket"
+	runtimeTraceAttrContextOverflowAffinitySourceModelID                  = "prism.context_overflow_affinity.source_model_id"
+	runtimeTraceAttrContextOverflowAffinityPromotionTargetModelID         = "prism.context_overflow_affinity.promotion_target_model_id"
+	runtimeTraceAttrContextOverflowAffinityRejectionReason                = "prism.context_overflow_affinity.rejection_reason"
+	runtimeTraceAttrFacadeModelID                                         = "prism.facade_model_id"
+	runtimeTraceAttrFacadeSelectedTargetModel                             = "prism.facade_selected_target_model_id"
+	runtimeTraceAttrFacadeSelectedWeight                                  = "prism.facade_selected_weight"
+	runtimeTraceAttrFacadeEligibleTotalWeight                             = "prism.facade_eligible_total_weight"
+	runtimeTraceAttrFacadeExclusionSummary                                = "prism.facade_exclusion_summary"
+	runtimeTraceAttrPlannerVersion                                        = "prism.planner_version"
+	runtimeTraceAttrPlannerDecision                                       = "prism.planner_decision"
+	runtimeTraceAttrPlannerPolicy                                         = "prism.planner_policy"
+	runtimeTraceAttrPlannerSelectedTier                                   = "prism.planner_selected_tier_priority"
+	runtimeTraceAttrPlannerSkippedTargets                                 = "prism.planner_skipped_terminal_targets"
+	runtimeTraceAttrAPIFamily                                             = "prism.api_family"
+	runtimeTraceAttrStreaming                                             = "prism.streaming"
+	runtimeTraceAttrStatusClass                                           = "prism.status_class"
+	runtimeTraceAttrStreamOutcome                                         = "prism.stream_outcome"
+	runtimeTraceAttrRouteReason                                           = "prism.route_reason"
+	runtimeTraceAttrUsageSource                                           = "prism.usage_source"
+	runtimeTraceAttrPricingConfigVersionUsed                              = "prism.pricing_config_version_used"
+	runtimeTraceAttrBodyMode                                              = "prism.body_mode"
+	runtimeTraceAttrAttemptResult                                         = "prism.attempt_result"
+	runtimeTraceAttrFeedbackKind                                          = "prism.feedback_kind"
+	runtimeTraceAttrEnqueueStatus                                         = "prism.enqueue_status"
 	runtimeTraceAttrHTTPMethod                                            = "http.request.method"
 	runtimeTraceAttrHTTPStatus                                            = "http.response.status_code"
 
@@ -263,9 +265,6 @@ func runtimeTracePlannerTraceAttributes(plannerTrace *runtimePlannerTraceDecisio
 		attribute.String(runtimeTraceAttrPlannerVersion, runtimeTracePolicy.plannerVersion(plannerTrace.PlannerVersion)),
 		attribute.String(runtimeTraceAttrPlannerDecision, runtimeTracePolicy.plannerDecision(plannerTrace.Decision)),
 	}
-	if strings.TrimSpace(plannerTrace.PlannerMode) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrPlannerMode, strings.TrimSpace(plannerTrace.PlannerMode)))
-	}
 	if strings.TrimSpace(plannerTrace.Policy) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrPlannerPolicy, runtimeTracePolicy.plannerPolicy(plannerTrace.Policy)))
 	}
@@ -274,12 +273,6 @@ func runtimeTracePlannerTraceAttributes(plannerTrace *runtimePlannerTraceDecisio
 	}
 	if plannerTrace.SkippedTerminalTargets > 0 {
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrPlannerSkippedTargets, plannerTrace.SkippedTerminalTargets))
-	}
-	if plannerTrace.ShadowComparisonResult != nil {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrShadowComparisonResult, strings.TrimSpace(plannerTrace.ShadowComparisonResult.Result)))
-		if len(plannerTrace.ShadowComparisonResult.MismatchReasons) > 0 {
-			attrs = append(attrs, attribute.String(runtimeTraceAttrShadowMismatchReasons, strings.Join(plannerTrace.ShadowComparisonResult.MismatchReasons, ",")))
-		}
 	}
 	return attrs
 }
@@ -340,6 +333,11 @@ func runtimeTraceEnvelopeAttributes(envelope runtimeTelemetryEnvelope) []attribu
 		attribute.String(runtimeTraceAttrAPIFamily, runtimeTracePolicy.apiFamily(envelope.UsageEvent.APIFamily)),
 		attribute.String(runtimeTraceAttrStatusClass, runtimeMetricPolicy.statusClass(envelope.UsageEvent.StatusCode)),
 		attribute.String(runtimeTraceAttrStreamOutcome, runtimeMetricPolicy.streamOutcome(envelope.UsageEvent.StreamOutcome)),
+		attribute.String(runtimeTraceAttrRouteReason, string(gatewayaccounting.NormalizeRouteReason(envelope.AccountingEvent.RouteReason))),
+		attribute.String(runtimeTraceAttrUsageSource, string(gatewayaccounting.NormalizeUsageSource(envelope.AccountingEvent.UsageSource))),
+	}
+	if envelope.AccountingEvent.PricingConfigVersionUsed != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrPricingConfigVersionUsed, *envelope.AccountingEvent.PricingConfigVersionUsed))
 	}
 	if envelope.UsageEvent.UpstreamOperationName != nil {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrUpstreamOperationName, runtimeMetricPolicy.operationName(*envelope.UsageEvent.UpstreamOperationName)))
@@ -575,7 +573,7 @@ func runtimeTraceSetStreamOutcome(span trace.Span, outcome string) {
 
 func runtimeTraceSetAttemptCount(span trace.Span, count int) {
 	if span != nil && count > 0 {
-		span.SetAttributes(attribute.Int("prism.runtime.attempt_count", count))
+		span.SetAttributes(attribute.Int("prism.attempt_count", count))
 	}
 }
 

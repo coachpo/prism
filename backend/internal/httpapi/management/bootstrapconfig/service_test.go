@@ -32,9 +32,8 @@ const (
 	routeTestReplacementJWTSecret                     = "route-replacement-jwt-secret"
 	routeTestRuntimeReplacementSecret                 = "route-runtime-replacement-secret"
 	routeTestTelemetryAuthorizationHeader             = "Bearer route-telemetry-secret"
-	routeTestRuntimeSideEffectsAttemptTimeoutField    = "runtime.side_effects.attempt_timeout"
-	routeTestRuntimeRoutingPlannerModeField           = "runtime.routing.planner_mode"
-	routeTestRuntimeRoutingOpenAITranslationModeField = "runtime.routing.openai_terminal_translation_mode"
+	routeTestRuntimeSideEffectsAttemptTimeoutField    = "side_effects.attempt_timeout"
+	routeTestRuntimeRoutingOpenAITranslationModeField = "routing.openai_terminal_translation_mode"
 )
 
 var (
@@ -183,11 +182,10 @@ func TestBootstrapConfigRouteValidateReportsRuntimeSideEffectsAttemptTimeoutRest
 	}
 }
 
-func TestBootstrapConfigRouteValidateReportsRuntimeRoutingRolloutControlsRestartRequired(t *testing.T) {
+func TestBootstrapConfigRouteValidateReportsRuntimeRoutingTranslationModeRestartRequired(t *testing.T) {
 	fixture := newBootstrapRouteFixture(t)
 	before := mustReadFile(t, fixture.path)
 	request := bootstrapRouteRequestForSnapshot(t, fixture.snapshot)
-	request.Values.Runtime.Routing.PlannerMode = routeStringPtr(string(config.RuntimeRoutingPlannerModeShadow))
 	request.Values.Runtime.Routing.OpenAITerminalTranslationMode = routeStringPtr(string(config.OpenAITerminalTranslationModeSafeOnly))
 
 	response := fixture.doJSON(t, http.MethodPost, "/api/config/bootstrap/validate", request)
@@ -195,13 +193,6 @@ func TestBootstrapConfigRouteValidateReportsRuntimeRoutingRolloutControlsRestart
 	requireStatus(t, response, http.StatusOK)
 	assertFileUnchanged(t, fixture.path, before)
 	body := decodeBootstrapConfigResponse(t, response)
-	plannerCapability, ok := body.ApplyCapabilities[routeTestRuntimeRoutingPlannerModeField]
-	if !ok {
-		t.Fatal("expected response capabilities to include runtime routing planner mode")
-	}
-	if plannerCapability.Mode != config.BootstrapConfigApplyModeRestartRequired || plannerCapability.ConfirmationToken != "" {
-		t.Fatalf("expected planner mode to be restart-required without confirmation, got %+v", plannerCapability)
-	}
 	translationCapability, ok := body.ApplyCapabilities[routeTestRuntimeRoutingOpenAITranslationModeField]
 	if !ok {
 		t.Fatal("expected response capabilities to include runtime routing OpenAI translation mode")
@@ -210,10 +201,9 @@ func TestBootstrapConfigRouteValidateReportsRuntimeRoutingRolloutControlsRestart
 		t.Fatalf("expected OpenAI translation mode to be restart-required without confirmation, got %+v", translationCapability)
 	}
 	if !body.RestartRequired || body.PlannedChanges == nil || !body.PlannedChanges.RestartRequired {
-		t.Fatalf("expected runtime routing rollout controls validation to require restart, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
+		t.Fatalf("expected runtime routing translation mode validation to require restart, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
 	}
 	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{
-		{Field: routeTestRuntimeRoutingPlannerModeField, Mode: config.BootstrapConfigApplyModeRestartRequired},
 		{Field: routeTestRuntimeRoutingOpenAITranslationModeField, Mode: config.BootstrapConfigApplyModeRestartRequired},
 	})
 	if body.ApplyResult != nil {
@@ -426,7 +416,7 @@ func TestBootstrapConfigRoutePutPublishesHotApplyRuntimeAfterWrite(t *testing.T)
 	assertLoadedMetadataMatchesFile(t, body)
 	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{
 		"auth.access_token_ttl_seconds",
-		"runtime.transport.request_timeout",
+		"transport.request_timeout",
 		"database.management_admission.m2_max_concurrent",
 		"database.management_admission.m3_max_concurrent",
 	})
@@ -905,8 +895,8 @@ func TestBootstrapConfigRouteConcurrentPUTsSerializeAndKeepReadableConfig(t *tes
 }
 
 func TestBootstrapConfigRouteValidateWaitsForInFlightHotApplyMetadata(t *testing.T) {
-	previousMaxProcs := runtime.GOMAXPROCS(1)
-	t.Cleanup(func() { runtime.GOMAXPROCS(previousMaxProcs) })
+	previousMaxProcs := GOMAXPROCS(1)
+	t.Cleanup(func() { GOMAXPROCS(previousMaxProcs) })
 	t.Setenv("DATABASE_URL", routeTestDatabaseURL)
 	path := filepath.Join(t.TempDir(), "bootstrap-config.json")
 	currentTime := routeTestCreatedAt
@@ -961,7 +951,7 @@ func TestBootstrapConfigRouteValidateWaitsForInFlightHotApplyMetadata(t *testing
 
 	<-validateBody.done
 	for range 10 {
-		runtime.Gosched()
+		Gosched()
 	}
 	if validateReadBeforeRelease.Load() {
 		releasedHotApply.Store(true)
@@ -1529,9 +1519,6 @@ func assertRouteDefaultSafeValues(t *testing.T, values config.BootstrapConfigVal
 	}
 	if values.Runtime.SideEffects.AttemptTimeout == nil || *values.Runtime.SideEffects.AttemptTimeout != "10s" {
 		t.Fatalf("expected route safe side-effects attempt_timeout=10s, got %+v", values.Runtime.SideEffects)
-	}
-	if values.Runtime.Routing.PlannerMode == nil || *values.Runtime.Routing.PlannerMode != string(config.RuntimeRoutingPlannerModeLegacy) {
-		t.Fatalf("expected route safe runtime planner_mode=legacy, got %+v", values.Runtime.Routing)
 	}
 	if values.Runtime.Routing.OpenAITerminalTranslationMode == nil || *values.Runtime.Routing.OpenAITerminalTranslationMode != string(config.OpenAITerminalTranslationModeOff) {
 		t.Fatalf("expected route safe runtime openai_terminal_translation_mode=off, got %+v", values.Runtime.Routing)

@@ -312,7 +312,7 @@ func TestExistingBootstrapConfigMissingRequestTimeoutFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected existing config without requestTimeout to fail")
 	}
-	if !strings.Contains(err.Error(), "runtime.transport.requestTimeout is required") {
+	if !strings.Contains(err.Error(), "transport.requestTimeout is required") {
 		t.Fatalf("expected missing request timeout validation error, got %v", err)
 	}
 }
@@ -335,10 +335,10 @@ func assertExistingBootstrapConfigWithRuntimeBufferingFieldFails(t *testing.T, k
 	payload["runtime"].(map[string]any)[key] = "streaming"
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		t.Fatalf("marshal bootstrap fixture with stale runtime.%s: %v", key, err)
+		t.Fatalf("marshal bootstrap fixture with stale %s: %v", key, err)
 	}
 	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
-		t.Fatalf("write bootstrap fixture with stale runtime.%s: %v", key, err)
+		t.Fatalf("write bootstrap fixture with stale %s: %v", key, err)
 	}
 	setBootstrapSeedEnv(t, map[string]string{
 		config.BootstrapConfigPathEnv: configPath,
@@ -347,10 +347,10 @@ func assertExistingBootstrapConfigWithRuntimeBufferingFieldFails(t *testing.T, k
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
 	_, err = manager.LoadOrSeedFromEnv()
 	if err == nil {
-		t.Fatalf("expected existing config with stale runtime.%s to fail", key)
+		t.Fatalf("expected existing config with stale %s to fail", key)
 	}
 	if !strings.Contains(err.Error(), `unknown field "`+key+`"`) {
-		t.Fatalf("expected unknown-field error for runtime.%s, got %v", key, err)
+		t.Fatalf("expected unknown-field error for %s, got %v", key, err)
 	}
 }
 

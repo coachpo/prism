@@ -18,9 +18,6 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 	if settings.RuntimeTelemetryMode != RuntimeTelemetryModeDurableOutbox {
 		t.Fatalf("unexpected canonical runtime telemetry mode: %q", settings.RuntimeTelemetryMode)
 	}
-	if settings.RoutingPlannerMode() != RuntimeRoutingPlannerModeLegacy {
-		t.Fatalf("unexpected canonical routing planner mode: %q", settings.RoutingPlannerMode())
-	}
 	if settings.ResolvedOpenAITerminalTranslationMode() != OpenAITerminalTranslationModeOff {
 		t.Fatalf("unexpected canonical OpenAI terminal translation mode: %q", settings.ResolvedOpenAITerminalTranslationMode())
 	}

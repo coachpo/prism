@@ -305,12 +305,12 @@ func TestSafeBootstrapProjectionReturnsCompletePoolValues(t *testing.T) {
 			t.Fatalf("expected safe projection %s=%q, got %+v", name, want, got)
 		}
 	}
-	assertDuration("runtime.transport.request_timeout", transport.RequestTimeout, "300s")
-	assertDuration("runtime.transport.idle_conn_timeout", transport.IdleConnTimeout, "90s")
-	assertDuration("runtime.transport.response_header_timeout", transport.ResponseHeaderTimeout, "0s")
-	assertDuration("runtime.transport.tls_handshake_timeout", transport.TLSHandshakeTimeout, "10s")
-	assertDuration("runtime.transport.expect_continue_timeout", transport.ExpectContinueTimeout, "1s")
-	assertDuration("runtime.side_effects.attempt_timeout", values.Runtime.SideEffects.AttemptTimeout, "10s")
+	assertDuration("transport.request_timeout", transport.RequestTimeout, "300s")
+	assertDuration("transport.idle_conn_timeout", transport.IdleConnTimeout, "90s")
+	assertDuration("transport.response_header_timeout", transport.ResponseHeaderTimeout, "0s")
+	assertDuration("transport.tls_handshake_timeout", transport.TLSHandshakeTimeout, "10s")
+	assertDuration("transport.expect_continue_timeout", transport.ExpectContinueTimeout, "1s")
+	assertDuration("side_effects.attempt_timeout", values.Runtime.SideEffects.AttemptTimeout, "10s")
 }
 
 func TestBootstrapConfigManagementUpdatePersistsCanonicalDisabledMail(t *testing.T) {
@@ -861,56 +861,56 @@ func TestBootstrapConfigManagementRejectsInvalidSafeValuesAndPreservesStrictPars
 			mutate: func(values BootstrapConfigValues) {
 				values.Runtime.Transport.IdleConnTimeout = stringPointer("not-a-duration")
 			},
-			wantErr: "runtime.transport.idleConnTimeout must parse as a Go duration",
+			wantErr: "transport.idleConnTimeout must parse as a Go duration",
 		},
 		{
 			name: "invalid request timeout",
 			mutate: func(values BootstrapConfigValues) {
 				values.Runtime.Transport.RequestTimeout = stringPointer("not-a-duration")
 			},
-			wantErr: "runtime.transport.requestTimeout must parse as a Go duration",
+			wantErr: "transport.requestTimeout must parse as a Go duration",
 		},
 		{
 			name: "zero request timeout",
 			mutate: func(values BootstrapConfigValues) {
 				values.Runtime.Transport.RequestTimeout = stringPointer("0s")
 			},
-			wantErr: "runtime.transport.requestTimeout must be greater than zero",
+			wantErr: "transport.requestTimeout must be greater than zero",
 		},
 		{
 			name: "missing side effects object",
 			mutate: func(values BootstrapConfigValues) {
 				values.Runtime.SideEffects = nil
 			},
-			wantErr: "runtime.sideEffects is required",
+			wantErr: "sideEffects is required",
 		},
 		{
 			name: "missing side effects attempt timeout",
 			mutate: func(values BootstrapConfigValues) {
 				values.Runtime.SideEffects = &BootstrapConfigRuntimeSideEffectsValues{}
 			},
-			wantErr: "runtime.sideEffects.attemptTimeout is required",
+			wantErr: "sideEffects.attemptTimeout is required",
 		},
 		{
 			name: "invalid side effects attempt timeout",
 			mutate: func(values BootstrapConfigValues) {
 				values.Runtime.SideEffects.AttemptTimeout = stringPointer("not-a-duration")
 			},
-			wantErr: "runtime.sideEffects.attemptTimeout must parse as a Go duration",
+			wantErr: "sideEffects.attemptTimeout must parse as a Go duration",
 		},
 		{
 			name: "zero side effects attempt timeout",
 			mutate: func(values BootstrapConfigValues) {
 				values.Runtime.SideEffects.AttemptTimeout = stringPointer("0s")
 			},
-			wantErr: "runtime.sideEffects.attemptTimeout must be greater than zero",
+			wantErr: "sideEffects.attemptTimeout must be greater than zero",
 		},
 		{
 			name: "negative side effects attempt timeout",
 			mutate: func(values BootstrapConfigValues) {
 				values.Runtime.SideEffects.AttemptTimeout = stringPointer("-1s")
 			},
-			wantErr: "runtime.sideEffects.attemptTimeout must be greater than zero",
+			wantErr: "sideEffects.attemptTimeout must be greater than zero",
 		},
 	}
 	for _, testCase := range tests {
@@ -950,7 +950,7 @@ func TestBootstrapConfigManagementBuildSeededDocumentIncludesSideEffects(t *test
 		t.Fatalf("build seeded bootstrap document: %v", err)
 	}
 	if document.Runtime == nil || document.Runtime.SideEffects == nil || document.Runtime.SideEffects.AttemptTimeout == nil || *document.Runtime.SideEffects.AttemptTimeout != "10s" {
-		t.Fatalf("expected seeded runtime.sideEffects.attemptTimeout to be 10s, got %+v", document.Runtime)
+		t.Fatalf("expected seeded sideEffects.attemptTimeout to be 10s, got %+v", document.Runtime)
 	}
 	payload := mustCanonicalManagementPayload(t, document)
 	if !bytes.Contains(payload, []byte(`"sideEffects"`)) || !bytes.Contains(payload, []byte(`"attemptTimeout": "10s"`)) {

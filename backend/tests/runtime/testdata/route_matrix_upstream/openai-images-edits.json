@@ -1,0 +1,14 @@
+{
+  "content_type": "multipart/form-data",
+  "headers": {
+    "authorization": "Bearer <api_key>",
+    "x-route-matrix": "route-matrix-openai-images-edits"
+  },
+  "method": "POST",
+  "multipart_fields": {
+    "image": "<binary:14>",
+    "model": "<target_model>",
+    "prompt": "make the image brighter"
+  },
+  "path": "/route-matrix/openai-images-edits/v1/images/edits"
+}

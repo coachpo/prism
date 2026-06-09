@@ -2,11 +2,17 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/gateway/provider"
+	anthropicprovider "github.com/coachpo/prism/backend/internal/gateway/provider/anthropic"
+	geminiprovider "github.com/coachpo/prism/backend/internal/gateway/provider/gemini"
+	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
 )
 
 type operationResponseKind string
@@ -34,6 +40,17 @@ var operationResponseHooksByCollectionID = map[string]operationResponseHooks{
 		ParseNonStreamResponse: proxyNonEventResponseAndCaptureUsage,
 	},
 	"openai.responses": {
+		Provider:               "openai",
+		Kind:                   operationResponseKindTextGeneration,
+		UsageRule:              runtimeUsageRuleOpenAIResponses,
+		ParseNonStreamResponse: proxyNonEventResponseAndCaptureUsage,
+	},
+	runtimeHookCollectionOpenAIResponsesInputTokens: {
+		Provider:               "openai",
+		Kind:                   operationResponseKindTokenCount,
+		ParseNonStreamResponse: proxyNonEventTokenCountResponseAndCaptureUsage,
+	},
+	runtimeHookCollectionOpenAIResponsesCompact: {
 		Provider:               "openai",
 		Kind:                   operationResponseKindTextGeneration,
 		UsageRule:              runtimeUsageRuleOpenAIResponses,
@@ -88,11 +105,6 @@ func responseHooksForOperation(operation RuntimeOperation) (operationResponseHoo
 	return hooks, ok
 }
 
-// ResponseHooksForOperation resolves response-hook metadata for a runtime operation.
-func ResponseHooksForOperation(operation RuntimeOperation) (operationResponseHooks, bool) {
-	return responseHooksForOperation(operation)
-}
-
 func proxyNonEventResponseAndCaptureByOperation(operation RuntimeOperation, translationMode TranslationMode, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if translationMode != "" && translationMode != TranslationModeNone {
 		return proxyTranslatedOpenAINonEventResponseAndCapture(translationMode, "", dst, src, now, captureAuditBody)
@@ -109,11 +121,22 @@ func proxyTranslatedOpenAINonEventResponseAndCapture(translationMode Translation
 	if err != nil {
 		return runtimeResponseCapture{}, err
 	}
-	translatedBody, usage, usageRule, err := translateOpenAIResponse(rawBody, translationMode, requestedModelID)
+	adapter := openai.New()
+	clientResponse, err := adapter.AdaptNonStreamResponse(context.Background(), provider.UpstreamResponse{
+		Operation:        provider.Operation{Name: runtimeUpstreamOperationName(RuntimeOperation{Name: openAIUpstreamOperationResponses}, translationMode)},
+		StatusCode:       http.StatusOK,
+		Body:             rawBody,
+		TranslationMode:  providerTranslationMode(translationMode),
+		RequestedModelID: requestedModelID,
+	})
 	if err != nil {
+		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {
+			return runtimeResponseCapture{}, domainErr
+		}
 		return runtimeResponseCapture{}, err
 	}
-	if _, err := dst.Write(translatedBody); err != nil {
+	usage, usageRule := responseUsageFromProviderEnvelope(clientResponse.Usage)
+	if _, err := dst.Write(clientResponse.Body); err != nil {
 		return runtimeResponseCapture{}, err
 	}
 	completedAt := now()
@@ -306,7 +329,7 @@ func containsCLIProxyAPIOverflowFragment(message string, fragments ...string) bo
 	return false
 }
 
-func proxyNonEventResponseAndCaptureWithoutUsage(_ operationResponseHooks, dst io.Writer, src io.Reader, _ string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+func proxyNonEventResponseAndCaptureWithoutUsage(hooks operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	writers := []io.Writer{dst}
 	auditBuffer := &bytes.Buffer{}
 	if captureAuditBody {
@@ -316,12 +339,19 @@ func proxyNonEventResponseAndCaptureWithoutUsage(_ operationResponseHooks, dst i
 	completedAt := now()
 	capture := runtimeResponseCapture{CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
 	if captureAuditBody {
-		capture.AuditBody = append([]byte(nil), auditBuffer.Bytes()...)
+		capture.AuditBody = capturedNonUsageAuditBody(hooks, auditBuffer.Bytes(), contentType)
 	}
 	return capture, err
 }
 
-func proxyNonEventTokenCountResponseAndCaptureUsage(_ operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+func capturedNonUsageAuditBody(hooks operationResponseHooks, rawBody []byte, contentType string) []byte {
+	if hooks.Provider == "openai" && hooks.Kind == operationResponseKindMedia {
+		return openai.RedactImageResponseAuditBody(rawBody, contentType)
+	}
+	return append([]byte(nil), rawBody...)
+}
+
+func proxyNonEventTokenCountResponseAndCaptureUsage(hooks operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if !responseMayContainJSONUsage(contentType) {
 		return proxyNonEventResponseAndCaptureWithoutUsage(operationResponseHooks{}, dst, src, contentType, now, captureAuditBody)
 	}
@@ -333,7 +363,7 @@ func proxyNonEventTokenCountResponseAndCaptureUsage(_ operationResponseHooks, ds
 	}
 	_, copyErr := io.Copy(io.MultiWriter(writers...), src)
 	completedAt := now()
-	usage := extractTokenCountResponseUsage(bodyBuffer.Bytes())
+	usage := extractTokenCountResponseUsageByProvider(hooks, bodyBuffer.Bytes())
 	capture := runtimeResponseCapture{
 		Body:          buildUsageBodyFromResponseUsage(usage),
 		Usage:         usage,
@@ -344,6 +374,17 @@ func proxyNonEventTokenCountResponseAndCaptureUsage(_ operationResponseHooks, ds
 		capture.AuditBody = append([]byte(nil), auditBuffer.Bytes()...)
 	}
 	return capture, copyErr
+}
+
+func extractTokenCountResponseUsageByProvider(hooks operationResponseHooks, body []byte) responseUsage {
+	switch hooks.Provider {
+	case "anthropic":
+		return responseUsageFromProviderUsageEnvelope(anthropicprovider.ExtractTokenCountUsage(body))
+	case "gemini":
+		return responseUsageFromProviderUsageEnvelope(geminiprovider.ExtractCountTokensUsage(body))
+	default:
+		return extractTokenCountResponseUsage(body)
+	}
 }
 
 func extractTokenCountResponseUsage(body []byte) responseUsage {

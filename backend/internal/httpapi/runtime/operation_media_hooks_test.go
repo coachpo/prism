@@ -70,7 +70,7 @@ func TestOpenAIImageHooks(t *testing.T) {
 			if requestWantsStreamForOperation(operation, test.rawBody, test.requestPath) {
 				t.Fatal("expected media request hooks to ignore stream-like request fields")
 			}
-			responseHooks, ok := ResponseHooksForOperation(operation)
+			responseHooks, ok := responseHooksForOperation(operation)
 			if !ok {
 				t.Fatalf("expected response hooks for %s", operation.Name)
 			}
@@ -142,7 +142,7 @@ func TestOpenAIImageEditsMultipartModelBinding(t *testing.T) {
 		if bytes.Equal(plan.UpstreamBody, rawBody) {
 			t.Fatal("expected proxy image edit body to rewrite the multipart model field")
 		}
-		if got := extractOpenAIImageEditModel(plan.UpstreamBody, contentType); got != "target-image" {
+		if got := extractModelFromBodyForOperation(plan.UpstreamBody, contentType, operationMatch.Operation); got != "target-image" {
 			t.Fatalf("expected rewritten multipart model target-image, got %q", got)
 		}
 		assertMissingRequestGenerationParams(t, plan.RequestGenerationParams)

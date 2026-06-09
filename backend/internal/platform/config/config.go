@@ -11,8 +11,6 @@ type Environment string
 
 type RuntimeTelemetryMode string
 
-type RuntimeRoutingPlannerMode string
-
 type OpenAITerminalTranslationMode string
 
 type TelemetryExporterProtocol string
@@ -34,12 +32,6 @@ const (
 const (
 	RuntimeTelemetryModeSynchronous   RuntimeTelemetryMode = "synchronous"
 	RuntimeTelemetryModeDurableOutbox RuntimeTelemetryMode = "durable_outbox"
-)
-
-const (
-	RuntimeRoutingPlannerModeLegacy   RuntimeRoutingPlannerMode = "legacy"
-	RuntimeRoutingPlannerModeShadow   RuntimeRoutingPlannerMode = "shadow"
-	RuntimeRoutingPlannerModeEnforced RuntimeRoutingPlannerMode = "enforced"
 )
 
 const (
@@ -240,7 +232,6 @@ type Settings struct {
 	AppEnv                           Environment
 	DatabaseURL                      string
 	RuntimeTelemetryMode             RuntimeTelemetryMode
-	RuntimeRoutingPlannerMode        RuntimeRoutingPlannerMode
 	OpenAITerminalTranslationMode    OpenAITerminalTranslationMode
 	Telemetry                        TelemetryConfig
 	RuntimeTransportConfig           RuntimeTransportConfig
@@ -278,7 +269,6 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      resolvedDatabaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
-		RuntimeRoutingPlannerMode:        RuntimeRoutingPlannerModeLegacy,
 		OpenAITerminalTranslationMode:    OpenAITerminalTranslationModeOff,
 		Telemetry:                        defaultTelemetryConfig(),
 		RuntimeTransportConfig:           defaultRuntimeTransportConfig(),
@@ -352,10 +342,6 @@ func resolveDatabaseURLFromEnv() string {
 
 func (s Settings) ResolvedRuntimeTelemetryMode() RuntimeTelemetryMode {
 	return normalizeRuntimeTelemetryMode(s.RuntimeTelemetryMode)
-}
-
-func (s Settings) RoutingPlannerMode() RuntimeRoutingPlannerMode {
-	return normalizeRuntimeRoutingPlannerMode(s.RuntimeRoutingPlannerMode)
 }
 
 func (s Settings) ResolvedOpenAITerminalTranslationMode() OpenAITerminalTranslationMode {
@@ -560,17 +546,6 @@ func normalizeManagementAdmissionBudget(candidate ManagementAdmissionBudget, def
 		normalized.M3MaxConcurrent = normalized.M2MaxConcurrent
 	}
 	return normalized
-}
-
-func normalizeRuntimeRoutingPlannerMode(candidate RuntimeRoutingPlannerMode) RuntimeRoutingPlannerMode {
-	switch RuntimeRoutingPlannerMode(strings.ToLower(strings.TrimSpace(string(candidate)))) {
-	case RuntimeRoutingPlannerModeShadow:
-		return RuntimeRoutingPlannerModeShadow
-	case RuntimeRoutingPlannerModeEnforced:
-		return RuntimeRoutingPlannerModeEnforced
-	default:
-		return RuntimeRoutingPlannerModeLegacy
-	}
 }
 
 func normalizeOpenAITerminalTranslationMode(candidate OpenAITerminalTranslationMode) OpenAITerminalTranslationMode {

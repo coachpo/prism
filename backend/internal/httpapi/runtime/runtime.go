@@ -11,7 +11,6 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -23,7 +22,8 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
-	"github.com/coachpo/prism/backend/internal/platform/config"
+	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
+	gatewayrouting "github.com/coachpo/prism/backend/internal/gateway/routing"
 	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
@@ -34,6 +34,7 @@ const (
 	runtimeFacadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
 	runtimeNestedFacadesNotSupportedDetail                  = "nested facades are not supported"
 	runtimeActiveModelTargetDefaultWeight                   = modelrouting.DefaultModelTargetWeight
+	runtimeAdmissionExhaustedErrorCode                      = "admission_exhausted"
 )
 
 type runtimeFeedbackStore struct {
@@ -299,29 +300,23 @@ type runtimeContextOverflowAffinityDecision struct {
 	RejectionReason        *string `json:"rejection_reason,omitempty"`
 }
 
-type runtimeShadowComparisonResult struct {
-	Result          string   `json:"result"`
-	MismatchReasons []string `json:"mismatch_reasons,omitempty"`
-}
-
 type runtimePlannerTraceDecision struct {
-	PlannerVersion           string                         `json:"planner_version"`
-	PlannerMode              string                         `json:"planner_mode,omitempty"`
-	Decision                 string                         `json:"decision"`
-	Policy                   string                         `json:"policy,omitempty"`
-	AccessTargetID           *int                           `json:"access_target_id,omitempty"`
-	AccessTargetType         *string                        `json:"access_target_type,omitempty"`
-	SelectedTargetModelID    *string                        `json:"selected_target_model_id,omitempty"`
-	SelectedTierPriority     *int                           `json:"selected_tier_priority,omitempty"`
-	SelectedTerminalTargetID *int                           `json:"selected_terminal_target_id,omitempty"`
-	TranslationMode          *string                        `json:"translation_mode,omitempty"`
-	SkippedTerminalTargets   int                            `json:"skipped_terminal_targets,omitempty"`
-	FacadeExclusionSummary   *string                        `json:"facade_exclusion_summary,omitempty"`
-	ShadowComparisonResult   *runtimeShadowComparisonResult `json:"shadow_comparison_result,omitempty"`
+	PlannerVersion           string  `json:"planner_version"`
+	Decision                 string  `json:"decision"`
+	Policy                   string  `json:"policy,omitempty"`
+	AccessTargetID           *int    `json:"access_target_id,omitempty"`
+	AccessTargetType         *string `json:"access_target_type,omitempty"`
+	SelectedTargetModelID    *string `json:"selected_target_model_id,omitempty"`
+	SelectedTierPriority     *int    `json:"selected_tier_priority,omitempty"`
+	SelectedTerminalTargetID *int    `json:"selected_terminal_target_id,omitempty"`
+	TranslationMode          *string `json:"translation_mode,omitempty"`
+	SkippedTerminalTargets   int     `json:"skipped_terminal_targets,omitempty"`
+	FacadeExclusionSummary   *string `json:"facade_exclusion_summary,omitempty"`
 }
 
 type runtimeContextRoutingDecision struct {
 	Policy                             string                                       `json:"policy"`
+	RouteReason                        gatewaycore.RouteReason                      `json:"route_reason,omitempty"`
 	SelectedTerminalTargetID           *int                                         `json:"selected_terminal_target_id,omitempty"`
 	SelectedEndpointID                 *int                                         `json:"selected_endpoint_id,omitempty"`
 	SelectedContextBand                *string                                      `json:"selected_context_band,omitempty"`
@@ -346,6 +341,7 @@ func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *
 	}
 	cloned := &runtimeContextRoutingDecision{
 		Policy:                             source.Policy,
+		RouteReason:                        source.RouteReason,
 		SelectedTerminalTargetID:           cloneRuntimeIntPointer(source.SelectedTerminalTargetID),
 		SelectedEndpointID:                 cloneRuntimeIntPointer(source.SelectedEndpointID),
 		SelectedContextBand:                cloneRuntimeStringPointer(source.SelectedContextBand),
@@ -469,16 +465,8 @@ func cloneRuntimePlannerTraceDecision(source *runtimePlannerTraceDecision) *runt
 	if source == nil {
 		return nil
 	}
-	var shadowComparison *runtimeShadowComparisonResult
-	if source.ShadowComparisonResult != nil {
-		shadowComparison = &runtimeShadowComparisonResult{
-			Result:          source.ShadowComparisonResult.Result,
-			MismatchReasons: append([]string(nil), source.ShadowComparisonResult.MismatchReasons...),
-		}
-	}
 	return &runtimePlannerTraceDecision{
 		PlannerVersion:           source.PlannerVersion,
-		PlannerMode:              source.PlannerMode,
 		Decision:                 source.Decision,
 		Policy:                   source.Policy,
 		AccessTargetID:           cloneRuntimeIntPointer(source.AccessTargetID),
@@ -489,7 +477,6 @@ func cloneRuntimePlannerTraceDecision(source *runtimePlannerTraceDecision) *runt
 		TranslationMode:          cloneRuntimeStringPointer(source.TranslationMode),
 		SkippedTerminalTargets:   source.SkippedTerminalTargets,
 		FacadeExclusionSummary:   cloneRuntimeStringPointer(source.FacadeExclusionSummary),
-		ShadowComparisonResult:   shadowComparison,
 	}
 }
 
@@ -821,6 +808,7 @@ type executionResult struct {
 	AuditCaptureBodiesAtRequest bool
 	AttemptCount                int
 	Attempts                    []executionAttempt
+	RouteReason                 gatewaycore.RouteReason
 }
 
 type executionOutcome struct {
@@ -835,6 +823,7 @@ type executionOutcome struct {
 	AdmissionReason           string
 	AdmissionState            *loadbalance.RuntimeConnectionState
 	UnbannedRecord            *loadbalance.RuntimeConnectionState
+	RetryDecision             gatewayrouting.RetryDecision
 	FailoverEligible          bool
 	Definitive                bool
 	SuppressTransportFeedback bool
@@ -847,6 +836,7 @@ type hedgedExecutionResult struct {
 	LaunchedAttempts    int
 	AdmissionRejections int
 	LastAdmissionReason string
+	RouteReason         gatewaycore.RouteReason
 	LastError           string
 	ConsumedConnections int
 }
@@ -866,6 +856,7 @@ type requestExecutionState struct {
 	attempts            []executionAttempt
 	lastError           string
 	lastAdmissionReason string
+	routeReason         gatewaycore.RouteReason
 	admissionRejections int
 	hedgeUsed           bool
 }
@@ -875,7 +866,7 @@ var errHedgeLoserCanceled = errors.New("hedge loser canceled")
 const hedgeCanceledAttemptStatusCode = 499
 
 func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch) (requestPlan, error) {
-	ctx, span := startRuntimeSpan(ctx, "runtime.request.plan", runtimeTraceOperationAttributes(operationMatch.Operation)...)
+	ctx, span := startRuntimeSpan(ctx, "request.plan", runtimeTraceOperationAttributes(operationMatch.Operation)...)
 	defer span.End()
 	operationMatch, err := validateResolvedRuntimeOperation(operationMatch, request.Method, request.URL.Path)
 	if err != nil {
@@ -902,46 +893,17 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 }
 
 func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot) (requestPlan, error) {
-	ctx, span := startRuntimeSpan(request.Context(), "runtime.request.plan", runtimeTraceOperationAttributes(operationMatch.Operation)...)
+	ctx, span := startRuntimeSpan(request.Context(), "request.plan", runtimeTraceOperationAttributes(operationMatch.Operation)...)
 	defer span.End()
 	request = request.WithContext(ctx)
-	plannerMode := s.resolvedPlannerMode()
 
-	switch plannerMode {
-	case config.RuntimeRoutingPlannerModeLegacy:
-		plan, err := s.buildRequestPlanFromSnapshotLegacyCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
-		if err != nil {
-			runtimeTraceMarkError(span, "request_plan_failed")
-			return requestPlan{}, annotatePlannerErrorRollout(err, plannerMode, nil)
-		}
-		plan = annotatePlannerTraceRollout(plan, plannerMode, nil)
-		span.SetAttributes(runtimeTracePlanAttributes(plan)...)
-		return plan, nil
-	case config.RuntimeRoutingPlannerModeShadow:
-		servedPlan, servedErr := s.buildRequestPlanFromSnapshotLegacyCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
-		shadowPlan, shadowErr := s.buildRequestPlanFromSnapshotEnforcedCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
-		comparison := compareShadowOutcomes(&servedPlan, servedErr, &shadowPlan, shadowErr)
-		if servedErr != nil {
-			logShadowComparisonMismatch("", comparison)
-			runtimeTraceMarkError(span, "request_plan_failed")
-			return requestPlan{}, annotatePlannerErrorRollout(servedErr, plannerMode, comparison)
-		}
-		if comparison != nil {
-			logShadowComparisonMismatch(servedPlan.RequestedModelID, comparison)
-		}
-		servedPlan = annotatePlannerTraceRollout(servedPlan, plannerMode, comparison)
-		span.SetAttributes(runtimeTracePlanAttributes(servedPlan)...)
-		return servedPlan, nil
-	default:
-		plan, err := s.buildRequestPlanFromSnapshotEnforcedCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
-		if err != nil {
-			runtimeTraceMarkError(span, "request_plan_failed")
-			return requestPlan{}, annotatePlannerErrorRollout(err, plannerMode, nil)
-		}
-		plan = annotatePlannerTraceRollout(plan, plannerMode, nil)
-		span.SetAttributes(runtimeTracePlanAttributes(plan)...)
-		return plan, nil
+	plan, err := s.buildRequestPlanFromSnapshotCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
+	if err != nil {
+		runtimeTraceMarkError(span, "request_plan_failed")
+		return requestPlan{}, err
 	}
+	span.SetAttributes(runtimeTracePlanAttributes(plan)...)
+	return plan, nil
 }
 
 func resolveRequestOperation(input requestPlanningInput) (resolvedRequestOperation, error) {
@@ -965,21 +927,6 @@ func resolveRequestedModel(input requestPlanningInput, operation resolvedRequest
 	requestedModel, found := routingPlan.requestedModelByID(operation.RequestedModelID)
 	if !found {
 		return runtimeModelRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", operation.RequestedModelID)}
-	}
-	if err := validateRuntimeModelFacadePolicies(requestedModel); err != nil {
-		return runtimeModelRecord{}, err
-	}
-	if err := validateOperationAPIFamily(operation.Match.Operation, requestedModel); err != nil {
-		return runtimeModelRecord{}, err
-	}
-	return requestedModel, nil
-}
-
-func resolveRequestedModelByIDLegacy(input requestPlanningInput, operation resolvedRequestOperation, requestedModelID string) (runtimeModelRecord, error) {
-	trimmedRequestedModelID := strings.TrimSpace(requestedModelID)
-	requestedModel, found := input.Snapshot.ModelsByID[trimmedRequestedModelID]
-	if !found {
-		return runtimeModelRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", trimmedRequestedModelID)}
 	}
 	if err := validateRuntimeModelFacadePolicies(requestedModel); err != nil {
 		return runtimeModelRecord{}, err
@@ -1018,79 +965,20 @@ func (s *Service) buildExplicitTargetRequestPlan(request *http.Request, rawBody 
 	if !ok {
 		return requestPlan{}, &domainError{StatusCode: http.StatusNotFound, Detail: runtimeOperationNotFoundDetail}
 	}
-	ctx, span := startRuntimeSpan(request.Context(), "runtime.request.plan", runtimeTraceOperationAttributes(operationMatch.Operation)...)
+	ctx, span := startRuntimeSpan(request.Context(), "request.plan", runtimeTraceOperationAttributes(operationMatch.Operation)...)
 	defer span.End()
 	request = request.WithContext(ctx)
-	plannerMode := s.resolvedPlannerMode()
 
-	switch plannerMode {
-	case config.RuntimeRoutingPlannerModeLegacy:
-		plan, err := s.buildExplicitTargetRequestPlanLegacyCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot, trimmedRequestedModelID)
-		if err != nil {
-			runtimeTraceMarkError(span, "request_plan_failed")
-			return requestPlan{}, annotatePlannerErrorRollout(err, plannerMode, nil)
-		}
-		plan = annotatePlannerTraceRollout(plan, plannerMode, nil)
-		span.SetAttributes(runtimeTracePlanAttributes(plan)...)
-		return plan, nil
-	case config.RuntimeRoutingPlannerModeShadow:
-		servedPlan, servedErr := s.buildExplicitTargetRequestPlanLegacyCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot, trimmedRequestedModelID)
-		shadowPlan, shadowErr := s.buildExplicitTargetRequestPlanEnforcedCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot, trimmedRequestedModelID)
-		comparison := compareShadowOutcomes(&servedPlan, servedErr, &shadowPlan, shadowErr)
-		if servedErr != nil {
-			logShadowComparisonMismatch("", comparison)
-			runtimeTraceMarkError(span, "request_plan_failed")
-			return requestPlan{}, annotatePlannerErrorRollout(servedErr, plannerMode, comparison)
-		}
-		if comparison != nil {
-			logShadowComparisonMismatch(servedPlan.RequestedModelID, comparison)
-		}
-		servedPlan = annotatePlannerTraceRollout(servedPlan, plannerMode, comparison)
-		span.SetAttributes(runtimeTracePlanAttributes(servedPlan)...)
-		return servedPlan, nil
-	default:
-		plan, err := s.buildExplicitTargetRequestPlanEnforcedCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot, trimmedRequestedModelID)
-		if err != nil {
-			runtimeTraceMarkError(span, "request_plan_failed")
-			return requestPlan{}, annotatePlannerErrorRollout(err, plannerMode, nil)
-		}
-		plan = annotatePlannerTraceRollout(plan, plannerMode, nil)
-		span.SetAttributes(runtimeTracePlanAttributes(plan)...)
-		return plan, nil
-	}
-}
-
-func (s *Service) buildExplicitTargetRequestPlanLegacyCore(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot, requestedModelID string) (requestPlan, error) {
-	input := requestPlanningInput{Request: request, RawBody: rawBody, RuntimeConfig: runtimeConfig, OperationMatch: operationMatch, ActiveProfileID: activeProfileID, Snapshot: snapshot}
-	operation, err := resolveRequestOperation(input)
+	plan, err := s.buildExplicitTargetRequestPlanCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot, trimmedRequestedModelID)
 	if err != nil {
+		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, err
 	}
-	requestedModel, err := resolveRequestedModelByIDLegacy(input, operation, requestedModelID)
-	if err != nil {
-		return requestPlan{}, err
-	}
-	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
-	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
-	target, err := s.resolveRequestPlanTargetLegacy(input, operation, requestedModel, contextEstimation)
-	if err != nil {
-		var runtimeErr *domainError
-		if contextEstimationErr != nil && !input.AllowMissingContextEstimation && (!errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode) {
-			return requestPlan{}, contextEstimationErr
-		}
-		promotionOperation := operation
-		promotionOperation.RequestedModelID = requestedModel.ModelID
-		return requestPlan{}, attachRuntimePlanningFailureTelemetry(err, input, promotionOperation, requestedModel)
-	}
-	if contextEstimationErr != nil && !input.AllowMissingContextEstimation {
-		return requestPlan{}, contextEstimationErr
-	}
-	promotionOperation := operation
-	promotionOperation.RequestedModelID = requestedModel.ModelID
-	return assembleRequestPlan(input, promotionOperation, target, contextEstimation)
+	span.SetAttributes(runtimeTracePlanAttributes(plan)...)
+	return plan, nil
 }
 
-func (s *Service) buildExplicitTargetRequestPlanEnforcedCore(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot, requestedModelID string) (requestPlan, error) {
+func (s *Service) buildExplicitTargetRequestPlanCore(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot, requestedModelID string) (requestPlan, error) {
 	routingPlan, err := snapshot.compiledRoutingPlan()
 	if err != nil {
 		return requestPlan{}, err
@@ -1200,11 +1088,12 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 		selectedTerminalTargetID = cloneRuntimeIntPointer(resolved.ContextRouting.SelectedTerminalTargetID)
 	}
 
+	contextRouting := runtimeContextRoutingWithRouteReason(resolved.ContextRouting, resolved.RouteReason, normalizedRuntimeLegacyStrategyType(resolved.Strategy))
 	return resolvedExecutionTarget{
 		RequestedModel:           requestedModel,
 		TargetModel:              resolved.TargetModel,
 		SelectedTerminalTargetID: selectedTerminalTargetID,
-		ContextRouting:           cloneRuntimeContextRoutingDecision(resolved.ContextRouting),
+		ContextRouting:           contextRouting,
 		Connections:              resolved.Connections,
 		TerminalAttempts:         resolved.TerminalAttempts,
 		RuntimeStates:            resolved.RuntimeStates,
@@ -1213,6 +1102,18 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 }
 
 func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, attempt runtimeTerminalAttempt) (plannedUpstreamRequest, error) {
+	if upstreamRequest, ok, err := buildOpenAITextPlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
+		return upstreamRequest, err
+	}
+	if upstreamRequest, ok, err := buildOpenAIImagePlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
+		return upstreamRequest, err
+	}
+	if upstreamRequest, ok, err := buildAnthropicPlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
+		return upstreamRequest, err
+	}
+	if upstreamRequest, ok, err := buildGeminiPlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
+		return upstreamRequest, err
+	}
 	effectiveRequestPath := input.Request.URL.Path
 	upstreamBody := input.RawBody
 	switch attempt.TranslationMode {
@@ -1390,27 +1291,8 @@ func runtimeConnectionRefs(connections []runtimeConnection) []loadbalance.Runtim
 	return refs
 }
 
-func orderTerminalTargetsByID(connections []runtimeConnection, orderedIDs []int) []runtimeConnection {
-	if len(orderedIDs) == 0 {
-		return nil
-	}
-	connectionsByID := make(map[int]runtimeConnection, len(connections))
-	for _, connection := range connections {
-		connectionsByID[connection.ID] = connection
-	}
-	ordered := make([]runtimeConnection, 0, len(orderedIDs))
-	for _, connectionID := range orderedIDs {
-		connection, ok := connectionsByID[connectionID]
-		if !ok {
-			continue
-		}
-		ordered = append(ordered, connection)
-	}
-	return ordered
-}
-
 func (s *Service) executeRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, bodySource *runtimeRequestBodySource) (executionResult, error) {
-	ctx, span := startRuntimeSpan(ctx, "runtime.request.execute", runtimeTracePlanAttributes(plan)...)
+	ctx, span := startRuntimeSpan(ctx, "request.execute", runtimeTracePlanAttributes(plan)...)
 	defer span.End()
 	state := newRequestExecutionState(plan)
 	limits := requestExecutionLimitsForPlan(plan)
@@ -1455,7 +1337,14 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 }
 
 func newRequestExecutionState(plan requestPlan) requestExecutionState {
-	return requestExecutionState{attempts: make([]executionAttempt, 0, len(plan.orderedTerminalAttempts()))}
+	return requestExecutionState{attempts: make([]executionAttempt, 0, len(plan.orderedTerminalAttempts())), routeReason: runtimePlanRouteReason(plan)}
+}
+
+func runtimePlanRouteReason(plan requestPlan) gatewaycore.RouteReason {
+	if plan.ContextRouting == nil {
+		return gatewaycore.RouteReasonDirectMatch
+	}
+	return runtimeExecutionRouteReason(plan.ContextRouting.RouteReason)
 }
 
 func requestExecutionLimitsForPlan(plan requestPlan) requestExecutionLimits {
@@ -1472,6 +1361,53 @@ func (limits requestExecutionLimits) shouldHedge(plan requestPlan, state request
 	return !state.hedgeUsed && limits.HedgePolicy.Enabled && limits.remainingLaunchCapacity(state) >= 2 && len(plan.orderedTerminalAttempts())-index >= 2
 }
 
+func runtimeAdmissionRouteReason(reason string) gatewaycore.RouteReason {
+	switch strings.TrimSpace(reason) {
+	case "qps_limit":
+		return gatewaycore.RouteReasonQPSOverflow
+	case "max_in_flight_stream", "max_in_flight_non_stream":
+		return gatewaycore.RouteReasonConcurrencyOverflow
+	default:
+		return gatewaycore.RouteReasonPolicyReject
+	}
+}
+
+func runtimeExecutionRouteReason(reason gatewaycore.RouteReason) gatewaycore.RouteReason {
+	switch reason {
+	case gatewaycore.RouteReasonModelRedirect,
+		gatewaycore.RouteReasonUpstreamRedirect,
+		gatewaycore.RouteReasonQPSOverflow,
+		gatewaycore.RouteReasonRPMOverflow,
+		gatewaycore.RouteReasonTPMOverflow,
+		gatewaycore.RouteReasonIPMOverflow,
+		gatewaycore.RouteReasonConcurrencyOverflow,
+		gatewaycore.RouteReasonRetry429,
+		gatewaycore.RouteReasonRetry5xx,
+		gatewaycore.RouteReasonRetryConnectTimeout,
+		gatewaycore.RouteReasonContextOverflowPreflight,
+		gatewaycore.RouteReasonContextOverflowProviderFallback,
+		gatewaycore.RouteReasonCircuitOpenSkip,
+		gatewaycore.RouteReasonNoHealthyUpstream,
+		gatewaycore.RouteReasonPolicyReject:
+		return reason
+	default:
+		return gatewaycore.RouteReasonDirectMatch
+	}
+}
+
+func runtimeContextRoutingWithRouteReason(source *runtimeContextRoutingDecision, reason gatewaycore.RouteReason, policy string) *runtimeContextRoutingDecision {
+	resolvedReason := runtimeExecutionRouteReason(reason)
+	cloned := cloneRuntimeContextRoutingDecision(source)
+	if cloned == nil {
+		cloned = &runtimeContextRoutingDecision{Policy: strings.TrimSpace(policy)}
+	}
+	if strings.TrimSpace(cloned.Policy) == "" {
+		cloned.Policy = strings.TrimSpace(policy)
+	}
+	cloned.RouteReason = resolvedReason
+	return cloned
+}
+
 func (state *requestExecutionState) recordHedgedResult(hedged hedgedExecutionResult) {
 	state.hedgeUsed = true
 	state.launchedAttempts += hedged.LaunchedAttempts
@@ -1479,6 +1415,9 @@ func (state *requestExecutionState) recordHedgedResult(hedged hedgedExecutionRes
 	state.admissionRejections += hedged.AdmissionRejections
 	if strings.TrimSpace(hedged.LastAdmissionReason) != "" {
 		state.lastAdmissionReason = hedged.LastAdmissionReason
+	}
+	if hedged.RouteReason != "" {
+		state.routeReason = runtimeExecutionRouteReason(hedged.RouteReason)
 	}
 	if strings.TrimSpace(hedged.LastError) != "" {
 		state.lastError = hedged.LastError
@@ -1488,6 +1427,11 @@ func (state *requestExecutionState) recordHedgedResult(hedged hedgedExecutionRes
 func (state *requestExecutionState) recordAdmissionRejection(reason string) {
 	state.admissionRejections++
 	state.lastAdmissionReason = reason
+	state.routeReason = runtimeAdmissionRouteReason(reason)
+}
+
+func (state *requestExecutionState) recordRetry(reason gatewaycore.RouteReason) {
+	state.routeReason = runtimeExecutionRouteReason(reason)
 }
 
 func (state *requestExecutionState) recordLaunchedAttempt(outcome executionOutcome) {
@@ -1505,6 +1449,7 @@ func (state *requestExecutionState) result(outcome executionOutcome) executionRe
 		AuditCaptureBodiesAtRequest: outcome.TerminalAttempt.AuditCaptureBodiesRequest,
 		AttemptCount:                state.launchedAttempts,
 		Attempts:                    state.attempts,
+		RouteReason:                 runtimeExecutionRouteReason(state.routeReason),
 	}
 }
 
@@ -1513,11 +1458,21 @@ func (state *requestExecutionState) failureResult(plan requestPlan) (executionRe
 		return executionResult{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", plan.RequestedModelID)}
 	}
 	if state.launchedAttempts == 0 && state.admissionRejections > 0 {
+		routeReason := runtimeExecutionRouteReason(state.routeReason)
 		detail := fmt.Sprintf("All connections rejected for model '%s' because admission limits are exhausted.", plan.RequestedModelID)
 		if strings.TrimSpace(state.lastAdmissionReason) != "" {
 			detail = fmt.Sprintf("All connections rejected for model '%s' because admission limit '%s' is exhausted.", plan.RequestedModelID, state.lastAdmissionReason)
 		}
-		return executionResult{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: detail}
+		result := executionResult{AttemptCount: state.launchedAttempts, Attempts: state.attempts, RouteReason: routeReason}
+		return result, &domainError{
+			StatusCode:               http.StatusServiceUnavailable,
+			ErrorCode:                runtimeAdmissionExhaustedErrorCode,
+			Detail:                   detail,
+			Fields:                   map[string]any{"route_reason": string(routeReason)},
+			ResolvedTargetModelID:    cloneRuntimeStringPointer(plan.ResolvedTargetModelID),
+			ContextRouting:           runtimeContextRoutingWithRouteReason(plan.ContextRouting, routeReason, normalizedRuntimeLegacyStrategyType(plan.Strategy)),
+			SelectedTerminalTargetID: plan.selectedTerminalTargetID(),
+		}
 	}
 	lastError := state.lastError
 	if strings.TrimSpace(lastError) == "" {
@@ -1558,13 +1513,19 @@ func (s *Service) handleSingleExecutionOutcome(ctx context.Context, plan request
 		if outcome.Launched && !outcome.SuppressTransportFeedback {
 			s.recordRuntimeTransportFailure(ctx, plan, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.CompletedAt)
 		}
-		return executionResult{}, false, nil
+		if outcome.FailoverEligible && index < len(plan.orderedTerminalAttempts())-1 && state.launchedAttempts < maxAttempts {
+			state.recordRetry(outcome.RetryDecision.Reason)
+			return executionResult{}, false, nil
+		}
+		result, err := state.failureResult(plan)
+		return result, true, err
 	}
 	if outcome.FailoverEligible && outcome.Launched {
 		s.recordRuntimeFailoverHTTPFailure(ctx, plan, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.CompletedAt)
 	}
 	if outcome.FailoverEligible && index < len(plan.orderedTerminalAttempts())-1 && state.launchedAttempts < maxAttempts {
 		state.lastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
+		state.recordRetry(outcome.RetryDecision.Reason)
 		_ = outcome.Response.Body.Close()
 		return executionResult{}, false, nil
 	}
@@ -1648,6 +1609,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 			if outcome.AdmissionReason != "" {
 				result.AdmissionRejections++
 				result.LastAdmissionReason = outcome.AdmissionReason
+				result.RouteReason = runtimeAdmissionRouteReason(outcome.AdmissionReason)
 				if outcome.AdmissionState != nil {
 					s.recordRuntimeAdmissionRejected(ctx, plan, outcome.Connection, *outcome.AdmissionState, s.nowUTC())
 				}
@@ -1706,7 +1668,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 
 func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, terminalAttempt runtimeTerminalAttempt, bodySource *runtimeRequestBodySource) executionOutcome {
 	attemptTraceAttrs := runtimeTraceAttemptAttributes(plan, terminalAttempt)
-	ctx, span := startRuntimeSpan(ctx, "runtime.connection.attempt", attemptTraceAttrs...)
+	ctx, span := startRuntimeSpan(ctx, "connection.attempt", attemptTraceAttrs...)
 	defer span.End()
 	connection := terminalAttempt.Connection
 	headers, err := s.buildUpstreamHeaders(connection, plan.APIFamily, plan.ClientHeaders, plan.BlocklistRules)
@@ -1784,9 +1746,13 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 			runtimeTraceMarkError(span, "provider_http_failed")
 			runtimeTraceSetAttemptResult(span, "transport_error")
 		}
+		outcome.RetryDecision = gatewayrouting.RetryPolicy{FailoverStatusCodes: terminalAttempt.Strategy.FailoverStatusCodes()}.ClassifyTransportError(requestErr)
+		outcome.FailoverEligible = outcome.RetryDecision.Retryable
+		outcome.Definitive = !outcome.FailoverEligible
 		return outcome
 	}
-	outcome.FailoverEligible = shouldFailover(response.StatusCode, terminalAttempt.Strategy.FailoverStatusCodes())
+	outcome.RetryDecision = gatewayrouting.RetryPolicy{FailoverStatusCodes: terminalAttempt.Strategy.FailoverStatusCodes()}.ClassifyHTTPStatus(response.StatusCode)
+	outcome.FailoverEligible = outcome.RetryDecision.Retryable
 	outcome.Definitive = !outcome.FailoverEligible
 	if outcome.FailoverEligible {
 		runtimeTraceSetAttemptResult(span, "failover_http")
@@ -1880,7 +1846,7 @@ func runtimeMetricContextFromContext(ctx context.Context) context.Context {
 func (s *Service) doUpstreamRequest(ctx context.Context, client *http.Client, method string, upstreamURL string, headers map[string]string, bodySource *runtimeRequestBodySource, operation RuntimeOperation, isStreaming bool, extraAttrs ...attribute.KeyValue) (*http.Response, bool, error) {
 	attrs := runtimeTraceHTTPAttributes(method, operation, isStreaming, runtimeTraceBodyMode(bodySource))
 	attrs = append(attrs, extraAttrs...)
-	ctx, span := startRuntimeClientSpan(ctx, "runtime.provider.http", attrs...)
+	ctx, span := startRuntimeClientSpan(ctx, "provider.http", attrs...)
 	defer span.End()
 	if client == nil {
 		client = s.httpClient
@@ -2156,10 +2122,6 @@ func rewriteModelInPath(requestPath string, originalModel string, targetModel st
 	return strings.Replace(requestPath, "/models/"+originalModel, "/models/"+targetModel, 1)
 }
 
-func shouldFailover(statusCode int, failoverStatusCodes []int) bool {
-	return slices.Contains(failoverStatusCodes, statusCode)
-}
-
 func copyResponseHeaders(target http.Header, source http.Header) {
 	for key, values := range filterResponseHeaders(source) {
 		for _, value := range values {
@@ -2206,13 +2168,6 @@ func filterResponseHeadersWithEntitySafety(source http.Header, translated bool) 
 		}
 	}
 	return filtered
-}
-
-func minInt(left int, right int) int {
-	if left < right {
-		return left
-	}
-	return right
 }
 
 func stringPointerIfNotEmpty(value string) *string {

@@ -17,6 +17,10 @@ import (
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
+	gatewayaccounting "github.com/coachpo/prism/backend/internal/gateway/accounting"
+	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
+	anthropicprovider "github.com/coachpo/prism/backend/internal/gateway/provider/anthropic"
+	geminiprovider "github.com/coachpo/prism/backend/internal/gateway/provider/gemini"
 	"github.com/coachpo/prism/backend/internal/httpapi/proxykeyusage"
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 )
@@ -250,22 +254,7 @@ func parseStandardRuntimeUsagePayload(usagePayload map[string]any) (responseUsag
 }
 
 func parseAnthropicMessagesUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
-	usage := responseUsage{}
-	if inputTokens := intPointerFromAny(usagePayload["input_tokens"]); inputTokens != nil {
-		usage.InputTokens = inputTokens
-	}
-	if outputTokens := intPointerFromAny(usagePayload["output_tokens"]); outputTokens != nil {
-		usage.OutputTokens = outputTokens
-	}
-	if totalTokens := intPointerFromAny(usagePayload["total_tokens"]); totalTokens != nil {
-		usage.TotalTokens = totalTokens
-	}
-	if cacheReadTokens := intPointerFromAny(usagePayload["cache_read_input_tokens"]); cacheReadTokens != nil {
-		usage.CacheReadInputTokens = cacheReadTokens
-	}
-	if cacheCreationTokens := intPointerFromAny(usagePayload["cache_creation_input_tokens"]); cacheCreationTokens != nil {
-		usage.CacheCreationInputTokens = cacheCreationTokens
-	}
+	usage := responseUsageFromProviderUsageEnvelope(anthropicprovider.ParseMessagesUsagePayload(usagePayload))
 	return usage, usage.hasValues()
 }
 
@@ -307,12 +296,7 @@ func usageFromParentTotals(inputTokens *int, cacheReadTokens *int, outputTokens 
 }
 
 func parseGeminiRuntimeUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
-	inputTokens := intPointerFromAny(usagePayload["promptTokenCount"])
-	cacheReadTokens := intPointerFromAny(usagePayload["cachedContentTokenCount"])
-	outputTokens := intPointerFromAny(usagePayload["candidatesTokenCount"])
-	reasoningTokens := intPointerFromAny(usagePayload["thoughtsTokenCount"])
-	totalTokens := intPointerFromAny(usagePayload["totalTokenCount"])
-	usage := usageFromParentTotals(inputTokens, cacheReadTokens, outputTokens, reasoningTokens, totalTokens)
+	usage := responseUsageFromProviderUsageEnvelope(geminiprovider.ParseUsageMetadata(usagePayload, geminiprovider.OperationGenerateContent))
 	return usage, usage.hasValues()
 }
 
@@ -630,12 +614,14 @@ type runtimeProxyKeyUsageSignal struct {
 }
 
 type runtimeTelemetryEnvelope struct {
-	RequestLogs   []requestLogInsert          `json:"request_logs"`
-	AuditLogs     []auditLogInsert            `json:"audit_logs,omitempty"`
-	UsageEvent    usageEventInsert            `json:"usage_event"`
-	ProxyKeyUsage *runtimeProxyKeyUsageSignal `json:"proxy_key_usage,omitempty"`
-	TraceContext  runtimeTraceContext         `json:"trace_context,omitempty"`
-	HandoffPhase  string                      `json:"handoff_phase,omitempty"`
+	RequestLogs        []requestLogInsert          `json:"request_logs"`
+	AuditLogs          []auditLogInsert            `json:"audit_logs,omitempty"`
+	UsageEvent         usageEventInsert            `json:"usage_event"`
+	AccountingEvent    gatewayaccounting.Event     `json:"accounting_event"`
+	AccountingAttempts []gatewayaccounting.Event   `json:"accounting_attempts,omitempty"`
+	ProxyKeyUsage      *runtimeProxyKeyUsageSignal `json:"proxy_key_usage,omitempty"`
+	TraceContext       runtimeTraceContext         `json:"trace_context,omitempty"`
+	HandoffPhase       string                      `json:"handoff_phase,omitempty"`
 }
 
 const (
@@ -680,17 +666,17 @@ var runtimeMetricPolicy runtimeMetricAttributePolicy
 func newRuntimeMetrics() *runtimeMetrics {
 	meter := otel.Meter(runtimeMetricScopeName)
 	metrics := &runtimeMetrics{}
-	metrics.requestCount, _ = meter.Int64Counter("prism.runtime.request.count", otelmetric.WithDescription("Runtime proxy requests completed."))
-	metrics.requestLatency, _ = meter.Float64Histogram("prism.runtime.request.latency", otelmetric.WithDescription("Runtime proxy request latency."), otelmetric.WithUnit("ms"))
-	metrics.requestAttemptCount, _ = meter.Int64Histogram("prism.runtime.request.attempt_count", otelmetric.WithDescription("Runtime upstream attempts per completed request."))
-	metrics.statusClassCount, _ = meter.Int64Counter("prism.runtime.status_class.count", otelmetric.WithDescription("Runtime proxy responses by bounded status class."))
-	metrics.streamOutcomeCount, _ = meter.Int64Counter("prism.runtime.stream.outcome.count", otelmetric.WithDescription("Runtime stream outcomes by bounded classification."))
-	metrics.failoverCount, _ = meter.Int64Counter("prism.runtime.failover.count", otelmetric.WithDescription("Runtime failover events by bounded reason."))
-	metrics.hedgeCount, _ = meter.Int64Counter("prism.runtime.hedge.count", otelmetric.WithDescription("Runtime hedge attempts launched."))
-	metrics.ttft, _ = meter.Float64Histogram("prism.runtime.request.ttft", otelmetric.WithDescription("Runtime streaming time to first meaningful token."), otelmetric.WithUnit("ms"))
-	metrics.completionDuration, _ = meter.Float64Histogram("prism.runtime.request.completion_duration", otelmetric.WithDescription("Runtime request completion duration."), otelmetric.WithUnit("ms"))
-	metrics.feedbackEnqueueCount, _ = meter.Int64Counter("prism.runtime.feedback.enqueue.count", otelmetric.WithDescription("Runtime feedback enqueue results."))
-	metrics.outboxEnqueueCount, _ = meter.Int64Counter("prism.runtime.outbox.enqueue.count", otelmetric.WithDescription("Runtime telemetry outbox enqueue results."))
+	metrics.requestCount, _ = meter.Int64Counter("prism.request.count", otelmetric.WithDescription("Runtime proxy requests completed."))
+	metrics.requestLatency, _ = meter.Float64Histogram("prism.request.latency", otelmetric.WithDescription("Runtime proxy request latency."), otelmetric.WithUnit("ms"))
+	metrics.requestAttemptCount, _ = meter.Int64Histogram("prism.request.attempt_count", otelmetric.WithDescription("Runtime upstream attempts per completed request."))
+	metrics.statusClassCount, _ = meter.Int64Counter("prism.status_class.count", otelmetric.WithDescription("Runtime proxy responses by bounded status class."))
+	metrics.streamOutcomeCount, _ = meter.Int64Counter("prism.stream.outcome.count", otelmetric.WithDescription("Runtime stream outcomes by bounded classification."))
+	metrics.failoverCount, _ = meter.Int64Counter("prism.failover.count", otelmetric.WithDescription("Runtime failover events by bounded reason."))
+	metrics.hedgeCount, _ = meter.Int64Counter("prism.hedge.count", otelmetric.WithDescription("Runtime hedge attempts launched."))
+	metrics.ttft, _ = meter.Float64Histogram("prism.request.ttft", otelmetric.WithDescription("Runtime streaming time to first meaningful token."), otelmetric.WithUnit("ms"))
+	metrics.completionDuration, _ = meter.Float64Histogram("prism.request.completion_duration", otelmetric.WithDescription("Runtime request completion duration."), otelmetric.WithUnit("ms"))
+	metrics.feedbackEnqueueCount, _ = meter.Int64Counter("prism.feedback.enqueue.count", otelmetric.WithDescription("Runtime feedback enqueue results."))
+	metrics.outboxEnqueueCount, _ = meter.Int64Counter("prism.outbox.enqueue.count", otelmetric.WithDescription("Runtime telemetry outbox enqueue results."))
 	return metrics
 }
 
@@ -860,7 +846,7 @@ func (s *Service) recordRuntimeActivity(plan requestPlan, result executionResult
 		return
 	}
 	ctx := runtimeMetricContext(request)
-	ctx, span := startRuntimeSpan(ctx, "runtime.activity.record", runtimeTracePlanAttributes(plan)...)
+	ctx, span := startRuntimeSpan(ctx, "activity.record", runtimeTracePlanAttributes(plan)...)
 	defer span.End()
 	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
 	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
@@ -877,7 +863,7 @@ func (s *Service) enqueueRuntimeActivityBeforeResponse(plan requestPlan, result 
 		return fmt.Errorf("runtime telemetry outbox unavailable")
 	}
 	ctx := runtimeMetricContext(request)
-	ctx, span := startRuntimeSpan(ctx, "runtime.activity.durable_handoff", runtimeTracePlanAttributes(plan)...)
+	ctx, span := startRuntimeSpan(ctx, "activity.durable_handoff", runtimeTracePlanAttributes(plan)...)
 	defer span.End()
 	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
 	if err := s.validateRuntimeActivityHandoff(ctx, span, envelope); err != nil {
@@ -899,7 +885,7 @@ func (s *Service) enqueueStreamingRuntimeActivityAcceptedBeforeResponse(plan req
 		return 0, fmt.Errorf("runtime telemetry outbox unavailable")
 	}
 	ctx := runtimeMetricContext(request)
-	ctx, span := startRuntimeSpan(ctx, "runtime.activity.stream_accepted_handoff", runtimeTracePlanAttributes(plan)...)
+	ctx, span := startRuntimeSpan(ctx, "activity.stream_accepted_handoff", runtimeTracePlanAttributes(plan)...)
 	defer span.End()
 	acceptedAt := s.nowUTC()
 	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, runtimeResponseCapture{CompletedAt: &acceptedAt, StreamOutcome: runtimeStreamOutcomeUnknown})
@@ -923,7 +909,7 @@ func (s *Service) finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID
 		return fmt.Errorf("runtime telemetry outbox unavailable")
 	}
 	ctx := runtimeTraceDetachedContext(runtimeMetricContext(request))
-	ctx, span := startRuntimeSpan(ctx, "runtime.activity.stream_terminal_handoff", runtimeTracePlanAttributes(plan)...)
+	ctx, span := startRuntimeSpan(ctx, "activity.stream_terminal_handoff", runtimeTracePlanAttributes(plan)...)
 	defer span.End()
 	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
 	if err := s.validateRuntimeActivityHandoff(ctx, span, envelope); err != nil {
@@ -966,7 +952,7 @@ func (s *Service) recordRuntimePlanningFailure(request *http.Request, startedAt 
 		return
 	}
 	ctx := runtimeMetricContext(request)
-	ctx, span := startRuntimeSpan(ctx, "runtime.activity.record_planning_failure", runtimeTracePlanningFailureAttributes(*runtimeErr.PlanningFailure)...)
+	ctx, span := startRuntimeSpan(ctx, "activity.record_planning_failure", runtimeTracePlanningFailureAttributes(*runtimeErr.PlanningFailure)...)
 	defer span.End()
 	envelope := s.buildRuntimePlanningFailureTelemetryEnvelope(*runtimeErr.PlanningFailure, request, startedAt, runtimeErr)
 	envelope.TraceContext = runtimeTraceContextFromContext(ctx)
@@ -976,6 +962,28 @@ func (s *Service) recordRuntimePlanningFailure(request *http.Request, startedAt 
 		runtimeTraceMarkError(span, "runtime_activity_submit_rejected")
 		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueNotSubmitted)
 		slog.Error("failed to accept runtime planning-failure telemetry intent", "reason", submit.Reason, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
+	}
+}
+
+func (s *Service) recordRuntimeExecutionFailure(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, err error) {
+	if s == nil || s.runtimeSideEffects == nil {
+		return
+	}
+	var runtimeErr *domainError
+	if !errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.ErrorCode != runtimeAdmissionExhaustedErrorCode {
+		return
+	}
+	ctx := runtimeMetricContext(request)
+	ctx, span := startRuntimeSpan(ctx, "activity.record_execution_failure", runtimeTracePlanAttributes(plan)...)
+	defer span.End()
+	envelope := s.buildRuntimeExecutionFailureTelemetryEnvelope(plan, result, request, startedAt, runtimeErr)
+	envelope.TraceContext = runtimeTraceContextFromContext(ctx)
+	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
+	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
+	if submit := s.runtimeSideEffects.SubmitRuntimeActivityContext(ctx, intent); submit.Status != RuntimeSideEffectAccepted {
+		runtimeTraceMarkError(span, "runtime_activity_submit_rejected")
+		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueNotSubmitted)
+		slog.Error("failed to accept runtime execution-failure telemetry intent", "reason", submit.Reason, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
 	}
 }
 
@@ -1020,6 +1028,7 @@ type runtimeTelemetryPricingTimingContext struct {
 	reportCurrencySymbol *string
 	operationName        string
 	pricingResult        runtimePricingResult
+	usageSource          gatewaycore.UsageSource
 	streamErrorKind      *string
 	streamErrorDetail    *string
 }
@@ -1031,6 +1040,7 @@ type runtimeTelemetryEnvelopeContext struct {
 	callerUserAgent           *string
 	requestGenerationSnapshot requestGenerationParamsSnapshot
 	attempts                  []executionAttempt
+	routeReason               gatewaycore.RouteReason
 	capturedRequestBody       *string
 	capturedResponseBody      *string
 }
@@ -1053,10 +1063,12 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 	auditLogs := buildRuntimeAuditLogRows(plan, request, telemetry)
 	usageEvent := buildRuntimeUsageEvent(plan, result, request, telemetry, len(requestLogs))
 	return runtimeTelemetryEnvelope{
-		RequestLogs:   requestLogs,
-		AuditLogs:     auditLogs,
-		UsageEvent:    usageEvent,
-		ProxyKeyUsage: runtimeProxyKeyUsageSignalFromSnapshot(telemetry.proxyKey),
+		RequestLogs:        requestLogs,
+		AuditLogs:          auditLogs,
+		UsageEvent:         usageEvent,
+		AccountingEvent:    buildRuntimeAccountingFinalEvent(usageEvent, requestLogs, telemetry.routeReason, telemetry.usageSource),
+		AccountingAttempts: buildRuntimeAccountingAttemptEvents(requestLogs, telemetry.routeReason, telemetry.usageSource),
+		ProxyKeyUsage:      runtimeProxyKeyUsageSignalFromSnapshot(telemetry.proxyKey),
 	}
 }
 
@@ -1155,10 +1167,120 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 		StreamErrorKind:          nil,
 		ContextRouting:           cloneRuntimeContextRoutingDecision(failure.ContextRouting),
 	}
+	routeReason := runtimeExecutionRouteReason(gatewaycore.RouteReasonPolicyReject)
+	if failure.ContextRouting != nil && failure.ContextRouting.RouteReason != "" {
+		routeReason = runtimeExecutionRouteReason(failure.ContextRouting.RouteReason)
+	}
+	requestLogs := []requestLogInsert{requestLog}
 	return runtimeTelemetryEnvelope{
-		RequestLogs:   []requestLogInsert{requestLog},
-		UsageEvent:    usageEvent,
-		ProxyKeyUsage: runtimeProxyKeyUsageSignalFromSnapshot(proxyKey),
+		RequestLogs:        requestLogs,
+		UsageEvent:         usageEvent,
+		AccountingEvent:    buildRuntimeAccountingFinalEvent(usageEvent, requestLogs, routeReason, gatewaycore.UsageSourceMissing),
+		AccountingAttempts: buildRuntimeAccountingAttemptEvents(requestLogs, routeReason, gatewaycore.UsageSourceMissing),
+		ProxyKeyUsage:      runtimeProxyKeyUsageSignalFromSnapshot(proxyKey),
+	}
+}
+
+func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, runtimeErr *domainError) runtimeTelemetryEnvelope {
+	requestCompletedAt := s.nowUTC()
+	responseTimeMS := durationMilliseconds(requestCompletedAt.Sub(startedAt))
+	billableFlag, pricedFlag, unpricedReason := billingState(false)
+	proxyKey, _ := requestcontext.RuntimeProxyKeyFromContext(request.Context())
+	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
+	if ingressRequestID == "" {
+		ingressRequestID = fmt.Sprintf("runtime-%d", requestCompletedAt.UnixNano())
+	}
+	reportCurrencyCode := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Code)
+	reportCurrencySymbol := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Symbol)
+	requestGenerationSnapshot := plan.RequestGenerationParamsSnapshot()
+	resolvedTargetModelID := cloneRuntimeStringPointer(runtimeErr.ResolvedTargetModelID)
+	if resolvedTargetModelID == nil {
+		resolvedTargetModelID = cloneRuntimeStringPointer(plan.ResolvedTargetModelID)
+	}
+	selectedTerminalTargetID := cloneRuntimeIntPointer(runtimeErr.SelectedTerminalTargetID)
+	if selectedTerminalTargetID == nil {
+		selectedTerminalTargetID = plan.selectedTerminalTargetID()
+	}
+	routeReason := runtimeExecutionRouteReason(result.RouteReason)
+	contextRouting := cloneRuntimeContextRoutingDecision(runtimeErr.ContextRouting)
+	if contextRouting != nil && routeReason == gatewaycore.RouteReasonDirectMatch {
+		routeReason = runtimeExecutionRouteReason(contextRouting.RouteReason)
+	}
+	if routeReason == gatewaycore.RouteReasonDirectMatch {
+		routeReason = gatewaycore.RouteReasonPolicyReject
+	}
+	contextRouting = runtimeContextRoutingWithRouteReason(contextRouting, routeReason, normalizedRuntimeLegacyStrategyType(plan.Strategy))
+	completionDurationMS := intPtr(responseTimeMS)
+	requestLog := requestLogInsert{
+		ProfileID:                     plan.ProfileID,
+		ModelID:                       plan.RequestedModelID,
+		ResolvedTargetModelID:         resolvedTargetModelID,
+		APIFamily:                     plan.APIFamily,
+		OperationName:                 strings.TrimSpace(plan.RuntimeOperation.Name),
+		VendorID:                      plan.RequestedVendorID,
+		VendorKey:                     plan.RequestedVendorKey,
+		VendorName:                    plan.RequestedVendorName,
+		EndpointID:                    nil,
+		ConnectionID:                  nil,
+		SelectedTerminalTargetID:      selectedTerminalTargetID,
+		ProxyAPIKeyID:                 proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(proxyKey),
+		IngressRequestID:              ingressRequestID,
+		AttemptNumber:                 1,
+		StatusCode:                    runtimeErr.StatusCode,
+		ResponseTimeMS:                responseTimeMS,
+		IsStream:                      plan.IsStreamingRequest,
+		SuccessFlag:                   false,
+		BillableFlag:                  billableFlag,
+		PricedFlag:                    pricedFlag,
+		UnpricedReason:                unpricedReason,
+		ReportCurrencyCode:            reportCurrencyCode,
+		ReportCurrencySymbol:          reportCurrencySymbol,
+		RequestPath:                   request.URL.Path,
+		CreatedAt:                     requestCompletedAt,
+		CallerUserAgent:               trimmedStringPointer(request.UserAgent()),
+		CompletionDurationMS:          completionDurationMS,
+		StreamOutcome:                 runtimeStreamOutcomeNotStreaming,
+		AuditEnabledAtRequest:         plan.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest:   plan.AuditCaptureBodiesAtRequest,
+		RequestGenerationParams:       requestGenerationSnapshot.Params,
+		RequestGenerationParamsStatus: trimmedStringPointer(requestGenerationSnapshot.Status),
+		ContextRouting:                contextRouting,
+	}
+	usageEvent := usageEventInsert{
+		ProfileID:                plan.ProfileID,
+		IngressRequestID:         ingressRequestID,
+		ModelID:                  plan.RequestedModelID,
+		ResolvedTargetModelID:    resolvedTargetModelID,
+		APIFamily:                plan.APIFamily,
+		OperationName:            strings.TrimSpace(plan.RuntimeOperation.Name),
+		EndpointID:               nil,
+		ConnectionID:             nil,
+		SelectedTerminalTargetID: selectedTerminalTargetID,
+		ProxyAPIKeyID:            proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(proxyKey),
+		StatusCode:               runtimeErr.StatusCode,
+		SuccessFlag:              false,
+		BillableFlag:             billableFlag,
+		PricedFlag:               pricedFlag,
+		UnpricedReason:           unpricedReason,
+		ReportCurrencyCode:       reportCurrencyCode,
+		ReportCurrencySymbol:     reportCurrencySymbol,
+		AttemptCount:             1,
+		RequestPath:              request.URL.Path,
+		CreatedAt:                requestCompletedAt,
+		ResponseTimeMS:           intPtr(responseTimeMS),
+		CompletionDurationMS:     completionDurationMS,
+		StreamOutcome:            runtimeStreamOutcomeNotStreaming,
+		ContextRouting:           contextRouting,
+	}
+	requestLogs := []requestLogInsert{requestLog}
+	return runtimeTelemetryEnvelope{
+		RequestLogs:        requestLogs,
+		UsageEvent:         usageEvent,
+		AccountingEvent:    buildRuntimeAccountingFinalEvent(usageEvent, requestLogs, routeReason, gatewaycore.UsageSourceMissing),
+		AccountingAttempts: buildRuntimeAccountingAttemptEvents(requestLogs, routeReason, gatewaycore.UsageSourceMissing),
+		ProxyKeyUsage:      runtimeProxyKeyUsageSignalFromSnapshot(proxyKey),
 	}
 }
 
@@ -1176,6 +1298,7 @@ func (s *Service) buildRuntimeTelemetryEnvelopeContext(plan requestPlan, result 
 		callerUserAgent:                      trimmedStringPointer(request.UserAgent()),
 		requestGenerationSnapshot:            plan.RequestGenerationParamsSnapshot(),
 		attempts:                             runtimeTelemetryAttempts(plan, result, request, pricingTiming),
+		routeReason:                          runtimeExecutionRouteReason(result.RouteReason),
 		capturedResponseBody:                 runtimeCapturedAuditBody(result.AuditEnabledAtRequest && result.AuditCaptureBodiesAtRequest, responseCapture.AuditBody),
 	}
 }
@@ -1211,6 +1334,7 @@ func (s *Service) buildRuntimeTelemetryPricingTimingContext(plan requestPlan, re
 		reportCurrencySymbol: reportCurrencySymbol,
 		operationName:        strings.TrimSpace(plan.RuntimeOperation.Name),
 		pricingResult:        pricingResult,
+		usageSource:          runtimeUsageSourceFromCapture(responseCapture, usage, streamOutcome),
 		streamErrorKind:      responseCapture.StreamErrorKind,
 		streamErrorDetail:    responseCapture.StreamErrorDetail,
 	}
@@ -1357,7 +1481,7 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 		AuditCaptureBodiesAtRequest:   attempt.attempt.AuditCaptureBodiesAtRequest,
 		RequestGenerationParams:       generationSnapshot.Params,
 		RequestGenerationParamsStatus: trimmedStringPointer(generationSnapshot.Status),
-		ContextRouting:                cloneRuntimeContextRoutingDecision(plan.ContextRouting),
+		ContextRouting:                runtimeContextRoutingWithRouteReason(plan.ContextRouting, telemetry.routeReason, normalizedRuntimeLegacyStrategyType(plan.Strategy)),
 	}
 	if attempt.isFinal {
 		applyRuntimeFinalAttemptTelemetry(&requestLog, telemetry, attempt)
@@ -1402,6 +1526,7 @@ func buildRuntimeAuditLogRows(plan requestPlan, request *http.Request, telemetry
 }
 
 func buildRuntimeAuditLogRow(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext, attempt runtimeTelemetryAttemptContext) auditLogInsert {
+	requestBody := runtimeCapturedAuditRequestBodyForOperation(plan.RuntimeOperation, request.Header.Get("Content-Type"), attempt.attempt.AuditCaptureBodiesAtRequest, attempt.attempt.RequestBody)
 	auditLog := auditLogInsert{
 		RequestLogAttemptNumber:     attempt.attemptNumber,
 		ProfileID:                   plan.ProfileID,
@@ -1414,8 +1539,8 @@ func buildRuntimeAuditLogRow(plan requestPlan, request *http.Request, telemetry 
 		RequestMethod:               request.Method,
 		RequestURL:                  runtimeAuditRequestURL(attempt.attempt.RequestURL, request),
 		RequestHeaders:              marshalAuditHeaders(attempt.attempt.RequestHeaders),
-		RequestBody:                 runtimeCapturedAuditBody(attempt.attempt.AuditCaptureBodiesAtRequest, attempt.attempt.RequestBody),
-		RequestBodyStored:           attempt.attempt.AuditCaptureBodiesAtRequest && len(attempt.attempt.RequestBody) > 0,
+		RequestBody:                 requestBody,
+		RequestBodyStored:           requestBody != nil,
 		ResponseStatus:              attempt.attempt.StatusCode,
 		ResponseHeaders:             marshalAuditHTTPHeaders(attempt.attempt.ResponseHeaders),
 		ResponseBody:                nil,
@@ -1506,10 +1631,104 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		TTFTMS:                   telemetry.ttftMS,
 		StreamOutcome:            telemetry.streamOutcome,
 		StreamErrorKind:          telemetry.streamErrorKind,
-		ContextRouting:           cloneRuntimeContextRoutingDecision(plan.ContextRouting),
+		ContextRouting:           runtimeContextRoutingWithRouteReason(plan.ContextRouting, telemetry.routeReason, normalizedRuntimeLegacyStrategyType(plan.Strategy)),
 	}
 	usageEvent.applyRuntimePricingResult(telemetry.pricingResult)
 	return usageEvent
+}
+
+func buildRuntimeAccountingFinalEvent(event usageEventInsert, requestLogs []requestLogInsert, routeReason gatewaycore.RouteReason, usageSource gatewaycore.UsageSource) gatewayaccounting.Event {
+	finalAuditEnabled, finalAuditCaptureBodies := runtimeAccountingFinalAuditState(requestLogs)
+	accountingEvent, err := gatewayaccounting.NewEvent(gatewayaccounting.Event{
+		Phase:                    gatewayaccounting.EventPhaseFinal,
+		RequestID:                event.IngressRequestID,
+		ProfileID:                event.ProfileID,
+		OperationName:            event.OperationName,
+		APIFamily:                event.APIFamily,
+		RequestedModelID:         event.ModelID,
+		EffectiveModelID:         cloneRuntimeStringPointer(event.ResolvedTargetModelID),
+		EndpointID:               cloneRuntimeIntPointer(event.EndpointID),
+		ConnectionID:             cloneRuntimeIntPointer(event.ConnectionID),
+		SelectedTerminalTargetID: cloneRuntimeIntPointer(event.SelectedTerminalTargetID),
+		AttemptNumber:            event.AttemptCount,
+		Final:                    true,
+		StatusCode:               event.StatusCode,
+		Success:                  event.SuccessFlag,
+		RouteReason:              routeReason,
+		UsageSource:              usageSource,
+		PricingConfigVersionUsed: cloneRuntimeIntPointer(event.PricingConfigVersionUsed),
+		StreamOutcome:            event.StreamOutcome,
+		AuditEnabled:             finalAuditEnabled,
+		AuditCaptureBodies:       finalAuditCaptureBodies,
+		ObservedAt:               event.CreatedAt,
+	})
+	if err != nil {
+		return gatewayaccounting.Event{}
+	}
+	return accountingEvent
+}
+
+func runtimeAccountingFinalAuditState(requestLogs []requestLogInsert) (bool, bool) {
+	if len(requestLogs) == 0 {
+		return false, false
+	}
+	finalLog := requestLogs[len(requestLogs)-1]
+	return finalLog.AuditEnabledAtRequest, finalLog.AuditCaptureBodiesAtRequest
+}
+
+func buildRuntimeAccountingAttemptEvents(requestLogs []requestLogInsert, routeReason gatewaycore.RouteReason, usageSource gatewaycore.UsageSource) []gatewayaccounting.Event {
+	events := make([]gatewayaccounting.Event, 0, len(requestLogs))
+	for index, requestLog := range requestLogs {
+		attemptUsageSource := gatewaycore.UsageSourceMissing
+		if index == len(requestLogs)-1 {
+			attemptUsageSource = usageSource
+		}
+		accountingEvent, err := gatewayaccounting.NewEvent(gatewayaccounting.Event{
+			Phase:                    gatewayaccounting.EventPhaseAttempt,
+			RequestID:                requestLog.IngressRequestID,
+			ProfileID:                requestLog.ProfileID,
+			OperationName:            requestLog.OperationName,
+			APIFamily:                requestLog.APIFamily,
+			RequestedModelID:         requestLog.ModelID,
+			EffectiveModelID:         cloneRuntimeStringPointer(requestLog.ResolvedTargetModelID),
+			EndpointID:               cloneRuntimeIntPointer(requestLog.EndpointID),
+			ConnectionID:             cloneRuntimeIntPointer(requestLog.ConnectionID),
+			SelectedTerminalTargetID: cloneRuntimeIntPointer(requestLog.SelectedTerminalTargetID),
+			AttemptNumber:            requestLog.AttemptNumber,
+			Final:                    index == len(requestLogs)-1,
+			StatusCode:               requestLog.StatusCode,
+			Success:                  requestLog.SuccessFlag,
+			RouteReason:              routeReason,
+			UsageSource:              attemptUsageSource,
+			PricingConfigVersionUsed: cloneRuntimeIntPointer(requestLog.PricingConfigVersionUsed),
+			StreamOutcome:            requestLog.StreamOutcome,
+			AuditEnabled:             requestLog.AuditEnabledAtRequest,
+			AuditCaptureBodies:       requestLog.AuditCaptureBodiesAtRequest,
+			ObservedAt:               requestLog.CreatedAt,
+		})
+		if err != nil {
+			continue
+		}
+		events = append(events, accountingEvent)
+	}
+	return events
+}
+
+func runtimeUsageSourceFromCapture(capture runtimeResponseCapture, usage responseUsage, streamOutcome string) gatewaycore.UsageSource {
+	if capture.UsageSource != "" {
+		return gatewayaccounting.NormalizeUsageSource(capture.UsageSource)
+	}
+	return runtimeUsageSourceFromUsage(usage, streamOutcome)
+}
+
+func runtimeUsageSourceFromUsage(usage responseUsage, streamOutcome string) gatewaycore.UsageSource {
+	if !usage.hasValues() {
+		return gatewaycore.UsageSourceMissing
+	}
+	if runtimeStreamOutcomeIsStreaming(streamOutcome) {
+		return gatewaycore.UsageSourceProviderStreamTerminal
+	}
+	return gatewaycore.UsageSourceProvider
 }
 
 func runtimeResponseTiming(startedAt time.Time, completedAt time.Time, isStream bool, capture runtimeResponseCapture) (*int, *int) {
@@ -1563,6 +1782,18 @@ func runtimeCapturedAuditBody(enabled bool, body []byte) *string {
 		return nil
 	}
 	resolved := string(body)
+	return &resolved
+}
+
+func runtimeCapturedAuditRequestBodyForOperation(operation RuntimeOperation, contentType string, enabled bool, body []byte) *string {
+	if !enabled || len(body) == 0 {
+		return nil
+	}
+	resolvedBody := auditRequestBodyForOperation(body, contentType, operation)
+	if len(resolvedBody) == 0 {
+		return nil
+	}
+	resolved := string(resolvedBody)
 	return &resolved
 }
 
@@ -1652,6 +1883,18 @@ func normalizeRuntimeTelemetryEnvelopeTimestamps(envelope runtimeTelemetryEnvelo
 		envelope.UsageEvent.CreatedAt = envelope.RequestLogs[len(envelope.RequestLogs)-1].CreatedAt
 	} else {
 		envelope.UsageEvent.CreatedAt = envelope.UsageEvent.CreatedAt.UTC()
+	}
+	if len(envelope.AccountingAttempts) > 0 {
+		for index := range envelope.AccountingAttempts {
+			if createdAt, ok := requestCreatedAtByAttempt[envelope.AccountingAttempts[index].AttemptNumber]; ok {
+				envelope.AccountingAttempts[index].ObservedAt = createdAt
+			} else {
+				envelope.AccountingAttempts[index].ObservedAt = envelope.AccountingAttempts[index].ObservedAt.UTC()
+			}
+		}
+	}
+	if !envelope.AccountingEvent.ObservedAt.IsZero() {
+		envelope.AccountingEvent.ObservedAt = envelope.UsageEvent.CreatedAt.UTC()
 	}
 	return envelope
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/bodylimits"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -69,7 +70,6 @@ type Service struct {
 	staticRuntimeProxyConfig      RuntimeProxyConfigSnapshot
 	now                           func() time.Time
 	secretEncryptionKey           string
-	plannerMode                   config.RuntimeRoutingPlannerMode
 	openAITerminalTranslationMode config.OpenAITerminalTranslationMode
 	dashboardUpdates              DashboardUpdatePublisher
 	analyticsUpdates              AnalyticsUpdatePublisher
@@ -140,7 +140,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		staticRuntimeProxyConfig:      RuntimeProxyConfigSnapshot{HTTPClient: client},
 		now:                           now,
 		secretEncryptionKey:           settings.SecretEncryptionKey,
-		plannerMode:                   settings.RoutingPlannerMode(),
 		openAITerminalTranslationMode: settings.ResolvedOpenAITerminalTranslationMode(),
 		dashboardUpdates:              options.DashboardUpdates,
 		analyticsUpdates:              options.AnalyticsUpdates,
@@ -346,13 +345,13 @@ func resolveRuntimeOperationAtIngress(method string, requestPath string) (*Runti
 }
 
 func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
-	ctx, requestSpan := startRuntimeSpan(r.Context(), "runtime.request")
+	ctx, requestSpan := startRuntimeSpan(r.Context(), "request")
 	r = r.WithContext(ctx)
 	defer requestSpan.End()
 	if r.Body != nil {
 		defer func() { _ = r.Body.Close() }()
 	}
-	resolveCtx, resolveSpan := startRuntimeSpan(r.Context(), "runtime.operation.resolve")
+	resolveCtx, resolveSpan := startRuntimeSpan(r.Context(), "operation.resolve")
 	r = r.WithContext(resolveCtx)
 	operationMatch, allowedMethods := resolveRuntimeOperationAtIngress(r.Method, r.URL.Path)
 	if len(allowedMethods) > 0 {
@@ -489,6 +488,7 @@ func (s *Service) handlePlannedProxy(w http.ResponseWriter, r *http.Request, pla
 	}
 	execution, err := s.executeRequest(r.Context(), r.Method, executionPlan, r.URL.RawQuery, executionBodySource)
 	if err != nil {
+		s.recordRuntimeExecutionFailure(executionPlan, execution, r, startedAt, err)
 		runtimeTraceMarkContextError(r.Context(), "runtime_execute_failed")
 		writeDomainError(w, err)
 		return
@@ -498,7 +498,7 @@ func (s *Service) handlePlannedProxy(w http.ResponseWriter, r *http.Request, pla
 }
 
 func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, plan requestPlan, execution executionResult, startedAt time.Time) {
-	ctx, responseSpan := startRuntimeSpan(r.Context(), "runtime.response.handle", runtimeTracePlanAttributes(plan)...)
+	ctx, responseSpan := startRuntimeSpan(r.Context(), "response.handle", runtimeTracePlanAttributes(plan)...)
 	r = r.WithContext(ctx)
 	defer responseSpan.End()
 	proxyWriter := newRuntimeDeferredCommitWriter(w)
@@ -1077,6 +1077,7 @@ func mergeContextOverflowPreselectedPlan(sourcePlan requestPlan, promotedPlan re
 		merged.ContextRouting = promotedPlan.ContextRouting
 	}
 	merged.ContextRouting = attachRuntimeContextOverflowAffinityDecision(merged.ContextRouting, affinityMetadata)
+	merged.ContextRouting = runtimeContextRoutingWithRouteReason(merged.ContextRouting, gatewaycore.RouteReasonContextOverflowPreflight, runtimeContextRoutingPolicyName(sourcePlan.Strategy))
 	merged.SelectedTerminalTargetID = cloneRuntimeIntPointer(sourcePlan.SelectedTerminalTargetID)
 	merged.ContextOverflowPromotionPreselected = true
 	return merged
@@ -1086,6 +1087,7 @@ func mergeContextOverflowPromotedExecution(sourceExecution executionResult, prom
 	merged := promotedExecution
 	merged.Attempts = append(append([]executionAttempt(nil), sourceExecution.Attempts...), promotedExecution.Attempts...)
 	merged.AttemptCount = sourceExecution.AttemptCount + promotedExecution.AttemptCount
+	merged.RouteReason = gatewaycore.RouteReasonContextOverflowProviderFallback
 	if len(merged.Attempts) > 0 {
 		merged.AttemptCount = len(merged.Attempts)
 	}
@@ -1236,6 +1238,7 @@ type runtimeResponseCapture struct {
 	AuditBody                []byte
 	Usage                    responseUsage
 	UsageRule                runtimeUsageNormalizationRule
+	UsageSource              gatewaycore.UsageSource
 	FirstMeaningfulPayloadAt *time.Time
 	CompletedAt              *time.Time
 	StreamOutcome            string
@@ -1262,7 +1265,7 @@ func proxyNonEventResponseAndCaptureUsage(hooks operationResponseHooks, dst io.W
 		}
 		_, err := io.Copy(io.MultiWriter(writers...), src)
 		completedAt := now()
-		capture := runtimeResponseCapture{CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming, UsageRule: hooks.UsageRule}
+		capture := runtimeResponseCapture{CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming, UsageRule: hooks.UsageRule, UsageSource: gatewaycore.UsageSourceMissing}
 		if captureAuditBody {
 			capture.AuditBody = append([]byte(nil), auditBuffer.Bytes()...)
 		}
@@ -1308,6 +1311,7 @@ func (capture *streamedResponseUsageCapture) runtimeResponseCapture(completedAt 
 		Body:          buildUsageBodyFromResponseUsage(usage),
 		Usage:         usage,
 		UsageRule:     capture.parser.rule,
+		UsageSource:   runtimeUsageSourceFromUsage(usage, runtimeStreamOutcomeNotStreaming),
 		CompletedAt:   &completedAt,
 		StreamOutcome: runtimeStreamOutcomeNotStreaming,
 	}
@@ -1686,6 +1690,7 @@ func (capture *sseCompletedResponseCapture) runtimeResponseCapture(classificatio
 		Body:                     body,
 		Usage:                    usage,
 		UsageRule:                capture.streamHooks.UsageRule,
+		UsageSource:              runtimeUsageSourceFromUsage(usage, outcome),
 		FirstMeaningfulPayloadAt: capture.firstPayloadAt,
 		CompletedAt:              capture.completedAt,
 		StreamOutcome:            outcome,

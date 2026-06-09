@@ -690,6 +690,108 @@ func TestRuntimeAuditLogCapturesBodiesThroughTelemetryOutbox(t *testing.T) {
 	}
 }
 
+func TestRuntimeImageEditAuditLogRedactsImageBytes(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE, audit_capture_bodies = TRUE WHERE id = $1`, vendorID); err != nil {
+		t.Fatalf("enable image audit capture for runtime vendor: %v", err)
+	}
+	suffix := randomSuffix()
+	publicModelID := "audit-image-public-" + suffix
+	targetModelID := "audit-image-target-" + suffix
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"created": 1,
+		"data": []map[string]any{{
+			"b64_json": "raw-base64-image-bytes",
+			"url":      "https://images.invalid/audit-edit.png",
+		}},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   targetModelID,
+		EndpointBaseURL: upstream.baseURL("/audit-image-edit"),
+		EndpointAPIKey:  "runtime-audit-image-key",
+	})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`, vendorID, profileID, []string{route.PublicModelID, route.TargetModelID}); err != nil {
+		t.Fatalf("attach runtime models to image audit vendor: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	rawBody, contentType := newRuntimeImageEditMultipartBody(t, route.PublicModelID)
+	response := performRuntimeRawRequest(t, harness, http.MethodPost, "/v1/images/edits", rawBody, contentType)
+	assertStatus(t, response, http.StatusOK)
+	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.images.edits")
+	upstreamRequest := upstream.lastRequest(t)
+	if !bytes.Contains(upstreamRequest.Body, []byte("fake-png-bytes")) {
+		t.Fatalf("expected upstream image edit request to preserve image bytes for provider transport")
+	}
+
+	var requestBody sql.NullString
+	var requestBodyStored bool
+	var responseBody sql.NullString
+	var responseBodyStored bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT request_body, request_body_stored, response_body, response_body_stored FROM audit_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestBody, &requestBodyStored, &responseBody, &responseBodyStored); err != nil {
+		t.Fatalf("load materialized image audit log: %v", err)
+	}
+	if !requestBody.Valid || !requestBodyStored || !responseBody.Valid || !responseBodyStored {
+		t.Fatalf("expected image audit row to store redacted request and response bodies, got request=%+v requestStored=%v response=%+v responseStored=%v", requestBody, requestBodyStored, responseBody, responseBodyStored)
+	}
+	if strings.Contains(requestBody.String, "fake-png-bytes") || !strings.Contains(requestBody.String, route.TargetModelID) || !strings.Contains(requestBody.String, "input.png") {
+		t.Fatalf("expected stored image request audit body to keep metadata but remove raw image bytes, got %q", requestBody.String)
+	}
+	if strings.Contains(responseBody.String, "raw-base64-image-bytes") || !strings.Contains(responseBody.String, "audit-edit.png") {
+		t.Fatalf("expected stored image response audit body to keep metadata but remove base64 image bytes, got %q", responseBody.String)
+	}
+}
+
+func TestRuntimeImageEditAuditLogRedactsImageBytesOnUpstreamError(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE, audit_capture_bodies = TRUE WHERE id = $1`, vendorID); err != nil {
+		t.Fatalf("enable image error audit capture for runtime vendor: %v", err)
+	}
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusBadGateway, map[string]any{
+		"error": map[string]any{
+			"message": "image edit provider failed",
+			"image":   "raw-error-image-bytes",
+		},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "audit-image-error-public-" + suffix,
+		TargetModelID:   "audit-image-error-target-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/audit-image-edit-error"),
+		EndpointAPIKey:  "runtime-audit-image-error-key",
+	})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`, vendorID, profileID, []string{route.PublicModelID, route.TargetModelID}); err != nil {
+		t.Fatalf("attach runtime models to image error audit vendor: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	rawBody, contentType := newRuntimeImageEditMultipartBody(t, route.PublicModelID)
+	response := performRuntimeRawRequest(t, harness, http.MethodPost, "/v1/images/edits", rawBody, contentType)
+	assertStatus(t, response, http.StatusBadGateway)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	var requestBody sql.NullString
+	var responseBody sql.NullString
+	if err := harness.conn.QueryRow(context.Background(), `SELECT request_body, response_body FROM audit_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestBody, &responseBody); err != nil {
+		t.Fatalf("load materialized image error audit log: %v", err)
+	}
+	if !requestBody.Valid || strings.Contains(requestBody.String, "fake-png-bytes") || !strings.Contains(requestBody.String, route.TargetModelID) {
+		t.Fatalf("expected image error request audit body to redact raw multipart bytes and keep target model, got %q", requestBody.String)
+	}
+	if !responseBody.Valid || strings.Contains(responseBody.String, "raw-error-image-bytes") || !strings.Contains(responseBody.String, "image edit provider failed") {
+		t.Fatalf("expected image error response audit body to redact image bytes and keep error metadata, got %q", responseBody.String)
+	}
+}
+
 func TestRuntimeResponsesAuditLogCapturesNonStreamingBodies(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)

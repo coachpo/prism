@@ -139,7 +139,7 @@ func (o *runtimeTelemetryOutbox) EnqueueStreamingAccepted(ctx context.Context, e
 }
 
 func (o *runtimeTelemetryOutbox) FinalizeStreamingAccepted(ctx context.Context, rowID int64, envelope runtimeTelemetryEnvelope) error {
-	ctx, span := startRuntimeSpan(ctx, "runtime.outbox.stream_finalize", runtimeTraceEnvelopeAttributes(envelope)...)
+	ctx, span := startRuntimeSpan(ctx, "outbox.stream_finalize", runtimeTraceEnvelopeAttributes(envelope)...)
 	defer span.End()
 	if rowID <= 0 {
 		runtimeTraceSetEnqueueStatus(span, runtimeOutboxEnqueueFailed)
@@ -203,7 +203,7 @@ func (o *runtimeTelemetryOutbox) FinalizeStreamingAccepted(ctx context.Context, 
 }
 
 func (o *runtimeTelemetryOutbox) enqueue(ctx context.Context, envelope runtimeTelemetryEnvelope) (int64, error) {
-	ctx, span := startRuntimeSpan(ctx, "runtime.outbox.enqueue", runtimeTraceEnvelopeAttributes(envelope)...)
+	ctx, span := startRuntimeSpan(ctx, "outbox.enqueue", runtimeTraceEnvelopeAttributes(envelope)...)
 	defer span.End()
 	if envelope.TraceContext.empty() {
 		envelope.TraceContext = runtimeTraceContextFromContext(ctx)
@@ -335,7 +335,7 @@ func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) 
 			return runtimeTelemetryMaterializationResult{}, fmt.Errorf("decode runtime telemetry outbox row %d: %w", row.ID, err)
 		}
 		materializeCtx := envelope.TraceContext.context(ctx)
-		materializeCtx, materializeSpan := startRuntimeSpan(materializeCtx, "runtime.outbox.materialize", runtimeTraceEnvelopeAttributes(envelope)...)
+		materializeCtx, materializeSpan := startRuntimeSpan(materializeCtx, "outbox.materialize", runtimeTraceEnvelopeAttributes(envelope)...)
 		defer materializeSpan.End()
 		if o.hooks.BeforeMaterialize != nil {
 			if err := o.hooks.BeforeMaterialize(materializeCtx); err != nil {

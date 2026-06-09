@@ -118,7 +118,7 @@ func (p *runtimeFeedbackPipeline) TryEnqueue(event runtimeFeedbackEvent) Runtime
 
 func (p *runtimeFeedbackPipeline) TryEnqueueContext(ctx context.Context, event runtimeFeedbackEvent) RuntimeFeedbackEnqueueResult {
 	ctx = runtimeTraceDetachedContext(ctx)
-	ctx, span := startRuntimeSpan(ctx, "runtime.feedback.enqueue", runtimeTraceFeedbackAttributes(event)...)
+	ctx, span := startRuntimeSpan(ctx, "feedback.enqueue", runtimeTraceFeedbackAttributes(event)...)
 	defer span.End()
 	if event.TraceContext.empty() {
 		event.TraceContext = runtimeTraceContextFromContext(ctx)
@@ -176,7 +176,7 @@ func (p *runtimeFeedbackPipeline) handleScheduledFeedback(ctx context.Context, j
 		return background.JobResult{Status: background.JobSucceeded}
 	}
 	ctx = event.TraceContext.context(ctx)
-	ctx, span := startRuntimeSpan(ctx, "runtime.feedback.write", runtimeTraceFeedbackAttributes(event)...)
+	ctx, span := startRuntimeSpan(ctx, "feedback.write", runtimeTraceFeedbackAttributes(event)...)
 	defer span.End()
 	writeCtx, cancel := context.WithTimeout(ctx, p.options.WriteTimeout)
 	defer cancel()

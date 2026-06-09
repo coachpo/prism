@@ -328,6 +328,14 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 				publicModel: "public-anthropic",
 				targetModel: "target-anthropic",
 			},
+			{
+				name:        "Anthropic Count Tokens",
+				apiFamily:   "anthropic",
+				path:        "/v1/messages/count_tokens",
+				rawBody:     []byte(`{"model":"public-anthropic-count","messages":[],"stream":true}`),
+				publicModel: "public-anthropic-count",
+				targetModel: "target-anthropic-count",
+			},
 		}
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
@@ -351,6 +359,9 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 				}
 				if got := extractModelFromBody(plan.UpstreamBody); got != test.targetModel {
 					t.Fatalf("expected rewritten body model %q, got %q in %s", test.targetModel, got, string(plan.UpstreamBody))
+				}
+				if test.path == "/v1/messages/count_tokens" && plan.IsStreamingRequest {
+					t.Fatalf("expected Anthropic count_tokens to remain non-streaming")
 				}
 			})
 		}
@@ -2578,10 +2589,7 @@ func newRequestPlanUnitService() *Service {
 }
 
 func newEnforcedRequestPlanUnitService() *Service {
-	service := newRequestPlanUnitService()
-	service.plannerMode = config.RuntimeRoutingPlannerModeEnforced
-	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
-	return service
+	return newRequestPlanUnitService()
 }
 
 func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
@@ -2809,5 +2817,25 @@ func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPath
 				t.Fatalf("expected extracted usage %+v, got %+v", test.want, got)
 			}
 		})
+	}
+}
+
+func TestGeminiProxyEventStreamClassifiesReadFailureAfterPartialChunk(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1beta/models/gemini-2.5-pro:streamGenerateContent").Operation
+	readFailure := errors.New("gemini upstream read failed after partial event")
+	partialStream := []byte("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}]}}]}\n\n")
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, &errorAfterReader{payload: partialStream, err: readFailure}, time.Now, false)
+	if !errors.Is(err, readFailure) {
+		t.Fatalf("expected upstream read failure, got %v", err)
+	}
+	if forwarded.String() != string(partialStream) {
+		t.Fatalf("expected partial Gemini chunk to be forwarded before failure, got %q", forwarded.String())
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeUpstreamReadError || capture.StreamErrorKind == nil || *capture.StreamErrorKind != runtimeStreamErrorKindUpstreamReadFailed {
+		t.Fatalf("expected Gemini upstream read error capture, got %+v", capture)
+	}
+	if capture.Usage.hasValues() || capture.CompletedAt != nil {
+		t.Fatalf("expected no completed usage after partial read failure, got %+v", capture)
 	}
 }

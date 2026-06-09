@@ -1,0 +1,15 @@
+{
+  "content_type": "application/json",
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "x-api-key": "<api_key>",
+    "x-route-matrix": "route-matrix-anthropic-count-tokens"
+  },
+  "json_body": {
+    "messages": [{"content": "route matrix anthropic count", "role": "user"}],
+    "model": "<target_model>",
+    "stream": true
+  },
+  "method": "POST",
+  "path": "/route-matrix/anthropic-count-tokens/v1/messages/count_tokens"
+}

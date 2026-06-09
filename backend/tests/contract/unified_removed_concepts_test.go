@@ -70,8 +70,8 @@ var unifiedRemovedConceptTerms = []removedConceptTerm{
 }
 
 var runtimeBufferingRemovedConceptTerms = []removedConceptTerm{
-	removedConceptPhrase("runtime buffering", "runtime.buffering_mode"),
-	removedConceptPhrase("runtime buffering", "runtime.bufferingMode"),
+	removedConceptPhrase("runtime buffering", "buffering_mode"),
+	removedConceptPhrase("runtime buffering", "bufferingMode"),
 	removedConceptIdentifier("runtime buffering", "BufferingMode"),
 	removedConceptIdentifier("runtime buffering", "RuntimeBufferingMode"),
 	removedConceptPhrase("runtime buffering", "configurable buffering mode"),
@@ -84,7 +84,7 @@ var removedConceptAllowedMatchPaths = map[string]struct{}{
 	"backend/internal/httpapi/management/bootstrapconfig":                 {},
 	"backend/internal/httpapi/runtime/runtime_test.go":                    {},
 	"backend/internal/httpapi/runtime":                                    {},
-	"backend/internal/platform/config/bootstrap_management_test.go":      {},
+	"backend/internal/platform/config/bootstrap_management_test.go":       {},
 	"backend/internal/platform/config/bootstrap_apply_test.go":            {},
 	"backend/internal/platform/http/hot_bootstrap_runtime_test.go":        {},
 	"backend/internal/platform/http":                                      {},

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	gatewayaccounting "github.com/coachpo/prism/backend/internal/gateway/accounting"
 	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 )
@@ -99,7 +100,7 @@ func (m *RuntimeSideEffectManager) SubmitRuntimeActivity(intent RuntimeActivityI
 
 func (m *RuntimeSideEffectManager) SubmitRuntimeActivityContext(ctx context.Context, intent RuntimeActivityIntent) RuntimeSideEffectSubmitResult {
 	ctx = runtimeTraceDetachedContext(ctx)
-	ctx, span := startRuntimeSpan(ctx, "runtime.side_effect.submit", runtimeTraceEnvelopeAttributes(intent.Envelope)...)
+	ctx, span := startRuntimeSpan(ctx, "side_effect.submit", runtimeTraceEnvelopeAttributes(intent.Envelope)...)
 	defer span.End()
 	if intent.TraceContext.empty() {
 		intent.TraceContext = runtimeTraceContextFromContext(ctx)
@@ -226,7 +227,7 @@ func (m *RuntimeSideEffectManager) handleRuntimeActivity(ctx context.Context, jo
 		return background.JobResult{Status: background.JobSucceeded}
 	}
 	ctx = intent.TraceContext.context(ctx)
-	ctx, span := startRuntimeSpan(ctx, "runtime.side_effect.commit", runtimeTraceEnvelopeAttributes(intent.Envelope)...)
+	ctx, span := startRuntimeSpan(ctx, "side_effect.commit", runtimeTraceEnvelopeAttributes(intent.Envelope)...)
 	defer span.End()
 	if err := intent.validate(); err != nil {
 		runtimeTraceMarkError(span, "invalid_payload")
@@ -310,6 +311,7 @@ func (intent RuntimeActivityIntent) clone() RuntimeActivityIntent {
 	cloned := intent
 	cloned.Envelope.RequestLogs = append([]requestLogInsert(nil), intent.Envelope.RequestLogs...)
 	cloned.Envelope.AuditLogs = append([]auditLogInsert(nil), intent.Envelope.AuditLogs...)
+	cloned.Envelope.AccountingAttempts = append([]gatewayaccounting.Event(nil), intent.Envelope.AccountingAttempts...)
 	return cloned
 }
 

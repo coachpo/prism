@@ -161,7 +161,7 @@ func TestBuildRequestPlanFromSnapshotReturnsRoutingPlanValidationDomainError(t *
 	}
 }
 
-func TestBuildRequestPlanFromSnapshotWeightedPeerTierUsesPriorityBeforePosition(t *testing.T) {
+func TestBuildRequestPlanFromSnapshotModelPeersPreserveStrategyOrder(t *testing.T) {
 	service := newEnforcedRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
@@ -178,17 +178,20 @@ func TestBuildRequestPlanFromSnapshotWeightedPeerTierUsesPriorityBeforePosition(
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
-		t.Fatalf("build weighted priority-tier request plan: %v", err)
+		t.Fatalf("build strategy-ordered peer request plan: %v", err)
 	}
-	if len(plan.TerminalAttempts) != 1 {
-		t.Fatalf("expected one selected peer terminal path, got %+v", plan.TerminalAttempts)
+	wantModels := []string{"low-priority-openai", "high-priority-openai"}
+	if len(plan.TerminalAttempts) != len(wantModels) {
+		t.Fatalf("expected strategy-ordered peer terminal paths, got %+v", plan.TerminalAttempts)
 	}
-	if got := plan.TerminalAttempts[0].TargetModel.ModelID; got != "high-priority-openai" {
-		t.Fatalf("expected priority tier to select high-priority-openai, got %q", got)
+	for index, wantModelID := range wantModels {
+		if got := plan.TerminalAttempts[index].TargetModel.ModelID; got != wantModelID {
+			t.Fatalf("expected peer attempt %d model %q, got %q", index, wantModelID, got)
+		}
 	}
 }
 
-func TestBuildRequestPlanFromSnapshotWeightedPeerTierExcludesIneligibleWeights(t *testing.T) {
+func TestBuildRequestPlanFromSnapshotModelPeersExcludeIneligibleTargets(t *testing.T) {
 	service := newEnforcedRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
@@ -209,17 +212,17 @@ func TestBuildRequestPlanFromSnapshotWeightedPeerTierExcludesIneligibleWeights(t
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	wantModels := []string{"eligible-first-openai", "eligible-second-openai", "eligible-first-openai", "eligible-second-openai"}
+	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build eligible-only peer request plan: %v", err)
+	}
+	wantModels := []string{"eligible-first-openai", "eligible-second-openai"}
+	if len(plan.TerminalAttempts) != len(wantModels) {
+		t.Fatalf("expected eligible peer attempts only, got %+v", plan.TerminalAttempts)
+	}
 	for index, wantModelID := range wantModels {
-		plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-		if err != nil {
-			t.Fatalf("build eligible-only weighted request plan %d: %v", index, err)
-		}
-		if len(plan.TerminalAttempts) != 1 {
-			t.Fatalf("expected one selected weighted peer attempt on iteration %d, got %+v", index, plan.TerminalAttempts)
-		}
-		if got := plan.TerminalAttempts[0].TargetModel.ModelID; got != wantModelID {
-			t.Fatalf("expected iteration %d selected peer %q, got %q", index, wantModelID, got)
+		if got := plan.TerminalAttempts[index].TargetModel.ModelID; got != wantModelID {
+			t.Fatalf("expected peer attempt %d model %q, got %q", index, wantModelID, got)
 		}
 	}
 }

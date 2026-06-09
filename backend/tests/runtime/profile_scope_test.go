@@ -954,6 +954,47 @@ func TestRuntimeAdmissionSkipsQPSExhaustedConnectionBeforeLaunch(t *testing.T) {
 	if requestModelID(t, requests[0].Body) != targetModelID {
 		t.Fatalf("expected fallback upstream body model %q, got %q", targetModelID, requestModelID(t, requests[0].Body))
 	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, activeProfileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, activeProfileID, "qps_overflow")
+}
+
+func TestRuntimeAdmissionSkipsQPSExhaustedAnthropicConnectionBeforeLaunch(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-anthropic-admission-qps-" + suffix
+	targetModelID := "native-anthropic-admission-qps-" + suffix
+	strategyID := harness.seedAdaptiveStrategy(t, activeProfileID, "runtime-anthropic-admission-qps-"+suffix)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "anthropic", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "anthropic", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	rejectedEndpointID := harness.seedEndpoint(t, activeProfileID, "anthropic-qps-rejected-endpoint-"+suffix, harness.upstream.baseURL("/anthropic/admission/qps-rejected"), "anthropic-qps-rejected-key", 0)
+	eligibleEndpointID := harness.seedEndpoint(t, activeProfileID, "anthropic-qps-eligible-endpoint-"+suffix, harness.upstream.baseURL("/anthropic/admission/qps-eligible"), "anthropic-qps-eligible-key", 1)
+	rejectedConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, rejectedEndpointID, "anthropic-qps-rejected-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, eligibleEndpointID, "anthropic-qps-eligible-connection-"+suffix, nil, nil, 1)
+	qpsLimit := 1
+	harness.updateConnectionAdmissionLimits(t, rejectedConnectionID, &qpsLimit, nil, nil)
+	windowStartedAt := time.Now().UTC()
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:          activeProfileID,
+		ConnectionID:       rejectedConnectionID,
+		WindowStartedAt:    &windowStartedAt,
+		WindowRequestCount: 1,
+		CircuitState:       "closed",
+	})
+
+	harness.upstream.clear()
+	response := harness.requestJSON(t, http.MethodPost, "/v1/messages", map[string]any{"model": publicModelID, "messages": []map[string]any{{"role": "user", "content": "qps admission skip"}}, "max_tokens": 16}, nil)
+	assertStatus(t, response, http.StatusOK)
+	requests := harness.upstream.requestsSnapshot()
+	if len(requests) != 1 || requests[0].Path != "/anthropic/admission/qps-eligible/v1/messages" {
+		t.Fatalf("expected Anthropic QPS overflow to use eligible upstream, got %+v", requests)
+	}
+	if requestModelID(t, requests[0].Body) != targetModelID {
+		t.Fatalf("expected fallback upstream body model %q, got %q", targetModelID, requestModelID(t, requests[0].Body))
+	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, activeProfileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, activeProfileID, "qps_overflow")
 }
 
 func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
@@ -994,9 +1035,17 @@ func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
 	if !strings.Contains(detail, "admission limit 'max_in_flight_non_stream'") {
 		t.Fatalf("expected deterministic admission rejection detail, got %+v", payload)
 	}
+	if got, _ := payload["error"].(string); got != "admission_exhausted" {
+		t.Fatalf("expected typed admission_exhausted error, got %+v", payload)
+	}
+	if got, _ := payload["route_reason"].(string); got != "concurrency_overflow" {
+		t.Fatalf("expected concurrency_overflow route reason, got %+v", payload)
+	}
 	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
 		t.Fatalf("expected no upstream attempts when all connections are admission-rejected, got %d", got)
 	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, activeProfileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, activeProfileID, "concurrency_overflow")
 }
 
 func TestRuntimeLoadBalanceSingleDoesNotFailOverAfterPrimaryFailure(t *testing.T) {
@@ -2168,7 +2217,6 @@ func newRuntimeHarness(tb testing.TB) *runtimeHarness {
 }
 
 func useEnforcedRuntimeRoutingRollout(settings *config.Settings) {
-	settings.RuntimeRoutingPlannerMode = config.RuntimeRoutingPlannerModeEnforced
 	settings.OpenAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
 }
 
@@ -3343,6 +3391,32 @@ func requestModelID(t *testing.T, body []byte) string {
 	}
 	modelID, _ := payload["model"].(string)
 	return modelID
+}
+
+func assertLatestRuntimeRouteReason(t *testing.T, conn *pgx.Conn, profileID int, want string) {
+	t.Helper()
+	assertLatestRuntimeRouteReasonFromTable(t, conn, profileID, "request_logs", want)
+}
+
+func assertLatestRuntimeUsageRouteReason(t *testing.T, conn *pgx.Conn, profileID int, want string) {
+	t.Helper()
+	assertLatestRuntimeRouteReasonFromTable(t, conn, profileID, "usage_request_events", want)
+}
+
+func assertLatestRuntimeRouteReasonFromTable(t *testing.T, conn *pgx.Conn, profileID int, table string, want string) {
+	t.Helper()
+	var rawContextRouting []byte
+	query := fmt.Sprintf(`SELECT COALESCE(context_routing, '{}'::jsonb) FROM %s WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, table)
+	if err := conn.QueryRow(context.Background(), query, profileID).Scan(&rawContextRouting); err != nil {
+		t.Fatalf("load latest runtime context routing from %s for profile %d: %v", table, profileID, err)
+	}
+	var contextRouting map[string]any
+	if err := json.Unmarshal(rawContextRouting, &contextRouting); err != nil {
+		t.Fatalf("decode latest runtime context routing %q: %v", string(rawContextRouting), err)
+	}
+	if got, _ := contextRouting["route_reason"].(string); got != want {
+		t.Fatalf("expected latest runtime route_reason=%q from %s, got %+v", want, table, contextRouting)
+	}
 }
 
 func marshalNullableJSON(tb testing.TB, value any) any {

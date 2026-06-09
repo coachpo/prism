@@ -255,7 +255,7 @@ Auth email delivery for password reset and recovery-email verification is transp
 
 The Startup tab treats `mail.smtp.password` as a secret field. Safe bootstrap payloads show metadata only, and operators should either preserve or replace that secret through the bootstrap update flow or point `mail.smtp.passwordFile` at a local secret file. SMTP transport changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Request timeout is hot-applicable for future provider requests, while side-effects attempt timeout is restart-required. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT.
 
-Routing rollout stays on that same startup-config lane. `runtime.routing.plannerMode` is restart-required and supports `legacy`, `shadow`, and `enforced`; `runtime.routing.openaiTerminalTranslationMode` is restart-required and supports `off` and `safe_only`. `legacy` + `off` is the rollback position. In `shadow`, Prism still serves through the legacy resolver while the compiled planner runs in parallel and records only compact mismatch summaries when the old-vs-new outcomes diverge. Profile bundle export/import remains on `version: 3` during this rollout and does not carry those bootstrap-owned controls.
+The remaining routing startup control stays on that same startup-config lane. `runtime.routing.openaiTerminalTranslationMode` is restart-required and supports `off` and `safe_only`. Profile bundle export/import remains on `version: 3` and does not carry that bootstrap-owned control.
 
 The configuration-operations flow is explicit in both lanes:
 - profile export defaults to the safe redacted bundle at `GET /api/config/profile/export`
@@ -310,26 +310,28 @@ Profile export and import stay selected-profile scoped. `POST /api/config/profil
 
 ## 8. Runtime Proxy Traffic
 
-Runtime auth follows the latest proxy-key snapshot immediately after auth and proxy-key management writes: rotated, retired, or expired keys stop authorizing new `/v1/*` and `/v1beta/*` requests, while the management UI keeps their historical rows visible.
-
+Runtime auth follows the latest proxy-key snapshot immediately after auth and proxy-key management writes: rotated, retired, or expired keys stop authorizing new supported `/v1` and `/v1beta` runtime operations, while the management UI keeps their historical rows visible.
 
 **User entrypoints**
 
-- External clients calling Prism on `/v1/*` or `/v1beta/*`
+- External clients calling one of the operation-registered runtime routes listed below
 
 **Runtime flow**
 
-1. The incoming request resolves a model from the request body or Gemini path.
-2. Models resolve ordered access targets through same-family model links until a terminal private connection is reached.
-3. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
-4. The upstream request is rewritten as needed for the target API family, then proxied through.
-5. Request logs, audit data, and loadbalance events are recorded for later operator investigation.
-6. Missing pricing stays visibly degraded or unpriced, it never silently looks complete.
+1. The operation registry resolves an exact `POST` route before provider transport, telemetry, audit, feedback, or side effects.
+2. Provider adapters parse provider-specific payloads, build upstream requests, adapt responses, classify streams, and extract usage.
+3. Models resolve ordered access targets through same-family model links until a terminal private connection is reached.
+4. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
+5. The shared runtime/gateway owns admission, routing, accounting, telemetry, audit persistence, pricing, feedback, and side-effect handoff.
+6. After the first downstream byte or event on a stream, no retry, redirect, context-overflow fallback, or hedge replay can start.
+7. Missing pricing stays visibly degraded or unpriced, it never silently looks complete.
 
 **Backend touchpoints**
 
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `POST /v1/responses/input_tokens`
+- `POST /v1/responses/compact`
 - `POST /v1/images/generations`
 - `POST /v1/images/edits`
 - `POST /v1/messages`
@@ -338,7 +340,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 - `POST /v1beta/models/{model}:streamGenerateContent`
 - `POST /v1beta/models/{model}:countTokens`
 
-These routes are allowlisted in `backend/internal/httpapi/runtime/operations.go` and implemented by the shared runtime helpers under `backend/internal/httpapi/runtime/`, and they are intentionally separate from `/api/*` management routes.
+These 11 `POST` routes are allowlisted in `backend/internal/httpapi/runtime/operations.go` and are intentionally separate from `/api/*` management routes. Prism does not treat `/v1` or `/v1beta` as catch-all prefixes.
 
 ## 9. Priority Operations Runbook
 

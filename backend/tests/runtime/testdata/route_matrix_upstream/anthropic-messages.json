@@ -1,0 +1,16 @@
+{
+  "content_type": "application/json",
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "x-api-key": "<api_key>",
+    "x-route-matrix": "route-matrix-anthropic-messages"
+  },
+  "json_body": {
+    "max_tokens": 64,
+    "messages": [{"content": "route matrix anthropic", "role": "user"}],
+    "model": "<target_model>",
+    "temperature": 0.33
+  },
+  "method": "POST",
+  "path": "/route-matrix/anthropic-messages/v1/messages"
+}

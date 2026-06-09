@@ -63,7 +63,7 @@ func TestNonStreamResponseHooksByOperation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.requestPath).Operation
-			hooks, ok := ResponseHooksForOperation(operation)
+			hooks, ok := responseHooksForOperation(operation)
 			if !ok {
 				t.Fatalf("expected response hooks for %s", operation.Name)
 			}

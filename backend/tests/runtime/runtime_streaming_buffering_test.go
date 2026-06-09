@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 )
 
 const runtimeStreamingAssertionDeadline = 500 * time.Millisecond
@@ -457,4 +459,169 @@ func (u *arrivalRecordingUpstream) waitForRequestBody(t *testing.T, timeout time
 
 func (u *arrivalRecordingUpstream) close() {
 	u.server.Close()
+}
+
+func TestRuntimeStreamingDoesNotRetryAfterFirstEvent(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "no-retry-stream-public-" + suffix
+	var primaryMu sync.Mutex
+	primaryRequests := 0
+	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
+		primaryMu.Lock()
+		primaryRequests++
+		primaryMu.Unlock()
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("streaming upstream writer does not support flushing")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-no-retry-stream\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n")
+		flusher.Flush()
+	}))
+	defer primaryUpstream.Close()
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-stream-secondary"})
+
+	seedRetryPolicyNativeRoute(t, harness, profileID, modelID, primaryUpstream.URL+"/retry/stream/primary", secondaryUpstream.baseURL("/retry/stream/secondary"))
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "stream must not retry after first event"}},
+		"model":    modelID,
+		"stream":   true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if !strings.Contains(body, "partial") {
+		t.Fatalf("expected partial streaming payload, got %q", body)
+	}
+	primaryMu.Lock()
+	gotPrimary := primaryRequests
+	primaryMu.Unlock()
+	if gotPrimary != 1 {
+		t.Fatalf("expected primary stream to receive one request, got %d", gotPrimary)
+	}
+	assertNoScriptedUpstreamRequests(t, secondaryUpstream, "post-commit stream retry candidate")
+}
+
+func TestRuntimeAnthropicStreamingDoesNotRetryAfterFirstEvent(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "no-retry-anthropic-stream-public-" + suffix
+	var primaryMu sync.Mutex
+	primaryRequests := 0
+	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
+		primaryMu.Lock()
+		primaryRequests++
+		primaryMu.Unlock()
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("streaming upstream writer does not support flushing")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial anthropic\"}}\n\n")
+		flusher.Flush()
+	}))
+	defer primaryUpstream.Close()
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "msg-stream-secondary", "type": "message"})
+
+	seedRetryPolicyAnthropicRoute(t, harness, profileID, modelID, primaryUpstream.URL+"/retry/anthropic-stream/primary", secondaryUpstream.baseURL("/retry/anthropic-stream/secondary"))
+	response := harness.requestJSON(t, http.MethodPost, "/v1/messages", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "stream must not retry after Anthropic first event"}},
+		"model":    modelID,
+		"stream":   true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if !strings.Contains(body, "partial anthropic") {
+		t.Fatalf("expected partial Anthropic streaming payload, got %q", body)
+	}
+	primaryMu.Lock()
+	gotPrimary := primaryRequests
+	primaryMu.Unlock()
+	if gotPrimary != 1 {
+		t.Fatalf("expected primary Anthropic stream to receive one request, got %d", gotPrimary)
+	}
+	assertNoScriptedUpstreamRequests(t, secondaryUpstream, "post-commit Anthropic stream retry candidate")
+}
+
+func TestRuntimeGeminiStreamingDoesNotRetryAfterPartialReadFailure(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "no-retry-gemini-stream-public-" + suffix
+	var primaryMu sync.Mutex
+	primaryRequests := 0
+	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
+		primaryMu.Lock()
+		primaryRequests++
+		primaryMu.Unlock()
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("streaming upstream writer does not support flushing")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial gemini\"}]}}]}\n\n")
+		flusher.Flush()
+	}))
+	defer primaryUpstream.Close()
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"responseId": "gemini-stream-secondary"})
+
+	seedRetryPolicyGeminiRoute(t, harness, profileID, modelID, primaryUpstream.URL+"/retry/gemini-stream/primary", secondaryUpstream.baseURL("/retry/gemini-stream/secondary"))
+	response := harness.requestJSON(t, http.MethodPost, "/v1beta/models/"+modelID+":streamGenerateContent", map[string]any{
+		"contents": []map[string]any{{"role": "user", "parts": []map[string]any{{"text": "stream must not retry after Gemini partial event"}}}},
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if !strings.Contains(body, "partial gemini") {
+		t.Fatalf("expected partial Gemini streaming payload, got %q", body)
+	}
+	primaryMu.Lock()
+	gotPrimary := primaryRequests
+	primaryMu.Unlock()
+	if gotPrimary != 1 {
+		t.Fatalf("expected primary Gemini stream to receive one request, got %d", gotPrimary)
+	}
+	assertNoScriptedUpstreamRequests(t, secondaryUpstream, "post-commit Gemini stream retry candidate")
+}
+
+func seedRetryPolicyAnthropicRoute(t *testing.T, harness *runtimeHarness, profileID int, modelID string, primaryBaseURL string, secondaryBaseURL string) {
+	t.Helper()
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	strategyID := harness.seedLegacyStrategy(t, profileID, "retry-policy-anthropic-"+randomSuffix(), "fill-first")
+	modelConfigID := harness.seedModel(t, profileID, "anthropic", modelID, "native", &strategyID)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-anthropic-primary-"+randomSuffix(), primaryBaseURL, "retry-policy-anthropic-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-anthropic-secondary-"+randomSuffix(), secondaryBaseURL, "retry-policy-anthropic-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "retry-policy-anthropic-primary-connection-"+randomSuffix(), nil, nil, 0)
+	secondaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "retry-policy-anthropic-secondary-connection-"+randomSuffix(), nil, nil, 1)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, secondaryConnectionID, 16_384, 1_024, 1.0)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	harness.runtimeService.RuntimeState().ResetProfile(profileID)
+}
+
+func seedRetryPolicyGeminiRoute(t *testing.T, harness *runtimeHarness, profileID int, modelID string, primaryBaseURL string, secondaryBaseURL string) {
+	t.Helper()
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	strategyID := harness.seedLegacyStrategy(t, profileID, "retry-policy-gemini-"+randomSuffix(), "fill-first")
+	modelConfigID := harness.seedModel(t, profileID, "gemini", modelID, "native", &strategyID)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-gemini-primary-"+randomSuffix(), primaryBaseURL, "retry-policy-gemini-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-gemini-secondary-"+randomSuffix(), secondaryBaseURL, "retry-policy-gemini-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "retry-policy-gemini-primary-connection-"+randomSuffix(), nil, nil, 0)
+	secondaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "retry-policy-gemini-secondary-connection-"+randomSuffix(), nil, nil, 1)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, secondaryConnectionID, 16_384, 1_024, 1.0)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 }

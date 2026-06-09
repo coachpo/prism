@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
+	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 )
 
@@ -174,6 +175,28 @@ func TestRuntimeResponseTelemetryEnvelopeCharacterizesFinalAttemptRows(t *testin
 	assertRuntimeIntPtr(t, usageEvent.TTFTMS, 225, "usage event ttft")
 	if usageEvent.StreamOutcome != runtimeStreamOutcomeCompleted || usageEvent.UnpricedReason != nil || !usageEvent.CreatedAt.Equal(completedAt) {
 		t.Fatalf("expected final usage event telemetry, got %+v", usageEvent)
+	}
+	if len(envelope.AccountingAttempts) != 2 {
+		t.Fatalf("expected two accounting attempts, got %d", len(envelope.AccountingAttempts))
+	}
+	accountingEvent := envelope.AccountingEvent
+	if accountingEvent.RequestID != usageEvent.IngressRequestID || accountingEvent.OperationName != usageEvent.OperationName || accountingEvent.RequestedModelID != usageEvent.ModelID || accountingEvent.StatusCode != usageEvent.StatusCode || !accountingEvent.Final || accountingEvent.AttemptNumber != usageEvent.AttemptCount {
+		t.Fatalf("expected final accounting event to mirror usage provenance, got %+v usage=%+v", accountingEvent, usageEvent)
+	}
+	assertRuntimeStringPtr(t, accountingEvent.EffectiveModelID, resolvedModelID, "accounting effective model")
+	assertRuntimeIntPtr(t, accountingEvent.ConnectionID, secondaryConnection.ID, "accounting final connection")
+	assertRuntimeIntPtr(t, accountingEvent.EndpointID, secondaryConnection.Endpoint.ID, "accounting final endpoint")
+	assertRuntimeIntPtr(t, accountingEvent.PricingConfigVersionUsed, 3, "accounting pricing version")
+	if accountingEvent.RouteReason != gatewaycore.RouteReasonDirectMatch || accountingEvent.UsageSource != gatewaycore.UsageSourceProviderStreamTerminal || accountingEvent.StreamOutcome != runtimeStreamOutcomeCompleted || !accountingEvent.AuditEnabled || !accountingEvent.AuditCaptureBodies || !accountingEvent.ObservedAt.Equal(completedAt) {
+		t.Fatalf("unexpected final accounting provenance: %+v", accountingEvent)
+	}
+	firstAccountingAttempt := envelope.AccountingAttempts[0]
+	finalAccountingAttempt := envelope.AccountingAttempts[1]
+	if firstAccountingAttempt.AttemptNumber != 1 || firstAccountingAttempt.StatusCode != http.StatusServiceUnavailable || firstAccountingAttempt.UsageSource != gatewaycore.UsageSourceMissing || firstAccountingAttempt.Final || !firstAccountingAttempt.AuditEnabled || !firstAccountingAttempt.AuditCaptureBodies || !firstAccountingAttempt.ObservedAt.Equal(primaryCompletedAt) {
+		t.Fatalf("unexpected first accounting attempt: %+v", firstAccountingAttempt)
+	}
+	if finalAccountingAttempt.AttemptNumber != 2 || finalAccountingAttempt.StatusCode != http.StatusOK || finalAccountingAttempt.UsageSource != gatewaycore.UsageSourceProviderStreamTerminal || !finalAccountingAttempt.Final || finalAccountingAttempt.StreamOutcome != runtimeStreamOutcomeCompleted || !finalAccountingAttempt.ObservedAt.Equal(completedAt) {
+		t.Fatalf("unexpected final accounting attempt: %+v", finalAccountingAttempt)
 	}
 	if envelope.ProxyKeyUsage == nil || envelope.ProxyKeyUsage.KeyID != 77 || envelope.ProxyKeyUsage.LastUsedIP != "198.51.100.10" || !envelope.ProxyKeyUsage.LastUsedAt.Equal(proxyKeyLastUsedAt) {
 		t.Fatalf("expected proxy key usage signal to survive durable envelope construction, got %+v", envelope.ProxyKeyUsage)

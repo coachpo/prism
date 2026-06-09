@@ -66,6 +66,23 @@ func (plan *runtimeRoutingPlan) orderedPeerTiersForModel(model runtimeModelRecor
 	return cloneRuntimeRoutingPlanPeerTiers(compiled.PeerTiers)
 }
 
+func (plan *runtimeRoutingPlan) orderedModelTargetsForStrategy(profileID int, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, cursor runtimeRoundRobinTargetCursor) []runtimeAccessTargetRecord {
+	if plan == nil {
+		return nil
+	}
+	compiled, ok := plan.ModelsByConfigID[model.ID]
+	if !ok {
+		return nil
+	}
+	ordered := make([]runtimeAccessTargetRecord, 0, len(compiled.OrderedEnabledTargets))
+	for _, target := range compiled.OrderedEnabledTargets {
+		if target.TargetType == runtimeAccessTargetTypeModel {
+			ordered = append(ordered, target)
+		}
+	}
+	return orderRuntimeRoutingPlanTargetsForStrategy(profileID, model.ID, strategy, ordered, cursor)
+}
+
 func (plan *runtimeRoutingPlan) orderedTerminalTargetsForModel(model runtimeModelRecord) []runtimeAccessTargetRecord {
 	if plan == nil {
 		return nil

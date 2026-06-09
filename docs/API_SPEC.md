@@ -112,7 +112,7 @@ GET is a read of the managed file plus the live applied baseline. Current respon
 }
 ```
 
-The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied. Runtime buffering is automatic and not user-configurable. The same bootstrap contract also owns the temporary restart-required rollout controls `runtime.routing.plannerMode` (`legacy`, `shadow`, `enforced`) and `runtime.routing.openaiTerminalTranslationMode` (`off`, `safe_only`). `legacy` + `off` is the rollback position; `shadow` keeps serving through the legacy resolver while the compiled planner runs in parallel and persists only compact mismatch summaries when the two outcomes diverge.
+The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied. Runtime buffering is automatic and not user-configurable. The same bootstrap contract also owns the restart-required OpenAI terminal translation control `runtime.routing.openaiTerminalTranslationMode` (`off`, `safe_only`).
 
 Raw runtime startup config uses camelCase JSON field names in the file:
 
@@ -1557,6 +1557,8 @@ Runtime proxy routes ignore management `X-Profile-Id` overrides and always use t
 |---|---|---|
 | OpenAI chat completions | `openai.chat_completions` | `POST /v1/chat/completions` |
 | OpenAI Responses | `openai.responses` | `POST /v1/responses` |
+| OpenAI Responses input tokens | `openai.responses.input_tokens` | `POST /v1/responses/input_tokens` |
+| OpenAI Responses compact | `openai.responses.compact` | `POST /v1/responses/compact` |
 | OpenAI image generations | `openai.images.generations` | `POST /v1/images/generations` |
 | OpenAI image edits | `openai.images.edits` | `POST /v1/images/edits` |
 | Anthropic Messages | `anthropic.messages` | `POST /v1/messages` |
@@ -1668,6 +1670,20 @@ Request (OpenAI Responses generation format):
 }
 ```
 Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses`.
+
+#### Responses Input Tokens
+```
+POST /v1/responses/input_tokens
+```
+Request uses the OpenAI Responses input-token counting format, including body-bound `model` and `input`.
+Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses.input_tokens`.
+
+#### Responses Compact
+```
+POST /v1/responses/compact
+```
+Request uses the OpenAI Responses compaction format, including body-bound `model` and `input`.
+Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses.compact`.
 
 #### Image Generations
 ```

@@ -11,12 +11,14 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/platform/background"
-	"github.com/coachpo/prism/backend/internal/platform/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	gatewayaccounting "github.com/coachpo/prism/backend/internal/gateway/accounting"
+	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 )
 
 type runtimeTracingRoundTripper func(*http.Request) (*http.Response, error)
@@ -49,27 +51,27 @@ func TestRuntimeTracingCoversStreamingAndNonStreaming(t *testing.T) {
 
 	spans := recorder.Ended()
 	for _, name := range []string{
-		"runtime.request",
-		"runtime.operation.resolve",
-		"runtime.request.plan",
-		"runtime.request.execute",
-		"runtime.connection.attempt",
-		"runtime.provider.http",
-		"runtime.response.handle",
-		"runtime.activity.record",
-		"runtime.side_effect.submit",
+		"request",
+		"operation.resolve",
+		"request.plan",
+		"request.execute",
+		"connection.attempt",
+		"provider.http",
+		"response.handle",
+		"activity.record",
+		"side_effect.submit",
 	} {
 		if !runtimeTraceSpanExists(spans, name) {
 			t.Fatalf("expected runtime tracing span %q; got %v", name, runtimeTraceSpanNames(spans))
 		}
 	}
-	assertRuntimeTraceSpanWithAttribute(t, spans, "runtime.response.handle", runtimeTraceAttrStreamOutcome, runtimeStreamOutcomeCompleted)
-	assertRuntimeTraceSpanWithAttribute(t, spans, "runtime.response.handle", runtimeTraceAttrStreamOutcome, runtimeStreamOutcomeNotStreaming)
+	assertRuntimeTraceSpanWithAttribute(t, spans, "response.handle", runtimeTraceAttrStreamOutcome, runtimeStreamOutcomeCompleted)
+	assertRuntimeTraceSpanWithAttribute(t, spans, "response.handle", runtimeTraceAttrStreamOutcome, runtimeStreamOutcomeNotStreaming)
 }
 
 func TestRuntimeTracingPropagatesToOutboxAndFeedback(t *testing.T) {
 	recorder := installRuntimeTraceTestProvider(t)
-	rootCtx, rootSpan := otel.Tracer(runtimeMetricScopeName).Start(context.Background(), "runtime.trace.root")
+	rootCtx, rootSpan := otel.Tracer(runtimeMetricScopeName).Start(context.Background(), "trace.root")
 	terminalFailures := make(chan error, 1)
 	sideEffectScheduler := backgroundSchedulerForRuntimeTracing(t)
 	manager := NewRuntimeSideEffectManager(nil, RuntimeSideEffectOptions{
@@ -128,12 +130,12 @@ func TestRuntimeTracingPropagatesToOutboxAndFeedback(t *testing.T) {
 	}
 	rootSpan.End()
 
-	spans := waitForRuntimeTraceSpans(t, recorder, "runtime.side_effect.submit", "runtime.side_effect.commit", "runtime.outbox.enqueue", "runtime.feedback.enqueue", "runtime.feedback.write", "runtime.trace.root")
-	root := runtimeTraceSpanByName(spans, "runtime.trace.root")
+	spans := waitForRuntimeTraceSpans(t, recorder, "side_effect.submit", "side_effect.commit", "outbox.enqueue", "feedback.enqueue", "feedback.write", "trace.root")
+	root := runtimeTraceSpanByName(spans, "trace.root")
 	if root == nil {
 		t.Fatalf("expected root span; got %v", runtimeTraceSpanNames(spans))
 	}
-	for _, name := range []string{"runtime.side_effect.submit", "runtime.side_effect.commit", "runtime.outbox.enqueue", "runtime.feedback.enqueue", "runtime.feedback.write"} {
+	for _, name := range []string{"side_effect.submit", "side_effect.commit", "outbox.enqueue", "feedback.enqueue", "feedback.write"} {
 		span := runtimeTraceSpanByName(spans, name)
 		if span == nil {
 			t.Fatalf("expected propagated async span %q; got %v", name, runtimeTraceSpanNames(spans))
@@ -155,7 +157,7 @@ func TestRuntimeTracingRedactsSensitiveAttributes(t *testing.T) {
 	})}
 	service := newRuntimeTracingExecutionService(client)
 	executeRuntimeTracingPlan(t, service, client, "/v1/chat/completions", "openai", "secret-model-id", `{"model":"secret-model-id","messages":[{"role":"user","content":"prompt body leaked super-secret"}]}`)
-	_, synthetic := startRuntimeSpan(context.Background(), "runtime.redaction.synthetic",
+	_, synthetic := startRuntimeSpan(context.Background(), "redaction.synthetic",
 		runtimeTraceEnvelopeAttributes(runtimeTelemetryEnvelope{UsageEvent: usageEventInsert{OperationName: "https://upstream.example/v1/chat/completions?api_key=secret", APIFamily: "raw-url", StatusCode: 599, StreamOutcome: "prompt body leaked", UpstreamOperationName: stringPtr("https://upstream.example/v1/chat/completions?api_key=secret"), OperationTranslationMode: stringPtr("super-secret"), UpstreamRequestPath: stringPtr("/v1beta/models/secret-model-id:generateContent")}})...,
 	)
 	synthetic.SetAttributes(runtimeTraceFeedbackAttributes(runtimeFeedbackEvent{Kind: runtimeFeedbackKind("provider error text"), APIFamily: "Bearer secret-token"})...)
@@ -189,12 +191,10 @@ func TestRuntimeTracingTranslationAttributes(t *testing.T) {
 		SelectedUsableContextWindowTokens: intPtr(8192),
 		PlannerTrace: &runtimePlannerTraceDecision{
 			PlannerVersion:         runtimePlannerTraceVersion,
-			PlannerMode:            string(config.RuntimeRoutingPlannerModeShadow),
 			Decision:               runtimePlannerTraceDecisionSelected,
 			Policy:                 "cheapest_eligible_context",
 			SelectedTierPriority:   intPtr(4),
 			SkippedTerminalTargets: 2,
-			ShadowComparisonResult: &runtimeShadowComparisonResult{Result: runtimeShadowComparisonResultMismatch, MismatchReasons: []string{"resolved_model", "selected_connection"}},
 		},
 	}
 	translatedPlan := requestPlan{
@@ -209,21 +209,24 @@ func TestRuntimeTracingTranslationAttributes(t *testing.T) {
 		}},
 	}
 	translatedAttrs := attributesByKey(runtimeTracePlanAttributes(translatedPlan))
-	if translatedAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 || translatedAttrs[runtimeTraceAttrPlannerVersion].AsString() != runtimePlannerTraceVersion || translatedAttrs[runtimeTraceAttrPlannerMode].AsString() != string(config.RuntimeRoutingPlannerModeShadow) || translatedAttrs[runtimeTraceAttrPlannerDecision].AsString() != runtimePlannerTraceDecisionSelected || translatedAttrs[runtimeTraceAttrPlannerPolicy].AsString() != "cheapest_eligible_context" || translatedAttrs[runtimeTraceAttrPlannerSelectedTier].AsInt64() != 4 || translatedAttrs[runtimeTraceAttrPlannerSkippedTargets].AsInt64() != 2 || translatedAttrs[runtimeTraceAttrShadowComparisonResult].AsString() != runtimeShadowComparisonResultMismatch || translatedAttrs[runtimeTraceAttrShadowMismatchReasons].AsString() != "resolved_model,selected_connection" {
+	if translatedAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 || translatedAttrs[runtimeTraceAttrPlannerVersion].AsString() != runtimePlannerTraceVersion || translatedAttrs[runtimeTraceAttrPlannerDecision].AsString() != runtimePlannerTraceDecisionSelected || translatedAttrs[runtimeTraceAttrPlannerPolicy].AsString() != "cheapest_eligible_context" || translatedAttrs[runtimeTraceAttrPlannerSelectedTier].AsInt64() != 4 || translatedAttrs[runtimeTraceAttrPlannerSkippedTargets].AsInt64() != 2 {
 		t.Fatalf("expected translated plan trace attributes, got %+v", translatedAttrs)
 	}
 
-	translatedEnvelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(runtimeTelemetryEnvelope{UsageEvent: usageEventInsert{
-		OperationName:            "openai.responses",
-		UpstreamOperationName:    stringPtr("openai.chat_completions"),
-		OperationTranslationMode: stringPtr(string(TranslationModeOpenAIResponsesToChatCompletions)),
-		UpstreamRequestPath:      stringPtr("/v1/chat/completions"),
-		APIFamily:                "openai",
-		StatusCode:               http.StatusOK,
-		StreamOutcome:            runtimeStreamOutcomeNotStreaming,
-		ContextRouting:           translatedContextRouting,
-	}}))
-	if translatedEnvelopeAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedEnvelopeAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedEnvelopeAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedEnvelopeAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedEnvelopeAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedEnvelopeAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 {
+	translatedEnvelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(runtimeTelemetryEnvelope{
+		UsageEvent: usageEventInsert{
+			OperationName:            "openai.responses",
+			UpstreamOperationName:    stringPtr("openai.chat_completions"),
+			OperationTranslationMode: stringPtr(string(TranslationModeOpenAIResponsesToChatCompletions)),
+			UpstreamRequestPath:      stringPtr("/v1/chat/completions"),
+			APIFamily:                "openai",
+			StatusCode:               http.StatusOK,
+			StreamOutcome:            runtimeStreamOutcomeNotStreaming,
+			ContextRouting:           translatedContextRouting,
+		},
+		AccountingEvent: gatewayaccounting.Event{RouteReason: gatewaycore.RouteReasonRetry429, UsageSource: gatewaycore.UsageSourceProvider, PricingConfigVersionUsed: intPtr(9)},
+	}))
+	if translatedEnvelopeAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedEnvelopeAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedEnvelopeAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedEnvelopeAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedEnvelopeAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedEnvelopeAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 || translatedEnvelopeAttrs[runtimeTraceAttrRouteReason].AsString() != string(gatewaycore.RouteReasonRetry429) || translatedEnvelopeAttrs[runtimeTraceAttrUsageSource].AsString() != string(gatewaycore.UsageSourceProvider) || translatedEnvelopeAttrs[runtimeTraceAttrPricingConfigVersionUsed].AsInt64() != 9 {
 		t.Fatalf("expected translated envelope trace attributes, got %+v", translatedEnvelopeAttrs)
 	}
 

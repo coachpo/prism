@@ -1,12 +1,10 @@
 package runtime
 
 import (
-	"bytes"
-	"io"
-	"mime"
-	"mime/multipart"
-	"net/textproto"
-	"strings"
+	"context"
+
+	"github.com/coachpo/prism/backend/internal/gateway/provider"
+	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
 )
 
 const (
@@ -21,8 +19,8 @@ const (
 	operationMediaRequestKindImageEdit       operationMediaRequestKind = "image_edit"
 )
 
-type operationMediaModelExtractor func([]byte, string) string
-type operationMediaModelRewriter func([]byte, string, string) []byte
+type operationMediaModelExtractor func([]byte, string, RuntimeOperation) string
+type operationMediaModelRewriter func([]byte, string, RuntimeOperation, string) []byte
 
 type operationMediaHooks struct {
 	Provider     string
@@ -35,14 +33,14 @@ var operationMediaHooksByCollectionID = map[string]operationMediaHooks{
 	runtimeHookCollectionOpenAIImagesGeneration: {
 		Provider:     "openai",
 		RequestKind:  operationMediaRequestKindImageGeneration,
-		ExtractModel: extractOpenAIImageGenerationModel,
-		RewriteModel: rewriteModelInBodyForMediaJSON,
+		ExtractModel: extractOpenAIImageModelViaAdapter,
+		RewriteModel: rewriteOpenAIImageModelViaAdapter,
 	},
 	runtimeHookCollectionOpenAIImagesEdit: {
 		Provider:     "openai",
 		RequestKind:  operationMediaRequestKindImageEdit,
-		ExtractModel: extractOpenAIImageEditModel,
-		RewriteModel: rewriteOpenAIImageEditModel,
+		ExtractModel: extractOpenAIImageModelViaAdapter,
+		RewriteModel: rewriteOpenAIImageModelViaAdapter,
 	},
 }
 
@@ -57,124 +55,52 @@ func mediaHooksForOperation(operation RuntimeOperation) (operationMediaHooks, bo
 
 func extractModelFromBodyForOperation(rawBody []byte, contentType string, operation RuntimeOperation) string {
 	if hooks, ok := mediaHooksForOperation(operation); ok && hooks.ExtractModel != nil {
-		return hooks.ExtractModel(rawBody, contentType)
+		return hooks.ExtractModel(rawBody, contentType, operation)
 	}
 	return extractModelFromBody(rawBody)
 }
 
 func rewriteModelInBodyForOperation(rawBody []byte, contentType string, operation RuntimeOperation, targetModelID string) []byte {
 	if hooks, ok := mediaHooksForOperation(operation); ok && hooks.RewriteModel != nil {
-		return hooks.RewriteModel(rawBody, contentType, targetModelID)
+		return hooks.RewriteModel(rawBody, contentType, operation, targetModelID)
 	}
 	return rewriteModelInBody(rawBody, targetModelID)
 }
 
-func extractOpenAIImageGenerationModel(rawBody []byte, _ string) string {
-	return extractModelFromBody(rawBody)
+func extractOpenAIImageModelViaAdapter(rawBody []byte, contentType string, operation RuntimeOperation) string {
+	adapter := openai.New()
+	modelID, err := adapter.ExtractImageModel(context.Background(), provider.MediaRequest{
+		Operation:   providerOperationFromRuntime(operation),
+		RawBody:     rawBody,
+		ContentType: contentType,
+	})
+	if err != nil {
+		return ""
+	}
+	return modelID
 }
 
-func rewriteModelInBodyForMediaJSON(rawBody []byte, _ string, targetModelID string) []byte {
-	return rewriteModelInBody(rawBody, targetModelID)
+func rewriteOpenAIImageModelViaAdapter(rawBody []byte, contentType string, operation RuntimeOperation, targetModelID string) []byte {
+	adapter := openai.New()
+	media, err := adapter.HandleMedia(context.Background(), provider.MediaRequest{
+		Operation:     providerOperationFromRuntime(operation),
+		RawBody:       rawBody,
+		ContentType:   contentType,
+		TargetModelID: targetModelID,
+	})
+	if err != nil || len(media.RewrittenBody) == 0 {
+		return append([]byte(nil), rawBody...)
+	}
+	return media.RewrittenBody
 }
 
-func extractOpenAIImageEditModel(rawBody []byte, contentType string) string {
-	if boundary := multipartBoundary(contentType); boundary != "" {
-		return extractMultipartFormValue(rawBody, boundary, "model")
+func auditRequestBodyForOperation(rawBody []byte, contentType string, operation RuntimeOperation) []byte {
+	if hooks, ok := mediaHooksForOperation(operation); ok && hooks.Provider == "openai" {
+		return openai.RedactImageRequestAuditBody(rawBody, contentType)
 	}
-	return extractModelFromBody(rawBody)
-}
-
-func rewriteOpenAIImageEditModel(rawBody []byte, contentType string, targetModelID string) []byte {
-	boundary := multipartBoundary(contentType)
-	if boundary == "" {
-		return rewriteModelInBody(rawBody, targetModelID)
-	}
-	rewritten, ok := rewriteMultipartFormValue(rawBody, boundary, "model", targetModelID)
-	if !ok {
-		return rawBody
-	}
-	return rewritten
+	return append([]byte(nil), rawBody...)
 }
 
 func multipartBoundary(contentType string) string {
-	mediaType, params, err := mime.ParseMediaType(contentType)
-	if err != nil || !strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {
-		return ""
-	}
-	return strings.TrimSpace(params["boundary"])
-}
-
-func extractMultipartFormValue(rawBody []byte, boundary string, fieldName string) string {
-	reader := multipart.NewReader(bytes.NewReader(rawBody), boundary)
-	for {
-		part, err := reader.NextPart()
-		if err == io.EOF {
-			return ""
-		}
-		if err != nil {
-			return ""
-		}
-		if part.FormName() != fieldName {
-			_ = part.Close()
-			continue
-		}
-		value, err := io.ReadAll(part)
-		_ = part.Close()
-		if err != nil {
-			return ""
-		}
-		return strings.TrimSpace(string(value))
-	}
-}
-
-func cloneMultipartHeader(header textproto.MIMEHeader) textproto.MIMEHeader {
-	cloned := make(textproto.MIMEHeader, len(header))
-	for key, values := range header {
-		cloned[key] = append([]string(nil), values...)
-	}
-	return cloned
-}
-
-func rewriteMultipartFormValue(rawBody []byte, boundary string, fieldName string, value string) ([]byte, bool) {
-	reader := multipart.NewReader(bytes.NewReader(rawBody), boundary)
-	var rewritten bytes.Buffer
-	writer := multipart.NewWriter(&rewritten)
-	if err := writer.SetBoundary(boundary); err != nil {
-		return nil, false
-	}
-	replaced := false
-	for {
-		part, err := reader.NextPart()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, false
-		}
-		partBody, err := io.ReadAll(part)
-		if err != nil {
-			_ = part.Close()
-			return nil, false
-		}
-		header := cloneMultipartHeader(part.Header)
-		if part.FormName() == fieldName {
-			partBody = []byte(value)
-			replaced = true
-		}
-		_ = part.Close()
-		outPart, err := writer.CreatePart(header)
-		if err != nil {
-			return nil, false
-		}
-		if _, err := outPart.Write(partBody); err != nil {
-			return nil, false
-		}
-	}
-	if err := writer.Close(); err != nil {
-		return nil, false
-	}
-	if !replaced {
-		return rawBody, false
-	}
-	return rewritten.Bytes(), true
+	return openai.MultipartBoundaryForRuntime(contentType)
 }

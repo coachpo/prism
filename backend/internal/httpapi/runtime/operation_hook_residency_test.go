@@ -49,6 +49,27 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 			wantStreamHooks:                true,
 		},
 		{
+			name:                 "openai responses input tokens token count",
+			requestPath:          "/v1/responses/input_tokens",
+			hookCollectionID:     runtimeHookCollectionOpenAIResponsesInputTokens,
+			provider:             "openai",
+			rawBody:              []byte(`{"model":"gpt-4o","input":"hidden","stream":true}`),
+			wantRequestStream:    false,
+			wantGenerationStatus: requestGenerationParamsStatusMissing,
+			wantResponseKind:     operationResponseKindTokenCount,
+		},
+		{
+			name:                 "openai responses compact text adjunct",
+			requestPath:          "/v1/responses/compact",
+			hookCollectionID:     runtimeHookCollectionOpenAIResponsesCompact,
+			provider:             "openai",
+			rawBody:              []byte(`{"model":"gpt-4o","input":"hidden","stream":true}`),
+			wantRequestStream:    false,
+			wantGenerationStatus: requestGenerationParamsStatusMissing,
+			wantResponseKind:     operationResponseKindTextGeneration,
+			wantUsageRule:        runtimeUsageRuleOpenAIResponses,
+		},
+		{
 			name:                 "openai image generations media",
 			requestPath:          "/v1/images/generations",
 			hookCollectionID:     runtimeHookCollectionOpenAIImagesGeneration,
@@ -190,7 +211,7 @@ func assertRequestHookResidency(t *testing.T, operation RuntimeOperation, provid
 
 func assertResponseHookResidency(t *testing.T, operation RuntimeOperation, provider string, wantKind operationResponseKind, wantUsageRule runtimeUsageNormalizationRule) {
 	t.Helper()
-	hooks, ok := ResponseHooksForOperation(operation)
+	hooks, ok := responseHooksForOperation(operation)
 	if !ok {
 		t.Fatalf("expected response hooks for %s", operation.Name)
 	}

@@ -97,6 +97,8 @@ func TestPromotedAttemptBecomesFinalResponse(t *testing.T) {
 		ModelID: promotedModelID,
 	}})
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "context_overflow_provider_fallback")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "context_overflow_provider_fallback")
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 2, 2)
 	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
 	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
@@ -300,6 +302,9 @@ func TestOverflowAffinityCachePopulatesAfterSuccessfulPromotion(t *testing.T) {
 		Path:    "/overflow/affinity/populate-success/promoted/v1/chat/completions",
 		ModelID: fixture.promotedModelID,
 	}})
+	waitForRuntimeTelemetryCounts(t, fixture.harness.conn, fixture.profileID, runtimeTelemetryCounts{RequestLogs: 3, UsageEvents: 2, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, fixture.harness.conn, fixture.profileID, "context_overflow_preflight")
+	assertLatestRuntimeUsageRouteReason(t, fixture.harness.conn, fixture.profileID, "context_overflow_preflight")
 }
 
 func TestOverflowAffinityCachePlain429DoesNotPopulate(t *testing.T) {

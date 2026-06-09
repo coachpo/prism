@@ -21,6 +21,14 @@ var operationRequestHooksByCollectionID = map[string]operationRequestHooks{
 		ExtractBufferedGenerationParams: extractOpenAIResponsesGenerationParams,
 		RequestWantsStream:              requestBodyStreamDetector,
 	},
+	runtimeHookCollectionOpenAIResponsesInputTokens: {
+		Provider:           "openai",
+		RequestWantsStream: neverStreamRequest,
+	},
+	runtimeHookCollectionOpenAIResponsesCompact: {
+		Provider:           "openai",
+		RequestWantsStream: neverStreamRequest,
+	},
 	runtimeHookCollectionOpenAIImagesGeneration: {
 		Provider:           "openai",
 		RequestWantsStream: neverStreamRequest,

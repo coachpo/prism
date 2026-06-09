@@ -140,9 +140,9 @@ Runtime cache correctness is generation-based. Management mutations advance dura
 
 Prism is proxy-first. It forwards only the provider-native operations registered in the runtime operation catalog, and it is not a full OpenAI, Anthropic, or Gemini API clone.
 
-The operation registry is the ingress contract for the runtime plane. Each supported operation declares an exact HTTP method, path template, API family, model-binding source, streaming classification, canonical operation name, and hook collection. The current canonical operation names are `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`. Requests that do not match that registry are rejected before body reads, planning, provider transport, telemetry, audit, or feedback side effects.
+The operation registry is the ingress contract for the runtime plane. Each supported operation declares an exact HTTP method, path template, API family, model-binding source, streaming classification, canonical operation name, and provider adapter. The current canonical operation names are `openai.chat_completions`, `openai.responses`, `openai.responses.input_tokens`, `openai.responses.compact`, `openai.images.generations`, `openai.images.edits`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`. Requests that do not match that registry are rejected before body reads, planning, provider transport, telemetry, audit, feedback, or durable side effects.
 
-After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves ordered access targets to a final model-private connection or final model target, applies the attached explicit Ban Policy strategy, claims leases, builds upstream headers, forwards to the selected provider connection, records retained request history through durable seams, and emits bounded OTLP metrics/traces through startup-owned providers when enabled. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
+After registry resolution, every runtime operation enters the same execution core. The shared runtime and gateway layers capture the active profile snapshot, resolve ordered access targets to a final model-private connection or final model target, apply the attached explicit Ban Policy strategy, claim leases, record retained request history through durable seams, and emit bounded OTLP metrics/traces through startup-owned providers when enabled. Provider adapters own provider-specific parsing, upstream request building, response adaptation, streaming terminal classification, usage extraction, token counting or estimation, media handling, overflow classification, and OpenAI Chat/Responses conversion. The shared runtime/gateway owns operation routing, admission, accounting, telemetry, audit persistence, pricing, feedback, and side-effect handoff.
 
 OpenAI Chat Completions and Responses can translate only across explicit sibling-operation terminal targets. Planning remains ingress-led: estimation, generation-parameter extraction, and `operation_name` come from the client-visible operation. A selected OpenAI connection's derived `openai_upstream_operation` decides whether the attempt is native with `operation_translation_mode = "none"` or translated with `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses`. Translation rewrites supported request shapes after target selection, rewrites non-stream or stream responses back to ingress shape for the client, preserves canonical usage from upstream payloads or stream terminal events, and drops unsafe entity headers from translated responses.
 
@@ -154,7 +154,7 @@ Runtime observability stores canonical disjoint token components. Base input, ca
 
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o"}
-  -> Operation registry resolves `openai.chat_completions` and its request/response hooks
+  -> Operation registry resolves `openai.chat_completions` and its OpenAI provider adapter
   -> Shared core captures active profile snapshot at request start
   -> Gateway assigns one Prism `ingress_request_id` for the incoming runtime request
   -> Request setup resolves the requested model and its ordered access targets in active profile scope
@@ -168,7 +168,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
 
 ```
 Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
-  -> Operation registry resolves `anthropic.messages` and its body-bound model hook
+  -> Operation registry resolves `anthropic.messages` and its Anthropic provider adapter
   -> Shared core captures active profile snapshot
   -> Resolver loads ordered same-profile, same-api-family access targets
   -> Model targets can chain to another model; compatibility connection targets are terminal
@@ -181,16 +181,16 @@ Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
 
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
-  -> Operation registry resolves `openai.chat_completions`; request hooks mark the body as streaming
+  -> Operation registry resolves `openai.chat_completions`; the OpenAI adapter marks stream intent
   -> Shared core captures active profile snapshot
   -> Gateway assigns one Prism `ingress_request_id`
-  -> Access-target resolution finishes before connection planning begins
-  -> Planner resolves the live candidate set and executor claims a streaming lease before opening the upstream stream
+  -> Access-target resolution, route planning, adapter request build, and admission finish before downstream commit
+  -> Executor claims a streaming lease before opening the upstream stream
   -> ProxyService opens streaming connection to the selected upstream endpoint
-  -> SSE chunks stream directly back to the client from the Go runtime transport layer when hooks allow it
-  -> Internal buffering is automatic for rewrite, replay, or hook-safety cases
-  -> Streaming heartbeats keep the lease fresh while the stream is open
-  -> On upstream error: release the stream lease, classify the failure, and continue only if another candidate is available inside the retry-window policy
+  -> SSE chunks stream back to the client after provider-adapter stream classification allows the operation
+  -> Internal buffering is automatic for rewrite, replay, or hook-safety cases before downstream commit
+  -> First downstream byte/event commits the stream boundary
+  -> After commit: no retry, redirect, context-overflow fallback, or hedge replay can start
   -> On stream finalization or cancellation: release the stream lease, persist the per-attempt request log, and record runtime feedback
 ```
 
@@ -198,11 +198,11 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
 
 | API family            | Canonical operation names                       | Supported Prism operation paths                    | Upstream path                                      | Auth header                                          |
 | --------------------- | ----------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
-| OpenAI                | `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits` | `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/images/generations`, `POST /v1/images/edits` | Same path under `{base_url}` | `Authorization: Bearer {key}`                        |
+| OpenAI                | `openai.chat_completions`, `openai.responses`, `openai.responses.input_tokens`, `openai.responses.compact`, `openai.images.generations`, `openai.images.edits` | `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/responses/input_tokens`, `POST /v1/responses/compact`, `POST /v1/images/generations`, `POST /v1/images/edits` | Same path under `{base_url}` | `Authorization: Bearer {key}`                        |
 | Anthropic             | `anthropic.messages`, `anthropic.count_tokens`  | `POST /v1/messages`, `POST /v1/messages/count_tokens` | Same path under `{base_url}` | `x-api-key` set to `{key}` plus `anthropic-version` set to `2023-06-01` |
 | Gemini                | `gemini.generate_content`, `gemini.stream_generate_content`, `gemini.count_tokens` | `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, `POST /v1beta/models/{model}:countTokens` | Same path under `{base_url}` | `Authorization: Bearer {key}`                        |
 
-OpenAI runtime support is limited to the registered chat, Responses, and image operations listed above. Stored Responses object lifecycle APIs, including retrieve, list, delete, cancel, and compact routes, are outside Prism's supported contract. `openai.images.generations` and `openai.images.edits` are media operations with copy-only token usage semantics, not generic OpenAI passthrough routes.
+OpenAI runtime support is limited to the registered chat, Responses generation, Responses input-token, Responses compact, and image operations listed above. Stored Responses object lifecycle APIs, including retrieve, list, delete, and cancel routes, are outside Prism's supported contract. `openai.images.generations` and `openai.images.edits` are media operations with copy-only token usage semantics, not generic OpenAI passthrough routes.
 
 Note: Gemini requests use `/v1beta/models/{model}:...` paths only. When access-target resolution reaches a different final Gemini model ID, Prism rewrites the model ID segment in the URL path before forwarding upstream.
 For Gemini, `gemini.stream_generate_content` and the `:streamGenerateContent` path are authoritative for stream classification even when the request body omits `stream: true`; `gemini.generate_content` remains non-stream generate content, and `gemini.count_tokens` remains the token-count operation.
@@ -696,7 +696,7 @@ See [API_SPEC.md](./API_SPEC.md) for complete API documentation.
 
 The runtime plane supports three fixed API families through the operation registry:
 
-- **OpenAI** (`openai`): `openai.chat_completions`, `openai.responses`, `openai.images.generations`, and `openai.images.edits`
+- **OpenAI** (`openai`): `openai.chat_completions`, `openai.responses`, `openai.responses.input_tokens`, `openai.responses.compact`, `openai.images.generations`, and `openai.images.edits`
 - **Anthropic** (`anthropic`): `anthropic.messages` and `anthropic.count_tokens`
 - **Gemini** (`gemini`): `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`
 

@@ -1,5 +1,10 @@
 package runtime
 
+import (
+	anthropicprovider "github.com/coachpo/prism/backend/internal/gateway/provider/anthropic"
+	geminiprovider "github.com/coachpo/prism/backend/internal/gateway/provider/gemini"
+)
+
 type operationStreamTerminalClassifier func(string, map[string]any) sseTerminalSignal
 type operationStreamUsageMerger func(runtimeUsageNormalizationRule, *responseUsage, string, map[string]any)
 
@@ -91,20 +96,14 @@ func classifyOpenAIResponsesStreamTerminal(event string, payload map[string]any)
 }
 
 func classifyAnthropicMessagesStreamTerminal(event string, payload map[string]any) sseTerminalSignal {
-	if event == "message_stop" {
-		return sseTerminalSignalCompleted
-	}
-	if payloadType, _ := payload["type"].(string); payloadType == "message_stop" {
+	if anthropicprovider.IsMessagesStreamTerminal(event, payload) {
 		return sseTerminalSignalCompleted
 	}
 	return sseTerminalSignalNone
 }
 
 func classifyGeminiStreamGenerateContentTerminal(_ string, payload map[string]any) sseTerminalSignal {
-	if done, _ := payload["done"].(bool); done {
-		return sseTerminalSignalCompleted
-	}
-	if _, hasUsageMetadata := payload["usageMetadata"].(map[string]any); hasUsageMetadata {
+	if geminiprovider.IsStreamGenerateContentTerminal(payload) {
 		return sseTerminalSignalCompleted
 	}
 	return sseTerminalSignalNone
@@ -147,54 +146,18 @@ func isOpenAIResponsesCompletedStreamEvent(event string, payload map[string]any)
 	return payloadType == "response.completed"
 }
 
-func mergeAnthropicMessagesStreamUsage(rule runtimeUsageNormalizationRule, usage *responseUsage, event string, payload map[string]any) {
-	if isAnthropicMessagesStreamEvent(event, payload, "message_start") {
-		if usagePayload, ok := runtimeUsagePayloadFromCarrier(payload, runtimeUsageCarrierMessageUsage); ok {
-			usage.mergeRuntimeUsagePayload(rule, runtimeUsageCarrierMessageUsage, usagePayload)
-		}
+func mergeAnthropicMessagesStreamUsage(_ runtimeUsageNormalizationRule, usage *responseUsage, event string, payload map[string]any) {
+	if usage == nil {
 		return
 	}
-	if isAnthropicMessagesStreamEvent(event, payload, "message_delta") {
-		if usagePayload, ok := runtimeUsagePayloadFromCarrier(payload, runtimeUsageCarrierRootUsage); ok {
-			usage.mergeAnthropicMessageDeltaUsagePayload(rule, usagePayload)
-		}
-	}
+	merged := anthropicprovider.MergeMessagesStreamUsage(providerUsageEnvelope(*usage), event, payload)
+	*usage = responseUsageFromProviderUsageEnvelope(merged)
 }
 
-func isAnthropicMessagesStreamEvent(event string, payload map[string]any, eventType string) bool {
-	if event == eventType {
-		return true
-	}
-	payloadType, _ := payload["type"].(string)
-	return payloadType == eventType
-}
-
-func (usage *responseUsage) mergeAnthropicMessageDeltaUsagePayload(rule runtimeUsageNormalizationRule, usagePayload map[string]any) {
-	if usage == nil || usage.discarded || !rule.allowsCarrier(runtimeUsageCarrierRootUsage) || usagePayload == nil {
+func mergeGeminiStreamGenerateContentUsage(_ runtimeUsageNormalizationRule, usage *responseUsage, _ string, payload map[string]any) {
+	if usage == nil {
 		return
 	}
-	parsed, ok := parseRuntimeUsagePayload(rule.PayloadShape, usagePayload)
-	if !ok {
-		return
-	}
-	parsed = responseUsage{OutputTokens: parsed.OutputTokens, TotalTokens: parsed.TotalTokens}
-	if !parsed.hasValues() {
-		return
-	}
-	merged := *usage
-	merged.merge(parsed)
-	if parsed.OutputTokens != nil && parsed.TotalTokens == nil {
-		merged.TotalTokens = nil
-	}
-	if !merged.validForRuntimeUsage(rule) {
-		*usage = responseUsage{discarded: true}
-		return
-	}
-	*usage = merged
-}
-
-func mergeGeminiStreamGenerateContentUsage(rule runtimeUsageNormalizationRule, usage *responseUsage, _ string, payload map[string]any) {
-	if usageMetadata, ok := runtimeUsagePayloadFromCarrier(payload, runtimeUsageCarrierRootUsageMetadata); ok {
-		usage.mergeRuntimeUsagePayload(rule, runtimeUsageCarrierRootUsageMetadata, usageMetadata)
-	}
+	merged := geminiprovider.MergeStreamGenerateContentUsage(providerUsageEnvelope(*usage), payload)
+	*usage = responseUsageFromProviderUsageEnvelope(merged)
 }

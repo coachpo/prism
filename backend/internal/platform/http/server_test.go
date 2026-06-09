@@ -248,7 +248,7 @@ func TestManagementAdmissionUsesPublishedHotLimitsWithoutBlockingInflightRelease
 
 	updated := settings
 	updated.ManagementAdmissionControlBudget = config.ManagementAdmissionBudget{M2MaxConcurrent: 2, M3MaxConcurrent: 1}
-	retired, err := runtime.Publish(updated)
+	retired, err := Publish(updated)
 	if err != nil {
 		t.Fatalf("publish updated admission limits: %v", err)
 	}
@@ -707,7 +707,7 @@ func TestCORSMiddlewareUsesPublishedRuntimeOrigins(t *testing.T) {
 
 	updated := settings
 	updated.CORSAllowedOrigins = "https://new.example.test"
-	retired, err := runtime.Publish(updated)
+	retired, err := Publish(updated)
 	if err != nil {
 		t.Fatalf("publish CORS runtime update: %v", err)
 	}

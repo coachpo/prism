@@ -795,6 +795,71 @@ func TestRuntimeProxySelectorWeightedStaticDoesNotRetryAlternateTargetAfterUpstr
 	}
 }
 
+func TestRuntimeModelRedirectReentersLoadBalancingAndPersistsRouteReason(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "redirect-model-public-" + suffix
+	redirectedModelID := "redirect-model-target-" + suffix
+	firstUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "redirect-model-first"})
+	secondUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "redirect-model-second"})
+
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	strategyID := harness.seedLegacyStrategy(t, profileID, "redirect-model-target-"+suffix, "round-robin")
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
+	redirectedModelConfigID := harness.seedModel(t, profileID, "openai", redirectedModelID, "native", &strategyID)
+	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, redirectedModelConfigID, 0, 1, 0)
+	firstEndpointID := harness.seedEndpoint(t, profileID, "redirect-model-first-"+suffix, firstUpstream.baseURL("/redirect/model/first"), "redirect-model-first-key", 0)
+	secondEndpointID := harness.seedEndpoint(t, profileID, "redirect-model-second-"+suffix, secondUpstream.baseURL("/redirect/model/second"), "redirect-model-second-key", 1)
+	firstConnectionID := harness.seedConnection(t, profileID, redirectedModelConfigID, firstEndpointID, "redirect-model-first-connection-"+suffix, nil, nil, 0)
+	secondConnectionID := harness.seedConnection(t, profileID, redirectedModelConfigID, secondEndpointID, "redirect-model-second-connection-"+suffix, nil, nil, 1)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, firstConnectionID, 16_384, 4_096, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, secondConnectionID, 16_384, 4_096, 1.0)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	for requestIndex := 0; requestIndex < 2; requestIndex++ {
+		response := performProxySelectorChatRequest(t, harness, publicModelID, "model redirect re-enters load balancing")
+		assertStatus(t, response, http.StatusOK)
+	}
+	assertProxySelectorRequestSequence(t, firstUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/redirect/model/first/v1/chat/completions", ModelID: redirectedModelID}})
+	assertProxySelectorRequestSequence(t, secondUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/redirect/model/second/v1/chat/completions", ModelID: redirectedModelID}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 2, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, publicModelID, redirectedModelID)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "model_redirect")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "model_redirect")
+}
+
+func TestRuntimeUpstreamRedirectPinsCandidateWithoutChangingModel(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	requestedModelID := "redirect-upstream-public-" + suffix
+	unroutableModelID := "redirect-upstream-unroutable-" + suffix
+	pinnedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "redirect-upstream-pinned"})
+
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	strategyID := harness.seedLegacyStrategy(t, profileID, "redirect-upstream-"+suffix, "fill-first")
+	requestedModelConfigID := harness.seedModel(t, profileID, "openai", requestedModelID, "native", &strategyID)
+	unroutableModelConfigID := harness.seedModel(t, profileID, "openai", unroutableModelID, "native", &strategyID)
+	harness.seedProxyTargetWithMetadata(t, requestedModelConfigID, unroutableModelConfigID, 0, 1, 0)
+	endpointID := harness.seedEndpoint(t, profileID, "redirect-upstream-pinned-"+suffix, pinnedUpstream.baseURL("/redirect/upstream/pinned"), "redirect-upstream-pinned-key", 0)
+	connectionID := harness.seedConnection(t, profileID, requestedModelConfigID, endpointID, "redirect-upstream-pinned-connection-"+suffix, nil, nil, 1)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := performProxySelectorChatRequest(t, harness, requestedModelID, "upstream redirect pins connection")
+	assertStatus(t, response, http.StatusOK)
+	assertProxySelectorRequestSequence(t, pinnedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/redirect/upstream/pinned/v1/chat/completions", ModelID: requestedModelID}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, requestedModelID, requestedModelID)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "upstream_redirect")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "upstream_redirect")
+	if modelConfigID := harness.modelConfigIDForConnection(t, connectionID); modelConfigID != requestedModelConfigID {
+		t.Fatalf("expected pinned connection to stay owned by requested model config %d, got %d", requestedModelConfigID, modelConfigID)
+	}
+}
+
 func TestRuntimeRequestLogsPreserveProxySelectorResolvedTargetIdentity(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -1073,4 +1138,125 @@ func (h *runtimeHarness) seedProxyTargetWithMetadata(tb testing.TB, sourceModelC
 	); err != nil {
 		tb.Fatalf("insert runtime model access target: %v", err)
 	}
+}
+
+func TestRuntimeProxySelectorRetriesProvider429AndPersistsRouteReason(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "retry-429-public-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusTooManyRequests, map[string]any{"error": "primary rate limited"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-retry-429-secondary"})
+
+	seedRetryPolicyNativeRoute(t, harness, profileID, modelID, primaryUpstream.baseURL("/retry/429/primary"), secondaryUpstream.baseURL("/retry/429/secondary"))
+	response := performProxySelectorChatRequest(t, harness, modelID, "provider 429 should retry before commit")
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-retry-429-secondary")
+	assertProxySelectorRequestSequence(t, primaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/429/primary/v1/chat/completions", ModelID: modelID}})
+	assertProxySelectorRequestSequence(t, secondaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/429/secondary/v1/chat/completions", ModelID: modelID}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "retry_429")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "retry_429")
+}
+
+func TestRuntimeProxySelectorRetriesConfiguredProvider5xxAndPersistsRouteReason(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "retry-5xx-public-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "primary unavailable"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-retry-5xx-secondary"})
+
+	seedRetryPolicyNativeRoute(t, harness, profileID, modelID, primaryUpstream.baseURL("/retry/5xx/primary"), secondaryUpstream.baseURL("/retry/5xx/secondary"))
+	response := performProxySelectorChatRequest(t, harness, modelID, "configured provider 5xx should retry before commit")
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-retry-5xx-secondary")
+	assertProxySelectorRequestSequence(t, primaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/5xx/primary/v1/chat/completions", ModelID: modelID}})
+	assertProxySelectorRequestSequence(t, secondaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/5xx/secondary/v1/chat/completions", ModelID: modelID}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "retry_5xx")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "retry_5xx")
+}
+
+func TestRuntimeProxySelectorDoesNotRetryAuthOrValidationProviderErrors(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "retry-no-auth-validation-public-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusForbidden, map[string]any{"error": "auth failed"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-no-retry-secondary"})
+
+	seedRetryPolicyNativeRoute(t, harness, profileID, modelID, primaryUpstream.baseURL("/retry/no-auth/primary"), secondaryUpstream.baseURL("/retry/no-auth/secondary"))
+	response := performProxySelectorChatRequest(t, harness, modelID, "provider auth error must not retry")
+	assertStatus(t, response, http.StatusForbidden)
+	assertProxySelectorRequestSequence(t, primaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/no-auth/primary/v1/chat/completions", ModelID: modelID}})
+	assertNoScriptedUpstreamRequests(t, secondaryUpstream, "auth-error secondary candidate")
+}
+
+type retryPolicyTimeoutTransport struct {
+	base http.RoundTripper
+}
+
+func (transport retryPolicyTimeoutTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Host == "retry-connect-timeout.invalid" {
+		return nil, retryPolicyTimeoutError{}
+	}
+	base := transport.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(request)
+}
+
+type retryPolicyTimeoutError struct{}
+
+func (retryPolicyTimeoutError) Error() string { return "connect timeout" }
+func (retryPolicyTimeoutError) Timeout() bool { return true }
+
+func TestRuntimeProxySelectorRetriesConnectTimeoutAndPersistsRouteReason(t *testing.T) {
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{RuntimeOptions: runtimeapi.Options{HTTPClient: &http.Client{Transport: retryPolicyTimeoutTransport{}}}})
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "retry-connect-timeout-public-" + suffix
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-retry-connect-timeout-secondary"})
+
+	seedRetryPolicyNativeRoute(t, harness, profileID, modelID, "http://retry-connect-timeout.invalid/retry/connect-timeout/primary", secondaryUpstream.baseURL("/retry/connect-timeout/secondary"))
+	response := performProxySelectorChatRequest(t, harness, modelID, "connect timeout should retry before commit")
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-retry-connect-timeout-secondary")
+	assertProxySelectorRequestSequence(t, secondaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/connect-timeout/secondary/v1/chat/completions", ModelID: modelID}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "retry_connect_timeout")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "retry_connect_timeout")
+}
+
+func seedRetryPolicyNativeRoute(t *testing.T, harness *runtimeHarness, profileID int, modelID string, primaryBaseURL string, secondaryBaseURL string) {
+	t.Helper()
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	strategyID := harness.seedLegacyStrategy(t, profileID, "retry-policy-"+randomSuffix(), "fill-first")
+	modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-primary-"+randomSuffix(), primaryBaseURL, "retry-policy-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-secondary-"+randomSuffix(), secondaryBaseURL, "retry-policy-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "retry-policy-primary-connection-"+randomSuffix(), nil, nil, 0)
+	secondaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "retry-policy-secondary-connection-"+randomSuffix(), nil, nil, 1)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, secondaryConnectionID, 16_384, 1_024, 1.0)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+	harness.runtimeService.RuntimeState().ResetProfile(profileID)
+}
+
+func TestRuntimeProxySelectorDoesNotRetryValidationProviderErrors(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "retry-no-validation-public-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusUnprocessableEntity, map[string]any{"error": "validation failed"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-validation-secondary"})
+
+	seedRetryPolicyNativeRoute(t, harness, profileID, modelID, primaryUpstream.baseURL("/retry/no-validation/primary"), secondaryUpstream.baseURL("/retry/no-validation/secondary"))
+	response := performProxySelectorChatRequest(t, harness, modelID, "provider validation error must not retry")
+	assertStatus(t, response, http.StatusUnprocessableEntity)
+	assertProxySelectorRequestSequence(t, primaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/no-validation/primary/v1/chat/completions", ModelID: modelID}})
+	assertNoScriptedUpstreamRequests(t, secondaryUpstream, "validation-error secondary candidate")
 }

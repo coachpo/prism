@@ -11,6 +11,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -104,6 +106,52 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 				upstreamRequestPath:   "/v1/responses",
 			},
 			responseContains: "route-matrix-responses",
+		},
+		{
+			name:          "OpenAIResponsesInputTokens",
+			apiFamily:     "openai",
+			operationName: "openai.responses.input_tokens",
+			responsePayload: map[string]any{
+				"input_tokens": 17,
+				"total_tokens": 17,
+			},
+			requestPath: routeMatrixStaticRequestPath("/v1/responses/input_tokens"),
+			requestBody: func(route seededRuntimeRoute, _ string) any {
+				return map[string]any{"model": route.PublicModelID, "input": "route matrix input tokens", "stream": true}
+			},
+			wantUpstreamPath:  routeMatrixStaticUpstreamPath("/v1/responses/input_tokens"),
+			assertModelSource: assertRouteMatrixBodyModelBinding,
+			generationParams:  routeMatrixGenerationParamsExpectation{status: "missing"},
+			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(17), totalTokens: routeMatrixInt64(17)},
+			persistedAttribution: &routeMatrixPersistedAttributionExpectation{
+				upstreamOperationName: "openai.responses.input_tokens",
+				translationMode:       "none",
+				upstreamRequestPath:   "/v1/responses/input_tokens",
+			},
+			responseContains: "input_tokens",
+		},
+		{
+			name:          "OpenAIResponsesCompact",
+			apiFamily:     "openai",
+			operationName: "openai.responses.compact",
+			responsePayload: map[string]any{
+				"id":       "route-matrix-compact",
+				"response": map[string]any{"usage": map[string]any{"input_tokens": 29, "output_tokens": 3, "total_tokens": 32}},
+			},
+			requestPath: routeMatrixStaticRequestPath("/v1/responses/compact"),
+			requestBody: func(route seededRuntimeRoute, _ string) any {
+				return map[string]any{"model": route.PublicModelID, "input": "route matrix compact", "stream": true}
+			},
+			wantUpstreamPath:  routeMatrixStaticUpstreamPath("/v1/responses/compact"),
+			assertModelSource: assertRouteMatrixBodyModelBinding,
+			generationParams:  routeMatrixGenerationParamsExpectation{status: "missing"},
+			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(29), outputTokens: routeMatrixInt64(3), totalTokens: routeMatrixInt64(32)},
+			persistedAttribution: &routeMatrixPersistedAttributionExpectation{
+				upstreamOperationName: "openai.responses.compact",
+				translationMode:       "none",
+				upstreamRequestPath:   "/v1/responses/compact",
+			},
+			responseContains: "route-matrix-compact",
 		},
 		{
 			name:          "OpenAIImageGenerations",
@@ -239,6 +287,9 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			responseContains:  "totalTokens",
 		},
 	}
+	if len(tests) != 11 {
+		t.Fatalf("route matrix must cover exactly 11 registered POST operations, got %d", len(tests))
+	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -275,6 +326,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			upstreamRequest := upstream.lastRequest(t)
 			assertRouteMatrixSharedCoreForwarding(t, upstreamRequest, route, test.apiFamily, test.wantUpstreamPath(endpointPrefix, route), "route-matrix-"+slug)
 			test.assertModelSource(t, upstreamRequest, route, ignoredBodyModel)
+			assertRouteMatrixGoldenUpstreamRequest(t, test.operationName, upstreamRequest, route)
 			assertRouteMatrixSharedCorePersistence(t, harness, profileID, route, test.operationName, requestPath)
 			assertRouteMatrixUsage(t, harness, profileID, test.usage)
 			assertRouteMatrixGenerationParams(t, harness, profileID, test.generationParams)
@@ -451,6 +503,79 @@ func routeMatrixInt64(value int64) *int64 {
 	return pointer
 }
 
+func assertRouteMatrixGoldenUpstreamRequest(t *testing.T, operationName string, request upstreamRequestSnapshot, route seededRuntimeRoute) {
+	t.Helper()
+	headers := map[string]string{}
+	for _, header := range []string{"Authorization", "anthropic-version", "x-api-key", "X-Route-Matrix"} {
+		if value := request.Headers.Get(header); value != "" {
+			headers[strings.ToLower(header)] = strings.ReplaceAll(value, route.EndpointAPIKey, "<api_key>")
+		}
+	}
+	snapshot := map[string]any{
+		"method":  request.Method,
+		"path":    strings.ReplaceAll(request.Path, route.TargetModelID, "<target_model>"),
+		"headers": headers,
+	}
+	contentType := request.Headers.Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil && strings.TrimSpace(contentType) != "" {
+		t.Fatalf("parse route-matrix content type %q: %v", contentType, err)
+	}
+	if strings.HasPrefix(mediaType, "multipart/") {
+		snapshot["content_type"] = mediaType
+		snapshot["multipart_fields"] = normalizeRouteMatrixGoldenValue(map[string]any{
+			"model":  string(routeMatrixMultipartValue(t, request, "model")),
+			"prompt": string(routeMatrixMultipartValue(t, request, "prompt")),
+			"image":  fmt.Sprintf("<binary:%d>", len(routeMatrixMultipartValue(t, request, "image"))),
+		}, route)
+	} else {
+		snapshot["content_type"] = mediaType
+		var body any
+		if err := json.Unmarshal(request.Body, &body); err != nil {
+			t.Fatalf("decode route-matrix upstream JSON for %s: %v", operationName, err)
+		}
+		snapshot["json_body"] = normalizeRouteMatrixGoldenValue(body, route)
+	}
+
+	fixturePath := filepath.Join("testdata", "route_matrix_upstream", routeMatrixSlug(operationName)+".json")
+	raw, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read route-matrix golden %s: %v", fixturePath, err)
+	}
+	var expected map[string]any
+	if err := json.Unmarshal(raw, &expected); err != nil {
+		t.Fatalf("decode route-matrix golden %s: %v", fixturePath, err)
+	}
+	if !jsonBytesEqual(t, snapshot, expected) {
+		actual, _ := json.MarshalIndent(snapshot, "", "  ")
+		want, _ := json.MarshalIndent(expected, "", "  ")
+		t.Fatalf("route-matrix golden %s mismatch\nexpected: %s\nactual:   %s", fixturePath, want, actual)
+	}
+}
+
+func normalizeRouteMatrixGoldenValue(value any, route seededRuntimeRoute) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		normalized := make(map[string]any, len(typed))
+		for key, child := range typed {
+			normalized[key] = normalizeRouteMatrixGoldenValue(child, route)
+		}
+		return normalized
+	case []any:
+		normalized := make([]any, len(typed))
+		for index, child := range typed {
+			normalized[index] = normalizeRouteMatrixGoldenValue(child, route)
+		}
+		return normalized
+	case string:
+		replaced := strings.ReplaceAll(typed, route.TargetModelID, "<target_model>")
+		replaced = strings.ReplaceAll(replaced, route.PublicModelID, "<public_model>")
+		return replaced
+	default:
+		return value
+	}
+}
+
 func assertRouteMatrixSharedCoreForwarding(t *testing.T, request upstreamRequestSnapshot, route seededRuntimeRoute, apiFamily string, wantPath string, wantHeaderValue string) {
 	t.Helper()
 	if request.Method != http.MethodPost {
@@ -544,30 +669,32 @@ func assertRouteMatrixSharedCorePersistence(t *testing.T, harness *runtimeHarnes
 	var logRequestPath string
 	var logEndpointBaseURL string
 	var logConnectionID int
+	var logRouteReason string
 	if err := harness.conn.QueryRow(
 		context.Background(),
-		`SELECT request_path, endpoint_base_url, connection_id FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		`SELECT request_path, endpoint_base_url, connection_id, COALESCE(context_routing->>'route_reason', '') FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
 		profileID,
 		ingressRequestID,
-	).Scan(&logRequestPath, &logEndpointBaseURL, &logConnectionID); err != nil {
+	).Scan(&logRequestPath, &logEndpointBaseURL, &logConnectionID, &logRouteReason); err != nil {
 		t.Fatalf("load route-matrix request_log shared-core fields: %v", err)
 	}
-	if logRequestPath != requestPath || logEndpointBaseURL != route.EndpointBaseURL || logConnectionID != route.ConnectionID {
-		t.Fatalf("expected request_log path/base/connection %q/%q/%d, got %q/%q/%d", requestPath, route.EndpointBaseURL, route.ConnectionID, logRequestPath, logEndpointBaseURL, logConnectionID)
+	if logRequestPath != requestPath || logEndpointBaseURL != route.EndpointBaseURL || logConnectionID != route.ConnectionID || logRouteReason != "model_redirect" {
+		t.Fatalf("expected request_log path/base/connection/reason %q/%q/%d/model_redirect, got %q/%q/%d/%q", requestPath, route.EndpointBaseURL, route.ConnectionID, logRequestPath, logEndpointBaseURL, logConnectionID, logRouteReason)
 	}
 
 	var eventRequestPath string
 	var eventConnectionID int
+	var eventRouteReason string
 	if err := harness.conn.QueryRow(
 		context.Background(),
-		`SELECT request_path, connection_id FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
+		`SELECT request_path, connection_id, COALESCE(context_routing->>'route_reason', '') FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
 		profileID,
 		ingressRequestID,
-	).Scan(&eventRequestPath, &eventConnectionID); err != nil {
+	).Scan(&eventRequestPath, &eventConnectionID, &eventRouteReason); err != nil {
 		t.Fatalf("load route-matrix usage_event shared-core fields: %v", err)
 	}
-	if eventRequestPath != requestPath || eventConnectionID != route.ConnectionID {
-		t.Fatalf("expected usage_event path/connection %q/%d, got %q/%d", requestPath, route.ConnectionID, eventRequestPath, eventConnectionID)
+	if eventRequestPath != requestPath || eventConnectionID != route.ConnectionID || eventRouteReason != "model_redirect" {
+		t.Fatalf("expected usage_event path/connection/reason %q/%d/model_redirect, got %q/%d/%q", requestPath, route.ConnectionID, eventRequestPath, eventConnectionID, eventRouteReason)
 	}
 }
 

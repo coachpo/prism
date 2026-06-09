@@ -1,0 +1,14 @@
+{
+  "content_type": "application/json",
+  "headers": {
+    "authorization": "Bearer <api_key>",
+    "x-route-matrix": "route-matrix-openai-chat-completions"
+  },
+  "json_body": {
+    "messages": [{"content": "route matrix chat", "role": "user"}],
+    "model": "<target_model>",
+    "temperature": 0.11
+  },
+  "method": "POST",
+  "path": "/route-matrix/openai-chat-completions/v1/chat/completions"
+}

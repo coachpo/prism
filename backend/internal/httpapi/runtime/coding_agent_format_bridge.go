@@ -74,6 +74,7 @@ func (bridge CodingAgentFormatBridge) ProxyNonEventResponseAndCapture(mode Trans
 		Body:          append([]byte(nil), rawBody...),
 		Usage:         usage,
 		UsageRule:     usageRule,
+		UsageSource:   runtimeUsageSourceFromUsage(usage, runtimeStreamOutcomeNotStreaming),
 		CompletedAt:   &completedAt,
 		StreamOutcome: runtimeStreamOutcomeNotStreaming,
 	}

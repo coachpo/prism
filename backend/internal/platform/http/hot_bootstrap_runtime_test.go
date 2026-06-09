@@ -23,7 +23,7 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 		t.Fatalf("create hot bootstrap runtime: %v", err)
 	}
 
-	snapshot := runtime.Snapshot()
+	snapshot := Snapshot()
 	if got := snapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
 		t.Fatalf("unexpected CORS origins: %v", got)
 	}
@@ -97,7 +97,7 @@ func TestHotBootstrapConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create hot bootstrap runtime: %v", err)
 	}
-	snapshot := runtime.Snapshot()
+	snapshot := Snapshot()
 
 	origins := snapshot.CORS().AllowedOrigins()
 	origins[0] = "http://evil.example"
@@ -141,17 +141,17 @@ func TestHotBootstrapConfigRuntimePublishUpdatesAtomicallyAndKeepsOldSnapshotSta
 	if err != nil {
 		t.Fatalf("create hot bootstrap runtime: %v", err)
 	}
-	oldSnapshot := runtime.Snapshot()
+	oldSnapshot := Snapshot()
 	oldClient := oldSnapshot.RuntimeProxy().HTTPClient()
 
 	updated := hotBootstrapRuntimeUpdatedSettings()
-	retired, err := runtime.Publish(updated)
+	retired, err := Publish(updated)
 	if err != nil {
 		t.Fatalf("publish hot bootstrap runtime: %v", err)
 	}
 	retired.CloseIdleConnections()
 
-	newSnapshot := runtime.Snapshot()
+	newSnapshot := Snapshot()
 	if got := newSnapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"https://app.example.test"}) {
 		t.Fatalf("new CORS origins = %v", got)
 	}
@@ -201,15 +201,15 @@ func TestHotBootstrapConfigRuntimeRejectsInvalidMailerBeforePublishing(t *testin
 
 	invalid := hotBootstrapRuntimeUpdatedSettings()
 	invalid.Mail.From = "not an address"
-	validateErr := runtime.Validate(invalid)
+	validateErr := Validate(invalid)
 	if validateErr == nil || !strings.Contains(validateErr.Error(), "create hot mailer") {
 		t.Fatalf("expected hot mailer validation error, got %v", validateErr)
 	}
-	if _, err := runtime.Publish(invalid); err == nil {
+	if _, err := Publish(invalid); err == nil {
 		t.Fatal("expected invalid mailer publish to fail")
 	}
 
-	snapshot := runtime.Snapshot()
+	snapshot := Snapshot()
 	if got := snapshot.Auth().AccessTokenTTL; got != 17*time.Second {
 		t.Fatalf("failed publish changed auth snapshot: %s", got)
 	}

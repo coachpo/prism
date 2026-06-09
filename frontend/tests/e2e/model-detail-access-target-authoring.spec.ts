@@ -488,20 +488,27 @@ async function mockPrivateConnectionRoutes(page: Page) {
     }
 
     if (pathname === `/api/models/${modelConfigId}/targets` && method === "GET") return fulfillJson(sortedTargets());
+    const targetPositionMatch = pathname.match(new RegExp(`^/api/models/${modelConfigId}/targets/(\\d+)/position$`));
+    if (targetPositionMatch && method === "PATCH") {
+      const targetId = Number.parseInt(targetPositionMatch[1], 10);
+      const payload = request.postDataJSON() as { to_index?: number };
+      requests.targetPatches.push({ path: pathname, payload });
+      if (typeof payload.to_index === "number") {
+        const moved = currentAccessTargets.find((target) => target.id === targetId);
+        currentAccessTargets = currentAccessTargets.filter((target) => target.id !== targetId);
+        if (moved) currentAccessTargets.splice(payload.to_index, 0, moved);
+        currentAccessTargets = currentAccessTargets.map((target, position) => ({ ...target, position }));
+      }
+      return fulfillJson(sortedTargets());
+    }
     const targetMatch = pathname.match(new RegExp(`^/api/models/${modelConfigId}/targets/(\\d+)$`));
     if (targetMatch && method === "PATCH") {
       const targetId = Number.parseInt(targetMatch[1], 10);
-      const payload = request.postDataJSON() as { position?: number; is_enabled?: boolean };
+      const payload = request.postDataJSON() as { is_enabled?: boolean };
       requests.targetPatches.push({ path: pathname, payload });
       currentAccessTargets = currentAccessTargets.map((target) =>
         target.id === targetId ? { ...target, ...payload, updated_at: timestamp } : target,
       );
-      if (typeof payload.position === "number") {
-        const moved = currentAccessTargets.find((target) => target.id === targetId);
-        currentAccessTargets = currentAccessTargets.filter((target) => target.id !== targetId);
-        if (moved) currentAccessTargets.splice(payload.position, 0, moved);
-        currentAccessTargets = currentAccessTargets.map((target, position) => ({ ...target, position }));
-      }
       return fulfillJson(sortedTargets());
     }
 
@@ -578,8 +585,8 @@ test("private connection owner flows use model-scoped routes and hide cross-owne
   await editor.getByRole("button", { name: "Move target 1 down" }).click();
   await expect.poll(() => requests.targetPatches.length).toBe(2);
   expect(requests.targetPatches[1]).toMatchObject({
-    path: `/api/models/${modelConfigId}/targets/800`,
-    payload: { position: 1 },
+    path: `/api/models/${modelConfigId}/targets/800/position`,
+    payload: { to_index: 1 },
   });
   const movedOwnerTarget = editor.getByTestId("access-target-connection:301");
   await expect(movedOwnerTarget.getByText("Priority 2")).toBeVisible();

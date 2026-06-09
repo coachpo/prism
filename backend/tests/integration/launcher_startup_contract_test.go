@@ -108,7 +108,7 @@ func (o *lockedLauncherOutput) String() string {
 func preflightStartShLauncher(t *testing.T, fullMode bool) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		t.Skipf("start.sh launcher tests require Unix process-group cleanup, got GOOS=%s", runtime.GOOS)
+		t.Skipf("start.sh launcher tests require Unix process-group cleanup, got runtime.GOOS=%s", runtime.GOOS)
 	}
 
 	repoRoot := launcherRepoRoot(t)
@@ -444,10 +444,10 @@ func assertLauncherBootstrapConfig(t *testing.T, configPath string) {
 		t.Fatalf("expected launcher bootstrap database URL %q, got %q", launcherDatabaseURL, payload.Database.URL)
 	}
 	if payload.Runtime.Transport.RequestTimeout == "" {
-		t.Fatal("expected launcher bootstrap to include runtime.transport.requestTimeout")
+		t.Fatal("expected launcher bootstrap to include transport.requestTimeout")
 	}
 	if payload.Runtime.SideEffects.AttemptTimeout == "" {
-		t.Fatal("expected launcher bootstrap to include runtime.sideEffects.attemptTimeout")
+		t.Fatal("expected launcher bootstrap to include sideEffects.attemptTimeout")
 	}
 }
 
