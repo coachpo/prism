@@ -1608,6 +1608,42 @@ Translated non-stream and stream responses are rewritten back to the ingress ope
 
 Ingress observability remains stable: `operation_name` is always the client-visible operation. Additive upstream fields use `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` for request logs, usage events, and request-log detail. `upstream_request_path` is the sanitized operation path Prism sent upstream, not an unbounded raw URL.
 
+#### 2.2B.1 Application capability matrix
+
+The following application-spec example assumes these OpenAI text capabilities:
+- `gpt-5.5`: `dual_native`, effective context window `272K`
+- `gpt-5.4`: `dual_native`, effective context window `1M`
+- `deepseek-v4-flash`: `chat_completions_only`, effective context window `1M`
+
+Native request behavior:
+
+| Requested model | Ingress path | Target capability | Upstream path | `operation_translation_mode` | Client-visible shape |
+|---|---|---|---|---|---|
+| `gpt-5.5` | `/v1/responses` | `dual_native` | `/v1/responses` | `none` | Responses |
+| `gpt-5.5` | `/v1/chat/completions` | `dual_native` | `/v1/chat/completions` | `none` | Chat Completions |
+| `gpt-5.4` | `/v1/responses` | `dual_native` | `/v1/responses` | `none` | Responses |
+| `gpt-5.4` | `/v1/chat/completions` | `dual_native` | `/v1/chat/completions` | `none` | Chat Completions |
+| `deepseek-v4-flash` | `/v1/responses` | `chat_completions_only` | `/v1/chat/completions` | `openai_responses_to_chat_completions` | Responses |
+| `deepseek-v4-flash` | `/v1/chat/completions` | `chat_completions_only` | `/v1/chat/completions` | `none` | Chat Completions |
+
+Context overflow promotion behavior follows the same capability rules because promotion reuses ordinary explicit-target request planning. With the capabilities above, only `gpt-5.5` has larger-window promotion targets.
+
+| Source model | Source ingress path | Promotion target | Target capability | Promoted upstream path | `operation_translation_mode` | Final client-visible shape |
+|---|---|---|---|---|---|---|
+| `gpt-5.5` | `/v1/responses` | `gpt-5.4` | `dual_native` | `/v1/responses` | `none` | Responses |
+| `gpt-5.5` | `/v1/chat/completions` | `gpt-5.4` | `dual_native` | `/v1/chat/completions` | `none` | Chat Completions |
+| `gpt-5.5` | `/v1/responses` | `deepseek-v4-flash` | `chat_completions_only` | `/v1/chat/completions` | `openai_responses_to_chat_completions` | Responses |
+| `gpt-5.5` | `/v1/chat/completions` | `deepseek-v4-flash` | `chat_completions_only` | `/v1/chat/completions` | `none` | Chat Completions |
+
+Invalid or unavailable promotion edges under the same example:
+- `gpt-5.5 -> gpt-5.5`: invalid self-target
+- `gpt-5.4 -> gpt-5.5`: target window smaller
+- `deepseek-v4-flash -> gpt-5.5`: target window smaller
+- `gpt-5.4 -> deepseek-v4-flash`: target window not strictly larger
+- `deepseek-v4-flash -> gpt-5.4`: target window not strictly larger
+
+Translated rows above remain subject to adapter approval for the specific request shape. If a request shape is not safely translatable, Prism must reject that translated candidate instead of forcing conversion.
+
 ### 2.2C Exact OpenAI facade routing (Release 1)
 
 Release 1 exact facade routing is backend-first and exact-ID only. Planning starts from the requested model's exact active-profile lookup and activates only when the requested OpenAI model has `facade_enabled = true`, `facade_selection_policy = "weighted_eligible_context"`, and `facade_fallback_policy = "redistribute_ineligible_weight"`.
