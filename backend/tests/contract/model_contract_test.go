@@ -1026,7 +1026,11 @@ func modelInsertConnection(t *testing.T, harness *contractHarness, profileID int
 	if customHeaders != nil {
 		headersValue = mustModelJSON(t, customHeaders)
 	}
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`, profileID, apiFamily, endpointID, isActive, priority, fmt.Sprintf("conn-%d", priority), nil, headersValue, "healthy", nil, nil, now, now).Scan(&connectionID); err != nil {
+	var openAITextCapability any
+	if apiFamily == "openai" {
+		openAITextCapability = "responses_only"
+	}
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $14, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`, profileID, apiFamily, endpointID, isActive, priority, fmt.Sprintf("conn-%d", priority), nil, headersValue, "healthy", nil, nil, now, now, openAITextCapability).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection for model %d endpoint %d: %v", modelConfigID, endpointID, err)
 	}
 	modelInsertConnectionTarget(t, harness, profileID, modelConfigID, connectionID, priority, true)
@@ -1057,7 +1061,11 @@ func modelInsertStandaloneConnection(t *testing.T, harness *contractHarness, pro
 	if customHeaders != nil {
 		headersValue = mustModelJSON(t, customHeaders)
 	}
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`, profileID, apiFamily, endpointID, isActive, priority, fmt.Sprintf("conn-%d", priority), nil, headersValue, "healthy", nil, nil, now, now).Scan(&connectionID); err != nil {
+	var openAITextCapability any
+	if apiFamily == "openai" {
+		openAITextCapability = "responses_only"
+	}
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $14, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`, profileID, apiFamily, endpointID, isActive, priority, fmt.Sprintf("conn-%d", priority), nil, headersValue, "healthy", nil, nil, now, now, openAITextCapability).Scan(&connectionID); err != nil {
 		t.Fatalf("insert standalone connection endpoint %d: %v", endpointID, err)
 	}
 	return connectionID

@@ -254,9 +254,13 @@ func validateRuntimeRoutingPlanTerminalTargetIssues(issues []runtimeRoutingPlanV
 	if strings.TrimSpace(connection.Endpoint.BaseURL) == "" {
 		issues = appendRuntimeRoutingPlanValidationIssue(issues, "terminal_target_base_url_empty", path+".endpoint.base_url", fmt.Sprintf("terminal target %d has an empty endpoint base url", connection.ID))
 	}
-	if providercompat.IsOpenAI(connection.APIFamily) && connection.OpenAIUpstreamOperation != nil {
-		if !providercompat.IsSupportedOpenAIUpstreamOperation(*connection.OpenAIUpstreamOperation) {
-			issues = appendRuntimeRoutingPlanValidationIssue(issues, "terminal_target_openai_upstream_operation_invalid", path+".openai_upstream_operation", fmt.Sprintf("terminal target %d has unsupported OpenAI upstream operation %q", connection.ID, *connection.OpenAIUpstreamOperation))
+	if providercompat.IsOpenAI(connection.APIFamily) {
+		if connection.OpenAITextCapability == nil || !providercompat.IsSupportedOpenAITextCapability(*connection.OpenAITextCapability) {
+			capability := ""
+			if connection.OpenAITextCapability != nil {
+				capability = *connection.OpenAITextCapability
+			}
+			issues = appendRuntimeRoutingPlanValidationIssue(issues, "terminal_target_openai_text_capability_invalid", path+".openai_text_capability", fmt.Sprintf("terminal target %d has unsupported OpenAI text capability %q", connection.ID, capability))
 		}
 	}
 	return issues

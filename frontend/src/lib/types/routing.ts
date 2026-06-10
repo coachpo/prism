@@ -105,6 +105,11 @@ export interface ConnectionPricingTemplateSummary {
   version: number;
 }
 
+export type OpenAITextCapability =
+  | "responses_only"
+  | "chat_completions_only"
+  | "dual_native";
+
 export type OpenAIProbeEndpointVariant =
   | "responses_minimal"
   | "responses_reasoning_none"
@@ -137,6 +142,7 @@ export interface Connection extends ContextCapabilityFields {
   name: string | null;
   auth_type: string | null;
   custom_headers: Record<string, string> | null;
+  openai_text_capability: OpenAITextCapability | null;
   openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | null;
   context_capability_overrides?: ContextCapabilityOverrides;
   pricing_template_id: number | null;
@@ -171,6 +177,7 @@ export interface ConnectionCreate {
   name?: string | null;
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
+  openai_text_capability?: OpenAITextCapability | null;
   openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   context_window_tokens?: number | null;
   default_output_token_reserve?: number | null;
@@ -190,6 +197,7 @@ export interface ConnectionUpdate {
   name?: string | null;
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
+  openai_text_capability?: OpenAITextCapability | null;
   openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   context_window_tokens?: number | null;
   default_output_token_reserve?: number | null;

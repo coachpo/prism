@@ -210,7 +210,7 @@ type runtimeConnection struct {
 	MaxContextUtilization                float64
 	PreferredContextUtilizationThreshold *float64
 	OpenAIProbeEndpointVariant           *string
-	OpenAIUpstreamOperation              *string
+	OpenAITextCapability                 *string
 	EndpointFXSnapshot                   *runtimeEndpointFXSnapshot
 	UpstreamAuth                         *runtimeConnectionUpstreamAuthSnapshot
 	Endpoint                             runtimeEndpoint

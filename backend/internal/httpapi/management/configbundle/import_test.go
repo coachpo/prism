@@ -46,6 +46,21 @@ func TestResolveImportedNames(t *testing.T) {
 	}
 }
 
+func TestNormalizeImportedOpenAITextCapability(t *testing.T) {
+	if got, err := normalizeImportedOpenAITextCapability("openai", stringPtr("  DUAL_NATIVE  "), true); err != nil || got == nil || *got != "dual_native" {
+		t.Fatalf("expected normalized OpenAI text capability, got capability=%#v err=%v", got, err)
+	}
+	if _, err := normalizeImportedOpenAITextCapability("openai", nil, false); err == nil || err.Error() != "must include openai_text_capability for OpenAI API family connections" {
+		t.Fatalf("expected missing OpenAI text capability error, got %v", err)
+	}
+	if _, err := normalizeImportedOpenAITextCapability("openai", stringPtr("bogus"), true); err == nil || err.Error() != "has invalid openai_text_capability" {
+		t.Fatalf("expected invalid OpenAI text capability error, got %v", err)
+	}
+	if _, err := normalizeImportedOpenAITextCapability("anthropic", stringPtr("responses_only"), true); err == nil || err.Error() != "must not include openai_text_capability outside the OpenAI API family" {
+		t.Fatalf("expected non-OpenAI capability rejection, got %v", err)
+	}
+}
+
 func TestNormalizeOpenAIProbeEndpointVariant(t *testing.T) {
 	if got, err := normalizeOpenAIProbeEndpointVariant("openai", stringPtr("  RESPONSES_MINIMAL  ")); err != nil || got == nil || *got != "responses_minimal" {
 		t.Fatalf("expected normalized OpenAI probe variant, got variant=%#v err=%v", got, err)
@@ -205,6 +220,8 @@ func TestProfileBundleImportValidatesAccessTargets(t *testing.T) {
 			name: "cross api family connection ref",
 			mutate: func(request *profileImportRequest) {
 				request.Connections[0].APIFamily = "anthropic"
+				request.Connections[0].OpenAITextCapability = nil
+				request.Connections[0].OpenAITextCapabilitySet = false
 			},
 			detail: "Model 'gpt-4o-mini' cannot target cross-api-family connection_ref 'openai-primary'",
 		},
@@ -260,12 +277,14 @@ func TestImportRejectsOwnerlessConnectionRefs(t *testing.T) {
 func TestProfileBundleImportCountsTopLevelConnections(t *testing.T) {
 	request := validProfileBundleV3Request()
 	request.Connections = append(request.Connections, connectionExport{
-		Ref:                 "openai-secondary",
-		APIFamily:           "openai",
-		EndpointName:        "OpenAI",
-		PricingTemplateName: stringPtr("Default pricing"),
-		IsActive:            true,
-		Priority:            1,
+		Ref:                     "openai-secondary",
+		APIFamily:               "openai",
+		EndpointName:            "OpenAI",
+		PricingTemplateName:     stringPtr("Default pricing"),
+		IsActive:                true,
+		Priority:                1,
+		OpenAITextCapability:    stringPtr("responses_only"),
+		OpenAITextCapabilitySet: true,
 	})
 	request.Models[0].AccessTargets = append(request.Models[0].AccessTargets, accessTargetExport{
 		Position:      1,
@@ -579,12 +598,14 @@ func validProfileBundleV3Request() profileImportRequest {
 			Version:             1,
 		}},
 		Connections: []connectionExport{{
-			Ref:                 "openai-primary",
-			APIFamily:           "openai",
-			EndpointName:        "OpenAI",
-			PricingTemplateName: stringPtr("Default pricing"),
-			IsActive:            true,
-			Priority:            0,
+			Ref:                     "openai-primary",
+			APIFamily:               "openai",
+			EndpointName:            "OpenAI",
+			PricingTemplateName:     stringPtr("Default pricing"),
+			IsActive:                true,
+			Priority:                0,
+			OpenAITextCapability:    stringPtr("responses_only"),
+			OpenAITextCapabilitySet: true,
 		}},
 		LoadbalanceStrategies: []loadbalanceStrategyExport{{
 			Name:                               "Default single",

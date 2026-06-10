@@ -112,7 +112,7 @@ GET is a read of the managed file plus the live applied baseline. Current respon
 }
 ```
 
-The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied. Runtime buffering is automatic and not user-configurable. The same bootstrap contract also owns the restart-required OpenAI terminal translation control `runtime.routing.openaiTerminalTranslationMode` (`off`, `safe_only`).
+The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied. Runtime buffering is automatic and not user-configurable. OpenAI text sibling translation has no startup config control; runtime capability comes from each OpenAI Terminal Target's `openai_text_capability`.
 
 Raw runtime startup config uses camelCase JSON field names in the file:
 
@@ -704,6 +704,7 @@ Request (using existing endpoint):
     "X-Custom-Org": "org-123"
   },
   "openai_probe_endpoint_variant": "responses_minimal",
+  "openai_text_capability": "responses_only",
   "context_window_tokens": 128000,
   "default_output_token_reserve": 4096,
   "max_context_utilization": 0.90,
@@ -725,6 +726,7 @@ Request (inline endpoint creation):
   "is_active": true,
   "name": "Regional fallback",
   "openai_probe_endpoint_variant": "responses_minimal",
+  "openai_text_capability": "dual_native",
   "pricing_template_id": null,
   "qps_limit": null,
   "max_in_flight_non_stream": null,
@@ -739,13 +741,14 @@ Create semantics:
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
 - Context capability fields inherit the owner model's effective values when omitted or reset to `null`, so terminal-target rows persist explicit request-time capability values. `preferred_context_utilization_threshold` follows the same owner-scoped override shape; inherited and explicit values must stay less than or equal to the effective `max_context_utilization`, and `null` means the terminal target has no preferred band.
-- `openai_probe_endpoint_variant` selects the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. The derived `openai_upstream_operation` capability is `openai.responses` for blank or `responses_*` variants and `openai.chat_completions` for `chat_completions_*` variants. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
+- `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, and is required for OpenAI rows. Non-OpenAI rows must omit it or persist `null`.
+- `openai_probe_endpoint_variant` selects only the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. It does not derive runtime capability or request shape. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
 #### Update Terminal Target
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `context_window_tokens`, `default_output_token_reserve`, `max_context_utilization`, `preferred_context_utilization_threshold`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `openai_text_capability`, `context_window_tokens`, `default_output_token_reserve`, `max_context_utilization`, `preferred_context_utilization_threshold`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
 
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
@@ -949,6 +952,7 @@ Response `200`:
       "auth_type": null,
       "custom_headers": {},
       "openai_probe_endpoint_variant": "responses_minimal",
+      "openai_text_capability": "responses_only",
       "pricing_template_name": null,
       "qps_limit": null,
       "max_in_flight_non_stream": null,
@@ -1083,7 +1087,7 @@ Preview semantics:
 - The backend validates bundle kind/version, top-level private connection references, ordered model access targets, vendor resolution, and secret decryption before returning `ready: true`.
 - Preview rejects any `connection_ref` used by multiple models or any imported connection ref that cannot be owned by exactly one model.
 - Preview rejects profile bundle versions other than `3`; older profile bundle versions return `400`.
-- Profile bundles stay on `version: 3` during planner rollout and do not include the temporary bootstrap-owned runtime rollout controls.
+- Profile bundles stay on `version: 3` and carry OpenAI Terminal Target runtime text capability through `connections[].openai_text_capability`. There is no bootstrap-owned translation mode control in the bundle or startup config.
 - Preview returns a server-issued preview token, and apply must send that token in `X-Prism-Preview-Token`.
 - Preview rejects plaintext or otherwise non-encrypted `secret_payload.entries[].ciphertext` values.
 - When bundle key validation or secret decryption fails, preview returns `ready: false` with `blocking_errors[]` and does not mutate profile state.
@@ -1134,7 +1138,7 @@ Profile import semantics:
 - Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and exact `target_model_id` values.
 - Exported/imported models carry ordered `access_targets` entries with model targets and internally owned Terminal Target compatibility entries plus `position` and `is_enabled` metadata.
-- Exported/imported Terminal Targets live at the top-level `connections` bundle key and include `api_family`, endpoint and pricing-template name references, context capability fields including `preferred_context_utilization_threshold`, OpenAI probe variant metadata, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields and no preferred band for the preferred-threshold field.
+- Exported/imported Terminal Targets live at the top-level `connections` bundle key and include `api_family`, endpoint and pricing-template name references, context capability fields including `preferred_context_utilization_threshold`, OpenAI probe variant metadata, explicit `openai_text_capability`, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields and no preferred band for the preferred-threshold field. OpenAI connections require `openai_text_capability`; non-OpenAI connections must omit it or use `null`.
 - Import rejects `connection_ref` values used by multiple models, duplicate Terminal Target ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
 - Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle v3 import normalizes missing, null, or blank pricing inputs for any of those fields to `"0"` before validation.
 - Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`, including `cheapest_eligible_context`.
@@ -1596,9 +1600,9 @@ The matching request-log detail can include `routing.context_routing` with `poli
 
 ### 2.2B OpenAI sibling-operation translation
 
-OpenAI Chat Completions and Responses targets can be siblings for runtime planning. Translation eligibility is explicit and terminal-target based: native-compatible terminal attempts keep `operation_translation_mode = "none"`, and native-compatible terminal attempts are preferred before any translated attempt. Compatible sibling targets may use `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses` only when the selected connection's `openai_upstream_operation` differs from ingress and the request shape is in Prism's supported subset. Blank or default probe metadata resolves request-side translation as native Responses capability, not as a translated Chat target.
+OpenAI Chat Completions and Responses targets can be siblings for runtime planning. Translation eligibility is explicit and terminal-target based through `openai_text_capability`: `responses_only`, `chat_completions_only`, or `dual_native`. Native-compatible terminal attempts keep `operation_translation_mode = "none"`, and native-compatible terminal attempts are preferred before any translated attempt. Compatible sibling targets may use `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses` only when the selected connection's capability is not native for the ingress operation and the adapter approves the request shape.
 
-`runtime.routing.openaiTerminalTranslationMode = "safe_only"` admits only adapter-approved safe OpenAI text sibling translations between Chat Completions and Responses. Mode `off` keeps translated-only terminal sets unavailable, so they fail through the normal no-eligible-target behavior. Unsupported shapes are not universally routable: tools, multimodal or file inputs, stateful Responses features, structured-output mismatches, streaming event-shape mismatches, and any other adapter-rejected conversion remain blocked by adapter capability checks and reject before provider transport with `openai_request_translation_unsupported` when translation compatibility is the blocker. Public Responses requests with stateful shapes such as `previous_response_id` can pass through when missing context estimation is the only blocker, but they still reject if translation compatibility fails.
+Sibling OpenAI text translation is native-first and always on for adapter-approved text-only shapes. There is no startup toggle. Unsupported shapes are not universally routable: tools, multimodal or file inputs, stateful Responses features, structured-output mismatches, streaming event-shape mismatches, and any other adapter-rejected conversion remain blocked by adapter capability checks and reject before provider transport with `openai_request_translation_unsupported` when translation compatibility is the blocker. Public Responses requests with stateful shapes such as `previous_response_id` can pass through when missing context estimation is the only blocker, but they still reject if translation compatibility fails. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require responses-capable targets and never translate to Chat Completions.
 
 Translated non-stream and stream responses are rewritten back to the ingress operation shape for the client. Runtime usage remains canonical from the raw upstream payload or terminal stream event, translated responses strip unsafe entity headers before writing to the client, and audit body capture stays upstream-native rather than translated.
 
@@ -1635,7 +1639,7 @@ The selected-child exact-facade restriction is preserved. If a public facade sel
 
 The classifier is status plus body, never status alone. Eligible statuses are `400`, `413`, `422`, and body-confirmed `429`. Plain `429` never promotes; rate-limit, quota, capacity, auth, model lookup, malformed JSON, and ambiguous validation bodies are returned without promotion unless the body carries explicit context-overflow evidence. Native non-stream paths can classify OpenAI-style top-level `error` objects or unambiguous flat CLIProxyAPI gateway JSON. Translated non-stream paths accept only top-level `error` objects; translated flat-gateway JSON is rejected for promotion in v1 and the original source response is returned.
 
-If promotion starts, Prism closes the source response body and executes the promoted model once. The promoted model inherits the same planner behavior as ordinary terminal resolution: native-compatible attempts remain preferred, `safe_only` can admit only adapter-approved safe OpenAI text sibling translations, and `off` leaves translated-only promoted terminal sets unavailable through normal planning failure. Promotion is still a one-shot explicit replay path, not a promotion-only fallback exception, and a second promotion is never attempted. Final status, usage, pricing, and `usage_request_events` attribution come from the final response returned to the client. Failed source attempts remain visible as attempt-level `request_logs` rows and optional audit rows under the same `ingress_request_id`.
+If promotion starts, Prism closes the source response body and executes the promoted model once. The promoted model inherits the same planner behavior as ordinary terminal resolution: native-compatible attempts remain preferred, and adapter-approved OpenAI text sibling translations can run when the promoted target's `openai_text_capability` requires translation. Promotion is still a one-shot explicit replay path, not a promotion-only fallback exception, and a second promotion is never attempted. Final status, usage, pricing, and `usage_request_events` attribution come from the final response returned to the client. Failed source attempts remain visible as attempt-level `request_logs` rows and optional audit rows under the same `ingress_request_id`.
 
 ### 2.3 OpenAI Operations
 

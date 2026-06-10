@@ -19,7 +19,7 @@ func TestConnectionStandaloneMutationRejections(t *testing.T) {
 	connectionID := modelInsertConnection(t, harness, defaultProfileID, ownerModelID, endpointID, 0, true, map[string]string{"x-test": "1"})
 	pricingTemplateID := insertContractPricingTemplate(t, harness, defaultProfileID, "Task 4 Public Connection Pricing")
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/connections", map[string]any{"api_family": "openai", "endpoint_id": endpointID, "name": "Rejected Public Mutation"}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/connections", map[string]any{"api_family": "openai", "endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Rejected Public Mutation"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, createResponse, http.StatusBadRequest, connectionOwnerScopedMutationDetail())
 	assertConnectionNameCount(t, harness, defaultProfileID, "Rejected Public Mutation", 0)
 
@@ -104,7 +104,7 @@ func TestTargetRouteCRUD(t *testing.T) {
 	endpointAID := modelInsertEndpoint(t, harness, defaultProfileID, "Target Route Endpoint A", 0)
 	endpointBID := modelInsertEndpoint(t, harness, defaultProfileID, "Target Route Endpoint B", 1)
 
-	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", sourceModelID), map[string]any{"endpoint_id": endpointAID, "is_active": true, "name": "Owner Route Connection"}, modelHeader(defaultProfileID))
+	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", sourceModelID), map[string]any{"endpoint_id": endpointAID, "openai_text_capability": "responses_only", "is_active": true, "name": "Owner Route Connection"}, modelHeader(defaultProfileID))
 	assertStatus(t, createConnection, http.StatusCreated)
 	var connectionPayload map[string]any
 	decodeJSONResponse(t, createConnection, &connectionPayload)
@@ -154,7 +154,7 @@ func TestDeleteReferencedConnection(t *testing.T) {
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-delete-referenced-connection", nil, "native", &strategyID, true)
 	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Delete Referenced Endpoint", 0)
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "is_active": true, "name": "Delete Referenced Private"}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "is_active": true, "name": "Delete Referenced Private"}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
@@ -231,7 +231,7 @@ func TestTargetDeleteOwnedConnectionDeletesConnectionNoOrphan(t *testing.T) {
 	targetModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "task4-target-delete-model", nil, "native", &strategyID, true)
 	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Task 4 Target Delete Endpoint", 0)
 
-	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "is_active": true, "name": "Target Delete Private"}, modelHeader(defaultProfileID))
+	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "is_active": true, "name": "Target Delete Private"}, modelHeader(defaultProfileID))
 	assertStatus(t, createConnection, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createConnection, &created)
@@ -258,7 +258,7 @@ func TestModelAPIFamilyChangeRejectsPrivateConnections(t *testing.T) {
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Task 4 Family Change Strategy")
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "task4-family-change-owner", nil, "native", &strategyID, true)
 	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Task 4 Family Change Endpoint", 0)
-	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "name": "Family Change Private"}, modelHeader(defaultProfileID))
+	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Family Change Private"}, modelHeader(defaultProfileID))
 	assertStatus(t, createConnection, http.StatusCreated)
 
 	changeFamily := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{"api_family": "anthropic"}, modelHeader(defaultProfileID))
@@ -278,7 +278,7 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	standaloneEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Model Scoped Standalone Endpoint", 2)
 	standaloneConnectionID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", standaloneEndpointID, 0, true, nil)
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": ownerEndpointID, "is_active": true, "name": "Owner Private Connection", "custom_headers": map[string]string{"x-owner": "1"}, "qps_limit": 2}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": ownerEndpointID, "openai_text_capability": "responses_only", "is_active": true, "name": "Owner Private Connection", "custom_headers": map[string]string{"x-owner": "1"}, "qps_limit": 2}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
@@ -292,7 +292,7 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	assertConnectionOwnerTarget(t, harness, ownerModelID, connectionID, 0, true)
 	assertStoredConnectionAPIFamily(t, harness, connectionID, "openai")
 
-	otherCreateResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", otherModelID), map[string]any{"api_family": "openai", "endpoint_id": otherEndpointID, "name": "Other Private Connection"}, modelHeader(defaultProfileID))
+	otherCreateResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", otherModelID), map[string]any{"api_family": "openai", "endpoint_id": otherEndpointID, "openai_text_capability": "responses_only", "name": "Other Private Connection"}, modelHeader(defaultProfileID))
 	assertStatus(t, otherCreateResponse, http.StatusCreated)
 	var otherCreated map[string]any
 	decodeJSONResponse(t, otherCreateResponse, &otherCreated)
@@ -318,7 +318,7 @@ func TestModelConnectionContextCapabilityOverrides(t *testing.T) {
 		t.Fatalf("seed owner model context capabilities: %v", err)
 	}
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "name": "Inherited Capability Connection"}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Inherited Capability Connection"}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
@@ -365,10 +365,10 @@ func TestModelConnectionContextCapabilityOverrides(t *testing.T) {
 	}
 	assertContextCapabilityOverridesPayload(t, listed[0], nil, intPtr(2048), float64Ptr(0.8))
 
-	invalidReserve := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "default_output_token_reserve": 0}, modelHeader(defaultProfileID))
+	invalidReserve := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "default_output_token_reserve": 0}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, invalidReserve, http.StatusUnprocessableEntity, "default_output_token_reserve must be greater than or equal to 1 when provided")
 
-	invalidUtilization := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "max_context_utilization": 1.1}, modelHeader(defaultProfileID))
+	invalidUtilization := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "max_context_utilization": 1.1}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, invalidUtilization, http.StatusUnprocessableEntity, "max_context_utilization must be greater than 0 and less than or equal to 1 when provided")
 }
 
@@ -383,7 +383,7 @@ func TestModelDetailConnectionContextCapabilityResponses(t *testing.T) {
 		t.Fatalf("seed owner model detail context capabilities: %v", err)
 	}
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "name": "Detail Capability Connection", "context_window_tokens": 64000, "default_output_token_reserve": 1024}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Detail Capability Connection", "context_window_tokens": 64000, "default_output_token_reserve": 1024}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
@@ -458,7 +458,7 @@ func TestModelScopedConnectionCreateRollsBackWhenOwnerTargetInsertFails(t *testi
 		t.Fatalf("install access target failure trigger: %v", err)
 	}
 
-	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "name": "Rollback Connection"}, modelHeader(defaultProfileID))
+	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Rollback Connection"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, response, http.StatusInternalServerError, "Internal server error")
 	assertConnectionNameCount(t, harness, defaultProfileID, "Rollback Connection", 0)
 }
@@ -470,7 +470,7 @@ func TestLegacyModelConnectionAuxiliaryRoutesRejectWithOwnerGuidance(t *testing.
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Legacy Route Strategy")
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-legacy-route-model", nil, "native", &strategyID, true)
 	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Legacy Route Endpoint", 0)
-	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "name": "Legacy Route Private"}, modelHeader(defaultProfileID))
+	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Legacy Route Private"}, modelHeader(defaultProfileID))
 	assertStatus(t, createConnection, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createConnection, &created)
@@ -490,7 +490,7 @@ func TestLegacyModelConnectionAuxiliaryRoutesRejectWithOwnerGuidance(t *testing.
 		assertErrorResponse(t, response, http.StatusBadRequest, connectionOwnerScopedMutationDetail())
 	}
 
-	legacyPreview := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections/health-check-preview", modelConfigID), map[string]any{"endpoint_id": endpointID}, modelHeader(defaultProfileID))
+	legacyPreview := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections/health-check-preview", modelConfigID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only"}, modelHeader(defaultProfileID))
 	assertStatus(t, legacyPreview, http.StatusNotFound)
 }
 
@@ -776,7 +776,7 @@ func TestConnectionPreferredContext(t *testing.T) {
 		t.Fatalf("seed owner preferred context values: %v", err)
 	}
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "name": "Preferred Context Connection"}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Preferred Context Connection"}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
@@ -807,20 +807,20 @@ func TestConnectionPreferredContext(t *testing.T) {
 	assertOptionalOverrideFloatField(t, asMap(t, reset["context_capability_overrides"]), "preferred_context_utilization_threshold", nil)
 	assertStoredConnectionPreferredContextThreshold(t, harness, connectionID, float64Ptr(0.7), false)
 
-	invalidZero := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "preferred_context_utilization_threshold": 0}, modelHeader(defaultProfileID))
+	invalidZero := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "preferred_context_utilization_threshold": 0}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, invalidZero, http.StatusUnprocessableEntity, "preferred_context_utilization_threshold must be greater than 0 and less than or equal to 1 when provided")
 
-	invalidHigh := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "preferred_context_utilization_threshold": 1.1}, modelHeader(defaultProfileID))
+	invalidHigh := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "preferred_context_utilization_threshold": 1.1}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, invalidHigh, http.StatusUnprocessableEntity, "preferred_context_utilization_threshold must be greater than 0 and less than or equal to 1 when provided")
 
-	invalidCrossField := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "max_context_utilization": 0.60, "preferred_context_utilization_threshold": 0.70}, modelHeader(defaultProfileID))
+	invalidCrossField := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "max_context_utilization": 0.60, "preferred_context_utilization_threshold": 0.70}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, invalidCrossField, http.StatusUnprocessableEntity, "preferred_context_utilization_threshold must be less than or equal to max_context_utilization when provided")
 
 	invalidLowerMax := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"max_context_utilization": 0.60}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, invalidLowerMax, http.StatusUnprocessableEntity, "preferred_context_utilization_threshold must be less than or equal to max_context_utilization when provided")
 }
 
-func TestConnectionCapabilitySnapshotsExposePreferredThresholdAndOpenAIUpstreamOperation(t *testing.T) {
+func TestConnectionCapabilitySnapshotsExposePreferredThresholdAndOpenAITextCapability(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
@@ -831,21 +831,30 @@ func TestConnectionCapabilitySnapshotsExposePreferredThresholdAndOpenAIUpstreamO
 		t.Fatalf("seed owner model capability snapshot defaults: %v", err)
 	}
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "name": "Capability Snapshot Connection"}, modelHeader(defaultProfileID))
+	missingCapability := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "name": "Missing Capability Connection"}, modelHeader(defaultProfileID))
+	assertErrorResponse(t, missingCapability, http.StatusUnprocessableEntity, "openai_text_capability is required for OpenAI-family connections")
+
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Capability Snapshot Connection"}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
 	connectionID := jsonInt(t, created["id"])
-	if jsonFloat(t, created["preferred_context_utilization_threshold"]) != 0.7 || created["openai_probe_endpoint_variant"] != "responses_minimal" || created["openai_upstream_operation"] != "openai.responses" {
-		t.Fatalf("expected created connection to expose inherited preferred threshold and default OpenAI upstream operation, got %+v", created)
+	if jsonFloat(t, created["preferred_context_utilization_threshold"]) != 0.7 || created["openai_probe_endpoint_variant"] != "responses_minimal" || created["openai_text_capability"] != "responses_only" {
+		t.Fatalf("expected created connection to expose inherited preferred threshold and explicit OpenAI text capability, got %+v", created)
+	}
+	if _, ok := created["openai_upstream_operation"]; ok {
+		t.Fatalf("created connection must not expose removed openai_upstream_operation, got %+v", created)
 	}
 
 	updateResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"openai_probe_endpoint_variant": "chat_completions_reasoning_none"}, modelHeader(defaultProfileID))
 	assertStatus(t, updateResponse, http.StatusOK)
 	var updated map[string]any
 	decodeJSONResponse(t, updateResponse, &updated)
-	if jsonFloat(t, updated["preferred_context_utilization_threshold"]) != 0.7 || updated["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || updated["openai_upstream_operation"] != "openai.chat_completions" {
-		t.Fatalf("expected updated connection to expose chat-completions upstream capability with unchanged preferred threshold, got %+v", updated)
+	if jsonFloat(t, updated["preferred_context_utilization_threshold"]) != 0.7 || updated["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || updated["openai_text_capability"] != "responses_only" {
+		t.Fatalf("expected updated connection to preserve text capability independently of probe variant, got %+v", updated)
+	}
+	if _, ok := updated["openai_upstream_operation"]; ok {
+		t.Fatalf("updated connection must not expose removed openai_upstream_operation, got %+v", updated)
 	}
 
 	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d", ownerModelID), nil, modelHeader(defaultProfileID))
@@ -870,8 +879,11 @@ func TestConnectionCapabilitySnapshotsExposePreferredThresholdAndOpenAIUpstreamO
 		if jsonFloat(t, nested.payload["preferred_context_utilization_threshold"]) != 0.7 {
 			t.Fatalf("expected nested %s preferred_context_utilization_threshold=0.7, got %+v", nested.name, nested.payload)
 		}
-		if nested.payload["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || nested.payload["openai_upstream_operation"] != "openai.chat_completions" {
-			t.Fatalf("expected nested %s to expose OpenAI upstream capability, got %+v", nested.name, nested.payload)
+		if nested.payload["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || nested.payload["openai_text_capability"] != "responses_only" {
+			t.Fatalf("expected nested %s to expose OpenAI text capability independently of probe variant, got %+v", nested.name, nested.payload)
+		}
+		if _, ok := nested.payload["openai_upstream_operation"]; ok {
+			t.Fatalf("nested %s must not expose removed openai_upstream_operation, got %+v", nested.name, nested.payload)
 		}
 	}
 }
@@ -884,7 +896,7 @@ func TestConnectionProbeEndpointVariantRejectsNonOpenAIFamily(t *testing.T) {
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "anthropic", "connection-non-openai-probe-owner", nil, "native", &strategyID, true)
 	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Non-OpenAI Probe Endpoint", 0)
 
-	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_probe_endpoint_variant": "responses_minimal"}, modelHeader(defaultProfileID))
+	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "openai_probe_endpoint_variant": "responses_minimal"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, response, http.StatusUnprocessableEntity, "openai_probe_endpoint_variant is only supported for OpenAI-family connections")
 }
 

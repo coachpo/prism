@@ -188,6 +188,10 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
+		openAITextCapability, err := resolveOpenAITextCapabilityCreate(owner.APIFamily, requestBody.OpenAITextCapability)
+		if err != nil {
+			return connectionResponse{}, err
+		}
 		pricingTemplateID, err := validatePricingTemplateID(r.Context(), tx, profile.ID, requestBody.PricingTemplateID)
 		if err != nil {
 			return connectionResponse{}, err
@@ -226,6 +230,7 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 			AuthType:                   authType,
 			CustomHeaders:              normalizeHeaders(requestBody.CustomHeaders),
 			OpenAIProbeEndpointVariant: openAIProbeVariant,
+			OpenAITextCapability:       openAITextCapability,
 			PricingTemplateID:          pricingTemplateID,
 			QPSLimit:                   requestBody.QPSLimit,
 			MaxInFlightNonStream:       requestBody.MaxInFlightNonStream,
@@ -360,6 +365,11 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	if !providercompat.IsOpenAI(next.APIFamily) {
 		next.OpenAIProbeEndpointVariant = nil
 	}
+	openAITextCapability, err := resolveOpenAITextCapabilityUpdate(current.APIFamily, next.APIFamily, current.OpenAITextCapability, requestBody.OpenAITextCapability)
+	if err != nil {
+		return connectionResponse{}, err
+	}
+	next.OpenAITextCapability = openAITextCapability
 
 	if requestBody.EndpointCreate.Set && requestBody.EndpointCreate.Value != nil {
 		endpoint, err := s.createInlineEndpoint(ctx, tx, profileID, *requestBody.EndpointCreate.Value)
@@ -811,6 +821,54 @@ func validateAuthType(value *string) (*string, error) {
 		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "auth_type must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return &normalized, nil
+}
+
+const (
+	openAITextCapabilityResponsesOnly       = "responses_only"
+	openAITextCapabilityChatCompletionsOnly = "chat_completions_only"
+	openAITextCapabilityDualNative          = "dual_native"
+)
+
+func resolveOpenAITextCapabilityCreate(apiFamily string, value *string) (*string, error) {
+	return normalizeOpenAITextCapability(apiFamily, value, true)
+}
+
+func resolveOpenAITextCapabilityUpdate(previousAPIFamily string, nextAPIFamily string, current *string, update optionalString) (*string, error) {
+	if !providercompat.IsOpenAI(nextAPIFamily) {
+		if update.Set && update.Value != nil && strings.TrimSpace(*update.Value) != "" {
+			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
+		}
+		return nil, nil
+	}
+	if update.Set {
+		return normalizeOpenAITextCapability(nextAPIFamily, update.Value, true)
+	}
+	if providercompat.IsOpenAI(previousAPIFamily) && current != nil && strings.TrimSpace(*current) != "" {
+		return normalizeOpenAITextCapability(nextAPIFamily, current, true)
+	}
+	return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is required for OpenAI-family connections"}
+}
+
+func normalizeOpenAITextCapability(apiFamily string, value *string, requiredForOpenAI bool) (*string, error) {
+	if !providercompat.IsOpenAI(apiFamily) {
+		if value != nil && strings.TrimSpace(*value) != "" {
+			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
+		}
+		return nil, nil
+	}
+	if value == nil || strings.TrimSpace(*value) == "" {
+		if requiredForOpenAI {
+			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is required for OpenAI-family connections"}
+		}
+		return nil, nil
+	}
+	capability := strings.ToLower(strings.TrimSpace(*value))
+	switch capability {
+	case openAITextCapabilityResponsesOnly, openAITextCapabilityChatCompletionsOnly, openAITextCapabilityDualNative:
+		return &capability, nil
+	default:
+		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is invalid"}
+	}
 }
 
 func resolveOpenAIProbeEndpointVariant(apiFamily string, value *string) (*string, error) {

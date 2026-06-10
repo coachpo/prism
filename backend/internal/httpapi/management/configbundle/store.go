@@ -103,6 +103,7 @@ type connectionRow struct {
 	AuthType                             *string
 	CustomHeaders                        map[string]string
 	OpenAIProbeEndpointVariant           *string
+	OpenAITextCapability                 *string
 	QPSLimit                             *int
 	MaxInFlightNonStream                 *int
 	MaxInFlightStream                    *int
@@ -520,6 +521,7 @@ func buildConnectionExports(connections []connectionRow, endpointByID map[int]en
 			AuthType:                             connection.AuthType,
 			CustomHeaders:                        connection.CustomHeaders,
 			OpenAIProbeEndpointVariant:           connection.OpenAIProbeEndpointVariant,
+			OpenAITextCapability:                 connection.OpenAITextCapability,
 			QPSLimit:                             connection.QPSLimit,
 			MaxInFlightNonStream:                 connection.MaxInFlightNonStream,
 			MaxInFlightStream:                    connection.MaxInFlightStream,
@@ -744,7 +746,7 @@ func listAccessTargetsByModelIDs(ctx context.Context, exec queryExecutor, modelI
 }
 
 func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]connectionRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, pricing_template_id, is_active, priority, name, auth_type, custom_headers, openai_probe_endpoint_variant, qps_limit, max_in_flight_non_stream, max_in_flight_stream FROM connections WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, pricing_template_id, is_active, priority, name, auth_type, custom_headers, openai_probe_endpoint_variant, openai_text_capability, qps_limit, max_in_flight_non_stream, max_in_flight_stream FROM connections WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query connections for profile %d: %w", profileID, err)
 	}
@@ -759,11 +761,12 @@ func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]
 		var authType sql.NullString
 		var customHeaders sql.NullString
 		var probeVariant sql.NullString
+		var openAITextCapability sql.NullString
 		var qpsLimit sql.NullInt32
 		var maxNonStream sql.NullInt32
 		var maxStream sql.NullInt32
 		item := connectionRow{}
-		if err := rows.Scan(&item.ID, &item.APIFamily, &item.EndpointID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &preferredContextUtilizationThreshold, &pricingTemplateID, &item.IsActive, &item.Priority, &name, &authType, &customHeaders, &probeVariant, &qpsLimit, &maxNonStream, &maxStream); err != nil {
+		if err := rows.Scan(&item.ID, &item.APIFamily, &item.EndpointID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &preferredContextUtilizationThreshold, &pricingTemplateID, &item.IsActive, &item.Priority, &name, &authType, &customHeaders, &probeVariant, &openAITextCapability, &qpsLimit, &maxNonStream, &maxStream); err != nil {
 			return nil, fmt.Errorf("scan connection row: %w", err)
 		}
 		item.ContextWindowTokens = nullableInt32(contextWindowTokens)
@@ -773,6 +776,7 @@ func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]
 		item.AuthType = nullableStringValue(authType)
 		item.CustomHeaders = parseCustomHeaders(customHeaders)
 		item.OpenAIProbeEndpointVariant = nullableStringValue(probeVariant)
+		item.OpenAITextCapability = nullableStringValue(openAITextCapability)
 		item.QPSLimit = nullableInt32(qpsLimit)
 		item.MaxInFlightNonStream = nullableInt32(maxNonStream)
 		item.MaxInFlightStream = nullableInt32(maxStream)

@@ -76,6 +76,7 @@ type runtimeRouteSeed struct {
 	EndpointAPIKey             string
 	CustomHeaders              map[string]any
 	OpenAIProbeEndpointVariant *string
+	OpenAITextCapability       *string
 }
 
 type runtimeStateSeed struct {
@@ -485,13 +486,16 @@ func TestProfileScopeTopologyCascadeIgnoresXProfileId(t *testing.T) {
 		},
 		map[string]string{"X-Profile-Id": fmt.Sprintf("%d", activeProfileID)},
 	)
-	assertStatus(t, secondResponse, http.StatusRequestEntityTooLarge)
+	assertStatus(t, secondResponse, http.StatusOK)
 	if got := len(activeRoute.GPT54Upstream.requestsSnapshot()); got != 1 {
 		t.Fatalf("expected active profile gpt-5.4 tier to keep only the first request, got %d requests", got)
 	}
-	assertNoScriptedUpstreamRequests(t, inactiveRoute.PrimaryUpstream, "inactive profile primary tier before non-native fallback")
-	assertNoScriptedUpstreamRequests(t, inactiveRoute.GPT54Upstream, "inactive profile gpt-5.4 tier before non-native fallback")
-	assertNoScriptedUpstreamRequests(t, inactiveRoute.DeepSeekUpstream, "inactive profile deepseek non-native tier")
+	assertNoScriptedUpstreamRequests(t, inactiveRoute.PrimaryUpstream, "inactive profile primary tier before chat-only translation")
+	assertNoScriptedUpstreamRequests(t, inactiveRoute.GPT54Upstream, "inactive profile gpt-5.4 tier before chat-only translation")
+	assertProxySelectorRequestSequence(t, inactiveRoute.DeepSeekUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    inactiveRoute.DeepSeekPathPrefix + "/v1/chat/completions",
+		ModelID: inactiveRoute.DeepSeekModelID,
+	}})
 }
 
 func TestProxyExecutionParity(t *testing.T) {
@@ -2216,13 +2220,9 @@ func newRuntimeHarness(tb testing.TB) *runtimeHarness {
 	return newRuntimeHarnessWithConfig(tb, runtimeHarnessConfig{})
 }
 
-func useEnforcedRuntimeRoutingRollout(settings *config.Settings) {
-	settings.OpenAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
-}
-
 func newEnforcedRuntimeHarness(tb testing.TB) *runtimeHarness {
 	tb.Helper()
-	return newRuntimeHarnessWithConfig(tb, runtimeHarnessConfig{SettingsMutator: useEnforcedRuntimeRoutingRollout})
+	return newRuntimeHarnessWithConfig(tb, runtimeHarnessConfig{})
 }
 
 type runtimeHarnessConfig struct {
@@ -2731,7 +2731,7 @@ func (h *runtimeHarness) seedProxyRoute(tb testing.TB, seed runtimeRouteSeed) se
 	publicModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.PublicModelID, "proxy", &strategyID)
 	h.seedProxyTarget(tb, publicModelConfigID, targetModelConfigID)
 	endpointID := h.seedEndpoint(tb, seed.ProfileID, "endpoint-"+randomSuffix(), seed.EndpointBaseURL, seed.EndpointAPIKey, 0)
-	connectionID := h.seedConnectionWithOpenAIProbeVariant(tb, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0, seed.OpenAIProbeEndpointVariant)
+	connectionID := h.seedConnectionWithOpenAIProbeVariantAndTextCapability(tb, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0, seed.OpenAIProbeEndpointVariant, seed.OpenAITextCapability)
 	releaseRefresh()
 	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{seed.ProfileID}})
 	return seededRuntimeRoute{
@@ -2857,15 +2857,26 @@ func (h *runtimeHarness) seedEndpoint(tb testing.TB, profileID int, name string,
 }
 
 func (h *runtimeHarness) seedConnection(tb testing.TB, profileID int, modelConfigID int, endpointID int, name string, authType *string, customHeaders map[string]any, priority int) int {
-	return h.seedConnectionWithOpenAIProbeVariant(tb, profileID, modelConfigID, endpointID, name, authType, customHeaders, priority, defaultRuntimeHarnessOpenAIProbeEndpointVariant())
+	return h.seedConnectionWithOpenAIProbeVariantAndTextCapability(tb, profileID, modelConfigID, endpointID, name, authType, customHeaders, priority, defaultRuntimeHarnessOpenAIProbeEndpointVariant(), defaultRuntimeHarnessOpenAITextCapability())
 }
 
 func defaultRuntimeHarnessOpenAIProbeEndpointVariant() *string {
 	return nil
 }
 
+func defaultRuntimeHarnessOpenAITextCapability() *string {
+	return runtimeStringPtr("dual_native")
+}
+
 func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariant(tb testing.TB, profileID int, modelConfigID int, endpointID int, name string, authType *string, customHeaders map[string]any, priority int, openAIProbeEndpointVariant *string) int {
+	return h.seedConnectionWithOpenAIProbeVariantAndTextCapability(tb, profileID, modelConfigID, endpointID, name, authType, customHeaders, priority, openAIProbeEndpointVariant, defaultRuntimeHarnessOpenAITextCapability())
+}
+
+func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariantAndTextCapability(tb testing.TB, profileID int, modelConfigID int, endpointID int, name string, authType *string, customHeaders map[string]any, priority int, openAIProbeEndpointVariant *string, openAITextCapability *string) int {
 	tb.Helper()
+	if openAITextCapability == nil {
+		openAITextCapability = defaultRuntimeHarnessOpenAITextCapability()
+	}
 	now := time.Now().UTC()
 	var connectionID int
 	if err := h.conn.QueryRow(
@@ -2879,6 +2890,7 @@ func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariant(tb testing.TB, pro
 			max_in_flight_non_stream,
 			max_in_flight_stream,
 			openai_probe_endpoint_variant,
+			openai_text_capability,
 			is_active,
 			priority,
 			name,
@@ -2889,7 +2901,7 @@ func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariant(tb testing.TB, pro
 			last_health_check,
 			created_at,
 			updated_at
-		) SELECT $1, model_configs.api_family, $3, NULL, NULL, NULL, NULL, CASE WHEN model_configs.api_family = 'openai' THEN $8 ELSE NULL END, TRUE, $4, $5, $6, $7, 'healthy', NULL, NULL, $9, $9
+		) SELECT $1, model_configs.api_family, $3, NULL, NULL, NULL, NULL, CASE WHEN model_configs.api_family = 'openai' THEN $8 ELSE NULL END, CASE WHEN model_configs.api_family = 'openai' THEN $9 ELSE NULL END, TRUE, $4, $5, $6, $7, 'healthy', NULL, NULL, $10, $10
 		FROM model_configs WHERE model_configs.id = $2
 		RETURNING id`,
 		profileID,
@@ -2900,6 +2912,7 @@ func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariant(tb testing.TB, pro
 		nullableTestString(authType),
 		marshalNullableJSON(tb, customHeaders),
 		nullableTestString(openAIProbeEndpointVariant),
+		nullableTestString(openAITextCapability),
 		now,
 	).Scan(&connectionID); err != nil {
 		tb.Fatalf("insert runtime connection %q: %v", name, err)
@@ -3443,6 +3456,10 @@ func nullableTestString(value *string) any {
 		return nil
 	}
 	return *value
+}
+
+func runtimeStringPtr(value string) *string {
+	return &value
 }
 
 func jsonInt(tb testing.TB, value any) int {

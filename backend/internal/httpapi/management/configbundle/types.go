@@ -1,6 +1,10 @@
 package configbundle
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"time"
+)
 
 type profileBundleResponse struct {
 	Version               int                         `json:"version"`
@@ -109,9 +113,31 @@ type connectionExport struct {
 	AuthType                             *string           `json:"auth_type"`
 	CustomHeaders                        map[string]string `json:"custom_headers"`
 	OpenAIProbeEndpointVariant           *string           `json:"openai_probe_endpoint_variant,omitempty"`
+	OpenAITextCapability                 *string           `json:"openai_text_capability"`
+	OpenAITextCapabilitySet              bool              `json:"-"`
 	QPSLimit                             *int              `json:"qps_limit"`
 	MaxInFlightNonStream                 *int              `json:"max_in_flight_non_stream"`
 	MaxInFlightStream                    *int              `json:"max_in_flight_stream"`
+}
+
+func (connection *connectionExport) UnmarshalJSON(data []byte) error {
+	type connectionExportAlias connectionExport
+	var decoded connectionExportAlias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	decoded.OpenAITextCapabilitySet = false
+	if _, ok := raw["openai_text_capability"]; ok {
+		decoded.OpenAITextCapabilitySet = true
+	}
+	*connection = connectionExport(decoded)
+	return nil
 }
 
 type profileSettingsExport struct {

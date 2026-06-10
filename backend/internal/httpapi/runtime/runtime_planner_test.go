@@ -19,22 +19,22 @@ func TestRuntimePlannerUsesCompiledPlanForRequestedModel(t *testing.T) {
 			name: "requested-model multi-hop terminal ordering",
 			snapshot: func() *planningSnapshot {
 				snapshot := newRequestPlanSnapshot(
-					runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "rollout-public-openai"},
-					runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "rollout-mid-openai"},
-					runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "rollout-target-openai"},
+					runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "planner-public-openai"},
+					runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "planner-mid-openai"},
+					runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "planner-target-openai"},
 				)
-				addRequestPlanProxyTarget(snapshot, "rollout-public-openai", "rollout-mid-openai")
-				addRequestPlanProxyTarget(snapshot, "rollout-mid-openai", "rollout-target-openai")
+				addRequestPlanProxyTarget(snapshot, "planner-public-openai", "planner-mid-openai")
+				addRequestPlanProxyTarget(snapshot, "planner-mid-openai", "planner-target-openai")
 				setRequestPlanConnectionContextWindow(snapshot, 1_003, 16_384)
 				return snapshot
 			},
 			path:    "/v1/chat/completions",
-			rawBody: []byte(`{"model":"rollout-public-openai","messages":[{"role":"user","content":"hello"}]}`),
+			rawBody: []byte(`{"model":"planner-public-openai","messages":[{"role":"user","content":"hello"}]}`),
 			assert: func(t *testing.T, plan requestPlan) {
-				if got := dereferenceString(plan.ResolvedTargetModelID); got != "rollout-target-openai" {
+				if got := dereferenceString(plan.ResolvedTargetModelID); got != "planner-target-openai" {
 					t.Fatalf("resolved target model = %q", got)
 				}
-				if got := extractModelFromBody(plan.UpstreamBody); got != "rollout-target-openai" {
+				if got := extractModelFromBody(plan.UpstreamBody); got != "planner-target-openai" {
 					t.Fatalf("upstream body model = %q", got)
 				}
 			},
@@ -42,8 +42,8 @@ func TestRuntimePlannerUsesCompiledPlanForRequestedModel(t *testing.T) {
 		{
 			name: "requested-model cheapest eligible context selection",
 			snapshot: func() *planningSnapshot {
-				snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "rollout-cheap-openai"})
-				model := snapshot.ModelsByID["rollout-cheap-openai"]
+				snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "planner-cheap-openai"})
+				model := snapshot.ModelsByID["planner-cheap-openai"]
 				setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 				snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 				contextWindowTokens := 20_000
@@ -61,7 +61,7 @@ func TestRuntimePlannerUsesCompiledPlanForRequestedModel(t *testing.T) {
 				return snapshot
 			},
 			path:    "/v1/chat/completions",
-			rawBody: []byte(`{"model":"rollout-cheap-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`),
+			rawBody: []byte(`{"model":"planner-cheap-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`),
 			assert: func(t *testing.T, plan requestPlan) {
 				attempts := plan.orderedTerminalAttempts()
 				if len(attempts) == 0 || attempts[0].Connection.ID != 2_802 {
@@ -84,30 +84,30 @@ func TestRuntimePlannerUsesCompiledPlanForRequestedModel(t *testing.T) {
 
 func TestRuntimePlannerUsesCompiledPlanForExplicitTarget(t *testing.T) {
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "rollout-source-openai"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "rollout-promotion-openai"},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "planner-source-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "planner-promotion-openai"},
 	)
 	setRequestPlanConnectionContextWindow(snapshot, 1_002, 16_384)
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	plan, err := newRequestPlanUnitService().buildExplicitTargetRequestPlan(
 		request,
-		[]byte(`{"model":"rollout-source-openai","messages":[{"role":"user","content":"promote"}]}`),
+		[]byte(`{"model":"planner-source-openai","messages":[{"role":"user","content":"promote"}]}`),
 		RuntimeProxyConfigSnapshot{},
 		requestPlanTestProfileID,
 		snapshot,
-		"rollout-promotion-openai",
+		"planner-promotion-openai",
 	)
 	if err != nil {
 		t.Fatalf("build explicit target plan: %v", err)
 	}
 	assertCurrentPlannerTrace(t, plan)
-	if plan.RequestedModelID != "rollout-promotion-openai" {
+	if plan.RequestedModelID != "planner-promotion-openai" {
 		t.Fatalf("requested model = %q", plan.RequestedModelID)
 	}
-	if got := dereferenceString(plan.ResolvedTargetModelID); got != "rollout-promotion-openai" {
+	if got := dereferenceString(plan.ResolvedTargetModelID); got != "planner-promotion-openai" {
 		t.Fatalf("resolved target model = %q", got)
 	}
-	if got := extractModelFromBody(plan.UpstreamBody); got != "rollout-promotion-openai" {
+	if got := extractModelFromBody(plan.UpstreamBody); got != "planner-promotion-openai" {
 		t.Fatalf("upstream body model = %q", got)
 	}
 }

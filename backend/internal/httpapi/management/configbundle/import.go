@@ -988,6 +988,9 @@ func validateImportedConnections(connections []connectionExport, refs profileImp
 		if _, err := normalizeOpenAIProbeEndpointVariant(apiFamily, connection.OpenAIProbeEndpointVariant); err != nil {
 			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' %s", connectionRef, err.Error())}
 		}
+		if _, err := normalizeImportedOpenAITextCapability(apiFamily, connection.OpenAITextCapability, connection.OpenAITextCapabilitySet); err != nil {
+			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' %s", connectionRef, err.Error())}
+		}
 		endpointName, err := resolveImportedEndpointName(connection.EndpointName, refs.endpointNames)
 		if err != nil {
 			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' %s", connectionRef, err.Error())}
@@ -1627,6 +1630,10 @@ func insertImportedConnections(ctx context.Context, exec queryExecutor, profileI
 		if err != nil {
 			return 0, err
 		}
+		openAITextCapability, err := normalizeImportedOpenAITextCapability(apiFamily, connection.OpenAITextCapability, connection.OpenAITextCapabilitySet)
+		if err != nil {
+			return 0, err
+		}
 		settings, hasOwnerSettings := connectionOwnerSettings[connectionRef]
 		if !hasOwnerSettings {
 			settings = contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
@@ -1644,7 +1651,7 @@ func insertImportedConnections(ctx context.Context, exec queryExecutor, profileI
 			customHeaders = string(rawHeaders)
 		}
 		var connectionID int
-		if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, $18, $19, $20, $21, $21) RETURNING id`, profileID, apiFamily, endpointIDsByName[endpointName], nullableOptionalInt(resolvedSettings.ContextWindowTokens), resolvedSettings.DefaultOutputTokenReserve, resolvedSettings.MaxContextUtilization, nullableOptionalFloat64(resolvedSettings.PreferredContextUtilizationThreshold), nullableInt(pricingIDsByName, pricingTemplateName), connection.QPSLimit, connection.MaxInFlightNonStream, connection.MaxInFlightStream, nullableString(probeVariant), connection.IsActive, connection.Priority, nullableString(trimmedOptionalString(connection.Name)), nullableString(normalizedOptionalAuthType(connection.AuthType)), customHeaders, "unknown", nil, nil, currentTime).Scan(&connectionID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19, $20, $21, $22, $22) RETURNING id`, profileID, apiFamily, endpointIDsByName[endpointName], nullableOptionalInt(resolvedSettings.ContextWindowTokens), resolvedSettings.DefaultOutputTokenReserve, resolvedSettings.MaxContextUtilization, nullableOptionalFloat64(resolvedSettings.PreferredContextUtilizationThreshold), nullableInt(pricingIDsByName, pricingTemplateName), connection.QPSLimit, connection.MaxInFlightNonStream, connection.MaxInFlightStream, nullableString(probeVariant), nullableString(openAITextCapability), connection.IsActive, connection.Priority, nullableString(trimmedOptionalString(connection.Name)), nullableString(normalizedOptionalAuthType(connection.AuthType)), customHeaders, "unknown", nil, nil, currentTime).Scan(&connectionID); err != nil {
 			return 0, fmt.Errorf("insert imported connection %q: %w", connectionRef, err)
 		}
 		connectionIDsByRef[connectionRef] = connectionID
@@ -1837,6 +1844,31 @@ func resolveImportedPricingTemplateName(name *string, known map[string]struct{})
 		return nil, fmt.Errorf("references unknown pricing_template_name '%s'", *resolved)
 	}
 	return resolved, nil
+}
+
+const (
+	openAITextCapabilityResponsesOnly       = "responses_only"
+	openAITextCapabilityChatCompletionsOnly = "chat_completions_only"
+	openAITextCapabilityDualNative          = "dual_native"
+)
+
+func normalizeImportedOpenAITextCapability(apiFamily string, value *string, valueSet bool) (*string, error) {
+	if !providercompat.IsOpenAI(apiFamily) {
+		if value != nil && strings.TrimSpace(*value) != "" {
+			return nil, fmt.Errorf("must not include openai_text_capability outside the OpenAI API family")
+		}
+		return nil, nil
+	}
+	if !valueSet || value == nil || strings.TrimSpace(*value) == "" {
+		return nil, fmt.Errorf("must include openai_text_capability for OpenAI API family connections")
+	}
+	capability := strings.ToLower(strings.TrimSpace(*value))
+	switch capability {
+	case openAITextCapabilityResponsesOnly, openAITextCapabilityChatCompletionsOnly, openAITextCapabilityDualNative:
+		return &capability, nil
+	default:
+		return nil, fmt.Errorf("has invalid openai_text_capability")
+	}
 }
 
 func normalizeOpenAIProbeEndpointVariant(apiFamily string, value *string) (*string, error) {

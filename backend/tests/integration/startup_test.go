@@ -1283,6 +1283,7 @@ func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed co
 			max_in_flight_non_stream,
 			max_in_flight_stream,
 			openai_probe_endpoint_variant,
+			openai_text_capability,
 			is_active,
 			priority,
 			name,
@@ -1293,7 +1294,7 @@ func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed co
 			last_health_check,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, TRUE, $4, $5, NULL, NULL, 'healthy', NULL, NULL, $6, $7)
+		) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $8, TRUE, $4, $5, NULL, NULL, 'healthy', NULL, NULL, $6, $7)
 		RETURNING id`,
 		seed.ProfileID,
 		apiFamily,
@@ -1302,6 +1303,7 @@ func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed co
 		seed.Name,
 		seed.CreatedAt,
 		seed.UpdatedAt,
+		openAITextCapabilityForSeedAPIFamily(apiFamily),
 	).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection %q: %v", seed.Name, err)
 	}
@@ -1721,6 +1723,13 @@ func nullableSeedString(value *string) any {
 		return nil
 	}
 	return *value
+}
+
+func openAITextCapabilityForSeedAPIFamily(apiFamily string) any {
+	if apiFamily != "openai" {
+		return nil
+	}
+	return "dual_native"
 }
 
 func nullableSeedTime(value *time.Time) any {

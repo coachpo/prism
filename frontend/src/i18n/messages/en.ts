@@ -1522,6 +1522,17 @@ export interface Messages {
     pricingTemplateHint: string;
     pricingTemplatePlaceholder: string;
     pricingSummaryLabel: string;
+    openaiTextCapability: string;
+    openaiTextCapabilityChatCompletionsOnly: string;
+    openaiTextCapabilityChatCompletionsOnlyHint: string;
+    openaiTextCapabilityDescription: string;
+    openaiTextCapabilityDualNative: string;
+    openaiTextCapabilityDualNativeHint: string;
+    openaiTextCapabilityResponsesOnly: string;
+    openaiTextCapabilityResponsesOnlyHint: string;
+    openaiTextCapabilityRuntimeHint: string;
+    openaiTextCapabilitySelector: string;
+    openaiTextCapabilitySummaryLabel: string;
     probeApi: string;
     probeApiChatCompletions: string;
     probeApiChatCompletionsHint: string;
@@ -3745,15 +3756,30 @@ export const enMessages: Messages = {
     pricingTemplateHint: "Assign a pricing template to track costs for this terminal target.",
     pricingTemplatePlaceholder: "Select a pricing template...",
     pricingSummaryLabel: "Pricing",
-    probeApi: "Probe API",
+    openaiTextCapability: "OpenAI Runtime Capability",
+    openaiTextCapabilityChatCompletionsOnly: "Chat Completions only",
+    openaiTextCapabilityChatCompletionsOnlyHint:
+      "Route OpenAI text traffic only to the Chat Completions operation for this terminal target.",
+    openaiTextCapabilityDescription:
+      "Choose which OpenAI text runtime operations this terminal target supports. This is separate from health probe behavior.",
+    openaiTextCapabilityDualNative: "Dual native",
+    openaiTextCapabilityDualNativeHint:
+      "Route OpenAI text traffic natively through both Responses and Chat Completions operations.",
+    openaiTextCapabilityResponsesOnly: "Responses only",
+    openaiTextCapabilityResponsesOnlyHint:
+      "Route OpenAI text traffic only to the Responses operation for this terminal target.",
+    openaiTextCapabilityRuntimeHint: "Used by runtime routing. Health probes have their own controls below.",
+    openaiTextCapabilitySelector: "Text capability",
+    openaiTextCapabilitySummaryLabel: "Runtime Capability",
+    probeApi: "Health Probe API",
     probeApiChatCompletions: "Chat Completions API",
-    probeApiChatCompletionsHint: "Compatibility probe for chat-completions style upstreams.",
+    probeApiChatCompletionsHint: "Use Chat Completions only for the health-check probe request.",
     probeApiResponses: "Responses API",
-    probeApiResponsesHint: "Preferred modern probe path.",
-    probeBehavior: "Probe Behavior",
+    probeApiResponsesHint: "Use Responses only for the health-check probe request.",
+    probeBehavior: "Health Probe Behavior",
     probeBehaviorDescription:
-      "Used for health checks only. It does not change routed model traffic or terminal-target selection.",
-    probeBehaviorSummaryLabel: "Probe Behavior",
+      "Used for health checks only. It does not change runtime capability, routed model traffic, or terminal-target selection.",
+    probeBehaviorSummaryLabel: "Health Probe Behavior",
     qpsLimit: "QPS Limit",
     overrideSetting: "Override",
     removeHeader: "Remove header",
@@ -3765,7 +3791,7 @@ export const enMessages: Messages = {
     requestsLabel: "Requests",
     routingPriorityHint:
       "New terminal targets are appended as fallbacks. Drag and drop cards in the Model Detail list to adjust routing priority.",
-    reasoningHandling: "Reasoning Handling",
+    reasoningHandling: "Probe payload reasoning",
     reasoningHandlingDefault: "Minimal payload",
     reasoningHandlingDefaultHint: "Send the smallest standard probe payload.",
     reasoningHandlingDisabled: "Disable reasoning",

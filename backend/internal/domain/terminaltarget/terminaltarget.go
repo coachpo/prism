@@ -54,7 +54,7 @@ type Record struct {
 	AuthType                                       *string
 	CustomHeaders                                  map[string]string
 	OpenAIProbeEndpointVariant                     *string
-	OpenAIUpstreamOperation                        *string
+	OpenAITextCapability                           *string
 	PricingTemplateID                              *int
 	QPSLimit                                       *int
 	MaxInFlightNonStream                           *int
@@ -93,6 +93,6 @@ type RuntimeRecord struct {
 	MaxContextUtilization                float64
 	PreferredContextUtilizationThreshold *float64
 	OpenAIProbeEndpointVariant           *string
-	OpenAIUpstreamOperation              *string
+	OpenAITextCapability                 *string
 	Endpoint                             RuntimeEndpoint
 }

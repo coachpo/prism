@@ -364,7 +364,7 @@ func newRuntimeImageEditMultipartBody(t *testing.T, model string) ([]byte, strin
 	return body.Bytes(), writer.FormDataContentType()
 }
 
-func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAIProbeEndpointVariant string) seededRuntimeRoute {
+func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAIProbeEndpointVariant string, openAITextCapability string) seededRuntimeRoute {
 	t.Helper()
 	suffix := randomSuffix()
 	strategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-"+suffix, "cheapest_eligible_context")
@@ -378,7 +378,7 @@ func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profi
 	}
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
 	endpointID := harness.seedEndpoint(t, profileID, publicModelPrefix+"-endpoint-"+suffix, endpointBaseURL, endpointAPIKey, 0)
-	connectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAIProbeEndpointVariant)
+	connectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAIProbeEndpointVariant, &openAITextCapability)
 	now := time.Now().UTC()
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, 16_384, 1_024, 1.0, now); err != nil {
 		t.Fatalf("update translated OpenAI connection context capabilities: %v", err)

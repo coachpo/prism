@@ -299,13 +299,14 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			slug := routeMatrixSlug(test.operationName)
 			endpointPrefix := "/route-matrix/" + slug
 			route := harness.seedProxyRoute(t, runtimeRouteSeed{
-				ProfileID:       profileID,
-				APIFamily:       test.apiFamily,
-				PublicModelID:   "route-matrix-public-" + slug + "-" + randomSuffix(),
-				TargetModelID:   "route-matrix-target-" + slug + "-" + randomSuffix(),
-				EndpointBaseURL: upstream.baseURL(endpointPrefix),
-				EndpointAPIKey:  "route-matrix-key-" + slug,
-				CustomHeaders:   map[string]any{"X-Route-Matrix": "route-matrix-" + slug},
+				ProfileID:            profileID,
+				APIFamily:            test.apiFamily,
+				PublicModelID:        "route-matrix-public-" + slug + "-" + randomSuffix(),
+				TargetModelID:        "route-matrix-target-" + slug + "-" + randomSuffix(),
+				EndpointBaseURL:      upstream.baseURL(endpointPrefix),
+				EndpointAPIKey:       "route-matrix-key-" + slug,
+				CustomHeaders:        map[string]any{"X-Route-Matrix": "route-matrix-" + slug},
+				OpenAITextCapability: routeMatrixOpenAITextCapability(test.operationName),
 			})
 			ignoredBodyModel := "route-matrix-body-model-" + slug
 			requestPath := test.requestPath(route)
@@ -497,6 +498,20 @@ func routeMatrixSlug(operationName string) string {
 	replacer := strings.NewReplacer(".", "-", "_", "-")
 	return replacer.Replace(strings.ToLower(operationName))
 }
+
+func routeMatrixOpenAITextCapability(operationName string) *string {
+	switch operationName {
+	case "openai.chat_completions":
+		return runtimeStringPtr("chat_completions_only")
+	case "openai.responses", "openai.responses.input_tokens", "openai.responses.compact":
+		return runtimeStringPtr("responses_only")
+	case "openai.images.generations", "openai.images.edits":
+		return runtimeStringPtr("dual_native")
+	default:
+		return nil
+	}
+}
+
 func routeMatrixInt64(value int64) *int64 {
 	pointer := new(int64)
 	*pointer = value

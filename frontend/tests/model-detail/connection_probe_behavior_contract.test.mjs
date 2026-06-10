@@ -56,7 +56,7 @@ test("raw OpenAI probe variants decompose into the expected friendly control sta
   });
 });
 
-test("draft payload defaults OpenAI probe behavior to responses_minimal", () => {
+test("draft payload defaults OpenAI capability and probe behavior independently", () => {
   const { buildConnectionDraftPayload } = load(
     path.join(frontendDir, "src/pages/model-detail/useModelDetailDataSupport.ts"),
   );
@@ -78,6 +78,7 @@ test("draft payload defaults OpenAI probe behavior to responses_minimal", () => 
       qps_limit: null,
       max_in_flight_non_stream: null,
       max_in_flight_stream: null,
+      openai_text_capability: null,
       openai_probe_endpoint_variant: null,
     },
     headerRows: [],
@@ -86,11 +87,12 @@ test("draft payload defaults OpenAI probe behavior to responses_minimal", () => 
   });
 
   assert.equal(result.errorMessage, null);
+  assert.equal(result.payload.openai_text_capability, "responses_only");
   assert.equal(result.payload.openai_probe_endpoint_variant, "responses_minimal");
   assert.equal(result.payload.endpoint_id, 11);
 });
 
-test("draft payload omits OpenAI probe behavior for non-OpenAI models", () => {
+test("draft payload omits OpenAI capability and probe behavior for non-OpenAI models", () => {
   const { buildConnectionDraftPayload } = load(
     path.join(frontendDir, "src/pages/model-detail/useModelDetailDataSupport.ts"),
   );
@@ -120,6 +122,7 @@ test("draft payload omits OpenAI probe behavior for non-OpenAI models", () => {
   });
 
   assert.equal(result.errorMessage, null);
+  assert.ok(!Object.hasOwn(result.payload, "openai_text_capability"));
   assert.ok(!Object.hasOwn(result.payload, "openai_probe_endpoint_variant"));
   assert.equal(result.payload.endpoint_id, 11);
 });

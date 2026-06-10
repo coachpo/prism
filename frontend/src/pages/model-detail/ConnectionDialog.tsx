@@ -32,6 +32,7 @@ import type {
   Connection,
   Endpoint,
   EndpointCreate,
+  OpenAITextCapability,
   PricingTemplate,
 } from "@/lib/types";
 import {
@@ -185,7 +186,34 @@ export function ConnectionDialog({
   const resolvedProbeVariant = isOpenAI
     ? normalizeOpenAIProbeEndpointVariant(connectionForm.openai_probe_endpoint_variant)
     : null;
+  const resolvedTextCapability = isOpenAI
+    ? connectionForm.openai_text_capability ?? "responses_only"
+    : null;
   const probeBehavior = decomposeOpenAIProbeVariant(resolvedProbeVariant);
+  const textCapabilityOptions: Array<{
+    description: string;
+    label: string;
+    value: OpenAITextCapability;
+  }> = [
+    {
+      value: "responses_only",
+      label: copy.openaiTextCapabilityResponsesOnly,
+      description: copy.openaiTextCapabilityResponsesOnlyHint,
+    },
+    {
+      value: "chat_completions_only",
+      label: copy.openaiTextCapabilityChatCompletionsOnly,
+      description: copy.openaiTextCapabilityChatCompletionsOnlyHint,
+    },
+    {
+      value: "dual_native",
+      label: copy.openaiTextCapabilityDualNative,
+      description: copy.openaiTextCapabilityDualNativeHint,
+    },
+  ];
+  const selectedTextCapability = textCapabilityOptions.find(
+    (option) => option.value === resolvedTextCapability,
+  ) ?? textCapabilityOptions[0];
   const contextRoutingOverrideFields: ContextRoutingOverrideFieldConfig[] = [
     {
       field: "context_window_tokens",
@@ -342,6 +370,13 @@ export function ConnectionDialog({
     updateConnectionForm({
       ...connectionForm,
       [field]: Number.isNaN(nextValue) ? null : nextValue,
+    });
+  };
+
+  const handleTextCapabilityChange = (value: string) => {
+    updateConnectionForm({
+      ...connectionForm,
+      openai_text_capability: value as OpenAITextCapability,
     });
   };
 
@@ -581,6 +616,48 @@ export function ConnectionDialog({
 
                       <p className="text-xs text-muted-foreground">{copy.routingPriorityHint}</p>
                     </ConnectionDialogSection>
+
+                    {isOpenAI ? (
+                      <ConnectionDialogSection
+                        title={copy.openaiTextCapability}
+                        description={copy.openaiTextCapabilityDescription}
+                        dataTestId="connection-dialog-openai-capability-section"
+                      >
+                        <div className="grid gap-4 rounded-xl border bg-background/80 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]">
+                          <ConnectionDialogField
+                            id="conn-openai-text-capability"
+                            label={copy.openaiTextCapabilitySelector}
+                            description={selectedTextCapability.description}
+                          >
+                            <Select
+                              value={resolvedTextCapability ?? "responses_only"}
+                              onValueChange={handleTextCapabilityChange}
+                            >
+                              <SelectTrigger id="conn-openai-text-capability">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  {textCapabilityOptions.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          </ConnectionDialogField>
+
+                          <div className="flex flex-col gap-2 rounded-xl border bg-muted/15 p-4">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              {copy.openaiTextCapabilitySummaryLabel}
+                            </p>
+                            <p className="text-sm font-medium text-foreground">{selectedTextCapability.label}</p>
+                            <p className="text-xs text-muted-foreground">{copy.openaiTextCapabilityRuntimeHint}</p>
+                          </div>
+                        </div>
+                      </ConnectionDialogSection>
+                    ) : null}
 
                     {isOpenAI ? (
                       <ConnectionDialogSection
@@ -871,6 +948,14 @@ export function ConnectionDialog({
                       <ConnectionSummaryItem label={copy.pricingSummaryLabel}>
                         <p className="text-sm text-foreground">{pricingSummary}</p>
                       </ConnectionSummaryItem>
+
+                      {isOpenAI && selectedTextCapability ? (
+                        <ConnectionSummaryItem label={copy.openaiTextCapabilitySummaryLabel}>
+                          <div className="flex flex-col gap-2">
+                            <p className="text-sm text-foreground">{selectedTextCapability.label}</p>
+                          </div>
+                        </ConnectionSummaryItem>
+                      ) : null}
 
                       {isOpenAI && resolvedProbeVariant ? (
                         <ConnectionSummaryItem label={copy.probeBehaviorSummaryLabel}>

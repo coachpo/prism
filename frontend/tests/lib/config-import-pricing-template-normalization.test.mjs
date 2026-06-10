@@ -36,6 +36,7 @@ function buildValidConfigImport() {
         ref: "openai-primary",
         api_family: "openai",
         endpoint_name: "OpenAI",
+        openai_text_capability: "responses_only",
         pricing_template_name: "Template A",
         is_active: true,
         priority: 0,

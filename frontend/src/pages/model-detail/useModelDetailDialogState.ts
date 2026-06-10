@@ -8,7 +8,11 @@ import type {
   Endpoint,
   EndpointCreate,
 } from "@/lib/types";
-import { createDefaultEndpointForm, getSelectedEndpoint } from "./useModelDetailDataSupport";
+import {
+  createDefaultEndpointForm,
+  getSelectedEndpoint,
+  normalizeOpenAITextCapability,
+} from "./useModelDetailDataSupport";
 import { normalizeOpenAIProbeEndpointVariant } from "./connectionProbeBehavior";
 
 export interface HeaderRow {
@@ -101,13 +105,17 @@ export function createDefaultConnectionForm(
   apiFamily: ApiFamily | null = null,
   ownerCapabilityDefaults?: Partial<OwnerContextCapabilityDefaults>,
 ): ConnectionDialogForm {
+  const resolvedApiFamily = apiFamily ?? "openai";
+
   return {
-    api_family: apiFamily ?? "openai",
+    api_family: resolvedApiFamily,
     name: "",
     is_active: true,
     custom_headers: null,
+    openai_text_capability:
+      resolvedApiFamily === "openai" ? normalizeOpenAITextCapability(undefined) : null,
     openai_probe_endpoint_variant:
-      apiFamily === "openai" ? normalizeOpenAIProbeEndpointVariant(undefined) : null,
+      resolvedApiFamily === "openai" ? normalizeOpenAIProbeEndpointVariant(undefined) : null,
     pricing_template_id: null,
     qps_limit: null,
     max_in_flight_non_stream: null,
@@ -131,14 +139,20 @@ export function createEditConnectionForm(
     {},
   );
 
+  const resolvedApiFamily = options?.apiFamily ?? connection.api_family;
+
   return {
-    api_family: options?.apiFamily ?? connection.api_family,
+    api_family: resolvedApiFamily,
     endpoint_id: connection.endpoint_id,
     name: connection.name ?? "",
     is_active: connection.is_active,
     custom_headers: connection.custom_headers,
+    openai_text_capability:
+      resolvedApiFamily === "openai"
+        ? normalizeOpenAITextCapability(connection.openai_text_capability)
+        : null,
     openai_probe_endpoint_variant:
-      options?.apiFamily === "openai"
+      resolvedApiFamily === "openai"
         ? normalizeOpenAIProbeEndpointVariant(connection.openai_probe_endpoint_variant)
         : null,
     pricing_template_id: connection.pricing_template_id,

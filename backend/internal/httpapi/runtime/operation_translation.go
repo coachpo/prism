@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
 type TranslationMode string
 
 const (
-	TranslationModeNone                             TranslationMode = "none"
-	TranslationModeOpenAIResponsesToChatCompletions TranslationMode = "openai_responses_to_chat_completions"
-	TranslationModeOpenAIChatCompletionsToResponses TranslationMode = "openai_chat_completions_to_responses"
+	TranslationModeNone                             TranslationMode = providercompat.OpenAITextTranslationModeNone
+	TranslationModeOpenAIResponsesToChatCompletions TranslationMode = providercompat.OpenAITextTranslationModeResponsesToChat
+	TranslationModeOpenAIChatCompletionsToResponses TranslationMode = providercompat.OpenAITextTranslationModeChatToResponses
 )
 
 const (
@@ -167,29 +169,15 @@ func responsesInputContainsFunctionItems(value any) bool {
 	return false
 }
 
-func resolveTranslationMode(operation RuntimeOperation, upstreamOperation *string, probeEndpointVariant *string) TranslationMode {
-	ingressOperation := strings.TrimSpace(operation.Name)
-	if ingressOperation == "" || upstreamOperation == nil {
-		return TranslationModeNone
+func resolveTranslationMode(operation RuntimeOperation, openAITextCapability *string) (TranslationMode, bool) {
+	if openAITextCapability == nil {
+		return TranslationModeNone, false
 	}
-	if probeEndpointVariant == nil || strings.TrimSpace(*probeEndpointVariant) == "" {
-		return TranslationModeNone
+	mode, ok := providercompat.OpenAITextSiblingTranslationMode(*openAITextCapability, operation.Name)
+	if !ok {
+		return TranslationModeNone, false
 	}
-	upstream := strings.TrimSpace(*upstreamOperation)
-	if upstream == "" || upstream == ingressOperation {
-		return TranslationModeNone
-	}
-	switch ingressOperation {
-	case openAIUpstreamOperationResponses:
-		if upstream == openAIUpstreamOperationChatCompletions {
-			return TranslationModeOpenAIResponsesToChatCompletions
-		}
-	case openAIUpstreamOperationChatCompletions:
-		if upstream == openAIUpstreamOperationResponses {
-			return TranslationModeOpenAIChatCompletionsToResponses
-		}
-	}
-	return TranslationModeNone
+	return TranslationMode(mode), true
 }
 
 func isRequestTranslationUnsupportedError(err error) (*domainError, bool) {

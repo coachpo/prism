@@ -69,6 +69,12 @@ const EndpointImportSchema = z.strictObject({
   position: z.number().int().min(0).nullable().optional(),
 });
 
+const OpenAITextCapabilityImportSchema = z.enum([
+  "responses_only",
+  "chat_completions_only",
+  "dual_native",
+]);
+
 const OpenAIProbeEndpointVariantImportSchema = z.enum([
   "responses_minimal",
   "responses_reasoning_none",
@@ -179,6 +185,7 @@ const ConnectionImportSchema = z.strictObject({
   name: z.string().nullable().optional(),
   auth_type: z.enum(["openai", "anthropic", "gemini"]).nullable().optional(),
   custom_headers: z.record(z.string(), z.string()).nullable().optional(),
+  openai_text_capability: OpenAITextCapabilityImportSchema.nullable().optional(),
   openai_probe_endpoint_variant: OpenAIProbeEndpointVariantImportSchema.nullable().optional(),
   qps_limit: z.number().int().min(1).nullable().optional(),
   max_in_flight_non_stream: z.number().int().min(1).nullable().optional(),
@@ -189,6 +196,33 @@ const ConnectionImportSchema = z.strictObject({
     connection.max_context_utilization,
     connection.preferred_context_utilization_threshold,
   );
+
+  if (connection.api_family === "openai") {
+    if (!connection.openai_text_capability) {
+      context.addIssue({
+        code: "custom",
+        path: ["openai_text_capability"],
+        message: "OpenAI connections must include openai_text_capability",
+      });
+    }
+    return;
+  }
+
+  if (connection.openai_text_capability != null) {
+    context.addIssue({
+      code: "custom",
+      path: ["openai_text_capability"],
+      message: "openai_text_capability is only valid for OpenAI connections",
+    });
+  }
+
+  if (connection.openai_probe_endpoint_variant != null) {
+    context.addIssue({
+      code: "custom",
+      path: ["openai_probe_endpoint_variant"],
+      message: "openai_probe_endpoint_variant is only valid for OpenAI connections",
+    });
+  }
 });
 
 const AccessTargetImportSchema = z.strictObject({

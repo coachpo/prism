@@ -68,6 +68,7 @@ function buildOwnedConnection(overrides = {}) {
     name: "Primary connection",
     auth_type: "bearer",
     custom_headers: { "x-test": "1" },
+    openai_text_capability: "responses_only",
     openai_probe_endpoint_variant: "responses_minimal",
     context_window_tokens: 131_072,
     default_output_token_reserve: 4_096,
@@ -302,6 +303,8 @@ test("management connection reads preserve owner-scoped overrides and keep publi
     max_context_utilization: null,
     preferred_context_utilization_threshold: null,
   });
+  assert.equal(ownedConnection.openai_text_capability, "responses_only");
+  assert.equal(publicConnection.openai_text_capability, "responses_only");
   assert.equal(publicConnection.context_capability_overrides, undefined);
   assert.ok(!Object.hasOwn(ownedConnection, "contextCapabilityOverrides"));
   assert.deepEqual(requestCalls.map((call) => call.requestPath), [

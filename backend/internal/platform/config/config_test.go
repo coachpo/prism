@@ -18,9 +18,6 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 	if settings.RuntimeTelemetryMode != RuntimeTelemetryModeDurableOutbox {
 		t.Fatalf("unexpected canonical runtime telemetry mode: %q", settings.RuntimeTelemetryMode)
 	}
-	if settings.ResolvedOpenAITerminalTranslationMode() != OpenAITerminalTranslationModeOff {
-		t.Fatalf("unexpected canonical OpenAI terminal translation mode: %q", settings.ResolvedOpenAITerminalTranslationMode())
-	}
 	assertTelemetryDefaults(t, settings.Telemetry)
 	assertRuntimeTransportConfig(t, settings.RuntimeTransport(), RuntimeTransportConfig{
 		MaxIdleConns:          100,
@@ -96,6 +93,22 @@ func TestTelemetryDefaults(t *testing.T) {
 		t.Fatalf("parse seeded telemetry defaults: %v", err)
 	}
 	assertTelemetryDefaults(t, parsed.Telemetry)
+}
+
+func TestBootstrapConfigRejectsStaleOpenAITerminalTranslationMode(t *testing.T) {
+	var payload map[string]any
+	if err := json.Unmarshal(seededBootstrapPayload(t), &payload); err != nil {
+		t.Fatalf("decode seeded bootstrap payload: %v", err)
+	}
+	payload["runtime"].(map[string]any)["routing"] = map[string]any{"openaiTerminalTranslationMode": "safe_only"}
+
+	_, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
+	if err == nil {
+		t.Fatal("expected stale OpenAI terminal translation mode field to fail")
+	}
+	if !strings.Contains(err.Error(), `unknown field "openaiTerminalTranslationMode"`) {
+		t.Fatalf("expected unknown-field error for stale OpenAI terminal translation mode, got %v", err)
+	}
 }
 
 func TestTelemetryToSettings(t *testing.T) {
@@ -233,6 +246,15 @@ func marshalBootstrapDocument(t *testing.T, document bootstrapConfigDocument) []
 		t.Fatalf("marshal bootstrap document: %v", err)
 	}
 	return payload
+}
+
+func mustMarshalBootstrapPayload(t *testing.T, payload map[string]any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal bootstrap payload: %v", err)
+	}
+	return encoded
 }
 
 func validBootstrapTelemetryDocument() *bootstrapTelemetry {

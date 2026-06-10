@@ -7,89 +7,216 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
-func TestOperationRouteMatrixSafeOnlyResponsesIngressRoutesToChatOnlyTarget(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newTranslatedRouteMatrixUpstream(t, `{"id":"chatcmpl_route_matrix","object":"chat.completion","created":1700000001,"model":"chat-only-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"translated responses ingress"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`, http.Header{"Content-Type": []string{"application/json"}})
-	endpointAPIKey := "route-matrix-responses-safe-only-key"
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "route-matrix-responses-safe-only-public", "route-matrix-responses-safe-only-target", upstream.baseURL(""), endpointAPIKey, "chat_completions_reasoning_none")
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
-		"model":             route.PublicModelID,
-		"input":             "safe-only responses ingress",
-		"max_output_tokens": 64,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	requests := upstream.requestsSnapshot()
-	if len(requests) != 1 {
-		t.Fatalf("expected one translated upstream request, got %d", len(requests))
+func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
+	tests := []struct {
+		name                  string
+		requestPath           string
+		requestBody           func(seededRuntimeRoute) map[string]any
+		upstreamResponse      string
+		probeVariant          string
+		textCapability        string
+		wantUpstreamPath      string
+		wantOperationName     string
+		wantUpstreamOperation string
+		wantTranslationMode   string
+	}{
+		{
+			name:        "chat ingress stays native on chat-only target",
+			requestPath: "/v1/chat/completions",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "native chat ingress"}}, "max_completion_tokens": 64}
+			},
+			upstreamResponse:      `{"id":"chatcmpl_native_chat","object":"chat.completion","created":1700000001,"model":"chat-only-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"native chat ingress"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
+			probeVariant:          "chat_completions_reasoning_none",
+			textCapability:        "chat_completions_only",
+			wantUpstreamPath:      "/v1/chat/completions",
+			wantOperationName:     "openai.chat_completions",
+			wantUpstreamOperation: "openai.chat_completions",
+			wantTranslationMode:   "none",
+		},
+		{
+			name:        "responses ingress translates to chat-only target",
+			requestPath: "/v1/responses",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "input": "translated responses ingress", "max_output_tokens": 64}
+			},
+			upstreamResponse:      `{"id":"chatcmpl_translated_responses","object":"chat.completion","created":1700000002,"model":"chat-only-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"translated responses ingress"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
+			probeVariant:          "chat_completions_reasoning_none",
+			textCapability:        "chat_completions_only",
+			wantUpstreamPath:      "/v1/chat/completions",
+			wantOperationName:     "openai.responses",
+			wantUpstreamOperation: "openai.chat_completions",
+			wantTranslationMode:   "openai_responses_to_chat_completions",
+		},
+		{
+			name:        "chat ingress translates to responses-only target",
+			requestPath: "/v1/chat/completions",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "translated chat ingress"}}, "max_completion_tokens": 64}
+			},
+			upstreamResponse:      `{"id":"resp_translated_chat","object":"response","created_at":1700000003,"model":"responses-only-upstream","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"translated chat ingress"}]}],"usage":{"input_tokens":5,"output_tokens":7,"total_tokens":12}}`,
+			probeVariant:          "responses_reasoning_none",
+			textCapability:        "responses_only",
+			wantUpstreamPath:      "/v1/responses",
+			wantOperationName:     "openai.chat_completions",
+			wantUpstreamOperation: "openai.responses",
+			wantTranslationMode:   "openai_chat_completions_to_responses",
+		},
+		{
+			name:        "responses ingress stays native on responses-only target",
+			requestPath: "/v1/responses",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "input": "native responses ingress", "max_output_tokens": 64}
+			},
+			upstreamResponse:      `{"id":"resp_native_responses","object":"response","created_at":1700000004,"model":"responses-only-upstream","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"native responses ingress"}]}],"usage":{"input_tokens":5,"output_tokens":7,"total_tokens":12}}`,
+			probeVariant:          "responses_reasoning_none",
+			textCapability:        "responses_only",
+			wantUpstreamPath:      "/v1/responses",
+			wantOperationName:     "openai.responses",
+			wantUpstreamOperation: "openai.responses",
+			wantTranslationMode:   "none",
+		},
+		{
+			name:        "chat ingress stays native on dual-native target",
+			requestPath: "/v1/chat/completions",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "dual native chat ingress"}}, "max_completion_tokens": 64}
+			},
+			upstreamResponse:      `{"id":"chatcmpl_dual_native_chat","object":"chat.completion","created":1700000005,"model":"dual-native-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"dual native chat ingress"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
+			probeVariant:          "responses_reasoning_none",
+			textCapability:        "dual_native",
+			wantUpstreamPath:      "/v1/chat/completions",
+			wantOperationName:     "openai.chat_completions",
+			wantUpstreamOperation: "openai.chat_completions",
+			wantTranslationMode:   "none",
+		},
+		{
+			name:        "responses ingress stays native on dual-native target",
+			requestPath: "/v1/responses",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "input": "dual native responses ingress", "max_output_tokens": 64}
+			},
+			upstreamResponse:      `{"id":"resp_dual_native_responses","object":"response","created_at":1700000006,"model":"dual-native-upstream","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"dual native responses ingress"}]}],"usage":{"input_tokens":5,"output_tokens":7,"total_tokens":12}}`,
+			probeVariant:          "chat_completions_reasoning_none",
+			textCapability:        "dual_native",
+			wantUpstreamPath:      "/v1/responses",
+			wantOperationName:     "openai.responses",
+			wantUpstreamOperation: "openai.responses",
+			wantTranslationMode:   "none",
+		},
 	}
-	assertTranslatedRouteMatrixUpstreamRequest(t, requests[0], route, "/v1/chat/completions", endpointAPIKey)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			harness := newEnforcedRuntimeHarness(t)
+			profileID := harness.activeProfileID(t)
+			upstream := newTranslatedRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
+			endpointAPIKey := "route-matrix-capability-key-" + routeMatrixSlug(test.name)
+			route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "route-matrix-capability-public", "route-matrix-capability-target", upstream.baseURL(""), endpointAPIKey, test.probeVariant, test.textCapability)
+
+			response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)
+			assertStatus(t, response, http.StatusOK)
+			requests := upstream.requestsSnapshot()
+			if len(requests) != 1 {
+				t.Fatalf("expected one upstream request, got %d", len(requests))
+			}
+			assertTranslatedRouteMatrixUpstreamRequest(t, requests[0], route, test.wantUpstreamPath, endpointAPIKey)
+			assertRouteMatrixPersistedAttribution(t, harness, profileID, test.wantOperationName, routeMatrixPersistedAttributionExpectation{
+				upstreamOperationName: test.wantUpstreamOperation,
+				translationMode:       test.wantTranslationMode,
+				upstreamRequestPath:   test.wantUpstreamPath,
+			})
+		})
+	}
 }
 
-func TestOperationRouteMatrixSafeOnlyChatIngressRoutesToResponsesOnlyTarget(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newTranslatedRouteMatrixUpstream(t, `{"id":"resp_route_matrix","object":"response","created_at":1700000002,"model":"responses-only-upstream","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"translated chat ingress"}]}],"usage":{"input_tokens":5,"output_tokens":7,"total_tokens":12}}`, http.Header{"Content-Type": []string{"application/json"}})
-	endpointAPIKey := "route-matrix-chat-safe-only-key"
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "route-matrix-chat-safe-only-public", "route-matrix-chat-safe-only-target", upstream.baseURL(""), endpointAPIKey, "responses_reasoning_none")
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"model":                 route.PublicModelID,
-		"messages":              []map[string]any{{"role": "user", "content": "safe-only chat ingress"}},
-		"max_completion_tokens": 64,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	requests := upstream.requestsSnapshot()
-	if len(requests) != 1 {
-		t.Fatalf("expected one translated upstream request, got %d", len(requests))
+func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
+	tests := []struct {
+		name             string
+		requestPath      string
+		requestBody      func(seededRuntimeRoute) map[string]any
+		upstreamResponse string
+		operationName    string
+	}{
+		{
+			name:        "input tokens",
+			requestPath: "/v1/responses/input_tokens",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "input": "count input tokens", "stream": true}
+			},
+			upstreamResponse: `{"input_tokens":17,"total_tokens":17}`,
+			operationName:    "openai.responses.input_tokens",
+		},
+		{
+			name:        "compact",
+			requestPath: "/v1/responses/compact",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "input": "compact responses context", "stream": true}
+			},
+			upstreamResponse: `{"id":"resp_compact_capability","object":"response","status":"completed","usage":{"input_tokens":17,"output_tokens":2,"total_tokens":19}}`,
+			operationName:    "openai.responses.compact",
+		},
 	}
-	assertTranslatedRouteMatrixUpstreamRequest(t, requests[0], route, "/v1/responses", endpointAPIKey)
-}
 
-func TestOperationRouteMatrixOffModeResponsesIngressRejectsChatOnlyTarget(t *testing.T) {
-	harness := newOffModeTranslatedRouteMatrixHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newTranslatedRouteMatrixUpstream(t, `{"id":"chatcmpl_should_not_run"}`, http.Header{"Content-Type": []string{"application/json"}})
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "route-matrix-responses-off-public", "route-matrix-responses-off-target", upstream.baseURL(""), "route-matrix-responses-off-key", "chat_completions_reasoning_none")
+	for _, test := range tests {
+		for _, capability := range []string{"responses_only", "dual_native"} {
+			t.Run(test.name+" native "+capability, func(t *testing.T) {
+				harness := newRuntimeHarness(t)
+				profileID := harness.activeProfileID(t)
+				upstream := newTranslatedRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
+				endpointAPIKey := "route-matrix-adjunct-key-" + routeMatrixSlug(test.name) + "-" + capability
+				probeVariant := "responses_reasoning_none"
+				route := harness.seedProxyRoute(t, runtimeRouteSeed{
+					ProfileID:                  profileID,
+					APIFamily:                  "openai",
+					PublicModelID:              "route-matrix-adjunct-public-" + routeMatrixSlug(test.name),
+					TargetModelID:              "route-matrix-adjunct-target-" + routeMatrixSlug(test.name),
+					EndpointBaseURL:            upstream.baseURL(""),
+					EndpointAPIKey:             endpointAPIKey,
+					OpenAIProbeEndpointVariant: &probeVariant,
+					OpenAITextCapability:       runtimeStringPtr(capability),
+				})
 
-	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
-		"model":             route.PublicModelID,
-		"input":             "off-mode responses ingress",
-		"max_output_tokens": 64,
-	}, nil)
-	assertTranslatedRouteMatrixNoEligibleTargets(t, response, route.PublicModelID)
-	if got := len(upstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected off mode to avoid translated upstream calls, got %d", got)
+				response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)
+				assertStatus(t, response, http.StatusOK)
+				requests := upstream.requestsSnapshot()
+				if len(requests) != 1 {
+					t.Fatalf("expected one native adjunct upstream request, got %d", len(requests))
+				}
+				assertTranslatedRouteMatrixUpstreamRequest(t, requests[0], route, test.requestPath, endpointAPIKey)
+				assertRouteMatrixPersistedAttribution(t, harness, profileID, test.operationName, routeMatrixPersistedAttributionExpectation{
+					upstreamOperationName: test.operationName,
+					translationMode:       "none",
+					upstreamRequestPath:   test.requestPath,
+				})
+			})
+		}
+
+		t.Run(test.name+" rejects chat-only", func(t *testing.T) {
+			harness := newRuntimeHarness(t)
+			profileID := harness.activeProfileID(t)
+			upstream := newTranslatedRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
+			probeVariant := "chat_completions_reasoning_none"
+			route := harness.seedProxyRoute(t, runtimeRouteSeed{
+				ProfileID:                  profileID,
+				APIFamily:                  "openai",
+				PublicModelID:              "route-matrix-adjunct-chat-only-public-" + routeMatrixSlug(test.name),
+				TargetModelID:              "route-matrix-adjunct-chat-only-target-" + routeMatrixSlug(test.name),
+				EndpointBaseURL:            upstream.baseURL(""),
+				EndpointAPIKey:             "route-matrix-adjunct-chat-only-key",
+				OpenAIProbeEndpointVariant: &probeVariant,
+				OpenAITextCapability:       runtimeStringPtr("chat_completions_only"),
+			})
+
+			response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)
+			assertTranslatedRouteMatrixNoEligibleTargets(t, response, route.PublicModelID)
+			if got := len(upstream.requestsSnapshot()); got != 0 {
+				t.Fatalf("expected chat-only adjunct target to reject before provider transport, got %d upstream calls", got)
+			}
+		})
 	}
-}
-
-func TestOperationRouteMatrixOffModeChatIngressRejectsResponsesOnlyTarget(t *testing.T) {
-	harness := newOffModeTranslatedRouteMatrixHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newTranslatedRouteMatrixUpstream(t, `{"id":"resp_should_not_run"}`, http.Header{"Content-Type": []string{"application/json"}})
-	route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "route-matrix-chat-off-public", "route-matrix-chat-off-target", upstream.baseURL(""), "route-matrix-chat-off-key", "responses_reasoning_none")
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"model":                 route.PublicModelID,
-		"messages":              []map[string]any{{"role": "user", "content": "off-mode chat ingress"}},
-		"max_completion_tokens": 64,
-	}, nil)
-	assertTranslatedRouteMatrixNoEligibleTargets(t, response, route.PublicModelID)
-	if got := len(upstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected off mode to avoid translated upstream calls, got %d", got)
-	}
-}
-
-func newOffModeTranslatedRouteMatrixHarness(tb testing.TB) *runtimeHarness {
-	tb.Helper()
-	return newRuntimeHarnessWithConfig(tb, runtimeHarnessConfig{SettingsMutator: func(settings *config.Settings) {
-		settings.OpenAITerminalTranslationMode = config.OpenAITerminalTranslationModeOff
-	}})
 }
 
 func assertTranslatedRouteMatrixUpstreamRequest(t *testing.T, request upstreamRequestSnapshot, route seededRuntimeRoute, wantPath string, endpointAPIKey string) {

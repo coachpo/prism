@@ -9,7 +9,6 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/gateway/provider"
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
-	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 type openAITextAttemptCompatibilityResult struct {
@@ -18,12 +17,13 @@ type openAITextAttemptCompatibilityResult struct {
 	Err             error
 }
 
-func planOpenAITextAttemptCompatibility(operation RuntimeOperation, rawBody []byte, attempt runtimeTerminalAttempt, mode TranslationMode, rolloutMode config.OpenAITerminalTranslationMode, adapter openai.Adapter) openAITextAttemptCompatibilityResult {
+func planOpenAITextAttemptCompatibility(operation RuntimeOperation, rawBody []byte, attempt runtimeTerminalAttempt, adapter openai.Adapter) openAITextAttemptCompatibilityResult {
+	mode, supported := resolveTranslationMode(operation, attempt.Connection.OpenAITextCapability)
+	if !supported {
+		return openAITextAttemptCompatibilityResult{}
+	}
 	if mode == TranslationModeNone || strings.TrimSpace(string(mode)) == "" {
 		return openAITextAttemptCompatibilityResult{Compatible: true, TranslationMode: TranslationModeNone}
-	}
-	if rolloutMode != config.OpenAITerminalTranslationModeSafeOnly {
-		return openAITextAttemptCompatibilityResult{}
 	}
 	providerOperation := providerOperationFromRuntime(operation)
 	if !openai.IsTextOperation(providerOperation) {

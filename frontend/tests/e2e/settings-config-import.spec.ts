@@ -145,6 +145,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
           ref: "alpha-connection",
           endpoint_name: "Alpha endpoint",
           api_family: "openai" as const,
+          openai_text_capability: "dual_native" as const,
           ...liveAuthoringCapabilityDefaults,
           pricing_template_name: null,
           is_active: true,

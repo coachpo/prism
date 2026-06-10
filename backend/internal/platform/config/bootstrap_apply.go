@@ -77,65 +77,64 @@ func (e *BootstrapConfigFieldClassificationError) Error() string {
 }
 
 const (
-	bootstrapFieldHTTPCORSAllowedOrigins                      = "http.cors_allowed_origins"
-	bootstrapFieldAuthAccessTokenTTLSeconds                   = "auth.access_token_ttl_seconds"
-	bootstrapFieldAuthRefreshTokenTTLSeconds                  = "auth.refresh_token_ttl_seconds"
-	bootstrapFieldAuthResetCodeTTLSeconds                     = "auth.reset_code_ttl_seconds"
-	bootstrapFieldAuthAccessCookieName                        = "auth.access_cookie_name"
-	bootstrapFieldAuthRefreshCookieName                       = "auth.refresh_cookie_name"
-	bootstrapFieldAuthCookieSecure                            = "auth.cookie_secure"
-	bootstrapFieldMailEnabled                                 = "mail.enabled"
-	bootstrapFieldMailFrom                                    = "mail.from"
-	bootstrapFieldMailReplyTo                                 = "mail.reply_to"
-	bootstrapFieldMailSMTPHost                                = "mail.smtp.host"
-	bootstrapFieldMailSMTPPort                                = "mail.smtp.port"
-	bootstrapFieldMailSMTPMode                                = "mail.smtp.mode"
-	bootstrapFieldMailSMTPEHLOHostname                        = "mail.smtp.ehlo_hostname"
-	bootstrapFieldMailSMTPAuth                                = "mail.smtp.auth"
-	bootstrapFieldMailSMTPUsername                            = "mail.smtp.username"
-	bootstrapFieldMailSMTPPasswordFile                        = "mail.smtp.password_file"
-	bootstrapFieldMailSMTPTimeout                             = "mail.smtp.timeout"
-	bootstrapFieldMailSMTPTLSServerName                       = "mail.smtp.tls_server_name"
-	bootstrapFieldRuntimeTransportMaxIdleConns                = "transport.max_idle_conns"
-	bootstrapFieldRuntimeTransportMaxIdleConnsPerHost         = "transport.max_idle_conns_per_host"
-	bootstrapFieldRuntimeTransportMaxConnsPerHost             = "transport.max_conns_per_host"
-	bootstrapFieldRuntimeTransportIdleConnTimeout             = "transport.idle_conn_timeout"
-	bootstrapFieldRuntimeTransportRequestTimeout              = "transport.request_timeout"
-	bootstrapFieldRuntimeTransportResponseHeaderTimeout       = "transport.response_header_timeout"
-	bootstrapFieldRuntimeTransportTLSHandshakeTimeout         = "transport.tls_handshake_timeout"
-	bootstrapFieldRuntimeTransportExpectContinueTimeout       = "transport.expect_continue_timeout"
-	bootstrapFieldRuntimeSideEffectsAttemptTimeout            = "side_effects.attempt_timeout"
-	bootstrapFieldRuntimeRoutingOpenAITerminalTranslationMode = "routing.openai_terminal_translation_mode"
-	bootstrapFieldTelemetryEnabled                            = "telemetry.enabled"
-	bootstrapFieldTelemetryExporterEndpoint                   = "telemetry.exporter.endpoint"
-	bootstrapFieldTelemetryExporterProtocol                   = "telemetry.exporter.protocol"
-	bootstrapFieldTelemetryExporterCompression                = "telemetry.exporter.compression"
-	bootstrapFieldTelemetryExporterTimeout                    = "telemetry.exporter.timeout"
-	bootstrapFieldTelemetryExporterAuthMode                   = "telemetry.exporter.auth.mode"
-	bootstrapFieldTelemetryExporterTLSInsecureSkipVerify      = "telemetry.exporter.tls.insecure_skip_verify"
-	bootstrapFieldTelemetryExporterTLSCAFile                  = "telemetry.exporter.tls.ca_file"
-	bootstrapFieldTelemetryMetricsEnabled                     = "telemetry.metrics.enabled"
-	bootstrapFieldTelemetryTracesEnabled                      = "telemetry.traces.enabled"
-	bootstrapFieldTelemetryTracesSamplingRatio                = "telemetry.traces.sampling_ratio"
-	bootstrapFieldDatabaseManagementAdmissionM2Max            = "database.management_admission.m2_max_concurrent"
-	bootstrapFieldDatabaseManagementAdmissionM3Max            = "database.management_admission.m3_max_concurrent"
-	bootstrapFieldServerHost                                  = "server.host"
-	bootstrapFieldServerPort                                  = "server.port"
-	bootstrapFieldDatabasePoolsTotalMaxConns                  = "database.pools.total_max_conns"
-	bootstrapFieldDatabasePoolsManagementMaxConns             = "database.pools.management.max_conns"
-	bootstrapFieldDatabasePoolsManagementMinIdleConns         = "database.pools.management.min_idle_conns"
-	bootstrapFieldDatabasePoolsRuntimeExecutionMaxConns       = "database.pools.runtime_execution.max_conns"
-	bootstrapFieldDatabasePoolsRuntimeExecutionMinIdle        = "database.pools.runtime_execution.min_idle_conns"
-	bootstrapFieldDatabasePoolsRuntimeTelemetryMaxConns       = "database.pools.runtime_telemetry.max_conns"
-	bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle        = "database.pools.runtime_telemetry.min_idle_conns"
-	bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns        = "database.pools.runtime_feedback.max_conns"
-	bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle         = "database.pools.runtime_feedback.min_idle_conns"
-	bootstrapFieldDatabasePoolsRealtimeMaxConns               = "database.pools.realtime.max_conns"
-	bootstrapFieldDatabasePoolsRealtimeMinIdleConns           = "database.pools.realtime.min_idle_conns"
-	bootstrapFieldDatabasePoolsCacheRefreshMaxConns           = "database.pools.cache_refresh.max_conns"
-	bootstrapFieldDatabasePoolsCacheRefreshMinIdle            = "database.pools.cache_refresh.min_idle_conns"
-	bootstrapFieldDatabasePoolsBackgroundJobsMaxConns         = "database.pools.background_jobs.max_conns"
-	bootstrapFieldDatabasePoolsBackgroundJobsMinIdle          = "database.pools.background_jobs.min_idle_conns"
+	bootstrapFieldHTTPCORSAllowedOrigins                 = "http.cors_allowed_origins"
+	bootstrapFieldAuthAccessTokenTTLSeconds              = "auth.access_token_ttl_seconds"
+	bootstrapFieldAuthRefreshTokenTTLSeconds             = "auth.refresh_token_ttl_seconds"
+	bootstrapFieldAuthResetCodeTTLSeconds                = "auth.reset_code_ttl_seconds"
+	bootstrapFieldAuthAccessCookieName                   = "auth.access_cookie_name"
+	bootstrapFieldAuthRefreshCookieName                  = "auth.refresh_cookie_name"
+	bootstrapFieldAuthCookieSecure                       = "auth.cookie_secure"
+	bootstrapFieldMailEnabled                            = "mail.enabled"
+	bootstrapFieldMailFrom                               = "mail.from"
+	bootstrapFieldMailReplyTo                            = "mail.reply_to"
+	bootstrapFieldMailSMTPHost                           = "mail.smtp.host"
+	bootstrapFieldMailSMTPPort                           = "mail.smtp.port"
+	bootstrapFieldMailSMTPMode                           = "mail.smtp.mode"
+	bootstrapFieldMailSMTPEHLOHostname                   = "mail.smtp.ehlo_hostname"
+	bootstrapFieldMailSMTPAuth                           = "mail.smtp.auth"
+	bootstrapFieldMailSMTPUsername                       = "mail.smtp.username"
+	bootstrapFieldMailSMTPPasswordFile                   = "mail.smtp.password_file"
+	bootstrapFieldMailSMTPTimeout                        = "mail.smtp.timeout"
+	bootstrapFieldMailSMTPTLSServerName                  = "mail.smtp.tls_server_name"
+	bootstrapFieldRuntimeTransportMaxIdleConns           = "transport.max_idle_conns"
+	bootstrapFieldRuntimeTransportMaxIdleConnsPerHost    = "transport.max_idle_conns_per_host"
+	bootstrapFieldRuntimeTransportMaxConnsPerHost        = "transport.max_conns_per_host"
+	bootstrapFieldRuntimeTransportIdleConnTimeout        = "transport.idle_conn_timeout"
+	bootstrapFieldRuntimeTransportRequestTimeout         = "transport.request_timeout"
+	bootstrapFieldRuntimeTransportResponseHeaderTimeout  = "transport.response_header_timeout"
+	bootstrapFieldRuntimeTransportTLSHandshakeTimeout    = "transport.tls_handshake_timeout"
+	bootstrapFieldRuntimeTransportExpectContinueTimeout  = "transport.expect_continue_timeout"
+	bootstrapFieldRuntimeSideEffectsAttemptTimeout       = "side_effects.attempt_timeout"
+	bootstrapFieldTelemetryEnabled                       = "telemetry.enabled"
+	bootstrapFieldTelemetryExporterEndpoint              = "telemetry.exporter.endpoint"
+	bootstrapFieldTelemetryExporterProtocol              = "telemetry.exporter.protocol"
+	bootstrapFieldTelemetryExporterCompression           = "telemetry.exporter.compression"
+	bootstrapFieldTelemetryExporterTimeout               = "telemetry.exporter.timeout"
+	bootstrapFieldTelemetryExporterAuthMode              = "telemetry.exporter.auth.mode"
+	bootstrapFieldTelemetryExporterTLSInsecureSkipVerify = "telemetry.exporter.tls.insecure_skip_verify"
+	bootstrapFieldTelemetryExporterTLSCAFile             = "telemetry.exporter.tls.ca_file"
+	bootstrapFieldTelemetryMetricsEnabled                = "telemetry.metrics.enabled"
+	bootstrapFieldTelemetryTracesEnabled                 = "telemetry.traces.enabled"
+	bootstrapFieldTelemetryTracesSamplingRatio           = "telemetry.traces.sampling_ratio"
+	bootstrapFieldDatabaseManagementAdmissionM2Max       = "database.management_admission.m2_max_concurrent"
+	bootstrapFieldDatabaseManagementAdmissionM3Max       = "database.management_admission.m3_max_concurrent"
+	bootstrapFieldServerHost                             = "server.host"
+	bootstrapFieldServerPort                             = "server.port"
+	bootstrapFieldDatabasePoolsTotalMaxConns             = "database.pools.total_max_conns"
+	bootstrapFieldDatabasePoolsManagementMaxConns        = "database.pools.management.max_conns"
+	bootstrapFieldDatabasePoolsManagementMinIdleConns    = "database.pools.management.min_idle_conns"
+	bootstrapFieldDatabasePoolsRuntimeExecutionMaxConns  = "database.pools.runtime_execution.max_conns"
+	bootstrapFieldDatabasePoolsRuntimeExecutionMinIdle   = "database.pools.runtime_execution.min_idle_conns"
+	bootstrapFieldDatabasePoolsRuntimeTelemetryMaxConns  = "database.pools.runtime_telemetry.max_conns"
+	bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle   = "database.pools.runtime_telemetry.min_idle_conns"
+	bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns   = "database.pools.runtime_feedback.max_conns"
+	bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle    = "database.pools.runtime_feedback.min_idle_conns"
+	bootstrapFieldDatabasePoolsRealtimeMaxConns          = "database.pools.realtime.max_conns"
+	bootstrapFieldDatabasePoolsRealtimeMinIdleConns      = "database.pools.realtime.min_idle_conns"
+	bootstrapFieldDatabasePoolsCacheRefreshMaxConns      = "database.pools.cache_refresh.max_conns"
+	bootstrapFieldDatabasePoolsCacheRefreshMinIdle       = "database.pools.cache_refresh.min_idle_conns"
+	bootstrapFieldDatabasePoolsBackgroundJobsMaxConns    = "database.pools.background_jobs.max_conns"
+	bootstrapFieldDatabasePoolsBackgroundJobsMinIdle     = "database.pools.background_jobs.min_idle_conns"
 )
 
 type bootstrapConfigFieldRegistration struct {
@@ -175,7 +174,6 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM2Max),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM3Max),
 	restartRequiredBootstrapField(bootstrapFieldRuntimeSideEffectsAttemptTimeout, ""),
-	restartRequiredBootstrapField(bootstrapFieldRuntimeRoutingOpenAITerminalTranslationMode, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryEnabled, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterEndpoint, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterProtocol, ""),
@@ -439,11 +437,7 @@ func addBootstrapRuntimeSideEffectsFieldValues(fields map[string]bootstrapConfig
 	fields[bootstrapFieldRuntimeSideEffectsAttemptTimeout] = bootstrapDurationFieldValue(values.AttemptTimeout)
 }
 
-func addBootstrapRuntimeRoutingFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeRoutingValues) {
-	if values == nil {
-		values = defaultSafeBootstrapRuntimeRoutingValues()
-	}
-	fields[bootstrapFieldRuntimeRoutingOpenAITerminalTranslationMode] = bootstrapStringFieldValue(values.OpenAITerminalTranslationMode)
+func addBootstrapRuntimeRoutingFieldValues(map[string]bootstrapConfigFieldValue, *BootstrapConfigRuntimeRoutingValues) {
 }
 
 func addBootstrapRuntimeTransportFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeTransportValues) {
@@ -676,7 +670,6 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 	postgresPools := settings.PostgresPoolsBudgetOrDefault()
 	runtimeTransport := settings.RuntimeTransport()
 	runtimeSideEffects := settings.RuntimeSideEffects()
-	openAITerminalTranslationMode := string(settings.ResolvedOpenAITerminalTranslationMode())
 	managementAdmission := settings.ManagementAdmissionBudget()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
 	requestTimeout := bootstrapRequestTimeoutString(runtimeTransport.RequestTimeout)
@@ -720,9 +713,7 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 			SideEffects: &BootstrapConfigRuntimeSideEffectsValues{
 				AttemptTimeout: &runtimeSideEffectsAttemptTimeout,
 			},
-			Routing: &BootstrapConfigRuntimeRoutingValues{
-				OpenAITerminalTranslationMode: &openAITerminalTranslationMode,
-			},
+			Routing: defaultSafeBootstrapRuntimeRoutingValues(),
 		},
 		HTTP: &BootstrapConfigHTTPValues{CORSAllowedOrigins: &corsAllowedOrigins},
 		Auth: &BootstrapConfigAuthValues{

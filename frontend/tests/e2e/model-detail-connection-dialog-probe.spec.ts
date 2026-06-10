@@ -3,6 +3,7 @@ import type {
   Connection,
   Endpoint,
   OpenAIProbeEndpointVariant,
+  OpenAITextCapability,
 } from "../../src/lib/types";
 
 const timestamp = "2026-04-09T00:00:00Z";
@@ -79,6 +80,7 @@ function createConnection({
   endpoint,
   name,
   openaiProbeEndpointVariant,
+  openaiTextCapability = "responses_only",
   contextWindowTokens = 16384,
   defaultOutputTokenReserve = 4096,
   maxContextUtilization = 0.9,
@@ -95,6 +97,7 @@ function createConnection({
   endpoint: Endpoint;
   name: string | null;
   openaiProbeEndpointVariant: OpenAIProbeEndpointVariant | null;
+  openaiTextCapability?: OpenAITextCapability | null;
   contextWindowTokens?: number | null;
   defaultOutputTokenReserve?: number;
   maxContextUtilization?: number;
@@ -118,6 +121,7 @@ function createConnection({
     name,
     auth_type: null,
     custom_headers: null,
+    openai_text_capability: endpoint.base_url.includes("anthropic") ? null : openaiTextCapability,
     openai_probe_endpoint_variant: openaiProbeEndpointVariant,
     context_window_tokens: contextWindowTokens,
     default_output_token_reserve: defaultOutputTokenReserve,
@@ -210,6 +214,7 @@ type ConnectionMutationPayload = {
   name?: string | null;
   is_active?: boolean;
   custom_headers?: Record<string, string> | null;
+  openai_text_capability?: OpenAITextCapability | null;
   openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
@@ -391,6 +396,7 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
           endpoint,
           name: payload.name ?? endpoint.name,
           openaiProbeEndpointVariant: payload.openai_probe_endpoint_variant ?? null,
+          openaiTextCapability: payload.openai_text_capability ?? null,
           contextWindowTokens: model.context_window_tokens,
           defaultOutputTokenReserve: model.default_output_token_reserve,
           maxContextUtilization: model.max_context_utilization,
@@ -460,9 +466,12 @@ test("OpenAI connection dialog exposes probe controls and sends the resolved raw
   await page.goto("/models/1");
   await page.getByRole("button", { name: "New terminal target" }).first().click();
 
+  await expect(page.getByTestId("connection-dialog-openai-capability-section")).toBeVisible();
   await expect(page.getByTestId("connection-dialog-probe-section")).toBeVisible();
   await page.locator("#conn-selected-endpoint").click();
   await page.getByRole("option", { name: /OpenAI Primary/ }).click();
+  await page.locator("#conn-openai-text-capability").click();
+  await page.getByRole("option", { name: /Dual native/ }).click();
   await page.locator("#conn-probe-api").click();
   await page.getByRole("option", { name: /Chat Completions API/ }).click();
   await page.locator("#conn-probe-reasoning-mode").click();
@@ -471,11 +480,12 @@ test("OpenAI connection dialog exposes probe controls and sends the resolved raw
   await page.getByRole("button", { name: "Save Terminal Target" }).click();
   await expect.poll(() => savePayloads.length).toBe(1);
   expect(savePayloads[0]).toMatchObject({
+    openai_text_capability: "dual_native",
     openai_probe_endpoint_variant: "chat_completions_reasoning_none",
   });
 });
 
-test("non-OpenAI connection dialog hides the probe section", async ({ page }) => {
+test("non-OpenAI connection dialog hides OpenAI capability and probe sections", async ({ page }) => {
   const model = createModelResponse({
     id: 2,
     apiFamily: "anthropic",
@@ -487,6 +497,7 @@ test("non-OpenAI connection dialog hides the probe section", async ({ page }) =>
   await page.goto("/models/2");
   await page.getByRole("button", { name: "New terminal target" }).first().click();
 
+  await expect(page.getByTestId("connection-dialog-openai-capability-section")).toHaveCount(0);
   await expect(page.getByTestId("connection-dialog-probe-section")).toHaveCount(0);
 });
 
@@ -514,6 +525,7 @@ test("editing an OpenAI connection hydrates the saved probe settings into both s
         endpoint,
         name: "Saved Terminal Target",
         openaiProbeEndpointVariant: "chat_completions_reasoning_none",
+        openaiTextCapability: "chat_completions_only",
       }),
     ],
   });
@@ -522,7 +534,9 @@ test("editing an OpenAI connection hydrates the saved probe settings into both s
   await page.goto("/models/3");
   await page.getByRole("button", { name: "Edit Saved Terminal Target" }).first().click();
 
+  await expect(page.getByTestId("connection-dialog-openai-capability-section")).toBeVisible();
   await expect(page.getByTestId("connection-dialog-probe-section")).toBeVisible();
+  await expect(page.locator("#conn-openai-text-capability")).toContainText("Chat Completions only");
   await expect(page.locator("#conn-probe-api")).toContainText("Chat Completions API");
   await expect(page.locator("#conn-probe-reasoning-mode")).toContainText("Disable reasoning");
 });

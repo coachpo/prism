@@ -11,8 +11,6 @@ type Environment string
 
 type RuntimeTelemetryMode string
 
-type OpenAITerminalTranslationMode string
-
 type TelemetryExporterProtocol string
 
 type TelemetryExporterCompression string
@@ -32,11 +30,6 @@ const (
 const (
 	RuntimeTelemetryModeSynchronous   RuntimeTelemetryMode = "synchronous"
 	RuntimeTelemetryModeDurableOutbox RuntimeTelemetryMode = "durable_outbox"
-)
-
-const (
-	OpenAITerminalTranslationModeOff      OpenAITerminalTranslationMode = "off"
-	OpenAITerminalTranslationModeSafeOnly OpenAITerminalTranslationMode = "safe_only"
 )
 
 const (
@@ -232,7 +225,6 @@ type Settings struct {
 	AppEnv                           Environment
 	DatabaseURL                      string
 	RuntimeTelemetryMode             RuntimeTelemetryMode
-	OpenAITerminalTranslationMode    OpenAITerminalTranslationMode
 	Telemetry                        TelemetryConfig
 	RuntimeTransportConfig           RuntimeTransportConfig
 	RuntimeSideEffectsConfig         RuntimeSideEffectsConfig
@@ -269,7 +261,6 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      resolvedDatabaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
-		OpenAITerminalTranslationMode:    OpenAITerminalTranslationModeOff,
 		Telemetry:                        defaultTelemetryConfig(),
 		RuntimeTransportConfig:           defaultRuntimeTransportConfig(),
 		RuntimeSideEffectsConfig:         defaultRuntimeSideEffectsConfig(),
@@ -342,10 +333,6 @@ func resolveDatabaseURLFromEnv() string {
 
 func (s Settings) ResolvedRuntimeTelemetryMode() RuntimeTelemetryMode {
 	return normalizeRuntimeTelemetryMode(s.RuntimeTelemetryMode)
-}
-
-func (s Settings) ResolvedOpenAITerminalTranslationMode() OpenAITerminalTranslationMode {
-	return normalizeOpenAITerminalTranslationMode(s.OpenAITerminalTranslationMode)
 }
 
 func (s Settings) RuntimeTransport() RuntimeTransportConfig {
@@ -546,15 +533,6 @@ func normalizeManagementAdmissionBudget(candidate ManagementAdmissionBudget, def
 		normalized.M3MaxConcurrent = normalized.M2MaxConcurrent
 	}
 	return normalized
-}
-
-func normalizeOpenAITerminalTranslationMode(candidate OpenAITerminalTranslationMode) OpenAITerminalTranslationMode {
-	switch OpenAITerminalTranslationMode(strings.ToLower(strings.TrimSpace(string(candidate)))) {
-	case OpenAITerminalTranslationModeSafeOnly:
-		return OpenAITerminalTranslationModeSafeOnly
-	default:
-		return OpenAITerminalTranslationModeOff
-	}
 }
 
 func normalizeRuntimeTelemetryMode(candidate RuntimeTelemetryMode) RuntimeTelemetryMode {

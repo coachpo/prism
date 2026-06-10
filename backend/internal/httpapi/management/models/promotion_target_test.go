@@ -461,7 +461,11 @@ func insertPromotionEndpoint(t *testing.T, ctx context.Context, tx pgx.Tx, profi
 func insertPromotionConnection(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, endpointID int, apiFamily string, name string, contextWindowTokens int, maxContextUtilization float64, now time.Time) int {
 	t.Helper()
 	var connectionID int
-	if err := tx.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, 4096, $5, NULL, NULL, NULL, NULL, NULL, TRUE, 0, $6, NULL, NULL, 'healthy', NULL, NULL, $7, $7) RETURNING id`, profileID, apiFamily, endpointID, contextWindowTokens, maxContextUtilization, name, now).Scan(&connectionID); err != nil {
+	var openAITextCapability any
+	if apiFamily == "openai" {
+		openAITextCapability = "responses_only"
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, 4096, $5, NULL, NULL, NULL, NULL, NULL, $8, TRUE, 0, $6, NULL, NULL, 'healthy', NULL, NULL, $7, $7) RETURNING id`, profileID, apiFamily, endpointID, contextWindowTokens, maxContextUtilization, name, now, openAITextCapability).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection %q: %v", name, err)
 	}
 	return connectionID

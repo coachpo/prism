@@ -145,6 +145,7 @@ type connectionCreateRequest struct {
 	AuthType                             *string                `json:"auth_type"`
 	CustomHeaders                        map[string]string      `json:"custom_headers"`
 	OpenAIProbeEndpointVariant           *string                `json:"openai_probe_endpoint_variant"`
+	OpenAITextCapability                 *string                `json:"openai_text_capability"`
 	PricingTemplateID                    *int                   `json:"pricing_template_id"`
 	QPSLimit                             *int                   `json:"qps_limit"`
 	MaxInFlightNonStream                 *int                   `json:"max_in_flight_non_stream"`
@@ -165,6 +166,7 @@ type connectionUpdateRequest struct {
 	AuthType                             optionalString         `json:"auth_type"`
 	CustomHeaders                        optionalHeaders        `json:"custom_headers"`
 	OpenAIProbeEndpointVariant           optionalString         `json:"openai_probe_endpoint_variant"`
+	OpenAITextCapability                 optionalString         `json:"openai_text_capability"`
 	PricingTemplateID                    optionalInt            `json:"pricing_template_id"`
 	QPSLimit                             optionalInt            `json:"qps_limit"`
 	MaxInFlightNonStream                 optionalInt            `json:"max_in_flight_non_stream"`
@@ -241,7 +243,7 @@ type connectionResponse struct {
 	AuthType                                       *string                             `json:"auth_type"`
 	CustomHeaders                                  map[string]string                   `json:"custom_headers"`
 	OpenAIProbeEndpointVariant                     *string                             `json:"openai_probe_endpoint_variant"`
-	OpenAIUpstreamOperation                        *string                             `json:"openai_upstream_operation"`
+	OpenAITextCapability                           *string                             `json:"openai_text_capability"`
 	PricingTemplateID                              *int                                `json:"pricing_template_id"`
 	QPSLimit                                       *int                                `json:"qps_limit"`
 	MaxInFlightNonStream                           *int                                `json:"max_in_flight_non_stream"`

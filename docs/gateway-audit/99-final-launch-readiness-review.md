@@ -31,7 +31,7 @@ This is not a code-blocking verdict from the T18 documentation pass. It is a rel
 - [x] Canonical route reasons remain frozen: `direct_match`, `model_redirect`, `upstream_redirect`, `qps_overflow`, `rpm_overflow`, `tpm_overflow`, `ipm_overflow`, `concurrency_overflow`, `retry_429`, `retry_5xx`, `retry_connect_timeout`, `context_overflow_preflight`, `context_overflow_provider_fallback`, `circuit_open_skip`, `no_healthy_upstream`, and `policy_reject`.
 - [x] Canonical usage sources remain frozen: `provider`, `provider_stream_terminal`, `local_estimate`, and `missing`.
 - [x] T16 removed planner and shadow rollout config plus the public hook-map seam.
-- [x] T16 retained active `runtime.routing.openaiTerminalTranslationMode` startup control.
+- [x] T16 once retained a startup OpenAI terminal translation control; the later OpenAI text capability hard cut removed that startup control from live docs and config.
 - [x] T16 retained hedging as active, tested runtime behavior.
 
 ## Test Checklist

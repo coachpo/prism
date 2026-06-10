@@ -62,6 +62,7 @@ test("connection capability drafts build mixed inherit and override payloads", (
       qps_limit: 12,
       max_in_flight_non_stream: 4,
       max_in_flight_stream: 2,
+      openai_text_capability: "dual_native",
       openai_probe_endpoint_variant: "responses_reasoning_none",
       context_capability_drafts: {
         context_window_tokens: { mode: "inherit", value: "16384" },
@@ -81,6 +82,7 @@ test("connection capability drafts build mixed inherit and override payloads", (
   assert.equal(result.payload.default_output_token_reserve, 8192);
   assert.equal(result.payload.max_context_utilization, 0.75);
   assert.equal(result.payload.preferred_context_utilization_threshold, 0.6);
+  assert.equal(result.payload.openai_text_capability, "dual_native");
   assert.equal(result.payload.openai_probe_endpoint_variant, "responses_reasoning_none");
   assert.deepEqual(result.payload.custom_headers, { "x-test": "enabled" });
   assert.equal(result.payload.qps_limit, 12);
@@ -106,6 +108,7 @@ test("edit hydration preserves same-as-owner explicit override intent from raw m
       name: "Owner override preserved",
       auth_type: null,
       custom_headers: null,
+      openai_text_capability: "responses_only",
       openai_probe_endpoint_variant: "responses_minimal",
       context_window_tokens: 16384,
       default_output_token_reserve: 4096,
@@ -139,6 +142,7 @@ test("edit hydration preserves same-as-owner explicit override intent from raw m
     },
   );
 
+  assert.equal(hydratedForm.openai_text_capability, "responses_only");
   assert.deepEqual(hydratedForm.context_capability_drafts.context_window_tokens, {
     mode: "override",
     value: "16384",
@@ -178,6 +182,7 @@ test("blanking or inheriting override drafts emits explicit null instead of stal
       name: "Reverted override",
       auth_type: null,
       custom_headers: null,
+      openai_text_capability: "responses_only",
       openai_probe_endpoint_variant: "responses_minimal",
       context_window_tokens: 32768,
       default_output_token_reserve: 2048,
@@ -243,6 +248,7 @@ test("blanking or inheriting override drafts emits explicit null instead of stal
       name: "Reverted override",
       auth_type: null,
       custom_headers: null,
+      openai_text_capability: "responses_only",
       openai_probe_endpoint_variant: "responses_minimal",
       context_window_tokens: 32768,
       default_output_token_reserve: 2048,
@@ -304,6 +310,7 @@ test("effective preferred threshold cannot exceed the effective max across inher
       qps_limit: null,
       max_in_flight_non_stream: null,
       max_in_flight_stream: null,
+      openai_text_capability: "responses_only",
       openai_probe_endpoint_variant: "responses_minimal",
       context_capability_drafts: {
         context_window_tokens: { mode: "inherit", value: "16384" },

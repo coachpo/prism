@@ -203,7 +203,7 @@ type runtimeAccessResolutionContext struct {
 }
 
 func (model runtimeModelRecord) allowsOpenAITextSiblingTranslation() bool {
-	return model.VendorKey != nil && strings.EqualFold(strings.TrimSpace(*model.VendorKey), "openai")
+	return providercompat.IsOpenAI(model.APIFamily)
 }
 
 type runtimeResolvedAccessPlan struct {
@@ -822,17 +822,18 @@ func (s *Service) applyIngressOperationCompatibility(candidate runtimeResolvedAc
 	if len(candidate.TerminalAttempts) == 0 || len(candidate.Connections) == 0 {
 		return candidate, false, nil
 	}
+	if !openai.IsTextOperation(providerOperationFromRuntime(ctx.RequestOperation)) {
+		return candidate, true, nil
+	}
 	nativeAttempts := make([]runtimeTerminalAttempt, 0, len(candidate.TerminalAttempts))
 	translatedAttempts := make([]runtimeTerminalAttempt, 0, len(candidate.TerminalAttempts))
 	var firstTranslationError error
 	adapter := openai.New()
-	rolloutMode := s.resolvedOpenAITerminalTranslationMode()
 	for _, attempt := range candidate.TerminalAttempts {
-		mode := resolveTranslationMode(ctx.RequestOperation, attempt.Connection.OpenAIUpstreamOperation, attempt.Connection.OpenAIProbeEndpointVariant)
-		if mode != TranslationModeNone && !attempt.TargetModel.allowsOpenAITextSiblingTranslation() {
+		if !attempt.TargetModel.allowsOpenAITextSiblingTranslation() {
 			continue
 		}
-		compatibility := planOpenAITextAttemptCompatibility(ctx.RequestOperation, ctx.RawRequestBody, attempt, mode, rolloutMode, adapter)
+		compatibility := planOpenAITextAttemptCompatibility(ctx.RequestOperation, ctx.RawRequestBody, attempt, adapter)
 		if compatibility.Err != nil {
 			if firstTranslationError == nil {
 				firstTranslationError = compatibility.Err
@@ -1569,7 +1570,7 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 			connections.priority, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream,
 			connections.name, connections.auth_type, connections.custom_headers, connections.pricing_template_id,
 			connections.context_window_tokens, connections.default_output_token_reserve, connections.max_context_utilization,
-			connections.preferred_context_utilization_threshold, connections.openai_probe_endpoint_variant,
+			connections.preferred_context_utilization_threshold, connections.openai_probe_endpoint_variant, connections.openai_text_capability,
 			pricing_templates.id, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code,
 			pricing_templates.input_price::text, pricing_templates.output_price::text,
 			pricing_templates.cached_input_price::text, pricing_templates.cache_creation_price::text,
@@ -1615,6 +1616,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	var maxContextUtilization sql.NullFloat64
 	var preferredContextUtilizationThreshold sql.NullFloat64
 	var openAIProbeEndpointVariant sql.NullString
+	var openAITextCapability sql.NullString
 	var templateID sql.NullInt32
 	var templatePricingUnit sql.NullString
 	var templatePricingCurrencyCode sql.NullString
@@ -1644,6 +1646,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 		&maxContextUtilization,
 		&preferredContextUtilizationThreshold,
 		&openAIProbeEndpointVariant,
+		&openAITextCapability,
 		&templateID,
 		&templatePricingUnit,
 		&templatePricingCurrencyCode,
@@ -1670,7 +1673,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	record.ContextWindowTokens = nullableInt32(contextWindowTokens)
 	record.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 	record.OpenAIProbeEndpointVariant = nullableString(openAIProbeEndpointVariant)
-	record.OpenAIUpstreamOperation = providercompat.DeriveOpenAIUpstreamOperation(record.APIFamily, record.OpenAIProbeEndpointVariant)
+	record.OpenAITextCapability = nullableString(openAITextCapability)
 	record.Endpoint.Name = nullableString(endpointName)
 	if defaultOutputTokenReserve.Valid {
 		record.DefaultOutputTokenReserve = int(defaultOutputTokenReserve.Int32)
@@ -1714,7 +1717,7 @@ func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeReco
 		MaxContextUtilization:                record.MaxContextUtilization,
 		PreferredContextUtilizationThreshold: record.PreferredContextUtilizationThreshold,
 		OpenAIProbeEndpointVariant:           record.OpenAIProbeEndpointVariant,
-		OpenAIUpstreamOperation:              record.OpenAIUpstreamOperation,
+		OpenAITextCapability:                 record.OpenAITextCapability,
 		Endpoint: runtimeEndpoint{
 			ID:      record.Endpoint.ID,
 			Name:    record.Endpoint.Name,

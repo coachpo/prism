@@ -42,7 +42,6 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 	}
 	restartFields := []string{
 		bootstrapFieldRuntimeSideEffectsAttemptTimeout,
-		bootstrapFieldRuntimeRoutingOpenAITerminalTranslationMode,
 		bootstrapFieldTelemetryEnabled,
 		bootstrapFieldTelemetryExporterEndpoint,
 		bootstrapFieldTelemetryExporterProtocol,
@@ -175,27 +174,6 @@ func TestBootstrapConfigFieldDiffDetectsRuntimeSideEffectsAttemptTimeoutRestartO
 	})
 	if !diff.RestartRequired() {
 		t.Fatal("expected side-effects attempt timeout diff to require restart")
-	}
-}
-
-func TestBootstrapConfigFieldDiffDetectsRuntimeRoutingTranslationModeRestartOnly(t *testing.T) {
-	current := bootstrapApplyTestValues(t)
-	requested := cloneManagementValues(t, current)
-	translationMode := string(OpenAITerminalTranslationModeSafeOnly)
-	requested.Runtime.Routing.OpenAITerminalTranslationMode = &translationMode
-	diff, err := DiffBootstrapConfigFields(current, requested, preserveManagementSecretUpdates())
-	if err != nil {
-		t.Fatalf("diff runtime routing translation bootstrap field: %v", err)
-	}
-	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, nil)
-	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, []string{
-		bootstrapFieldRuntimeRoutingOpenAITerminalTranslationMode,
-	})
-	assertBootstrapFieldChangesEqual(t, diff.ChangedFields(), []BootstrapConfigFieldChange{
-		{Field: bootstrapFieldRuntimeRoutingOpenAITerminalTranslationMode, Mode: BootstrapConfigApplyModeRestartRequired},
-	})
-	if !diff.RestartRequired() {
-		t.Fatal("expected runtime routing translation diff to require restart")
 	}
 }
 

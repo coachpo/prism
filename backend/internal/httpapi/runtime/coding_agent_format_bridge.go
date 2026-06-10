@@ -3,15 +3,10 @@ package runtime
 import (
 	"context"
 	"io"
-	"strings"
 	"time"
-
-	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
-type CodingAgentFormatBridge struct {
-	mode config.OpenAITerminalTranslationMode
-}
+type CodingAgentFormatBridge struct{}
 
 type codingAgentFormatBridgePlan struct {
 	TranslationMode     TranslationMode
@@ -19,23 +14,21 @@ type codingAgentFormatBridgePlan struct {
 	UpstreamBody        []byte
 }
 
-func NewCodingAgentFormatBridge(mode config.OpenAITerminalTranslationMode) CodingAgentFormatBridge {
-	if strings.TrimSpace(string(mode)) == "" {
-		mode = config.OpenAITerminalTranslationModeSafeOnly
-	}
-	return CodingAgentFormatBridge{mode: mode}
+func NewCodingAgentFormatBridge() CodingAgentFormatBridge {
+	return CodingAgentFormatBridge{}
 }
 
 func defaultCodingAgentFormatBridge() CodingAgentFormatBridge {
-	return NewCodingAgentFormatBridge(config.OpenAITerminalTranslationModeSafeOnly)
+	return NewCodingAgentFormatBridge()
+}
+
+func (s *Service) codingAgentFormatBridge() CodingAgentFormatBridge {
+	return defaultCodingAgentFormatBridge()
 }
 
 func (bridge CodingAgentFormatBridge) PlanRequest(operation RuntimeOperation, rawBody []byte, targetModelID string, connection runtimeConnection) (codingAgentFormatBridgePlan, bool, error) {
-	if bridge.mode == config.OpenAITerminalTranslationModeOff {
-		return codingAgentFormatBridgePlan{}, false, nil
-	}
-	mode := resolveTranslationMode(operation, connection.OpenAIUpstreamOperation, connection.OpenAIProbeEndpointVariant)
-	if mode == TranslationModeNone {
+	mode, supported := resolveTranslationMode(operation, connection.OpenAITextCapability)
+	if !supported || mode == TranslationModeNone {
 		return codingAgentFormatBridgePlan{}, false, nil
 	}
 	capability := classifyOpenAITranslationCapability(operation, rawBody, mode)

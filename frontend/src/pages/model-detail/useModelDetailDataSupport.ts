@@ -9,6 +9,7 @@ import type {
   ModelAccessTarget,
   ModelConfig,
   ModelConfigListItem,
+  OpenAITextCapability,
   PricingTemplate,
 } from "@/lib/types";
 import {
@@ -25,6 +26,14 @@ export const createDefaultEndpointForm = (): EndpointCreate => ({
   base_url: "",
   api_key: "",
 });
+
+export const DEFAULT_OPENAI_TEXT_CAPABILITY: OpenAITextCapability = "responses_only";
+
+export function normalizeOpenAITextCapability(
+  capability: OpenAITextCapability | null | undefined,
+): OpenAITextCapability {
+  return capability ?? DEFAULT_OPENAI_TEXT_CAPABILITY;
+}
 
 type HeaderRowLike = {
   id: string;
@@ -111,13 +120,18 @@ export function buildConnectionDraftPayload({
     };
   }
 
+  const resolvedApiFamily = apiFamily ?? connectionForm.api_family;
   const payload: ConnectionCreate = {
-    api_family: apiFamily ?? connectionForm.api_family,
+    api_family: resolvedApiFamily,
     name: resolvedConnectionName,
     is_active: connectionForm.is_active,
     custom_headers: customHeaders,
+    openai_text_capability:
+      resolvedApiFamily === "openai"
+        ? normalizeOpenAITextCapability(connectionForm.openai_text_capability)
+        : undefined,
     openai_probe_endpoint_variant:
-      apiFamily === "openai"
+      resolvedApiFamily === "openai"
         ? normalizeOpenAIProbeEndpointVariant(connectionForm.openai_probe_endpoint_variant)
         : undefined,
     pricing_template_id: connectionForm.pricing_template_id,
@@ -127,7 +141,8 @@ export function buildConnectionDraftPayload({
     ...parsedContextCapabilityValues.payload,
   };
 
-  if (apiFamily !== "openai") {
+  if (resolvedApiFamily !== "openai") {
+    delete payload.openai_text_capability;
     delete payload.openai_probe_endpoint_variant;
   }
 

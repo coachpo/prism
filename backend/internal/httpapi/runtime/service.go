@@ -60,28 +60,27 @@ type RuntimeProxyConfigProvider interface {
 }
 
 type Service struct {
-	executionPool                 *pgxpool.Pool
-	telemetryPool                 *pgxpool.Pool
-	feedbackPool                  *pgxpool.Pool
-	feedbackStore                 *runtimeFeedbackStore
-	httpClient                    *http.Client
-	ownsHTTPClient                bool
-	runtimeProxyConfigProvider    RuntimeProxyConfigProvider
-	staticRuntimeProxyConfig      RuntimeProxyConfigSnapshot
-	now                           func() time.Time
-	secretEncryptionKey           string
-	openAITerminalTranslationMode config.OpenAITerminalTranslationMode
-	dashboardUpdates              DashboardUpdatePublisher
-	analyticsUpdates              AnalyticsUpdatePublisher
-	cache                         *SharedCache
-	overflowAffinityCache         *overflowAffinityCache
-	runtimeState                  *loadbalancedomain.LocalRuntimeStateStore
-	runtimeMetrics                *runtimeMetrics
-	requireDurableSuccessHandoff  bool
-	telemetryOutbox               *runtimeTelemetryOutbox
-	feedbackPipeline              *runtimeFeedbackPipeline
-	runtimeSideEffects            *RuntimeSideEffectManager
-	ownedScheduler                *background.Scheduler
+	executionPool                *pgxpool.Pool
+	telemetryPool                *pgxpool.Pool
+	feedbackPool                 *pgxpool.Pool
+	feedbackStore                *runtimeFeedbackStore
+	httpClient                   *http.Client
+	ownsHTTPClient               bool
+	runtimeProxyConfigProvider   RuntimeProxyConfigProvider
+	staticRuntimeProxyConfig     RuntimeProxyConfigSnapshot
+	now                          func() time.Time
+	secretEncryptionKey          string
+	dashboardUpdates             DashboardUpdatePublisher
+	analyticsUpdates             AnalyticsUpdatePublisher
+	cache                        *SharedCache
+	overflowAffinityCache        *overflowAffinityCache
+	runtimeState                 *loadbalancedomain.LocalRuntimeStateStore
+	runtimeMetrics               *runtimeMetrics
+	requireDurableSuccessHandoff bool
+	telemetryOutbox              *runtimeTelemetryOutbox
+	feedbackPipeline             *runtimeFeedbackPipeline
+	runtimeSideEffects           *RuntimeSideEffectManager
+	ownedScheduler               *background.Scheduler
 }
 
 type domainError struct {
@@ -130,24 +129,23 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		scheduler = background.NewScheduler(background.Config{})
 	}
 	service := &Service{
-		executionPool:                 executionPool,
-		telemetryPool:                 telemetryPool,
-		feedbackPool:                  feedbackPool,
-		feedbackStore:                 newRuntimeFeedbackStore(feedbackPool),
-		httpClient:                    client,
-		ownsHTTPClient:                ownsHTTPClient,
-		runtimeProxyConfigProvider:    options.RuntimeProxyConfigProvider,
-		staticRuntimeProxyConfig:      RuntimeProxyConfigSnapshot{HTTPClient: client},
-		now:                           now,
-		secretEncryptionKey:           settings.SecretEncryptionKey,
-		openAITerminalTranslationMode: settings.ResolvedOpenAITerminalTranslationMode(),
-		dashboardUpdates:              options.DashboardUpdates,
-		analyticsUpdates:              options.AnalyticsUpdates,
-		cache:                         options.Cache,
-		overflowAffinityCache:         newOverflowAffinityCache(now),
-		runtimeState:                  runtimeState,
-		runtimeMetrics:                newRuntimeMetrics(),
-		requireDurableSuccessHandoff:  true,
+		executionPool:                executionPool,
+		telemetryPool:                telemetryPool,
+		feedbackPool:                 feedbackPool,
+		feedbackStore:                newRuntimeFeedbackStore(feedbackPool),
+		httpClient:                   client,
+		ownsHTTPClient:               ownsHTTPClient,
+		runtimeProxyConfigProvider:   options.RuntimeProxyConfigProvider,
+		staticRuntimeProxyConfig:     RuntimeProxyConfigSnapshot{HTTPClient: client},
+		now:                          now,
+		secretEncryptionKey:          settings.SecretEncryptionKey,
+		dashboardUpdates:             options.DashboardUpdates,
+		analyticsUpdates:             options.AnalyticsUpdates,
+		cache:                        options.Cache,
+		overflowAffinityCache:        newOverflowAffinityCache(now),
+		runtimeState:                 runtimeState,
+		runtimeMetrics:               newRuntimeMetrics(),
+		requireDurableSuccessHandoff: true,
 	}
 	telemetryOptions := options.TelemetryOutbox
 	telemetryOptions.Scheduler = scheduler

@@ -103,6 +103,8 @@ func TestBundleImportRejectsUnknownPromotionTarget(t *testing.T) {
 func TestBundleImportRejectsApiFamilyMismatchPromotionTarget(t *testing.T) {
 	assertImportPromotionTargetFailure(t, "configbundle_import_rejects_api_family_mismatch_promotion_target", func(request *profileImportRequest) {
 		request.Connections[1].APIFamily = "anthropic"
+		request.Connections[1].OpenAITextCapability = nil
+		request.Connections[1].OpenAITextCapabilitySet = false
 		request.Models[1].APIFamily = "anthropic"
 	}, promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
 }
@@ -217,8 +219,8 @@ func validPromotionTargetBundleRequest() profileImportRequest {
 			BanDurationSeconds:                 intPtr(0),
 		}},
 		Connections: []connectionExport{
-			{Ref: "source-conn", APIFamily: "openai", EndpointName: "OpenAI", ContextWindowTokens: intPtr(8_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), IsActive: true, Priority: 0},
-			{Ref: "target-conn", APIFamily: "openai", EndpointName: "OpenAI", ContextWindowTokens: intPtr(16_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), IsActive: true, Priority: 1},
+			{Ref: "source-conn", APIFamily: "openai", EndpointName: "OpenAI", ContextWindowTokens: intPtr(8_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), IsActive: true, Priority: 0, OpenAITextCapability: stringPtr("responses_only"), OpenAITextCapabilitySet: true},
+			{Ref: "target-conn", APIFamily: "openai", EndpointName: "OpenAI", ContextWindowTokens: intPtr(16_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), IsActive: true, Priority: 1, OpenAITextCapability: stringPtr("responses_only"), OpenAITextCapabilitySet: true},
 		},
 		Models: []modelExport{
 			{APIFamily: "openai", ModelID: "source-small", DisplayName: stringPtr("Source Small"), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(8_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), ContextOverflowPromotionTargetID: stringPtr("target-large"), IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr("source-conn")}}},

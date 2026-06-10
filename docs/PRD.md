@@ -71,7 +71,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Manual health check remains available for each Terminal Target from the management UI.
 - Health probes send a minimal request using the Terminal Target's configured model ID and the same URL-building logic as the proxy engine to validate URL routing, authentication, and model availability end to end.
 - API-family-specific request format:
-  - **OpenAI**: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on `openai_probe_endpoint_variant`; the current OpenAI variants are `responses_minimal`, `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`
+  - **OpenAI**: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on `openai_probe_endpoint_variant`; the current OpenAI variants are `responses_minimal`, `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. This probe choice is health-check-only. Runtime OpenAI text capability comes from `openai_text_capability`.
   - **Anthropic**: `POST {base_url}/v1/messages` with `model`, `max_tokens: 1`, and a simple message
   - **Gemini**: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload
   - 2xx response → `healthy`

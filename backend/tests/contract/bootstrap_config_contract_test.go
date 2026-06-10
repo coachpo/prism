@@ -38,8 +38,12 @@ func TestBootstrapConfigSchema(t *testing.T) {
 		if snapshot.Values.Runtime.Routing == nil {
 			t.Fatalf("expected safe runtime routing values to be exposed, got %+v", snapshot.Values.Runtime)
 		}
-		if snapshot.Values.Runtime.Routing.OpenAITerminalTranslationMode == nil || *snapshot.Values.Runtime.Routing.OpenAITerminalTranslationMode != string(config.OpenAITerminalTranslationModeOff) {
-			t.Fatalf("expected safe runtime routing openai_terminal_translation_mode=off to be exposed, got %+v", snapshot.Values.Runtime)
+		encodedRuntime, err := json.Marshal(snapshot.Values.Runtime)
+		if err != nil {
+			t.Fatalf("marshal safe runtime values: %v", err)
+		}
+		if bytes.Contains(encodedRuntime, []byte("openai_terminal_translation_mode")) || bytes.Contains(encodedRuntime, []byte("openaiTerminalTranslationMode")) {
+			t.Fatalf("expected safe runtime values to omit OpenAI terminal translation mode, got %s", encodedRuntime)
 		}
 		assertContractDisabledSafeMailValues(t, snapshot.Values.Mail)
 	})
@@ -274,11 +278,11 @@ func TestBootstrapConfigValidation(t *testing.T) {
 			wantErr: "sideEffects.attemptTimeout must be greater than zero",
 		},
 		{
-			name: "invalid runtime routing OpenAI terminal translation mode",
+			name: "stale runtime routing OpenAI terminal translation mode fails as unknown field",
 			mutate: func(payload map[string]any) {
-				payload["runtime"].(map[string]any)["routing"] = map[string]any{"openaiTerminalTranslationMode": "all"}
+				payload["runtime"].(map[string]any)["routing"] = map[string]any{"openaiTerminalTranslationMode": "retired"}
 			},
-			wantErr: "routing.openaiTerminalTranslationMode must be one of off, safe_only",
+			wantErr: `unknown field "openaiTerminalTranslationMode"`,
 		},
 		{
 			name: "runtime execution pool min idle exceeds max",

@@ -1058,6 +1058,7 @@ func TestRequestLogsTranslatedPromotionPersistsAdditiveAttribution(t *testing.T)
 		EndpointBaseURL:            sourceUpstream.baseURL("/request-logs/translated-promotion/source"),
 		EndpointAPIKey:             "request-logs-translated-promotion-source-key",
 		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       runtimeStringPtr("responses_only"),
 	})
 	promotedModelID := "request-logs-translated-promotion-promoted-" + suffix
 	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
@@ -1072,7 +1073,7 @@ func TestRequestLogsTranslatedPromotionPersistsAdditiveAttribution(t *testing.T)
 		}},
 		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12},
 	})
-	_, promotedConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/request-logs/translated-promotion/promoted"), "request-logs-translated-promotion-promoted-key", &chatOnlyVariant, 32_768)
+	_, promotedConnectionID := seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/request-logs/translated-promotion/promoted"), "request-logs-translated-promotion-promoted-key", &chatOnlyVariant, runtimeStringPtr("chat_completions_only"), 32_768)
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
 	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
 

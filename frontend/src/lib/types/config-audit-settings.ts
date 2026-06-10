@@ -1,5 +1,5 @@
 import type { ApiFamily } from "./vendor";
-import type { OpenAIProbeEndpointVariant, PricingComponentPrice } from "./routing";
+import type { OpenAIProbeEndpointVariant, OpenAITextCapability, PricingComponentPrice } from "./routing";
 
 export type ConfigModelFacadeSelectionPolicy = "weighted_eligible_context";
 export type ConfigModelFacadeFallbackPolicy = "redistribute_ineligible_weight";
@@ -79,6 +79,7 @@ export interface ConfigConnectionExport {
   name: string | null;
   auth_type: ApiFamily | null;
   custom_headers: Record<string, string> | null;
+  openai_text_capability: OpenAITextCapability | null;
   openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | null;
   qps_limit: number | null;
   max_in_flight_non_stream: number | null;
@@ -99,6 +100,7 @@ export interface ConfigConnectionImport {
   name?: string | null;
   auth_type?: ApiFamily | null;
   custom_headers?: Record<string, string> | null;
+  openai_text_capability?: OpenAITextCapability | null;
   openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;

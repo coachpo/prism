@@ -23,17 +23,16 @@ import (
 )
 
 const (
-	routeTestDatabasePassword                         = "route-db-password"
-	routeTestDatabaseQueryPassword                    = "route-query-password"
-	routeTestDatabaseSSLPassword                      = "route-ssl-password"
-	routeTestDatabaseURL                              = "postgres://prism:" + routeTestDatabasePassword + "@db.route.internal:5432/prism?sslmode=disable&password=" + routeTestDatabaseQueryPassword + "&sslpassword=" + routeTestDatabaseSSLPassword
-	routeTestNextDatabasePassword                     = "route-next-db-password"
-	routeTestNextDatabaseURL                          = "postgres://prism:" + routeTestNextDatabasePassword + "@db.next.internal:5432/prism?sslmode=disable"
-	routeTestReplacementJWTSecret                     = "route-replacement-jwt-secret"
-	routeTestRuntimeReplacementSecret                 = "route-runtime-replacement-secret"
-	routeTestTelemetryAuthorizationHeader             = "Bearer route-telemetry-secret"
-	routeTestRuntimeSideEffectsAttemptTimeoutField    = "side_effects.attempt_timeout"
-	routeTestRuntimeRoutingOpenAITranslationModeField = "routing.openai_terminal_translation_mode"
+	routeTestDatabasePassword                      = "route-db-password"
+	routeTestDatabaseQueryPassword                 = "route-query-password"
+	routeTestDatabaseSSLPassword                   = "route-ssl-password"
+	routeTestDatabaseURL                           = "postgres://prism:" + routeTestDatabasePassword + "@db.route.internal:5432/prism?sslmode=disable&password=" + routeTestDatabaseQueryPassword + "&sslpassword=" + routeTestDatabaseSSLPassword
+	routeTestNextDatabasePassword                  = "route-next-db-password"
+	routeTestNextDatabaseURL                       = "postgres://prism:" + routeTestNextDatabasePassword + "@db.next.internal:5432/prism?sslmode=disable"
+	routeTestReplacementJWTSecret                  = "route-replacement-jwt-secret"
+	routeTestRuntimeReplacementSecret              = "route-runtime-replacement-secret"
+	routeTestTelemetryAuthorizationHeader          = "Bearer route-telemetry-secret"
+	routeTestRuntimeSideEffectsAttemptTimeoutField = "side_effects.attempt_timeout"
 )
 
 var (
@@ -177,35 +176,6 @@ func TestBootstrapConfigRouteValidateReportsRuntimeSideEffectsAttemptTimeoutRest
 		t.Fatalf("expected side-effects attempt timeout validation to require restart, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
 	}
 	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{{Field: routeTestRuntimeSideEffectsAttemptTimeoutField, Mode: config.BootstrapConfigApplyModeRestartRequired}})
-	if body.ApplyResult != nil {
-		t.Fatal("expected validation response to omit apply result")
-	}
-}
-
-func TestBootstrapConfigRouteValidateReportsRuntimeRoutingTranslationModeRestartRequired(t *testing.T) {
-	fixture := newBootstrapRouteFixture(t)
-	before := mustReadFile(t, fixture.path)
-	request := bootstrapRouteRequestForSnapshot(t, fixture.snapshot)
-	request.Values.Runtime.Routing.OpenAITerminalTranslationMode = routeStringPtr(string(config.OpenAITerminalTranslationModeSafeOnly))
-
-	response := fixture.doJSON(t, http.MethodPost, "/api/config/bootstrap/validate", request)
-
-	requireStatus(t, response, http.StatusOK)
-	assertFileUnchanged(t, fixture.path, before)
-	body := decodeBootstrapConfigResponse(t, response)
-	translationCapability, ok := body.ApplyCapabilities[routeTestRuntimeRoutingOpenAITranslationModeField]
-	if !ok {
-		t.Fatal("expected response capabilities to include runtime routing OpenAI translation mode")
-	}
-	if translationCapability.Mode != config.BootstrapConfigApplyModeRestartRequired || translationCapability.ConfirmationToken != "" {
-		t.Fatalf("expected OpenAI translation mode to be restart-required without confirmation, got %+v", translationCapability)
-	}
-	if !body.RestartRequired || body.PlannedChanges == nil || !body.PlannedChanges.RestartRequired {
-		t.Fatalf("expected runtime routing translation mode validation to require restart, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
-	}
-	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{
-		{Field: routeTestRuntimeRoutingOpenAITranslationModeField, Mode: config.BootstrapConfigApplyModeRestartRequired},
-	})
 	if body.ApplyResult != nil {
 		t.Fatal("expected validation response to omit apply result")
 	}
@@ -895,8 +865,8 @@ func TestBootstrapConfigRouteConcurrentPUTsSerializeAndKeepReadableConfig(t *tes
 }
 
 func TestBootstrapConfigRouteValidateWaitsForInFlightHotApplyMetadata(t *testing.T) {
-	previousMaxProcs := GOMAXPROCS(1)
-	t.Cleanup(func() { GOMAXPROCS(previousMaxProcs) })
+	previousMaxProcs := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previousMaxProcs) })
 	t.Setenv("DATABASE_URL", routeTestDatabaseURL)
 	path := filepath.Join(t.TempDir(), "bootstrap-config.json")
 	currentTime := routeTestCreatedAt
@@ -951,7 +921,7 @@ func TestBootstrapConfigRouteValidateWaitsForInFlightHotApplyMetadata(t *testing
 
 	<-validateBody.done
 	for range 10 {
-		Gosched()
+		runtime.Gosched()
 	}
 	if validateReadBeforeRelease.Load() {
 		releasedHotApply.Store(true)
@@ -1510,6 +1480,9 @@ func assertRouteDefaultSafeValues(t *testing.T, values config.BootstrapConfigVal
 	if bytes.Contains(encodedRuntime, []byte("buffering_mode")) || bytes.Contains(encodedRuntime, []byte("bufferingMode")) {
 		t.Fatalf("expected route safe runtime defaults to omit buffering mode, got %s", encodedRuntime)
 	}
+	if bytes.Contains(encodedRuntime, []byte("openai_terminal_translation_mode")) || bytes.Contains(encodedRuntime, []byte("openaiTerminalTranslationMode")) {
+		t.Fatalf("expected route safe runtime defaults to omit OpenAI terminal translation mode, got %s", encodedRuntime)
+	}
 	transport := values.Runtime.Transport
 	if transport.MaxIdleConns == nil || transport.MaxIdleConnsPerHost == nil || transport.MaxConnsPerHost == nil || *transport.MaxIdleConns != 100 || *transport.MaxIdleConnsPerHost != 16 || *transport.MaxConnsPerHost != 16 {
 		t.Fatalf("expected route safe runtime transport caps 100/16/16, got %+v", transport)
@@ -1519,9 +1492,6 @@ func assertRouteDefaultSafeValues(t *testing.T, values config.BootstrapConfigVal
 	}
 	if values.Runtime.SideEffects.AttemptTimeout == nil || *values.Runtime.SideEffects.AttemptTimeout != "10s" {
 		t.Fatalf("expected route safe side-effects attempt_timeout=10s, got %+v", values.Runtime.SideEffects)
-	}
-	if values.Runtime.Routing.OpenAITerminalTranslationMode == nil || *values.Runtime.Routing.OpenAITerminalTranslationMode != string(config.OpenAITerminalTranslationModeOff) {
-		t.Fatalf("expected route safe runtime openai_terminal_translation_mode=off, got %+v", values.Runtime.Routing)
 	}
 	if values.Database == nil || values.Database.Pools == nil || values.Database.ManagementAdmission == nil {
 		t.Fatalf("expected route safe database defaults, got %+v", values.Database)

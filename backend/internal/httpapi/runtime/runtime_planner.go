@@ -3,21 +3,7 @@ package runtime
 import (
 	"errors"
 	"net/http"
-	"strings"
-
-	"github.com/coachpo/prism/backend/internal/platform/config"
 )
-
-func (s *Service) resolvedOpenAITerminalTranslationMode() config.OpenAITerminalTranslationMode {
-	if strings.TrimSpace(string(s.openAITerminalTranslationMode)) == "" {
-		return config.OpenAITerminalTranslationModeSafeOnly
-	}
-	return s.openAITerminalTranslationMode
-}
-
-func (s *Service) codingAgentFormatBridge() CodingAgentFormatBridge {
-	return NewCodingAgentFormatBridge(s.resolvedOpenAITerminalTranslationMode())
-}
 
 func (s *Service) buildRequestPlanFromSnapshotCore(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot) (requestPlan, error) {
 	routingPlan, err := snapshot.compiledRoutingPlan()

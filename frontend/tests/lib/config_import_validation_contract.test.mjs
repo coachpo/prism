@@ -59,6 +59,7 @@ function buildValidConfigImport() {
         api_family: "openai",
         endpoint_name: "OpenAI",
         ...liveAuthoringCapabilityDefaults,
+        openai_text_capability: "responses_only",
         pricing_template_name: "Default pricing",
         is_active: true,
         priority: 0,
@@ -129,6 +130,7 @@ test("config import schema accepts current profile bundle v3 Ban Policy payloads
   assert.equal(parsed.loadbalance_strategies[0].cycle_retry_attempt_limit, 2);
   assert.equal(parsed.loadbalance_strategies[0].ban_cumulative_retry_attempt_threshold, 4);
   assert.equal(parsed.connections[0].ref, "openai-primary");
+  assert.equal(parsed.connections[0].openai_text_capability, "responses_only");
   assert.deepEqual(
     {
       context_window_tokens: parsed.connections[0].context_window_tokens,
@@ -150,6 +152,25 @@ test("config import schema accepts current profile bundle v3 Ban Policy payloads
   assert.equal(parsed.models[0].access_targets[0].connection_ref, "openai-primary");
   assert.ok(!Object.hasOwn(parsed.loadbalance_strategies[0], removedRetryAttemptsKey));
   assert.ok(!Object.hasOwn(parsed.models[0], "connections"));
+});
+
+test("config import schema requires explicit OpenAI text capability for OpenAI connections", () => {
+  const payload = buildValidConfigImport();
+  delete payload.connections[0].openai_text_capability;
+
+  assert.throws(() => ConfigImportSchema.parse(payload), /OpenAI connections must include openai_text_capability/);
+});
+
+test("config import schema rejects OpenAI-only fields on non-OpenAI connections", () => {
+  const payload = buildValidConfigImport();
+  payload.connections[0].api_family = "anthropic";
+
+  assert.throws(() => ConfigImportSchema.parse(payload), /openai_text_capability is only valid for OpenAI connections/);
+
+  payload.connections[0].openai_text_capability = null;
+  payload.connections[0].openai_probe_endpoint_variant = "responses_minimal";
+
+  assert.throws(() => ConfigImportSchema.parse(payload), /openai_probe_endpoint_variant is only valid for OpenAI connections/);
 });
 
 test("config import schema accepts cheapest_eligible_context loadbalance strategies", () => {
@@ -223,9 +244,17 @@ test("config import schema accepts backend-exported overflow promotion target fi
   assert.equal(parsed.models[0].context_overflow_promotion_target_id, "gpt-4o-terminal");
 });
 
-test("config bundle TypeScript DTOs expose overflow promotion target fields", () => {
+test("config bundle TypeScript DTOs expose overflow promotion target and OpenAI capability fields", () => {
   const source = readFileSync(path.join(frontendDir, "src/lib/types/config-audit-settings.ts"), "utf8");
 
+  assert.match(
+    source,
+    /interface ConfigConnectionExport \{[\s\S]*?openai_text_capability: OpenAITextCapability \| null;[\s\S]*?\n\}/,
+  );
+  assert.match(
+    source,
+    /interface ConfigConnectionImport \{[\s\S]*?openai_text_capability\?: OpenAITextCapability \| null;[\s\S]*?\n\}/,
+  );
   assert.match(
     source,
     /interface ConfigModelExport \{[\s\S]*?context_overflow_promotion_target_id: string \| null;[\s\S]*?\n\}/,

@@ -508,13 +508,13 @@ func newConfigBundleV3ContractHarness(t *testing.T) *contractHarness {
 	}
 
 	settings := config.Settings{
-		Host:                   "127.0.0.1",
-		Port:                   8000,
-		AppEnv:                 config.EnvironmentProduction,
-		DatabaseURL:            sharedPostgresHarness.connectionString(databaseName),
-		SecretEncryptionKey:    configBundleSecretKey,
+		Host:                      "127.0.0.1",
+		Port:                      8000,
+		AppEnv:                    config.EnvironmentProduction,
+		DatabaseURL:               sharedPostgresHarness.connectionString(databaseName),
+		SecretEncryptionKey:       configBundleSecretKey,
 		ConfigBundleEncryptionKey: configBundlePreviewTokenKey,
-		CORSAllowedOrigins:     "http://localhost:5173,http://127.0.0.1:5173",
+		CORSAllowedOrigins:        "http://localhost:5173,http://127.0.0.1:5173",
 	}
 	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
 	if err != nil {
@@ -599,7 +599,7 @@ func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID i
 		t.Fatalf("insert model: %v", err)
 	}
 	var connectionID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, 200000, 2048, 0.85, $3, 60, 8, 4, 'responses_minimal', TRUE, 0, 'Primary OpenAI connection', 'openai', $4, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, endpointID, pricingID, `{"X-Prism-Trace":"v3-contract"}`, now).Scan(&connectionID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, 200000, 2048, 0.85, $3, 60, 8, 4, 'responses_minimal', 'responses_only', TRUE, 0, 'Primary OpenAI connection', 'openai', $4, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, endpointID, pricingID, `{"X-Prism-Trace":"v3-contract"}`, now).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, modelConfigID, connectionID, now); err != nil {
@@ -680,8 +680,11 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	if jsonInt(t, connection["context_window_tokens"]) != 200000 || jsonInt(t, connection["default_output_token_reserve"]) != 2048 || jsonFloat(t, connection["max_context_utilization"]) != 0.85 {
 		t.Fatalf("expected v3 connection capability export, got %+v", connection)
 	}
-	if connection["openai_probe_endpoint_variant"] != "responses_minimal" {
-		t.Fatalf("expected v3 connection export to keep openai_probe_endpoint_variant=responses_minimal, got %+v", connection)
+	if connection["openai_probe_endpoint_variant"] != "responses_minimal" || connection["openai_text_capability"] != "responses_only" {
+		t.Fatalf("expected v3 connection export to keep probe variant and text capability, got %+v", connection)
+	}
+	if _, ok := connection["openai_upstream_operation"]; ok {
+		t.Fatalf("v3 connection export must not include removed openai_upstream_operation: %+v", connection)
 	}
 	strategies := payload["loadbalance_strategies"].([]any)
 	if len(strategies) != 1 {
@@ -1137,7 +1140,7 @@ func TestConfigBundlePreferredContext(t *testing.T) {
 	assertErrorResponse(t, invalidPreview, http.StatusBadRequest, "Connection 'openai-primary-openai' preferred_context_utilization_threshold must be less than or equal to max_context_utilization when provided")
 }
 
-func TestConfigBundleOpenAIProbeVariantRoundTrips(t *testing.T) {
+func TestConfigBundleOpenAITextCapabilityAndProbeVariantRoundTrip(t *testing.T) {
 	harness := newConfigBundleV3ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	seedConfigBundleV3Graph(t, harness, profileID)
@@ -1147,12 +1150,18 @@ func TestConfigBundleOpenAIProbeVariantRoundTrips(t *testing.T) {
 	var exported map[string]any
 	decodeJSONResponse(t, exportResponse, &exported)
 	connection := asMap(t, exported["connections"].([]any)[0])
-	if connection["openai_probe_endpoint_variant"] != "responses_minimal" {
-		t.Fatalf("expected exported connection probe variant responses_minimal, got %+v", connection)
+	if connection["openai_probe_endpoint_variant"] != "responses_minimal" || connection["openai_text_capability"] != "responses_only" {
+		t.Fatalf("expected exported connection probe variant and text capability, got %+v", connection)
 	}
+
+	missingCapability := cloneProfileBundleV3Payload(t, exported)
+	delete(asMap(t, missingCapability["connections"].([]any)[0]), "openai_text_capability")
+	missingPreview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", missingCapability, modelHeader(profileID))
+	assertErrorResponse(t, missingPreview, http.StatusBadRequest, "Connection 'openai-primary-openai' must include openai_text_capability for OpenAI API family connections")
 
 	mutated := cloneProfileBundleV3Payload(t, exported)
 	asMap(t, mutated["connections"].([]any)[0])["openai_probe_endpoint_variant"] = "chat_completions_reasoning_none"
+	asMap(t, mutated["connections"].([]any)[0])["openai_text_capability"] = "dual_native"
 	preview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", mutated, modelHeader(profileID))
 	assertStatus(t, preview, http.StatusOK)
 	var previewBody map[string]any
@@ -1166,10 +1175,11 @@ func TestConfigBundleOpenAIProbeVariantRoundTrips(t *testing.T) {
 	var reExported map[string]any
 	decodeJSONResponse(t, reExportResponse, &reExported)
 	reExportedConnection := asMap(t, reExported["connections"].([]any)[0])
-	if reExportedConnection["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" {
-		t.Fatalf("expected round-tripped connection probe variant chat_completions_reasoning_none, got %+v", reExportedConnection)
+	if reExportedConnection["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || reExportedConnection["openai_text_capability"] != "dual_native" {
+		t.Fatalf("expected round-tripped connection probe variant and text capability, got %+v", reExportedConnection)
 	}
 	assertConfigBundleStoredConnectionProbeVariant(t, harness, profileID, "chat_completions_reasoning_none")
+	assertConfigBundleStoredConnectionTextCapability(t, harness, profileID, "dual_native")
 }
 
 func TestConfigBundleFacadeAndTargetMetadataRoundTrip(t *testing.T) {
@@ -1316,5 +1326,16 @@ func assertConfigBundleStoredConnectionProbeVariant(t *testing.T, harness *contr
 	}
 	if !probeVariant.Valid || probeVariant.String != want {
 		t.Fatalf("expected stored connection openai_probe_endpoint_variant %q, got %+v", want, probeVariant)
+	}
+}
+
+func assertConfigBundleStoredConnectionTextCapability(t *testing.T, harness *contractHarness, profileID int, want string) {
+	t.Helper()
+	var textCapability sql.NullString
+	if err := harness.conn.QueryRow(context.Background(), `SELECT openai_text_capability FROM connections WHERE profile_id = $1 AND name = 'Primary OpenAI connection' LIMIT 1`, profileID).Scan(&textCapability); err != nil {
+		t.Fatalf("load stored connection openai_text_capability: %v", err)
+	}
+	if !textCapability.Valid || textCapability.String != want {
+		t.Fatalf("expected stored connection openai_text_capability %q, got %+v", want, textCapability)
 	}
 }

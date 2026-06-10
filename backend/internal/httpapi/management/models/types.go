@@ -240,7 +240,7 @@ type connectionTargetSummary struct {
 	AuthType                             *string                            `json:"auth_type"`
 	CustomHeaders                        map[string]string                  `json:"custom_headers"`
 	OpenAIProbeEndpointVariant           *string                            `json:"openai_probe_endpoint_variant"`
-	OpenAIUpstreamOperation              *string                            `json:"openai_upstream_operation"`
+	OpenAITextCapability                 *string                            `json:"openai_text_capability"`
 	PricingTemplateID                    *int                               `json:"pricing_template_id"`
 	QPSLimit                             *int                               `json:"qps_limit"`
 	MaxInFlightNonStream                 *int                               `json:"max_in_flight_non_stream"`

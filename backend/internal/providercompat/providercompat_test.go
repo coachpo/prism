@@ -56,36 +56,35 @@ func TestNormalizeImportedOpenAIProbeEndpointVariant(t *testing.T) {
 	}
 }
 
-func TestDeriveOpenAIUpstreamOperation(t *testing.T) {
+func TestOpenAITextCapabilityHelpers(t *testing.T) {
 	tests := []struct {
-		name       string
-		apiFamily  string
-		variant    string
-		useVariant bool
-		want       string
-		wantNil    bool
+		name              string
+		capability        string
+		ingressOperation  string
+		wantSupported     bool
+		wantNative        bool
+		wantMode          string
+		wantModeSupported bool
 	}{
-		{name: "nil defaults to responses", apiFamily: APIFamilyOpenAI, want: OpenAIUpstreamOperationResponses},
-		{name: "blank defaults to responses", apiFamily: APIFamilyOpenAI, variant: " \t", useVariant: true, want: OpenAIUpstreamOperationResponses},
-		{name: "chat variant maps to chat", apiFamily: " OpenAI ", variant: OpenAIProbeEndpointVariantChatCompletionsReasoningNone, useVariant: true, want: OpenAIUpstreamOperationChatCompletions},
-		{name: "unknown openai variant falls back to responses", apiFamily: APIFamilyOpenAI, variant: "unknown", useVariant: true, want: OpenAIUpstreamOperationResponses},
-		{name: "non openai has no upstream operation", apiFamily: APIFamilyAnthropic, variant: OpenAIProbeEndpointVariantChatCompletionsMinimal, useVariant: true, wantNil: true},
+		{name: "responses only supports responses native", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationResponses, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
+		{name: "responses only translates chat ingress", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationChatCompletions, wantSupported: true, wantMode: OpenAITextTranslationModeChatToResponses, wantModeSupported: true},
+		{name: "chat only translates responses ingress", capability: OpenAITextCapabilityChatCompletionsOnly, ingressOperation: OpenAIUpstreamOperationResponses, wantSupported: true, wantMode: OpenAITextTranslationModeResponsesToChat, wantModeSupported: true},
+		{name: "dual native keeps chat native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationChatCompletions, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
+		{name: "dual native keeps responses native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationResponses, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
+		{name: "responses adjunct requires responses support", capability: OpenAITextCapabilityChatCompletionsOnly, ingressOperation: OpenAIUpstreamOperationResponsesCompact, wantSupported: true},
+		{name: "invalid capability unsupported", capability: "unknown", ingressOperation: OpenAIUpstreamOperationResponses},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var variant *string
-			if test.useVariant {
-				variant = &test.variant
+			if got := IsSupportedOpenAITextCapability(test.capability); got != test.wantSupported {
+				t.Fatalf("expected supported=%v, got %v", test.wantSupported, got)
 			}
-			got := DeriveOpenAIUpstreamOperation(test.apiFamily, variant)
-			if test.wantNil {
-				if got != nil {
-					t.Fatalf("expected nil upstream operation, got %q", *got)
-				}
-				return
+			if got := OpenAITextCapabilitySupportsNativeOperation(test.capability, test.ingressOperation); got != test.wantNative {
+				t.Fatalf("expected native=%v, got %v", test.wantNative, got)
 			}
-			if got == nil || *got != test.want {
-				t.Fatalf("expected upstream operation %q, got %+v", test.want, got)
+			mode, ok := OpenAITextSiblingTranslationMode(test.capability, test.ingressOperation)
+			if ok != test.wantModeSupported || mode != test.wantMode {
+				t.Fatalf("expected mode=%q supported=%v, got mode=%q supported=%v", test.wantMode, test.wantModeSupported, mode, ok)
 			}
 		})
 	}

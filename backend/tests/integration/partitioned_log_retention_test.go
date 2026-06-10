@@ -820,7 +820,7 @@ func task9InsertRuntimeConnection(t *testing.T, ctx context.Context, exec task9Q
 		t.Fatalf("load task9 runtime model api family: %v", err)
 	}
 	var connectionID int
-	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now).Scan(&connectionID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $6, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now, openAITextCapabilityForTask9APIFamily(apiFamily)).Scan(&connectionID); err != nil {
 		t.Fatalf("insert task9 runtime connection: %v", err)
 	}
 	if err := exec.QueryRow(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4) RETURNING id`, profileID, modelConfigID, connectionID, now).Scan(new(int)); err != nil {
@@ -920,6 +920,13 @@ func nullableTask9Int(value *int) any {
 		return nil
 	}
 	return *value
+}
+
+func openAITextCapabilityForTask9APIFamily(apiFamily string) any {
+	if apiFamily != "openai" {
+		return nil
+	}
+	return "chat_completions_only"
 }
 
 func task9LoadActiveProfileID(t *testing.T, ctx context.Context, queryer task9QueryRower) int {

@@ -51,9 +51,6 @@ function buildBootstrapValues() {
         expect_continue_timeout: "1s",
       },
       side_effects: { attempt_timeout: "10s" },
-      routing: {
-        openai_terminal_translation_mode: "safe_only",
-      },
     },
     http: { cors_allowed_origins: ["http://localhost:5173"] },
     auth: {
@@ -69,17 +66,20 @@ function buildBootstrapValues() {
   };
 }
 
-test("bootstrap value normalization preserves OpenAI terminal translation routing field", () => {
-  const normalized = normalizeBootstrapValues(buildBootstrapValues());
+test("bootstrap value normalization drops deleted OpenAI terminal translation routing field", () => {
+  const payload = buildBootstrapValues();
+  const staleRoutingField = ["openai", "terminal", "translation", "mode"].join("_");
+  payload.runtime.routing = {
+    [staleRoutingField]: "retired",
+  };
 
-  assert.deepEqual(normalized.runtime.routing, {
-    openai_terminal_translation_mode: "safe_only",
-  });
+  const normalized = normalizeBootstrapValues(payload);
+
+  assert.equal(Object.hasOwn(normalized.runtime, "routing"), false);
 });
 
 test("bootstrap value normalization does not invent routing defaults for incomplete payloads", () => {
   const payload = buildBootstrapValues();
-  delete payload.runtime.routing;
 
   const normalized = normalizeBootstrapValues(payload);
 

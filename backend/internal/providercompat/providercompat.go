@@ -22,8 +22,16 @@ const (
 )
 
 const (
-	OpenAIUpstreamOperationResponses       = "openai.responses"
-	OpenAIUpstreamOperationChatCompletions = "openai.chat_completions"
+	OpenAIUpstreamOperationResponses            = "openai.responses"
+	OpenAIUpstreamOperationChatCompletions      = "openai.chat_completions"
+	OpenAIUpstreamOperationResponsesInputTokens = "openai.responses.input_tokens"
+	OpenAIUpstreamOperationResponsesCompact     = "openai.responses.compact"
+	OpenAITextCapabilityResponsesOnly           = "responses_only"
+	OpenAITextCapabilityChatCompletionsOnly     = "chat_completions_only"
+	OpenAITextCapabilityDualNative              = "dual_native"
+	OpenAITextTranslationModeNone               = "none"
+	OpenAITextTranslationModeResponsesToChat    = "openai_responses_to_chat_completions"
+	OpenAITextTranslationModeChatToResponses    = "openai_chat_completions_to_responses"
 )
 
 var (
@@ -162,21 +170,71 @@ func OpenAIProbeEndpointVariantOrDefault(value *string) string {
 	return DefaultOpenAIProbeEndpointVariant
 }
 
-func DeriveOpenAIUpstreamOperation(apiFamily string, probeEndpointVariant *string) *string {
-	if !IsOpenAI(apiFamily) {
-		return nil
+func IsSupportedOpenAITextCapability(value string) bool {
+	switch strings.TrimSpace(value) {
+	case OpenAITextCapabilityResponsesOnly, OpenAITextCapabilityChatCompletionsOnly, OpenAITextCapabilityDualNative:
+		return true
+	default:
+		return false
 	}
-	operation := OpenAIUpstreamOperationResponses
-	switch OpenAIProbeEndpointVariantOrDefault(probeEndpointVariant) {
-	case OpenAIProbeEndpointVariantChatCompletionsMinimal, OpenAIProbeEndpointVariantChatCompletionsReasoningNone:
-		operation = OpenAIUpstreamOperationChatCompletions
-	}
-	return &operation
 }
 
-func IsSupportedOpenAIUpstreamOperation(value string) bool {
-	switch strings.TrimSpace(value) {
-	case "", OpenAIUpstreamOperationResponses, OpenAIUpstreamOperationChatCompletions:
+func OpenAITextCapabilitySupportsNativeOperation(capability string, ingressOperation string) bool {
+	switch strings.TrimSpace(ingressOperation) {
+	case OpenAIUpstreamOperationChatCompletions:
+		return capabilitySupportsChatCompletions(capability)
+	case OpenAIUpstreamOperationResponses:
+		return capabilitySupportsResponses(capability)
+	case OpenAIUpstreamOperationResponsesInputTokens, OpenAIUpstreamOperationResponsesCompact:
+		return OpenAITextCapabilitySupportsResponsesAdjunct(capability)
+	default:
+		return false
+	}
+}
+
+func OpenAITextCapabilitySupportsResponsesAdjunct(capability string) bool {
+	return capabilitySupportsResponses(capability)
+}
+
+func OpenAITextSiblingTranslationMode(capability string, ingressOperation string) (string, bool) {
+	if OpenAITextCapabilitySupportsNativeOperation(capability, ingressOperation) {
+		return OpenAITextTranslationModeNone, true
+	}
+	switch strings.TrimSpace(ingressOperation) {
+	case OpenAIUpstreamOperationResponses:
+		if capabilitySupportsChatCompletions(capability) {
+			return OpenAITextTranslationModeResponsesToChat, true
+		}
+	case OpenAIUpstreamOperationChatCompletions:
+		if capabilitySupportsResponses(capability) {
+			return OpenAITextTranslationModeChatToResponses, true
+		}
+	}
+	return "", false
+}
+
+func OpenAITextTranslationUpstreamOperation(mode string, ingressOperation string) string {
+	switch strings.TrimSpace(mode) {
+	case OpenAITextTranslationModeResponsesToChat:
+		return OpenAIUpstreamOperationChatCompletions
+	case OpenAITextTranslationModeChatToResponses:
+		return OpenAIUpstreamOperationResponses
+	}
+	return strings.TrimSpace(ingressOperation)
+}
+
+func capabilitySupportsResponses(capability string) bool {
+	switch strings.TrimSpace(capability) {
+	case OpenAITextCapabilityResponsesOnly, OpenAITextCapabilityDualNative:
+		return true
+	default:
+		return false
+	}
+}
+
+func capabilitySupportsChatCompletions(capability string) bool {
+	switch strings.TrimSpace(capability) {
+	case OpenAITextCapabilityChatCompletionsOnly, OpenAITextCapabilityDualNative:
 		return true
 	default:
 		return false

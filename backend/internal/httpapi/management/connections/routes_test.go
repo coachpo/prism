@@ -108,33 +108,32 @@ func TestResolveOpenAIProbeEndpointVariantAndHelpers(t *testing.T) {
 	}
 }
 
-func TestDeriveOpenAIUpstreamOperationCharacterizesProbeVariants(t *testing.T) {
-	tests := []struct {
-		name      string
-		apiFamily string
-		variant   *string
-		want      *string
-	}{
-		{name: "nil variant defaults to responses", apiFamily: "openai", want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
-		{name: "blank variant defaults to responses", apiFamily: "openai", variant: connectionStringRef(" \t"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
-		{name: "responses minimal maps to responses", apiFamily: "openai", variant: connectionStringRef("responses_minimal"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
-		{name: "responses reasoning none maps to responses", apiFamily: "openai", variant: connectionStringRef(" responses_reasoning_none "), want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
-		{name: "chat completions minimal maps to chat completions", apiFamily: "openai", variant: connectionStringRef("chat_completions_minimal"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationChatCompletions)},
-		{name: "chat completions reasoning none maps to chat completions", apiFamily: "openai", variant: connectionStringRef("chat_completions_reasoning_none"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationChatCompletions)},
-		{name: "unknown openai variant falls back to responses", apiFamily: "openai", variant: connectionStringRef("unknown"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationResponses)},
-		{name: "api family comparison trims and ignores case", apiFamily: " OpenAI ", variant: connectionStringRef("chat_completions_minimal"), want: connectionStringRef(providercompat.OpenAIUpstreamOperationChatCompletions)},
-		{name: "non openai family has no upstream operation", apiFamily: "anthropic", variant: connectionStringRef("chat_completions_minimal"), want: nil},
+func TestResolveOpenAITextCapability(t *testing.T) {
+	if got, err := resolveOpenAITextCapabilityCreate("openai", connectionStringRef(" dual_native ")); err != nil || got == nil || *got != "dual_native" {
+		t.Fatalf("expected normalized OpenAI text capability, got value=%#v err=%v", got, err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := providercompat.DeriveOpenAIUpstreamOperation(tt.apiFamily, tt.variant)
-			if (got == nil) != (tt.want == nil) {
-				t.Fatalf("expected %v, got %v", tt.want, got)
-			}
-			if got != nil && *got != *tt.want {
-				t.Fatalf("expected upstream operation %q, got %q", *tt.want, *got)
-			}
-		})
+	if _, err := resolveOpenAITextCapabilityCreate("openai", nil); err == nil {
+		t.Fatal("expected missing OpenAI text capability to fail")
+	} else {
+		requireConnectionDomainError(t, err, http.StatusUnprocessableEntity, "openai_text_capability is required for OpenAI-family connections")
+	}
+	if _, err := resolveOpenAITextCapabilityCreate("openai", connectionStringRef("bogus")); err == nil {
+		t.Fatal("expected invalid OpenAI text capability to fail")
+	} else {
+		requireConnectionDomainError(t, err, http.StatusUnprocessableEntity, "openai_text_capability is invalid")
+	}
+	if _, err := resolveOpenAITextCapabilityCreate("anthropic", connectionStringRef("responses_only")); err == nil {
+		t.Fatal("expected non-OpenAI text capability to fail")
+	} else {
+		requireConnectionDomainError(t, err, http.StatusUnprocessableEntity, "openai_text_capability is only supported for OpenAI-family connections")
+	}
+	if got, err := resolveOpenAITextCapabilityUpdate("openai", "openai", connectionStringRef("responses_only"), optionalString{}); err != nil || got == nil || *got != "responses_only" {
+		t.Fatalf("expected update to preserve existing OpenAI text capability, got value=%#v err=%v", got, err)
+	}
+	if _, err := resolveOpenAITextCapabilityUpdate("anthropic", "openai", nil, optionalString{}); err == nil {
+		t.Fatal("expected changing to OpenAI without text capability to fail")
+	} else {
+		requireConnectionDomainError(t, err, http.StatusUnprocessableEntity, "openai_text_capability is required for OpenAI-family connections")
 	}
 }
 
@@ -178,7 +177,7 @@ func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.
 	name := "primary"
 	authType := "openai"
 	variant := "chat_completions_minimal"
-	upstreamOperation := providercompat.OpenAIUpstreamOperationChatCompletions
+	textCapability := "chat_completions_only"
 	pricingTemplateID := 11
 	qpsLimit := 12
 	maxNonStream := 3
@@ -195,7 +194,7 @@ func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.
 		PreferredContextUtilizationThreshold: &preferredThreshold, PreferredContextUtilizationThresholdOverridden: true,
 		IsActive: true, Priority: 2, Name: &name, AuthType: &authType,
 		CustomHeaders: map[string]string{"X-Test": "1"}, OpenAIProbeEndpointVariant: &variant,
-		OpenAIUpstreamOperation: &upstreamOperation, PricingTemplateID: &pricingTemplateID,
+		OpenAITextCapability: &textCapability, PricingTemplateID: &pricingTemplateID,
 		QPSLimit: &qpsLimit, MaxInFlightNonStream: &maxNonStream, MaxInFlightStream: &maxStream,
 		PricingTemplate: &connectionPricingTemplateSummary{ID: 11, Name: "standard", PricingUnit: "tokens", PricingCurrencyCode: "USD", Version: 1},
 		HealthStatus:    "healthy", HealthDetail: &healthDetail, LastHealthCheck: &checkedAt,
