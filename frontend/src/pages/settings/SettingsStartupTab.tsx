@@ -17,6 +17,7 @@ import type {
   BootstrapConfigMailSMTPValues,
   BootstrapConfigResponse,
   BootstrapConfigSecretKey,
+  BootstrapConfigSecretMetadata,
   BootstrapConfigSecretUpdates,
   BootstrapConfigUpdateRequest,
   BootstrapConfigValues,
@@ -64,6 +65,18 @@ import {
   type SettingsStartupCopy,
   type ValidationRow,
 } from "./startup/startupFieldMetadata";
+
+const BACKEND_RUNTIME_SECRET_KEY = "secretEncryptionKey";
+
+function normalizeBootstrapSecretMetadata(
+  secrets: BootstrapConfigResponse["secrets"] & Partial<Record<typeof BACKEND_RUNTIME_SECRET_KEY, BootstrapConfigSecretMetadata>>,
+): BootstrapConfigResponse["secrets"] {
+  if (secrets["runtime.secretEncryptionKey"]) {
+    return secrets;
+  }
+  const runtimeSecret = secrets[BACKEND_RUNTIME_SECRET_KEY];
+  return runtimeSecret ? { ...secrets, "runtime.secretEncryptionKey": runtimeSecret } : secrets;
+}
 
 function StartupSectionGroup({
   children,
@@ -222,7 +235,11 @@ export function SettingsStartupTab() {
   const [showDesktopReviewPanel, setShowDesktopReviewPanel] = useState(false);
 
   const hydrateConfig = useCallback((response: BootstrapConfigResponse) => {
-    const normalizedResponse = { ...response, values: normalizeBootstrapValues(response.values) };
+    const normalizedResponse = {
+      ...response,
+      secrets: normalizeBootstrapSecretMetadata(response.secrets),
+      values: normalizeBootstrapValues(response.values),
+    };
     setBootstrapConfig(normalizedResponse);
     setValues(cloneValues(normalizedResponse.values));
     setCorsOriginsText(formatOrigins(normalizedResponse.values.http.cors_allowed_origins));
