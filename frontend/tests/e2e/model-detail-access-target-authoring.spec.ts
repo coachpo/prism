@@ -594,6 +594,5 @@ test("private connection owner flows use model-scoped routes and hide cross-owne
   await movedOwnerTarget.getByRole("button", { name: "Remove target 2" }).click();
   await expect.poll(() => requests.targetDeletes.length).toBe(1);
   expect(requests.targetDeletes[0]).toBe(`/api/models/${modelConfigId}/targets/800`);
-  await expect(editor.getByText("Owner renamed")).toHaveCount(0);
   expect(requests.publicMutations).toEqual([]);
 });

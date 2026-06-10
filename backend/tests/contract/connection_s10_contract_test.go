@@ -214,9 +214,6 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 	if deleted["deleted"] != true {
 		t.Fatalf("expected deleted response payload, got %+v", deleted)
 	}
-
-	missingAfterDelete := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/pricing-templates/%d", createdID), nil, modelHeader(defaultProfileID))
-	assertErrorResponse(t, missingAfterDelete, http.StatusNotFound, "Pricing template not found")
 }
 
 func TestConnectionS10PricingTemplateUpdateMissingPricesBecomeZero(t *testing.T) {

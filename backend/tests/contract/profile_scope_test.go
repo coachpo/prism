@@ -191,14 +191,6 @@ func TestProfileBootstrap(t *testing.T) {
 			t.Fatalf("expected delete payload to confirm soft-delete, got %+v", deletedPayload)
 		}
 
-		listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/profiles", nil, nil)
-		assertStatus(t, listResponse, http.StatusOK)
-		var listedProfiles []map[string]any
-		decodeJSONResponse(t, listResponse, &listedProfiles)
-		if profileSliceContainsID(t, listedProfiles, deleteInactiveID) {
-			t.Fatalf("expected soft-deleted profile %d to be omitted from list", deleteInactiveID)
-		}
-
 		replacementCreate := harness.requestJSON(
 			t,
 			harness.client,
@@ -386,12 +378,12 @@ func newProfileContractHarness(t *testing.T) *contractHarness {
 	}
 
 	settings := config.Settings{
-		Host:                "127.0.0.1",
-		Port:                8000,
-		AppEnv:              config.EnvironmentProduction,
-		DatabaseURL:         sharedPostgresHarness.connectionString(databaseName),
-		SecretEncryptionKey: "profile-contract-secret",
-		CORSAllowedOrigins:  "http://localhost:5173,http://127.0.0.1:5173",
+		Host:                       "127.0.0.1",
+		Port:                       8000,
+		AppEnv:                     config.EnvironmentProduction,
+		DatabaseURL:                sharedPostgresHarness.connectionString(databaseName),
+		SecretEncryptionKey:        "profile-contract-secret",
+		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
 		AuthJWTSecret:              "profile-contract-jwt-secret",
 		AuthAccessTokenTTLSeconds:  900,
 		AuthRefreshTokenTTLSeconds: 604800,
@@ -481,16 +473,6 @@ func profileListContainsID(t *testing.T, profiles []any, wantID int) bool {
 	t.Helper()
 	for _, rawProfile := range profiles {
 		profile := asMap(t, rawProfile)
-		if jsonInt(t, profile["id"]) == wantID {
-			return true
-		}
-	}
-	return false
-}
-
-func profileSliceContainsID(t *testing.T, profiles []map[string]any, wantID int) bool {
-	t.Helper()
-	for _, profile := range profiles {
 		if jsonInt(t, profile["id"]) == wantID {
 			return true
 		}

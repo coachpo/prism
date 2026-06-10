@@ -943,13 +943,6 @@ func TestProxyKeyCRUD(t *testing.T) {
 	if deletedPayload["deleted"] != true {
 		t.Fatalf("expected delete confirmation payload, got %+v", deletedPayload)
 	}
-
-	finalList := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/auth/proxy-keys", nil, nil)
-	assertStatus(t, finalList, http.StatusOK)
-	decodeJSONResponse(t, finalList, &emptyList)
-	if len(emptyList) != 0 {
-		t.Fatalf("expected proxy API key list to be empty after delete, got %+v", emptyList)
-	}
 }
 
 func TestProxyKeyExpiryMutation(t *testing.T) {

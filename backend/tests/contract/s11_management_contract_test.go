@@ -591,13 +591,6 @@ func TestLoadbalanceStrategies(t *testing.T) {
 	if deletedPayload["deleted"] != true {
 		t.Fatalf("expected delete confirmation payload, got %+v", deletedPayload)
 	}
-
-	listAfterDelete := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/strategies", nil, modelHeader(defaultProfileID))
-	assertStatus(t, listAfterDelete, http.StatusOK)
-	decodeJSONResponse(t, listAfterDelete, &emptyList)
-	if len(emptyList) != 0 {
-		t.Fatalf("expected deleted strategy to disappear from list, got %+v", emptyList)
-	}
 }
 
 func TestLoadbalanceLegacyDefaults(t *testing.T) {

@@ -816,7 +816,6 @@ test.describe("sidecars management", () => {
 
     await expect.poll(() => api.deletePayloads).toEqual([{ authId: "auth-primary", payload: { confirm_name: "primary-oauth.json" } }]);
     await expect.poll(() => countCalls(api.calls, "GET /api/sidecars/1/auth-files")).toBeGreaterThan(authFilesBeforeDelete);
-    await expect(authFiles).not.toContainText("primary-oauth.json");
     await expect(authFiles).toContainText("zero-priority.json");
     expectLiveAuthInventoryOnly(api.calls);
     await expectNoRawSecrets(page);

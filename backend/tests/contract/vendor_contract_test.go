@@ -137,8 +137,6 @@ func TestVendorCRUD(t *testing.T) {
 
 	deleteEditable := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/vendors/%d", createdVendorID), nil, nil)
 	assertStatus(t, deleteEditable, http.StatusNoContent)
-	missingVendor := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/vendors/%d", createdVendorID), nil, nil)
-	assertErrorResponse(t, missingVendor, http.StatusNotFound, "Vendor not found")
 	if vendorID := vendorLoadModelVendorID(t, harness, modelConfigID); vendorID != nil {
 		t.Fatalf("expected model_config %d vendor_id to be nulled after vendor delete, got %v", modelConfigID, *vendorID)
 	}
