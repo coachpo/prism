@@ -5,13 +5,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { AuditLogDetail } from "@/lib/types";
+import type { ApiFamily, AuditLogDetail } from "@/lib/types";
 import { ValueBadge } from "@/components/StatusBadge";
 import { RequestLogPayloadBlock } from "./RequestLogPayloadBlock";
 import { getStatusIntent } from "./requestLogDetailUtils";
 import type { AuditDetailState } from "../requestLogAuditState";
 
 interface RequestLogAuditTabProps {
+  apiFamily: ApiFamily;
   audits: AuditLogDetail[];
   loading: boolean;
   state: AuditDetailState | null;
@@ -107,7 +108,7 @@ function AuditStateBanner({ state }: { state: AuditDetailState }) {
   );
 }
 
-export function RequestLogAuditTab({ audits, loading, state, formatTimestamp }: RequestLogAuditTabProps) {
+export function RequestLogAuditTab({ apiFamily, audits, loading, state, formatTimestamp }: RequestLogAuditTabProps) {
   const { formatNumber, messages } = useLocale();
 
   if (loading) {
@@ -182,12 +183,16 @@ export function RequestLogAuditTab({ audits, loading, state, formatTimestamp }: 
               title={messages.requestLogs.requestBody}
               content={audit.request_body ?? ""}
               emptyState={getRequestBodyEmptyState(audit, state, messages)}
+              apiFamily={apiFamily}
+              bodyKind="request"
             />
             <Separator />
             <RequestLogPayloadBlock
               title={messages.requestLogs.response(audit.response_status)}
               content={audit.response_body ?? ""}
               emptyState={getResponseBodyEmptyState(audit, state, messages)}
+              apiFamily={apiFamily}
+              bodyKind="response"
             />
           </CardContent>
         </Card>

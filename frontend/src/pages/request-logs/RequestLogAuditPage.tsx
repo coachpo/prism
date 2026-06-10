@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
-import type { AuditLogDetail, AuditLogListItem } from "@/lib/types";
+import type { ApiFamily, AuditLogDetail, AuditLogListItem } from "@/lib/types";
 import { resolveRequestAuditCaptureMode, type RequestAuditCaptureMode } from "./requestLogAuditState";
 import { RequestLogPayloadBlock } from "./detail/RequestLogPayloadBlock";
 import { getStatusIntent } from "./detail/requestLogDetailUtils";
@@ -180,10 +180,12 @@ function getResponseBodyEmptyState(
 }
 
 function AuditDetailCard({
+  apiFamily,
   captureMode,
   detail,
   formatTimestamp,
 }: {
+  apiFamily: ApiFamily;
   captureMode: RequestAuditCaptureMode | null;
   detail: AuditLogDetail;
   formatTimestamp: (iso: string) => string;
@@ -221,6 +223,8 @@ function AuditDetailCard({
           title={messages.requestLogs.requestBody}
           content={detail.request_body ?? ""}
           emptyState={getRequestBodyEmptyState(detail, captureMode, messages)}
+          apiFamily={apiFamily}
+          bodyKind="request"
         />
         <Separator />
         <RequestLogPayloadBlock
@@ -232,6 +236,8 @@ function AuditDetailCard({
           title={messages.requestLogs.response(detail.response_status)}
           content={detail.response_body ?? ""}
           emptyState={getResponseBodyEmptyState(detail, captureMode, messages)}
+          apiFamily={apiFamily}
+          bodyKind="response"
         />
       </CardContent>
     </Card>
@@ -300,6 +306,7 @@ export function RequestLogAuditPage() {
     selectedAuditParamPresent: auditIdParam !== null,
   });
   const statusContent = getStatusContent(state.status, requestIdLabel, state.error, messages);
+  const auditRequestApiFamily = state.request?.summary.api_family ?? null;
 
   return (
     <div className="flex flex-col gap-6 pb-8" data-clipboard-fallback-root="" data-testid="dedicated-request-log-audit-page">
@@ -403,8 +410,9 @@ export function RequestLogAuditPage() {
                 title={statusContent.title}
               />
             ) : null}
-            {state.detail ? (
+            {state.detail && auditRequestApiFamily ? (
               <AuditDetailCard
+                apiFamily={auditRequestApiFamily}
                 captureMode={state.captureMode}
                 detail={state.detail}
                 formatTimestamp={format}

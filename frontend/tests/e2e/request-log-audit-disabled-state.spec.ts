@@ -5,6 +5,19 @@ const expectedAuditFromTime = "2026-04-12T12:00:00.000Z";
 const expectedAuditToTime = "2026-04-13T12:00:00.000Z";
 const alternateTimestamp = "2026-04-14T06:30:00Z";
 const streamingSseResponseBody = 'event: message\ndata: {"id":"resp_stream","delta":"hel"}\n\nevent: message\ndata: {"id":"resp_stream","delta":"lo"}\n\nevent: done\ndata: [DONE]\n\n';
+const openAiSheetRequestBody = JSON.stringify({
+  model: "gpt-4o-mini",
+  input: "hello",
+  max_output_tokens: 16,
+  stream: false,
+});
+const openAiSheetResponseBody = JSON.stringify({
+  id: "resp_101",
+  status: "completed",
+  model: "gpt-4o-mini",
+  output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "ok" }] }],
+  usage: { input_tokens: 12, output_tokens: 1, total_tokens: 13 },
+});
 const expectedAlternateAuditFromTime = "2026-04-13T18:30:00.000Z";
 const expectedAlternateAuditToTime = "2026-04-14T18:30:00.000Z";
 
@@ -48,9 +61,9 @@ function getScenarioConfig(scenario: AuditScenario) {
         auditEnabledAtRequest: true,
         isStream: false,
         listFails: false,
-        requestBody: '{"input":"hello"}',
+        requestBody: openAiSheetRequestBody,
         requestBodyStored: true,
-        responseBody: '{"id":"resp_101","status":"ok"}',
+        responseBody: openAiSheetResponseBody,
         responseBodyStored: true,
       };
     case "full_streaming":
@@ -92,9 +105,9 @@ function getScenarioConfig(scenario: AuditScenario) {
         auditEnabledAtRequest: true,
         isStream: false,
         listFails: true,
-        requestBody: '{"input":"hello"}',
+        requestBody: openAiSheetRequestBody,
         requestBodyStored: true,
-        responseBody: '{"id":"resp_101","status":"ok"}',
+        responseBody: openAiSheetResponseBody,
         responseBodyStored: true,
       };
     case "orphan_visibility":
@@ -526,8 +539,11 @@ test.describe("request log audit investigation states", () => {
     await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
     expectAuditWindowParams(counters.getAuditListSearchParams()[0]);
     await expect(drawer.getByText("Full capture").first()).toBeVisible();
-    await expect(drawer.getByText('{"input":"hello"}')).toBeVisible();
-    await expect(drawer.getByText('{"id":"resp_101","status":"ok"}')).toBeVisible();
+    await expect(drawer.getByText("Input").first()).toBeVisible();
+    await expect(drawer.getByText("hello").first()).toBeVisible();
+    await expect(drawer.getByText("Assistant output").first()).toBeVisible();
+    await expect(drawer.getByText("ok").first()).toBeVisible();
+    await expect(drawer.getByText(/\{"model":"gpt-4o-mini","input"/)).toHaveCount(0);
     await expectExactAuditUrlContract(page, drawer);
   });
 
@@ -537,7 +553,8 @@ test.describe("request log audit investigation states", () => {
     await page.goto("/request-logs?request_id=101&detail_tab=audit");
     const drawer = page.getByTestId("request-log-detail-sheet");
     await expect(drawer).toBeVisible({ timeout: 15000 });
-    await expect(drawer.getByText('{"input":"hello"}')).toBeVisible();
+    await expect(drawer.getByText("Input").first()).toBeVisible();
+    await expect(drawer.getByText("hello").first()).toBeVisible();
     await expect.poll(() => counters.getAuditListSearchParams().length).toBe(1);
     expectAuditWindowParams(counters.getAuditListSearchParams()[0]);
 
@@ -550,11 +567,11 @@ test.describe("request log audit investigation states", () => {
       expectedAlternateAuditFromTime,
       expectedAlternateAuditToTime,
     );
-    await expect(drawer.getByText('{"input":"hello"}')).toHaveCount(0);
+    await expect(drawer.getByText("hello")).toHaveCount(0);
 
     counters.releaseSecondAuditList();
-    await expect(drawer.getByText('{"input":"switched request"}')).toBeVisible();
-    await expect(drawer.getByText('{"id":"resp_202","status":"ok"}')).toBeVisible();
+    await expect(drawer.getByText("switched request")).toBeVisible();
+    await expect(drawer.getByText("resp_202")).toBeVisible();
     await expect.poll(() => counters.getAuditDetailRequests()).toBe(2);
   });
 
@@ -564,7 +581,7 @@ test.describe("request log audit investigation states", () => {
     await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
     await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
     await expect(drawer.getByText("Full capture").first()).toBeVisible();
-    await expect(drawer.getByText('{"input":"stream me"}')).toBeVisible();
+    await expect(drawer.getByText("stream me")).toBeVisible();
     await expect(drawer.getByText('event: message\ndata: {"id":"resp_stream","delta":"hel"}')).toBeVisible();
     await expect(drawer.getByText("event: done\ndata: [DONE]")).toBeVisible();
   });
@@ -575,7 +592,7 @@ test.describe("request log audit investigation states", () => {
     await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
     await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
     await expect(drawer.getByText("Full capture").first()).toBeVisible();
-    await expect(drawer.getByText('{"input":"legacy stream"}')).toBeVisible();
+    await expect(drawer.getByText("legacy stream")).toBeVisible();
     await expect(drawer.getByText("Response body was not stored for this audit record.")).toBeVisible();
   });
 
@@ -602,7 +619,7 @@ test.describe("request log audit investigation states", () => {
     await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
     await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
     await expect(drawer.getByText("Full capture").first()).toBeVisible();
-    await expect(drawer.getByText('{"input":"orphan me"}')).toBeVisible();
-    await expect(drawer.getByText('{"id":"resp_201","status":"ok"}')).toBeVisible();
+    await expect(drawer.getByText("orphan me")).toBeVisible();
+    await expect(drawer.getByText("resp_201")).toBeVisible();
   });
 });

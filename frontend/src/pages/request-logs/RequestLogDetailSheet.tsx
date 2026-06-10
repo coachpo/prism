@@ -95,6 +95,7 @@ export function RequestLogDetailSheet({
                   </Button>
                 </div>
                 <RequestLogAuditTab
+                  apiFamily={request.summary.api_family}
                   audits={audits}
                   loading={auditLoading}
                   state={auditState}

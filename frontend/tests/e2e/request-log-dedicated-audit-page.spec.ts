@@ -6,6 +6,46 @@ const expectedToTime = "2026-04-13T12:00:00.000Z";
 const redactedHeaders = "content-type: application/json\nauthorization: Bearer [REDACTED]";
 const requestBody = "original request body\nline two";
 const responseBody = "original response body\nline two";
+const openAiDocumentRequestBody = JSON.stringify({
+  model: "gpt-4o-mini",
+  messages: [
+    { role: "system", content: "You are concise." },
+    { role: "user", content: "Reply with exactly ok." },
+  ],
+  max_tokens: 8,
+  stream: false,
+});
+const openAiDocumentResponseBody = JSON.stringify({
+  id: "chatcmpl_101",
+  object: "chat.completion",
+  model: "gpt-4o-mini",
+  choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+  usage: { prompt_tokens: 12, completion_tokens: 1, total_tokens: 13 },
+});
+const geminiDocumentRequestBody = JSON.stringify({
+  systemInstruction: { parts: [{ text: "Be brief." }] },
+  contents: [{ role: "user", parts: [{ text: "Summarize the route." }] }],
+  generationConfig: { temperature: 0.2, maxOutputTokens: 128 },
+});
+const geminiDocumentResponseBody = JSON.stringify({
+  candidates: [{ content: { role: "model", parts: [{ text: "Route summary." }] }, finishReason: "STOP" }],
+  usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2, totalTokenCount: 12 },
+});
+const anthropicDocumentRequestBody = JSON.stringify({
+  model: "claude-3-5-sonnet-latest",
+  system: "You are precise.",
+  messages: [{ role: "user", content: [{ type: "text", text: "Explain the audit." }] }],
+  max_tokens: 64,
+  stream: false,
+});
+const anthropicDocumentResponseBody = JSON.stringify({
+  id: "msg_101",
+  type: "message",
+  role: "assistant",
+  content: [{ type: "text", text: "Audit explained." }],
+  stop_reason: "end_turn",
+  usage: { input_tokens: 8, output_tokens: 3 },
+});
 
 type Scenario =
   | "full"
@@ -15,19 +55,66 @@ type Scenario =
   | "no_records"
   | "list_failure"
   | "detail_failure"
-  | "invalid_created";
+  | "invalid_created"
+  | "openai_document"
+  | "gemini_document"
+  | "anthropic_document";
+
+type ApiFamilyFixture = "openai" | "gemini" | "anthropic";
+
+function getScenarioApiFamily(scenario: Scenario): ApiFamilyFixture {
+  if (scenario === "gemini_document") return "gemini";
+  if (scenario === "anthropic_document") return "anthropic";
+  return "openai";
+}
+
+function getScenarioModelId(scenario: Scenario): string {
+  if (scenario === "gemini_document") return "gemini-2.5-flash";
+  if (scenario === "anthropic_document") return "claude-3-5-sonnet-latest";
+  return "gpt-4o-mini";
+}
+
+function getScenarioModelLabel(scenario: Scenario): string {
+  if (scenario === "gemini_document") return "Gemini 2.5 Flash";
+  if (scenario === "anthropic_document") return "Claude 3.5 Sonnet";
+  return "GPT-4o mini";
+}
+
+function getScenarioRequestBody(scenario: Scenario): string {
+  if (scenario === "openai_document") return openAiDocumentRequestBody;
+  if (scenario === "gemini_document") return geminiDocumentRequestBody;
+  if (scenario === "anthropic_document") return anthropicDocumentRequestBody;
+  return requestBody;
+}
+
+function getScenarioResponseBody(scenario: Scenario): string {
+  if (scenario === "openai_document") return openAiDocumentResponseBody;
+  if (scenario === "gemini_document") return geminiDocumentResponseBody;
+  if (scenario === "anthropic_document") return anthropicDocumentResponseBody;
+  return responseBody;
+}
 
 function scenarioConfig(scenario: Scenario) {
+  const capturesBody =
+    scenario === "full" ||
+    scenario === "openai_document" ||
+    scenario === "gemini_document" ||
+    scenario === "anthropic_document" ||
+    scenario === "detail_failure" ||
+    scenario === "list_failure" ||
+    scenario === "invalid_created" ||
+    scenario === "no_records";
+
   return {
-    auditCaptureBodiesAtRequest: scenario === "full" || scenario === "detail_failure" || scenario === "list_failure" || scenario === "invalid_created" || scenario === "no_records",
+    auditCaptureBodiesAtRequest: capturesBody,
     auditEnabledAtRequest: scenario !== "disabled",
     createdAt: scenario === "invalid_created" ? "not-a-date" : timestamp,
     listFails: scenario === "list_failure",
     detailFails: scenario === "detail_failure",
     listItems: scenario === "no_records" ? [] : [201, 202],
-    requestBody: scenario === "metadata_only" ? null : requestBody,
+    requestBody: scenario === "metadata_only" ? null : getScenarioRequestBody(scenario),
     requestBodyStored: scenario !== "metadata_only",
-    responseBody: scenario === "metadata_only" ? null : responseBody,
+    responseBody: scenario === "metadata_only" ? null : getScenarioResponseBody(scenario),
     responseBodyStored: scenario !== "metadata_only",
   };
 }
@@ -47,22 +134,25 @@ function createProfile() {
   };
 }
 
-function createRequestLogListItem() {
+function createRequestLogListItem(scenario: Scenario = "full") {
+  const apiFamily = getScenarioApiFamily(scenario);
+  const modelId = getScenarioModelId(scenario);
+
   return {
     id: 101,
     created_at: timestamp,
-    model_id: "gpt-4o-mini",
-    model_label: "GPT-4o mini",
+    model_id: modelId,
+    model_label: getScenarioModelLabel(scenario),
     resolved_target_model_id: null,
     resolved_target_model_label: null,
     is_proxy_origin: false,
     caller_client_display: "Prism QA Browser",
     upstream_client_display: "Prism QA Browser",
     user_agent_overridden: false,
-    api_family: "openai",
+    api_family: apiFamily,
     vendor_id: 1,
-    vendor_key: "openai",
-    vendor_name: "OpenAI",
+    vendor_key: apiFamily,
+    vendor_name: apiFamily,
     endpoint_id: 1,
     endpoint_label: "Primary endpoint",
     connection_id: null,
@@ -84,19 +174,22 @@ function createRequestLogListItem() {
 
 function createRequestLogDetail(scenario: Scenario) {
   const config = scenarioConfig(scenario);
+  const apiFamily = getScenarioApiFamily(scenario);
+  const modelId = getScenarioModelId(scenario);
+
   return {
     summary: {
       id: 101,
       created_at: config.createdAt,
-      model_id: "gpt-4o-mini",
-      model_label: "GPT-4o mini",
+      model_id: modelId,
+      model_label: getScenarioModelLabel(scenario),
       resolved_target_model_id: null,
       resolved_target_model_label: null,
       is_proxy_origin: false,
-      api_family: "openai",
+      api_family: apiFamily,
       vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
+      vendor_key: apiFamily,
+      vendor_name: apiFamily,
       status_code: 200,
       response_time_ms: 125,
       ttft_ms: null,
@@ -179,7 +272,7 @@ function createAuditListItem(id: number, scenario: Scenario) {
     request_log_id: 101,
     profile_id: 1,
     vendor_id: 1,
-    model_id: "gpt-4o-mini",
+    model_id: getScenarioModelId(scenario),
     endpoint_id: 1,
     connection_id: null,
     endpoint_base_url: "https://api.example.test",
@@ -277,7 +370,7 @@ async function mockPrismRoutes(page: Page, scenario: Scenario) {
 
     if (pathname === "/api/stats/requests") {
       return fulfillJson({
-        items: [createRequestLogListItem()],
+        items: [createRequestLogListItem(scenario)],
         total: 1,
         limit: 100,
         offset: 0,
@@ -331,7 +424,51 @@ function expectAuditWindow(searchParamString: string) {
   expect(params.get("limit")).toBe("20");
 }
 
+const documentBodyCases = [
+  {
+    label: "OpenAI",
+    scenario: "openai_document" as const,
+    rawBodyPattern: /\{"model":"gpt-4o-mini","messages"/,
+    requestLabels: ["Message transcript", "system", "You are concise.", "Reply with exactly ok."],
+    responseLabels: ["Response choices", "assistant", "ok", "Usage"],
+  },
+  {
+    label: "Gemini",
+    scenario: "gemini_document" as const,
+    rawBodyPattern: /\{"systemInstruction":\{"parts"/,
+    requestLabels: ["System instruction", "Content timeline", "Summarize the route.", "Generation config"],
+    responseLabels: ["Candidate responses", "model", "Route summary.", "Usage"],
+  },
+  {
+    label: "Anthropic",
+    scenario: "anthropic_document" as const,
+    rawBodyPattern: /\{"model":"claude-3-5-sonnet-latest","system"/,
+    requestLabels: ["System prompt", "Message exchange", "Explain the audit."],
+    responseLabels: ["Assistant content", "Audit explained.", "Stop reason", "Usage"],
+  },
+];
+
 test.describe("dedicated request-log audit page", () => {
+  for (const bodyCase of documentBodyCases) {
+    test(`renders ${bodyCase.label} request and response audit bodies as documents`, async ({ page }) => {
+      const counters = await mockPrismRoutes(page, bodyCase.scenario);
+
+      await page.goto("/request-logs/101/audit?audit_id=201");
+
+      const detail = page.getByTestId("dedicated-audit-detail");
+      await expect(detail).toBeVisible({ timeout: 15000 });
+      await expect(detail.getByText(redactedHeaders)).toBeVisible();
+      for (const label of bodyCase.requestLabels) {
+        await expect(detail.getByText(label).first()).toBeVisible();
+      }
+      for (const label of bodyCase.responseLabels) {
+        await expect(detail.getByText(label).first()).toBeVisible();
+      }
+      await expect(detail.getByText(bodyCase.rawBodyPattern)).toHaveCount(0);
+      expect(counters.auditDetailRequests).toEqual([201]);
+    });
+  }
+
   test("direct selected audit_id route fetches only the selected audit detail", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "full");
 
