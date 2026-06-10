@@ -116,6 +116,139 @@ func TestPromotedAttemptBecomesFinalResponse(t *testing.T) {
 	}})
 }
 
+func TestSafeOnlyResponsesOverflowPromotesToChatOnlyTarget(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	chatOnlyVariant := "chat_completions_reasoning_none"
+	sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("source responses overflow should promote"))
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-safe-only-public-" + suffix,
+		TargetModelID:              "overflow-responses-safe-only-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-safe-only/source"),
+		EndpointAPIKey:             "overflow-responses-safe-only-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+	})
+	promotedModelID := "overflow-responses-safe-only-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":      "chatcmpl-responses-safe-only-promoted-" + suffix,
+		"object":  "chat.completion",
+		"created": 1710000000,
+		"model":   promotedModelID,
+		"choices": []map[string]any{{
+			"index":         0,
+			"message":       map[string]any{"role": "assistant", "content": "promoted chat-only response"},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12},
+	})
+	seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-safe-only/promoted"), "overflow-responses-safe-only-promoted-key", &chatOnlyVariant, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             "safe responses overflow should promote",
+		"model":             route.PublicModelID,
+		"max_output_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	payload := runtimeResponsePayload(t, response)
+	if payload["id"] != "chatcmpl-responses-safe-only-promoted-"+suffix || payload["object"] != "response" {
+		t.Fatalf("expected translated promoted chat-only response to reach client, got %+v", payload)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-safe-only/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-safe-only/promoted/v1/chat/completions",
+		ModelID: promotedModelID,
+	}})
+}
+
+func TestOffModeResponsesOverflowDoesNotPromoteToChatOnlyTarget(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	chatOnlyVariant := "chat_completions_reasoning_none"
+	sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("off mode source responses overflow stays final"))
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-off-public-" + suffix,
+		TargetModelID:              "overflow-responses-off-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-off/source"),
+		EndpointAPIKey:             "overflow-responses-off-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+	})
+	promotedModelID := "overflow-responses-off-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-responses-off-should-not-run"})
+	seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-off/promoted"), "overflow-responses-off-promoted-key", &chatOnlyVariant, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             "off mode responses overflow must not promote",
+		"model":             route.PublicModelID,
+		"max_output_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusBadRequest)
+	payload := runtimeResponsePayload(t, response)
+	errorPayload, ok := payload["error"].(map[string]any)
+	if !ok || errorPayload["message"] != "off mode source responses overflow stays final" {
+		t.Fatalf("expected original source overflow payload under off mode, got %+v", payload)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-off/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, promotedUpstream, "off mode chat-only promotion target")
+}
+
+func TestSafeOnlyUnsupportedTranslatedResponsesShapeDoesNotPromoteToChatOnlyTarget(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	chatOnlyVariant := "chat_completions_reasoning_none"
+	sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("unsupported translated shape source overflow stays final"))
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-unsupported-public-" + suffix,
+		TargetModelID:              "overflow-responses-unsupported-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-unsupported/source"),
+		EndpointAPIKey:             "overflow-responses-unsupported-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+	})
+	promotedModelID := "overflow-responses-unsupported-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-responses-unsupported-should-not-run"})
+	seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-unsupported/promoted"), "overflow-responses-unsupported-promoted-key", &chatOnlyVariant, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":                "unsupported translated responses shape",
+		"model":                route.PublicModelID,
+		"previous_response_id": "resp_123",
+	}, nil)
+	assertStatus(t, response, http.StatusBadRequest)
+	payload := runtimeResponsePayload(t, response)
+	errorPayload, ok := payload["error"].(map[string]any)
+	if !ok || errorPayload["message"] != "unsupported translated shape source overflow stays final" {
+		t.Fatalf("expected original source overflow payload for unsupported translated shape, got %+v", payload)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-unsupported/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, promotedUpstream, "unsupported translated shape promotion target")
+}
+
 func TestPromotionIneligibleReturnsOriginalSourceResponse(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -614,6 +747,10 @@ func seedRuntimePromotionNativeModel(t *testing.T, harness *runtimeHarness, prof
 	t.Helper()
 	strategyID := harness.seedLegacyStrategy(t, profileID, "overflow-promotion-native-"+randomSuffix(), "fill-first")
 	modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
+	openAIVendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE id = $2`, openAIVendorID, modelConfigID); err != nil {
+		t.Fatalf("mark promotion model %q with OpenAI vendor: %v", modelID, err)
+	}
 	endpointID := harness.seedEndpoint(t, profileID, "overflow-promotion-endpoint-"+randomSuffix(), endpointBaseURL, endpointAPIKey, 0)
 	connectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, modelConfigID, endpointID, "overflow-promotion-connection-"+randomSuffix(), nil, nil, 0, openAIProbeEndpointVariant)
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, connectionID, contextWindowTokens, 1_024, 1.0)

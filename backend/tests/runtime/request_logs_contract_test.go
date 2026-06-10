@@ -1043,6 +1043,63 @@ func TestRuntimeRequestLogsPreserveRequestedPublicAndResolvedNativeIdentityForTr
 	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.TargetModelID)
 }
 
+func TestRequestLogsTranslatedPromotionPersistsAdditiveAttribution(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	chatOnlyVariant := "chat_completions_reasoning_none"
+	sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("translated promotion source overflow"))
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "request-logs-translated-promotion-public-" + suffix,
+		TargetModelID:              "request-logs-translated-promotion-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/request-logs/translated-promotion/source"),
+		EndpointAPIKey:             "request-logs-translated-promotion-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+	})
+	promotedModelID := "request-logs-translated-promotion-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":      "chatcmpl-request-logs-translated-promotion-" + suffix,
+		"object":  "chat.completion",
+		"created": 1710000000,
+		"model":   promotedModelID,
+		"choices": []map[string]any{{
+			"index":         0,
+			"message":       map[string]any{"role": "assistant", "content": "translated promoted request log"},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12},
+	})
+	_, promotedConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/request-logs/translated-promotion/promoted"), "request-logs-translated-promotion-promoted-key", &chatOnlyVariant, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             "translated promotion request-log attribution",
+		"model":             route.PublicModelID,
+		"max_output_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	payload := runtimeResponsePayload(t, response)
+	if payload["id"] != "chatcmpl-request-logs-translated-promotion-"+suffix || payload["object"] != "response" {
+		t.Fatalf("expected translated promoted response body, got %+v", payload)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/request-logs/translated-promotion/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/request-logs/translated-promotion/promoted/v1/chat/completions",
+		ModelID: promotedModelID,
+	}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 2, 2)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+	assertLatestTranslatedPromotionAttribution(t, harness, profileID, route.PublicModelID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
+}
+
 func TestRuntimeRequestLogsSkipCrossFamilyProxyTargets(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -2634,6 +2691,67 @@ func assertLatestRuntimeModelIdentityState(t *testing.T, conn *pgx.Conn, profile
 	}
 	if usageEventModelID != wantModelID || usageEventResolvedTargetModelID != wantResolvedTargetModelID {
 		t.Fatalf("expected usage_request_events identity requested=%q resolved=%+v, got requested=%q resolved=%+v", wantModelID, wantResolvedTargetModelID, usageEventModelID, usageEventResolvedTargetModelID)
+	}
+}
+
+func assertLatestTranslatedPromotionAttribution(t *testing.T, harness *runtimeHarness, profileID int, wantModelID string, wantSourceResolvedTargetModelID string, wantPromotedResolvedTargetModelID string, wantSourceTerminalTargetID int, wantPromotedTerminalTargetID int) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+
+	assertAttributionRow := func(label string, query string) {
+		t.Helper()
+		var modelID string
+		var resolvedTargetModelID sql.NullString
+		var operationName sql.NullString
+		var upstreamOperationName sql.NullString
+		var translationMode sql.NullString
+		var upstreamRequestPath sql.NullString
+		var contextRoutingRaw string
+		if err := harness.conn.QueryRow(context.Background(), query, profileID, ingressRequestID).Scan(&modelID, &resolvedTargetModelID, &operationName, &upstreamOperationName, &translationMode, &upstreamRequestPath, &contextRoutingRaw); err != nil {
+			t.Fatalf("load %s translated promotion attribution: %v", label, err)
+		}
+		if modelID != wantModelID || !resolvedTargetModelID.Valid || resolvedTargetModelID.String != wantPromotedResolvedTargetModelID {
+			t.Fatalf("expected %s ingress model %q and promoted resolved target %q, got model=%q resolved=%+v", label, wantModelID, wantPromotedResolvedTargetModelID, modelID, resolvedTargetModelID)
+		}
+		if !operationName.Valid || operationName.String != "openai.responses" {
+			t.Fatalf("expected %s operation_name openai.responses, got %+v", label, operationName)
+		}
+		if !upstreamOperationName.Valid || upstreamOperationName.String != "openai.chat_completions" {
+			t.Fatalf("expected %s upstream_operation_name openai.chat_completions, got %+v", label, upstreamOperationName)
+		}
+		if !translationMode.Valid || translationMode.String != "openai_responses_to_chat_completions" {
+			t.Fatalf("expected %s operation_translation_mode openai_responses_to_chat_completions, got %+v", label, translationMode)
+		}
+		if !upstreamRequestPath.Valid || upstreamRequestPath.String != "/v1/chat/completions" {
+			t.Fatalf("expected %s upstream_request_path /v1/chat/completions, got %+v", label, upstreamRequestPath)
+		}
+		var contextRouting map[string]any
+		if err := json.Unmarshal([]byte(contextRoutingRaw), &contextRouting); err != nil {
+			t.Fatalf("decode %s context routing %q: %v", label, contextRoutingRaw, err)
+		}
+		promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
+		assertTranslatedPromotionNumber(t, label, promotion, "trigger_status", http.StatusBadRequest)
+		assertTranslatedPromotionNumber(t, label, promotion, "source_attempt_count", 1)
+		assertTranslatedPromotionNumber(t, label, promotion, "final_attempt_count", 2)
+		assertTranslatedPromotionNumber(t, label, promotion, "from_selected_terminal_target_id", wantSourceTerminalTargetID)
+		assertTranslatedPromotionNumber(t, label, promotion, "to_selected_terminal_target_id", wantPromotedTerminalTargetID)
+		if promotion["trigger_error_code"] != "context_length_exceeded" || promotion["trigger_classifier"] != "error_code" || promotion["result"] != "promoted_success" {
+			t.Fatalf("expected %s translated promotion trigger/result metadata, got %+v", label, promotion)
+		}
+		if promotion["from_resolved_target_model_id"] != wantSourceResolvedTargetModelID || promotion["to_resolved_target_model_id"] != wantPromotedResolvedTargetModelID {
+			t.Fatalf("expected %s source/promoted model metadata %q -> %q, got %+v", label, wantSourceResolvedTargetModelID, wantPromotedResolvedTargetModelID, promotion)
+		}
+	}
+
+	assertAttributionRow("request_logs", `SELECT model_id, resolved_target_model_id, operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path, COALESCE(context_routing::text, '{}') FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`)
+	assertAttributionRow("usage_request_events", `SELECT model_id, resolved_target_model_id, operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path, COALESCE(context_routing::text, '{}') FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`)
+}
+
+func assertTranslatedPromotionNumber(t *testing.T, label string, promotion map[string]any, field string, want int) {
+	t.Helper()
+	got, ok := promotion[field].(float64)
+	if !ok || int(got) != want {
+		t.Fatalf("expected %s context_overflow_promotion.%s=%d, got %+v", label, field, want, promotion)
 	}
 }
 

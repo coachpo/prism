@@ -494,7 +494,7 @@ func TestProxySelectorPreferredContextFallsBackToDiscretionaryWhenNoPreferredCan
 }
 
 func TestProxySelectorNativeResponsesSupportWinsOverTranslatedCandidate(t *testing.T) {
-	harness := newRuntimeHarness(t)
+	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "proxy-selector-native-support-public-" + suffix
@@ -526,8 +526,7 @@ func TestProxySelectorNativeResponsesSupportWinsOverTranslatedCandidate(t *testi
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
 		"model":             publicModelID,
-		"input":             "native responses support should win over translated sibling",
-		"text":              map[string]any{"format": "json_schema"},
+		"input":             "native responses support should win over eligible translated sibling",
 		"max_output_tokens": 64,
 	}, nil)
 	assertStatus(t, response, http.StatusOK)
@@ -540,6 +539,61 @@ func TestProxySelectorNativeResponsesSupportWinsOverTranslatedCandidate(t *testi
 	}})
 	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
 
+	assertLatestProxySelectorNativeAttribution(t, harness, profileID, nativeConnectionID, "openai.responses", "/v1/responses")
+}
+
+func TestProxySelectorNativeChatSupportWinsOverTranslatedCandidate(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-selector-native-chat-support-public-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-native-chat-support-"+suffix, "cheapest_eligible_context")
+	modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
+	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "proxy-selector-translated-chat-should-not-run"})
+	nativeUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "proxy-selector-native-chat-completions",
+		"object": "chat.completion",
+		"model":  publicModelID,
+		"choices": []map[string]any{{
+			"index": 0,
+			"message": map[string]any{
+				"role":    "assistant",
+				"content": "native chat support wins",
+			},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 13, "total_tokens": 20},
+	})
+	translatedEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-native-chat-support-translated-"+suffix, translatedUpstream.baseURL("/proxy-selector/native-chat-support/translated"), "proxy-selector-native-chat-support-translated-key", 0)
+	nativeEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-native-chat-support-native-"+suffix, nativeUpstream.baseURL("/proxy-selector/native-chat-support/native"), "proxy-selector-native-chat-support-native-key", 1)
+	translatedVariant := "responses_reasoning_none"
+	nativeVariant := "chat_completions_reasoning_none"
+	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-native-chat-support-translated-connection-"+suffix, nil, nil, 0, &translatedVariant)
+	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-native-chat-support-native-connection-"+suffix, nil, nil, 1, &nativeVariant)
+	for _, connectionID := range []int{translatedConnectionID, nativeConnectionID} {
+		setRuntimeHarnessConnectionContextCapabilities(t, harness, connectionID, 16_384, 1_024, 1.0)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"model":                 publicModelID,
+		"messages":              []map[string]any{{"role": "user", "content": "native chat support should win over eligible translated sibling"}},
+		"max_completion_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	if got := len(translatedUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected translated responses-only candidate to be skipped when native chat support exists, got %d upstream requests", got)
+	}
+	assertProxySelectorRequestSequence(t, nativeUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/proxy-selector/native-chat-support/native/v1/chat/completions",
+		ModelID: publicModelID,
+	}})
+	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.chat_completions")
+	assertLatestProxySelectorNativeAttribution(t, harness, profileID, nativeConnectionID, "openai.chat_completions", "/v1/chat/completions")
+}
+
+func assertLatestProxySelectorNativeAttribution(t *testing.T, harness *runtimeHarness, profileID int, nativeConnectionID int, operationName string, requestPath string) {
+	t.Helper()
 	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
 	var selectedTerminalTargetID sql.NullInt64
 	var upstreamOperationName sql.NullString
@@ -556,14 +610,14 @@ func TestProxySelectorNativeResponsesSupportWinsOverTranslatedCandidate(t *testi
 	if !selectedTerminalTargetID.Valid || int(selectedTerminalTargetID.Int64) != nativeConnectionID {
 		t.Fatalf("expected native-support selected_terminal_target_id %d, got %+v", nativeConnectionID, selectedTerminalTargetID)
 	}
-	if !upstreamOperationName.Valid || upstreamOperationName.String != "openai.responses" {
-		t.Fatalf("expected native-support upstream_operation_name openai.responses, got %+v", upstreamOperationName)
+	if !upstreamOperationName.Valid || upstreamOperationName.String != operationName {
+		t.Fatalf("expected native-support upstream_operation_name %s, got %+v", operationName, upstreamOperationName)
 	}
 	if !translationMode.Valid || translationMode.String != "none" {
 		t.Fatalf("expected native-support operation_translation_mode none, got %+v", translationMode)
 	}
-	if !upstreamRequestPath.Valid || upstreamRequestPath.String != "/v1/responses" {
-		t.Fatalf("expected native-support upstream_request_path /v1/responses, got %+v", upstreamRequestPath)
+	if !upstreamRequestPath.Valid || upstreamRequestPath.String != requestPath {
+		t.Fatalf("expected native-support upstream_request_path %s, got %+v", requestPath, upstreamRequestPath)
 	}
 }
 

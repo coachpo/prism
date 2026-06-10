@@ -232,8 +232,16 @@ func TestBuildRequestPlan_NonNativeTranslatedShapeDoesNotSelectGenericTarget(t *
 		name    string
 		service func() *Service
 	}{
-		{name: "legacy", service: newRequestPlanUnitService},
-		{name: "enforced", service: newEnforcedRequestPlanUnitService},
+		{name: "legacy", service: func() *Service {
+			service := newRequestPlanUnitService()
+			service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeOff
+			return service
+		}},
+		{name: "enforced", service: func() *Service {
+			service := newEnforcedRequestPlanUnitService()
+			service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeOff
+			return service
+		}},
 	}
 
 	for _, test := range serviceFactories {
@@ -1173,6 +1181,7 @@ func TestResolveModelAccess_UsesRecursiveChildStrategy(t *testing.T) {
 	first, err := service.resolveModelAccessFromSnapshot(requestPlanTestProfileID, snapshot, requestedModel, runtimeAccessResolutionContext{
 		RequestedModelID:   requestedModel.ModelID,
 		RequestedAPIFamily: requestedModel.APIFamily,
+		RawRequestBody:     nil,
 		VisitedModelIDs:    map[int]struct{}{},
 		ReferenceNow:       service.nowUTC(),
 	})
@@ -1182,6 +1191,7 @@ func TestResolveModelAccess_UsesRecursiveChildStrategy(t *testing.T) {
 	second, err := service.resolveModelAccessFromSnapshot(requestPlanTestProfileID, snapshot, requestedModel, runtimeAccessResolutionContext{
 		RequestedModelID:   requestedModel.ModelID,
 		RequestedAPIFamily: requestedModel.APIFamily,
+		RawRequestBody:     nil,
 		VisitedModelIDs:    map[int]struct{}{},
 		ReferenceNow:       service.nowUTC(),
 	})
@@ -1215,6 +1225,7 @@ func TestResolveModelAccess_NoEligibleTargetsUsesRequestedModelID(t *testing.T) 
 	_, err := service.resolveModelAccessFromSnapshot(requestPlanTestProfileID, snapshot, requestedModel, runtimeAccessResolutionContext{
 		RequestedModelID:   requestedModel.ModelID,
 		RequestedAPIFamily: requestedModel.APIFamily,
+		RawRequestBody:     nil,
 		VisitedModelIDs:    map[int]struct{}{},
 		ReferenceNow:       service.nowUTC(),
 	})
@@ -2288,6 +2299,7 @@ func TestRuntimeFacadeRejectsInvalidRecursiveTargetPolicies(t *testing.T) {
 
 func TestRuntimeFacadeCandidateEvaluationRejectsNonNativeChildWithoutTranslation(t *testing.T) {
 	service := newRequestPlanUnitService()
+	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeOff
 	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
 	snapshot := newRequestPlanSnapshot(
@@ -2730,6 +2742,7 @@ func newRuntimeAccessResolutionContextForTest(service *Service, model runtimeMod
 		RequestedModelID:         model.ModelID,
 		RequestedAPIFamily:       model.APIFamily,
 		RequestOperation:         operation,
+		RawRequestBody:           rawBody,
 		RequestContextEstimation: estimation,
 		VisitedModelIDs:          map[int]struct{}{model.ID: struct{}{}},
 		ConsideredModelPath:      appendRuntimeModelPath(nil, model.ModelID),

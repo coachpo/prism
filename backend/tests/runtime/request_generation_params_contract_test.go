@@ -372,6 +372,10 @@ func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profi
 	targetModelID := targetModelPrefix + "-" + suffix
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
 	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
+	openAIVendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE id = ANY($2::int[])`, openAIVendorID, []int{publicModelConfigID, targetModelConfigID}); err != nil {
+		t.Fatalf("mark translated OpenAI route models with OpenAI vendor: %v", err)
+	}
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
 	endpointID := harness.seedEndpoint(t, profileID, publicModelPrefix+"-endpoint-"+suffix, endpointBaseURL, endpointAPIKey, 0)
 	connectionID := harness.seedConnectionWithOpenAIProbeVariant(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAIProbeEndpointVariant)

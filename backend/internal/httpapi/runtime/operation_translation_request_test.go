@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 func TestResolveTranslationMode(t *testing.T) {
@@ -276,8 +278,9 @@ func TestCodingAgentFormatBridgePlanRequestRejectsUnsupportedShape(t *testing.T)
 	}
 }
 
-func TestBuildRequestPlan_NonNativeOpenAITargetIsNotSelectedByGenericPlanner(t *testing.T) {
+func TestBuildRequestPlan_OffModeResponsesIngressRejectsChatOnlyTarget(t *testing.T) {
 	service := newRequestPlanUnitService()
+	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeOff
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"})
 	model := snapshot.ModelsByID["responses-public"]
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
@@ -290,8 +293,24 @@ func TestBuildRequestPlan_NonNativeOpenAITargetIsNotSelectedByGenericPlanner(t *
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'responses-public'.")
 }
 
+func TestBuildRequestPlan_OffModeChatIngressRejectsResponsesOnlyTarget(t *testing.T) {
+	service := newRequestPlanUnitService()
+	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeOff
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "chat-public"})
+	model := snapshot.ModelsByID["chat-public"]
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_822, 9_822, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("responses_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationResponses)})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}]}`)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'chat-public'.")
+}
+
 func TestBuildRequestPlan_NativeOpenAITargetWinsOverNonNative(t *testing.T) {
 	service := newRequestPlanUnitService()
+	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"})
 	model := snapshot.ModelsByID["responses-public"]
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
@@ -313,6 +332,118 @@ func TestBuildRequestPlan_NativeOpenAITargetWinsOverNonNative(t *testing.T) {
 	}
 	if got := plan.TerminalAttempts[0].TranslationMode; got != TranslationModeNone {
 		t.Fatalf("expected native support to use translation mode none, got %q", got)
+	}
+}
+
+func TestBuildRequestPlan_NativeOpenAITargetWinsOverRejectedTranslatedChildModel(t *testing.T) {
+	service := newRequestPlanUnitService()
+	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-child"},
+	)
+	public := snapshot.ModelsByID["responses-public"]
+	child := snapshot.ModelsByID["chat-child"]
+	snapshot.AccessTargetsBySourceModelID[public.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
+	addRequestPlanModelTargetAtPosition(snapshot, "responses-public", "chat-child", 0)
+	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_821, 9_821, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationChatCompletions)})
+	addRequestPlanConnectionTargetWithOptions(snapshot, public, 2_822, 9_822, 1, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("responses_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationResponses)})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"}}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build native-over-child-translation request plan: %v", err)
+	}
+	if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].Connection.ID != 2_822 {
+		t.Fatalf("expected native terminal target 2822, got %+v", plan.TerminalAttempts)
+	}
+	if got := plan.TerminalAttempts[0].TranslationMode; got != TranslationModeNone {
+		t.Fatalf("expected native target to keep translation mode none, got %q", got)
+	}
+}
+
+func TestBuildRequestPlan_SafeOnlyResponsesIngressCanUseChatOnlyTarget(t *testing.T) {
+	service := newRequestPlanUnitService()
+	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public", VendorKey: stringPtr("openai")})
+	model := snapshot.ModelsByID["responses-public"]
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_831, 9_831, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationChatCompletions)})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"responses-public","input":"hello"}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build translated safe-only responses request plan: %v", err)
+	}
+	if plan.EffectiveRequestPath != "/v1/chat/completions" {
+		t.Fatalf("expected translated chat path, got %q", plan.EffectiveRequestPath)
+	}
+	if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].Connection.ID != 2_831 {
+		t.Fatalf("expected translated terminal target 2831, got %+v", plan.TerminalAttempts)
+	}
+	if got := plan.TerminalAttempts[0].TranslationMode; got != TranslationModeOpenAIResponsesToChatCompletions {
+		t.Fatalf("expected responses-to-chat translation mode, got %q", got)
+	}
+	if got := extractModelFromBody(plan.UpstreamBody); got != "responses-public" {
+		t.Fatalf("expected translated upstream body model responses-public, got %q in %s", got, string(plan.UpstreamBody))
+	}
+}
+
+func TestBuildRequestPlan_SafeOnlyChatIngressCanUseResponsesOnlyTarget(t *testing.T) {
+	service := newRequestPlanUnitService()
+	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "chat-public", VendorKey: stringPtr("openai")})
+	model := snapshot.ModelsByID["chat-public"]
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_832, 9_832, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("responses_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationResponses)})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":32}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build translated safe-only chat request plan: %v", err)
+	}
+	if plan.EffectiveRequestPath != "/v1/responses" {
+		t.Fatalf("expected translated responses path, got %q", plan.EffectiveRequestPath)
+	}
+	if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].Connection.ID != 2_832 {
+		t.Fatalf("expected translated terminal target 2832, got %+v", plan.TerminalAttempts)
+	}
+	if got := plan.TerminalAttempts[0].TranslationMode; got != TranslationModeOpenAIChatCompletionsToResponses {
+		t.Fatalf("expected chat-to-responses translation mode, got %q", got)
+	}
+	if got := extractModelFromBody(plan.UpstreamBody); got != "chat-public" {
+		t.Fatalf("expected translated upstream body model chat-public, got %q in %s", got, string(plan.UpstreamBody))
+	}
+}
+
+func TestBuildRequestPlan_SafeOnlyRejectsUnsupportedTranslatedOpenAITextShape(t *testing.T) {
+	service := newRequestPlanUnitService()
+	service.openAITerminalTranslationMode = config.OpenAITerminalTranslationModeSafeOnly
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public", VendorKey: stringPtr("openai")})
+	model := snapshot.ModelsByID["responses-public"]
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_841, 9_841, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAIUpstreamOperation: stringPtr(openAIUpstreamOperationChatCompletions)})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"}}`)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected domain error, got %v", err)
+	}
+	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode || domainErr.Detail != openAIRequestTranslationUnsupportedDetail {
+		t.Fatalf("expected adapter-backed translation unsupported error, got %+v", domainErr)
+	}
+	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text" {
+		t.Fatalf("expected unsupported reason responses_text, got %+v", domainErr.Fields)
 	}
 }
 

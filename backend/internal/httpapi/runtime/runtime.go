@@ -983,7 +983,15 @@ func (s *Service) buildExplicitTargetRequestPlanCore(request *http.Request, rawB
 	if err != nil {
 		return requestPlan{}, err
 	}
-	input := requestPlanningInput{Request: request, RawBody: rawBody, RuntimeConfig: runtimeConfig, OperationMatch: operationMatch, ActiveProfileID: activeProfileID, Snapshot: snapshot, RoutingPlan: routingPlan}
+	input := requestPlanningInput{
+		Request:         request,
+		RawBody:         rawBody,
+		RuntimeConfig:   runtimeConfig,
+		OperationMatch:  operationMatch,
+		ActiveProfileID: activeProfileID,
+		Snapshot:        snapshot,
+		RoutingPlan:     routingPlan,
+	}
 	operation, err := resolveRequestOperation(input)
 	if err != nil {
 		return requestPlan{}, err
@@ -1072,7 +1080,7 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
-	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, contextEstimation, input.AllowMissingContextEstimation, s.nowUTC())
+	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, input.RawBody, contextEstimation, input.AllowMissingContextEstimation, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}

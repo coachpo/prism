@@ -9,7 +9,63 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/gateway/provider"
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
+	"github.com/coachpo/prism/backend/internal/platform/config"
 )
+
+type openAITextAttemptCompatibilityResult struct {
+	Compatible      bool
+	TranslationMode TranslationMode
+	Err             error
+}
+
+func planOpenAITextAttemptCompatibility(operation RuntimeOperation, rawBody []byte, attempt runtimeTerminalAttempt, mode TranslationMode, rolloutMode config.OpenAITerminalTranslationMode, adapter openai.Adapter) openAITextAttemptCompatibilityResult {
+	if mode == TranslationModeNone || strings.TrimSpace(string(mode)) == "" {
+		return openAITextAttemptCompatibilityResult{Compatible: true, TranslationMode: TranslationModeNone}
+	}
+	if rolloutMode != config.OpenAITerminalTranslationModeSafeOnly {
+		return openAITextAttemptCompatibilityResult{}
+	}
+	providerOperation := providerOperationFromRuntime(operation)
+	if !openai.IsTextOperation(providerOperation) {
+		return openAITextAttemptCompatibilityResult{}
+	}
+	providerMode := providerTranslationMode(mode)
+	capability, err := adapter.ConversionCapability(context.Background(), provider.ConversionRequest{
+		Operation:     providerOperation,
+		RawBody:       rawBody,
+		Mode:          providerMode,
+		TargetModelID: attempt.TargetModel.ModelID,
+	})
+	if err != nil {
+		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {
+			return openAITextAttemptCompatibilityResult{Err: domainErr}
+		}
+		return openAITextAttemptCompatibilityResult{Err: err}
+	}
+	if domainErr := domainErrorFromOpenAITextConversionCapability(capability, mode); domainErr != nil {
+		return openAITextAttemptCompatibilityResult{Err: domainErr}
+	}
+	return openAITextAttemptCompatibilityResult{Compatible: true, TranslationMode: mode}
+}
+
+func domainErrorFromOpenAITextConversionCapability(capability provider.ConversionCapability, fallbackMode TranslationMode) *domainError {
+	if capability.RequestSupported && capability.ResponseSupported && capability.StreamSupported {
+		return nil
+	}
+	mode := TranslationMode(capability.Mode)
+	if strings.TrimSpace(string(mode)) == "" {
+		mode = fallbackMode
+	}
+	reason := strings.TrimSpace(capability.UnsupportedReason)
+	if reason == "" {
+		reason = "unsupported_request_shape"
+	}
+	status := capability.HTTPStatus
+	if status == 0 {
+		status = http.StatusBadRequest
+	}
+	return openAITranslationUnsupportedDomainError(status, openAIRequestTranslationUnsupportedErrorCode, openAIRequestTranslationUnsupportedDetail, mode, reason)
+}
 
 func buildOpenAITextPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, attempt runtimeTerminalAttempt) (plannedUpstreamRequest, bool, error) {
 	providerOperation := providerOperationFromRuntime(operation.Match.Operation)

@@ -24,7 +24,15 @@ func (s *Service) buildRequestPlanFromSnapshotCore(request *http.Request, rawBod
 	if err != nil {
 		return requestPlan{}, err
 	}
-	input := requestPlanningInput{Request: request, RawBody: rawBody, RuntimeConfig: runtimeConfig, OperationMatch: operationMatch, ActiveProfileID: activeProfileID, Snapshot: snapshot, RoutingPlan: routingPlan}
+	input := requestPlanningInput{
+		Request:         request,
+		RawBody:         rawBody,
+		RuntimeConfig:   runtimeConfig,
+		OperationMatch:  operationMatch,
+		ActiveProfileID: activeProfileID,
+		Snapshot:        snapshot,
+		RoutingPlan:     routingPlan,
+	}
 	operation, err := resolveRequestOperation(input)
 	if err != nil {
 		return requestPlan{}, err

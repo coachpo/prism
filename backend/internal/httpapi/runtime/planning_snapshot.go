@@ -17,6 +17,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
+	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
 	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
@@ -192,12 +193,17 @@ type runtimeAccessResolutionContext struct {
 	RequestedModelID              string
 	RequestedAPIFamily            string
 	RequestOperation              RuntimeOperation
+	RawRequestBody                []byte
 	RequestContextEstimation      *requestContextEstimation
 	AllowMissingContextEstimation bool
 	VisitedModelIDs               map[int]struct{}
 	ConsideredModelPath           []string
 	Depth                         int
 	ReferenceNow                  time.Time
+}
+
+func (model runtimeModelRecord) allowsOpenAITextSiblingTranslation() bool {
+	return model.VendorKey != nil && strings.EqualFold(strings.TrimSpace(*model.VendorKey), "openai")
 }
 
 type runtimeResolvedAccessPlan struct {
@@ -209,6 +215,7 @@ type runtimeResolvedAccessPlan struct {
 	RuntimeStates                    map[int]loadbalance.RuntimeConnectionState
 	Strategy                         loadbalance.RuntimeStrategy
 	RouteReason                      gatewaycore.RouteReason
+	CompatibilityError               error
 	LargestUsableContextWindowTokens int
 	ContextFitEvaluated              bool
 }
@@ -235,6 +242,7 @@ type runtimeResolvedAccessCandidate struct {
 
 type runtimeResolvedAccessCandidateEvaluation struct {
 	eligibleCandidate                *runtimeResolvedAccessCandidate
+	compatibilityError               error
 	skippedTerminalTargets           []runtimeContextRoutingSkippedTerminalTarget
 	largestUsableContextWindowTokens int
 	contextFitEvaluated              bool
@@ -244,6 +252,7 @@ type runtimeModelPeerSelection struct {
 	selectedCandidate                *runtimeResolvedAccessCandidate
 	eligibleCandidates               []runtimeResolvedAccessCandidate
 	skippedTerminalTargets           []runtimeContextRoutingSkippedTerminalTarget
+	compatibilityError               error
 	eligibleTotalWeight              int
 	largestUsableContextWindowTokens int
 	contextFitEvaluated              bool
@@ -276,14 +285,15 @@ func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *pl
 	if err != nil {
 		return runtimeResolvedAccessPlan{}, err
 	}
-	return s.resolveExecutionTargetFromRoutingPlanWithOptions(profileID, routingPlan, requestedModel, requestOperation, contextEstimation, false, referenceNow)
+	return s.resolveExecutionTargetFromRoutingPlanWithOptions(profileID, routingPlan, requestedModel, requestOperation, nil, contextEstimation, false, referenceNow)
 }
 
-func (s *Service) resolveExecutionTargetFromRoutingPlanWithOptions(profileID int, routingPlan *runtimeRoutingPlan, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, contextEstimation *requestContextEstimation, allowMissingContextEstimation bool, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
+func (s *Service) resolveExecutionTargetFromRoutingPlanWithOptions(profileID int, routingPlan *runtimeRoutingPlan, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, rawRequestBody []byte, contextEstimation *requestContextEstimation, allowMissingContextEstimation bool, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
 	ctx := runtimeAccessResolutionContext{
 		RequestedModelID:              requestedModel.ModelID,
 		RequestedAPIFamily:            requestedModel.APIFamily,
 		RequestOperation:              requestOperation,
+		RawRequestBody:                rawRequestBody,
 		RequestContextEstimation:      contextEstimation,
 		AllowMissingContextEstimation: allowMissingContextEstimation,
 		VisitedModelIDs:               map[int]struct{}{},
@@ -374,6 +384,9 @@ func (s *Service) resolveExactFacadeModelAccessFromRoutingPlan(profileID int, ro
 		return runtimeResolvedAccessPlan{}, err
 	}
 	if peerSelection.selectedCandidate == nil {
+		if peerSelection.compatibilityError != nil {
+			return runtimeResolvedAccessPlan{}, peerSelection.compatibilityError
+		}
 		if ctx.rejectsMissingContextEstimation() {
 			return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 		}
@@ -447,10 +460,14 @@ func (s *Service) selectModelPeerCandidateFromRoutingPlan(profileID int, routing
 
 func (s *Service) evaluateModelPeerTargetsFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, targets []runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext, selection *runtimeModelPeerSelection) ([]runtimeResolvedAccessCandidate, error) {
 	eligibleCandidates := make([]runtimeResolvedAccessCandidate, 0, len(targets))
+	var firstCompatibilityError error
 	for _, target := range targets {
 		evaluation, err := s.evaluateAccessTargetCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, target, ctx)
 		if err != nil {
 			return nil, err
+		}
+		if firstCompatibilityError == nil && evaluation.compatibilityError != nil {
+			firstCompatibilityError = evaluation.compatibilityError
 		}
 		if evaluation.contextFitEvaluated {
 			selection.contextFitEvaluated = true
@@ -462,6 +479,10 @@ func (s *Service) evaluateModelPeerTargetsFromRoutingPlan(profileID int, routing
 		if evaluation.eligibleCandidate != nil {
 			eligibleCandidates = append(eligibleCandidates, *evaluation.eligibleCandidate)
 		}
+	}
+	eligibleCandidates = preferNativeResolvedAccessCandidates(eligibleCandidates)
+	if len(eligibleCandidates) == 0 && firstCompatibilityError != nil && selection.compatibilityError == nil {
+		selection.compatibilityError = firstCompatibilityError
 	}
 	return eligibleCandidates, nil
 }
@@ -532,23 +553,35 @@ func (s *Service) resolveModelAccessFromRoutingPlan(profileID int, routingPlan *
 			return s.resolveCheapestEligibleContextModelAccess(profileID, routingPlan, model, strategy, orderedTerminalTargets, childContext)
 		}
 		resolved := runtimeResolvedAccessPlan{RuntimeStates: map[int]loadbalance.RuntimeConnectionState{}, Strategy: strategy}
+		var firstCompatibilityError error
 		for _, target := range orderedTerminalTargets {
 			candidate, eligible, err := s.resolveAccessTargetFromRoutingPlan(profileID, routingPlan, model, strategy, target, childContext)
 			if err != nil {
 				return runtimeResolvedAccessPlan{}, err
 			}
-			if !eligible {
-				continue
+			if firstCompatibilityError == nil && candidate.CompatibilityError != nil {
+				firstCompatibilityError = candidate.CompatibilityError
 			}
-			candidate, compatible := applyNativeOperationCompatibility(candidate, childContext)
-			if !compatible {
+			if !eligible {
 				continue
 			}
 			appendRuntimeResolvedAccessPlan(&resolved, candidate)
 		}
 		if len(resolved.TerminalAttempts) > 0 && len(resolved.Connections) > 0 {
-			return resolved, nil
+			compatibleResolved, compatible, err := s.applyIngressOperationCompatibility(resolved, childContext)
+			if err != nil {
+				return runtimeResolvedAccessPlan{}, err
+			}
+			if compatible {
+				return compatibleResolved, nil
+			}
 		}
+		if firstCompatibilityError != nil {
+			return runtimeResolvedAccessPlan{}, firstCompatibilityError
+		}
+	}
+	if peerSelection.compatibilityError != nil {
+		return runtimeResolvedAccessPlan{}, peerSelection.compatibilityError
 	}
 	if strategy.IsCheapestEligibleContextStrategy() && ctx.rejectsMissingContextEstimation() {
 		return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
@@ -570,10 +603,14 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, routi
 	skippedTerminalTargets := make([]runtimeContextRoutingSkippedTerminalTarget, 0, len(orderedTargets))
 	largestUsableContextWindowTokens := 0
 	contextFitEvaluated := false
+	var firstCompatibilityError error
 	for _, target := range orderedTargets {
 		evaluation, err := s.evaluateAccessTargetCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, target, ctx)
 		if err != nil {
 			return runtimeResolvedAccessPlan{}, err
+		}
+		if firstCompatibilityError == nil && evaluation.compatibilityError != nil {
+			firstCompatibilityError = evaluation.compatibilityError
 		}
 		if evaluation.contextFitEvaluated {
 			contextFitEvaluated = true
@@ -586,7 +623,11 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, routi
 			eligibleCandidates = append(eligibleCandidates, *evaluation.eligibleCandidate)
 		}
 	}
+	eligibleCandidates = preferNativeResolvedAccessCandidates(eligibleCandidates)
 	if len(eligibleCandidates) == 0 {
+		if firstCompatibilityError != nil {
+			return runtimeResolvedAccessPlan{}, firstCompatibilityError
+		}
 		if ctx.rejectsMissingContextEstimation() {
 			return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 		}
@@ -638,11 +679,21 @@ func (s *Service) evaluateAccessTargetCandidateFromRoutingPlan(profileID int, ro
 		contextFitEvaluated:              candidate.ContextFitEvaluated,
 	}
 	if !eligible || len(candidate.TerminalAttempts) == 0 || len(candidate.Connections) == 0 {
+		if candidate.CompatibilityError != nil {
+			evaluation.compatibilityError = candidate.CompatibilityError
+		}
 		evaluation.skippedTerminalTargets = append(evaluation.skippedTerminalTargets, candidateSkippedTerminalTargets(candidate)...)
 		return evaluation, nil
 	}
 
-	compatibleCandidate, compatible := applyNativeOperationCompatibility(candidate, ctx)
+	compatibleCandidate, compatible, err := s.applyIngressOperationCompatibility(candidate, ctx)
+	if err != nil {
+		if domainErr, ok := isRequestTranslationUnsupportedError(err); ok && domainErr != nil {
+			evaluation.compatibilityError = domainErr
+			return evaluation, nil
+		}
+		return runtimeResolvedAccessCandidateEvaluation{}, err
+	}
 	if !compatible || len(compatibleCandidate.TerminalAttempts) == 0 || len(compatibleCandidate.Connections) == 0 {
 		return evaluation, nil
 	}
@@ -767,33 +818,82 @@ func filterRuntimeResolvedAccessPlanByContext(candidate runtimeResolvedAccessPla
 	return filtered, skippedTerminalTargets, largestUsableContextWindowTokens, true
 }
 
-func applyNativeOperationCompatibility(candidate runtimeResolvedAccessPlan, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool) {
+func (s *Service) applyIngressOperationCompatibility(candidate runtimeResolvedAccessPlan, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
 	if len(candidate.TerminalAttempts) == 0 || len(candidate.Connections) == 0 {
-		return candidate, false
+		return candidate, false, nil
 	}
-	compatibleAttempts := make([]runtimeTerminalAttempt, 0, len(candidate.TerminalAttempts))
-	compatibleConnections := make([]runtimeConnection, 0, len(candidate.Connections))
-	compatibleStates := make(map[int]loadbalance.RuntimeConnectionState, len(candidate.RuntimeStates))
+	nativeAttempts := make([]runtimeTerminalAttempt, 0, len(candidate.TerminalAttempts))
+	translatedAttempts := make([]runtimeTerminalAttempt, 0, len(candidate.TerminalAttempts))
+	var firstTranslationError error
+	adapter := openai.New()
+	rolloutMode := s.resolvedOpenAITerminalTranslationMode()
 	for _, attempt := range candidate.TerminalAttempts {
-		if resolveTranslationMode(ctx.RequestOperation, attempt.Connection.OpenAIUpstreamOperation, attempt.Connection.OpenAIProbeEndpointVariant) != TranslationModeNone {
+		mode := resolveTranslationMode(ctx.RequestOperation, attempt.Connection.OpenAIUpstreamOperation, attempt.Connection.OpenAIProbeEndpointVariant)
+		if mode != TranslationModeNone && !attempt.TargetModel.allowsOpenAITextSiblingTranslation() {
+			continue
+		}
+		compatibility := planOpenAITextAttemptCompatibility(ctx.RequestOperation, ctx.RawRequestBody, attempt, mode, rolloutMode, adapter)
+		if compatibility.Err != nil {
+			if firstTranslationError == nil {
+				firstTranslationError = compatibility.Err
+			}
+			continue
+		}
+		if !compatibility.Compatible {
 			continue
 		}
 		plannedAttempt := attempt
-		plannedAttempt.TranslationMode = TranslationModeNone
-		compatibleAttempts = append(compatibleAttempts, plannedAttempt)
-		compatibleConnections = append(compatibleConnections, attempt.Connection)
+		plannedAttempt.TranslationMode = compatibility.TranslationMode
+		if plannedAttempt.TranslationMode == TranslationModeNone {
+			nativeAttempts = append(nativeAttempts, plannedAttempt)
+			continue
+		}
+		translatedAttempts = append(translatedAttempts, plannedAttempt)
+	}
+	if len(nativeAttempts) > 0 {
+		return candidateWithCompatibleOpenAITextAttempts(candidate, nativeAttempts), true, nil
+	}
+	if len(translatedAttempts) > 0 {
+		return candidateWithCompatibleOpenAITextAttempts(candidate, translatedAttempts), true, nil
+	}
+	if firstTranslationError != nil {
+		return runtimeResolvedAccessPlan{}, false, firstTranslationError
+	}
+	return runtimeResolvedAccessPlan{}, false, nil
+}
+
+func candidateWithCompatibleOpenAITextAttempts(candidate runtimeResolvedAccessPlan, attempts []runtimeTerminalAttempt) runtimeResolvedAccessPlan {
+	connections := make([]runtimeConnection, 0, len(attempts))
+	states := make(map[int]loadbalance.RuntimeConnectionState, len(candidate.RuntimeStates))
+	for _, attempt := range attempts {
+		connections = append(connections, attempt.Connection)
 		if state, ok := candidate.RuntimeStates[attempt.Connection.ID]; ok {
-			compatibleStates[attempt.Connection.ID] = state
+			states[attempt.Connection.ID] = state
 		}
 	}
-	if len(compatibleAttempts) == 0 {
-		return runtimeResolvedAccessPlan{}, false
+	candidate.TargetModel = attempts[0].TargetModel
+	candidate.Strategy = attempts[0].Strategy
+	candidate.TerminalAttempts = attempts
+	candidate.Connections = connections
+	candidate.RuntimeStates = states
+	candidate.SelectedTerminalTargetID = intPtr(attempts[0].Connection.ID)
+	return candidate
+}
+
+func preferNativeResolvedAccessCandidates(candidates []runtimeResolvedAccessCandidate) []runtimeResolvedAccessCandidate {
+	nativeCandidates := make([]runtimeResolvedAccessCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if len(candidate.resolved.TerminalAttempts) == 0 {
+			continue
+		}
+		if candidate.resolved.TerminalAttempts[0].TranslationMode == TranslationModeNone {
+			nativeCandidates = append(nativeCandidates, candidate)
+		}
 	}
-	candidate.TerminalAttempts = compatibleAttempts
-	candidate.Connections = compatibleConnections
-	candidate.RuntimeStates = compatibleStates
-	candidate.SelectedTerminalTargetID = intPtr(compatibleAttempts[0].Connection.ID)
-	return candidate, true
+	if len(nativeCandidates) > 0 {
+		return nativeCandidates
+	}
+	return candidates
 }
 
 func buildRuntimeContextRoutingSkippedTerminalTarget(connection runtimeConnection, estimation *requestContextEstimation, usableContextWindowTokens int) runtimeContextRoutingSkippedTerminalTarget {
@@ -1183,6 +1283,9 @@ func (s *Service) resolveModelAccessTargetFromRoutingPlan(profileID int, routing
 	childContext.ConsideredModelPath = appendRuntimeModelPath(ctx.ConsideredModelPath, childModel.ModelID)
 	resolved, err := s.resolveModelAccessFromRoutingPlan(profileID, routingPlan, childModel, childContext)
 	if err != nil {
+		if domainErr, ok := isRequestTranslationUnsupportedError(err); ok && domainErr != nil {
+			return runtimeResolvedAccessPlan{CompatibilityError: domainErr}, false, nil
+		}
 		var noEligible *noEligibleTargetsError
 		if errors.As(err, &noEligible) {
 			return runtimeResolvedAccessPlan{}, false, nil
