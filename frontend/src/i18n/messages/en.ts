@@ -3710,12 +3710,10 @@ export const enMessages: Messages = {
     modelIdLabel: "Model ID",
     modelRoutingAccessTargetsAndTerminalTargets:
       "Entry-model routing spans grouped access targets, same-family model fallback targets, and model-private terminal targets.",
-    modelSettingsAccessTargetsDescription:
-      "Update the selected-profile entry model, its routing defaults, and its grouped model fallback targets before terminal-target routing takes over.",
+    modelSettingsAccessTargetsDescription: "",
     modelSettingsDescription:
       "Update the selected-profile entry model, its routing defaults, and the policy it uses to reach terminal targets.",
-    modelSettingsRoutingDescription:
-      "Choose the Ban Policy for this entry model and adjust grouped model fallback targets here. Model-private terminal targets stay on Model Detail.",
+    modelSettingsRoutingDescription: "",
     modelSettingsTitle: "Model Settings",
     noConnectionsConfigured: "No terminal targets configured",
     noConnectionsMatchFilter: "No terminal targets match your filter",
@@ -3893,14 +3891,13 @@ export const enMessages: Messages = {
   },
   modelsUi: {
     accessTargets: "Access targets",
-    accessTargetsDescription: "Access targets combine grouped same-family model fallback targets with model-private terminal targets. Manage fallback tiers here, then finish terminal-target routing from Model Detail.",
+    accessTargetsDescription: "",
     addTarget: "Add target",
     modelFallbackTargets: "Model fallback targets",
-    modelFallbackTargetsDescription: "Manage same-family model peers here and group them into fallback tiers before Prism reaches terminal targets.",
+    modelFallbackTargetsDescription: "",
     connectionTarget: "Terminal target",
     contextRoutingDefaults: "Context routing defaults",
-    contextRoutingDefaultsDescription:
-      "Set the entry-model context window, reserve, max utilization, and preferred band before terminal-target overrides apply.",
+    contextRoutingDefaultsDescription: "",
     contextWindowTokens: "Context window tokens",
     contextWindowTokensHelper: "Leave blank when the model context window is unknown.",
     currentApiFamily: (apiFamily) => `Current API family: ${apiFamily}`,
@@ -3922,10 +3919,9 @@ export const enMessages: Messages = {
     modelTarget: "Model fallback target",
     needsTarget: "Needs target",
     newConnection: "New terminal target",
-    newModelDescription:
-      "Define the selected-profile entry model, its routing defaults, and the policy it will use to reach terminal targets.",
-    newModelEnabledDescription: "New models start disabled so you can save a draft now and attach model targets later. Enabled saves require at least one enabled target.",
-    noAccessTargetsSelected: "No model targets selected. Save disabled now, or add a same-family model fallback target to a fallback tier before enabling.",
+    newModelDescription: "",
+    newModelEnabledDescription: "",
+    noAccessTargetsSelected: "No model targets selected.",
     noModelsMatchSearch: "No models match search",
     noModelsConfigured: "No models configured",
     noSameFamilyModelsAvailable: "No other same-family models are available. Save disabled now, or add a model fallback target later before enabling.",
@@ -3934,13 +3930,12 @@ export const enMessages: Messages = {
     overflowPromotionTarget: "Overflow promotion target",
     overflowPromotionTargetDescription: "Optional selected-profile model ID for one replay when a non-stream response proves context overflow. Prism validates eligibility on save.",
     priority: (value) => `Priority ${value}`,
-    routingTypeDescription:
-      "Choose the Ban Policy and terminal-target selection family this entry model uses after access-target routing.",
+    routingTypeDescription: "",
     save: "Save",
     selectSameFamilyModel: "Select fallback model",
     strategyNotConfigured: "Strategy not configured",
     terminalTargets: "Terminal targets",
-    terminalTargetsDescription: "Terminal Targets stay outside the model fallback tier editor. Create, edit, and health-check them here without changing grouped model fallback tiers.",
+    terminalTargetsDescription: "",
     targetMoveDown: (id) => `Move target ${id} down`,
     targetMoveUp: (id) => `Move target ${id} up`,
     targetRemove: (id) => `Remove target ${id}`,
