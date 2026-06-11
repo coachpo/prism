@@ -3,7 +3,6 @@ import { ChevronDown, Eye, Pencil, Plus, Server, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { CopyButton } from "@/components/CopyButton";
 import { EmptyState } from "@/components/EmptyState";
-import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { VendorIcon } from "@/components/VendorIcon";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { useLocale } from "@/i18n/useLocale";
@@ -493,14 +492,6 @@ export function ModelsTable({
 
   return (
     <div className="grid gap-3 p-4">
-      <Card className="gap-3 border-border/70 bg-card/95 px-4 py-3 shadow-none">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{messages.dashboard.spending30d}</span>
-        </div>
-        {currencyState.trust !== "verified" ? (
-          <SpendTrustNote spendTrust={currencyState.trust} />
-        ) : null}
-      </Card>
       {vendorGroups.map((group) => (
         <VendorSection
           key={group.groupKey}

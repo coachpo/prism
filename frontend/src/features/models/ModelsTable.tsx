@@ -5,10 +5,8 @@ import { useNavigate } from "react-router-dom"
 import { CopyButton } from "@/components/CopyButton"
 import { EmptyState } from "@/components/EmptyState"
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup"
-import { SpendTrustNote } from "@/components/SpendTrustIndicator"
 import { StatusBadge, TypeBadge } from "@/components/StatusBadge"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -162,12 +160,6 @@ export function ModelsTable({
 
   return (
     <div data-testid="models-table" data-table-density="compact">
-      <Card className="m-4 gap-3 border-border/70 bg-card/95 px-4 py-3 shadow-none">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">{messages.dashboard.spending30d}</span>
-          {currencyState.trust !== "verified" ? <SpendTrustNote spendTrust={currencyState.trust} /> : null}
-        </div>
-      </Card>
       <div className="overflow-hidden border-t border-border/70">
         <Table>
           <TableHeader>
