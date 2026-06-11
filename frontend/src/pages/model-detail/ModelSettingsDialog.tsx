@@ -130,47 +130,19 @@ export function ModelSettingsDialog({
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] sm:max-w-4xl">
-        <DialogHeader className="shrink-0 border-b bg-background px-6 py-5 sm:px-7">
+        <DialogHeader>
           <DialogTitle>{copy.modelSettingsTitle}</DialogTitle>
           <DialogDescription>{copy.modelSettingsAccessTargetsDescription}</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleEditModelSubmit} className="flex min-h-0 flex-1 flex-col" noValidate>
+        <form onSubmit={handleEditModelSubmit} className="flex min-h-0 flex-col gap-5" autoComplete="off" noValidate>
           <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
-          <DialogBody className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7" data-testid="model-settings-scroll-body">
+          <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="model-settings-scroll-body">
             <section
-              className="flex flex-col gap-4 rounded-2xl border bg-muted/20 p-4 sm:p-5"
+              className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4"
               data-testid="model-settings-basics-section"
             >
-              <div className="flex flex-col gap-1">
-                <h2 className="text-sm font-semibold tracking-tight text-foreground">{copy.configuration}</h2>
-              </div>
-
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex min-w-0 flex-col gap-2 sm:col-span-2">
-                  <Label htmlFor="edit-display-name">{copy.displayName}</Label>
-                  <Input
-                    id="edit-display-name"
-                    name="display_name"
-                    autoComplete="off"
-                    value={formData.display_name ?? ""}
-                    onChange={(event) => setFormData((current) => setDisplayNameOnForm(current, event.target.value))}
-                    placeholder={copy.displayNamePlaceholder}
-                  />
-                </div>
-
-                <div className="flex min-w-0 flex-col gap-2 sm:col-span-2">
-                  <Label htmlFor="edit-model-id">{copy.modelIdLabel}</Label>
-                  <Input
-                    id="edit-model-id"
-                    name="model_id"
-                    autoComplete="off"
-                    value={formData.model_id}
-                    onChange={(event) => setFormData((current) => setModelIdOnForm(current, event.target.value))}
-                    required
-                  />
-                </div>
-
                 <div className="flex min-w-0 flex-col gap-2">
                   <Label>{fieldCopy.vendor}</Label>
                   <VendorSelect
@@ -201,14 +173,38 @@ export function ModelSettingsDialog({
                   />
                 </div>
               </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="edit-model-id">{copy.modelIdLabel}</Label>
+                <Input
+                  id="edit-model-id"
+                  name="model_id"
+                  autoComplete="off"
+                  value={formData.model_id}
+                  onChange={(event) => setFormData((current) => setModelIdOnForm(current, event.target.value))}
+                  required
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="edit-display-name">{copy.displayName}</Label>
+                <Input
+                  id="edit-display-name"
+                  name="display_name"
+                  autoComplete="off"
+                  value={formData.display_name ?? ""}
+                  onChange={(event) => setFormData((current) => setDisplayNameOnForm(current, event.target.value))}
+                  placeholder={copy.displayNamePlaceholder}
+                />
+              </div>
             </section>
 
             <section
-              className="flex flex-col gap-4 rounded-2xl border bg-muted/15 p-4 sm:p-5"
+              className="flex flex-col gap-4 rounded-lg border bg-muted/15 p-4"
               data-testid="model-settings-context-routing-section"
             >
               <div className="flex flex-col gap-1">
-                <h2 className="text-sm font-semibold tracking-tight text-foreground">{modelsUiCopy.contextRoutingDefaults}</h2>
+                <p className="text-sm font-medium text-foreground">{modelsUiCopy.contextRoutingDefaults}</p>
                 <p className="text-sm text-muted-foreground">{modelsUiCopy.contextRoutingDefaultsDescription}</p>
               </div>
 
@@ -288,54 +284,53 @@ export function ModelSettingsDialog({
             </section>
 
             <section
-              className="flex flex-col gap-4 rounded-2xl border p-4 sm:p-5"
+              className="flex flex-col gap-4 rounded-lg border p-4"
               data-testid="model-settings-routing-section"
             >
-              <div className="flex flex-col gap-1">
-                <h2 className="text-sm font-semibold tracking-tight text-foreground">{copy.loadbalanceStrategy}</h2>
-                <p className="text-sm text-muted-foreground">{copy.modelSettingsRoutingDescription}</p>
-              </div>
-
-              <div className="flex min-w-0 flex-col gap-4">
-                <div className="flex min-w-0 flex-col gap-2">
-                  {loadbalanceStrategies.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{copy.noLoadbalanceStrategiesAvailable}</p>
-                  ) : (
-                    <Select value={loadbalanceStrategyValue} onValueChange={(value) => setLoadbalanceStrategyId(Number.parseInt(value, 10))}>
-                      <SelectTrigger id="edit-loadbalance-strategy" className="w-full min-w-0 max-w-full">
-                        <SelectValue placeholder={copy.selectStrategy}>
-                          {selectedLoadbalanceStrategy ? (
-                            <span className="block min-w-0 max-w-full truncate">{getStrategyOptionText(selectedLoadbalanceStrategy)}</span>
-                          ) : null}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent position="popper" className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
-                        {loadbalanceStrategies.map((strategy) => (
-                          <SelectItem key={strategy.id} value={String(strategy.id)}>{getStrategyOptionText(strategy)}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
+              <div className="flex flex-col gap-3 rounded-lg border bg-muted/15 p-4">
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium text-foreground">{copy.loadbalanceStrategy}</p>
+                  <p className="text-sm text-muted-foreground">{copy.modelSettingsRoutingDescription}</p>
                 </div>
-
-                <AccessTargetsEditor
-                  apiFamilyLabel={formData.api_family}
-                  accessTargets={formData.access_targets}
-                  modelOptions={targetModelsForApiFamily}
-                  error={accessTargetsError}
-                  onChange={(accessTargets) => setFormData((current) => ({ ...current, access_targets: accessTargets }))}
-                />
-
-                <SwitchController
-                  label={copy.enabled}
-                  checked={formData.is_enabled}
-                  onCheckedChange={(checked) => setFormData((current) => ({ ...current, is_enabled: checked }))}
-                />
+                {loadbalanceStrategies.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{copy.noLoadbalanceStrategiesAvailable}</p>
+                ) : (
+                  <Select value={loadbalanceStrategyValue} onValueChange={(value) => setLoadbalanceStrategyId(Number.parseInt(value, 10))}>
+                    <SelectTrigger id="edit-loadbalance-strategy" className="h-auto w-full min-w-0 max-w-full items-start py-2 text-left whitespace-normal">
+                      <SelectValue placeholder={copy.selectStrategy}>
+                        {selectedLoadbalanceStrategy ? (
+                          <span className="min-w-0 whitespace-normal break-words leading-5">{getStrategyOptionText(selectedLoadbalanceStrategy)}</span>
+                        ) : null}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
+                      {loadbalanceStrategies.map((strategy) => (
+                        <SelectItem key={strategy.id} value={String(strategy.id)}>
+                          <span className="block whitespace-normal break-words pr-4 leading-5">{getStrategyOptionText(strategy)}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
+
+              <AccessTargetsEditor
+                apiFamilyLabel={formData.api_family}
+                accessTargets={formData.access_targets}
+                modelOptions={targetModelsForApiFamily}
+                error={accessTargetsError}
+                onChange={(accessTargets) => setFormData((current) => ({ ...current, access_targets: accessTargets }))}
+              />
+
+              <SwitchController
+                label={copy.enabled}
+                checked={formData.is_enabled}
+                onCheckedChange={(checked) => setFormData((current) => ({ ...current, is_enabled: checked }))}
+              />
             </section>
           </DialogBody>
 
-          <DialogFooter className="shrink-0 border-t bg-background px-6 py-4 sm:justify-between sm:px-7">
+          <DialogFooter className="sm:justify-between">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {copy.cancel}
             </Button>
