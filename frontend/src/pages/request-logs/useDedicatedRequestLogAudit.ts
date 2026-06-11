@@ -3,7 +3,7 @@ import { getStaticMessages } from "@/i18n/staticMessages";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api/core";
 import type { AuditLogDetail, AuditLogListItem, RequestLogDetail } from "@/lib/types";
-import { deriveRequestLogAuditWindow } from "./useAuditDetail";
+import { deriveRequestLogAuditWindow } from "./requestLogAuditWindow";
 import {
   resolveRequestAuditCaptureMode,
   type RequestAuditCaptureMode,

@@ -747,8 +747,8 @@ test.describe("dedicated request-log audit page", () => {
     expect(counters.auditDetailRequests).toEqual([]);
   });
 
-  test("request-log row clicks still open the overview drawer, not the dedicated audit route", async ({ page }) => {
-    await mockPrismRoutes(page, "full");
+  test("request-log row clicks still open the overview drawer with a full audit page link", async ({ page }) => {
+    const counters = await mockPrismRoutes(page, "full");
 
     await page.goto("/request-logs");
     const requestLogRow = page.getByTestId("request-logs-table").getByRole("button").filter({ hasText: "GPT-4o mini" });
@@ -756,9 +756,12 @@ test.describe("dedicated request-log audit page", () => {
 
     const drawer = page.getByTestId("request-log-detail-sheet");
     await expect(drawer).toBeVisible({ timeout: 15000 });
-    await expect(drawer.getByRole("tab", { name: "Overview" })).toHaveAttribute("data-state", "active");
-    await expect(page).toHaveURL(/\/request-logs$/);
-    await drawer.getByRole("tab", { name: "Audit" }).click();
+    await expect(drawer.getByRole("tab", { name: "Audit" })).toHaveCount(0);
+    await expect(drawer.getByText("Review requested model, final target model, selected terminal target, routing, tokens, costs, and request-time audit provenance.")).toBeVisible();
+    await expect(drawer.getByTestId("request-log-overview-grid").getByText("/v1/responses")).toBeVisible();
     await expect(drawer.getByRole("link", { name: "Open full audit page" })).toHaveAttribute("href", "/request-logs/101/audit");
+    await expect(page).toHaveURL(/\/request-logs$/);
+    expect(counters.auditListSearchParams).toEqual([]);
+    expect(counters.auditDetailRequests).toEqual([]);
   });
 });

@@ -14,14 +14,12 @@ import { RequestLogsTable } from "./request-logs/RequestLogsTable";
 import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
 import { SearchX } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { DetailTab } from "./request-logs/queryParams";
 
 export function RequestLogsPage() {
   const { revision } = useProfileContext();
   const { format } = useTimezone();
   const { messages } = useLocale();
   const [tableSelectedRequestId, setTableSelectedRequestId] = useState<number | null>(null);
-  const [tableSelectedTab, setTableSelectedTab] = useState<DetailTab>("overview");
   const actions = useRequestLogPageState();
   const { state, isExactMode } = actions;
 
@@ -47,7 +45,6 @@ export function RequestLogsPage() {
     enabled: selectedRequestId !== null,
   });
 
-  const currentActiveTab = isExactMode ? state.detail_tab : tableSelectedTab;
   const surfaceError = error ?? detailError;
   const showExactNotFound = isExactMode && !detailLoading && detailNotFound;
   const listVisibleRequestId = useMemo(
@@ -59,7 +56,6 @@ export function RequestLogsPage() {
 
   const handleSelectRequest = (id: number) => {
     setTableSelectedRequestId(id);
-    setTableSelectedTab("overview");
   };
 
   const handleCloseRequest = () => {
@@ -69,16 +65,6 @@ export function RequestLogsPage() {
     }
 
     setTableSelectedRequestId(null);
-    setTableSelectedTab("overview");
-  };
-
-  const handleTabChange = (tab: DetailTab) => {
-    if (isExactMode) {
-      actions.setDetailTab(tab);
-      return;
-    }
-
-    setTableSelectedTab(tab);
   };
 
   return (
@@ -141,8 +127,6 @@ export function RequestLogsPage() {
       <RequestLogDetailSheet
         request={selectedRequest}
         open={sheetOpen}
-        activeTab={currentActiveTab}
-        onTabChange={handleTabChange}
         onClose={handleCloseRequest}
         formatTimestamp={format}
       />

@@ -9,8 +9,9 @@ request-logs/
 ├── queryParams.ts               # URL-state contract for retained browse filters and pagination
 ├── useRequestLogPageState.ts    # Search-param orchestration and exact-request mode
 ├── useRequestLogsPageData.ts    # Server fetches and retained filter-option bootstrap
-├── useAuditDetail.ts            # Lazy audit detail lookup and retry behavior
 ├── useRequestLogDetail.ts       # Exact-request detail fetch, not-found handling, and refresh
+├── useDedicatedRequestLogAudit.ts # Dedicated full audit page detail lookup
+├── requestLogAuditWindow.ts     # Dedicated audit lookup window helper
 ├── requestLogAuditState.ts      # Audit capture mode and request-detail audit state helpers
 ├── streamTelemetry.ts           # Stream-outcome, TTFT, and rate helpers for request-log views
 ├── columns.tsx                  # Table column definitions and detail entry affordances
@@ -18,9 +19,9 @@ request-logs/
 ├── FiltersBar.constants.ts      # Filter option constants and shared filter presentation helpers
 ├── FiltersBarPrimaryFilters.tsx # Retained filter row composition
 ├── RequestLogsTable.tsx         # Paginated and virtualized log list
-├── RequestLogDetailSheet.tsx    # Detailed request/audit payload view and clipboard fallback root
+├── RequestLogDetailSheet.tsx    # Overview-only request inspection drawer and clipboard fallback root
 ├── RequestFocusBanner.tsx       # Exact-request mode banner and exit action
-└── detail/                      # Parent-covered overview, audit, payload, and shared detail helpers
+└── detail/                      # Parent-covered overview, payload, and shared detail helpers
 ```
 
 ## WHERE TO LOOK
@@ -29,10 +30,10 @@ request-logs/
 - Retained browse-filter contract and defaults: `queryParams.ts`
 - Table columns, row actions, and detail-entry affordances: `columns.tsx`, `RequestLogsTable.tsx`
 - Filter-bar composition and shared filter constants: `FiltersBar.constants.ts`, `FiltersBarPrimaryFilters.tsx`, `FiltersBar.tsx`
-- Detail sheet, exact-request fetch, audit capture state, sheet-scoped clipboard fallback, and lazy audit fetch: `RequestLogDetailSheet.tsx`, `useRequestLogDetail.ts`, `requestLogAuditState.ts`, `useAuditDetail.ts`
+- Detail sheet, exact-request fetch, audit capture state, and sheet-scoped clipboard fallback: `RequestLogDetailSheet.tsx`, `useRequestLogDetail.ts`, `requestLogAuditState.ts`
 - Stream telemetry helpers and TTFT/rate display logic: `streamTelemetry.ts`, `detail/RequestLogOverviewTab.tsx`
 - E2E seams for exact-request mode, audit provenance states, TTFT, and post-TTFT output-rate handling: `../../../tests/e2e/request-log-audit-disabled-state.spec.ts`, `../../../tests/e2e/request-logs-ttft.spec.ts`, `../../../tests/e2e/request-logs-token-rate.spec.ts`
-- Parent-covered detail cluster helpers: `detail/RequestLogOverviewTab.tsx`, `detail/RequestLogAuditTab.tsx`, `detail/RequestLogPayloadBlock.tsx`, `detail/requestLogDetailShared.tsx`, `detail/requestLogDetailUtils.ts`
+- Parent-covered detail cluster helpers: `detail/RequestLogOverviewTab.tsx`, `detail/RequestLogPayloadBlock.tsx`, `detail/requestLogDetailShared.tsx`, `detail/requestLogDetailUtils.ts`
 - Reporting-currency trust and spend display coupling: `../../context/ReportingCurrencyContext.tsx`, `../../lib/reportingCurrency.ts`, `detail/RequestLogOverviewTab.tsx`
 
 ## CONVENTIONS
@@ -40,7 +41,7 @@ request-logs/
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing request-log surface is itself a shipped contract or guardrail.
 - Treat URL as the source of truth for the retained browse filters to support deep-linking.
-- Keep audit payload fetching lazy and isolated from the main request-list fetch lifecycle. The detail hook should fetch audit data only when the sheet is open and the audit tab is active.
+- Keep audit payload fetching isolated to the dedicated full audit page. The overview drawer must not fetch audit payloads.
 - Use exact-request mode (`request_id`) to switch from paginated browsing to a single-request investigation workflow, and keep that mode local to the request-logs page.
 - Keep retained browse filtering on `ingress_request_id`, `model_id`, `endpoint_id`, `status_family`, and `time_range` only.
 - Keep user-facing copy on the shared locale boundary through `useLocale()`, while timestamp formatting continues to flow through `useTimezone()`.
@@ -59,7 +60,7 @@ request-logs/
 ## ANTI-PATTERNS
 - Do not stale-claim that request logs are missing from the route map.
 - Do not duplicate filter parsing outside `queryParams.ts`.
-- Do not fetch audit payloads during normal table browsing when the detail drawer is closed.
+- Do not fetch audit payloads during normal table browsing or from the overview drawer.
 - Do not split `request-logs/detail/` into a separate AGENTS file while this parent already owns that cluster.
 - Do not replace the sheet-scoped clipboard fallback with a global DOM fallback or a download-based workaround.
 - Do not render request-log spend independently from the selected-profile reporting-currency state.

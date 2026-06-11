@@ -6,7 +6,6 @@ import {
   parsePageState,
   type StatusFamilyFilter,
   stateToParams,
-  type DetailTab,
   type RequestLogPageState,
   type TimeRange,
 } from "./queryParams";
@@ -45,29 +44,17 @@ export function useRequestLogPageState() {
   const setLimit = useCallback((v: number) => update({ limit: v, offset: DEFAULTS.offset }), [update]);
   const setOffset = useCallback((v: number) => update({ offset: v }, false), [update]);
   const setRequestId = useCallback(
-    (value: string) =>
-      update(
-        {
-          request_id: normalizeRequestId(value),
-          detail_tab: DEFAULTS.detail_tab,
-        },
-        false,
-      ),
+    (value: string) => update({ request_id: normalizeRequestId(value) }, false),
     [update],
   );
 
   const selectRequest = useCallback(
-    (id: number, tab: DetailTab = "overview") => update({ request_id: String(id), detail_tab: tab }, false),
+    (id: number) => update({ request_id: String(id) }, false),
     [update]
   );
 
   const clearRequest = useCallback(
-    () => update({ request_id: "", detail_tab: DEFAULTS.detail_tab }, false),
-    [update]
-  );
-
-  const setDetailTab = useCallback(
-    (tab: DetailTab) => update({ detail_tab: tab }, false),
+    () => update({ request_id: "" }, false),
     [update]
   );
 
@@ -75,9 +62,8 @@ export function useRequestLogPageState() {
     setSearchParams(stateToParams({
       ...parsePageState(new URLSearchParams()),
       request_id: state.request_id,
-      detail_tab: state.detail_tab,
     }), { replace: true });
-  }, [setSearchParams, state.request_id, state.detail_tab]);
+  }, [setSearchParams, state.request_id]);
 
   const goToNextPage = useCallback(
     (total: number) => {
@@ -114,7 +100,6 @@ export function useRequestLogPageState() {
     setRequestId,
     selectRequest,
     clearRequest,
-    setDetailTab,
     clearFilters,
     goToNextPage,
     goToPreviousPage,

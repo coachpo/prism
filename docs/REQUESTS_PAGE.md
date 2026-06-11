@@ -50,7 +50,7 @@ Supported query parameters:
 
 - Browse filters: `ingress_request_id`, `model_id`, `endpoint_id`, `status_family`, `time_range`
 - Pagination: `limit`, `offset`
-- Exact-investigation flow: `request_id`, `detail_tab`
+- Exact-investigation flow: `request_id`
 
 Behavioral requirements:
 
@@ -58,7 +58,7 @@ Behavioral requirements:
 - Any filter mutation that changes the result set must reset `offset` to `0`.
 - `request_id` must switch the page into exact-request investigation mode.
 - `ingress_request_id` must support grouped investigation of all per-attempt rows created by one incoming runtime request.
-- `detail_tab` must preserve whether the detail drawer opens on `overview` or `audit`.
+- Stale `detail_tab` parameters must be ignored and canonicalized away.
 
 ## 6. Data And API Requirements
 
@@ -83,9 +83,9 @@ The page bootstraps model reference data separately through `api.models.list()` 
 
 Partial failure in model bootstrap must not block request browsing, and endpoint filter options should become ready when the current list response arrives.
 
-### 6.3 Linked Audit Resolution
+### 6.3 Dedicated Audit Resolution
 
-Audit detail should load lazily only when the request detail drawer opens the `audit` tab.
+Detailed audit payloads should load only on the dedicated full audit page for a request.
 
 Audit APIs:
 
@@ -94,13 +94,11 @@ Audit APIs:
 
 Required behavior:
 
-- Avoid audit fetches during normal table browsing.
-- Skip linked-audit fetches entirely when `audit_enabled_at_request` is `false`.
+- Avoid audit fetches during normal table browsing and modal inspection.
+- Skip dedicated audit lookup when `audit_enabled_at_request` is `false`.
 - Treat `audit_capture_bodies_at_request` as the request-time provenance flag for metadata-only vs full capture instead of inferring from body presence.
-- Retry linked-audit lookup up to five times with a one-second delay when the linked audit list is still empty or audit fetches fail transiently.
 - Keep orphaned audit rows visible when linked request logs were deleted, while still treating `request_log_id` as nullable provenance rather than a browse filter.
-- Resolve audit detail rows with `Promise.allSettled()` so one failed detail fetch does not hide other captured rows.
-- Keep audit loading isolated from the main request-list fetch lifecycle.
+- Keep audit loading isolated from the main request-list and modal detail fetch lifecycle.
 
 ## 7. UX Workflow Requirements
 
@@ -117,14 +115,14 @@ Required behavior:
 - Fetch only the targeted request.
 - Show `RequestFocusBanner` with an exit action.
 - Render a dedicated empty state with a return action when the request is missing.
-- Preserve `detail_tab` so links can open directly to `overview` or `audit`.
+- Ignore stale `detail_tab` parameters and keep exact-request investigation on the overview-only drawer.
 
 Grouped request-tracking workflow:
 
 - `request_id` remains a one-row deep link for exact attempt investigation.
 - `ingress_request_id` groups multiple attempt rows from one incoming runtime request without changing `request_id` semantics.
 - For CLIProxyAPI context overflow promotion, grouped rows show the failed source attempt and the one-shot promoted attempt together. Plain `429` source attempts are not assumed to be overflow; only body-confirmed overflow attempts carry promotion metadata.
-- The overview tab should surface `ingress_request_id`, `attempt_number`, `provider_correlation_id`, and `context_routing.context_overflow_promotion` when present so operators can distinguish Prism grouping from upstream correlation and final response ownership.
+- The overview drawer should surface `ingress_request_id`, `attempt_number`, `provider_correlation_id`, and `context_routing.context_overflow_promotion` when present so operators can distinguish Prism grouping from upstream correlation and final response ownership.
 
 ### 7.3 Table Workflow
 
@@ -142,18 +140,15 @@ Required behavior:
 
 ### 7.4 Detail Drawer Workflow
 
-`RequestLogDetailSheet` should expose two tabs:
+`RequestLogDetailSheet` should expose an overview-only inspection drawer with request metadata, requested model vs final target model identity, token and cost breakdowns, routing context, and connection drill-down.
 
-- `overview`: request metadata, requested model vs final target model identity, token and cost breakdowns, routing context, and connection drill-down
-- `audit`: lazily resolved request and response payload capture
-
-The drawer should also support direct navigation to the owning connection record.
+The drawer should also support direct navigation to the owning connection record and the dedicated full audit page.
 
 Dense overview requirements:
 
 - Keep the same logical groups: `Request details`, `Routing context`, `Token usage`, and `Cost breakdown`.
 - Render a compact summary strip for latency, token, cost, and timestamp context above the grouped sections.
-- Keep audit loading lazy and scoped to the `audit` tab only.
+- Keep audit payload loading out of the drawer and scoped to the dedicated full audit page.
 
 ## 8. Module Boundaries
 
@@ -163,9 +158,9 @@ The `frontend/src/pages/request-logs/` helper cluster should remain page-specifi
 - retained browse-filter state and exact-request mode orchestration
 - sticky filter-bar UI groups
 - column definitions and row renderers, including requested model vs final target model identity rendering and the display-only vendor column
-- detail-sheet tabs and shared panels over the dedicated request-detail payload
-- audit loading hook
-- dedicated tests for page state, filter options, page data, and audit detail loading
+- overview-only detail drawer and shared panels over the dedicated request-detail payload
+- dedicated full audit page loading hook
+- dedicated tests for page state, filter options, page data, modal inspection, and audit detail loading
 
 ## 9. Cross-Route Integrations
 
@@ -201,7 +196,7 @@ The Requests page must remain compatible with the following backend-facing and s
 3. The retained browse filters update URL state with `replace: true` semantics and drive refreshed list requests directly, without a client-side search or triage refinement layer.
 4. Visiting `/request-logs?request_id=<id>` opens exact-request investigation mode with the focus banner and detail-drawer support.
 5. Visiting `/request-logs?ingress_request_id=<id>` filters the request list to all per-attempt rows for that incoming runtime request without breaking numeric `request_id` deep links.
-6. Opening the `audit` tab triggers lazy audit resolution, skips fetches when audit capture was disabled for that request, and supports retry behavior for temporarily missing or transiently failing linked-audit lookups.
+6. Opening the dedicated full audit page triggers audit resolution, skips lookup when audit capture was disabled for that request, and keeps modal inspection free of audit payload fetches.
 7. The table remains usable at large result counts through virtualization, sticky headers, and explicit pagination controls.
 8. The list view stays on the slim list payload, while exact-request investigation uses the dedicated detail payload without re-expanding the table schema.
 9. Dashboard and Model Detail can emit deep links into `/request-logs` without inventing route-local state outside the documented query contract.

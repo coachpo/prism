@@ -13,14 +13,8 @@ const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const { resolveRequestAuditCaptureMode } = load(
   path.join(frontendDir, "src/pages/request-logs/requestLogAuditState.ts"),
 );
-const { load: loadAuditHook } = createTsModuleLoader({
-  rootDir: frontendDir,
-  mocks: {
-    "@/lib/api": { api: { audit: {} } },
-  },
-});
-const { deriveRequestLogAuditWindow } = loadAuditHook(
-  path.join(frontendDir, "src/pages/request-logs/useAuditDetail.ts"),
+const { deriveRequestLogAuditWindow } = load(
+  path.join(frontendDir, "src/pages/request-logs/requestLogAuditWindow.ts"),
 );
 
 test("request audit capture mode follows request-time provenance booleans", () => {
@@ -40,8 +34,8 @@ test("request audit capture mode follows request-time provenance booleans", () =
 
 test("request-log audit lookup derives a deterministic UTC 24-hour window", () => {
   assert.deepEqual(deriveRequestLogAuditWindow("2026-04-13T00:00:00Z"), {
-    from_time: "2026-04-12T12:00:00.000Z",
-    to_time: "2026-04-13T12:00:00.000Z",
+    from: "2026-04-12T12:00:00.000Z",
+    to: "2026-04-13T12:00:00.000Z",
   });
 });
 

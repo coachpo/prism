@@ -4,9 +4,6 @@ export type TimeRange = (typeof TIME_RANGE_OPTIONS)[number];
 export const STATUS_FAMILY_OPTIONS = ["all", "4xx", "5xx"] as const;
 export type StatusFamilyFilter = (typeof STATUS_FAMILY_OPTIONS)[number];
 
-export const DETAIL_TAB_OPTIONS = ["overview", "audit"] as const;
-export type DetailTab = (typeof DETAIL_TAB_OPTIONS)[number];
-
 export const PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
 
 export const DEFAULTS = {
@@ -14,7 +11,6 @@ export const DEFAULTS = {
   offset: 0,
   time_range: "1h" as TimeRange,
   status_family: "all" as StatusFamilyFilter,
-  detail_tab: "overview" as DetailTab,
 } as const;
 
 export interface RequestLogPageState {
@@ -26,7 +22,6 @@ export interface RequestLogPageState {
   limit: number;
   offset: number;
   request_id: string;
-  detail_tab: DetailTab;
 }
 
 function parseEnum<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
@@ -65,7 +60,6 @@ export function parsePageState(params: URLSearchParams): RequestLogPageState {
     limit: parsePageSize(params.get("limit")),
     offset: parseIntParam(params.get("offset"), DEFAULTS.offset),
     request_id: normalizeRequestId(params.get("request_id")),
-    detail_tab: parseEnum(params.get("detail_tab"), DETAIL_TAB_OPTIONS, DEFAULTS.detail_tab),
   };
 }
 
@@ -79,7 +73,6 @@ export function stateToParams(state: RequestLogPageState): URLSearchParams {
   if (state.limit !== DEFAULTS.limit) p.set("limit", String(state.limit));
   if (state.offset !== DEFAULTS.offset) p.set("offset", String(state.offset));
   if (state.request_id) p.set("request_id", state.request_id);
-  if (state.request_id && state.detail_tab !== DEFAULTS.detail_tab) p.set("detail_tab", state.detail_tab);
   return p;
 }
 

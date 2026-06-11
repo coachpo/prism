@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { FileText, Terminal } from "lucide-react";
+import { Terminal } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import {
   Sheet,
@@ -9,18 +9,12 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { RequestLogDetail } from "@/lib/types";
-import type { DetailTab } from "./queryParams";
-import { useAuditDetail } from "./useAuditDetail";
-import { RequestLogAuditTab } from "./detail/RequestLogAuditTab";
 import { RequestLogOverviewTab } from "./detail/RequestLogOverviewTab";
 
 interface RequestLogDetailSheetProps {
   request: RequestLogDetail | null;
   open: boolean;
-  activeTab: DetailTab;
-  onTabChange: (tab: DetailTab) => void;
   onClose: () => void;
   formatTimestamp: (iso: string) => string;
 }
@@ -28,19 +22,10 @@ interface RequestLogDetailSheetProps {
 export function RequestLogDetailSheet({
   request,
   open,
-  activeTab,
-  onTabChange,
   onClose,
   formatTimestamp,
 }: RequestLogDetailSheetProps) {
   const { messages } = useLocale();
-  const { audits, loading: auditLoading, state: auditState } = useAuditDetail({
-    requestLogId: request?.summary.id ?? null,
-    requestCreatedAt: request?.summary.created_at ?? null,
-    auditEnabledAtRequest: request?.routing.audit_enabled_at_request ?? false,
-    auditCaptureBodiesAtRequest: request?.routing.audit_capture_bodies_at_request ?? false,
-    enabled: open && activeTab === "audit",
-  });
   const hasRequestContext = Boolean(request);
 
   return (
@@ -66,43 +51,20 @@ export function RequestLogDetailSheet({
           </SheetHeader>
 
           {request && (
-            <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as DetailTab)} className="flex min-w-0 flex-col gap-3">
-              <TabsList className="grid h-10 w-full grid-cols-2 rounded-lg bg-muted/70 p-0.5">
-                <TabsTrigger value="overview" className="gap-2 rounded-md text-sm font-medium">
-                  <FileText className="h-4 w-4" />
-                  {messages.requestLogs.overview}
-                </TabsTrigger>
-                <TabsTrigger value="audit" className="gap-2 rounded-md text-sm font-medium">
-                  <Terminal className="h-4 w-4" />
-                  {messages.requestLogs.audit}
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="overview" className="mt-0 min-w-0">
-                <RequestLogOverviewTab
-                  request={request}
-                  formatTimestamp={formatTimestamp}
-                />
-              </TabsContent>
-
-              <TabsContent value="audit" className="mt-0 min-w-0">
-                <div className="mb-3 flex justify-end">
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to={`/request-logs/${request.summary.id}/audit`}>
-                      <Terminal data-icon="inline-start" />
-                      {messages.requestLogs.openDedicatedAuditPage}
-                    </Link>
-                  </Button>
-                </div>
-                <RequestLogAuditTab
-                  apiFamily={request.summary.api_family}
-                  audits={audits}
-                  loading={auditLoading}
-                  state={auditState}
-                  formatTimestamp={formatTimestamp}
-                />
-              </TabsContent>
-            </Tabs>
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={`/request-logs/${request.summary.id}/audit`}>
+                    <Terminal data-icon="inline-start" />
+                    {messages.requestLogs.openDedicatedAuditPage}
+                  </Link>
+                </Button>
+              </div>
+              <RequestLogOverviewTab
+                request={request}
+                formatTimestamp={formatTimestamp}
+              />
+            </div>
           )}
         </div>
       </SheetContent>

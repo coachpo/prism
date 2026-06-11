@@ -9,14 +9,6 @@ const rawErrorDetail = JSON.stringify({
   },
 });
 const formattedErrorDetail = JSON.stringify(JSON.parse(rawErrorDetail), null, 2);
-const auditHeaders = "content-type: application/json\r\nauthorization: Bearer [REDACTED]";
-const auditRequestBody = "line-1\r\nline-2\r\nline-3";
-const auditResponseBody = "event: response.created\r\ndata: {\"id\":\"resp_101\"}";
-
-function normalizeClipboardText(value: string) {
-  return value.split("\r\n").join("\n");
-}
-
 function createRequestLogDetail(routingOverrides: Partial<RequestLogDetailRouting> = {}) {
   const baseRouting = {
     profile_id: 1,
@@ -124,52 +116,6 @@ function createRequestLogDetail(routingOverrides: Partial<RequestLogDetailRoutin
   };
 }
 
-function createAuditListItem() {
-  return {
-    id: 201,
-    request_log_id: 101,
-    profile_id: 1,
-    vendor_id: 1,
-    model_id: "gpt-4o-mini",
-    endpoint_id: 1,
-    connection_id: null,
-    endpoint_base_url: "https://api.example.test",
-    endpoint_description: "Primary endpoint",
-    request_method: "POST",
-    request_url: "https://api.example.test/v1/responses",
-    request_headers: auditHeaders,
-    request_body_preview: auditRequestBody,
-    response_status: 200,
-    is_stream: false,
-    duration_ms: 125,
-    created_at: timestamp,
-  };
-}
-
-function createAuditDetail() {
-  return {
-    id: 201,
-    request_log_id: 101,
-    profile_id: 1,
-    vendor_id: 1,
-    model_id: "gpt-4o-mini",
-    endpoint_id: 1,
-    connection_id: null,
-    endpoint_base_url: "https://api.example.test",
-    endpoint_description: "Primary endpoint",
-    request_method: "POST",
-    request_url: "https://api.example.test/v1/responses",
-    request_headers: auditHeaders,
-    request_body: auditRequestBody,
-    response_status: 200,
-    response_headers: "content-type: application/json",
-    response_body: auditResponseBody,
-    is_stream: false,
-    duration_ms: 125,
-    created_at: timestamp,
-  };
-}
-
 async function readCopiedText(page: Page) {
   return page.evaluate(() => (window as Window & { __copiedText?: string }).__copiedText ?? "");
 }
@@ -213,12 +159,8 @@ async function mockRequestLogDetailRoutes(
   page: Page,
   detail: ReturnType<typeof createRequestLogDetail> = createRequestLogDetail(),
 ) {
-  const auditListItem = createAuditListItem();
-  const auditDetail = createAuditDetail();
-
   await page.route("**/*", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
-    const searchParams = new URL(route.request().url()).searchParams;
 
     if (!pathname.startsWith("/api/")) {
       return route.continue();
@@ -292,19 +234,6 @@ async function mockRequestLogDetailRoutes(
 
     if (pathname === "/api/stats/requests/101") {
       return fulfillJson(detail);
-    }
-
-    if (pathname === "/api/audit/logs") {
-      return fulfillJson({
-        items: searchParams.get("request_log_id") === "101" ? [auditListItem] : [],
-        total: 1,
-        limit: 20,
-        offset: 0,
-      });
-    }
-
-    if (pathname === "/api/audit/logs/201") {
-      return fulfillJson(auditDetail);
     }
 
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
@@ -430,33 +359,5 @@ test.describe("request log detail copy regression", () => {
     await expect(routingContext).toContainText("Selected Terminal Target");
     await expect(routingContext).toContainText("No terminal target selected");
     await expect(routingContext).not.toContainText("#501");
-  });
-
-  test("context-capability-authoring: request-log detail audit payload copy buttons write their corresponding payload blocks", async ({ page, context }) => {
-    const { drawer, ownerRouteRequests } = await openRequestLogDetail(page, context);
-
-    await drawer.getByRole("tab", { name: "Audit" }).click();
-    expect(ownerRouteRequests).toEqual([]);
-
-    const copyButtons = drawer.getByRole("button", { name: /^Copy$/ });
-
-    await expect(copyButtons).toHaveCount(4);
-
-    const requestHeaders = drawer.getByRole("region", { name: "Request headers" });
-    await expect(requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
-    await requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first().evaluate((element) => {
-      element.textContent = "mutated-audit-headers";
-    });
-    await drawer.getByText("line-1").evaluate((element) => {
-      element.textContent = "mutated-audit-request";
-    });
-    await drawer.getByText("event: response.created").evaluate((element) => {
-      element.textContent = "mutated-audit-response";
-    });
-
-    await expectCopyWithoutDownload(page, () => copyButtons.nth(0).click(), normalizeClipboardText(auditHeaders));
-    await expectCopyWithoutDownload(page, () => copyButtons.nth(1).click(), normalizeClipboardText(auditRequestBody));
-    await expectCopyWithoutDownload(page, () => copyButtons.nth(2).click(), "content-type: application/json");
-    await expectCopyWithoutDownload(page, () => copyButtons.nth(3).click(), normalizeClipboardText(auditResponseBody));
   });
 });
