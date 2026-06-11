@@ -94,10 +94,10 @@ function ConnectionDialogSection({
 }: ConnectionDialogSectionProps) {
   return (
     <section
-      className={cn("flex flex-col gap-4 rounded-2xl border bg-muted/15 p-4 sm:p-5", className)}
+      className={cn("flex flex-col gap-3 border-b pb-4 last:border-b-0 last:pb-0", className)}
       data-testid={dataTestId}
     >
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-0.5">
         <h2 className="text-sm font-semibold tracking-tight text-foreground">{title}</h2>
         {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
       </div>
@@ -122,7 +122,7 @@ function ConnectionDialogField({
   label,
 }: ConnectionDialogFieldProps) {
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div className={cn("flex flex-col gap-1.5", className)}>
       <Label htmlFor={id}>{label}</Label>
       {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
       {children}
@@ -132,7 +132,7 @@ function ConnectionDialogField({
 
 function ConnectionSummaryItem({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1">
       <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
       {children}
     </div>
@@ -402,8 +402,8 @@ export function ConnectionDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(94vh,68rem)] max-h-[94vh] max-w-6xl flex-col overflow-hidden p-0 sm:max-w-6xl">
-        <DialogHeader className="shrink-0 border-b bg-background px-6 py-5 sm:px-7">
+      <DialogContent className="flex h-[min(92vh,64rem)] max-h-[92vh] max-w-6xl flex-col overflow-hidden p-0 sm:max-w-6xl">
+        <DialogHeader className="shrink-0 border-b bg-background px-5 py-3.5 sm:px-6">
           <DialogTitle>{editingConnection ? copy.editConnection : copy.addConnection}</DialogTitle>
           <DialogDescription>{copy.connectionDialogDescription}</DialogDescription>
         </DialogHeader>
@@ -424,19 +424,20 @@ export function ConnectionDialog({
 
           <DialogBody className="min-h-0 flex-1 p-0">
             <ScrollArea className="min-h-0 flex-1">
-              <div className="px-6 py-5 sm:px-7" data-testid="connection-dialog-scroll-body">
+              <div className="px-5 py-4 sm:px-6" data-testid="connection-dialog-scroll-body">
                 <div
-                  className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.95fr)]"
+                  className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.95fr)]"
+                  data-layout="compact-flat"
                   data-testid="connection-dialog-main-grid"
                 >
-                  <div className="flex min-h-0 flex-col gap-6" data-testid="connection-dialog-left-column">
+                  <div className="flex min-h-0 flex-col gap-4" data-testid="connection-dialog-left-column">
                     <ConnectionDialogSection
                       title={copy.setup}
                       description={copy.setupDescription}
                       dataTestId="connection-dialog-setup-section"
                     >
                       <div
-                        className="flex flex-col gap-4 rounded-xl border bg-background/80 p-4"
+                        className="flex flex-col gap-3 border-b pb-3"
                         data-testid="connection-dialog-endpoint-source-section"
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -460,14 +461,14 @@ export function ConnectionDialog({
                             clearDialogTestResult();
                             setCreateMode(value as "select" | "new");
                           }}
-                          className="gap-4"
+                          className="gap-3"
                         >
                           <TabsList className="grid w-full grid-cols-2 md:max-w-md">
                             <TabsTrigger value="select">{copy.selectExisting}</TabsTrigger>
                             <TabsTrigger value="new">{copy.createNew}</TabsTrigger>
                           </TabsList>
 
-                          <TabsContent value="select" className="flex flex-col gap-2.5">
+                          <TabsContent value="select" className="flex flex-col gap-2">
                             <ConnectionDialogField id="conn-selected-endpoint" label={copy.selectEndpoint}>
                               <Select value={selectedEndpointId} onValueChange={(value) => {
                                 clearDialogTestResult();
@@ -495,7 +496,7 @@ export function ConnectionDialog({
 
                           <TabsContent
                             value="new"
-                            className="grid gap-3 md:grid-cols-2"
+                            className="grid gap-2.5 md:grid-cols-2"
                             data-testid="connection-dialog-create-new-grid"
                           >
                             <ConnectionDialogField id="endpoint-name" label={copy.endpointName}>
@@ -549,7 +550,7 @@ export function ConnectionDialog({
                       </div>
 
                       <div
-                        className="grid gap-4 rounded-xl border bg-background/80 p-4 md:grid-cols-2"
+                        className="grid gap-3 border-b pb-3 md:grid-cols-2"
                         data-testid="connection-dialog-configuration-section"
                       >
                         <ConnectionDialogField
@@ -623,7 +624,7 @@ export function ConnectionDialog({
                         description={copy.openaiTextCapabilityDescription}
                         dataTestId="connection-dialog-openai-capability-section"
                       >
-                        <div className="grid gap-4 rounded-xl border bg-background/80 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]">
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]">
                           <ConnectionDialogField
                             id="conn-openai-text-capability"
                             label={copy.openaiTextCapabilitySelector}
@@ -648,7 +649,7 @@ export function ConnectionDialog({
                             </Select>
                           </ConnectionDialogField>
 
-                          <div className="flex flex-col gap-2 rounded-xl border bg-muted/15 p-4">
+                          <div className="flex flex-col gap-1.5 border-l pl-3">
                             <p className="text-xs font-medium text-muted-foreground">
                               {copy.openaiTextCapabilitySummaryLabel}
                             </p>
@@ -665,7 +666,7 @@ export function ConnectionDialog({
                         description={copy.probeBehaviorDescription}
                         dataTestId="connection-dialog-probe-section"
                       >
-                        <div className="grid gap-4 rounded-xl border bg-background/80 p-4 md:grid-cols-2">
+                        <div className="grid gap-3 md:grid-cols-2">
                           <ConnectionDialogField
                             id="conn-probe-api"
                             label={copy.probeApi}
@@ -713,7 +714,7 @@ export function ConnectionDialog({
                           </ConnectionDialogField>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-background/80 p-4">
+                        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
                           <div className="flex min-w-0 flex-col gap-1">
                             <p className="text-xs font-medium text-muted-foreground">
                               {copy.probeBehaviorSummaryLabel}
@@ -729,7 +730,7 @@ export function ConnectionDialog({
                       description={copy.contextRoutingOverridesDescription}
                       dataTestId="connection-dialog-context-routing-overrides-section"
                     >
-                      <div className="flex flex-col gap-3 rounded-xl border bg-background/80 p-4">
+                      <div className="flex flex-col gap-2">
                         {contextRoutingOverrideFields.map((field) => {
                           const draft = connectionForm.context_capability_drafts[field.field];
                           const inheritedValue = getInheritedCapabilityValue(field.field);
@@ -740,10 +741,10 @@ export function ConnectionDialog({
                           return (
                             <div
                               key={field.field}
-                              className="grid gap-3 rounded-xl border bg-muted/15 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start"
+                              className="grid gap-2 border-b pb-2 last:border-b-0 last:pb-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-start"
                               data-testid={field.rowTestId}
                             >
-                              <div className="flex min-w-0 flex-col gap-2">
+                              <div className="flex min-w-0 flex-col gap-1.5">
                                 <Label htmlFor={field.id}>{field.label}</Label>
                                 {draft.mode === "inherit" ? (
                                   <p className="text-xs text-muted-foreground">{inheritedLabel}</p>
@@ -796,9 +797,9 @@ export function ConnectionDialog({
                       description={copy.advancedRequestSettingsDescription}
                       dataTestId="connection-dialog-advanced-section"
                     >
-                      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                      <div className="grid gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
                         <section
-                          className="flex flex-col gap-4 rounded-xl border bg-background/80 p-4"
+                          className="flex flex-col gap-3 border-b pb-3 xl:border-r xl:border-b-0 xl:pr-3 xl:pb-0"
                           data-testid="connection-dialog-limiter-card"
                         >
                           <div className="flex flex-col gap-1">
@@ -808,7 +809,7 @@ export function ConnectionDialog({
                             <p className="text-sm text-muted-foreground">{copy.leaveBlankForUnlimited}</p>
                           </div>
 
-                          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                          <div className="grid gap-2.5 sm:grid-cols-3 xl:grid-cols-1">
                             {limiterFields.map((field) => (
                               <ConnectionDialogField key={field.field} id={field.id} label={field.label}>
                                 <Input
@@ -826,7 +827,7 @@ export function ConnectionDialog({
                         </section>
 
                         <section
-                          className="flex flex-col gap-3 rounded-xl border bg-background/80 p-4"
+                          className="flex flex-col gap-3"
                           data-testid="connection-dialog-custom-headers-card"
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -849,10 +850,10 @@ export function ConnectionDialog({
                             </Button>
                           </div>
 
-                          <div className="rounded-xl border border-dashed bg-background/70">
-                            <div className="flex flex-col gap-2 p-2 sm:p-3">
+                          <div className="border-t pt-2">
+                            <div className="flex flex-col gap-2">
                               {headerRows.length === 0 ? (
-                                <p className="px-1 py-2 text-xs italic text-muted-foreground">
+                                <p className="py-1.5 text-xs italic text-muted-foreground">
                                   {copy.noCustomHeadersConfigured}
                                 </p>
                               ) : null}
@@ -912,7 +913,7 @@ export function ConnectionDialog({
                     </ConnectionDialogSection>
                   </div>
 
-                  <div className="flex min-h-0 flex-col gap-4" data-testid="connection-dialog-right-column">
+                  <div className="flex min-h-0 flex-col gap-3" data-testid="connection-dialog-right-column">
                     <ConnectionDialogSection
                       title={copy.summaryAndTest}
                       description={copy.summaryAndTestDescription}
@@ -998,10 +999,10 @@ export function ConnectionDialog({
                       {dialogTestResult ? (
                         <div
                           className={cn(
-                            "rounded-xl border p-3 text-sm",
+                            "border-l-2 px-3 py-2 text-sm",
                             dialogTestResult.status === "healthy"
-                              ? "border-emerald-500/25 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
-                              : "border-red-500/25 bg-red-50 text-red-900 dark:bg-red-950/30 dark:text-red-200",
+                              ? "border-emerald-500 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+                              : "border-red-500 bg-red-50 text-red-900 dark:bg-red-950/30 dark:text-red-200",
                           )}
                           data-testid="connection-dialog-test-result"
                         >
@@ -1020,7 +1021,7 @@ export function ConnectionDialog({
             </ScrollArea>
           </DialogBody>
 
-          <div className="shrink-0 border-t bg-background px-6 py-4 sm:px-7">
+          <div className="shrink-0 border-t bg-background px-5 py-3 sm:px-6">
             <DialogFooter className="pt-0">
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

@@ -466,6 +466,7 @@ test("OpenAI connection dialog exposes probe controls and sends the resolved raw
   await page.goto("/models/1");
   await page.getByRole("button", { name: "New terminal target" }).first().click();
 
+  await expect(page.getByTestId("connection-dialog-main-grid")).toHaveAttribute("data-layout", "compact-flat");
   await expect(page.getByTestId("connection-dialog-openai-capability-section")).toBeVisible();
   await expect(page.getByTestId("connection-dialog-probe-section")).toBeVisible();
   await page.locator("#conn-selected-endpoint").click();
@@ -497,6 +498,7 @@ test("non-OpenAI connection dialog hides OpenAI capability and probe sections", 
   await page.goto("/models/2");
   await page.getByRole("button", { name: "New terminal target" }).first().click();
 
+  await expect(page.getByTestId("connection-dialog-main-grid")).toHaveAttribute("data-layout", "compact-flat");
   await expect(page.getByTestId("connection-dialog-openai-capability-section")).toHaveCount(0);
   await expect(page.getByTestId("connection-dialog-probe-section")).toHaveCount(0);
 });
@@ -534,6 +536,7 @@ test("editing an OpenAI connection hydrates the saved probe settings into both s
   await page.goto("/models/3");
   await page.getByRole("button", { name: "Edit Saved Terminal Target" }).first().click();
 
+  await expect(page.getByTestId("connection-dialog-main-grid")).toHaveAttribute("data-layout", "compact-flat");
   await expect(page.getByTestId("connection-dialog-openai-capability-section")).toBeVisible();
   await expect(page.getByTestId("connection-dialog-probe-section")).toBeVisible();
   await expect(page.locator("#conn-openai-text-capability")).toContainText("Chat Completions only");
