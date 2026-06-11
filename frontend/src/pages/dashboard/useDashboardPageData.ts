@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import type {
   DashboardSnapshot,
-  DashboardSnapshotCoverage,
-  DashboardSnapshotHealth,
   RequestLogListItem,
   SpendingTopModel,
   StatGroup,
@@ -34,10 +32,6 @@ export interface DashboardMetricSnapshot {
 
 export interface DashboardOverviewData {
   apiFamilyRows: StatGroup[];
-  coverage24h: DashboardSnapshotCoverage | null;
-  coverage30d: DashboardSnapshotCoverage | null;
-  generatedAt: string | null;
-  health: DashboardSnapshotHealth | null;
   metricSnapshot: DashboardMetricSnapshot;
   modelDisplayNames: Map<string, string>;
   recentRequests: RequestLogListItem[];
@@ -121,10 +115,6 @@ function toDashboardOverviewData(
     apiFamilyRows: [...(snapshot?.api_family_rows ?? [])].sort(
       (left, right) => right.total_requests - left.total_requests,
     ),
-    coverage24h: snapshot?.coverage_24h ?? null,
-    coverage30d: snapshot?.coverage_30d ?? null,
-    generatedAt: snapshot?.generated_at ?? null,
-    health: snapshot?.health ?? null,
     metricSnapshot: toDashboardMetricSnapshot(snapshot),
     modelDisplayNames: buildModelDisplayNames(snapshot),
     recentRequests: snapshot?.recent_requests ?? [],
@@ -141,7 +131,6 @@ export function useDashboardPageData({
 }: UseDashboardPageDataInput) {
   const latestDashboardRequestIdRef = useRef(0);
   const {
-    dashboardError,
     dashboardSnapshot,
     fetchDashboardData,
     loading,
@@ -188,7 +177,6 @@ export function useDashboardPageData({
   return {
     clearRecentRequestHighlight,
     connectionState,
-    dashboardError,
     isRefreshing,
     isSyncing,
     loading,

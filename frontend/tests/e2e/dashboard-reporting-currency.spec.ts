@@ -123,16 +123,19 @@ test.describe("dashboard reporting currency", () => {
 
     await page.goto("/observe?tab=overview");
 
-    const spendBand = page.getByTestId("observe-band-spend");
-    const spendLeader = page.getByTestId("observe-spend-leader");
+    const metricValues = page.locator('[data-slot="metric-card"] [data-slot="metric-value"]');
+    const spendingMetric = metricValues.nth(2);
+    const spendingCard = page.locator('[data-slot="metric-card"]').filter({ hasText: "30d Total Spend" }).first();
 
-    await expect(spendBand).toContainText("¥0.25 CNY", {
+    await expect(spendingMetric).toHaveText("¥0.25 CNY", {
       timeout: reportingCurrencyExpectationTimeout,
     });
-    await expect(spendBand).toContainText("9 priced");
-    await expect(spendBand).toContainText("2 unpriced");
-    await expect(spendLeader).toContainText("Highest request-based spend in the current reporting currency.");
-    await expect(spendLeader).toContainText("¥0.25 CNY", {
+    await expect(spendingCard).toContainText("Request-based spend");
+    await expect(spendingCard).toContainText("9 priced");
+    await expect(spendingCard).toContainText("2 unpriced");
+    await expect(page.getByText("Top Models by Spend")).toBeVisible();
+    await expect(page.getByText("Highest request-based spend in the last 30 days")).toBeVisible();
+    await expect(page.getByText("¥0.25 CNY")).toHaveCount(2, {
       timeout: reportingCurrencyExpectationTimeout,
     });
 
@@ -142,10 +145,10 @@ test.describe("dashboard reporting currency", () => {
     await expect(page.getByText("Loading application...")).toHaveCount(0, {
       timeout: reportingCurrencyExpectationTimeout,
     });
-    await expect(spendBand).toContainText("$0.25 USD", {
+    await expect(spendingMetric).toHaveText("$0.25 USD", {
       timeout: reportingCurrencyExpectationTimeout,
     });
-    await expect(spendLeader).toContainText("$0.25 USD", {
+    await expect(page.getByText("$0.25 USD")).toHaveCount(2, {
       timeout: reportingCurrencyExpectationTimeout,
     });
   });

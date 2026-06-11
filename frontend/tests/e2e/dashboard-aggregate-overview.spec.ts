@@ -164,8 +164,9 @@ test.describe("dashboard aggregate overview regression", () => {
     await page.goto("/observe?tab=bogus");
 
     await expect(page).toHaveURL(/\/observe\?tab=overview$/);
-    await expect(page.getByTestId("observe-dashboard")).toBeVisible({ timeout: routeReadyTimeout });
-    await expect(page.getByRole("heading", { name: /Observe model traffic/ })).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByRole("tab")).toHaveText(["Overview", "Analytics", "Routing"]);
+    await expect(page.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
   });
 
   test("loads overview with one aggregate request and no legacy fan-out", async ({ page }) => {
@@ -180,10 +181,12 @@ test.describe("dashboard aggregate overview regression", () => {
 
     await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
-    await expect(page.getByTestId("observe-dashboard")).toBeVisible({ timeout: routeReadyTimeout });
-    await expect(page.getByRole("heading", { name: /Observe model traffic/ })).toBeVisible({ timeout: routeReadyTimeout });
-    await expect(page.getByTestId("observe-routing-theater")).toBeVisible();
-    await expect(page.getByTestId("observe-spend-leader")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({ timeout: routeReadyTimeout });
+    await expect(page.getByRole("tab")).toHaveText(["Overview", "Analytics", "Routing"]);
+    await expect(page.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("routing-diagram-card")).toHaveCount(0);
+    await expect(page.getByText("Routing Target Health")).toHaveCount(0);
+    await expect(page.getByText("Top Models by Spend")).toBeVisible();
     await expect(page.getByText("Model A Spend Label")).toBeVisible();
 
     await expect
@@ -231,10 +234,14 @@ test.describe("dashboard aggregate overview regression", () => {
 
     await page.goto("/observe?tab=overview");
 
-    await expect(page.getByTestId("observe-dashboard")).toBeVisible();
-    await expect(page.getByText("No requests observed")).toBeVisible();
-    await expect(page.getByText("No spend leader")).toBeVisible();
-    await expect(page.getByText("0 requests / 0% errors")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+    await expect(page.getByRole("tab")).toHaveText(["Overview", "Analytics", "Routing"]);
+    await expect(page.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("routing-diagram-card")).toHaveCount(0);
+    await expect(page.getByText("No active routes")).toHaveCount(0);
+    await expect(page.getByText("No recent activity")).toBeVisible();
+    await expect(page.getByText("No spending data")).toBeVisible();
+    await expect(page.getByText("0 total requests")).toBeVisible();
     expect(consoleErrors).toEqual([]);
 
     await mkdir(dirname(emptyScreenshotPath), { recursive: true });

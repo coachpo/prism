@@ -578,9 +578,13 @@ test.describe("models and request logs reporting currency", () => {
 
     await page.goto("/observe?tab=overview");
 
-    await expect(page.getByTestId("request-stream-row-0")).toContainText("$0.75");
-    await expect(page.getByTestId("request-stream-row-1")).toContainText("€0.50 EUR");
-    await expect(page.getByTestId("request-stream-row-3")).toContainText("Unpriced");
-    await expect(page.getByText("$0.50")).toHaveCount(0);
+    const recentActivity = page.locator('[data-slot="card"]').filter({ hasText: "Recent Activity" }).first();
+
+    const recentRows = recentActivity.getByRole("button");
+
+    await expect(recentRows.nth(0)).toContainText("$0.75");
+    await expect(recentRows.nth(1)).toContainText("€0.50 EUR");
+    await expect(recentRows.nth(3)).toContainText("Unpriced");
+    await expect(recentActivity.getByText("$0.50")).toHaveCount(0);
   });
 });

@@ -302,7 +302,7 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
-    await expect.poll(() => requestCounts.dashboardByProfile["1"] ?? 0).toBeGreaterThan(0);
+    await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
   });
 
   test("fails open and renders the protected shell when costing bootstrap returns an error", async ({ page }) => {
@@ -322,7 +322,7 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
-    await expect.poll(() => requestCounts.dashboardByProfile["1"] ?? 0).toBeGreaterThan(0);
+    await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
   });
 
   test("re-engages the route fallback immediately when the selected profile changes", async ({ page }) => {
@@ -346,7 +346,7 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
-    await expect.poll(() => requestCounts.dashboardByProfile["1"] ?? 0).toBeGreaterThan(0);
+    await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
 
     await page.getByTestId("shell-profile-switcher").getByRole("button").click();
     await page.getByRole("menuitem", { name: /Blue Team/ }).click();
@@ -357,7 +357,7 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByTestId("observe-dashboard")).toHaveCount(0);
 
     await page.waitForTimeout(200);
-    expect(requestCounts.dashboardByProfile["2"] ?? 0).toBe(0);
+    expect(requestCounts.usageSnapshotByProfile["2"] ?? 0).toBe(0);
 
     secondProfileCostingGate.resolve();
 
@@ -368,7 +368,7 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
-    await expect.poll(() => requestCounts.dashboardByProfile["2"] ?? 0).toBeGreaterThan(0);
+    await expect.poll(() => requestCounts.usageSnapshotByProfile["2"] ?? 0).toBeGreaterThan(0);
     await expect(page.getByTestId("shell-profile-switcher")).toContainText("Blue Team", {
       timeout: routeReadyTimeout,
     });

@@ -3,7 +3,7 @@ import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
 const mobileViewport = { width: 390, height: 844 };
-const desktopViewport = { width: 1600, height: 1000 };
+const desktopViewport = { width: 1280, height: 900 };
 
 function createProfile(id: number, name: string, isActive = false) {
   return {
@@ -394,13 +394,6 @@ function getBoundingBoxOrigin(box: NonNullable<Awaited<ReturnType<Locator["bound
   };
 }
 
-function getBoundingBoxDistance(
-  current: { x: number; y: number },
-  reference: { x: number; y: number },
-) {
-  return Math.hypot(current.x - reference.x, current.y - reference.y);
-}
-
 function expectBoundingBoxDistance(
   current: { x: number; y: number },
   reference: { x: number; y: number },
@@ -412,7 +405,7 @@ function expectBoundingBoxDistance(
     min?: number;
   },
 ) {
-  const distance = getBoundingBoxDistance(current, reference);
+  const distance = Math.hypot(current.x - reference.x, current.y - reference.y);
 
   if (typeof max === "number") {
     expect(distance).toBeLessThanOrEqual(max);
@@ -487,7 +480,8 @@ test.describe("dashboard routing shell", () => {
 
     await page.goto("/observe?tab=routing");
     await expect(page).toHaveURL(/\/observe\?tab=routing$/);
-    await expect(page.getByTestId("observe-routing-theater")).toBeVisible();
+    await expect(page.getByRole("tab")).toHaveText(["Overview", "Analytics", "Routing"]);
+    await expect(page.getByRole("tab", { name: "Routing" })).toHaveAttribute("aria-selected", "true");
 
     const routingCard = getRoutingCard(page);
     const summaryPills = routingCard.locator('[aria-live="polite"]');
@@ -495,7 +489,6 @@ test.describe("dashboard routing shell", () => {
     const legendItems = legend.getByRole("listitem");
     const desktopDiagram = routingCard.getByTestId("routing-diagram-desktop");
     const flowPane = desktopDiagram.locator(".react-flow__pane");
-    const modelNodeWrapper = desktopDiagram.locator('.react-flow__node[data-id="model-101"]');
     const modelNode = desktopDiagram.getByTestId("routing-diagram-node-model-model-101");
     const primaryTargetNode = desktopDiagram.getByTestId("routing-diagram-node-terminal-target-terminal-target-501");
     const backupTargetNode = desktopDiagram.getByTestId("routing-diagram-node-terminal-target-terminal-target-502");
@@ -592,29 +585,20 @@ test.describe("dashboard routing shell", () => {
     await fitViewControl.click();
     await expect.poll(() => getViewportTransform(desktopDiagram)).not.toBe(viewportTransformAfterPan);
 
-    const modelNodeBeforeDrag = await modelNodeWrapper.boundingBox();
+    const modelNodeBeforeDrag = await modelNode.boundingBox();
     expect(modelNodeBeforeDrag).not.toBeNull();
 
-    const beforeDragOrigin = getBoundingBoxOrigin(modelNodeBeforeDrag!);
-    let afterDragOrigin = beforeDragOrigin;
+    await dragLocatorBy(page, modelNode, {
+      deltaX: 64,
+      deltaY: 44,
+      startXRatio: 0.25,
+      startYRatio: 0.2,
+    });
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await dragLocatorBy(page, modelNodeWrapper, {
-        deltaX: 64,
-        deltaY: 44,
-        startXRatio: 0.25,
-        startYRatio: 0.2,
-      });
-
-      const modelNodeAfterAttempt = await modelNodeWrapper.boundingBox();
-      expect(modelNodeAfterAttempt).not.toBeNull();
-      afterDragOrigin = getBoundingBoxOrigin(modelNodeAfterAttempt!);
-      if (getBoundingBoxDistance(afterDragOrigin, beforeDragOrigin) >= 30) {
-        break;
-      }
-    }
-
-    expectBoundingBoxDistance(afterDragOrigin, beforeDragOrigin, { min: 30 });
+    const modelNodeAfterDrag = await modelNode.boundingBox();
+    expect(modelNodeAfterDrag).not.toBeNull();
+    expect(modelNodeAfterDrag!.x).not.toBe(modelNodeBeforeDrag!.x);
+    expect(modelNodeAfterDrag!.y).not.toBe(modelNodeBeforeDrag!.y);
 
     await tabUntilFocused(page, modelAction);
     await expect(modelAction).toBeFocused();
@@ -651,32 +635,26 @@ test.describe("dashboard routing shell", () => {
 
     const routingCard = getRoutingCard(page);
     const desktopDiagram = routingCard.getByTestId("routing-diagram-desktop");
-    const modelNode = desktopDiagram.locator('.react-flow__node[data-id="model-101"]');
-    const refreshButton = page.getByRole("button", { name: /refresh theater/i });
+    const modelNode = desktopDiagram.getByTestId("routing-diagram-node-model-model-101");
+    const refreshButton = page.getByRole("button", { name: /refresh dashboard/i });
 
     await expect(desktopDiagram).toBeVisible();
 
     const modelNodeBeforeDrag = await modelNode.boundingBox();
     expect(modelNodeBeforeDrag).not.toBeNull();
 
+    await dragLocatorBy(page, modelNode, {
+      deltaX: 72,
+      deltaY: 48,
+      startXRatio: 0.25,
+      startYRatio: 0.2,
+    });
+
+    const modelNodeAfterDrag = await modelNode.boundingBox();
+    expect(modelNodeAfterDrag).not.toBeNull();
+
     const beforeDragOrigin = getBoundingBoxOrigin(modelNodeBeforeDrag!);
-    let afterDragOrigin = beforeDragOrigin;
-
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await dragLocatorBy(page, modelNode, {
-        deltaX: 72,
-        deltaY: 48,
-        startXRatio: 0.25,
-        startYRatio: 0.2,
-      });
-
-      const modelNodeAfterAttempt = await modelNode.boundingBox();
-      expect(modelNodeAfterAttempt).not.toBeNull();
-      afterDragOrigin = getBoundingBoxOrigin(modelNodeAfterAttempt!);
-      if (getBoundingBoxDistance(afterDragOrigin, beforeDragOrigin) >= 40) {
-        break;
-      }
-    }
+    const afterDragOrigin = getBoundingBoxOrigin(modelNodeAfterDrag!);
 
     expectBoundingBoxDistance(afterDragOrigin, beforeDragOrigin, { min: 40 });
 
@@ -768,10 +746,10 @@ test.describe("dashboard routing shell", () => {
 
     await page.goto("/observe?tab=overview");
 
-    const requestStream = page.getByTestId("observe-request-stream");
+    const recentActivityCard = page.locator('[data-slot="card"]').filter({ hasText: "Recent Activity" }).first();
 
-    await expect(requestStream.getByRole("button", { name: /Model A/ })).toBeVisible();
-    await requestStream.getByRole("button", { name: /Model A/ }).click();
+    await expect(recentActivityCard.getByRole("button", { name: /Model A/ })).toBeVisible();
+    await recentActivityCard.getByRole("button", { name: /Model A/ }).click();
 
     await expect(page).toHaveURL(/\/observe\/requests\?request_id=301$/);
     await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();

@@ -366,7 +366,7 @@ test.describe("protected shell sidebar regression", () => {
 
     await expectShellChrome(page, { current: "Dashboard" });
     await expect(page.getByTestId("observe-dashboard")).toBeVisible();
-    await expect.poll(() => requestCounts.dashboard).toBeGreaterThan(0);
+    await expect.poll(() => requestCounts.usageSnapshot).toBeGreaterThan(0);
   });
 
   test("renders the dashboard shell and persists desktop collapse state", async ({ page }) => {
