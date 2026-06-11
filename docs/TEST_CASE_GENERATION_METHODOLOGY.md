@@ -96,7 +96,7 @@ Always include invalid or conflicting inputs for:
 - config import payload shape and reference validation
 - request-log and statistics filters
 
-`frontend/src/pages/models/modelFormState.ts`, `frontend/src/pages/loadbalance-strategies/loadbalanceStrategyFormState.ts`, `frontend/src/pages/pricing-templates/pricingTemplateFormState.ts`, `frontend/src/pages/settings/settingsPageHelpers.ts`, and `frontend/src/lib/configImportValidation.ts` are primary frontend seams for illegal-input case generation.
+`frontend/src/features/models/modelSchemas.ts`, `frontend/src/features/loadbalance/banPolicySchemas.ts`, `frontend/src/features/pricing/pricingSchemas.ts`, `frontend/src/pages/settings/settingsPageHelpers.ts`, and `frontend/src/lib/configImportValidation.ts` are primary frontend seams for illegal-input case generation.
 
 ## 5. Generation Workflow
 

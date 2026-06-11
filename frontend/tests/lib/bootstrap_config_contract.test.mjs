@@ -19,7 +19,7 @@ const { load } = createTsModuleLoader({
 });
 
 const { normalizeBootstrapValues } = load(
-  path.join(frontendDir, "src/pages/settings/startup/startupFieldMetadata.ts"),
+  path.join(frontendDir, "src/features/settings/startup/startupFieldMetadata.ts"),
 );
 
 function buildBootstrapValues() {

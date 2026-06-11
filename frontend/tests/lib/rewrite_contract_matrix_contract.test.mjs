@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -25,6 +26,26 @@ function cloneMatrix(overrides = {}) {
     ...overrides,
   };
 }
+
+function collectMatrixSourcePaths() {
+  const paths = [];
+  for (const route of rewriteContractMatrix.routes) {
+    paths.push(route.component);
+  }
+  for (const safeguard of rewriteContractMatrix.destructiveSafeguards) {
+    paths.push(...safeguard.evidence);
+  }
+  return paths.filter((value) => /^src\/.*\.[cm]?[tj]sx?$/.test(value));
+}
+
+test("rewrite contract matrix references existing frontend source files", () => {
+  const missingPaths = collectMatrixSourcePaths().filter(
+    (sourcePath) => !existsSync(path.join(frontendDir, sourcePath)),
+  );
+
+  assert.deepEqual(missingPaths, []);
+});
+
 test("rewrite contract matrix validates current frontend route and workflow coverage", () => {
   const result = validateRewriteContractMatrix(rewriteContractMatrix);
 

@@ -1,7 +1,7 @@
-# FRONTEND MODELS DOMAIN KNOWLEDGE BASE
+# FRONTEND MODELS COMPATIBILITY CLUSTER
 
 ## OVERVIEW
-`pages/models/` owns the models list search and row-card presentation, dialog state, vendor-grouped table rendering with row-level `api_family` still visible, vendor and `api_family` form logic, context overflow promotion target controls, ordered same-family model target editing, explicit Ban Policy strategy attachment during create or edit, and separate 24-hour metric hydration behind `../ModelsPage.tsx`.
+`pages/models/` keeps model dialogs, toolbar, form state, metric hydration, and shared-cache helpers still imported by the feature-owned `/models` route under `src/features/models/`. The feature route owns page orchestration and table rendering.
 
 ## STRUCTURE
 ```
@@ -9,7 +9,6 @@ models/
 ├── ModelDialog.tsx         # Create-edit dialog, overflow promotion target selector and backend errors
 ├── DeleteModelDialog.tsx   # Delete confirmation flow
 ├── modelFormState.ts       # Form defaults, payload transforms, access-target and promotion-target helpers
-├── ModelsTable.tsx         # Search-filtered horizontal row list, promotion-target display, row actions
 ├── ModelsToolbar.tsx       # Search-only toolbar
 ├── modelTableContracts.ts  # Shared metric type contract
 ├── useModelMetrics24h.ts   # 24h metrics and spend hydration
@@ -18,12 +17,12 @@ models/
 
 ## WHERE TO LOOK
 
+- Feature route and table rendering: `../../features/models/`, `../../features/models/ModelsTable.tsx`
 - Shared model/vendor bootstrap and mutation patching: `useModelsPageData.ts`
 - Unified access-target form behavior, strategy attachment rules, overflow promotion target normalization, ordered target normalization, vendor selection, and payload transforms that carry `vendor_id` plus fixed `api_family` while preserving vendor metadata such as `icon_key`: `modelFormState.ts`
 - Overflow promotion target selector, backend validation messages, and create/edit payload handoff: `ModelDialog.tsx`
 - 24h metrics and spend overlays: `useModelMetrics24h.ts`
 - Search toolbar: `ModelsToolbar.tsx`
-- Row rendering, promotion-target display, navigation, and row actions: `ModelsTable.tsx`
 
 ## CONVENTIONS
 

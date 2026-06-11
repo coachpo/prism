@@ -1,47 +1,27 @@
-# FRONTEND PROXY API KEYS DOMAIN KNOWLEDGE BASE
+# FRONTEND PROXY API KEYS COMPATIBILITY CLUSTER
 
 ## OVERVIEW
-`pages/proxy-api-keys/` owns global proxy-key issuance, edit, rotation, deletion, auth-status messaging, and one-time secret display behind `../ProxyApiKeysPage.tsx`. These are instance credentials, so the page stays global rather than selected-profile scoped.
+`pages/proxy-api-keys/` keeps proxy-key widgets still imported by the feature-owned `/control/proxy-keys` route under `src/features/proxy-keys/`. Runtime proxy API keys are global instance credentials, not selected-profile state.
 
 ## STRUCTURE
-```
+```text
 proxy-api-keys/
+├── ProxyApiKeysPageSkeleton.tsx  # Key Vault Console loading structure
 ├── ProxyKeyDeleteAlertDialog.tsx # Destructive delete confirmation and delete-impact warnings
 ├── ProxyKeyDetailSheet.tsx       # Sheet-based metadata, notes, expiry, and active-state edit flow
 ├── ProxyKeyEnforcementPanel.tsx  # Auth enforcement state and proxy-key quota rail
 ├── ProxyKeyIssuePanel.tsx        # Field-based credential issuance form
 ├── ProxyKeyLedgerCard.tsx        # Issued-key ledger, lifecycle labels, lineage, and row actions
-├── ProxyKeySecretReveal.tsx      # One-time create/rotate secret reveal and copy action
-├── ProxyApiKeysPageSkeleton.tsx  # Key Vault Console loading structure
-├── proxyKeyFormatting.ts         # Auth-status tone, lifecycle, date, and quota helpers
-└── useProxyApiKeysPageData.ts    # Parallel bootstrap, create, edit, rotate, delete, and badge state
+└── proxyKeyFormatting.ts         # Auth-status tone, lifecycle, date, and quota helpers
 ```
 
 ## WHERE TO LOOK
-
-- Parallel bootstrap of auth settings and current keys: `useProxyApiKeysPageData.ts`
-- Key Vault Console composition and responsive zone order: `../ProxyApiKeysPage.tsx`
-- Create and rotate flows with one-time secret handling: `useProxyApiKeysPageData.ts`, `ProxyKeyIssuePanel.tsx`, `ProxyKeySecretReveal.tsx`
+- Feature route and proxy-key data orchestration: `../../features/proxy-keys/`
 - Auth enforcement and quota display: `ProxyKeyEnforcementPanel.tsx`, `proxyKeyFormatting.ts`
-- Edit flow for stored metadata, notes, expiry, and active state: `ProxyKeyDetailSheet.tsx`, `useProxyApiKeysPageData.ts`
-- Delete confirmations, auth-enabled warning, successor warning, and list patching: `ProxyKeyDeleteAlertDialog.tsx`, `useProxyApiKeysPageData.ts`
-- Auth-status badge tone, ledger lifecycle copy, and lineage labels: `proxyKeyFormatting.ts`, `ProxyKeyLedgerCard.tsx`
+- Create, edit, rotate, delete, and ledger presentation: `ProxyKeyIssuePanel.tsx`, `ProxyKeyDetailSheet.tsx`, `ProxyKeyDeleteAlertDialog.tsx`, `ProxyKeyLedgerCard.tsx`
 
 ## CONVENTIONS
-
-- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
-- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Treat proxy API key management as a global auth-settings workflow, not a selected-profile feature.
-- Bootstrap auth settings and existing keys in parallel with `Promise.allSettled()`.
+- Bootstrap auth settings and existing keys in parallel with `Promise.allSettled()` in the feature data hook.
 - Patch the local key list after create, edit, rotate, and delete flows instead of reloading the whole page.
-
-- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
-
-## LLM UPSTREAM MATRIX
-- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
-
-## ANTI-PATTERNS
-
 - Do not scope proxy-key UX to the selected profile; runtime keys are global instance credentials.
-- Do not discard the latest generated secret before the user has a chance to copy it.
-- Do not reload the page after create, edit, rotate, or delete when `useProxyApiKeysPageData.ts` already patches state locally.

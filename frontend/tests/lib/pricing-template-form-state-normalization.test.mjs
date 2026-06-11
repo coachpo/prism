@@ -30,7 +30,7 @@ const {
   normalizePricingTemplateFormPrices,
   normalizeTemplatePrice,
   pricingTemplateFormStateFromTemplate,
-} = load(path.join(frontendDir, "src/pages/pricing-templates/pricingTemplateFormState.ts"));
+} = load(path.join(frontendDir, "src/features/pricing/pricingSchemas.ts"));
 
 const priceFields = [
   "input_price",

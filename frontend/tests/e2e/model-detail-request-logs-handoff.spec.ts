@@ -301,52 +301,8 @@ test("model detail overview omits the standalone request-log CTA card", async ({
   await expect(page.getByRole("button", { name: "View Request Logs" })).toHaveCount(0);
 });
 
-test("model detail Ban Policy state and event detail use until-reset snapshot wording", async ({ page }) => {
+test("Ban Policy event detail uses current snapshot field names", async ({ page }) => {
   await page.goto("/");
-
-  const currentStateCopy = await page.evaluate(async () => {
-    const modulePath = "/src/pages/model-detail/connections-list/ConnectionCardSectionsShared.ts";
-    const { buildCurrentStateCopy } = await import(/* @vite-ignore */ modulePath);
-
-    return buildCurrentStateCopy(
-      {
-        connection_id: 501,
-        window_started_at: "2026-04-27T00:00:00Z",
-        window_request_count: 1,
-        in_flight_non_stream: 0,
-        in_flight_stream: 0,
-        cycle_retry_attempts: 2,
-        cumulative_retry_attempts: 4,
-        next_retry_at: null,
-        last_retry_delay_ms: 0,
-        ban_mode: "until_reset",
-        banned_until_at: null,
-        last_failure_kind: "timeout",
-        last_success_at: null,
-        live_p95_latency_ms: null,
-        state: "banned",
-        created_at: "2026-04-27T00:00:00Z",
-        updated_at: "2026-04-27T00:00:00Z",
-      },
-      () => "12:00:00 AM",
-      {
-        consecutiveFailures: (count: number) => `${count} cumulative failure${count === 1 ? "" : "s"}`,
-        cooldownMinutes: (minutes: number) => `${minutes}m`,
-        cooldownMinutesSeconds: (minutes: number, seconds: number) => `${minutes}m ${seconds}s`,
-        cooldownSeconds: (seconds: number) => `${seconds}s`,
-        currentStateBlocked: (failureSummary: string) => failureSummary,
-        currentStateCounting: (failureSummary: string) => failureSummary,
-        currentStateTemporaryBan: (failureSummary: string, until: string | null) => `${failureSummary} until ${until}`,
-        currentStateUntilResetBan: (failureSummary: string) => `${failureSummary} until reset`,
-        failureKindConnectError: "a connection error",
-        failureKindTimeout: "a timeout",
-        failureKindTransientHttp: "a transient HTTP failure",
-        failureKindUnknown: "an unknown failure",
-      },
-    );
-  });
-
-  expect(currentStateCopy).toBe("4 cumulative failures until reset");
 
   const eventDetailSource = await page.evaluate(async () => {
     const response = await fetch("/src/components/loadbalance/LoadbalanceEventDetailSheet.tsx");

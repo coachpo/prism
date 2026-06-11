@@ -60,10 +60,11 @@ prism/
 - `backend/tests/AGENTS.md`: backend contract, integration, runtime, route-matrix, rejected-route, Dockerfile, sidecar, and priority regression boundary.
 - `frontend/AGENTS.md`: frontend monorepo directory root for routes, shared shell, context, typed browser/backend seams, and child ownership routers under `src/`.
 - `frontend/src/pages/AGENTS.md`: route-domain handoff for mounted page surfaces and page-owned drill-down clusters.
-- `frontend/src/pages/dashboard/AGENTS.md`, `frontend/src/pages/model-detail/AGENTS.md`, `frontend/src/pages/request-logs/AGENTS.md`, `frontend/src/pages/settings/AGENTS.md`, `frontend/src/pages/sidecars/AGENTS.md`, and `frontend/src/pages/statistics/AGENTS.md`: dense route-domain leaves; dashboard and settings point to their own deeper child docs.
+- `frontend/src/pages/dashboard/AGENTS.md`, `frontend/src/pages/model-detail/AGENTS.md`, `frontend/src/pages/request-logs/AGENTS.md`, `frontend/src/pages/settings/AGENTS.md`, and `frontend/src/pages/statistics/AGENTS.md`: dense route-domain leaves; dashboard and settings point to their own deeper child docs.
 - `frontend/src/pages/dashboard/routing-diagram/AGENTS.md`: React Flow routing visualization, deterministic flow layout, node/edge renderers, inspector content, legend, and mobile fallback.
-- `frontend/src/pages/settings/{costing,dialogs,sections,startup}/AGENTS.md`: settings-shell child ownership for costing state, dialog flows, section rendering, authentication/billing-currency leaves, and the startup bootstrap UI.
-- `frontend/src/pages/settings/startup/AGENTS.md`: startup-tab field metadata, server/database/runtime/mail+secret sections, dangerous confirmations, and apply-capability rendering.
+- `frontend/src/pages/settings/{costing,dialogs,sections}/AGENTS.md`: settings-shell child ownership for costing state, dialog flows, section rendering, and authentication/billing-currency leaves.
+- `frontend/src/features/settings/startup/`: startup-tab field metadata, server/database/runtime/mail+secret sections, dangerous confirmations, and apply-capability rendering.
+- `frontend/src/features/sidecars/`: global sidecar route composition, auth files, provider inventory, sidecar dialogs, table rendering, form state, and page data.
 - `frontend/src/i18n/AGENTS.md`: locale catalogs, shared formatting helpers, and static message lookup for non-hook callers.
 - `frontend/src/pages/endpoints/AGENTS.md`, `frontend/src/pages/loadbalance-strategies/AGENTS.md`, `frontend/src/pages/models/AGENTS.md`, `frontend/src/pages/pricing-templates/AGENTS.md`, and `frontend/src/pages/proxy-api-keys/AGENTS.md`: profile-scoped or global management route leaves, including reusable endpoints and model-private connection surfaces.
 - `frontend/src/components/AGENTS.md`: shared shell and widget handoff for `layout/app-layout`, loadbalance, statistics, and `ui/` child leaves.
@@ -98,10 +99,10 @@ prism/
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Backend container contract: `backend/Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/API_SPEC.md`, `docs/ARCHITECTURE.md`
-- Startup bootstrap contract and startup tab ownership: `backend/internal/httpapi/management/bootstrapconfig/`, `backend/internal/platform/config/`, `frontend/src/pages/settings/startup/`
+- Startup bootstrap contract and startup tab ownership: `backend/internal/httpapi/management/bootstrapconfig/`, `backend/internal/platform/config/`, `frontend/src/features/settings/startup/`
 - Config-bundle export/import and preview-token flow: `backend/internal/httpapi/management/configbundle/`, `frontend/src/pages/settings/`, `frontend/src/pages/settings/useConfigBackupData.ts`
 - Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000001_initial_schema.sql`
-- Sidecars control plane: `backend/internal/httpapi/management/sidecars/`, `backend/migrations/000001_initial_schema.sql`, `frontend/src/pages/sidecars/`, `frontend/src/lib/api/sidecars.ts`
+- Sidecars control plane: `backend/internal/httpapi/management/sidecars/`, `backend/migrations/000001_initial_schema.sql`, `frontend/src/features/sidecars/`, `frontend/src/lib/api/sidecars.ts`
 - Runtime proxy planning, telemetry, request-log detail, context overflow promotion decisions, and partition ensuring: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `frontend/src/pages/request-logs/`
 - Context overflow promotion target authoring and import/export validation: `backend/internal/httpapi/management/models/`, `backend/internal/httpapi/management/configbundle/`, `frontend/src/pages/models/`, `frontend/src/lib/configImportValidation.ts`
 - Management settings and retention jobs: `backend/internal/httpapi/management/settings/`, `frontend/src/pages/settings/`, `docs/WORKFLOWS.md`

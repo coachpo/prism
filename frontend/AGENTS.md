@@ -37,7 +37,7 @@ frontend/
 
 ## HIERARCHY
 - `src/App.tsx` owns the mounted route surface and stays the source of truth for route mounting and shell boundaries.
-- `src/pages/AGENTS.md` owns route-domain handoff for the mounted page surface under `src/pages/`, including the global sidecars route leaf and the deeper settings subtree docs under `src/pages/settings/`.
+- `src/pages/AGENTS.md` owns route-domain handoff for compatibility clusters under `src/pages/`, while feature-owned startup and sidecars surfaces live under `src/features/`.
 - `src/components/AGENTS.md` owns shared shell and widget work, then points down to the layout shell cluster, feature renderers, and `ui/` primitives.
 - `src/components/{layout/app-layout,loadbalance,statistics,ui}/AGENTS.md` own shell, feature-renderer, and primitive leaves.
 - `src/components/ui/AGENTS.md` owns the shadcn/ui primitives and local wrappers checked into `src/components/ui/`.
@@ -63,7 +63,7 @@ frontend/
 - Vite version injection, optional same-origin proxying for `/api`, `/api/realtime/ws`, `/health`, `/v1`, and `/v1beta`, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
 - Production `dist/` static server, SPA fallback, `PORT` default `3000`, and `/health`: `server.mjs`
 - Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/{lib,loadbalance,main,model-detail,server}/`, `playwright.config.ts`
-- Page hierarchy and route-domain handoff, including the global sidecars route: `src/pages/AGENTS.md`, `src/pages/sidecars/AGENTS.md`
+- Page hierarchy and route-domain handoff plus feature-owned sidecars surface: `src/pages/AGENTS.md`, `src/features/sidecars/`
 
 ## CONVENTIONS
 

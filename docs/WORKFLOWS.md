@@ -12,7 +12,7 @@ Validated again against current repo surfaces on 2026-06-05:
 - Shell navigation and route scoping: `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`
 - Auth bootstrap and session flow: `frontend/src/context/AuthContext.tsx`
 - Selected-profile scoping: `frontend/src/context/ProfileContext.tsx`, `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
-- Sidecar route and API surface: `frontend/src/pages/sidecars/`, `frontend/src/lib/api/sidecars.ts`, `backend/internal/httpapi/management/sidecars/`
+- Sidecar route and API surface: `frontend/src/features/sidecars/`, `frontend/src/lib/api/sidecars.ts`, `backend/internal/httpapi/management/sidecars/`
 - Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, `backend/internal/httpapi/realtime/`, and `backend/internal/platform/http/server.go`
 - Backend API reference: `docs/API_SPEC.md`
 - Request-log details: `docs/REQUESTS_PAGE.md`
@@ -367,5 +367,5 @@ Operational triage by symptom:
 
 - Product scope: `docs/PRD.md`
 - API contracts: `docs/API_SPEC.md`
-- Sidecar implementation boundary: `backend/internal/httpapi/management/sidecars/AGENTS.md`, `frontend/src/pages/sidecars/AGENTS.md`
+- Sidecar implementation boundary: `backend/internal/httpapi/management/sidecars/AGENTS.md`, `frontend/src/features/sidecars/`
 - Request investigation details: `docs/REQUESTS_PAGE.md`

@@ -14,7 +14,7 @@ bootstrapconfig/
 - Route mounting and request handlers: `service.go` (`MountManagementRoutes`, `handleGetBootstrapConfig`, `handleValidateBootstrapConfig`, `handlePutBootstrapConfig`)
 - Bootstrap response and diff/apply classification: `service.go`, `../../../platform/config/`
 - Hot-apply publication and failure reporting: `service.go`, `../../../platform/http/hot_bootstrap_runtime.go`
-- Frontend consumer: `../../../../../frontend/src/pages/settings/startup/`
+- Frontend consumer: `../../../../../frontend/src/features/settings/startup/`
 
 ## CONVENTIONS
 - Keep bootstrap config file-backed and separate from `management/settings/`, profile/vendor bundle import/export, and sidecar control-plane state.

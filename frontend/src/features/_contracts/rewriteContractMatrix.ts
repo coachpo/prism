@@ -184,7 +184,7 @@ export const rewriteContractMatrix = {
     {
       currentPath: "/models",
       targetPath: "/models",
-      component: "src/pages/ModelsPage.tsx",
+      component: "src/features/models/ModelsFeaturePage.tsx",
       featureOwner: "src/features/models/",
       scope: "protected-selected-profile",
       protection: "Selected profile scopes model CRUD through X-Profile-Id; active runtime profile is not changed by selection.",
@@ -194,7 +194,7 @@ export const rewriteContractMatrix = {
     {
       currentPath: "/models/:id",
       targetPath: "/models/$modelId",
-      component: "src/pages/ModelDetailPage.tsx",
+      component: "src/features/models/detail/ModelDetailFeaturePage.tsx",
       featureOwner: "src/features/models/detail/",
       scope: "protected-selected-profile",
       protection: "Selected-profile model detail; model-private connections and access targets stay scoped to the current profile.",
@@ -204,7 +204,7 @@ export const rewriteContractMatrix = {
     {
       currentPath: "/endpoints",
       targetPath: "/route/endpoints",
-      component: "src/pages/EndpointsPage.tsx",
+      component: "src/features/endpoints/EndpointsFeaturePage.tsx",
       featureOwner: "src/features/endpoints/",
       scope: "protected-selected-profile",
       protection: "Selected-profile endpoint CRUD through X-Profile-Id with dependency-aware delete conflicts.",
@@ -214,7 +214,7 @@ export const rewriteContractMatrix = {
     {
       currentPath: "/loadbalance-strategies",
       targetPath: "/route/ban-policies",
-      component: "src/pages/LoadbalanceStrategiesPage.tsx",
+      component: "src/features/loadbalance/BanPoliciesFeaturePage.tsx",
       featureOwner: "src/features/loadbalance/",
       scope: "protected-selected-profile",
       protection: "Selected-profile explicit Ban Policy strategy CRUD; delete blocks on attached model count.",
@@ -234,7 +234,7 @@ export const rewriteContractMatrix = {
     {
       currentPath: "/proxy-api-keys",
       targetPath: "/control/proxy-keys",
-      component: "src/pages/ProxyApiKeysPage.tsx",
+      component: "src/features/proxy-keys/ProxyKeysFeaturePage.tsx",
       featureOwner: "src/features/proxy-keys/",
       scope: "protected-global",
       protection: "Global runtime credential management; selected profile must not scope proxy-key APIs.",
@@ -244,7 +244,7 @@ export const rewriteContractMatrix = {
     {
       currentPath: "/sidecars",
       targetPath: "/control/sidecars",
-      component: "src/pages/SidecarsPage.tsx",
+      component: "src/features/sidecars/SidecarsFeaturePage.tsx",
       featureOwner: "src/features/sidecars/",
       scope: "protected-global",
       protection: "Global sidecar control plane; selected profile must not scope /api/sidecars routes.",
@@ -254,7 +254,7 @@ export const rewriteContractMatrix = {
     {
       currentPath: "/pricing-templates",
       targetPath: "/route/pricing",
-      component: "src/pages/PricingTemplatesPage.tsx",
+      component: "src/features/pricing/PricingFeaturePage.tsx",
       featureOwner: "src/features/pricing/",
       scope: "protected-selected-profile",
       protection: "Selected-profile pricing template CRUD with usage lookup and in-use delete blockers.",
@@ -376,7 +376,7 @@ export const rewriteContractMatrix = {
       trigger: "Delete explicit Ban Policy strategy",
       clientGuard: "Dialog disables destructive action and shows attached_model_count when models reference the strategy.",
       serverConflict: "409 delete response may include attached_model_count and must update the dialog blocker.",
-      evidence: ["src/pages/loadbalance-strategies/DeleteLoadbalanceStrategyDialog.tsx", "src/pages/loadbalance-strategies/useLoadbalanceStrategiesPageData.ts"],
+      evidence: ["src/features/loadbalance/BanPoliciesFeaturePage.tsx", "src/features/loadbalance/useBanPoliciesFeatureData.ts"],
     },
     {
       id: "pricing-templates",
@@ -385,7 +385,7 @@ export const rewriteContractMatrix = {
       trigger: "Delete pricing template",
       clientGuard: "Usage lookup runs before delete; dependencies disable delete and render model/endpoint/terminal-target rows.",
       serverConflict: "409 delete response parses usage rows and keeps the conflict visible.",
-      evidence: ["src/pages/pricing-templates/DeletePricingTemplateDialog.tsx", "src/pages/pricing-templates/usePricingTemplatesPageData.ts"],
+      evidence: ["src/features/pricing/DeletePricingTemplateDialog.tsx", "src/features/pricing/usePricingFeatureData.ts"],
     },
     {
       id: "vendors",
@@ -412,7 +412,7 @@ export const rewriteContractMatrix = {
       trigger: "Delete live CLIProxyAPI auth file",
       clientGuard: "Operator must type the current live auth-file name; request sends confirm_name for the selected auth_id.",
       serverConflict: "404 refreshes live auth files; 409 stale_auth_confirmation and unsafe_auth_identity return explicit stale/unsafe messages; mutation state can be succeeded_sync_failed.",
-      evidence: ["src/pages/sidecars/AuthFilesTable.tsx", "src/pages/sidecars/useSidecarsPageData.ts", "src/lib/types/sidecar.ts"],
+      evidence: ["src/features/sidecars/AuthFilesTable.tsx", "src/features/sidecars/useSidecarsPageData.ts", "src/lib/types/sidecar.ts"],
     },
     {
       id: "startup-structural-secrets",
@@ -421,7 +421,7 @@ export const rewriteContractMatrix = {
       trigger: "Save structural or secret bootstrap changes",
       clientGuard: "Secret updates default to preserve; changed capabilities and dangerous confirmations are rendered before update.",
       serverConflict: "Backend validation may return required_confirmations for host, port, database URL, JWT signing key, bundle encryption key, or field-specific tokens.",
-      evidence: ["src/pages/settings/startup/startupFieldMetadata.ts"],
+      evidence: ["src/features/settings/startup/startupFieldMetadata.ts"],
     },
     {
       id: "retention-deletion",
@@ -530,7 +530,7 @@ export const rewriteContractMatrix = {
     },
     {
       feature: "Settings/startup/global controls",
-      currentFiles: ["src/pages/settings/*", "src/pages/proxy-api-keys/*", "src/pages/sidecars/*"],
+      currentFiles: ["src/pages/settings/*", "src/features/settings/startup/*", "src/pages/proxy-api-keys/*", "src/features/sidecars/*"],
       requiredEvidence: ["config import/export e2e", "startup confirmation e2e", "sidecar stale-auth e2e", "proxy key lifecycle e2e"],
       deleteWhen: "Mixed/global settings, startup bootstrap, proxy-key, and sidecar contracts are ported and verified.",
     },
