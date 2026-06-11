@@ -5,12 +5,11 @@ import { AccessTargetsEditor } from "@/pages/models/AccessTargetsEditor"
 import { accessTargetToMutation } from "@/pages/models/modelFormState"
 import { ConnectionDialog } from "@/pages/model-detail/ConnectionDialog"
 import { ModelDetailHeader } from "@/pages/model-detail/ModelDetailHeader"
-import { ModelDetailTabs } from "@/pages/model-detail/ModelDetailTabs"
 import { ModelSettingsDialog } from "@/pages/model-detail/ModelSettingsDialog"
 import { OverviewCards } from "@/pages/model-detail/OverviewCards"
 import { isOwnedConnectionTarget } from "@/pages/model-detail/useModelDetailDataSupport"
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData"
-import { type ModelDetailTab, normalizeModelDetailTab } from "./modelDetailSchemas"
+import { type ModelDetailTab } from "./modelDetailSchemas"
 
 interface ModelDetailFeaturePageProps {
   modelId: string | undefined
@@ -45,15 +44,12 @@ function updateBrowserSearch(searchParams: URLSearchParams, replace?: boolean) {
 
 export function ModelDetailFeaturePage({
   modelId,
-  tab = "connections",
   searchParams,
   onBack,
   onNavigateTo,
   onNavigateToRequestLogs,
   onSearchParamsChange,
-  onTabChange,
 }: ModelDetailFeaturePageProps) {
-  const activeTab = normalizeModelDetailTab(tab)
   const resolvedSearchParams = useMemo(
     () => new URLSearchParams(searchParams ?? new URLSearchParams(window.location.search)),
     [searchParams],
@@ -81,19 +77,6 @@ export function ModelDetailFeaturePage({
     setSearchParams,
     navigateTo,
   })
-  const handleTabChange = useCallback((nextTab: ModelDetailTab) => {
-    onTabChange?.(nextTab)
-    if (!onTabChange) {
-      const nextSearchParams = new URLSearchParams(resolvedSearchParams)
-      if (nextTab === "connections") {
-        nextSearchParams.delete("tab")
-      } else {
-        nextSearchParams.set("tab", nextTab)
-      }
-      setSearchParams(nextSearchParams, { replace: true })
-    }
-  }, [onTabChange, resolvedSearchParams, setSearchParams])
-
   if (data.loading) {
     return (
       <div className="flex flex-col gap-[var(--density-page-gap)]" data-testid="model-detail-feature-loading">
@@ -160,27 +143,6 @@ export function ModelDetailFeaturePage({
         onToggleTarget={data.handleToggleAccessTarget}
         onUpdateModelTarget={data.handleUpdateModelTarget}
         onChange={() => undefined}
-      />
-
-      <ModelDetailTabs
-        activeTab={activeTab}
-        setActiveTab={handleTabChange}
-        model={model}
-        connections={data.connections}
-        connectionSearch={data.connectionSearch}
-        setConnectionSearch={data.setConnectionSearch}
-        openConnectionDialog={data.openConnectionDialog}
-        handleDeleteConnection={data.handleDeleteConnection}
-        handleHealthCheck={data.handleHealthCheck}
-        handleToggleActive={data.handleToggleActive}
-        handleReorderConnections={data.handleReorderConnections}
-        currentStateByConnectionId={data.currentStateByConnectionId}
-        resettingConnectionIds={data.resettingConnectionIds}
-        healthCheckingIds={data.healthCheckingIds}
-        focusedConnectionId={data.focusedConnectionId}
-        connectionCardRefs={data.connectionCardRefs}
-        reorderInFlight={data.reorderInFlight}
-        handleResetCooldown={data.handleResetCooldown}
       />
 
       <ConnectionDialog
