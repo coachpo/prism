@@ -452,12 +452,16 @@ test("renders interactive flow node buttons with stable test ids", () => {
 
   assert.match(modelMarkup, /data-testid="routing-diagram-node-model-model-101"/);
   assert.match(modelMarkup, /data-muted="true"/);
+  assert.match(modelMarkup, /style="[^"]*--routing-node-color:var\(--chart-1\)[^"]*background:linear-gradient/);
+  assert.doesNotMatch(modelMarkup, /size-2\.5 shrink-0 rounded-full/);
   assert.match(modelMarkup, /<button[^>]*type="button"[^>]*class="[^"]*nodrag[^"]*nopan[^"]*"[^>]*aria-label="View Model Details: Model A"/);
   assert.match(modelMarkup, /View Model Details: Model A/);
   assert.match(modelMarkup, /model-a/);
   assert.match(modelMarkup, /Disabled/);
 
   assert.match(endpointMarkup, /data-testid="routing-diagram-node-endpoint-endpoint-201"/);
+  assert.match(endpointMarkup, /style="[^"]*--routing-node-color:var\(--chart-2\)[^"]*background:linear-gradient/);
+  assert.doesNotMatch(endpointMarkup, /size-2\.5 shrink-0 rounded-full/);
   assert.match(endpointMarkup, /<button[^>]*type="button"[^>]*class="[^"]*nodrag[^"]*nopan[^"]*"[^>]*aria-label="View Request Logs: Endpoint A"/);
   assert.match(endpointMarkup, /<span class="block w-full truncate">View Request Logs<\/span><\/button>/);
   assert.match(endpointMarkup, /2 active targets/);
@@ -484,6 +488,8 @@ test("renders terminal target node without button semantics", () => {
 
   assert.match(markup, /data-testid="routing-diagram-node-terminal-target-terminal-target-501"/);
   assert.match(markup, /data-muted="true"/);
+  assert.match(markup, /style="[^"]*--routing-node-color:var\(--chart-4\)[^"]*background:linear-gradient/);
+  assert.doesNotMatch(markup, /size-2\.5 shrink-0 rounded-full/);
   assert.doesNotMatch(markup, /<button/);
   assert.doesNotMatch(markup, /role="button"/);
   assert.doesNotMatch(markup, /tabindex=/i);

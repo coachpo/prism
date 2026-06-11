@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import type { RoutingDiagramFlowNode as RoutingDiagramFlowLayoutNode, RoutingDiagramNode } from "../routingDiagram";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,13 +46,9 @@ export function RoutingDiagramFlowNode({
           "grid gap-2.5 rounded-xl border border-border/70 bg-background/90 p-3 shadow-none transition-opacity",
           muted && "border-dashed opacity-70",
         )}
+        style={getNodeCardStyle(data.kind, muted)}
       >
-        <div className="flex items-start gap-3">
-          <span
-            aria-hidden="true"
-            className="mt-0.5 size-2.5 shrink-0 rounded-full border"
-            style={getNodeDotStyle(data.kind, muted)}
-          />
+        <div className="flex items-start">
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate text-sm font-semibold text-foreground">
@@ -169,17 +167,27 @@ function getStateBadge(
   return null;
 }
 
-function getNodeDotStyle(kind: RoutingDiagramNode["kind"], muted: boolean) {
-  const backgroundColor =
-    kind === "endpoint"
-      ? "var(--chart-2)"
-      : kind === "terminal_target"
-        ? "var(--chart-4)"
-        : "var(--chart-1)";
+function getNodeCardStyle(
+  kind: RoutingDiagramNode["kind"],
+  muted: boolean,
+): CSSProperties & Record<"--routing-node-color", string> {
+  const nodeColor = getNodeKindColor(kind);
 
   return {
-    backgroundColor,
-    borderColor: muted ? "var(--border)" : "transparent",
-    opacity: muted ? 0.45 : 0.9,
+    "--routing-node-color": nodeColor,
+    background: "linear-gradient(135deg, color-mix(in oklab, var(--routing-node-color) 14%, transparent), transparent 44%), var(--background)",
+    borderColor: muted ? "var(--border)" : "color-mix(in oklab, var(--routing-node-color) 45%, var(--border))",
   };
+}
+
+function getNodeKindColor(kind: RoutingDiagramNode["kind"]) {
+  if (kind === "endpoint") {
+    return "var(--chart-2)";
+  }
+
+  if (kind === "terminal_target") {
+    return "var(--chart-4)";
+  }
+
+  return "var(--chart-1)";
 }
