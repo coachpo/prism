@@ -18,12 +18,15 @@ const (
 )
 
 const (
-	openAIRequestTranslationUnsupportedErrorCode  = "openai_request_translation_unsupported"
-	openAIRequestTranslationUnsupportedDetail     = "Prism cannot translate this OpenAI request shape for the selected target."
-	openAIResponseTranslationUnsupportedErrorCode = "openai_response_translation_unsupported"
-	openAIResponseTranslationUnsupportedDetail    = "Prism cannot translate this OpenAI response shape for the selected target."
-	openAIStreamTranslationUnsupportedErrorCode   = "openai_stream_translation_unsupported"
-	openAIStreamTranslationUnsupportedDetail      = "Prism cannot translate this OpenAI stream shape for the selected target."
+	openAIRequestTranslationUnsupportedErrorCode        = "openai_request_translation_unsupported"
+	openAIRequestTranslationUnsupportedDetail           = "Prism cannot translate this OpenAI request shape for the selected target."
+	openAIResponseTranslationUnsupportedErrorCode       = "openai_response_translation_unsupported"
+	openAIResponseTranslationUnsupportedDetail          = "Prism cannot translate this OpenAI response shape for the selected target."
+	openAIStreamTranslationUnsupportedErrorCode         = "openai_stream_translation_unsupported"
+	openAIStreamTranslationUnsupportedDetail            = "Prism cannot translate this OpenAI stream shape for the selected target."
+	openAITranslatedUpstreamResponseReadFailedErrorCode = "openai_translated_upstream_response_read_failed"
+	openAITranslatedUpstreamResponseReadFailedDetail    = "Failed to read upstream response"
+	openAITranslatedUpstreamResponseReadFailedHint      = "OpenAI text translation was active; verify the selected target openai_text_capability matches the upstream API surface."
 )
 
 type openAITranslationCapabilityClass string
@@ -210,6 +213,21 @@ func openAIRequestTranslationUnsupportedDomainError(mode TranslationMode, reason
 
 func openAIResponseTranslationUnsupportedDomainError(mode TranslationMode, reason string) *domainError {
 	return openAITranslationUnsupportedDomainError(http.StatusBadGateway, openAIResponseTranslationUnsupportedErrorCode, openAIResponseTranslationUnsupportedDetail, mode, reason)
+}
+
+func openAITranslatedUpstreamResponseReadFailedDomainError(operation RuntimeOperation, mode TranslationMode) *domainError {
+	fields := map[string]any{
+		"operation_translation_mode": string(normalizedRuntimeTranslationMode(mode)),
+		"upstream_operation_name":    runtimeUpstreamOperationName(operation, mode),
+		"upstream_request_path":      runtimeUpstreamRequestPathTemplate(operation, mode),
+		"diagnostic_hint":            openAITranslatedUpstreamResponseReadFailedHint,
+	}
+	return &domainError{
+		StatusCode: http.StatusBadGateway,
+		ErrorCode:  openAITranslatedUpstreamResponseReadFailedErrorCode,
+		Detail:     openAITranslatedUpstreamResponseReadFailedDetail,
+		Fields:     fields,
+	}
 }
 
 func openAIStreamTranslationUnsupportedDomainError(mode TranslationMode, reason string) *domainError {

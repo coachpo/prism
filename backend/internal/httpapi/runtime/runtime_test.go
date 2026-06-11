@@ -1307,6 +1307,62 @@ func TestClassifySSEStreamOutcome(t *testing.T) {
 	}
 }
 
+func TestWriteProxyResponseTranslatedOpenAIReadFailureReturnsDiagnostic502(t *testing.T) {
+	service := newRequestPlanUnitService()
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	translationMode := TranslationModeOpenAIChatCompletionsToResponses
+	connection := runtimeConnection{ID: 42, APIFamily: "openai", Endpoint: runtimeEndpoint{ID: 7}}
+	plan := requestPlan{
+		RequestedModelID: "deepseek-v4-pro",
+		RuntimeOperation: operation,
+		TerminalAttempts: []runtimeTerminalAttempt{{
+			Connection:      connection,
+			TranslationMode: translationMode,
+		}},
+	}
+	execution := executionResult{
+		Response: &http.Response{
+			StatusCode: http.StatusNotFound,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(&errorAfterReader{err: errors.New("truncated upstream response")}),
+		},
+		Connection: connection,
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	responseRecorder := httptest.NewRecorder()
+
+	service.writeProxyResponse(responseRecorder, request, plan, execution, service.nowUTC())
+
+	response := responseRecorder.Result()
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusBadGateway {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("expected status 502, got %d with body %s", response.StatusCode, string(body))
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode enriched read failure payload: %v", err)
+	}
+	want := map[string]string{
+		"error":                      openAITranslatedUpstreamResponseReadFailedErrorCode,
+		"detail":                     openAITranslatedUpstreamResponseReadFailedDetail,
+		"operation_translation_mode": string(translationMode),
+		"upstream_operation_name":    openAIUpstreamOperationResponses,
+		"upstream_request_path":      "/v1/responses",
+		"diagnostic_hint":            openAITranslatedUpstreamResponseReadFailedHint,
+	}
+	for key, value := range want {
+		if got, _ := payload[key].(string); got != value {
+			t.Fatalf("expected payload[%s]=%q, got %+v", key, value, payload)
+		}
+	}
+	for _, forbidden := range []string{"upstream_body", "endpoint_url", "headers", "authorization"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("expected payload to omit sensitive field %q: %+v", forbidden, payload)
+		}
+	}
+}
+
 func TestProxyEventStreamClassifiesWriteAndReadFailures(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	writeFailure := errors.New("write failed\nwith\tcontrol")

@@ -607,6 +607,10 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	sourceRawBody, err := readAndCloseRuntimeResponseBody(execution.Response)
 	if err != nil {
 		runtimeTraceMarkError(responseSpan, "response_handle_failed")
+		if translationMode != "" && translationMode != TranslationModeNone {
+			writeDomainError(w, openAITranslatedUpstreamResponseReadFailedDomainError(plan.RuntimeOperation, translationMode))
+			return
+		}
 		writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
 		return
 	}
@@ -631,6 +635,11 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		finalRawBody, err = readAndCloseRuntimeResponseBody(promotedExecution.Response)
 		if err != nil {
 			runtimeTraceMarkError(responseSpan, "response_handle_failed")
+			promotedTranslationMode := responseTranslationModeForExecution(promotedPlan, promotedExecution)
+			if promotedTranslationMode != "" && promotedTranslationMode != TranslationModeNone {
+				writeDomainError(w, openAITranslatedUpstreamResponseReadFailedDomainError(promotedPlan.RuntimeOperation, promotedTranslationMode))
+				return
+			}
 			writeError(w, http.StatusBadGateway, "", "Failed to read promoted upstream response", nil)
 			return
 		}
