@@ -11,7 +11,6 @@ model-detail/
 ├── connectionProbeBehavior.ts
 ├── ModelDetailHeader.tsx
 ├── modelDetailMetricsAndPaths.ts
-├── ModelSettingsDialog.tsx
 ├── OverviewCards.tsx
 ├── useConnectionFocus.ts
 ├── useConnectionHealthChecks.ts
@@ -28,7 +27,7 @@ model-detail/
 - Feature route and page composition: `../../features/models/detail/`
 - Bootstrap fetches, focus handoff, and redirect handling: `useModelDetailBootstrap.ts`, `useConnectionFocus.ts`
 - Connection create, edit, delete, and reorder flows: `useModelDetailConnectionFlows.ts`, `useModelDetailConnectionMutations.ts`, `useModelDetailDialogState.ts`
-- Default forms, ordered access-target options, strategy summary helpers, and optimistic helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`, `ModelSettingsDialog.tsx`, `AccessTargetsCard.tsx`
+- Default forms, ordered access-target options, strategy summary helpers, and optimistic helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`, `AccessTargetsCard.tsx`
 - OpenAI probe variant decomposition and normalization: `connectionProbeBehavior.ts`
 - Health checks and spending-summary loading: `useConnectionHealthChecks.ts`, `useModelDetailBootstrap.ts`, `OverviewCards.tsx`
 - Current Ban Policy retry-window state fetch and reset actions: `useModelLoadbalanceCurrentState.ts`

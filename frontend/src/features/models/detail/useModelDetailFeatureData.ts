@@ -11,7 +11,10 @@ import type {
   SpendingSummary,
   Vendor,
 } from "@/lib/types"
-import { getAccessTargetModelsForApiFamily } from "@/pages/models/modelFormState"
+import {
+  getAccessTargetModelsForApiFamily,
+  getPromotionTargetModelsForApiFamily,
+} from "@/pages/models/modelFormState"
 import {
   type AccessTargetSummary,
   buildAccessTargetSummary,
@@ -206,6 +209,10 @@ export function useModelDetailFeatureData({
     () => getAccessTargetModelsForApiFamily(allModels, effectiveTargetApiFamily, model?.model_id),
     [allModels, effectiveTargetApiFamily, model?.model_id],
   )
+  const promotionTargetModelsForApiFamily = useMemo(
+    () => getPromotionTargetModelsForApiFamily(allModels, effectiveTargetApiFamily),
+    [allModels, effectiveTargetApiFamily],
+  )
   const targetConnectionsForApiFamily = useMemo(
     () => getSameFamilyConnections(allConnections, effectiveTargetApiFamily, modelConfigId),
     [allConnections, effectiveTargetApiFamily, modelConfigId],
@@ -236,6 +243,7 @@ export function useModelDetailFeatureData({
     formData,
     setFormData,
     setLoadbalanceStrategyId,
+    promotionTargetModelsForApiFamily,
     targetConnectionsForApiFamily,
     targetModelsForApiFamily,
     targetEditorError,

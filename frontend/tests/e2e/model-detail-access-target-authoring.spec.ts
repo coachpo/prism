@@ -347,7 +347,7 @@ test("model detail editing supports disabled targetless drafts and later enabled
   await expect(page.getByRole("option", { name: /Claude Sonnet/ })).toHaveCount(0);
   await page.getByRole("option", { name: /Target Alpha/ }).click();
   await dialog.getByRole("button", { name: "Add target" }).click();
-  await expect(dialog.getByText("Target Alpha")).toBeVisible();
+  await expect(dialog.getByTestId("access-target-model:target-alpha").getByText("Target Alpha")).toBeVisible();
 
   await dialog.getByRole("switch", { name: "Enabled" }).click();
   await dialog.getByRole("button", { name: "Save Changes" }).click();

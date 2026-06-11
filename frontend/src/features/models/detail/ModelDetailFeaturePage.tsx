@@ -1,11 +1,12 @@
 import { useCallback, useMemo } from "react"
 import { createSearchParams, type SetURLSearchParams, type URLSearchParamsInit } from "react-router-dom"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useLocale } from "@/i18n/useLocale"
 import { AccessTargetsEditor } from "@/pages/models/AccessTargetsEditor"
+import { ModelDialog } from "@/pages/models/ModelDialog"
 import { accessTargetToMutation } from "@/pages/models/modelFormState"
 import { ConnectionDialog } from "@/pages/model-detail/ConnectionDialog"
 import { ModelDetailHeader } from "@/pages/model-detail/ModelDetailHeader"
-import { ModelSettingsDialog } from "@/pages/model-detail/ModelSettingsDialog"
 import { OverviewCards } from "@/pages/model-detail/OverviewCards"
 import { isOwnedConnectionTarget } from "@/pages/model-detail/useModelDetailDataSupport"
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData"
@@ -48,6 +49,7 @@ export function ModelDetailFeaturePage({
   onNavigateTo,
   onSearchParamsChange,
 }: ModelDetailFeaturePageProps) {
+  const { messages } = useLocale()
   const resolvedSearchParams = useMemo(
     () => new URLSearchParams(searchParams ?? new URLSearchParams(window.location.search)),
     [searchParams],
@@ -167,18 +169,24 @@ export function ModelDetailFeaturePage({
         pricingTemplates={data.pricingTemplates}
       />
 
-      <ModelSettingsDialog
+      <ModelDialog
+        editingModel={model}
         formData={data.formData}
-        handleEditModelSubmit={data.handleEditModelSubmit}
-        isOpen={data.isEditModelDialogOpen}
+        formError={data.targetEditorError}
+        isDialogOpen={data.isEditModelDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
-        model={model}
-        targetEditorError={data.targetEditorError}
+        promotionTargetModelsForApiFamily={data.promotionTargetModelsForApiFamily}
         targetModelsForApiFamily={data.targetModelsForApiFamily}
-        onOpenChange={data.setIsEditModelDialogOpen}
-        setFormData={data.setFormData}
-        setLoadbalanceStrategyId={data.setLoadbalanceStrategyId}
         vendors={data.vendors}
+        dialogTitle={messages.modelDetail.modelSettingsTitle}
+        dialogDescription={messages.modelDetail.modelSettingsAccessTargetsDescription}
+        includeTerminalTargetConnectionOptions={false}
+        showModelIdInEditMode={true}
+        submitLabel={messages.modelDetail.saveChanges}
+        setFormData={data.setFormData}
+        setIsDialogOpen={data.setIsEditModelDialogOpen}
+        setLoadbalanceStrategyId={data.setLoadbalanceStrategyId}
+        onSubmit={data.handleEditModelSubmit}
       />
     </main>
   )

@@ -16,23 +16,29 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { ManagedModelConfigListItem } from "@/lib/api/management";
 import { cn } from "@/lib/utils";
-import type { LoadbalanceStrategy, Vendor } from "@/lib/types";
+import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem, Vendor } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
 import { getEditModelConnectionOptions, setApiFamilyOnForm, setDisplayNameOnForm, setModelIdOnForm } from "./modelFormState";
 
+type EditableModel = ModelConfig | ModelConfigListItem;
+
 type Props = {
-  editingModel: ManagedModelConfigListItem | null;
+  editingModel: EditableModel | null;
   formData: ModelFormData;
   formError: string | null;
   isDialogOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
-  promotionTargetModelsForApiFamily: ManagedModelConfigListItem[];
-  targetModelsForApiFamily: ManagedModelConfigListItem[];
+  promotionTargetModelsForApiFamily: ModelConfigListItem[];
+  targetModelsForApiFamily: ModelConfigListItem[];
   vendors: Vendor[];
+  dialogDescription?: string;
+  dialogTitle?: string;
+  includeTerminalTargetConnectionOptions?: boolean;
+  showModelIdInEditMode?: boolean;
+  submitLabel?: string;
   setFormData: (value: ModelFormData | ((prev: ModelFormData) => ModelFormData)) => void;
   setIsDialogOpen: (open: boolean) => void;
   setLoadbalanceStrategyId: (value: number | null) => void;
@@ -66,7 +72,7 @@ const OVERFLOW_PROMOTION_TARGET_PLACEHOLDER = "Select model";
 const OVERFLOW_PROMOTION_TARGET_NONE_LABEL = "None";
 const OVERFLOW_PROMOTION_TARGET_PREFIX = "context_overflow_promotion_target_id";
 
-function formatPromotionTargetOptionLabel(model: ManagedModelConfigListItem) {
+function formatPromotionTargetOptionLabel(model: ModelConfigListItem) {
   if (model.display_name && model.display_name !== model.model_id) {
     return `${model.display_name} (${model.model_id})`;
   }
@@ -82,6 +88,11 @@ export function ModelDialog({
   promotionTargetModelsForApiFamily,
   targetModelsForApiFamily,
   vendors,
+  dialogDescription: dialogDescriptionOverride,
+  dialogTitle,
+  includeTerminalTargetConnectionOptions = true,
+  showModelIdInEditMode = false,
+  submitLabel,
   setFormData,
   setIsDialogOpen,
   setLoadbalanceStrategyId,
@@ -95,7 +106,10 @@ export function ModelDialog({
 
   const getStrategyTypeLabel = (strategy: LoadbalanceStrategy) => getLoadbalanceStrategyTypeLabel(strategy, strategyCopy);
   const getStrategyOptionText = (strategy: LoadbalanceStrategy) => `${strategy.name} (${getStrategyTypeLabel(strategy)})`;
-  const dialogDescription = editingModel ? detailCopy.modelSettingsDescription : copy.newModelDescription;
+  const defaultDialogDescription = editingModel ? detailCopy.modelSettingsDescription : copy.newModelDescription;
+  const dialogDescription = dialogDescriptionOverride ?? defaultDialogDescription;
+  const resolvedDialogTitle = dialogTitle ?? (editingModel ? copy.editModel : messages.modelsPage.newModel);
+  const resolvedSubmitLabel = submitLabel ?? copy.save;
   const loadbalanceStrategyValue = String(formData.loadbalance_strategy_id ?? "");
   const selectedLoadbalanceStrategy = [...loadbalanceStrategies]
     .reverse()
@@ -138,13 +152,15 @@ export function ModelDialog({
   const selectedPromotionTargetLabel = selectedPromotionTarget
     ? formatPromotionTargetOptionLabel(selectedPromotionTarget)
     : formData.context_overflow_promotion_target_id.trim() || null;
-  const terminalTargetConnectionOptions = getEditModelConnectionOptions(editingModel);
+  const terminalTargetConnectionOptions = includeTerminalTargetConnectionOptions
+    ? getEditModelConnectionOptions(editingModel)
+    : [];
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogContent className="max-h-[90vh] sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>{editingModel ? copy.editModel : messages.modelsPage.newModel}</DialogTitle>
+          <DialogTitle>{resolvedDialogTitle}</DialogTitle>
           <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="flex min-h-0 flex-col gap-5" autoComplete="off" noValidate>
@@ -186,7 +202,7 @@ export function ModelDialog({
                 </div>
               </div>
 
-              {!editingModel ? (
+              {!editingModel || showModelIdInEditMode ? (
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="model-id">{copy.modelId}</Label>
                   <Input
@@ -387,7 +403,7 @@ export function ModelDialog({
 
           <DialogFooter className="sm:justify-between">
             <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>{messages.settingsDialogs.cancel}</Button>
-            <Button type="submit" disabled={saveDisabled}>{copy.save}</Button>
+            <Button type="submit" disabled={saveDisabled}>{resolvedSubmitLabel}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

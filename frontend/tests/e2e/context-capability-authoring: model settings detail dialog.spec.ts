@@ -224,17 +224,14 @@ test("context-capability-authoring: model settings clears blank context window t
 
   const dialog = page.getByRole("dialog", { name: "Model Settings" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("Update the selected-profile entry model, its routing defaults, and its grouped model fallback targets before terminal-target routing takes over.")).toBeVisible();
-  await expect(dialog.getByText("Set the entry-model context window, reserve, max utilization, and preferred band before terminal-target overrides apply.")).toBeVisible();
-  await expect(dialog.getByText("Choose the Ban Policy for this entry model and adjust grouped model fallback targets here. Model-private terminal targets stay on Model Detail.")).toBeVisible();
   await expect(dialog.getByText(contextWindowHelperCopy)).toBeVisible();
-  await expect(dialog.locator("#edit-context-window-tokens")).toHaveValue("65536");
-  await expect(dialog.locator("#edit-preferred-context-utilization-threshold")).toHaveValue("0.7");
+  await expect(dialog.locator("#model-context-window-tokens")).toHaveValue("65536");
+  await expect(dialog.locator("#model-preferred-context-utilization-threshold")).toHaveValue("0.7");
 
-  await dialog.locator("#edit-context-window-tokens").fill("");
-  await dialog.locator("#edit-default-output-token-reserve").fill("8192");
-  await dialog.locator("#edit-max-context-utilization").fill("0.75");
-  await dialog.locator("#edit-preferred-context-utilization-threshold").fill("");
+  await dialog.locator("#model-context-window-tokens").fill("");
+  await dialog.locator("#model-default-output-token-reserve").fill("8192");
+  await dialog.locator("#model-max-context-utilization").fill("0.75");
+  await dialog.locator("#model-preferred-context-utilization-threshold").fill("");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
 
   await expect(page.getByText("Model updated").last()).toBeVisible();
@@ -256,10 +253,10 @@ test("context-capability-authoring: model settings clears blank context window t
   ]);
 
   await page.getByRole("button", { name: /edit model/i }).click();
-  await expect(dialog.locator("#edit-context-window-tokens")).toHaveValue("");
-  await expect(dialog.locator("#edit-default-output-token-reserve")).toHaveValue("8192");
-  await expect(dialog.locator("#edit-max-context-utilization")).toHaveValue("0.75");
-  await expect(dialog.locator("#edit-preferred-context-utilization-threshold")).toHaveValue("");
+  await expect(dialog.locator("#model-context-window-tokens")).toHaveValue("");
+  await expect(dialog.locator("#model-default-output-token-reserve")).toHaveValue("8192");
+  await expect(dialog.locator("#model-max-context-utilization")).toHaveValue("0.75");
+  await expect(dialog.locator("#model-preferred-context-utilization-threshold")).toHaveValue("");
 });
 
 test("context-capability-authoring: model settings blocks invalid reserve and utilization before patch", async ({ page }) => {
@@ -271,30 +268,30 @@ test("context-capability-authoring: model settings blocks invalid reserve and ut
   const dialog = page.getByRole("dialog", { name: "Model Settings" });
   await expect(dialog).toBeVisible();
 
-  await dialog.locator("#edit-model-id").fill("");
+  await dialog.locator("#model-id").fill("");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
   await expect(page.getByText(modelIdRequiredCopy).last()).toBeVisible();
   expect(routes.getUpdatePayloads()).toHaveLength(0);
 
-  await dialog.locator("#edit-model-id").fill("routed-openai");
-  await dialog.locator("#edit-default-output-token-reserve").fill("");
+  await dialog.locator("#model-id").fill("routed-openai");
+  await dialog.locator("#model-default-output-token-reserve").fill("");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
   await expect(dialog.getByText(outputReserveValidationCopy)).toBeVisible();
   expect(routes.getUpdatePayloads()).toHaveLength(0);
 
-  await dialog.locator("#edit-default-output-token-reserve").fill("4096");
-  await dialog.locator("#edit-max-context-utilization").fill("1.2");
+  await dialog.locator("#model-default-output-token-reserve").fill("4096");
+  await dialog.locator("#model-max-context-utilization").fill("1.2");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
   await expect(dialog.getByText(maxContextUtilizationValidationCopy)).toBeVisible();
   expect(routes.getUpdatePayloads()).toHaveLength(0);
 
-  await dialog.locator("#edit-max-context-utilization").fill("0.9");
-  await dialog.locator("#edit-preferred-context-utilization-threshold").fill("1.2");
+  await dialog.locator("#model-max-context-utilization").fill("0.9");
+  await dialog.locator("#model-preferred-context-utilization-threshold").fill("1.2");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
   await expect(dialog.getByText(preferredContextUtilizationThresholdValidationCopy)).toBeVisible();
   expect(routes.getUpdatePayloads()).toHaveLength(0);
 
-  await dialog.locator("#edit-preferred-context-utilization-threshold").fill("0.95");
+  await dialog.locator("#model-preferred-context-utilization-threshold").fill("0.95");
   await dialog.getByRole("button", { name: "Save Changes" }).click();
   await expect(dialog.getByText(preferredThresholdExceedsMaxValidationCopy)).toBeVisible();
   expect(routes.getUpdatePayloads()).toHaveLength(0);
