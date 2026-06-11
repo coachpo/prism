@@ -54,7 +54,7 @@ export function RequestLogDetailSheet({
             <div className="flex min-w-0 flex-col gap-3">
               <div className="flex justify-end">
                 <Button variant="outline" size="sm" asChild>
-                  <Link to={`/request-logs/${request.summary.id}/audit`}>
+                  <Link to={`/observe/requests/${request.summary.id}/audit`}>
                     <Terminal data-icon="inline-start" />
                     {messages.requestLogs.openDedicatedAuditPage}
                   </Link>

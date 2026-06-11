@@ -1,7 +1,7 @@
 # FRONTEND DASHBOARD DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/dashboard/` owns the `/dashboard` route shell under `../DashboardPage.tsx`: the overview-versus-analytics tab split, query-param page state, overview bootstrap and realtime reconciliation, analytics handoff into the statistics surface, and the handoff into the nested routing visualization leaf.
+`pages/dashboard/` owns the oracle-compatible dashboard data and visualization cluster consumed by the `/observe` rewrite feature: overview bootstrap, realtime reconciliation, analytics handoff into the statistics surface, and the nested routing visualization leaf.
 
 ## STRUCTURE
 ```
@@ -29,9 +29,9 @@ dashboard/
 
 ## WHERE TO LOOK
 
-- Thin route shell, overview-versus-analytics tab split, and route-level navigation actions: `../DashboardPage.tsx`
-- Query-param state and canonical tab contract: `queryParams.ts`, `useDashboardPageState.ts`
-- Overview-tab composition boundary: `DashboardOverviewTab.tsx`
+- Rewrite route shell and route-level navigation actions: `../../features/observe/ObservePage.tsx`
+- Legacy query-param tab helpers retained only for oracle-compatible modules: `queryParams.ts`, `useDashboardPageState.ts`
+- Overview-tab composition boundary retained as an oracle-compatible module: `DashboardOverviewTab.tsx`
 - Analytics-tab handoff into the dashboard-owned statistics domain, which has no standalone `/statistics` route: `DashboardAnalyticsContent.tsx`, `../statistics/AGENTS.md`
 - High-level overview data composition: `useDashboardPageData.ts`
 - Initial bootstrap fan-out and routing payload shaping: `useDashboardBootstrapData.ts`

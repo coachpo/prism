@@ -9,7 +9,7 @@ import { DeleteUserAgentClientRuleConfirmDialog } from "./settings/dialogs/Delet
 import { UserAgentClientRuleDialog } from "./settings/dialogs/UserAgentClientRuleDialog";
 import { SettingsProfileTab } from "./settings/SettingsProfileTab";
 import { SettingsGlobalTab } from "./settings/SettingsGlobalTab";
-import { SettingsStartupTab } from "./settings/SettingsStartupTab";
+import { SettingsStartupTab } from "@/features/settings/startup/SettingsStartupTab";
 import { useSettingsPageData } from "./settings/useSettingsPageData";
 import { useSettingsPageSectionState } from "./settings/useSettingsPageSectionState";
 import { SETTINGS_TABS } from "./settings/settingsPageHelpers";

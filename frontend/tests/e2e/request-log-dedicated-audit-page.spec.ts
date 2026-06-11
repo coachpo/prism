@@ -414,11 +414,13 @@ async function mockPrismRoutes(page: Page, scenario: Scenario) {
       auditListSearchParams.push(searchParams.toString());
       if (!config.auditEnabledAtRequest) return fulfillJson({ detail: "audit disabled" }, 409);
       if (config.listFails) return fulfillJson({ detail: "audit list failed" }, 500);
-      const items = config.listItems.map((id) => createAuditListItem(id, scenario));
+      const cursor = searchParams.get("cursor");
+      const ids = cursor === "page-2" ? [202] : config.listItems;
+      const items = ids.map((id) => createAuditListItem(id, scenario));
       return fulfillJson({
         items,
-        next_cursor: null,
-        has_more: false,
+        next_cursor: cursor === "page-2" ? null : "page-2",
+        has_more: cursor !== "page-2" && config.listItems.length > 0,
         window: { from: searchParams.get("from"), to: searchParams.get("to") },
         limit: 20,
         sort: "desc",
@@ -499,7 +501,7 @@ test.describe("dedicated request-log audit page", () => {
     test(`renders ${bodyCase.label} request and response audit bodies as documents`, async ({ page }) => {
       const counters = await mockPrismRoutes(page, bodyCase.scenario);
 
-      await page.goto("/request-logs/101/audit?audit_id=201");
+      await page.goto("/observe/requests/101/audit?audit_id=201");
 
       const detail = page.getByTestId("dedicated-audit-detail");
       await expect(detail).toBeVisible({ timeout: 15000 });
@@ -522,7 +524,7 @@ test.describe("dedicated request-log audit page", () => {
   test("renders JSON and newline headers as key-value rows with sensitive values masked", async ({ page }) => {
     await mockPrismRoutes(page, "json_headers");
 
-    await page.goto("/request-logs/101/audit?audit_id=201");
+    await page.goto("/observe/requests/101/audit?audit_id=201");
 
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
@@ -568,7 +570,7 @@ test.describe("dedicated request-log audit page", () => {
   test("local Raw JSON toggle pretty-prints parseable request bodies", async ({ page }) => {
     await mockPrismRoutes(page, "openai_document");
 
-    await page.goto("/request-logs/101/audit?audit_id=201");
+    await page.goto("/observe/requests/101/audit?audit_id=201");
 
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
@@ -584,7 +586,7 @@ test.describe("dedicated request-log audit page", () => {
   test("long repeated-token request bodies scroll inside the Request Body content area only", async ({ page }) => {
     await mockPrismRoutes(page, "long_body");
 
-    await page.goto("/request-logs/101/audit?audit_id=201");
+    await page.goto("/observe/requests/101/audit?audit_id=201");
 
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
@@ -625,7 +627,7 @@ test.describe("dedicated request-log audit page", () => {
     await installCopyHarness(page, context);
     await mockPrismRoutes(page, "openai_document");
 
-    await page.goto("/request-logs/101/audit?audit_id=201");
+    await page.goto("/observe/requests/101/audit?audit_id=201");
 
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
@@ -639,7 +641,7 @@ test.describe("dedicated request-log audit page", () => {
   test("direct selected audit_id route fetches only the selected audit detail", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "full");
 
-    await page.goto("/request-logs/101/audit?audit_id=202");
+    await page.goto("/observe/requests/101/audit?audit_id=202");
 
     await expect(page.getByTestId("dedicated-request-log-audit-page")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("shell-breadcrumb")).toContainText("Request Logs");
@@ -653,10 +655,27 @@ test.describe("dedicated request-log audit page", () => {
     expect(counters.auditDetailRequests).toEqual([202]);
   });
 
+  test("audit cursor pagination keeps the cursor in the URL and fetches the next page", async ({ page }) => {
+    const counters = await mockPrismRoutes(page, "full");
+
+    await page.goto("/observe/requests/101/audit");
+
+    await expect(page.getByTestId("dedicated-audit-list")).toContainText("#201", { timeout: 15000 });
+    await expect(page.getByRole("link", { name: "Next Page" })).toHaveAttribute("href", "/observe/requests/101/audit?cursor=page-2");
+    await page.getByRole("link", { name: "Next Page" }).click();
+
+    await expect(page).toHaveURL(/\/observe\/requests\/101\/audit\?cursor=page-2$/);
+    await expect(page.getByTestId("dedicated-audit-list")).toContainText("#202");
+    await expect(page.getByRole("link", { name: "Previous Page" })).toHaveAttribute("href", "/observe/requests/101/audit");
+    expect(counters.auditListSearchParams).toHaveLength(2);
+    expect(new URLSearchParams(counters.auditListSearchParams[1]).get("cursor")).toBe("page-2");
+    expect(counters.auditDetailRequests).toEqual([201, 202]);
+  });
+
   test("disabled audit requests do not call audit APIs", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "disabled");
 
-    await page.goto("/request-logs/101/audit");
+    await page.goto("/observe/requests/101/audit");
 
     await expect(page.getByText("Audit disabled at request time").first()).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toEqual([]);
@@ -667,7 +686,7 @@ test.describe("dedicated request-log audit page", () => {
     await installCopyHarness(page, context);
     const counters = await mockPrismRoutes(page, "metadata_only");
 
-    await page.goto("/request-logs/101/audit");
+    await page.goto("/observe/requests/101/audit");
 
     await expect(page.getByText("Metadata only").first()).toBeVisible({ timeout: 15000 });
     const requestHeaders = page.getByTestId("dedicated-audit-detail").getByRole("region", { name: "Request headers" });
@@ -690,7 +709,7 @@ test.describe("dedicated request-log audit page", () => {
   test("missing request state renders without audit calls", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "missing_request");
 
-    await page.goto("/request-logs/101/audit");
+    await page.goto("/observe/requests/101/audit");
 
     await expect(page.getByText("Request Not Found")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toEqual([]);
@@ -700,7 +719,7 @@ test.describe("dedicated request-log audit page", () => {
   test("no audit records state does not fetch audit details", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "no_records");
 
-    await page.goto("/request-logs/101/audit");
+    await page.goto("/observe/requests/101/audit");
 
     await expect(page.getByText("No audit records found for this request.")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toHaveLength(1);
@@ -710,17 +729,17 @@ test.describe("dedicated request-log audit page", () => {
   test("unmatched audit_id renders missing-audit state with a return action", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "full");
 
-    await page.goto("/request-logs/101/audit?audit_id=999");
+    await page.goto("/observe/requests/101/audit?audit_id=999");
 
     await expect(page.getByText("Audit record not found for this request")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("link", { name: "Show default audit record" })).toHaveAttribute("href", "/request-logs/101/audit");
+    await expect(page.getByRole("link", { name: "Show default audit record" })).toHaveAttribute("href", "/observe/requests/101/audit");
     expect(counters.auditDetailRequests).toEqual([]);
   });
 
   test("audit list failure does not fetch audit details", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "list_failure");
 
-    await page.goto("/request-logs/101/audit");
+    await page.goto("/observe/requests/101/audit");
 
     await expect(page.getByText("Audit records load failed")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toHaveLength(1);
@@ -730,7 +749,7 @@ test.describe("dedicated request-log audit page", () => {
   test("audit detail failure preserves the audit list", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "detail_failure");
 
-    await page.goto("/request-logs/101/audit?audit_id=201");
+    await page.goto("/observe/requests/101/audit?audit_id=201");
 
     await expect(page.getByText("Audit record load failed")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("dedicated-audit-list")).toContainText("#201");
@@ -740,7 +759,7 @@ test.describe("dedicated request-log audit page", () => {
   test("invalid request timestamp prevents audit lookup", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "invalid_created");
 
-    await page.goto("/request-logs/101/audit");
+    await page.goto("/observe/requests/101/audit");
 
     await expect(page.getByText("Invalid request timestamp")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toEqual([]);
@@ -750,7 +769,7 @@ test.describe("dedicated request-log audit page", () => {
   test("request-log row clicks still open the overview drawer with a full audit page link", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "full");
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
     const requestLogRow = page.getByTestId("request-logs-table").getByRole("button").filter({ hasText: "GPT-4o mini" });
     await requestLogRow.click();
 
@@ -759,8 +778,8 @@ test.describe("dedicated request-log audit page", () => {
     await expect(drawer.getByRole("tab", { name: "Audit" })).toHaveCount(0);
     await expect(drawer.getByText("Review requested model, final target model, selected terminal target, routing, tokens, costs, and request-time audit provenance.")).toBeVisible();
     await expect(drawer.getByTestId("request-log-overview-grid").getByText("/v1/responses")).toBeVisible();
-    await expect(drawer.getByRole("link", { name: "Open full audit page" })).toHaveAttribute("href", "/request-logs/101/audit");
-    await expect(page).toHaveURL(/\/request-logs$/);
+    await expect(drawer.getByRole("link", { name: "Open full audit page" })).toHaveAttribute("href", "/observe/requests/101/audit");
+    await expect(page).toHaveURL(/\/observe\/requests\?selected_request_id=101$/);
     expect(counters.auditListSearchParams).toEqual([]);
     expect(counters.auditDetailRequests).toEqual([]);
   });

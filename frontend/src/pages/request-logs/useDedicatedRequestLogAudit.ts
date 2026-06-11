@@ -24,6 +24,7 @@ export type DedicatedRequestLogAuditStatus =
   | "audit_detail_error"
   | "ready";
 interface UseDedicatedRequestLogAuditParams {
+  cursor?: string;
   requestId: number | null;
   selectedAuditId: number | null;
   selectedAuditParamPresent: boolean;
@@ -35,8 +36,10 @@ interface DedicatedRequestLogAuditState {
   captureMode: RequestAuditCaptureMode | null;
   detail: AuditLogDetail | null;
   error: string | null;
+  hasMore: boolean;
   loadKey: string | null;
   missingAuditLabel: string | null;
+  nextCursor: string | null;
   request: RequestLogDetail | null;
   selectedAuditId: number | null;
   status: DedicatedRequestLogAuditStatus;
@@ -47,8 +50,10 @@ const INITIAL_STATE: DedicatedRequestLogAuditState = {
   captureMode: null,
   detail: null,
   error: null,
+  hasMore: false,
   loadKey: null,
   missingAuditLabel: null,
+  nextCursor: null,
   request: null,
   selectedAuditId: null,
   status: "request_loading",
@@ -81,15 +86,17 @@ function buildAuditLoadKey(
   requestId: number | null,
   selectedAuditParamPresent: boolean,
   selectedAuditParamLabel: string | null,
+  cursor?: string,
 ): string | null {
   if (requestId === null) {
     return null;
   }
 
-  return `${requestId}:${selectedAuditParamPresent ? selectedAuditParamLabel?.trim() ?? "" : "default"}`;
+  return `${requestId}:${cursor?.trim() ?? ""}:${selectedAuditParamPresent ? selectedAuditParamLabel?.trim() ?? "" : "default"}`;
 }
 
 export function useDedicatedRequestLogAudit({
+  cursor,
   requestId,
   selectedAuditId,
   selectedAuditParamPresent,
@@ -98,7 +105,7 @@ export function useDedicatedRequestLogAudit({
   const messages = getStaticMessages();
   const [state, setState] = useState<DedicatedRequestLogAuditState>(INITIAL_STATE);
   const activeLoadIdRef = useRef(0);
-  const currentLoadKey = buildAuditLoadKey(requestId, selectedAuditParamPresent, selectedAuditParamLabel);
+  const currentLoadKey = buildAuditLoadKey(requestId, selectedAuditParamPresent, selectedAuditParamLabel, cursor);
 
   useEffect(() => {
     if (requestId === null || currentLoadKey === null) {
@@ -160,13 +167,18 @@ export function useDedicatedRequestLogAudit({
       });
 
       let auditItems: AuditLogListItem[];
+      let nextCursor: string | null;
+      let hasMore: boolean;
       try {
         const list = await api.audit.listForRequestLog(requestId, {
           from: auditWindow.from,
           to: auditWindow.to,
           limit: 20,
+          cursor: cursor?.trim() || undefined,
         });
         auditItems = list.items;
+        nextCursor = list.next_cursor;
+        hasMore = list.has_more;
       } catch (error) {
         if (!isCurrent()) return;
         setState({
@@ -183,6 +195,8 @@ export function useDedicatedRequestLogAudit({
         setState({
           ...requestState,
           auditItems,
+          hasMore,
+          nextCursor,
           status: "no_audit_records",
         });
         return;
@@ -198,7 +212,9 @@ export function useDedicatedRequestLogAudit({
         setState({
           ...requestState,
           auditItems,
+          hasMore,
           missingAuditLabel: selectedAuditParamLabel,
+          nextCursor,
           status: "missing_audit",
         });
         return;
@@ -207,6 +223,8 @@ export function useDedicatedRequestLogAudit({
       const selectedState = {
         ...requestState,
         auditItems,
+        hasMore,
+        nextCursor,
         selectedAuditId: selectedAuditItem.id,
       };
       setState({
@@ -239,6 +257,7 @@ export function useDedicatedRequestLogAudit({
       }
     };
   }, [
+    cursor,
     currentLoadKey,
     messages.requestLogs.auditDetailLoadFailed,
     messages.requestLogs.auditListLoadFailed,

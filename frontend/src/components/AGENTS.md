@@ -33,14 +33,14 @@ components/
 - Shared realtime connection badge: `WebSocketStatusIndicator.tsx`
 - Shared vendor icon and picker surfaces: `VendorIcon.tsx`, `VendorSelect.tsx`, `vendorIconRegistry.tsx`, `vendorIconComponents.tsx`
 - Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`
-- Shared statistics rendering: `statistics/TopSpendingCard.tsx`, `statistics/TokenMetricCell.tsx`
+- Shared statistics rendering: `statistics/TopSpendingCard.tsx`
 - Design-system primitives and local wrappers: `ui/`
 - shadcn registry source of truth for `ui/`: `../../components.json`, `../index.css`
 
 ## CHILD DOCS
 - `layout/app-layout/AGENTS.md`: mounted shell chrome, profile switcher, profile dialogs, mismatch footer, user footer, and visible version-label ownership.
 - `loadbalance/AGENTS.md`: shared loadbalance badges, table, and event detail sheet.
-- `statistics/AGENTS.md`: shared statistics cards and token metric cells.
+- `statistics/AGENTS.md`: shared statistics renderers.
 - `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
 
 ## CONVENTIONS

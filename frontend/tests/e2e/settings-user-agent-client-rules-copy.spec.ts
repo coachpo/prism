@@ -86,7 +86,7 @@ async function mockSettingsRoutes(page: Page) {
 test("settings shows user-agent client rule scope and precedence before rule actions", async ({ page }) => {
   await mockSettingsRoutes(page);
 
-  await page.goto("/settings#audit-configuration");
+  await page.goto("/system/settings?tab=profile&section=audit-configuration#audit-configuration");
   const auditSection = page.locator("section#audit-configuration");
   const card = page.getByTestId("audit-user-agent-client-rules-card");
 

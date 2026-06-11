@@ -351,7 +351,7 @@ async function mockRequestLogDetailRoutes(page: Page, scenario: AuditScenario) {
 async function openRequestLogDetail(
   page: Page,
   scenario: AuditScenario,
-  initialPath = "/request-logs?request_id=101",
+  initialPath = "/observe/requests?request_id=101",
 ) {
   const counters = await mockRequestLogDetailRoutes(page, scenario);
 
@@ -364,16 +364,16 @@ async function openRequestLogDetail(
 }
 
 async function expectOverviewOnlyModalContract(page: Page, drawer: Locator, requestId = "101") {
-  await expect(page).toHaveURL(new RegExp(`/request-logs\\?request_id=${requestId}$`));
+  await expect(page).toHaveURL(new RegExp(`/observe/requests\\?request_id=${requestId}$`));
   await expect(drawer.getByRole("tab", { name: "Audit" })).toHaveCount(0);
   await expect(drawer.getByText("Review requested model, final target model, selected terminal target, routing, tokens, costs, and request-time audit provenance.")).toBeVisible();
   await expect(drawer.getByTestId("request-log-overview-grid").getByText("/v1/responses")).toBeVisible();
-  await expect(drawer.getByRole("link", { name: "Open full audit page" })).toHaveAttribute("href", `/request-logs/${requestId}/audit`);
+  await expect(drawer.getByRole("link", { name: "Open full audit page" })).toHaveAttribute("href", `/observe/requests/${requestId}/audit`);
 }
 
 test.describe("request log audit investigation states", () => {
   test("stale modal audit deep links canonicalize to the overview sheet without audit API calls", async ({ page }) => {
-    const { drawer, counters } = await openRequestLogDetail(page, "disabled", "/request-logs?request_id=101&detail_tab=audit");
+    const { drawer, counters } = await openRequestLogDetail(page, "disabled", "/observe/requests?request_id=101&detail_tab=audit");
 
     await expectOverviewOnlyModalContract(page, drawer);
     expect(counters.getAuditListRequests()).toBe(0);

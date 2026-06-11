@@ -11,8 +11,11 @@ const maskedSmtpPassword = "smtp-password-********";
 const maskedTelemetryAuthorizationHeader = "telemetry-authorization-********";
 const forbiddenSecretSentinel = "should-never-render-secret-sentinel";
 const task3EvidenceDir = fileURLToPath(new URL("../../../.omo/evidence/", import.meta.url));
+const frontendRewriteEvidenceDir = fileURLToPath(new URL("../../../.omo/evidence/frontend-rewrite/", import.meta.url));
 const task3StartupScreenshotPath = fileURLToPath(new URL("../../../.omo/evidence/task-3-startup-ui.png", import.meta.url));
 const task3StartupErrorPath = fileURLToPath(new URL("../../../.omo/evidence/task-3-startup-ui-error.json", import.meta.url));
+const task14HotTimeoutPath = fileURLToPath(new URL("../../../.omo/evidence/frontend-rewrite/task-14-hot-timeout.png", import.meta.url));
+const task14PortConfirmationPath = fileURLToPath(new URL("../../../.omo/evidence/frontend-rewrite/task-14-port-confirmation.md", import.meta.url));
 
 function writeTask3ErrorArtifact(errors: string[]) {
   mkdirSync(task3EvidenceDir, { recursive: true });
@@ -395,7 +398,7 @@ function deferred() {
 }
 
 async function openReadyStartupTab(page: Page) {
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
   await expect(page.getByText("Review and save")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Validate" })).toBeEnabled({ timeout: 30_000 });
@@ -406,7 +409,7 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   const gate = deferred();
   await mockSettingsStartupRoutes(page, { bootstrapGate: gate.promise });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
 
   await expect(page.getByRole("tab", { name: "Profile" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Global" })).toBeVisible();
@@ -451,7 +454,7 @@ test("startup tab accepts live backend runtime secret metadata key", async ({ pa
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
   await mockSettingsStartupRoutes(page, { bootstrapResponse: response });
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
 
   await expect(page.getByText("Review and save")).toBeVisible({ timeout: 5000 });
   await expect(page.getByText(maskedRuntimeKey)).toBeVisible();
@@ -510,7 +513,7 @@ test("startup save result copy takes precedence over neutral running-file drift"
 test("startup default advanced disclosures stay collapsed until opened", async ({ page }) => {
   await mockSettingsStartupRoutes(page);
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   const telemetryToggle = page.getByTestId("startup-telemetry-advanced-toggle");
@@ -577,7 +580,7 @@ test("startup runtime section omits buffering selector and payload field", async
   (staleResponse.values.runtime as Record<string, unknown>).bufferingMode = "streaming";
   await mockSettingsStartupRoutes(page, { bootstrapResponse: staleResponse });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
   await expect(page.getByText("Review and save")).toBeVisible({ timeout: 30_000 });
 
@@ -606,7 +609,7 @@ test("missing PostgreSQL pool lanes render empty instead of frontend-owned defau
   delete pools.cache_refresh;
   const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: response });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
 
   await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("spinbutton", { name: "Runtime feedback max conns" })).toHaveValue("");
@@ -625,7 +628,7 @@ test("missing PostgreSQL pool lanes render empty instead of frontend-owned defau
 test("mail and SMTP startup card renders every backend-provided enabled field", async ({ page }) => {
   await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledMailBootstrapResponse() });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Mail and SMTP")).toBeVisible();
 
   await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).toBeChecked();
@@ -648,7 +651,7 @@ test("legacy missing mail hydrates as disabled and saves canonical disabled mail
   delete (legacyResponse.values as { mail?: unknown }).mail;
   const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: legacyResponse });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Mail and SMTP")).toBeVisible();
   await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).not.toBeChecked();
   await expect(page.getByRole("textbox", { name: "SMTP host" })).toBeDisabled();
@@ -668,7 +671,7 @@ test("enabled blank mail validates on the client without backend validate", asyn
   delete (legacyResponse.values as { mail?: unknown }).mail;
   const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: legacyResponse });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
   await expect(page.getByText("Mail and SMTP")).toBeVisible({ timeout: 30_000 });
 
@@ -685,7 +688,7 @@ test("enabled blank mail validates on the client without backend validate", asyn
 test("enabled mail saves password file separately from SMTP password secret updates", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledMailBootstrapResponse() });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Mail and SMTP")).toBeVisible();
 
   await page.getByRole("textbox", { name: "SMTP password file" }).fill("/run/secrets/prism-smtp-password");
@@ -705,7 +708,7 @@ test("enabled mail saves password file separately from SMTP password secret upda
 test("enabled mail saves inline SMTP password replacement only through secret updates", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledMailBootstrapResponse() });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Mail and SMTP")).toBeVisible();
 
   await page.getByRole("textbox", { name: "SMTP password", exact: true }).fill("new-smtp-password");
@@ -725,7 +728,7 @@ test("enabled mail saves inline SMTP password replacement only through secret up
 test("disabling mail after staging SMTP password saves disabled mail without replacement", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledMailBootstrapResponse() });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Mail and SMTP")).toBeVisible();
 
   await page.getByRole("textbox", { name: "SMTP password", exact: true }).fill("discarded-smtp-password");
@@ -747,28 +750,28 @@ test("disabling mail after staging SMTP password saves disabled mail without rep
 test("invalid settings hashes normalize and tab switches keep the URL in sync", async ({ page }) => {
   await mockSettingsStartupRoutes(page);
 
-  await page.goto("/settings#bogus");
+  await page.goto("/system/settings?tab=bogus");
 
-  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page).toHaveURL(/\/system\/settings\?tab=profile$/);
   await expect(page.getByRole("tab", { name: "Profile" })).toHaveAttribute("aria-selected", "true");
 
   await page.getByRole("tab", { name: "Global" }).click();
-  await expect(page).toHaveURL(/\/settings#authentication$/);
+  await expect(page).toHaveURL(/\/system\/settings\?tab=global&section=authentication#authentication$/);
   await expect(page.getByRole("tab", { name: "Global" })).toHaveAttribute("aria-selected", "true");
 
   await page.getByRole("tab", { name: "Startup" }).click();
-  await expect(page).toHaveURL(/\/settings#startup$/);
+  await expect(page).toHaveURL(/\/system\/settings\?tab=startup#startup$/);
   await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true");
 
   await page.getByRole("tab", { name: "Profile" }).click();
-  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page).toHaveURL(/\/system\/settings\?tab=profile&section=backup#backup$/);
   await expect(page.getByRole("tab", { name: "Profile" })).toHaveAttribute("aria-selected", "true");
 });
 
 test("client validation reports invalid port and CORS without backend validate", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page);
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByRole("spinbutton", { name: "Server port" }).fill("0");
@@ -785,7 +788,7 @@ test("client validation reports invalid port and CORS without backend validate",
 test("client validation blocks blank request timeout validate and save", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page);
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByRole("textbox", { name: "Request timeout" }).fill("");
@@ -804,7 +807,7 @@ test("client validation blocks blank request timeout validate and save", async (
 test("runtime side-effects timeout renders distinct field", async ({ page }) => {
   await mockSettingsStartupRoutes(page);
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await expect(page.getByText("Runtime side effects", { exact: true })).toBeVisible();
@@ -816,7 +819,7 @@ test("runtime side-effects timeout renders distinct field", async ({ page }) => 
 test("blank side-effects timeout blocks client validate and save", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page);
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" }).fill("");
@@ -840,7 +843,7 @@ test("side-effects timeout validate shows restart-required planned row", async (
   };
   const routes = await mockSettingsStartupRoutes(page, { validateResponse });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" }).fill("15s");
@@ -865,7 +868,7 @@ test("backend validation renders planned hot-apply and restart effects before sa
   };
   const routes = await mockSettingsStartupRoutes(page, { validateResponse });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByLabel("CORS allowed origins").fill("http://localhost:5173, http://127.0.0.1:5173");
@@ -897,7 +900,7 @@ test("hot-only save shows applied-immediately rows without restart alert or dang
     }),
   });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByRole("textbox", { name: "Request timeout" }).fill("45s");
@@ -908,6 +911,8 @@ test("hot-only save shows applied-immediately rows without restart alert or dang
   await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
   await expect(page.getByRole("row", { name: /Request timeout.*Applied immediately to the running process\./i })).toBeVisible();
   await expect(page.getByRole("row", { name: /Saved for the next Prism restart\./i })).toHaveCount(0);
+  mkdirSync(frontendRewriteEvidenceDir, { recursive: true });
+  await page.screenshot({ path: task14HotTimeoutPath, fullPage: true });
   expect(routes.getValidateRequests()).toHaveLength(1);
   expect(routes.getUpdateRequests()).toHaveLength(1);
 });
@@ -931,7 +936,7 @@ test("mixed save shows immediate rows plus restart-required alert", async ({ pag
     }),
   });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByLabel("CORS allowed origins").fill("http://localhost:5173, http://127.0.0.1:5173");
@@ -970,7 +975,7 @@ test("restart fields without backend confirmation tokens do not require dangerou
     }),
   });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" }).fill("15s");
@@ -1011,6 +1016,23 @@ test("dangerous port save requires checklist, AlertDialog confirmation, and show
     confirmations: ["server-port-change"],
     values: { server: { port: 8001 }, runtime: { transport: { request_timeout: "300s" } } },
   });
+  mkdirSync(frontendRewriteEvidenceDir, { recursive: true });
+  writeFileSync(
+    task14PortConfirmationPath,
+    [
+      "# Task 14 Port Confirmation Evidence",
+      "",
+      "- Route: `/system/settings?tab=startup`",
+      "- Changed field: `server.port` from `8000` to `8001`.",
+      "- Confirmation checklist token sent: `server-port-change`.",
+      "- Payload preserved `expected_revision`, `expected_etag`, `secret_updates`, and `runtime.transport.request_timeout`.",
+      "",
+      "```json",
+      JSON.stringify(routes.getUpdateRequests()[0], null, 2),
+      "```",
+      "",
+    ].join("\n"),
+  );
 });
 
 test("backend validation errors map into review output", async ({ page }) => {
@@ -1040,7 +1062,7 @@ test("backend validation errors map into review output", async ({ page }) => {
 test("startup telemetry section renders backend fields, restart badges, and masked authorization header", async ({ page }) => {
   await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledTelemetryBootstrapResponse() });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Telemetry", { exact: true })).toBeVisible();
   await expect(page.getByText("Restart-only OTLP exporter, auth, TLS, metrics, and traces.")).toBeVisible();
   await expect(page.getByTestId("startup-telemetry-advanced-toggle")).toHaveAttribute("aria-expanded", "true");
@@ -1087,7 +1109,7 @@ test("startup telemetry authorization header saves only through secret updates a
     }),
   });
 
-  await page.goto("/settings#startup");
+  await page.goto("/system/settings?tab=startup");
   await expect(page.getByText("Telemetry", { exact: true })).toBeVisible();
   await page.getByLabel("Telemetry authorization header").fill("Bearer new-telemetry-secret");
   await page.getByRole("button", { name: "Save startup config" }).click();

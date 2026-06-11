@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Request, type Route } from "@playwright/test";
 import type { ProxyApiKey, ProxyApiKeyCreate, ProxyApiKeyUpdate } from "../../src/lib/types";
 
 const timestamp = "2026-04-28T12:00:00Z";
@@ -51,15 +51,23 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   });
 }
 
+async function readProfileHeader(request: Request) {
+  const headers = await request.allHeaders();
+  return headers["x-profile-id"] ?? null;
+}
+
 function keyRow(page: Page, name: string): Locator {
   return page.getByRole("row").filter({ hasText: name });
 }
 
-async function installProxyKeyRoutes(page: Page) {
+async function installProxyKeyRoutes(page: Page, options: { authEnabled?: boolean; proxyKeyLimit?: number } = {}) {
   const profile = createProfile();
+  const authEnabled = options.authEnabled ?? false;
+  const proxyKeyLimit = options.proxyKeyLimit ?? 10;
   const createPayloads: ProxyApiKeyCreate[] = [];
   const updatePayloads: ProxyApiKeyUpdate[] = [];
   const rotatePayloads: number[] = [];
+  const proxyKeyProfileHeaders: Array<string | null> = [];
   let nextId = 200;
   let proxyKeys: ProxyApiKey[] = [
     createProxyKey(),
@@ -84,7 +92,12 @@ async function installProxyKeyRoutes(page: Page) {
     }
 
     if (pathname === "/api/auth/status") {
-      await fulfillJson(route, { auth_enabled: false });
+      await fulfillJson(route, { auth_enabled: authEnabled });
+      return;
+    }
+
+    if (pathname === "/api/auth/session") {
+      await fulfillJson(route, { authenticated: true, auth_enabled: authEnabled, username: authEnabled ? "admin" : null });
       return;
     }
 
@@ -109,16 +122,20 @@ async function installProxyKeyRoutes(page: Page) {
 
     if (pathname === "/api/settings/auth" && request.method() === "GET") {
       await fulfillJson(route, {
-        auth_enabled: false,
+        auth_enabled: authEnabled,
         username: null,
         email: null,
         email_bound_at: null,
         pending_email: null,
         email_verification_required: false,
         has_password: false,
-        proxy_key_limit: 10,
+        proxy_key_limit: proxyKeyLimit,
       });
       return;
+    }
+
+    if (pathname.startsWith("/api/settings/auth/proxy-keys")) {
+      proxyKeyProfileHeaders.push(await readProfileHeader(request));
     }
 
     if (pathname === "/api/settings/auth/proxy-keys" && request.method() === "GET") {
@@ -214,16 +231,17 @@ async function installProxyKeyRoutes(page: Page) {
 
   return {
     getCreatePayloads: () => createPayloads,
+    getProxyKeyProfileHeaders: () => proxyKeyProfileHeaders,
     getRotatePayloads: () => rotatePayloads,
     getUpdatePayloads: () => updatePayloads,
   };
 }
 
 test("proxy key lifecycle shows expiry, retirement, and rotation lineage without dropping history", async ({ page }) => {
-  const routes = await installProxyKeyRoutes(page);
+  const routes = await installProxyKeyRoutes(page, { authEnabled: true });
   await seedLocale(page);
 
-  await page.goto("/proxy-api-keys");
+  await page.goto("/control/proxy-keys");
   await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
   await expect(page.getByText("Loading application...")).toHaveCount(0, {
     timeout: routeReadyTimeout,
@@ -249,9 +267,13 @@ test("proxy key lifecycle shows expiry, retirement, and rotation lineage without
       expires_at: expectedExpiry,
     },
   ]);
-  await expect(page.getByText("sk-live-created-200")).toBeVisible({
+  const createdSecretDialog = page.getByRole("dialog", { name: "New secret" });
+  await expect(createdSecretDialog.getByTestId("proxy-key-secret")).toContainText("sk-live-created-200", {
     timeout: routeReadyTimeout,
   });
+  await createdSecretDialog.screenshot({ path: "../.omo/evidence/frontend-rewrite/task-15-secret-reveal.png" });
+  await createdSecretDialog.getByRole("button", { name: "Close" }).first().click();
+  await expect(page.getByText("sk-live-created-200")).toHaveCount(0);
   await expect(page.getByText("Created with expiry")).toBeVisible({
     timeout: routeReadyTimeout,
   });
@@ -278,9 +300,12 @@ test("proxy key lifecycle shows expiry, retirement, and rotation lineage without
 
   await page.getByRole("button", { name: "Rotate proxy key Current key" }).click();
   expect(routes.getRotatePayloads()).toEqual([101]);
-  await expect(page.getByText("sk-live-rotated-201")).toBeVisible({
+  const rotatedSecretDialog = page.getByRole("dialog", { name: "New secret" });
+  await expect(rotatedSecretDialog.getByTestId("proxy-key-secret")).toContainText("sk-live-rotated-201", {
     timeout: routeReadyTimeout,
   });
+  await rotatedSecretDialog.getByRole("button", { name: "Close" }).first().click();
+  await expect(page.getByText("sk-live-rotated-201")).toHaveCount(0);
 
   const predecessorRow = page.getByRole("row").filter({ hasText: "Rotated to #201" });
   const successorRow = page.getByRole("row").filter({ hasText: "Rotated from #101" });
@@ -294,4 +319,29 @@ test("proxy key lifecycle shows expiry, retirement, and rotation lineage without
   await expect(successorRow.getByText("Rotated from #101", { exact: true })).toBeVisible({
     timeout: routeReadyTimeout,
   });
+
+  await predecessorRow.getByRole("button", { name: "Delete proxy key Current key" }).click();
+  const deleteDialog = page.getByRole("alertdialog", { name: "Delete Proxy API Key" });
+  await expect(deleteDialog.getByText("Live proxy traffic may be interrupted")).toBeVisible();
+  await expect(deleteDialog.getByText("Rotation lineage warning")).toBeVisible();
+  await deleteDialog.screenshot({ path: "../.omo/evidence/frontend-rewrite/task-15-delete-warning.png" });
+  await deleteDialog.getByRole("button", { name: "Cancel" }).click();
+
+  expect(routes.getProxyKeyProfileHeaders().every((value) => value === null)).toBe(true);
+});
+
+test("quota-limited create disables submit and explains the limit", async ({ page }) => {
+  const routes = await installProxyKeyRoutes(page, { proxyKeyLimit: 2 });
+  await seedLocale(page);
+
+  await page.goto("/control/proxy-keys");
+  await expect(page.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible({
+    timeout: routeReadyTimeout,
+  });
+
+  await expect(page.getByRole("button", { name: "Key limit reached" })).toBeDisabled();
+  await expect(page.getByText("2 / 2 keys used").first()).toBeVisible();
+  await expect(page.getByText("Key limit reached").first()).toBeVisible();
+  expect(routes.getCreatePayloads()).toEqual([]);
+  expect(routes.getProxyKeyProfileHeaders().every((value) => value === null)).toBe(true);
 });

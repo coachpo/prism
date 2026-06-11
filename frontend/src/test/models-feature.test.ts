@@ -1,0 +1,77 @@
+import { describe, expect, it } from "vitest"
+import { DEFAULT_MODEL_FORM_DATA, toModelCreatePayload } from "@/pages/models/modelFormState"
+import { createModelAuthoringFormOptions } from "@/features/models/modelForm"
+import { modelsQueryKeys } from "@/features/models/queryKeys"
+import { validateModelAuthoringValues } from "@/features/models/modelSchemas"
+
+const baseForm = {
+  ...DEFAULT_MODEL_FORM_DATA,
+  model_id: "gpt-entry",
+  loadbalance_strategy_id: 11,
+}
+
+describe("models feature contracts", () => {
+  it("includes selected profile and filters in the model list query key", () => {
+    expect(modelsQueryKeys.list(7, { search: " gpt ", api_family: "openai", vendor_id: "3", status: "enabled" })).toEqual([
+      "rewrite",
+      "selected-profile",
+      "7",
+      "models",
+      "list",
+      { search: "gpt", api_family: "openai", vendor_id: "3", status: "enabled" },
+    ])
+  })
+
+  it("preserves backend field names in create payload transforms", () => {
+    const payload = toModelCreatePayload({
+      ...baseForm,
+      display_name: "GPT Entry",
+      context_window_tokens: "131072",
+      default_output_token_reserve: "8192",
+      max_context_utilization: "0.75",
+      preferred_context_utilization_threshold: "0.7",
+      context_overflow_promotion_target_id: "gpt-large",
+      access_targets: [{ target_type: "model", target_model_id: "gpt-large", position: 0, weight: 2, target_priority: 1, is_enabled: true }],
+      is_enabled: true,
+    })
+
+    expect(payload).toEqual({
+      vendor_id: null,
+      api_family: "openai",
+      model_id: "gpt-entry",
+      display_name: "GPT Entry",
+      loadbalance_strategy_id: 11,
+      access_targets: [{ target_type: "model", target_model_id: "gpt-large", position: 0, weight: 2, target_priority: 1, is_enabled: true }],
+      context_window_tokens: 131072,
+      default_output_token_reserve: 8192,
+      max_context_utilization: 0.75,
+      preferred_context_utilization_threshold: 0.7,
+      context_overflow_promotion_target_id: "gpt-large",
+      is_enabled: true,
+    })
+  })
+
+  it("rejects preferred threshold above max utilization", () => {
+    expect(validateModelAuthoringValues({
+      ...baseForm,
+      max_context_utilization: "0.5",
+      preferred_context_utilization_threshold: "0.75",
+    })).toBe("preferred_context_utilization_threshold_exceeds_max")
+  })
+
+  it("requires enabled models to have a valid same-family access target", () => {
+    expect(validateModelAuthoringValues({
+      ...baseForm,
+      is_enabled: true,
+      access_targets: [],
+    })).toBe("access_target_required")
+  })
+})
+
+  it("exposes React Hook Form options backed by the Zod authoring schema", () => {
+    const options = createModelAuthoringFormOptions(baseForm)
+
+    expect(options.defaultValues.model_id).toBe("gpt-entry")
+    expect(options.mode).toBe("onSubmit")
+    expect(options.resolver).toBeTypeOf("function")
+  })

@@ -236,7 +236,7 @@ test.describe("request logs token rate", () => {
       }),
     ]);
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
 
     const table = page.getByTestId("request-logs-table");
     await expect(table.getByText("Output Rate", { exact: true })).toBeVisible();

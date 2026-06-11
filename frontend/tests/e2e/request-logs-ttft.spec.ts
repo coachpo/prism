@@ -349,7 +349,7 @@ test.describe("request logs TTFT", () => {
   test("table renders TTFT between latency and Output Rate with post-TTFT null handling", async ({ page }) => {
     await mockRequestLogRoutes(page);
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
 
     const table = page.getByTestId("request-logs-table");
     const headerCells = table.locator(".sticky > div");
@@ -393,7 +393,7 @@ test.describe("request logs TTFT", () => {
   test("detail renders TTFT summary strip in the committed six-stat order", async ({ page }) => {
     await mockRequestLogRoutes(page);
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
     await page.getByRole("button").filter({ hasText: "Interrupted Stream" }).click();
 
     const drawer = page.getByTestId("request-log-detail-sheet");
@@ -428,7 +428,7 @@ test.describe("request logs TTFT", () => {
   test("historical unknown stream detail keeps missing-usage context without pricing-template guidance", async ({ page }) => {
     await mockRequestLogRoutes(page);
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
     await page.getByRole("button").filter({ hasText: "Historical Unknown" }).click();
 
     const drawer = page.getByTestId("request-log-detail-sheet");

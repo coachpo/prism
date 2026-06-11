@@ -8,6 +8,6 @@ export function useModelDetailPageShell(navigate: (to: string) => void) {
     setActiveTab,
     navigateBackToModels: () => navigate("/models"),
     navigateToRequestLogs: (modelId: string) =>
-      navigate(`/request-logs?model_id=${encodeURIComponent(modelId)}`),
+      navigate(`/observe/requests?model=${encodeURIComponent(modelId)}`),
   };
 }

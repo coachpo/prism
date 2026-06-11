@@ -205,7 +205,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
     });
     await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const table = page.getByTestId("statistics-endpoint-table");
@@ -298,7 +298,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
     });
     await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });

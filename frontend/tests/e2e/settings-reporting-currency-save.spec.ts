@@ -175,7 +175,7 @@ function getBillingSection(page: Page) {
 }
 
 async function openSettings(page: Page) {
-  await page.goto("/settings");
+  await page.goto("/system/settings?tab=profile&section=billing-currency#billing-currency");
   const billingSection = getBillingSection(page);
   await expect(billingSection).toBeVisible();
   return billingSection;

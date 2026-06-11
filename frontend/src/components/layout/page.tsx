@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Outlet } from "react-router-dom";
 import { useLocale } from "@/i18n/useLocale";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -7,7 +7,7 @@ import { ProfileDialogs } from "./app-layout/ProfileDialogs";
 import { SiteHeader } from "./app-layout/SiteHeader";
 import { useAppLayoutState } from "./app-layout/useAppLayoutState";
 
-export function Page() {
+export function Page({ children }: { children?: ReactNode }) {
   const state = useAppLayoutState();
   const { messages } = useLocale();
 
@@ -47,9 +47,9 @@ export function Page() {
         />
 
         <SidebarInset className="min-h-svh overflow-hidden">
-          <SiteHeader breadcrumbs={state.breadcrumbs} />
+          <SiteHeader breadcrumbs={state.breadcrumbs} scopeBadge={state.shellScopeBadge} />
           <div className="flex flex-1 flex-col gap-4 p-4">
-            <Outlet />
+            {children ?? <Outlet />}
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -67,6 +67,7 @@ export function Page() {
         activeProfileName={state.activeProfileName}
         hasMismatch={state.hasMismatch}
         isActivating={state.isActivating}
+        activationError={state.activationError}
         onActivate={state.handleActivateProfile}
         nameInput={state.nameInput}
         setNameInput={state.setNameInput}

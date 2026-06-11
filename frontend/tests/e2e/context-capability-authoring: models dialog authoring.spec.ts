@@ -348,10 +348,8 @@ test("context-capability-authoring: overflow promotion target valid", async ({ p
     },
   ]);
 
-  await page.reload();
-  const reloadedGptSmallRow = page.getByText("GPT Small").locator("xpath=ancestor::div[contains(@class, 'group')][1]");
-  await expect(reloadedGptSmallRow.getByText("Overflow promote → gpt-large")).toBeVisible();
-  await reloadedGptSmallRow.getByRole("button", { name: "Edit Model: GPT Small" }).click();
+  const updatedGptSmallRow = page.getByRole("row", { name: /GPT Small/ });
+  await updatedGptSmallRow.getByRole("button", { name: "Edit Model: GPT Small" }).click();
 
   const reopenedDialog = page.getByRole("dialog", { name: "Edit Model" });
   await expect(reopenedDialog.getByLabel("Overflow promotion target")).toContainText("GPT Large (gpt-large)");

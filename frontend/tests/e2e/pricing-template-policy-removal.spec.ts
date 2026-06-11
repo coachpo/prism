@@ -126,7 +126,7 @@ async function stubPricingTemplateRoutes(page: Page, options: PricingTemplateRou
 test("pricing template dialog normalizes all prices and removes optional/default pricing copy", async ({ page }) => {
   const { createPayloads } = await stubPricingTemplateRoutes(page);
 
-  await page.goto("/pricing-templates");
+  await page.goto("/route/pricing");
   await expect(page.getByText("Cached Input Price (per 1M tokens): 0.05")).toBeVisible();
   await expect(page.getByText("Cache Creation Price (per 1M tokens): 0")).toBeVisible();
   await expect(page.getByText("Reasoning Price (per 1M tokens): 0")).toBeVisible();
@@ -197,7 +197,7 @@ test("pricing template usage and preflight delete dependencies use terminal targ
     connectionUsageItems: [usageRow],
   });
 
-  await page.goto("/pricing-templates");
+  await page.goto("/route/pricing");
   const templateRow = page.getByRole("row").filter({ hasText: "Baseline USD" });
   await templateRow.getByRole("button", { name: "View Usage Baseline USD" }).click();
 
@@ -248,7 +248,7 @@ test("pricing template delete conflict relabels backend 409 connection rows", as
     },
   });
 
-  await page.goto("/pricing-templates");
+  await page.goto("/route/pricing");
   const templateRow = page.getByRole("row").filter({ hasText: "Baseline USD" });
   await templateRow.getByRole("button", { name: "Delete" }).click();
 

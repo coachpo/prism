@@ -1,12 +1,10 @@
 # FRONTEND STATISTICS COMPONENTS KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/components/statistics/` holds the shared renderers used by the dashboard analytics surface. It currently owns the spending card and token metric cell helpers, and stays presentation-only.
+`src/components/statistics/` holds the shared renderers used by the dashboard analytics surface. It currently owns the spending card helper and stays presentation-only.
 
 ## WHERE TO LOOK
 - `TopSpendingCard.tsx`
-- `TokenMetricCell.tsx`
-- `../../pages/DashboardPage.tsx`
 - `../../pages/statistics/UsageStatisticsContent.tsx`
 
 ## CONVENTIONS

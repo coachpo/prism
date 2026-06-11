@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/EmptyState";
 import { useLocale } from "@/i18n/useLocale";
-import { Plus, Search, Shield } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Search, Shield } from "lucide-react";
 import { useTimezone } from "@/hooks/useTimezone";
 import type { LoadbalanceCurrentStateItem } from "@/lib/types";
 import { ConnectionCard } from "./connections-list/ConnectionCard";
@@ -206,11 +206,12 @@ export function ConnectionsList({
         >
           <SortableContext items={connectionIds} strategy={verticalListSortingStrategy}>
             <div className="space-y-3">
-              {filteredConnections.map((connection) => {
+              {filteredConnections.map((connection, connectionIndex) => {
                 const loadbalanceCurrentState = currentStateByConnectionId.get(connection.id);
                 const isChecking = healthCheckingIds.has(connection.id);
                 const isFocused = focusedConnectionId === connection.id;
                 const isResettingCooldown = resettingConnectionIds.has(connection.id);
+                const connectionName = connection.name?.trim() || connection.endpoint?.name?.trim() || copy.connectionFallback(connection.id);
                 const sortableCardProps: SortableConnectionCardProps = {
                   connection,
                   model,
@@ -235,7 +236,31 @@ export function ConnectionsList({
                 };
 
                 return (
-                  <SortableConnectionCard key={connection.id} {...sortableCardProps} />
+                  <div key={connection.id} className="grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
+                    <div className="flex items-center gap-1 sm:flex-col sm:justify-center">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        aria-label={`Move ${connectionName} up`}
+                        disabled={!canReorder || connectionIndex === 0}
+                        onClick={() => void handleReorderConnections(connection.id, connectionIndex - 1)}
+                      >
+                        <ArrowUp />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        aria-label={`Move ${connectionName} down`}
+                        disabled={!canReorder || connectionIndex === filteredConnections.length - 1}
+                        onClick={() => void handleReorderConnections(connection.id, connectionIndex + 1)}
+                      >
+                        <ArrowDown />
+                      </Button>
+                    </div>
+                    <SortableConnectionCard {...sortableCardProps} />
+                  </div>
                 );
               })}
             </div>

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
 const routeReadyTimeout = 15_000;
@@ -194,6 +195,7 @@ async function mockReportingCurrencyProtectedRoutes(
     costingByProfile: {} as RequestCountsByProfile,
     modelsByProfile: {} as RequestCountsByProfile,
     usageSnapshotByProfile: {} as RequestCountsByProfile,
+    dashboardByProfile: {} as RequestCountsByProfile,
   };
   let lastCostingProfileKey: string | null = null;
 
@@ -252,6 +254,12 @@ async function mockReportingCurrencyProtectedRoutes(
       return fulfillJson(createUsageSnapshot(parseProfileId(profileKey)));
     }
 
+    if (pathname === "/api/stats/dashboard") {
+      const profileKey = resolveProfileKey(route.request().headers());
+      incrementRequestCount(requestCounts.dashboardByProfile, profileKey);
+      return fulfillJson(createDashboardSnapshot());
+    }
+
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
   });
 
@@ -275,7 +283,7 @@ test.describe("reporting currency provider", () => {
       },
     });
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByText("Loading application...")).toBeVisible();
     await expect.poll(getLastCostingProfileHeader).toBe("1");
@@ -291,11 +299,10 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByText("Loading application...")).toHaveCount(0, {
       timeout: routeReadyTimeout,
     });
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+    await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
-    await expect.poll(() => requestCounts.modelsByProfile["1"] ?? 0).toBeGreaterThan(0);
-    await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
+    await expect.poll(() => requestCounts.dashboardByProfile["1"] ?? 0).toBeGreaterThan(0);
   });
 
   test("fails open and renders the protected shell when costing bootstrap returns an error", async ({ page }) => {
@@ -305,18 +312,17 @@ test.describe("reporting currency provider", () => {
       },
     });
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect.poll(getLastCostingProfileHeader).toBe("1");
     await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByText("Loading application...")).toHaveCount(0, {
       timeout: routeReadyTimeout,
     });
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+    await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
-    await expect.poll(() => requestCounts.modelsByProfile["1"] ?? 0).toBeGreaterThan(0);
-    await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
+    await expect.poll(() => requestCounts.dashboardByProfile["1"] ?? 0).toBeGreaterThan(0);
   });
 
   test("re-engages the route fallback immediately when the selected profile changes", async ({ page }) => {
@@ -331,17 +337,16 @@ test.describe("reporting currency provider", () => {
       },
     });
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByText("Loading application...")).toHaveCount(0, {
       timeout: routeReadyTimeout,
     });
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+    await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
-    await expect.poll(() => requestCounts.modelsByProfile["1"] ?? 0).toBeGreaterThan(0);
-    await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
+    await expect.poll(() => requestCounts.dashboardByProfile["1"] ?? 0).toBeGreaterThan(0);
 
     await page.getByTestId("shell-profile-switcher").getByRole("button").click();
     await page.getByRole("menuitem", { name: /Blue Team/ }).click();
@@ -349,11 +354,10 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByText("Loading application...")).toBeVisible();
     await expect.poll(getLastCostingProfileHeader).toBe("2");
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
-    await expect(page.getByTestId("usage-controls-toolbar")).toHaveCount(0);
+    await expect(page.getByTestId("observe-dashboard")).toHaveCount(0);
 
     await page.waitForTimeout(200);
-    expect(requestCounts.modelsByProfile["2"] ?? 0).toBe(0);
-    expect(requestCounts.usageSnapshotByProfile["2"] ?? 0).toBe(0);
+    expect(requestCounts.dashboardByProfile["2"] ?? 0).toBe(0);
 
     secondProfileCostingGate.resolve();
 
@@ -361,13 +365,12 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByText("Loading application...")).toHaveCount(0, {
       timeout: routeReadyTimeout,
     });
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+    await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
+    await expect.poll(() => requestCounts.dashboardByProfile["2"] ?? 0).toBeGreaterThan(0);
     await expect(page.getByTestId("shell-profile-switcher")).toContainText("Blue Team", {
       timeout: routeReadyTimeout,
     });
-    await expect.poll(() => requestCounts.modelsByProfile["2"] ?? 0).toBeGreaterThan(0);
-    await expect.poll(() => requestCounts.usageSnapshotByProfile["2"] ?? 0).toBeGreaterThan(0);
   });
 });

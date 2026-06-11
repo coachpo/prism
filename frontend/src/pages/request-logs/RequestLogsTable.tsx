@@ -206,6 +206,8 @@ export function RequestLogsTable({
                   <button
                     type="button"
                     key={row.id}
+                    aria-label={messages.requestLogs.requestTitle(row.id)}
+                    data-testid={`request-log-row-${row.id}`}
                     className={cn(
                       "absolute left-0 right-0 flex cursor-pointer items-center border-b border-l-2 text-left transition-colors",
                       tone.row,
@@ -268,10 +270,10 @@ export function RequestLogsTable({
         </div>
 
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" className="size-8 rounded-full" disabled={!hasPrev} onClick={onPreviousPage}>
+          <Button variant="outline" size="icon" className="size-8 rounded-full" aria-label={messages.requestLogs.previousPage} disabled={!hasPrev} onClick={onPreviousPage}>
             <ChevronLeft />
           </Button>
-          <Button variant="outline" size="icon" className="size-8 rounded-full" disabled={!hasNext} onClick={onNextPage}>
+          <Button variant="outline" size="icon" className="size-8 rounded-full" aria-label={messages.requestLogs.nextPage} disabled={!hasNext} onClick={onNextPage}>
             <ChevronRight />
           </Button>
         </div>

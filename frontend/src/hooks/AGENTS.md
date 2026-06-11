@@ -1,20 +1,18 @@
 # FRONTEND HOOKS KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/hooks/` contains Prism's shared reactive helpers for realtime updates, periodic polling, and shared display formatting.
+`src/hooks/` contains Prism's shared reactive helpers for realtime updates and shared display formatting.
 
 ## STRUCTURE
 ```
 hooks/
 ├── useRealtimeData.ts   # Shared realtime subscription hook over the singleton websocket client
-├── usePolling.ts        # Tab-visibility-aware polling hook
 └── useTimezone.ts       # Shared timestamp formatting hook over i18n helpers
 ```
 
 ## WHERE TO LOOK
 
 - Shared realtime subscription lifecycle, profile-aware channel wiring, and preferred consumer path over the singleton websocket client: `useRealtimeData.ts`, `../lib/websocket.ts`
-- Standard periodic refresh with visibility-aware start/stop behavior: `usePolling.ts`
 - Shared timestamp formatting through the locale layer: `useTimezone.ts`, `../i18n/format.ts`
 
 ## CONVENTIONS
@@ -22,7 +20,6 @@ hooks/
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Prefer `useRealtimeData()` over direct WebSocket access, including when a page needs shared connection state from the singleton client.
-- Use `usePolling()` for observability pages that do not have full realtime coverage.
 - Keep hook side effects small, and push complex shaping into `src/lib/` or local page helpers.
 - Route shared date and time display through `useTimezone.ts` or `src/i18n/format.ts`.
 

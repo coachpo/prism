@@ -44,17 +44,22 @@ export function useRequestLogPageState() {
   const setLimit = useCallback((v: number) => update({ limit: v, offset: DEFAULTS.offset }), [update]);
   const setOffset = useCallback((v: number) => update({ offset: v }, false), [update]);
   const setRequestId = useCallback(
-    (value: string) => update({ request_id: normalizeRequestId(value) }, false),
+    (value: string) => update({ request_id: normalizeRequestId(value), selected_request_id: "" }, false),
     [update],
   );
 
   const selectRequest = useCallback(
-    (id: number) => update({ request_id: String(id) }, false),
+    (id: number) => update({ selected_request_id: String(id) }, false),
+    [update]
+  );
+
+  const clearSelectedRequest = useCallback(
+    () => update({ selected_request_id: "" }, false),
     [update]
   );
 
   const clearRequest = useCallback(
-    () => update({ request_id: "" }, false),
+    () => update({ request_id: "", selected_request_id: "" }, false),
     [update]
   );
 
@@ -62,8 +67,9 @@ export function useRequestLogPageState() {
     setSearchParams(stateToParams({
       ...parsePageState(new URLSearchParams()),
       request_id: state.request_id,
+      selected_request_id: state.selected_request_id,
     }), { replace: true });
-  }, [setSearchParams, state.request_id]);
+  }, [setSearchParams, state.request_id, state.selected_request_id]);
 
   const goToNextPage = useCallback(
     (total: number) => {
@@ -99,6 +105,7 @@ export function useRequestLogPageState() {
     setOffset,
     setRequestId,
     selectRequest,
+    clearSelectedRequest,
     clearRequest,
     clearFilters,
     goToNextPage,

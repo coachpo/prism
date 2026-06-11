@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-18T00:00:00Z";
 const routeReadyTimeout = 15_000;
@@ -251,6 +252,7 @@ async function mockProtectedShellRoutes(
     costing: 0,
     models: 0,
     usageSnapshot: 0,
+    dashboard: 0,
   };
 
   await page.route("**/*", async (route) => {
@@ -301,6 +303,11 @@ async function mockProtectedShellRoutes(
       return fulfillJson(createUsageSnapshot());
     }
 
+    if (pathname === "/api/stats/dashboard") {
+      requestCounts.dashboard += 1;
+      return fulfillJson(createDashboardSnapshot());
+    }
+
     if (pathname === "/api/settings/auth") {
       return fulfillJson(createAuthSettings());
     }
@@ -343,7 +350,7 @@ test.describe("protected shell sidebar regression", () => {
       costingBehavior: { onRequest: () => costingGate.promise },
     });
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByText("Loading application...")).toBeVisible();
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
@@ -358,18 +365,17 @@ test.describe("protected shell sidebar regression", () => {
     costingGate.resolve();
 
     await expectShellChrome(page, { current: "Dashboard" });
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible();
-    await expect.poll(() => requestCounts.models).toBeGreaterThan(0);
-    await expect.poll(() => requestCounts.usageSnapshot).toBeGreaterThan(0);
+    await expect(page.getByTestId("observe-dashboard")).toBeVisible();
+    await expect.poll(() => requestCounts.dashboard).toBeGreaterThan(0);
   });
 
   test("renders the dashboard shell and persists desktop collapse state", async ({ page }) => {
     await mockProtectedShellRoutes(page);
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expectShellChrome(page, { current: "Dashboard" });
-    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+    await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
     await expect.poll(() => readSidebarCollapsed(page), { timeout: routeReadyTimeout }).toBe("false");
@@ -388,7 +394,7 @@ test.describe("protected shell sidebar regression", () => {
   test("renders settings hash breadcrumbs with the section leaf as current", async ({ page }) => {
     await mockProtectedShellRoutes(page);
 
-    await page.goto("/settings#authentication");
+    await page.goto("/system/settings#authentication");
 
     await expectShellChrome(page, { parent: "Settings", current: "Authentication" });
   });
@@ -396,7 +402,7 @@ test.describe("protected shell sidebar regression", () => {
   test("renders request-log detail breadcrumbs while the detail sheet is open", async ({ page }) => {
     await mockProtectedShellRoutes(page);
 
-    await page.goto("/request-logs?request_id=101");
+    await page.goto("/observe/requests?request_id=101");
 
     await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible({
       timeout: routeReadyTimeout,
@@ -408,7 +414,7 @@ test.describe("protected shell sidebar regression", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockProtectedShellRoutes(page);
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     const sidebarToggle = page.getByRole("button", { name: "Toggle Sidebar" });
 
@@ -422,7 +428,7 @@ test.describe("protected shell sidebar regression", () => {
     await expect(page.getByTestId("shell-profile-switcher")).toBeVisible();
 
     await page.getByTestId("shell-sidebar").getByRole("link", { name: "Settings" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/system\/settings$/);
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Settings");
     await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);

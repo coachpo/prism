@@ -18,7 +18,6 @@ settings/
 ├── SettingsStartupTab.tsx         # Startup-tab body for plaintext bootstrap config
 ├── useSettingsPageData.ts          # Top-level page composition across backup, auth, costing, audit, retention
 ├── useSettingsPageSectionState.ts  # Active tab, hash, scroll focus, and section jumps
-├── useSettingsSectionNavigation.ts   # Scroll target registration and section jump helpers
 ├── useAuthenticationSettingsData.ts
 ├── useCostingSettingsData.ts
 ├── useAuditConfigurationData.ts
@@ -43,7 +42,7 @@ settings/
 - Thin route shell, tab split, startup-tab mount, section order, and dialog mounts: `../SettingsPage.tsx`, `SettingsStartupTab.tsx`
 - Startup tab field groups for secrets, named PostgreSQL pool lanes, runtime transport, telemetry exporter or auth or TLS settings, auth TTL/cookie settings, mail/SMTP, state-transfer secrets, planned changes, and dangerous confirmations: `startup/AGENTS.md`, `SettingsStartupTab.tsx`
 - Cross-section composition, selected-profile labeling, and shared save-state handoff: `useSettingsPageData.ts`
-- Active tab state, hash updates, scroll-driven focus, and section jump behavior: `useSettingsPageSectionState.ts`, `useSettingsSectionNavigation.ts`, `SettingsSectionsNav.tsx`
+- Active tab state, hash updates, scroll-driven focus, and section jump behavior: `useSettingsPageSectionState.ts`, `SettingsSectionsNav.tsx`
 - Stable helper constants and form-normalization utilities: `settingsPageHelpers.ts`
 - Shared save-state badges and render helpers: `sectionSaveState.tsx`, `settingsSaveTypes.ts`
 - Section implementation boundary: `sections/AGENTS.md`

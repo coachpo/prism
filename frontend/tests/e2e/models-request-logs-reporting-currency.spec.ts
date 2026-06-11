@@ -496,7 +496,7 @@ test.describe("models and request logs reporting currency", () => {
 
     await page.goto("/models");
 
-    await expect(page.getByText("€1.25 spend")).toBeVisible();
+    await expect(page.getByRole("row", { name: /GPT-4o mini/ }).getByText("€1.25")).toBeVisible();
     await expect(page.getByText("$1.25")).toHaveCount(0);
   });
 
@@ -506,13 +506,13 @@ test.describe("models and request logs reporting currency", () => {
     await page.goto("/models");
 
     await expect(page.getByText("Spend is shown with fallback reporting currency until billing settings load again.")).toBeVisible();
-    await expect(page.getByText("$1.25 spend")).toBeVisible();
+    await expect(page.getByRole("row", { name: /GPT-4o mini/ }).getByText("$1.25")).toBeVisible();
   });
 
   test("keeps browse-mode request-log spend distinct for payload symbols, canonical fallback, priced zero, and missing cost", async ({ page }) => {
     await mockCurrencyRoutes(page);
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
 
     const payloadSymbolReasoning = page
       .getByRole("button")
@@ -558,13 +558,13 @@ test.describe("models and request logs reporting currency", () => {
   test("keeps detail-mode request-log spend distinct for priced zero and missing cost", async ({ page }) => {
     await mockCurrencyRoutes(page);
 
-    await page.goto("/request-logs?request_id=103");
+    await page.goto("/observe/requests?request_id=103");
 
     const pricedZeroSummary = page.getByTestId("request-log-summary-strip").locator("[data-slot='metric-value']").nth(4);
     await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
     await expect(pricedZeroSummary).toContainText("$0.00");
 
-    await page.goto("/request-logs?request_id=104");
+    await page.goto("/observe/requests?request_id=104");
 
     const unpricedSummary = page.getByTestId("request-log-summary-strip").locator("[data-slot='metric-value']").nth(4);
     await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
@@ -576,11 +576,11 @@ test.describe("models and request logs reporting currency", () => {
   test("uses the canonical fallback in dashboard recent activity when request payload symbols are missing", async ({ page }) => {
     await mockCurrencyRoutes(page);
 
-    await page.goto("/dashboard?tab=overview");
+    await page.goto("/observe?tab=overview");
 
-    await expect(page.getByText("$0.75")).toBeVisible();
-    await expect(page.getByText("€0.50 EUR")).toBeVisible();
-    await expect(page.getByText("Unpriced")).toBeVisible();
+    await expect(page.getByTestId("request-stream-row-0")).toContainText("$0.75");
+    await expect(page.getByTestId("request-stream-row-1")).toContainText("€0.50 EUR");
+    await expect(page.getByTestId("request-stream-row-3")).toContainText("Unpriced");
     await expect(page.getByText("$0.50")).toHaveCount(0);
   });
 });

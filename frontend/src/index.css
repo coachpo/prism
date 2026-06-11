@@ -55,10 +55,31 @@
     --color-info-foreground: var(--info-foreground);
     --color-unhealthy: var(--unhealthy);
     --color-unhealthy-foreground: var(--unhealthy-foreground);
+    --color-operator-surface: var(--operator-surface);
+    --color-operator-surface-raised: var(--operator-surface-raised);
+    --color-operator-grid: var(--operator-grid);
+    --color-operator-glow: var(--operator-glow);
+    --color-command: var(--command);
+    --color-command-foreground: var(--command-foreground);
+    --font-sans: var(--operator-font-sans);
+    --font-mono: var(--operator-font-mono);
+    --shadow-operator-panel: var(--shadow-operator-panel);
+    --shadow-operator-glow: var(--shadow-operator-glow);
 }
 
 :root {
     --radius: 0.625rem;
+    --operator-font-sans: "Geist", "Satoshi", "Cabinet Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --operator-font-mono: "Geist Mono", "SFMono-Regular", "Cascadia Code", ui-monospace, monospace;
+    --tracking-operator: -0.025em;
+    --operator-surface: oklch(0.975 0.008 265);
+    --operator-surface-raised: oklch(1 0 0);
+    --operator-grid: oklch(0.86 0.018 265);
+    --operator-glow: oklch(0.62 0.16 265);
+    --command: oklch(0.995 0.002 265);
+    --command-foreground: oklch(0.145 0.024 265);
+    --shadow-operator-panel: 0 18px 50px -32px color-mix(in oklab, var(--foreground) 30%, transparent);
+    --shadow-operator-glow: 0 0 0 1px color-mix(in oklab, var(--operator-glow) 16%, transparent), 0 24px 80px -48px color-mix(in oklab, var(--operator-glow) 38%, transparent);
     --background: oklch(0.985 0.002 265);
     --foreground: oklch(0.145 0.024 265);
     --card: oklch(1 0 0);
@@ -105,6 +126,14 @@
 }
 
 .dark {
+    --operator-surface: oklch(0.155 0.04 275);
+    --operator-surface-raised: oklch(0.195 0.035 275);
+    --operator-grid: oklch(0.31 0.04 275);
+    --operator-glow: oklch(0.66 0.18 265);
+    --command: oklch(0.19 0.03 275);
+    --command-foreground: oklch(0.94 0.012 265);
+    --shadow-operator-panel: 0 18px 60px -36px color-mix(in oklab, black 70%, transparent);
+    --shadow-operator-glow: 0 0 0 1px color-mix(in oklab, var(--operator-glow) 18%, transparent), 0 24px 90px -52px color-mix(in oklab, var(--operator-glow) 42%, transparent);
     --background: oklch(0.17 0.045 275);
     --foreground: oklch(0.94 0.012 265);
     --card: oklch(0.185 0.026 265);
@@ -170,6 +199,8 @@
         --density-control-h: 2.25rem;
         --density-control-h-sm: 2rem;
         --density-control-h-xs: 1.75rem;
+        --density-command-input-h: 2.75rem;
+        --density-command-item-py: 0.625rem;
         --density-table-head-h: 2.25rem;
         --density-table-cell-py: 0.5rem;
         --density-table-cell-px: 0.5rem;
@@ -248,6 +279,46 @@
   }
 }
 
+@layer components {
+    .operator-surface {
+        background: linear-gradient(135deg, var(--operator-surface-raised), var(--operator-surface));
+        box-shadow: var(--shadow-operator-panel);
+    }
+    .operator-state-surface {
+        background: color-mix(in oklab, var(--operator-surface-raised) 88%, transparent);
+        box-shadow: var(--shadow-operator-panel);
+    }
+    .operator-table-shell {
+        background: color-mix(in oklab, var(--card) 94%, var(--operator-surface));
+        box-shadow: var(--shadow-operator-panel);
+    }
+    .operator-table-shell[data-density="compact"] {
+        --density-table-head-h: 2rem;
+        --density-table-cell-py: 0.375rem;
+        --density-table-cell-px: 0.5rem;
+    }
+    .operator-table-shell[data-density="expanded"] {
+        --density-table-head-h: 2.75rem;
+        --density-table-cell-py: 0.75rem;
+        --density-table-cell-px: 0.875rem;
+    }
+    .operator-command-surface {
+        background: var(--command);
+        color: var(--command-foreground);
+        box-shadow: var(--shadow-operator-glow);
+    }
+    .operator-command-trigger {
+        font-variant-numeric: tabular-nums;
+        letter-spacing: var(--tracking-operator);
+    }
+    .operator-page-transition {
+        transition: opacity 180ms ease, transform 180ms ease;
+    }
+    .bento-dense {
+        grid-auto-flow: dense;
+    }
+}
+
 @layer utilities {
     .ws-new-row {
         animation: ws-slide-in 300ms ease-out, ws-highlight 1.5s ease-out;
@@ -281,11 +352,28 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+    html:focus-within {
+        scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms;
+        animation-iteration-count: 1;
+        scroll-behavior: auto;
+        transition-duration: 0.001ms;
+    }
+    .operator-page-transition,
     .ws-new-row,
     .ws-new-row-left,
     .ws-value-updated {
         animation: none;
-        transition: background-color 0.5s ease;
+        transform: none;
+        transition: none;
+    }
+    .ws-new-row,
+    .ws-new-row-left,
+    .ws-value-updated {
         background-color: color-mix(in oklab, var(--color-primary) 8%, transparent);
     }
 }

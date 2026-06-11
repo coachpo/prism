@@ -385,7 +385,7 @@ test.describe("statistics selected-model totals", () => {
     const { endpointModelRequestCounts } = await mockStatisticsRoutes(page);
     await seedUsageStatisticsState(page, ["gpt-5.4"]);
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
@@ -469,7 +469,7 @@ test.describe("statistics selected-model totals", () => {
     const { endpointModelRequestCounts } = await mockStatisticsRoutes(page);
     await seedUsageStatisticsState(page, ["gpt-5.4", "claude-3.7-sonnet"]);
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
     await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { SemanticCallout } from "@/components/SemanticCallout";
@@ -19,7 +19,6 @@ export function RequestLogsPage() {
   const { revision } = useProfileContext();
   const { format } = useTimezone();
   const { messages } = useLocale();
-  const [tableSelectedRequestId, setTableSelectedRequestId] = useState<number | null>(null);
   const actions = useRequestLogPageState();
   const { state, isExactMode } = actions;
 
@@ -32,8 +31,9 @@ export function RequestLogsPage() {
       return Number.isFinite(parsedRequestId) ? parsedRequestId : null;
     }
 
-    return tableSelectedRequestId;
-  }, [isExactMode, state.request_id, tableSelectedRequestId]);
+    const parsedSelectedRequestId = Number(state.selected_request_id);
+    return Number.isFinite(parsedSelectedRequestId) && parsedSelectedRequestId > 0 ? parsedSelectedRequestId : null;
+  }, [isExactMode, state.request_id, state.selected_request_id]);
 
   const {
     request: selectedRequest,
@@ -55,7 +55,7 @@ export function RequestLogsPage() {
   const sheetOpen = selectedRequest !== null;
 
   const handleSelectRequest = (id: number) => {
-    setTableSelectedRequestId(id);
+    actions.selectRequest(id);
   };
 
   const handleCloseRequest = () => {
@@ -64,7 +64,7 @@ export function RequestLogsPage() {
       return;
     }
 
-    setTableSelectedRequestId(null);
+    actions.clearSelectedRequest();
   };
 
   return (

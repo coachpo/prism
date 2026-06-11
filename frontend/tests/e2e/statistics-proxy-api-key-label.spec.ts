@@ -221,7 +221,7 @@ test.describe("statistics proxy API key label regression", () => {
     await mockStatisticsRoutes(page);
     await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const table = page.getByTestId("statistics-proxy-key-table");
@@ -234,7 +234,7 @@ test.describe("statistics proxy API key label regression", () => {
     await mockStatisticsRoutes(page);
     await page.addInitScript(() => localStorage.setItem("prism.locale", "zh-CN"));
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const table = page.getByTestId("statistics-proxy-key-table");

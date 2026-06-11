@@ -310,7 +310,7 @@ test.describe("request logs optional zero pricing", () => {
   test("keeps priced-zero rows priced while historical missing-price rows remain unpriced", async ({ page }) => {
     await mockRequestLogRoutes(page);
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
 
     const pricedZeroSpend = page
       .getByRole("button")
@@ -332,7 +332,7 @@ test.describe("request logs optional zero pricing", () => {
   test("renders effective-zero pricing snapshots and split token zero-vs-unknown detail", async ({ page }) => {
     await mockRequestLogRoutes(page);
 
-    await page.goto("/request-logs?request_id=201");
+    await page.goto("/observe/requests?request_id=201");
 
     const summaryStrip = page.getByTestId("request-log-summary-strip");
     const totalCostSummary = summaryStrip.locator("[data-slot='metric-value']").nth(4);
@@ -348,7 +348,7 @@ test.describe("request logs optional zero pricing", () => {
     await expect(pricingSnapshotValue(page, "Pricing snapshot reasoning")).toHaveText("0");
     await expect(page.getByText("0 (default)")).toHaveCount(0);
 
-    await page.goto("/request-logs?request_id=202");
+    await page.goto("/observe/requests?request_id=202");
     await expect(overviewValue(page, "Cache read")).toHaveText("—");
     await expect(overviewValue(page, "Cache creation")).toHaveText("—");
     await expect(overviewValue(page, "Reasoning")).toHaveText("—");

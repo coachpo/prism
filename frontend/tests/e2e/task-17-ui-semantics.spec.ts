@@ -1,7 +1,27 @@
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-05-28T12:00:00Z";
 const routeReadyTimeout = 15_000;
+const evidenceDir = resolve(process.cwd(), "../.omo/evidence/frontend-rewrite");
+const keyboardTracePath = resolve(evidenceDir, "task-17-keyboard-tables.zip");
+const cursorScreenshotPath = resolve(evidenceDir, "task-17-cursor-url.png");
+const configAuthoringDefaults = {
+  context_window_tokens: null,
+  default_output_token_reserve: 4096,
+  max_context_utilization: 0.9,
+  preferred_context_utilization_threshold: null,
+};
+const facadePolicyDefaults = {
+  facade_enabled: true,
+  facade_selection_policy: "weighted_eligible_context",
+  facade_fallback_policy: "redistribute_ineligible_weight",
+};
+
+test.beforeAll(() => {
+  mkdirSync(evidenceDir, { recursive: true });
+});
 
 function profile() {
   return {
@@ -74,9 +94,17 @@ const strategy = {
 const requestedModel = model(101, "public-model", "Public Model");
 const finalTargetModel = model(102, "terminal-model", "Terminal Model");
 
-function requestLogItem() {
+function task17Models() {
+  return [
+    requestedModel,
+    finalTargetModel,
+    ...Array.from({ length: 28 }, (_, index) => model(200 + index, `aux-${String(index + 1).padStart(2, "0")}`, `Aux Model ${String(index + 1).padStart(2, "0")}`)),
+  ];
+}
+
+function requestLogItem(id = 301) {
   return {
-    id: 301,
+    id,
     created_at: timestamp,
     model_id: requestedModel.model_id,
     model_label: requestedModel.display_name,
@@ -109,10 +137,10 @@ function requestLogItem() {
   };
 }
 
-function requestLogDetail() {
+function requestLogDetail(id = 301) {
   return {
     summary: {
-      ...requestLogItem(),
+      ...requestLogItem(id),
       vendor_id: null,
       vendor_key: null,
       vendor_name: null,
@@ -195,10 +223,12 @@ function profileBundleV3() {
       name: "Terminal connection",
       endpoint_name: endpoint.name,
       api_family: "openai",
+      ...configAuthoringDefaults,
       pricing_template_name: null,
       is_active: true,
       auth_type: null,
       custom_headers: null,
+      openai_text_capability: "dual_native",
       openai_probe_endpoint_variant: null,
       qps_limit: null,
       max_in_flight_non_stream: null,
@@ -223,6 +253,8 @@ function profileBundleV3() {
       model_id: requestedModel.model_id,
       display_name: requestedModel.display_name,
       loadbalance_strategy_name: strategy.name,
+      ...configAuthoringDefaults,
+      ...facadePolicyDefaults,
       is_enabled: true,
       access_targets: [{ position: 0, is_enabled: true, target_type: "connection", connection_ref: "terminal-connection" }],
     }],
@@ -231,6 +263,23 @@ function profileBundleV3() {
     user_agent_client_rules: [],
     secret_payload: { kind: "encrypted", cipher: "fernet-v1", key_id: "task-17", entries: [] },
   };
+}
+
+function pricingTemplate(id: number, name: string) {
+  return { id, profile_id: 1, name, description: `${name} pricing`, pricing_unit: "PER_1M", pricing_currency_code: "USD", input_price: String(id), output_price: String(id + 1), cached_input_price: "0", cache_creation_price: "0", reasoning_price: "0", version: id, created_at: timestamp, updated_at: timestamp };
+}
+
+function task17PricingTemplates() {
+  return Array.from({ length: 12 }, (_, index) => pricingTemplate(index + 1, index === 10 ? "Beta Task 17" : `Pricing ${String(index + 1).padStart(2, "0")}`));
+}
+
+function sidecar(id: number, name: string, state: "valid" | "missing_management_auth" = "valid") {
+  const hostSlug = name.toLowerCase().replace(/ /g, "-");
+  return { id, name, base_url: `https://${hostSlug}.example.invalid`, base_url_canonical: `https://${hostSlug}.example.invalid`, enabled: true, environment_label: id % 2 === 0 ? "production" : "staging", management_auth_state: state, credential_state: { management_password_configured: state === "valid" }, allow_insecure_http: false, skip_tls_verify: false, allow_private_network: false, last_sync_at: timestamp, last_successful_sync_at: state === "valid" ? timestamp : null, last_sync_error: state === "valid" ? null : "Missing management auth", snapshot_stale_after: "2099-01-01T00:00:00Z", pause_metadata: null, version: 1, created_at: timestamp, updated_at: timestamp };
+}
+
+function task17Sidecars() {
+  return Array.from({ length: 12 }, (_, index) => sidecar(index + 1, index === 10 ? "Beta Sidecar" : `Sidecar ${String(index + 1).padStart(2, "0")}`, index % 5 === 0 ? "missing_management_auth" : "valid"));
 }
 
 async function mockRoutes(page: Page) {
@@ -259,22 +308,35 @@ async function mockRoutes(page: Page) {
     if (pathname === "/api/vendors") return fulfillJson([]);
     if (pathname === "/api/config/header-blocklist-rules") return fulfillJson([]);
     if (pathname === "/api/config/user-agent-client-rules") return fulfillJson([]);
-    if (pathname === "/api/models") return fulfillJson([requestedModel, finalTargetModel]);
+    if (pathname === "/api/models") return fulfillJson(task17Models());
     if (pathname === "/api/endpoints") return fulfillJson([endpoint]);
     if (pathname === "/api/models/by-endpoints") {
       return fulfillJson({ items: [{ endpoint_id: endpoint.id, models: [requestedModel, finalTargetModel] }] });
     }
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([strategy]);
+    if (pathname === "/api/stats/models/metrics" && request.method() === "POST") {
+      return fulfillJson({ items: task17Models().map((item, index) => ({ model_id: item.model_id, success_rate: 99 - index, request_count_24h: 100 + index, p95_latency_ms: 40 + index, spend_30d_micros: 1000 + index })) });
+    }
+    if (pathname === "/api/pricing-templates" && request.method() === "GET") return fulfillJson(task17PricingTemplates());
+    if (/^\/api\/pricing-templates\/\d+$/.test(pathname) && request.method() === "GET") return fulfillJson(task17PricingTemplates().find((item) => pathname.endsWith(`/${item.id}`)) ?? task17PricingTemplates()[0]);
+    if (/^\/api\/pricing-templates\/\d+\/connections$/.test(pathname)) return fulfillJson({ items: [] });
+    if (pathname === "/api/sidecars" && request.method() === "GET") return fulfillJson({ items: task17Sidecars() });
+    if (/^\/api\/sidecars\/\d+$/.test(pathname) && request.method() === "GET") return fulfillJson(task17Sidecars().find((item) => pathname.endsWith(`/${item.id}`)) ?? task17Sidecars()[0]);
+    if (/^\/api\/sidecars\/\d+\/auth-files$/.test(pathname)) return fulfillJson({ items: [] });
+    if (/^\/api\/sidecars\/\d+\/provider-snapshots$/.test(pathname)) return fulfillJson({ items: [] });
     if (pathname === "/api/stats/requests") {
+      const offset = Number(url.searchParams.get("offset") ?? url.searchParams.get("cursor") ?? "0");
+      const id = offset >= 100 ? 302 : 301;
       return fulfillJson({
-        items: [requestLogItem()],
-        total: 1,
+        items: [requestLogItem(id)],
+        total: 150,
         limit: Number(url.searchParams.get("limit") ?? "100"),
-        offset: 0,
+        offset,
         filter_options: { models: [{ model_id: requestedModel.model_id, model_label: requestedModel.display_name }], endpoints: [{ endpoint_id: endpoint.id, endpoint_label: endpoint.name }] },
       });
     }
-    if (pathname === "/api/stats/requests/301") return fulfillJson(requestLogDetail());
+    if (pathname === "/api/stats/requests/301") return fulfillJson(requestLogDetail(301));
+    if (pathname === "/api/stats/requests/302") return fulfillJson(requestLogDetail(302));
     if (pathname === "/api/config/profile/import/preview") {
       return fulfillJson({
         ready: true,
@@ -311,14 +373,14 @@ async function mockRoutes(page: Page) {
 test("legacy strategy ui and request log target labels", async ({ page }) => {
   await mockRoutes(page);
 
-  await page.goto("/loadbalance-strategies");
+  await page.goto("/route/ban-policies");
   await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
   await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
   await expect(page.getByText("Ban Policy").first()).toBeVisible({ timeout: routeReadyTimeout });
   await expect(page.getByText("terminal-target selection families plus Ban Policy").first()).toBeVisible();
   await expect(page.getByText(/Adaptive|Auto Recovery|Routing Policy/)).toHaveCount(0);
 
-  await page.goto("/request-logs");
+  await page.goto("/observe/requests");
   await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
   await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: routeReadyTimeout });
   const requestLogsTable = page.getByTestId("request-logs-table");
@@ -339,7 +401,7 @@ test("legacy strategy ui and request log target labels", async ({ page }) => {
 test("endpoint reachable chained models", async ({ page }) => {
   await mockRoutes(page);
 
-  await page.goto("/endpoints");
+  await page.goto("/route/endpoints");
   await expect(page.getByText("Reachable Models")).toBeVisible();
   await expect(page.getByText("Public Model")).toBeVisible();
   await expect(page.getByText("Terminal Model")).toBeVisible();
@@ -349,7 +411,7 @@ test("settings config bundle v3 preview summary", async ({ page }) => {
   await mockRoutes(page);
   const bundle = JSON.stringify(profileBundleV3());
 
-  await page.goto("/settings#backup");
+  await page.goto("/system/settings#backup");
   await page.getByTestId("profile-import-file").setInputFiles({
     name: "profile-v3.json",
     mimeType: "application/json",
@@ -361,4 +423,72 @@ test("settings config bundle v3 preview summary", async ({ page }) => {
   await expect(page.getByText("Top-level Connections", { exact: true })).toBeVisible();
   await page.getByTestId("profile-import-apply").click();
   await expect(page.getByText("Imported 1 endpoints, 1 strategies, 1 models, 1 top-level connections")).toBeVisible();
+});
+
+test("task 17 operational tables keep dense controls keyboard accessible", async ({ page, context }) => {
+  await mockRoutes(page);
+  await context.tracing.start({ screenshots: true, snapshots: true });
+
+  await page.goto("/models");
+  const modelsTable = page.getByTestId("models-table");
+  await expect(modelsTable).toBeVisible({ timeout: routeReadyTimeout });
+  await modelsTable.getByRole("button", { name: "Model ID", exact: true }).click();
+  await expect(modelsTable.getByText("Aux Model 01", { exact: true })).toBeVisible();
+  await page.getByPlaceholder("Search models...").fill("Aux Model 28");
+  await expect(modelsTable.getByText("Aux Model 28", { exact: true })).toBeVisible();
+  await expect(modelsTable.getByText("Public Model", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /delete.*Aux Model 28/i }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog").getByText("Delete Model")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByPlaceholder("Search models...").fill("");
+  await modelsTable.getByRole("button", { name: "Next Page" }).click();
+  await expect(modelsTable.getByText("Aux Model 28", { exact: true })).toBeVisible();
+
+  await page.goto("/route/pricing");
+  const pricingTable = page.getByTestId("pricing-templates-table");
+  await expect(pricingTable).toBeVisible({ timeout: routeReadyTimeout });
+  await pricingTable.getByRole("button", { name: "Name" }).click();
+  await expect(pricingTable.getByText("Pricing 12", { exact: true })).toBeVisible();
+  await pricingTable.getByLabel("Filter pricing templates").fill("Beta");
+  await expect(pricingTable.getByText("Beta Task 17", { exact: true })).toBeVisible();
+  await expect(pricingTable.getByText("Pricing 01", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "View usage Beta Task 17" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog").getByText("Template Usage")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await pricingTable.getByLabel("Filter pricing templates").fill("");
+  await pricingTable.getByRole("button", { name: "Next Page" }).click();
+  await expect(pricingTable.getByText("Beta Task 17", { exact: true })).toBeVisible();
+
+  await page.goto("/control/sidecars");
+  const sidecarsTable = page.getByTestId("sidecars-summary");
+  await expect(sidecarsTable).toBeVisible({ timeout: routeReadyTimeout });
+  await sidecarsTable.getByRole("button", { name: "Name" }).click();
+  await page.getByLabel("Filter sidecars").fill("Beta");
+  await expect(sidecarsTable.getByText("Beta Sidecar", { exact: true })).toBeVisible();
+  await expect(sidecarsTable.getByText("Sidecar 01", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "View details: Beta Sidecar" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("sidecar-detail").getByText("Beta Sidecar detail")).toBeVisible();
+  await page.getByLabel("Filter sidecars").fill("");
+  await sidecarsTable.getByRole("button", { name: "Next Page" }).click();
+  await expect(sidecarsTable.getByText("Beta Sidecar", { exact: true })).toBeVisible();
+
+  await page.goto("/observe/requests?model=public-model&cursor=100");
+  const requestLogsTable = page.getByTestId("request-logs-table");
+  await expect(requestLogsTable).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(page).toHaveURL(/model=public-model/);
+  await expect(page).toHaveURL(/cursor=100/);
+  const row = page.getByTestId("request-log-row-302");
+  await expect(row).toBeVisible({ timeout: routeReadyTimeout });
+  await row.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
+  await expect(page).toHaveURL(/model=public-model/);
+  await expect(page).toHaveURL(/cursor=100/);
+  await expect(page).toHaveURL(/selected_request_id=302/);
+  await page.screenshot({ path: cursorScreenshotPath, fullPage: true });
+
+  await context.tracing.stop({ path: keyboardTracePath });
 });

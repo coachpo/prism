@@ -146,7 +146,7 @@ function buildBreadcrumbs(
         return [
           {
             current: false,
-            href: "/request-logs",
+            href: "/observe/requests",
             id: "request-logs",
             label: messages.nav.requestLogs,
           },
@@ -167,13 +167,13 @@ function buildBreadcrumbs(
       return [
         {
           current: false,
-          href: "/request-logs",
+          href: "/observe/requests",
           id: "request-logs",
           label: messages.nav.requestLogs,
         },
         {
           current: false,
-          href: `/request-logs?request_id=${encodeURIComponent(requestId)}`,
+          href: `/observe/requests?request_id=${encodeURIComponent(requestId)}`,
           id: "request-logs-request",
           label: `#${requestId}`,
         },

@@ -138,6 +138,12 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    return () => {
+      setApiProfileId(null);
+    };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
 
     const bootstrap = async () => {

@@ -2001,7 +2001,9 @@ export interface Messages {
     noAuditRecords: string;
     noAuditRecordsDescription: string;
     openDedicatedAuditPage: string;
+    previousPage: string;
     showDefaultAuditRecord: string;
+    nextPage: string;
     timeRange: string;
     tokenRange: string;
     triage: string;
@@ -4300,7 +4302,9 @@ export const enMessages: Messages = {
     noAuditRecords: "No audit records found for this request.",
     noAuditRecordsDescription: "Audit logging was enabled when this request started, but no matching audit records were returned for its request-time window.",
     openDedicatedAuditPage: "Open full audit page",
+    previousPage: "Previous Page",
     showDefaultAuditRecord: "Show default audit record",
+    nextPage: "Next Page",
     timeRange: "Time range",
     tokenRange: "Token range",
     tokens: "Tokens",

@@ -1,24 +1,21 @@
 # FRONTEND PAGES KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/pages/` is the route-domain layer for Prism's mounted frontend pages plus a small set of page-owned drill-down surfaces that are mounted at the app root.
+`src/pages/` holds auth pages plus oracle-compatible route-domain clusters still referenced by the feature-owned rewrite routes and tests. New protected route mounts live under `src/features/` and `src/app/router/`.
 
 ## ROUTE SURFACE
-- Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
-- Root redirect: `/` -> `/dashboard`
+- Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password` with legacy auth redirects from `/login`, `/forgot-password`, and `/reset-password`
+- Protected rewrite routes: `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, `/control/proxy-keys`, `/control/sidecars`
+- Root redirect: `/` -> `/observe`
 
 ## DOMAINS
 - Auth entry and recovery: `LoginPage.tsx`, `ForgotPasswordPage.tsx`, `ResetPasswordPage.tsx`
-- Observability: `DashboardPage.tsx`, dashboard analytics content from `statistics/`, and `RequestLogsPage.tsx`
-- Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is where model-only public access targets, context overflow promotion target authoring, model-private connection management, and explicit Ban Policy strategy assignment surfaces live
-- Access control and runtime credentials: `ProxyApiKeysPage.tsx`
-- Global sidecar control plane: `SidecarsPage.tsx`, `sidecars/AGENTS.md`
-- Settings shell: `SettingsPage.tsx` with Profile, Global, and Startup tabs, plus `settings/sections/`, `settings/dialogs/`, `settings/startup/`, and `settings/costing/`
+- Feature oracle clusters: dashboard, model detail, endpoints, models, pricing templates, request logs, settings, sidecars, and statistics helpers still imported by current rewrite feature modules or contract tests
+- Settings shell oracle: `SettingsPage.tsx` with Profile, Global, and Startup tabs, plus `settings/sections/`, `settings/dialogs/`, `settings/startup/`, and `settings/costing/`
 
 ## WHERE TO LOOK
-- Mounted route list, public auth split, and protected shell boundary: `../App.tsx`
-- Dashboard, React Flow routing diagram, model detail, request logs, settings, startup bootstrap, sidecars, and dashboard-owned statistics leaf maps: `dashboard/AGENTS.md`, `dashboard/routing-diagram/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `settings/startup/AGENTS.md`, `sidecars/AGENTS.md`, `statistics/AGENTS.md`
+- Mounted rewrite route list, public auth split, and protected shell boundary: `../app/router/appRouter.tsx`, `../App.tsx`
+- Oracle-compatible dashboard, React Flow routing diagram, model detail, request logs, settings, startup bootstrap, sidecars, and dashboard-owned statistics leaf maps: `dashboard/AGENTS.md`, `dashboard/routing-diagram/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `settings/startup/AGENTS.md`, `sidecars/AGENTS.md`, `statistics/AGENTS.md`
 - Settings nested ownership split: `settings/sections/AGENTS.md`, `settings/sections/authentication/AGENTS.md`, `settings/sections/billing-currency/AGENTS.md`, `settings/dialogs/AGENTS.md`, `settings/startup/AGENTS.md`, `settings/costing/AGENTS.md`
 
 ## CHILD DOCS

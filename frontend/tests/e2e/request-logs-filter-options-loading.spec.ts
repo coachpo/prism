@@ -187,7 +187,7 @@ test.describe("request logs filter option loading", () => {
 
     await mockRequestLogRoutes(page, routeState);
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
 
     await expect(page.getByText("Failed to load request logs")).toBeVisible();
 
@@ -218,7 +218,7 @@ test.describe("request logs filter option loading", () => {
 
     await mockRequestLogRoutes(page, routeState);
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
 
     await page.getByText("All models", { exact: true }).click();
     await expect(page.getByRole("option", { name: modelOptionLabel })).toBeVisible();
@@ -249,7 +249,7 @@ test.describe("request logs filter option loading", () => {
 
     await mockRequestLogRoutes(page, routeState);
 
-    await page.goto("/request-logs");
+    await page.goto("/observe/requests");
     await expect(page.getByText("Browse Fixture Row")).toBeVisible();
 
     await page.getByText("All models", { exact: true }).click();

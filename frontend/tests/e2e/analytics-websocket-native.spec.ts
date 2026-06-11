@@ -344,9 +344,9 @@ test.describe("websocket-native analytics", () => {
       });
     });
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
-    await expect(page).toHaveURL(/\/dashboard\?tab=analytics$/);
+    await expect(page).toHaveURL(/\/observe\?tab=analytics$/);
     await expect(page.getByRole("tab", { name: "Analytics" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("usage-kpi-grid").getByText("42", { exact: true })).toBeVisible();

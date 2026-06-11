@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import path from "node:path";
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 type Sidecar = {
@@ -72,6 +74,12 @@ const existingManagementPassword = "existing-management-secret";
 const replacementManagementPassword = "replacement-secret";
 const rotatedManagementPassword = "rotated-super-secret";
 const rawSecretValues = [existingManagementPassword, replacementManagementPassword, rotatedManagementPassword];
+const evidenceDir = path.resolve(process.cwd(), "../.omo/evidence/frontend-rewrite");
+
+function evidencePath(fileName: string) {
+  mkdirSync(evidenceDir, { recursive: true });
+  return path.join(evidenceDir, fileName);
+}
 function sidecar(overrides: Partial<Sidecar>): Sidecar {
   return {
     id: 1,
@@ -190,7 +198,7 @@ async function expectNoRawSecrets(page: Page) {
   });
 }
 
-type AuthMutationOutcome = "succeeded" | "live_not_found" | "unsafe_identity" | "upstream_failure" | "succeeded_sync_failed";
+type AuthMutationOutcome = "succeeded" | "live_not_found" | "stale_auth_confirmation" | "unsafe_identity" | "upstream_failure" | "succeeded_sync_failed";
 
 const retiredAuthInventorySegment = ["auth", "snapshots"].join("-");
 const liveAuthInventorySegment = "auth-files";
@@ -242,6 +250,7 @@ async function mockSidecarsApi(
   let authFiles = options.authFiles ? [...options.authFiles] : defaultAuthFiles();
   const providerSnapshots = defaultProviderSnapshots();
   const calls: string[] = [];
+  const sidecarProfileHeaders: Array<string | null> = [];
   const deletePayloads: Array<{ authId: string; payload: Record<string, unknown> }> = [];
   const fieldPatchPayloads: Array<{ authId: string; payload: Record<string, unknown> }> = [];
   const statusPatchPayloads: Array<{ authId: string; payload: Record<string, unknown> }> = [];
@@ -278,6 +287,9 @@ async function mockSidecarsApi(
     if (outcome === "live_not_found") {
       return json(route, { detail: "auth file not found in live sidecar state" }, 404);
     }
+    if (outcome === "stale_auth_confirmation") {
+      return json(route, { detail: "stale_auth_confirmation" }, 409);
+    }
     if (outcome === "unsafe_identity") {
       return json(route, { detail: "unsafe_auth_identity: duplicate live auth id" }, 409);
     }
@@ -297,6 +309,9 @@ async function mockSidecarsApi(
     }
 
     calls.push(`${request.method()} ${pathname}`);
+    if (pathname.startsWith("/api/sidecars")) {
+      sidecarProfileHeaders.push(request.headers()["x-profile-id"] ?? null);
+    }
 
     if (pathname.includes(retiredAuthInventorySegment)) {
       throw new Error(`sidecars page must not call removed auth inventory route: ${pathname}`);
@@ -359,6 +374,9 @@ async function mockSidecarsApi(
       deletePayloads.push({ authId, payload });
       const outcomeQueue = deleteMutationOutcomeQueues[authId] ?? [];
       const outcome = outcomeQueue.shift() ?? "succeeded";
+      if (outcome === "stale_auth_confirmation") {
+        authFiles = authFiles.map((authFile) => authFile.auth_id === authId ? { ...authFile, name: `${authFile.name}.rotated`, observed_at: future } : authFile);
+      }
       const failure = failMutation(route, outcome, "upstream refused auth delete");
       if (failure) {
         return failure;
@@ -465,7 +483,7 @@ async function mockSidecarsApi(
     throw new Error(`Unhandled sidecars mock API route: ${request.method()} ${pathname}`);
   });
 
-  return { calls, deletePayloads, fieldPatchPayloads, statusPatchPayloads };
+  return { calls, deletePayloads, fieldPatchPayloads, sidecarProfileHeaders, statusPatchPayloads };
 }
 
 test.describe("sidecars management", () => {
@@ -476,7 +494,7 @@ test.describe("sidecars management", () => {
       sidecar({ id: 3, name: "CLIProxyAPI degraded", management_auth_state: "invalid_management_auth", last_sync_error: "401" }),
     ]);
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     await expect(page.getByRole("heading", { name: /Sidecars/i })).toBeVisible();
     await expect(page.getByTestId("sidecars-state")).toContainText("healthy:1 stale:1 degraded:1");
@@ -496,7 +514,7 @@ test.describe("sidecars management", () => {
     });
     page.on("pageerror", (error) => consoleErrors.push(error.message));
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     await expect(page.getByTestId("sidecar-detail")).toContainText("CLIProxyAPI primary detail");
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("zero-priority.json");
@@ -540,7 +558,7 @@ test.describe("sidecars management", () => {
       authFiles: [authFile({ model_states: [{ id: "snapshot-only-model" }] })],
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
     await primaryRow.getByRole("button", { name: "View read-only models for primary-oauth.json" }).click();
@@ -562,7 +580,7 @@ test.describe("sidecars management", () => {
       authModelsUnsupportedNames: ["primary-oauth.json"],
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
     await primaryRow.getByRole("button", { name: "View read-only models for primary-oauth.json" }).click();
@@ -586,7 +604,7 @@ test.describe("sidecars management", () => {
       ],
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     await expect(page.getByRole("button", { name: /Delete auth file/ })).toHaveCount(0);
     await expectNoRawSecrets(page);
@@ -595,7 +613,7 @@ test.describe("sidecars management", () => {
   test("authfile priority positive values still update", async ({ page }) => {
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
     await expect(primaryRow).toContainText("priority 20");
@@ -620,7 +638,7 @@ test.describe("sidecars management", () => {
       authFilesFailureDetailBySidecarId: { 1: "detail refresh failed after priority patch" },
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const detail = page.getByTestId("sidecar-detail");
     const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
@@ -640,7 +658,7 @@ test.describe("sidecars management", () => {
 
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     await expect(page.getByTestId("sidecar-detail")).toContainText("CLIProxyAPI primary detail", {
       timeout: sidecarRouteReadyTimeout,
@@ -689,7 +707,7 @@ test.describe("sidecars management", () => {
       ],
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const safeRow = page.getByRole("row").filter({ hasText: "safe-fields.json" });
     await expect(safeRow).toContainText("priority 20");
@@ -719,7 +737,7 @@ test.describe("sidecars management", () => {
       },
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const missingRow = page.getByRole("row").filter({ hasText: "priority-missing.json" });
     await expect(missingRow).toContainText("priority 20", { timeout: 15_000 });
@@ -755,7 +773,7 @@ test.describe("sidecars management", () => {
       ],
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const safeEnabledRow = page.getByRole("row").filter({ hasText: "safe-enabled.json" });
     const safeDisabledRow = page.getByRole("row").filter({ hasText: "safe-disabled.json" });
@@ -773,7 +791,7 @@ test.describe("sidecars management", () => {
     await expect.poll(() => api.statusPatchPayloads.map(({ authId, payload }) => `${authId}:${String(payload.disabled)}`)).toContain("auth-safe-enabled:true");
     await expect.poll(() => countCalls(api.calls, "GET /api/sidecars/1/auth-files")).toBeGreaterThan(authFilesBeforeStatusSave);
     await expect(safeEnabledRow).toContainText("Disabled");
-    await expect(safeEnabledRow).toContainText("Auth status updated and live auth files refreshed.");
+    await expect(safeEnabledRow).toContainText("Auth status updated and refreshed the live auth-file view.");
     expectLiveAuthInventoryOnly(api.calls);
   });
 
@@ -782,7 +800,7 @@ test.describe("sidecars management", () => {
       statusMutationOutcomesByAuthId: { "auth-primary": ["live_not_found"] },
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
     await primaryRow.getByRole("button", { name: "Disable auth primary-oauth.json" }).click();
@@ -798,7 +816,7 @@ test.describe("sidecars management", () => {
   test("authfile single delete requires name confirmation", async ({ page }) => {
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const authFiles = page.getByTestId("sidecar-auth-files");
     const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
@@ -810,6 +828,7 @@ test.describe("sidecars management", () => {
     await page.getByLabel("Confirm auth file name").fill("wrong.json");
     await expect(dialog).toContainText("The name must match the current live auth file exactly.");
     await expect(dialog.getByRole("button", { name: "Delete auth file" })).toBeDisabled();
+    await page.screenshot({ path: evidencePath("task-18-confirm-phrase.png"), fullPage: true });
     await page.getByLabel("Confirm auth file name").fill("primary-oauth.json");
     const authFilesBeforeDelete = countCalls(api.calls, "GET /api/sidecars/1/auth-files");
     await dialog.getByRole("button", { name: "Delete auth file" }).click();
@@ -819,6 +838,38 @@ test.describe("sidecars management", () => {
     await expect(authFiles).toContainText("zero-priority.json");
     expectLiveAuthInventoryOnly(api.calls);
     await expectNoRawSecrets(page);
+  });
+
+  test("stale auth delete refreshes live inventory and requires the updated exact name", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      authFiles: [authFile({ auth_id: "auth-stale", name: "stale-current.json" })],
+      deleteMutationOutcomesByAuthId: { "auth-stale": ["stale_auth_confirmation", "succeeded"] },
+    });
+
+    await page.goto("/control/sidecars");
+
+    const staleRow = page.getByRole("row").filter({ hasText: "stale-current.json" });
+    await staleRow.getByRole("button", { name: "Delete auth file stale-current.json" }).click();
+    const dialog = page.getByRole("dialog", { name: "Delete auth file" });
+    await page.getByLabel("Confirm auth file name").fill("stale-current.json");
+    const authFilesBeforeDelete = countCalls(api.calls, "GET /api/sidecars/1/auth-files");
+    await dialog.getByRole("button", { name: "Delete auth file" }).click();
+
+    await expect.poll(() => api.deletePayloads).toEqual([{ authId: "auth-stale", payload: { confirm_name: "stale-current.json" } }]);
+    await expect.poll(() => countCalls(api.calls, "GET /api/sidecars/1/auth-files")).toBeGreaterThan(authFilesBeforeDelete);
+    await expect(dialog).toContainText("The live auth-file name changed before delete confirmation");
+    await expect(dialog).toContainText("stale-current.json.rotated");
+    await expect(dialog.getByRole("button", { name: "Delete auth file" })).toBeDisabled();
+    await page.screenshot({ path: evidencePath("task-16-stale-auth.png"), fullPage: true });
+
+    await page.getByLabel("Confirm auth file name").fill("stale-current.json.rotated");
+    await dialog.getByRole("button", { name: "Delete auth file" }).click();
+    await expect.poll(() => api.deletePayloads.map(({ payload }) => String(payload.confirm_name))).toEqual([
+      "stale-current.json",
+      "stale-current.json.rotated",
+    ]);
+    await expect(dialog).toBeHidden();
+    expect(api.sidecarProfileHeaders.every((value) => value === null)).toBe(true);
   });
 
   test("authfile delete distinguishes refresh and upstream failures", async ({ page }) => {
@@ -834,7 +885,7 @@ test.describe("sidecars management", () => {
       },
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const detail = page.getByTestId("sidecar-detail");
     const authFiles = detail.getByTestId("sidecar-auth-files");
@@ -854,7 +905,7 @@ test.describe("sidecars management", () => {
     await page.getByRole("dialog", { name: "Delete auth file" }).getByRole("button", { name: "Delete auth file" }).click();
 
     await expect.poll(() => api.deletePayloads.map(({ authId, payload }) => `${authId}:${String(payload.confirm_name)}`)).toContain("auth-delete-upstream-fail:delete-upstream-fail.json");
-    await expect(upstreamFailRow).toContainText("Auth file delete failed: Sidecar upstream mutation failed: upstream refused auth delete");
+    await expect(page.getByRole("dialog", { name: "Delete auth file" })).toContainText("Auth file delete failed: Sidecar upstream mutation failed: upstream refused auth delete");
     await expect(authFiles).toContainText("delete-upstream-fail.json");
     expectLiveAuthInventoryOnly(api.calls);
     await expectNoRawSecrets(page);
@@ -873,7 +924,7 @@ test.describe("sidecars management", () => {
       },
     });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const detail = page.getByTestId("sidecar-detail");
     const refreshFailRow = page.getByRole("row").filter({ hasText: "refresh-fail.json" });
@@ -897,7 +948,7 @@ test.describe("sidecars management", () => {
     await mockSidecarsApi(page, [sidecar({ id: 1 })], { authFiles: authFilterSortFiles() });
     await page.setViewportSize({ width: 700, height: 720 });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
 
     const authFiles = page.getByTestId("sidecar-auth-files");
     const authSearch = page.getByLabel("Filter auth files");
@@ -955,7 +1006,7 @@ test.describe("sidecars management", () => {
     await mockSidecarsApi(page, [sidecar({ id: 1 })]);
     await page.setViewportSize({ width: 1280, height: 360 });
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
     const detail = page.getByTestId("sidecar-detail");
     await expect(detail).toBeAttached();
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -979,7 +1030,7 @@ test.describe("sidecars management", () => {
       },
     );
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
     const detail = page.getByTestId("sidecar-detail");
     await expect(detail).toContainText("CLIProxyAPI primary detail");
     await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json", { timeout: 10000 });
@@ -1001,7 +1052,7 @@ test.describe("sidecars management", () => {
       { syncStateBySidecarId: { 1: "failed" }, syncErrorBySidecarId: { 1: "upstream auth-files contract failed" } },
     );
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
     const detail = page.getByTestId("sidecar-detail");
     await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json", { timeout: 10000 });
 
@@ -1012,10 +1063,33 @@ test.describe("sidecars management", () => {
     await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json", { timeout: 10000 });
   });
 
+  test("keeps provider inventory visible when auth mutation succeeds but sync refresh fails", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1, name: "CLIProxyAPI primary" })], {
+      fieldsMutationOutcomesByAuthId: { "auth-primary": ["succeeded_sync_failed"] },
+      fieldsSyncErrorByAuthId: { "auth-primary": "provider inventory sync failed after priority patch" },
+    });
+
+    await page.goto("/control/sidecars");
+
+    const detail = page.getByTestId("sidecar-detail");
+    const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
+    await expect(detail.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
+    await page.getByLabel("Priority for primary-oauth.json").fill("44");
+    await primaryRow.getByRole("button", { name: "Save" }).click();
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
+
+    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, payload }) => `${authId}:${String(payload.priority)}`)).toContain("auth-primary:44");
+    await expect(detail).toContainText("Sidecar sync did not complete: provider inventory sync failed after priority patch");
+    await expect(primaryRow).toContainText("Sidecar sync did not complete: provider inventory sync failed after priority patch");
+    await expect(detail.getByTestId("sidecar-provider-inventory")).toContainText("Gemini");
+    await page.screenshot({ path: evidencePath("task-16-sync-warning.png"), fullPage: true });
+    expect(api.sidecarProfileHeaders.every((value) => value === null)).toBe(true);
+  });
+
   test("creates, edits, tests, syncs, and deletes sidecars through backend API routes", async ({ page }) => {
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
 
-    await page.goto("/sidecars");
+    await page.goto("/control/sidecars");
     await page.getByRole("button", { name: "Add sidecar" }).click();
     await page.getByLabel("Name").fill("CLIProxyAPI edge");
     await page.getByLabel("Base URL").fill("https://edge.example.test");

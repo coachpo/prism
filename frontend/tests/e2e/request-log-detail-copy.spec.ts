@@ -298,7 +298,7 @@ async function openRequestLogDetail(
       },
     });
   });
-  await page.goto("/request-logs?request_id=101");
+  await page.goto("/observe/requests?request_id=101");
   await page.waitForLoadState("networkidle");
 
   const drawer = page.getByTestId("request-log-detail-sheet");

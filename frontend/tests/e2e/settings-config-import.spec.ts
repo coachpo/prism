@@ -15,15 +15,11 @@ const facadePolicyDefaults = {
 const appReadyTimeout = 30_000;
 
 async function gotoBackupSection(page: Page) {
-  await page.goto("/settings");
+  await page.goto("/system/settings?tab=profile&section=backup#backup");
   await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: appReadyTimeout });
   await expect(page.getByRole("tab", { name: "Profile" })).toBeVisible({ timeout: appReadyTimeout });
   await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: appReadyTimeout });
-
-  await page.evaluate(() => {
-    window.location.hash = "backup";
-  });
-  await expect(page).toHaveURL(/\/settings#backup$/);
+  await expect(page).toHaveURL(/\/system\/settings\?tab=profile&section=backup#backup$/);
 
   const backupSection = page.locator("section#backup");
   await expect(backupSection).toBeVisible({ timeout: appReadyTimeout });
@@ -492,10 +488,16 @@ type PreviewErrorResponseFactory = (
   previewToken: string,
 ) => { status: number; body: Record<string, unknown> };
 
+type ImportErrorResponseFactory = (
+  bundle: ProfileImportBundle,
+  previewToken: string,
+) => { status: number; body: Record<string, unknown> } | null;
+
 interface MockSettingsRoutesOptions {
   profiles?: ProfileFixture[];
   previewResponseFactory?: PreviewResponseFactory;
   previewErrorResponseFactory?: PreviewErrorResponseFactory;
+  importErrorResponseFactory?: ImportErrorResponseFactory;
 }
 
 async function mockSettingsRoutes(page: Page, options: MockSettingsRoutesOptions = {}) {
@@ -580,10 +582,14 @@ async function mockSettingsRoutes(page: Page, options: MockSettingsRoutesOptions
       ) {
         return fulfillJson({ error: "preview token is stale or mismatched" }, 409);
       }
+      const bundle = payload as ProfileImportBundle;
+      const importErrorResponse = options.importErrorResponseFactory?.(bundle, previewToken);
+      if (importErrorResponse) {
+        return fulfillJson(importErrorResponse.body, importErrorResponse.status);
+      }
       importedPayloads.push(payload);
       appliedPreviewTokens.push(previewToken);
       appliedProfileHeaders.push(profileHeader);
-      const bundle = payload as ProfileImportBundle;
       return fulfillJson({
         endpoints_imported: bundle.endpoints.length,
         pricing_templates_imported: bundle.pricing_templates.length,
@@ -652,6 +658,33 @@ test("context-capability-authoring: config import requires an explicit preview b
   expect(routes.getImportedPayloads()).toEqual([importBundle]);
   expect(routes.getAppliedPreviewTokens()).toEqual(["profile-preview-token-1"]);
   expect(routes.getAppliedProfileHeaders()).toEqual(["1"]);
+});
+
+test("context-capability-authoring: config import displays stale preview token conflicts without partial mutation", async ({ page }) => {
+  const routes = await mockSettingsRoutes(page, {
+    importErrorResponseFactory: () => ({
+      status: 409,
+      body: { detail: "preview token is stale or mismatched" },
+    }),
+  });
+  const importBundle = buildProfileImportBundle("alpha");
+
+  const backupSection = await gotoBackupSection(page);
+  const applyButton = backupSection.getByTestId("profile-import-apply");
+  await backupSection.getByTestId("profile-import-file").setInputFiles({
+    name: "profile-import-alpha.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(importBundle)),
+  });
+  await backupSection.getByTestId("profile-import-preview").click();
+  await expect(applyButton).toBeEnabled();
+
+  await applyButton.click();
+
+  await expect(page.getByText("preview token is stale or mismatched")).toBeVisible();
+  expect(routes.getPreviewRequests()).toHaveLength(1);
+  expect(routes.getImportedPayloads()).toEqual([]);
+  expect(routes.getAppliedPreviewTokens()).toEqual([]);
 });
 
 test("context-capability-authoring: config import keeps apply disabled and surfaces the first blocking preview error", async ({ page }) => {

@@ -17,15 +17,11 @@ type DownloadCapture = {
 const appReadyTimeout = 30_000;
 
 async function gotoBackupSection(page: Page) {
-  await page.goto("/settings");
+  await page.goto("/system/settings?tab=profile&section=backup#backup");
   await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: appReadyTimeout });
   await expect(page.getByRole("tab", { name: "Profile" })).toBeVisible({ timeout: appReadyTimeout });
   await expect(page.getByText("Loading application...")).toHaveCount(0, { timeout: appReadyTimeout });
-
-  await page.evaluate(() => {
-    window.location.hash = "backup";
-  });
-  await expect(page).toHaveURL(/\/settings#backup$/);
+  await expect(page).toHaveURL(/\/system\/settings\?tab=profile&section=backup#backup$/);
 
   const backupSection = page.locator("section#backup");
   await expect(backupSection).toBeVisible({ timeout: appReadyTimeout });
@@ -274,6 +270,7 @@ async function mockSettingsRoutes(page: Page) {
   let safeExportRequestCount = 0;
   let dangerousExportRequestCount = 0;
   const dangerousConfirmHeaders: string[] = [];
+  const dangerousProfileHeaders: Array<string | undefined> = [];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -325,8 +322,10 @@ async function mockSettingsRoutes(page: Page) {
       });
     }
     if (pathname === "/api/config/profile/export/with-secrets" && request.method() === "POST") {
-      const dangerousConfirmHeader = (await request.allHeaders())["x-prism-dangerous-confirm"] ?? "";
+      const dangerousHeaders = await request.allHeaders();
+      const dangerousConfirmHeader = dangerousHeaders["x-prism-dangerous-confirm"] ?? "";
       dangerousConfirmHeaders.push(dangerousConfirmHeader);
+      dangerousProfileHeaders.push(dangerousHeaders["x-profile-id"]);
       if (dangerousConfirmHeader !== "profile-export") {
         return fulfillJson({ error: "missing dangerous confirm header" }, 400);
       }
@@ -380,6 +379,7 @@ async function mockSettingsRoutes(page: Page) {
 
   return {
     getDangerousConfirmHeaders: () => dangerousConfirmHeaders,
+    getDangerousProfileHeaders: () => dangerousProfileHeaders,
     getDangerousExportRequestCount: () => dangerousExportRequestCount,
     getSafeExportRequestCount: () => safeExportRequestCount,
   };
@@ -435,6 +435,7 @@ test("context-capability-authoring: config export dangerous export stays disable
   expect(routes.getSafeExportRequestCount()).toBe(0);
   expect(routes.getDangerousExportRequestCount()).toBe(1);
   expect(routes.getDangerousConfirmHeaders()).toEqual(["profile-export"]);
+  expect(routes.getDangerousProfileHeaders()).toEqual(["1"]);
   expect(downloadedBundle).toEqual(expectedBundle);
 
   const capture = await page.evaluate(

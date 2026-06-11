@@ -1,5 +1,18 @@
 import type { Profile, ProfileCreate, ProfileUpdate } from "@/lib/types";
 
+function isConflictError(error: unknown): boolean {
+  const status = typeof error === "object" && error !== null
+    ? (error as { status?: unknown }).status
+    : null;
+
+  if (status === 409) {
+    return true;
+  }
+
+  return error instanceof Error &&
+    (error.message.includes("409") || error.message.toLowerCase().includes("conflict"));
+}
+
 export interface ProfileActionsApi {
   list: () => Promise<Profile[]>;
   create: (data: ProfileCreate) => Promise<Profile>;
@@ -62,7 +75,7 @@ export function createProfileActions(options: ProfileActionsOptions) {
       await refreshProfiles();
       return createdProfile;
     } catch (error) {
-      if (error instanceof Error && error.message.includes("409")) {
+      if (isConflictError(error)) {
         throw new Error(getStaticMessages().profiles.limitReached);
       }
 
@@ -89,7 +102,7 @@ export function createProfileActions(options: ProfileActionsOptions) {
       await refreshProfiles();
       return updatedProfile;
     } catch (error) {
-      if (error instanceof Error && error.message.includes("409")) {
+      if (isConflictError(error)) {
         await refreshProfiles();
       }
 

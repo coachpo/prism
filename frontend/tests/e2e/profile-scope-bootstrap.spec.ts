@@ -196,7 +196,7 @@ async function expectActiveProfileBootstrap(page: Page, capturedHeaders: HeaderC
 async function expectGlobalRetentionUnscoped(page: Page, capturedHeaders: HeaderCapture) {
   const previousRetentionRequests = capturedHeaders.retention.length;
 
-  await page.goto("/settings#retention-deletion");
+  await page.goto("/system/settings#retention-deletion");
 
   await expect.poll(() => capturedHeaders.retention.length).toBeGreaterThan(previousRetentionRequests);
   expect(capturedHeaders.retention.every((value) => value === null)).toBe(true);
@@ -209,7 +209,7 @@ test.describe("profile scope bootstrap", () => {
     const { capturedHeaders } = await mockProfileScopedSettingsRoutes(page);
     await seedBrowserStorage(page, null);
 
-    await page.goto("/settings");
+    await page.goto("/system/settings");
 
     await expectActiveProfileBootstrap(page, capturedHeaders);
 
@@ -234,7 +234,7 @@ test.describe("profile scope bootstrap", () => {
     const { capturedHeaders } = await mockProfileScopedSettingsRoutes(page);
     await seedBrowserStorage(page, "999");
 
-    await page.goto("/settings");
+    await page.goto("/system/settings");
 
     await expectActiveProfileBootstrap(page, capturedHeaders);
     expect(capturedHeaders.costing).not.toContain("1");

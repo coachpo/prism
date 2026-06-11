@@ -47,9 +47,18 @@ function getCaptureLabel(
   return messages.requestLogs.auditDisabledAtRequest;
 }
 
-function getSelectedAuditPath(requestId: number, auditId: number): string {
-  return `/request-logs/${requestId}/audit?audit_id=${auditId}`;
+function getSelectedAuditPath(requestId: number, auditId: number, cursor: string | null): string {
+  const params = new URLSearchParams({ audit_id: String(auditId) });
+  if (cursor) params.set("cursor", cursor);
+  return `/observe/requests/${requestId}/audit?${params.toString()}`;
 }
+
+function getAuditPagePath(requestId: number, cursor: string | null): string {
+  if (!cursor) return `/observe/requests/${requestId}/audit`;
+  const params = new URLSearchParams({ cursor });
+  return `/observe/requests/${requestId}/audit?${params.toString()}`;
+}
+
 function StatusPanel({
   action,
   description,
@@ -97,10 +106,16 @@ function LoadingCard() {
 
 function AuditList({
   auditItems,
+  cursor,
+  hasMore,
+  nextCursor,
   requestId,
   selectedAuditId,
 }: {
   auditItems: AuditLogListItem[];
+  cursor: string | null;
+  hasMore: boolean;
+  nextCursor: string | null;
   requestId: number;
   selectedAuditId: number | null;
 }) {
@@ -120,7 +135,7 @@ function AuditList({
           const isSelected = item.id === selectedAuditId;
           return (
             <Button key={item.id} variant={isSelected ? "secondary" : "outline"} asChild className="h-auto justify-start px-3 py-2">
-              <Link to={getSelectedAuditPath(requestId, item.id)}>
+              <Link to={getSelectedAuditPath(requestId, item.id, cursor)}>
                 <span className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left">
                   <span className="flex flex-wrap items-center gap-2">
                     <ValueBadge label={String(item.response_status)} intent={getStatusIntent(item.response_status)} />
@@ -138,6 +153,22 @@ function AuditList({
             </Button>
           );
         })}
+        <div className="flex items-center justify-end gap-2 pt-2">
+          {cursor ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link to={getAuditPagePath(requestId, null)}>{messages.requestLogs.previousPage}</Link>
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled>{messages.requestLogs.previousPage}</Button>
+          )}
+          {hasMore && nextCursor ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link to={getAuditPagePath(requestId, nextCursor)}>{messages.requestLogs.nextPage}</Link>
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled>{messages.requestLogs.nextPage}</Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -292,12 +323,14 @@ export function RequestLogAuditPage() {
   const [searchParams] = useSearchParams();
   const requestId = parsePositiveInteger(requestIdParam);
   const auditIdParam = searchParams.get("audit_id");
+  const auditCursor = searchParams.get("cursor")?.trim() || null;
   const selectedAuditId = parsePositiveInteger(auditIdParam);
   const { format } = useTimezone();
   const { messages } = useLocale();
   const requestIdLabel = requestIdParam?.trim() || "";
-  const defaultAuditPath = requestId === null ? "/request-logs" : `/request-logs/${requestId}/audit`;
+  const defaultAuditPath = requestId === null ? "/observe/requests" : `/observe/requests/${requestId}/audit`;
   const state = useDedicatedRequestLogAudit({
+    cursor: auditCursor ?? undefined,
     requestId,
     selectedAuditId,
     selectedAuditParamLabel: auditIdParam,
@@ -313,7 +346,7 @@ export function RequestLogAuditPage() {
         description={messages.requestLogs.auditPageDescription}
       >
         <Button variant="outline" asChild>
-          <Link to={requestId === null ? "/request-logs" : `/request-logs?request_id=${requestId}`}>
+          <Link to={requestId === null ? "/observe/requests" : `/observe/requests?request_id=${requestId}`}>
             <ArrowLeft data-icon="inline-start" />
             {messages.requestLogs.viewRequestInLogs}
           </Link>
@@ -340,7 +373,7 @@ export function RequestLogAuditPage() {
         <StatusPanel
           action={(
             <Button variant="outline" asChild>
-              <Link to="/request-logs">{messages.requestLogs.returnToRequestList}</Link>
+              <Link to="/observe/requests">{messages.requestLogs.returnToRequestList}</Link>
             </Button>
           )}
           description={statusContent.description}
@@ -379,6 +412,9 @@ export function RequestLogAuditPage() {
         <div className="grid gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
           <AuditList
             auditItems={state.auditItems}
+            cursor={auditCursor}
+            hasMore={state.hasMore}
+            nextCursor={state.nextCursor}
             requestId={requestId}
             selectedAuditId={state.selectedAuditId}
           />

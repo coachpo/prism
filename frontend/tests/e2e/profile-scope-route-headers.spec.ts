@@ -8,6 +8,7 @@ type HeaderProbeCapture = {
   bootstrap: Array<string | null>;
   settingsAuth: Array<string | null>;
   settingsCosting: Array<string | null>;
+  proxyKeys: Array<string | null>;
   statsDashboard: Array<string | null>;
 };
 
@@ -62,6 +63,7 @@ async function mockHeaderProbeRoutes(page: Page) {
     bootstrap: [],
     settingsAuth: [],
     settingsCosting: [],
+    proxyKeys: [],
     statsDashboard: [],
   };
 
@@ -100,6 +102,7 @@ async function mockHeaderProbeRoutes(page: Page) {
         auth_enabled: false,
         username: null,
         has_password: false,
+        proxy_key_limit: 10,
         email: null,
         pending_email: null,
         email_bound_at: null,
@@ -112,6 +115,11 @@ async function mockHeaderProbeRoutes(page: Page) {
       const profileId = Number.parseInt(profileHeader ?? "1", 10);
       capturedHeaders.settingsCosting.push(profileHeader);
       return fulfillJson(createCostingSettings(Number.isFinite(profileId) ? profileId : 1));
+    }
+
+    if (pathname === "/api/settings/auth/proxy-keys") {
+      capturedHeaders.proxyKeys.push(await readProfileHeader(request));
+      return fulfillJson([]);
     }
 
     if (pathname === "/api/settings/log-retention") {
@@ -166,19 +174,21 @@ test("browser requests omit X-Profile-Id on global routes and include it on scop
   const capturedHeaders = await mockHeaderProbeRoutes(page);
   await seedBrowserStorage(page);
 
-  await page.goto("/settings");
+  await page.goto("/system/settings");
 
   await expect.poll(() => capturedHeaders.settingsCosting.length).toBeGreaterThan(0);
 
   expect(capturedHeaders.bootstrap.every((value) => value === null)).toBe(true);
   expect(capturedHeaders.settingsCosting.every((value) => value === "2")).toBe(true);
 
-  await page.goto("/settings#authentication");
+  await page.goto("/control/proxy-keys");
 
   await expect.poll(() => capturedHeaders.settingsAuth.length).toBeGreaterThan(0);
+  await expect.poll(() => capturedHeaders.proxyKeys.length).toBeGreaterThan(0);
   expect(capturedHeaders.settingsAuth.every((value) => value === null)).toBe(true);
+  expect(capturedHeaders.proxyKeys.every((value) => value === null)).toBe(true);
 
-  await page.goto("/dashboard?tab=overview");
+  await page.goto("/observe?tab=overview");
 
   await expect.poll(() => capturedHeaders.statsDashboard.length).toBeGreaterThan(0);
 

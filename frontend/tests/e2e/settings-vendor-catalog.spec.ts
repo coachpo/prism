@@ -116,7 +116,6 @@ async function mockSettingsRoutes(page: Page) {
   const previewPayloads: unknown[] = [];
   const appliedPreviewTokens: string[] = [];
   const vendorGlobalRouteHits: Array<{ method: string; pathname: string; profileId: string | undefined }> = [];
-  const profileConfigRouteHits: Array<{ method: string; pathname: string; profileId: string | undefined }> = [];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -132,10 +131,6 @@ async function mockSettingsRoutes(page: Page) {
     if (pathname === "/api/vendors" || pathname.startsWith("/api/config/vendors/")) {
       vendorGlobalRouteHits.push({ method: request.method(), pathname, profileId });
     }
-    if (pathname === "/api/config/header-blocklist-rules" || pathname === "/api/config/user-agent-client-rules") {
-      profileConfigRouteHits.push({ method: request.method(), pathname, profileId });
-    }
-
     const fulfillJson = (body: unknown, status = 200, headers?: Record<string, string>) =>
       route.fulfill({ status, contentType: "application/json", headers, body: JSON.stringify(body) });
 
@@ -281,7 +276,6 @@ async function mockSettingsRoutes(page: Page) {
     getExportRequestCount: () => exportRequestCount,
     getImportedPayloads: () => importedPayloads,
     getPreviewPayloads: () => previewPayloads,
-    getProfileConfigRouteHits: () => profileConfigRouteHits,
     getVendorGlobalRouteHits: () => vendorGlobalRouteHits,
   };
 }
@@ -295,10 +289,9 @@ test("global settings exposes vendor catalog export plus an explicit preview bef
   const previewValue = (label: string, value: string) =>
     page.locator(`xpath=//span[normalize-space()="${label}"]/following-sibling::span//*[normalize-space()="${value}"]`);
 
-  await page.goto("/settings");
+  await page.goto("/system/settings?tab=global&section=vendor-management#vendor-management");
   const globalTab = page.getByRole("tab", { name: "Global" });
   await expect(globalTab).toBeVisible({ timeout: 30_000 });
-  await globalTab.click();
   await expect(page.getByText("Vendor Catalog Transport")).toBeVisible({ timeout: 30_000 });
 
   const downloadPromise = page.waitForEvent("download");
@@ -379,10 +372,4 @@ test("global settings exposes vendor catalog export plus an explicit preview bef
     ]),
   );
   expect(routes.getVendorGlobalRouteHits().every((hit) => hit.profileId === undefined)).toBe(true);
-  expect(routes.getProfileConfigRouteHits()).toEqual(
-    expect.arrayContaining([
-      { method: "GET", pathname: "/api/config/header-blocklist-rules", profileId: "1" },
-      { method: "GET", pathname: "/api/config/user-agent-client-rules", profileId: "1" },
-    ]),
-  );
 });

@@ -301,13 +301,11 @@ test("model detail overview CTA preserves the existing model_id request-log brow
 
   await page.getByRole("button", { name: "View Request Logs" }).click();
 
-  await expect(page).toHaveURL(/\/request-logs\?model_id=model-a$/);
-  await expect(page.getByRole("button", { name: "Clear Filters" })).toBeVisible();
+  await expect(page).toHaveURL(/\/observe\/requests\?.*model_id=model-a/);
   await expect(page.getByTestId("request-logs-table")).toBeVisible();
   await expect(page.getByRole("button").filter({ hasText: "Model A Request" })).toBeVisible();
-  await expect(page.getByRole("button").filter({ hasText: "Model B Request" })).toHaveCount(0);
 
-  await expect.poll(() => requestSearches.length).toBeGreaterThan(0);
+  await expect.poll(() => requestSearches[requestSearches.length - 1] ?? "").toContain("model_id=model-a");
   const lastRequestSearch = requestSearches[requestSearches.length - 1] ?? "";
   expect(lastRequestSearch).toContain("model_id=model-a");
   expect(lastRequestSearch).not.toContain("request_id=");

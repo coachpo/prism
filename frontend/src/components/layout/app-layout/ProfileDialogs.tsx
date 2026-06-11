@@ -26,6 +26,7 @@ interface ProfileDialogsProps {
   activeProfileName: string;
   hasMismatch: boolean;
   isActivating: boolean;
+  activationError: string | null;
   onActivate: () => void;
   nameInput: string;
   setNameInput: (value: string) => void;
@@ -59,6 +60,7 @@ export function ProfileDialogs({
   activeProfileName,
   hasMismatch,
   isActivating,
+  activationError,
   onActivate,
   nameInput,
   setNameInput,
@@ -102,6 +104,11 @@ export function ProfileDialogs({
                 <p className="font-medium text-foreground">{selectedProfileName}</p>
               </div>
             </div>
+            {activationError ? (
+              <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {activationError}
+              </p>
+            ) : null}
           </DialogBody>
           <DialogFooter className="sm:justify-between">
             <Button variant="outline" onClick={() => setActivateOpen(false)}>
@@ -216,6 +223,7 @@ export function ProfileDialogs({
         <DialogContent className="sm:max-w-md" showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>{messages.profiles.deleteTitle}</DialogTitle>
+            <DialogDescription>{messages.profiles.deleteDescription(selectedProfileName)}</DialogDescription>
           </DialogHeader>
           <DialogBody>
             <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">

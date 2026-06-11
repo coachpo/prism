@@ -15,7 +15,7 @@ export const SETTINGS_TABS = {
 
 export type SettingsTab = (typeof SETTINGS_TABS)[keyof typeof SETTINGS_TABS];
 
-export const INSTANCE_SECTION_IDS = new Set(["authentication", "retention-deletion"]);
+export const INSTANCE_SECTION_IDS = new Set(["authentication", "retention-deletion", "vendor-management"]);
 
 export const SETTINGS_SECTIONS = [
   { id: "backup" },

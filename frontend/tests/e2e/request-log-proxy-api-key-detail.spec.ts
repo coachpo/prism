@@ -162,7 +162,7 @@ async function openRequestLogDetail(
   await mockRequestLogDetailRoutes(page, detail);
   await page.addInitScript((seedLocale) => localStorage.setItem("prism.locale", seedLocale), locale);
 
-  await page.goto("/request-logs?request_id=101");
+  await page.goto("/observe/requests?request_id=101");
 
   const drawer = page.getByTestId("request-log-detail-sheet");
   const overview = page.getByTestId("request-log-overview-grid");

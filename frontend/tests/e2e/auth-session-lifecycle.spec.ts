@@ -275,10 +275,10 @@ async function loginToProxyKeys(page: Page) {
   await page.getByLabel("Username").fill("admin");
   await page.getByLabel("Password").fill("password123");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByTestId("observe-dashboard")).toBeVisible();
 
-  await page.goto("/proxy-api-keys");
-  await expect(page).toHaveURL(/\/proxy-api-keys$/);
+  await page.goto("/control/proxy-keys");
+  await expect(page).toHaveURL(/\/control\/proxy-keys$/);
   await expect(page.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible();
 }
 
@@ -294,7 +294,7 @@ test.describe("auth session lifecycle", () => {
     await page.getByRole("button", { name: /admin/i }).click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
 
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(/\/auth\/login$/);
     await expect(page.getByLabel("Username")).toBeVisible();
   });
 
@@ -306,7 +306,7 @@ test.describe("auth session lifecycle", () => {
 
     const controlPage = await context.newPage();
     await seedLocale(controlPage);
-    await controlPage.goto("/proxy-api-keys");
+    await controlPage.goto("/control/proxy-keys");
     await expect(controlPage.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible();
 
     await controlPage.evaluate(async () => {
@@ -322,7 +322,7 @@ test.describe("auth session lifecycle", () => {
 
     await expect(controlPage.getByText("Authentication disabled")).toBeVisible();
     await expect(page.getByText("Authentication disabled")).toBeVisible();
-    await expect(page).toHaveURL(/\/proxy-api-keys$/);
+    await expect(page).toHaveURL(/\/control\/proxy-keys$/);
   });
 
   test("changing operator credentials forces stale tabs back to login", async ({ context, page }) => {
@@ -330,7 +330,7 @@ test.describe("auth session lifecycle", () => {
 
     const controlPage = await context.newPage();
     await seedLocale(controlPage);
-    await controlPage.goto("/proxy-api-keys");
+    await controlPage.goto("/control/proxy-keys");
     await expect(controlPage.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible();
 
     await controlPage.evaluate(async () => {
@@ -348,8 +348,8 @@ test.describe("auth session lifecycle", () => {
     });
     await controlPage.reload();
 
-    await expect(controlPage).toHaveURL(/\/login$/);
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(controlPage).toHaveURL(/\/auth\/login$/);
+    await expect(page).toHaveURL(/\/auth\/login$/);
     await expect(page.getByLabel("Username")).toBeVisible();
   });
 });

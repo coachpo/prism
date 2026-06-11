@@ -581,9 +581,9 @@ test.describe("shared chart statistics regression", () => {
     await mockUsageRoutes(page);
     await seedUsageStatisticsState(page, ["gpt-5.4"]);
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
-    await expect(page).toHaveURL(/\/dashboard\?tab=analytics$/);
+    await expect(page).toHaveURL(/\/observe\?tab=analytics$/);
     const analyticsTab = page.getByRole("tab", { name: "Analytics" });
     await expect(analyticsTab).toBeVisible();
     await expect(analyticsTab).toHaveAttribute("aria-selected", "true");
@@ -599,7 +599,7 @@ test.describe("shared chart statistics regression", () => {
 
     await writeEvidenceFile(populatedEvidencePath, [
       "scenario=populated-shared-chart-surfaces",
-      "dashboard.route=/dashboard?tab=analytics",
+      "dashboard.route=/observe?tab=analytics",
       "statistics.selectors=usage-controls-toolbar,usage-trends-grid,usage-cost-summary-card,usage-service-health-card,usage-health-heatmap",
       `statistics.okHealthCells=${statisticsOkCells}`,
       "statistics.costSummary=$0.62 USD",
@@ -614,7 +614,7 @@ test.describe("shared chart statistics regression", () => {
     await mockUsageRoutes(page);
     await seedUsageStatisticsState(page, ["gpt-5.4"]);
 
-    await page.goto("/dashboard?tab=overview");
+    await page.goto("/observe?tab=overview");
 
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const analyticsCta = page.getByRole("button", { name: "Analytics" });
@@ -622,7 +622,7 @@ test.describe("shared chart statistics regression", () => {
 
     await analyticsCta.click();
 
-    await expect(page).toHaveURL(/\/dashboard\?tab=analytics$/);
+    await expect(page).toHaveURL(/\/observe\?tab=analytics$/);
     const analyticsTab = page.getByRole("tab", { name: "Analytics" });
     await expect(analyticsTab).toBeVisible();
     await expect(analyticsTab).toHaveAttribute("aria-selected", "true");
@@ -633,7 +633,7 @@ test.describe("shared chart statistics regression", () => {
     await mockUsageRoutes(page, { empty: true });
     await seedUsageStatisticsState(page, ["gpt-5.4"]);
 
-    await page.goto("/dashboard?tab=analytics");
+    await page.goto("/observe?tab=analytics");
 
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const trendsGrid = page.getByTestId("usage-trends-grid");
@@ -661,7 +661,7 @@ test.describe("shared chart statistics regression", () => {
 
     await writeEvidenceFile(emptyEvidencePath, [
       "scenario=empty-statistics-chart-surfaces",
-      "dashboard.route=/dashboard?tab=analytics",
+      "dashboard.route=/observe?tab=analytics",
       "visibleHeaders=Request Trends,Token Usage Trends,Token Type Breakdown,Service Health",
       "visibleEmptyTitles=No data available,No token usage",
       `emptyHealthCells=${emptyHealthCellCount}`,

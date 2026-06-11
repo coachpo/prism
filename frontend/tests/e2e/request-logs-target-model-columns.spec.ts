@@ -133,7 +133,7 @@ test("request logs table separates requested and final target model columns", as
     }),
   ]);
 
-  await page.goto("/request-logs");
+  await page.goto("/observe/requests");
 
   const table = page.getByTestId("request-logs-table");
   await expect(table.getByText("Requested Model", { exact: true })).toBeVisible();

@@ -214,7 +214,7 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
     },
   ]);
 
-  const draftRow = page.getByRole("link", { name: "draft-openai" }).locator("xpath=ancestor::div[contains(@class, 'group')][1]");
+  const draftRow = page.getByRole("row", { name: /draft-openai/ });
   await expect(draftRow.getByText("Needs target")).toBeVisible();
   await expect(draftRow.getByText("Disabled")).toBeVisible();
 });

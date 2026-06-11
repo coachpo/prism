@@ -145,7 +145,7 @@ test("creates defaults from the loadbalance strategies page", async ({ page }) =
     existing_names: [],
   });
 
-  await page.goto("/loadbalance-strategies");
+  await page.goto("/route/ban-policies");
 
   await expect(page.getByRole("button", { name: "Create Defaults" }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Add Strategy" }).first()).toBeVisible();
@@ -174,7 +174,7 @@ test("repeat click does not duplicate defaults", async ({ page }) => {
     existing_names: ["Default single routing", "Default fill-first routing", "Default round-robin routing"],
   });
 
-  await page.goto("/loadbalance-strategies");
+  await page.goto("/route/ban-policies");
 
   await expect(page.getByRole("row", { name: /Default single routing/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /Default fill-first routing/ })).toBeVisible();
@@ -190,7 +190,7 @@ test("repeat click does not duplicate defaults", async ({ page }) => {
   await expect(page.getByRole("table")).toContainText("Default single routing");
   await expect(page.getByRole("table")).toContainText("Default fill-first routing");
   await expect(page.getByRole("table")).toContainText("Default round-robin routing");
-  await expect(page.getByText("Default loadbalance strategies already exist").first()).toBeVisible();
+  await expect(page.getByText("Default Ban Policy strategies already exist").first()).toBeVisible();
 });
 
 test("shows conflict error when canonical names are occupied", async ({ page }) => {
@@ -203,7 +203,7 @@ test("shows conflict error when canonical names are occupied", async ({ page }) 
     },
   }, 409);
 
-  await page.goto("/loadbalance-strategies");
+  await page.goto("/route/ban-policies");
 
   await expect(page.getByRole("row", { name: /Default single routing/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /Default fill-first routing/ })).toBeVisible();

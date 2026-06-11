@@ -73,6 +73,7 @@ export function useDashboardBootstrapData({
 }: Params) {
   const [loading, setLoading] = useState(true);
   const [dashboardSnapshot, setDashboardSnapshot] = useState<DashboardSnapshot | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [routingDiagramError, setRoutingDiagramError] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
 
@@ -109,6 +110,7 @@ export function useDashboardBootstrapData({
         setLoading(true);
       }
 
+      setDashboardError(null);
       setRoutingDiagramError(null);
       try {
         const snapshot = await loadDashboardBootstrapData(
@@ -127,6 +129,9 @@ export function useDashboardBootstrapData({
         });
       } catch (error) {
         console.error("Failed to fetch dashboard data", error);
+        if (requestVersion === requestVersionRef.current) {
+          setDashboardError(error instanceof Error ? error.message : "Failed to fetch dashboard data");
+        }
       } finally {
         if (requestVersion === requestVersionRef.current) {
           setLoading(false);
@@ -137,6 +142,7 @@ export function useDashboardBootstrapData({
   );
 
   return {
+    dashboardError,
     dashboardSnapshot,
     fetchDashboardData,
     loading,

@@ -38,6 +38,7 @@ export function useProfileDialogState({
   const [activateOpen, setActivateOpen] = useState(false);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [activationError, setActivationError] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState("");
   const [descriptionInput, setDescriptionInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -90,6 +91,7 @@ export function useProfileDialogState({
   const openActivateDialog = () => {
     if (!hasMismatch) return;
     closeProfileSwitcher();
+    setActivationError(null);
     setActivateOpen(true);
   };
 
@@ -154,18 +156,23 @@ export function useProfileDialogState({
   const handleActivateProfile = async () => {
     if (!selectedProfile || selectedIsActive) return;
 
+    setActivationError(null);
     setIsActivating(true);
     try {
       await activateProfile(selectedProfile.id);
       toast.success(messages.profiles.activatedProfile(selectedProfile.name));
+      setActivationError(null);
       setActivateOpen(false);
     } catch (error) {
+      const status = typeof error === "object" && error !== null
+        ? (error as { status?: unknown }).status
+        : null;
       const message = error instanceof Error ? error.message : messages.profiles.activateFailed;
-      if (message.includes("409") || message.toLowerCase().includes("conflict")) {
-        toast.error(messages.profiles.activateConflict);
-      } else {
-        toast.error(message);
-      }
+      const nextError = status === 409 || message.includes("409") || message.toLowerCase().includes("conflict")
+        ? messages.profiles.activateConflict
+        : message;
+      setActivationError(nextError);
+      toast.error(nextError);
     } finally {
       setIsActivating(false);
     }
@@ -191,6 +198,7 @@ export function useProfileDialogState({
 
   return {
     activateOpen,
+    activationError,
     createOpen,
     deleteConfirmInput,
     deleteConfirmTarget,

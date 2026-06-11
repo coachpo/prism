@@ -7,6 +7,7 @@ import { useLocale } from "@/i18n/useLocale";
 import { readSidebarCollapsed, writeSidebarCollapsed } from "./sidebarPersistence";
 import { useProfileDialogState } from "./useProfileDialogState";
 import { useProfileSwitcherState } from "./useProfileSwitcherState";
+import type { ShellScopeBadgeKind } from "@/shell";
 import { useShellNavigation } from "./useShellNavigation";
 
 export function useAppLayoutState() {
@@ -92,19 +93,25 @@ export function useAppLayoutState() {
 
   const handleManageProfiles = () => {
     switcherState.closeProfileSwitcher();
-    navigate("/settings");
+    navigate("/system/settings");
   };
 
   const handleLogout = async () => {
     try {
       await logout();
-      navigate("/login", { replace: true });
+      navigate("/auth/login", { replace: true });
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : messages.shell.logoutFailed
       );
     }
   };
+
+  const shellScopeBadge: ShellScopeBadgeKind | null = shellNavigation.isProfileScopedPage
+    ? "selected-profile"
+    : shellNavigation.matchedRoute.profileScoped === false
+      ? "global"
+      : null;
 
   return {
     activeProfileId,
@@ -125,6 +132,7 @@ export function useAppLayoutState() {
     selectedProfileId,
     selectedProfileName,
     setDesktopSidebarOpen,
+    shellScopeBadge,
     sidebarItems: shellNavigation.sidebarItems,
     toggleDesktopSidebar,
     username,
