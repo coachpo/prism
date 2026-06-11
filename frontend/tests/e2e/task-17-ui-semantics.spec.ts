@@ -337,7 +337,7 @@ async function mockRoutes(page: Page) {
     if (pathname === "/api/models") return fulfillJson(task17Models());
     if (pathname === "/api/endpoints") return fulfillJson([endpoint]);
     if (pathname === "/api/models/by-endpoints") {
-      return fulfillJson({ items: [{ endpoint_id: endpoint.id, models: [requestedModel, finalTargetModel] }] });
+      return fulfillJson({ items: [{ endpoint_id: endpoint.id, models: task17Models() }] });
     }
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([strategy]);
     if (pathname === "/api/stats/models/metrics" && request.method() === "POST") {
@@ -431,6 +431,8 @@ test("endpoint reachable chained models", async ({ page }) => {
   await expect(page.getByText("Reachable Models")).toBeVisible();
   await expect(page.getByText("Public Model")).toBeVisible();
   await expect(page.getByText("Terminal Model")).toBeVisible();
+  await expect(page.getByText("Aux Model 28")).toBeVisible();
+  await expect(page.getByText("+28", { exact: true })).toHaveCount(0);
 });
 
 test("settings config bundle v3 preview summary", async ({ page }) => {

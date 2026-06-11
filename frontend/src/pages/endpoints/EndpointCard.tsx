@@ -100,8 +100,8 @@ export function EndpointCardView({
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 lg:gap-6">
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:gap-4 lg:gap-6">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:min-w-64">
             <div className="flex items-center gap-2 text-xs">
               <Globe2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="block min-w-0 flex-1 truncate font-mono text-foreground/90" title={endpoint.base_url}>
@@ -116,44 +116,34 @@ export function EndpointCardView({
             </div>
           </div>
 
-          <div className="flex min-w-0 shrink-0 items-center gap-2 sm:w-[160px] lg:w-[220px]">
-            <div className="flex shrink-0 items-center gap-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {copy.models}
-                </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:min-w-72 sm:flex-[2_1_18rem]">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {copy.models}
+              </span>
               <Badge
                 variant="outline"
-                className="h-4 px-1.5 text-[10px] bg-muted/30 text-muted-foreground"
+                className="h-4 bg-muted/30 px-1.5 text-[10px] text-muted-foreground"
               >
                 {models.length}
               </Badge>
             </div>
-            
-            <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+
+            <div className="flex min-w-0 flex-wrap gap-1">
               {models.length > 0 ? (
-                <>
-                  {models.slice(0, 2).map((model) => (
-                    <Badge
-                      key={model.id}
-                      variant="outline"
-                      className={cn(
-                        "max-w-full rounded-full border px-1.5 py-0 text-[10px] font-medium",
-                        getModelBadgeClass(model)
-                      )}
-                      title={model.display_name || model.model_id}
-                    >
-                      <span className="block max-w-full truncate">{model.display_name || model.model_id}</span>
-                    </Badge>
-                  ))}
-                  {models.length > 2 ? (
-                    <Badge
-                      variant="outline"
-                      className="rounded-full border-border/70 bg-muted/30 px-1.5 py-0 text-[10px] font-medium text-muted-foreground"
-                    >
-                      +{models.length - 2}
-                    </Badge>
-                  ) : null}
-                </>
+                models.map((model) => (
+                  <Badge
+                    key={model.id}
+                    variant="outline"
+                    className={cn(
+                      "max-w-full rounded-full border px-1.5 py-0 text-[10px] font-medium",
+                      getModelBadgeClass(model)
+                    )}
+                    title={model.display_name || model.model_id}
+                  >
+                    <span className="block max-w-full truncate">{model.display_name || model.model_id}</span>
+                  </Badge>
+                ))
               ) : (
                 <span className="text-[10px] italic text-muted-foreground">
                   {copy.none}
