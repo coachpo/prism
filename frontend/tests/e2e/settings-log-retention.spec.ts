@@ -139,10 +139,8 @@ async function selectCardOption(page: Page, label: string, option: string) {
 async function openSettingsGlobalRetention(page: Page) {
   await page.addInitScript(() => window.localStorage.setItem("prism.locale", "en"));
   await page.goto("/system/settings?tab=global&section=retention-deletion#retention-deletion");
-  await expect(page.getByText("Changes here apply to all profiles and the entire Prism instance.")).toBeVisible();
   await expect(page.getByText("Set instance-wide data retention for all profiles and create cleanup jobs with explicit confirmation controls.")).toBeVisible();
   await expect(page.getByText("Choose how long request logs, audit logs, statistics, and load-balance events are retained before cleanup jobs apply.")).toBeVisible();
-  await expect(page.getByText("Cleanup jobs apply across all profiles")).toBeVisible();
   await expect(page.getByText("Load-balance event retention")).toBeVisible();
 }
 test("global retention settings save all log tables through the global endpoint", async ({ page }) => {
@@ -179,7 +177,7 @@ test("global retention cleanup creates a job and surfaces job tracking details",
   await page.getByRole("button", { name: "Delete data" }).click();
   await expect(page.getByText("This creates an instance-wide cleanup job")).toBeVisible();
   await page.getByLabel("Type DELETE to proceed").fill("DELETE");
-  await page.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("dialog", { name: "Confirm Deletion" }).getByRole("button", { name: "Delete" }).click();
 
   await expect.poll(() => retentionJobs.length).toBe(1);
   expect(retentionJobs[0]).toMatchObject({
@@ -204,7 +202,7 @@ test("global retention cleanup failure keeps confirmation recoverable", async ({
   await selectCardOption(page, "Delete data older than", "7 days");
   await page.getByRole("button", { name: "Delete data" }).click();
   await page.getByLabel("Type DELETE to proceed").fill("DELETE");
-  await page.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("dialog", { name: "Confirm Deletion" }).getByRole("button", { name: "Delete" }).click();
 
   await expect.poll(() => retentionJobs.length).toBe(1);
   expect(retentionJobs[0]).toMatchObject({
@@ -221,7 +219,7 @@ test("global retention cleanup failure keeps confirmation recoverable", async ({
   await expect(page.getByRole("button", { name: "Delete" })).toBeEnabled();
   await page.screenshot({ path: deleteFailureEvidencePath, fullPage: true });
 
-  await page.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("dialog", { name: "Confirm Deletion" }).getByRole("button", { name: "Delete" }).click();
   await expect.poll(() => retentionJobs.length).toBe(2);
   await expect(page.getByText("Audit Logs cleanup job job_retention_1 created")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Confirm Deletion" })).toBeHidden();

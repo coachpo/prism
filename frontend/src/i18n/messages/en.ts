@@ -631,10 +631,7 @@ export interface Messages {
     auditPrivacy: string;
     backup: string;
     billingCurrency: string;
-    globalSettings: string;
-    globalSettingsDescription: string;
     globalTab: string;
-    profileScopedDescription: (profileLabel: string) => string;
     profileScopedSettings: string;
     profileTab: string;
     retentionDeletion: string;
@@ -973,19 +970,14 @@ export interface Messages {
   settingsAuditUserAgentRules: {
     addRule: string;
     customRules: string;
-    customRulesExplanation: string;
-    description: string;
     loadingRules: string;
     noCustomRules: string;
     noSystemRules: string;
-    precedenceExplanation: string;
-    systemRulesExplanation: string;
     systemRulesLocked: string;
   };
   settingsRetentionDeletion: {
     allData: string;
     auditLogsPolicy: string;
-    dangerDescription: string;
     dataType: string;
     deletionFailed: string;
     deletionRequested: (label: string, jobId: string, statusUrl: string) => string;
@@ -1107,7 +1099,6 @@ export interface Messages {
     audit: string;
     auditAndPrivacy: string;
     bodies: string;
-    bodiesSensitive: string;
     captureAndPrivacyDefaults: string;
     classifyClientsFromUserAgent: string;
     headerBlocklist: string;
@@ -1118,9 +1109,6 @@ export interface Messages {
     noVendorsAvailable: string;
     off: string;
     on: string;
-    outputsMayBeCaptured: string;
-    recordMetadata: string;
-    requestTimeProvenanceNote: string;
     stripsHeadersBeforeSendingUpstream: string;
     userAgentClientRules: string;
   };
@@ -2889,11 +2877,7 @@ export const enMessages: Messages = {
     auditPrivacy: "Audit & Privacy",
     backup: "Backup",
     billingCurrency: "Billing & Currency",
-    globalSettings: "Global settings",
-    globalSettingsDescription: "Changes here apply to all profiles and the entire Prism instance.",
     globalTab: "Global",
-    profileScopedDescription: (profileLabel) =>
-      `Changes here manage ${profileLabel}. Runtime traffic keeps following the active profile until you activate another one.`,
     profileScopedSettings: "Profile-scoped settings",
     profileTab: "Profile",
     retentionDeletion: "Retention & Deletion",
@@ -3235,23 +3219,14 @@ export const enMessages: Messages = {
   settingsAuditUserAgentRules: {
     addRule: "Add Rule",
     customRules: "Custom rules",
-    customRulesExplanation:
-      "Editable rules for the selected profile. Add, edit, delete, or disable them to refine client labels in request logs.",
-    description:
-      "Use regex rules to classify request-log clients from caller and upstream User-Agent values.",
     loadingRules: "Loading rules...",
     noCustomRules: "No custom rules. Add one to classify request-log clients from User-Agent values.",
     noSystemRules: "No system rules found.",
-    precedenceExplanation:
-      "Custom rules for this profile are checked before locked system rules, so the first match can add to or override the baseline classification.",
-    systemRulesExplanation:
-      "Locked baseline rules seeded by Prism. You can review them here, and only their enabled state can be changed.",
     systemRulesLocked: "System rules",
   },
   settingsRetentionDeletion: {
     allData: "All data",
     auditLogsPolicy: "Audit log retention",
-    dangerDescription: "Cleanup jobs apply across all profiles. They remove matching log partitions or rows asynchronously and cannot be undone.",
     dataType: "Data type",
     deleteData: "Delete data",
     deleteOlderThan: "Delete data older than",
@@ -3376,7 +3351,6 @@ export const enMessages: Messages = {
     audit: "Audit",
     auditAndPrivacy: "Audit & Privacy",
     bodies: "Bodies",
-    bodiesSensitive: "Also store request and response bodies for future requests (sensitive).",
     captureAndPrivacyDefaults: "Choose how future requests are captured for each vendor.",
     classifyClientsFromUserAgent: "Classify request-log clients from caller and upstream User-Agent values.",
     headerBlocklist: "Header Blocklist",
@@ -3387,9 +3361,6 @@ export const enMessages: Messages = {
     noVendorsAvailable: "No vendors available.",
     off: "Off",
     on: "On",
-    outputsMayBeCaptured: "Full capture may store prompts and responses.",
-    recordMetadata: "Store request metadata and headers for future requests.",
-    requestTimeProvenanceNote: "Each request keeps the audit mode that was active when it started.",
     stripsHeadersBeforeSendingUpstream: "Strips headers before sending upstream.",
     userAgentClientRules: "User-Agent Client Rules",
   },

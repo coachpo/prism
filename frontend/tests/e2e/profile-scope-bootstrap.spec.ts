@@ -2,8 +2,6 @@ import { expect, test, type Page, type Request } from "@playwright/test";
 
 const timestamp = "2026-04-28T12:00:00Z";
 const PROFILE_STORAGE_KEY = "prism.selectedProfileId";
-const profileScopedDescription =
-  "Runtime traffic keeps following the active profile until you activate another one.";
 
 type ProfileFixture = {
   id: number;
@@ -50,10 +48,6 @@ function createRetentionSettings() {
     audit_logs_retention_days: 30,
     loadbalance_events_retention_days: 30,
   };
-}
-
-function getProfileScopedDescription(profileName: string, profileId: number) {
-  return `Changes here manage ${profileName} (#${profileId}). ${profileScopedDescription}`;
 }
 
 function getLastCapturedHeader(values: Array<string | null>) {
@@ -187,7 +181,6 @@ async function expectActiveProfileBootstrap(page: Page, capturedHeaders: HeaderC
   expect(capturedHeaders.models[0]).toBe("2");
 
   await expect(page.getByTestId("shell-profile-switcher")).toContainText("Blue Team");
-  await expect(page.getByText(getProfileScopedDescription("Blue Team", 2))).toBeVisible();
   expect(
     await page.evaluate((profileStorageKey) => window.localStorage.getItem(profileStorageKey), PROFILE_STORAGE_KEY),
   ).toBe("2");
@@ -203,7 +196,7 @@ async function expectGlobalRetentionUnscoped(page: Page, capturedHeaders: Header
 }
 
 test.describe("profile scope bootstrap", () => {
-  test("cold start without stored selection prefers the active profile and keeps mismatch copy coherent", async ({
+  test("cold start without stored selection prefers the active profile and keeps profile selection coherent", async ({
     page,
   }) => {
     const { capturedHeaders } = await mockProfileScopedSettingsRoutes(page);
@@ -220,7 +213,6 @@ test.describe("profile scope bootstrap", () => {
     await expect(page.getByTestId("shell-profile-switcher")).toContainText("Default");
     await expect(page.getByText("Default · Runtime: Blue Team")).toBeVisible();
     await expect(page.getByRole("button", { name: "Activate" })).toBeVisible();
-    await expect(page.getByText(getProfileScopedDescription("Default", 1))).toBeVisible();
     expect(
       await page.evaluate((profileStorageKey) => window.localStorage.getItem(profileStorageKey), PROFILE_STORAGE_KEY),
     ).toBe("1");

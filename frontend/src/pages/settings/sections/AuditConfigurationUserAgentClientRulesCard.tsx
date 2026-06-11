@@ -176,20 +176,8 @@ export function AuditConfigurationUserAgentClientRulesCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:flex-1">
-            <p>{rulesCopy.description}</p>
-            <p>
-              <span className="font-medium text-foreground">{rulesCopy.systemRulesLocked}:</span>{" "}
-              {rulesCopy.systemRulesExplanation}
-            </p>
-            <p>
-              <span className="font-medium text-foreground">{rulesCopy.customRules}:</span>{" "}
-              {rulesCopy.customRulesExplanation}
-            </p>
-            <p>{rulesCopy.precedenceExplanation}</p>
-          </div>
-          <Button size="sm" variant="outline" onClick={openAddRuleDialog} className="sm:self-start">
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" onClick={openAddRuleDialog}>
             <Plus className="mr-2 h-3.5 w-3.5" />
             {rulesCopy.addRule}
           </Button>

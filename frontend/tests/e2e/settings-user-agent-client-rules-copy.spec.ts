@@ -83,7 +83,7 @@ async function mockSettingsRoutes(page: Page) {
   });
 }
 
-test("settings shows user-agent client rule scope and precedence before rule actions", async ({ page }) => {
+test("settings shows user-agent client rule actions", async ({ page }) => {
   await mockSettingsRoutes(page);
 
   await page.goto("/system/settings?tab=profile&section=audit-configuration#audit-configuration");
@@ -92,17 +92,5 @@ test("settings shows user-agent client rule scope and precedence before rule act
 
   await expect(auditSection).toBeVisible();
   await expect(card).toBeVisible();
-  await expect(
-    card.getByText("Use regex rules to classify request-log clients from caller and upstream User-Agent values."),
-  ).toBeVisible();
-  await expect(
-    card.getByText("System rules: Locked baseline rules seeded by Prism. You can review them here, and only their enabled state can be changed."),
-  ).toBeVisible();
-  await expect(
-    card.getByText("Custom rules: Editable rules for the selected profile. Add, edit, delete, or disable them to refine client labels in request logs."),
-  ).toBeVisible();
-  await expect(
-    card.getByText("Custom rules for this profile are checked before locked system rules, so the first match can add to or override the baseline classification."),
-  ).toBeVisible();
   await expect(card.getByRole("button", { name: "Add Rule" })).toBeVisible();
 });

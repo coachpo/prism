@@ -1,6 +1,4 @@
 import type { RefObject } from "react";
-import { SemanticCallout } from "@/components/SemanticCallout";
-import { useLocale } from "@/i18n/useLocale";
 import { SettingsSectionsNav } from "./SettingsSectionsNav";
 import type { SettingsPageData } from "./useSettingsPageData";
 import { AuditConfigurationSection } from "./sections/AuditConfigurationSection";
@@ -23,17 +21,8 @@ export function SettingsProfileTab({
   isAuditConfigurationFocused,
   onJumpToSection,
 }: SettingsProfileTabProps) {
-  const { messages } = useLocale();
-
   return (
     <div className="flex flex-col gap-5">
-      <SemanticCallout
-        intent="info"
-        title={messages.settingsPage.profileScopedSettings}
-        description={messages.settingsPage.profileScopedDescription(data.selectedProfileLabel)}
-        className="py-2.5"
-      />
-
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6">
         <aside className="lg:sticky lg:top-4 lg:h-fit">
           <SettingsSectionsNav

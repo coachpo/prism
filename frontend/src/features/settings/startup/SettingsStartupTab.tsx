@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, RefreshCw, Save, ShieldAlert } from "lucide-react";
+import { AlertCircle, CheckCircle2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -618,11 +618,6 @@ export function SettingsStartupTab() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Alert>
-        <ShieldAlert />
-        <AlertTitle>{copy.startupBootstrapConfigTitle}</AlertTitle>
-        <AlertDescription>{copy.startupBootstrapConfigDescription}</AlertDescription>
-      </Alert>
       {bootstrapConfig.apply_result || currentApplySummary.status === "warning" ? (
         <Alert variant={currentApplySummary.status === "error" ? "destructive" : "default"}>
           {bootstrapConfig.apply_result ? <RefreshCw /> : <AlertCircle />}

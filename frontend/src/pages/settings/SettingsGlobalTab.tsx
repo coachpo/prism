@@ -1,5 +1,3 @@
-import { SemanticCallout } from "@/components/SemanticCallout";
-import { useLocale } from "@/i18n/useLocale";
 import type { SettingsPageData } from "./useSettingsPageData";
 import { DeleteVendorDialog } from "./dialogs/DeleteVendorDialog";
 import { VendorDialog } from "./dialogs/VendorDialog";
@@ -12,17 +10,8 @@ interface SettingsGlobalTabProps {
 }
 
 export function SettingsGlobalTab({ data }: SettingsGlobalTabProps) {
-  const { messages } = useLocale();
-
   return (
     <div className="flex flex-col gap-5">
-      <SemanticCallout
-        intent="muted"
-        title={messages.settingsPage.globalSettings}
-        description={messages.settingsPage.globalSettingsDescription}
-        className="py-2.5"
-      />
-
       <AuthenticationSection
         authSettings={data.authSettings}
         authEnabled={data.authEnabledInput}
