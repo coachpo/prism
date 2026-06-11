@@ -1891,6 +1891,8 @@ export const zhCNMessages: Messages = {
     outcome: "结果",
     overview: "概览",
     pricedOnly: "仅已定价",
+    payloadRawJson: "原始 JSON",
+    payloadRendered: "渲染视图",
     reasoning: "推理",
     reasoningEffort: "推理强度",
     refreshRequestLogs: "刷新请求日志",

@@ -12,7 +12,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -130,7 +129,7 @@ function AuditList({
                     </Badge>
                     <span className="font-mono text-xs text-muted-foreground">#{item.id}</span>
                   </span>
-                  <span className="max-w-full truncate font-mono text-xs text-muted-foreground">
+                  <span className="max-w-full whitespace-normal break-words font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
                     {item.request_method} {item.request_url}
                   </span>
                   <span className="text-xs text-muted-foreground">{format(item.created_at)}</span>
@@ -205,11 +204,9 @@ function AuditDetailCard({
               #{detail.id}
             </Badge>
           </div>
-          <ScrollArea className="max-h-28 rounded-lg border border-border/60 bg-background/70 shadow-inner">
-            <pre className="whitespace-pre-wrap break-words p-3 font-mono text-[12px] leading-5 text-foreground [overflow-wrap:anywhere]">
-              {`${detail.request_method} ${detail.request_url}`}
-            </pre>
-          </ScrollArea>
+          <p className="whitespace-pre-wrap break-words rounded-lg border border-border/60 bg-background/70 p-3 font-mono text-xs leading-5 text-foreground shadow-inner [overflow-wrap:anywhere]">
+            {`${detail.request_method} ${detail.request_url}`}
+          </p>
           <p className="text-xs text-muted-foreground">{formatTimestamp(detail.created_at)}</p>
         </div>
         <Badge variant="outline" className="gap-1 border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium">
@@ -217,7 +214,7 @@ function AuditDetailCard({
         </Badge>
       </div>
       <CardContent className="flex flex-col gap-4 p-4">
-        <RequestLogPayloadBlock title={messages.requestLogs.requestHeaders} content={detail.request_headers || ""} />
+        <RequestLogPayloadBlock title={messages.requestLogs.requestHeaders} content={detail.request_headers || ""} contentKind="headers" />
         <Separator />
         <RequestLogPayloadBlock
           title={messages.requestLogs.requestBody}
@@ -230,6 +227,7 @@ function AuditDetailCard({
         <RequestLogPayloadBlock
           title={messages.requestLogs.responseHeaders}
           content={detail.response_headers ?? ""}
+          contentKind="headers"
         />
         <Separator />
         <RequestLogPayloadBlock

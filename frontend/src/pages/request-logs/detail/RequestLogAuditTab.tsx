@@ -2,7 +2,6 @@ import { AlertTriangle, Clock3, Info, ShieldCheck, ShieldOff } from "lucide-reac
 import { useLocale } from "@/i18n/useLocale";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ApiFamily, AuditLogDetail } from "@/lib/types";
@@ -157,11 +156,9 @@ export function RequestLogAuditTab({ apiFamily, audits, loading, state, formatTi
                     : messages.requestLogs.auditFullCapture}
                 </Badge>
               </div>
-              <ScrollArea className="max-h-24 rounded-lg border border-border/60 bg-background/70 shadow-inner">
-                <pre className="whitespace-pre-wrap break-words p-3 font-mono text-[12px] font-medium leading-5 tracking-tight text-foreground [overflow-wrap:anywhere]">
-                  {`${audit.request_method} ${audit.request_url}`}
-                </pre>
-              </ScrollArea>
+              <p className="whitespace-pre-wrap break-words rounded-lg border border-border/60 bg-background/70 p-3 font-mono text-xs font-medium leading-5 tracking-tight text-foreground shadow-inner [overflow-wrap:anywhere]">
+                {`${audit.request_method} ${audit.request_url}`}
+              </p>
               <p className="text-xs text-muted-foreground">{formatTimestamp(audit.created_at)}</p>
             </div>
 
@@ -177,7 +174,7 @@ export function RequestLogAuditTab({ apiFamily, audits, loading, state, formatTi
           </div>
 
           <CardContent className="space-y-4 p-4">
-            <RequestLogPayloadBlock title={messages.requestLogs.requestHeaders} content={audit.request_headers || ""} />
+            <RequestLogPayloadBlock title={messages.requestLogs.requestHeaders} content={audit.request_headers || ""} contentKind="headers" />
             <Separator />
             <RequestLogPayloadBlock
               title={messages.requestLogs.requestBody}
@@ -185,6 +182,12 @@ export function RequestLogAuditTab({ apiFamily, audits, loading, state, formatTi
               emptyState={getRequestBodyEmptyState(audit, state, messages)}
               apiFamily={apiFamily}
               bodyKind="request"
+            />
+            <Separator />
+            <RequestLogPayloadBlock
+              title={messages.requestLogs.responseHeaders}
+              content={audit.response_headers ?? ""}
+              contentKind="headers"
             />
             <Separator />
             <RequestLogPayloadBlock

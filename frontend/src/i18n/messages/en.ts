@@ -1883,6 +1883,8 @@ export interface Messages {
     outcome: string;
     overview: string;
     pricedOnly: string;
+    payloadRawJson: string;
+    payloadRendered: string;
     reasoning: string;
     reasoningEffort: string;
     refreshRequestLogs: string;
@@ -4181,6 +4183,8 @@ export const enMessages: Messages = {
     outcome: "Outcome",
     overview: "Overview",
     pricedOnly: "Priced only",
+    payloadRawJson: "Raw JSON",
+    payloadRendered: "Rendered",
     reasoning: "Reasoning",
     reasoningEffort: "Reasoning effort",
     refreshRequestLogs: "Refresh request logs",

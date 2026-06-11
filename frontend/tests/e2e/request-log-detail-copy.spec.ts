@@ -352,19 +352,22 @@ async function openRequestLogDetail(
       return nativeAnchorClick.call(this);
     };
 
-    document.execCommand = ((command: string) => {
-      if (command === "copy") {
-        const textarea = document.querySelector("textarea") as HTMLTextAreaElement | null;
-        const usedSheetRoot = Boolean(textarea?.closest("[data-testid='request-log-detail-sheet']"));
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: (command: string) => {
+        if (command === "copy") {
+          const textarea = document.querySelector("textarea") as HTMLTextAreaElement | null;
+          const usedSheetRoot = Boolean(textarea?.closest("[data-testid='request-log-detail-sheet']"));
 
-        (window as Window & { __fallbackUsedSheetRoot?: boolean }).__fallbackUsedSheetRoot = usedSheetRoot;
-        windowWithCopyCapture.__copiedText = usedSheetRoot ? textarea?.value ?? "" : "";
+          (window as Window & { __fallbackUsedSheetRoot?: boolean }).__fallbackUsedSheetRoot = usedSheetRoot;
+          windowWithCopyCapture.__copiedText = usedSheetRoot ? textarea?.value ?? "" : "";
 
-        return usedSheetRoot;
-      }
+          return usedSheetRoot;
+        }
 
-      return false;
-    }) as typeof document.execCommand;
+        return false;
+      },
+    });
   });
   await page.goto("/request-logs?request_id=101");
   await page.waitForLoadState("networkidle");
@@ -436,19 +439,24 @@ test.describe("request log detail copy regression", () => {
     expect(ownerRouteRequests).toEqual([]);
 
     const copyButtons = drawer.getByRole("button", { name: /^Copy$/ });
-    const visiblePreBlocks = drawer.locator("pre:visible");
 
-    await expect(copyButtons).toHaveCount(3);
-    await expect(visiblePreBlocks).toHaveCount(4);
+    await expect(copyButtons).toHaveCount(4);
 
-    await visiblePreBlocks.evaluateAll((elements) => {
-      elements[1].textContent = "mutated-audit-headers";
-      elements[2].textContent = "mutated-audit-request";
-      elements[3].textContent = "mutated-audit-response";
+    const requestHeaders = drawer.getByRole("region", { name: "Request headers" });
+    await expect(requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
+    await requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first().evaluate((element) => {
+      element.textContent = "mutated-audit-headers";
+    });
+    await drawer.getByText("line-1").evaluate((element) => {
+      element.textContent = "mutated-audit-request";
+    });
+    await drawer.getByText("event: response.created").evaluate((element) => {
+      element.textContent = "mutated-audit-response";
     });
 
     await expectCopyWithoutDownload(page, () => copyButtons.nth(0).click(), normalizeClipboardText(auditHeaders));
     await expectCopyWithoutDownload(page, () => copyButtons.nth(1).click(), normalizeClipboardText(auditRequestBody));
-    await expectCopyWithoutDownload(page, () => copyButtons.nth(2).click(), normalizeClipboardText(auditResponseBody));
+    await expectCopyWithoutDownload(page, () => copyButtons.nth(2).click(), "content-type: application/json");
+    await expectCopyWithoutDownload(page, () => copyButtons.nth(3).click(), normalizeClipboardText(auditResponseBody));
   });
 });

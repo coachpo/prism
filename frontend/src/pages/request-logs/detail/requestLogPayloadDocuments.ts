@@ -2,6 +2,8 @@ import type { ApiFamily } from "@/lib/types";
 
 export type RequestLogPayloadBodyKind = "request" | "response";
 
+export type RequestLogPayloadDocumentSectionKind = "fields" | "transcript";
+
 export interface RequestLogPayloadDocumentLine {
   label: string;
   value: string;
@@ -11,6 +13,7 @@ export interface RequestLogPayloadDocumentLine {
 export interface RequestLogPayloadDocumentSection {
   title: string;
   lines: RequestLogPayloadDocumentLine[];
+  kind?: RequestLogPayloadDocumentSectionKind;
 }
 
 export interface RequestLogPayloadDocument {
@@ -24,6 +27,11 @@ interface BuildPayloadDocumentParams {
 }
 
 type JsonRecord = Record<string, unknown>;
+
+interface JsonParseResult {
+  parsed: boolean;
+  value: unknown;
+}
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,20 +65,139 @@ function appendSection(
   sections: RequestLogPayloadDocumentSection[],
   title: string,
   lines: RequestLogPayloadDocumentLine[],
+  kind: RequestLogPayloadDocumentSectionKind = "fields",
 ) {
   const visibleLines = lines.filter((line) => line.value.length > 0);
   if (visibleLines.length > 0) {
-    sections.push({ title, lines: visibleLines });
+    sections.push({ title, lines: visibleLines, kind });
+  }
+}
+
+function parseJsonValue(content: string): JsonParseResult {
+  try {
+    return { parsed: true, value: JSON.parse(content) as unknown };
+  } catch {
+    return { parsed: false, value: null };
   }
 }
 
 function parseJsonRecord(content: string): JsonRecord | null {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
+  const result = parseJsonValue(content);
+  return result.parsed && isRecord(result.value) ? result.value : null;
+}
+
+function formatJsonLineValue(value: unknown): { value: string; mono: boolean } {
+  if (typeof value === "string") return { value, mono: false };
+  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+    return { value: String(value), mono: true };
   }
+  return { value: formatJson(value), mono: true };
+}
+
+function normalizeHeaderName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function isSensitiveHeaderName(name: string): boolean {
+  const normalized = normalizeHeaderName(name);
+  if (normalized === "access-control-allow-credentials") return false;
+
+  return normalized === "authorization" ||
+    normalized === "proxy-authorization" ||
+    normalized === "cookie" ||
+    normalized === "set-cookie" ||
+    normalized.includes("api-key") ||
+    normalized.includes("token") ||
+    normalized.includes("secret") ||
+    normalized.includes("credential");
+}
+
+function formatHeaderValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || value === null) return String(value);
+  return formatJson(value);
+}
+
+function maskHeaderValue(name: string, value: unknown): string {
+  return isSensitiveHeaderName(name) ? "[REDACTED]" : formatHeaderValue(value);
+}
+
+function buildHeaderLinesFromRecord(record: JsonRecord): RequestLogPayloadDocumentLine[] {
+  return Object.entries(record).flatMap(([name, value]) => {
+    const label = normalizeHeaderName(name);
+    if (label.length === 0) return [];
+    return [{ label, value: maskHeaderValue(label, value), mono: true }];
+  });
+}
+
+function buildHeaderLinesFromText(content: string): RequestLogPayloadDocumentLine[] {
+  return content.split(/\r?\n/).flatMap((line) => {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) return [];
+    const label = normalizeHeaderName(line.slice(0, separatorIndex));
+    if (label.length === 0) return [];
+    return [{ label, value: maskHeaderValue(label, line.slice(separatorIndex + 1).trim()), mono: true }];
+  });
+}
+
+function buildGenericJsonDocumentFromValue(value: unknown): RequestLogPayloadDocument | null {
+  if (isRecord(value)) {
+    const lines = Object.entries(value).map(([label, entryValue]) => ({
+      label,
+      ...formatJsonLineValue(entryValue),
+    }));
+    return lines.length > 0 ? { sections: [{ title: "JSON fields", lines, kind: "fields" }] } : null;
+  }
+
+  if (Array.isArray(value)) {
+    const lines = value.map((entryValue, index) => ({
+      label: `item ${index + 1}`,
+      ...formatJsonLineValue(entryValue),
+    }));
+    return lines.length > 0 ? { sections: [{ title: "JSON array", lines, kind: "fields" }] } : null;
+  }
+
+  if (value === null) return { sections: [{ title: "JSON value", lines: [{ label: "value", value: "null", mono: true }] }] };
+  return { sections: [{ title: "JSON value", lines: [{ label: "value", value: String(value), mono: true }] }] };
+}
+
+function buildGenericJsonDocument(content: string): RequestLogPayloadDocument | null {
+  const result = parseJsonValue(content);
+  return result.parsed ? buildGenericJsonDocumentFromValue(result.value) : null;
+}
+
+export function formatRequestLogPayloadRaw(content: string): string {
+  const result = parseJsonValue(content);
+  return result.parsed ? formatJson(result.value) : content;
+}
+
+export function formatRequestLogHeaderRaw(content: string): string {
+  const result = parseJsonValue(content);
+  if (result.parsed && isRecord(result.value)) {
+    const maskedHeaders = Object.fromEntries(
+      Object.entries(result.value).map(([name, value]) => {
+        const label = normalizeHeaderName(name);
+        return [label, isSensitiveHeaderName(label) ? "[REDACTED]" : value];
+      }),
+    );
+    return formatJson(maskedHeaders);
+  }
+
+  const lines = buildHeaderLinesFromText(content);
+  return lines.length > 0 ? lines.map((line) => `${line.label}: ${line.value}`).join("\n") : formatRequestLogPayloadRaw(content);
+}
+
+export function buildRequestLogHeaderDocument(content: string): RequestLogPayloadDocument | null {
+  const result = parseJsonValue(content);
+  const lines = result.parsed && isRecord(result.value)
+    ? buildHeaderLinesFromRecord(result.value)
+    : buildHeaderLinesFromText(content);
+
+  return lines.length > 0 ? { sections: [{ title: "Headers", lines, kind: "fields" }] } : null;
+}
+
+export function buildBestEffortPayloadDocument(content: string): RequestLogPayloadDocument | null {
+  return buildGenericJsonDocument(content);
 }
 
 function textFromOpenAiContent(value: unknown): string {
@@ -122,6 +249,7 @@ function buildOpenAiRequestDocument(body: JsonRecord): RequestLogPayloadDocument
         const value = textFromOpenAiContent(message.content);
         return value.length > 0 ? [{ label: role, value }] : [];
       }),
+      "transcript",
     );
   }
 
@@ -157,6 +285,7 @@ function buildOpenAiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
         const value = finishReason ? `${content}\nFinish reason: ${finishReason}` : content;
         return value.trim().length > 0 ? [{ label: role, value: value.trim() }] : [];
       }),
+      "transcript",
     );
   }
 
@@ -171,6 +300,7 @@ function buildOpenAiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
         const content = textFromOpenAiContent(item.content);
         return content.length > 0 ? [{ label: role, value: content }] : [];
       }),
+      "transcript",
     );
   }
 
@@ -206,6 +336,7 @@ function buildGeminiRequestDocument(body: JsonRecord): RequestLogPayloadDocument
       const value = textFromGeminiParts(getArray(content, "parts"));
       return value.length > 0 ? [{ label: role, value }] : [];
     }),
+    "transcript",
   );
 
   const generationConfig = getRecord(body, "generationConfig");
@@ -232,6 +363,7 @@ function buildGeminiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
       const value = finishReason ? `${text}\nFinish reason: ${finishReason}` : text;
       return value.trim().length > 0 ? [{ label: role, value: value.trim() }] : [];
     }),
+    "transcript",
   );
 
   const usageMetadata = getRecord(body, "usageMetadata");
@@ -263,6 +395,7 @@ function buildAnthropicRequestDocument(body: JsonRecord): RequestLogPayloadDocum
       const value = textFromAnthropicContent(message.content);
       return value.length > 0 ? [{ label: role, value }] : [];
     }),
+    "transcript",
   );
 
   const maxTokens = getNumber(body, "max_tokens");
@@ -279,7 +412,7 @@ function buildAnthropicResponseDocument(body: JsonRecord): RequestLogPayloadDocu
 
   if (Array.isArray(content)) {
     const text = textFromAnthropicContent(content);
-    appendSection(sections, "Assistant content", [{ label: getString(body, "role") ?? "assistant", value: text }]);
+    appendSection(sections, "Assistant content", [{ label: getString(body, "role") ?? "assistant", value: text }], "transcript");
   }
 
   const stopReason = getString(body, "stop_reason");
@@ -304,12 +437,15 @@ export function buildRequestLogPayloadDocument({
   if (!body) return null;
 
   if (apiFamily === "openai") {
-    return bodyKind === "request" ? buildOpenAiRequestDocument(body) : buildOpenAiResponseDocument(body);
+    return (bodyKind === "request" ? buildOpenAiRequestDocument(body) : buildOpenAiResponseDocument(body))
+      ?? buildGenericJsonDocumentFromValue(body);
   }
 
   if (apiFamily === "gemini") {
-    return bodyKind === "request" ? buildGeminiRequestDocument(body) : buildGeminiResponseDocument(body);
+    return (bodyKind === "request" ? buildGeminiRequestDocument(body) : buildGeminiResponseDocument(body))
+      ?? buildGenericJsonDocumentFromValue(body);
   }
 
-  return bodyKind === "request" ? buildAnthropicRequestDocument(body) : buildAnthropicResponseDocument(body);
+  return (bodyKind === "request" ? buildAnthropicRequestDocument(body) : buildAnthropicResponseDocument(body))
+    ?? buildGenericJsonDocumentFromValue(body);
 }

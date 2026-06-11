@@ -1,11 +1,34 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-13T00:00:00Z";
 const expectedFromTime = "2026-04-12T12:00:00.000Z";
 const expectedToTime = "2026-04-13T12:00:00.000Z";
 const redactedHeaders = "content-type: application/json\nauthorization: Bearer [REDACTED]";
+const jsonRequestHeaders = JSON.stringify({
+  authorization: "Bearer live-secret-token",
+  "content-type": "application/json",
+  cookie: "session=live-cookie",
+  "user-agent": "prism-postdual-overflow-gpt55-deepseek-1781125557",
+});
+const jsonResponseHeaders = JSON.stringify({
+  "access-control-allow-credentials": "true",
+  "content-type": "application/json",
+  date: "Wed, 10 Jun 2026 21:06:01 GMT",
+  server: "elb",
+  "set-cookie": "session=live-response-cookie",
+  "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+  vary: "origin, access-control-request-method, access-control-request-headers",
+  "x-client-credential": "live-client-credential",
+});
 const requestBody = "original request body\nline two";
 const responseBody = "original response body\nline two";
+const longRepeatedRequestToken = Array.from({ length: 220 }, () => "request-token").join(" ");
+const longRepeatedRequestBody = JSON.stringify({
+  model: "gpt-4o-mini",
+  input: longRepeatedRequestToken,
+  max_output_tokens: 8,
+  stream: false,
+});
 const openAiDocumentRequestBody = JSON.stringify({
   model: "gpt-4o-mini",
   messages: [
@@ -56,6 +79,8 @@ type Scenario =
   | "list_failure"
   | "detail_failure"
   | "invalid_created"
+  | "json_headers"
+  | "long_body"
   | "openai_document"
   | "gemini_document"
   | "anthropic_document";
@@ -81,6 +106,7 @@ function getScenarioModelLabel(scenario: Scenario): string {
 }
 
 function getScenarioRequestBody(scenario: Scenario): string {
+  if (scenario === "long_body") return longRepeatedRequestBody;
   if (scenario === "openai_document") return openAiDocumentRequestBody;
   if (scenario === "gemini_document") return geminiDocumentRequestBody;
   if (scenario === "anthropic_document") return anthropicDocumentRequestBody;
@@ -97,6 +123,8 @@ function getScenarioResponseBody(scenario: Scenario): string {
 function scenarioConfig(scenario: Scenario) {
   const capturesBody =
     scenario === "full" ||
+    scenario === "json_headers" ||
+    scenario === "long_body" ||
     scenario === "openai_document" ||
     scenario === "gemini_document" ||
     scenario === "anthropic_document" ||
@@ -279,7 +307,7 @@ function createAuditListItem(id: number, scenario: Scenario) {
     endpoint_description: "Primary endpoint",
     request_method: "POST",
     request_url: `https://api.example.test/v1/responses?audit=${id}`,
-    request_headers: redactedHeaders,
+    request_headers: scenario === "json_headers" ? jsonRequestHeaders : redactedHeaders,
     request_body_preview: config.requestBody,
     request_body_stored: config.requestBodyStored,
     response_status: id === 202 ? 201 : 200,
@@ -296,7 +324,7 @@ function createAuditDetail(id: number, scenario: Scenario) {
   return {
     ...createAuditListItem(id, scenario),
     request_body: id === 202 ? "selected audit request body" : config.requestBody,
-    response_headers: "content-type: application/json\nx-prism-audit: [REDACTED]",
+    response_headers: scenario === "json_headers" ? jsonResponseHeaders : "content-type: application/json\nx-prism-audit: [REDACTED]",
     response_body: id === 202 ? "selected audit response body" : config.responseBody,
   };
 }
@@ -424,6 +452,24 @@ function expectAuditWindow(searchParamString: string) {
   expect(params.get("limit")).toBe("20");
 }
 
+async function expectNoRedundantPayloadShell(section: Locator) {
+  const hasOldShell = await section.evaluate((element) => {
+    const classNames = Array.from(element.querySelectorAll("*")).map((node) => node.getAttribute("class") ?? "");
+    return classNames.some((className) => {
+      const oldPayloadShell = className.includes("rounded-xl") &&
+        className.includes("border-border/70") &&
+        className.includes("bg-muted/30") &&
+        className.includes("shadow-inner");
+      const oldDocumentShell = className.includes("rounded-xl") &&
+        className.includes("border-border/70") &&
+        className.includes("bg-background") &&
+        className.includes("shadow-sm");
+      return oldPayloadShell || oldDocumentShell;
+    });
+  });
+  expect(hasOldShell).toBe(false);
+}
+
 const documentBodyCases = [
   {
     label: "OpenAI",
@@ -457,7 +503,11 @@ test.describe("dedicated request-log audit page", () => {
 
       const detail = page.getByTestId("dedicated-audit-detail");
       await expect(detail).toBeVisible({ timeout: 15000 });
-      await expect(detail.getByText(redactedHeaders)).toBeVisible();
+      const requestSection = detail.getByRole("region", { name: "Request", exact: true });
+      const responseSection = detail.getByRole("region", { name: "Response (200)" });
+      await expectNoRedundantPayloadShell(requestSection);
+      await expectNoRedundantPayloadShell(responseSection);
+      await expect(detail.getByText("[REDACTED]").first()).toBeVisible();
       for (const label of bodyCase.requestLabels) {
         await expect(detail.getByText(label).first()).toBeVisible();
       }
@@ -468,6 +518,123 @@ test.describe("dedicated request-log audit page", () => {
       expect(counters.auditDetailRequests).toEqual([201]);
     });
   }
+
+  test("renders JSON and newline headers as key-value rows with sensitive values masked", async ({ page }) => {
+    await mockPrismRoutes(page, "json_headers");
+
+    await page.goto("/request-logs/101/audit?audit_id=201");
+
+    const detail = page.getByTestId("dedicated-audit-detail");
+    await expect(detail).toBeVisible({ timeout: 15000 });
+
+    const requestHeaders = detail.getByRole("region", { name: "Request headers" });
+    await expectNoRedundantPayloadShell(requestHeaders);
+    await expect(requestHeaders.locator("dt", { hasText: "authorization" })).toBeVisible();
+    await expect(requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
+    await expect(requestHeaders.locator("dt", { hasText: "content-type" })).toBeVisible();
+    await expect(requestHeaders.locator("dd", { hasText: "application/json" })).toBeVisible();
+    await expect(requestHeaders.locator("dt", { hasText: "user-agent" })).toBeVisible();
+    await expect(requestHeaders.locator("dd", { hasText: "prism-postdual-overflow-gpt55-deepseek-1781125557" })).toBeVisible();
+    await expect(requestHeaders.getByText("Bearer live-secret-token")).toHaveCount(0);
+    await expect(requestHeaders.getByText("session=live-cookie")).toHaveCount(0);
+    await expect(requestHeaders.getByText(/\{\s*"authorization"/)).toHaveCount(0);
+
+    const responseHeaders = detail.getByRole("region", { name: "Response headers" });
+    await expectNoRedundantPayloadShell(responseHeaders);
+    await expect(responseHeaders.locator("dt", { hasText: "access-control-allow-credentials" })).toBeVisible();
+    await expect(responseHeaders.locator("dd", { hasText: "true" })).toBeVisible();
+    await expect(responseHeaders.locator("dt", { hasText: "strict-transport-security" })).toBeVisible();
+    await expect(responseHeaders.locator("dd", { hasText: "max-age=31536000; includeSubDomains; preload" })).toBeVisible();
+    await expect(responseHeaders.locator("dt", { hasText: "set-cookie" })).toBeVisible();
+    await expect(responseHeaders.locator("dt", { hasText: "x-client-credential" })).toBeVisible();
+    await expect(responseHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
+    await expect(responseHeaders.getByText("session=live-response-cookie")).toHaveCount(0);
+    await expect(responseHeaders.getByText("live-client-credential")).toHaveCount(0);
+
+    await requestHeaders.getByRole("button", { name: "Raw JSON" }).click();
+    await expect(requestHeaders.locator("pre")).toContainText('"authorization": "[REDACTED]"');
+    await expect(requestHeaders.locator("pre")).toContainText('"user-agent": "prism-postdual-overflow-gpt55-deepseek-1781125557"');
+    await expect(requestHeaders.locator("pre")).not.toContainText("Bearer live-secret-token");
+
+    await responseHeaders.getByRole("button", { name: "Raw JSON" }).click();
+    await expect(responseHeaders.locator("pre")).toContainText('"access-control-allow-credentials": "true"');
+    await expect(responseHeaders.locator("pre")).toContainText('"set-cookie": "[REDACTED]"');
+    await expect(responseHeaders.locator("pre")).toContainText('"x-client-credential": "[REDACTED]"');
+    await expect(responseHeaders.locator("pre")).toContainText('"vary": "origin, access-control-request-method, access-control-request-headers"');
+    await expect(responseHeaders.locator("pre")).not.toContainText("session=live-response-cookie");
+    await expect(responseHeaders.locator("pre")).not.toContainText("live-client-credential");
+  });
+
+  test("local Raw JSON toggle pretty-prints parseable request bodies", async ({ page }) => {
+    await mockPrismRoutes(page, "openai_document");
+
+    await page.goto("/request-logs/101/audit?audit_id=201");
+
+    const detail = page.getByTestId("dedicated-audit-detail");
+    await expect(detail).toBeVisible({ timeout: 15000 });
+    const requestSection = detail.getByRole("region", { name: "Request", exact: true });
+    await expect(requestSection.getByText("Message transcript")).toBeVisible();
+    await requestSection.getByRole("button", { name: "Raw JSON" }).click();
+    await expect(requestSection.getByRole("button", { name: "Raw JSON" })).toHaveAttribute("aria-pressed", "true");
+    await expect(requestSection.locator("pre")).toContainText('"model": "gpt-4o-mini"');
+    await expect(requestSection.locator("pre")).toContainText('"messages": [');
+    await expect(requestSection.getByText("Message transcript")).toHaveCount(0);
+  });
+
+  test("long repeated-token request bodies scroll inside the Request Body content area only", async ({ page }) => {
+    await mockPrismRoutes(page, "long_body");
+
+    await page.goto("/request-logs/101/audit?audit_id=201");
+
+    const detail = page.getByTestId("dedicated-audit-detail");
+    await expect(detail).toBeVisible({ timeout: 15000 });
+    const requestSection = detail.getByRole("region", { name: "Request", exact: true });
+    await expectNoRedundantPayloadShell(requestSection);
+    const requestContent = requestSection.getByTestId("request-log-request-body-content");
+    await expect(requestSection.getByRole("button", { name: "Rendered" })).toBeVisible();
+    await expect(requestSection.getByRole("button", { name: "Raw JSON" })).toBeVisible();
+    await expect(requestSection.getByRole("button", { name: "Copy" })).toBeVisible();
+    await expect(requestSection.getByText(longRepeatedRequestToken.slice(0, 80))).toBeVisible();
+    await expect(requestContent).toHaveCSS("overflow-y", "auto");
+    await expect(requestContent.locator("[data-radix-scroll-area-viewport], article .overflow-y-auto")).toHaveCount(0);
+
+    const renderedMetrics = await requestContent.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      maxHeight: getComputedStyle(element).maxHeight,
+      scrollHeight: element.scrollHeight,
+      viewportHeight: window.innerHeight,
+    }));
+    expect(renderedMetrics.maxHeight).not.toBe("none");
+    expect(renderedMetrics.clientHeight).toBeLessThanOrEqual(Math.ceil(renderedMetrics.viewportHeight * 0.9) + 2);
+    expect(renderedMetrics.scrollHeight).toBeGreaterThan(renderedMetrics.clientHeight);
+
+    await requestSection.getByRole("button", { name: "Raw JSON" }).click();
+    await expect(requestSection.getByRole("button", { name: "Raw JSON" })).toHaveAttribute("aria-pressed", "true");
+    await expect(requestContent.locator("pre")).toContainText('"input": "request-token');
+    const rawMetrics = await requestContent.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+    expect(rawMetrics.scrollHeight).toBeGreaterThan(rawMetrics.clientHeight);
+
+    const responseSection = detail.getByRole("region", { name: "Response (200)" });
+    await expect(responseSection.getByTestId("request-log-request-body-content")).toHaveCount(0);
+  });
+
+  test("raw-mode copy writes the pretty-printed JSON shown in that section", async ({ page, context }) => {
+    await installCopyHarness(page, context);
+    await mockPrismRoutes(page, "openai_document");
+
+    await page.goto("/request-logs/101/audit?audit_id=201");
+
+    const detail = page.getByTestId("dedicated-audit-detail");
+    await expect(detail).toBeVisible({ timeout: 15000 });
+    const requestSection = detail.getByRole("region", { name: "Request", exact: true });
+    await requestSection.getByRole("button", { name: "Raw JSON" }).click();
+    await requestSection.getByRole("button", { name: "Copy" }).click();
+    await expect.poll(() => copiedText(page)).toBe(JSON.stringify(JSON.parse(openAiDocumentRequestBody), null, 2));
+    await expect.poll(() => usedDedicatedFallbackRoot(page)).toBe(true);
+  });
 
   test("direct selected audit_id route fetches only the selected audit detail", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "full");
@@ -503,14 +670,15 @@ test.describe("dedicated request-log audit page", () => {
     await page.goto("/request-logs/101/audit");
 
     await expect(page.getByText("Metadata only").first()).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText("Bearer [REDACTED]")).toBeVisible();
+    const requestHeaders = page.getByTestId("dedicated-audit-detail").getByRole("region", { name: "Request headers" });
+    await expect(requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
     await expect(page.getByText("Request body was intentionally not stored because this request used metadata-only audit capture.")).toBeVisible();
     await expect(page.getByText("Response body was intentionally not stored because this request used metadata-only audit capture.")).toBeVisible();
     const copyButtons = page.getByTestId("dedicated-audit-detail").getByRole("button", { name: /^Copy$/ });
     await expect(copyButtons).toHaveCount(4);
     await expect(copyButtons.nth(1)).toBeDisabled();
     await expect(copyButtons.nth(3)).toBeDisabled();
-    await page.getByTestId("dedicated-audit-detail").locator("pre").nth(1).evaluate((element) => {
+    await requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first().evaluate((element) => {
       element.textContent = "mutated header text";
     });
     await copyButtons.first().click();
