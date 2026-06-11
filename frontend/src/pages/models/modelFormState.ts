@@ -411,6 +411,12 @@ export function getModelConnections(
     .map((target) => ({ ...(target.connection as Connection), priority: target.position }));
 }
 
+export function getEditModelConnectionOptions(
+  model: Pick<ModelConfig, "access_targets"> | Pick<ModelConfigListItem, "access_targets"> | null,
+): Connection[] {
+  return model ? getModelConnections(model) : [];
+}
+
 export function createEditModelFormData(model: EditableModelFormSource): ModelFormData {
   const vendorId = resolveModelVendorId(model);
   const displayName = model.display_name || "";

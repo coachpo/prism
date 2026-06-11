@@ -22,7 +22,7 @@ import type { LoadbalanceStrategy, Vendor } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
-import { setApiFamilyOnForm, setDisplayNameOnForm, setModelIdOnForm } from "./modelFormState";
+import { getEditModelConnectionOptions, setApiFamilyOnForm, setDisplayNameOnForm, setModelIdOnForm } from "./modelFormState";
 
 type Props = {
   editingModel: ManagedModelConfigListItem | null;
@@ -140,6 +140,7 @@ export function ModelDialog({
   const selectedPromotionTargetLabel = selectedPromotionTarget
     ? formatPromotionTargetOptionLabel(selectedPromotionTarget)
     : formData.context_overflow_promotion_target_id.trim() || null;
+  const terminalTargetConnectionOptions = getEditModelConnectionOptions(editingModel);
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -372,6 +373,7 @@ export function ModelDialog({
                 apiFamilyLabel={formData.api_family}
                 accessTargets={formData.access_targets}
                 modelOptions={targetModelsForApiFamily}
+                connectionOptions={terminalTargetConnectionOptions}
                 error={accessTargetsError}
                 onChange={(accessTargets) => setFormData((prev) => ({ ...prev, access_targets: accessTargets }))}
               />

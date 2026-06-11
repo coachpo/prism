@@ -14,6 +14,7 @@ const {
   DEFAULT_MODEL_FORM_DATA,
   createEditModelFormData,
   createNewModelFormData,
+  getEditModelConnectionOptions,
   getModelAccessTargetTierNumber,
   parseModelAccessTargetTierNumberInput,
   setApiFamilyOnForm,
@@ -83,6 +84,49 @@ test("edit hydration seeds capability strings from list and detail payloads", ()
   assert.equal(fromDetail.max_context_utilization, "1");
   assert.equal(fromDetail.preferred_context_utilization_threshold, "");
   assert.equal(fromDetail.display_name, "");
+});
+
+test("edit model connection options preserve terminal target display names", () => {
+  const connectionOptions = getEditModelConnectionOptions({
+    ...baseEditModel,
+    access_targets: [
+      {
+        target_type: "connection",
+        connection_id: 12,
+        position: 1,
+        is_enabled: true,
+        connection: {
+          id: 12,
+          name: "Sub-CPA-B",
+          endpoint: { name: "Endpoint fallback" },
+        },
+      },
+      {
+        target_type: "connection",
+        connection_id: 13,
+        position: 0,
+        is_enabled: true,
+        connection: {
+          id: 13,
+          name: null,
+          endpoint: { name: "Free-CPA-A" },
+        },
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    connectionOptions.map((connection) => ({
+      id: connection.id,
+      name: connection.name,
+      endpointName: connection.endpoint?.name,
+      priority: connection.priority,
+    })),
+    [
+      { id: 13, name: null, endpointName: "Free-CPA-A", priority: 0 },
+      { id: 12, name: "Sub-CPA-B", endpointName: "Endpoint fallback", priority: 1 },
+    ],
+  );
 });
 
 test("edit hydration preserves explicit model tiers and defaults legacy model targets to a single tier", () => {
