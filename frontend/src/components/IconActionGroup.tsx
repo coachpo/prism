@@ -16,8 +16,9 @@ export const iconActionButtonClassName =
 export function IconActionGroup({ className, ...props }: IconActionGroupProps) {
   return (
     <div
+      data-slot="icon-action-group"
       className={cn(
-        "flex shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-muted/35 p-0.5",
+        "inline-flex w-fit shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-muted/35 p-0.5",
         className
       )}
       {...props}

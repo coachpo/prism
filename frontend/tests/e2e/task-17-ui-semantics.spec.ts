@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const timestamp = "2026-05-28T12:00:00Z";
 const routeReadyTimeout = 15_000;
@@ -282,6 +282,32 @@ function task17Sidecars() {
   return Array.from({ length: 12 }, (_, index) => sidecar(index + 1, index === 10 ? "Beta Sidecar" : `Sidecar ${String(index + 1).padStart(2, "0")}`, index % 5 === 0 ? "missing_management_auth" : "valid"));
 }
 
+async function expectFirstActionGroupFitsButtonCluster(table: Locator) {
+  const firstActionCell = table.locator("tbody tr").first().locator("td").last();
+  const firstActionButton = firstActionCell.getByRole("button").first();
+  await expect(firstActionButton).toBeVisible({ timeout: routeReadyTimeout });
+
+  const actionGroup = firstActionButton.locator("xpath=..");
+  await expect(actionGroup).toHaveClass(/(?:^|\s)inline-flex(?:\s|$)/);
+  await expect(actionGroup).toHaveClass(/(?:^|\s)w-fit(?:\s|$)/);
+
+  const buttons = actionGroup.getByRole("button");
+  const buttonCount = await buttons.count();
+  expect(buttonCount).toBeGreaterThan(0);
+
+  const groupBox = await actionGroup.boundingBox();
+  const firstButtonBox = await buttons.first().boundingBox();
+  const lastButtonBox = await buttons.nth(buttonCount - 1).boundingBox();
+
+  if (!groupBox || !firstButtonBox || !lastButtonBox) {
+    throw new Error("Expected visible action group and icon buttons to have bounding boxes");
+  }
+
+  const buttonClusterWidth = lastButtonBox.x + lastButtonBox.width - firstButtonBox.x;
+  expect(groupBox.width).toBeGreaterThanOrEqual(buttonClusterWidth);
+  expect(groupBox.width).toBeLessThanOrEqual(buttonClusterWidth + 12);
+}
+
 async function mockRoutes(page: Page) {
   const activeProfile = profile();
 
@@ -432,6 +458,7 @@ test("task 17 operational tables keep dense controls keyboard accessible", async
   await page.goto("/models");
   const modelsTable = page.getByTestId("models-table");
   await expect(modelsTable).toBeVisible({ timeout: routeReadyTimeout });
+  await expectFirstActionGroupFitsButtonCluster(modelsTable);
   await modelsTable.getByRole("button", { name: "Model ID", exact: true }).click();
   await expect(modelsTable.getByText("Aux Model 01", { exact: true })).toBeVisible();
   await page.getByPlaceholder("Search models...").fill("Aux Model 28");
@@ -448,6 +475,7 @@ test("task 17 operational tables keep dense controls keyboard accessible", async
   await page.goto("/route/pricing");
   const pricingTable = page.getByTestId("pricing-templates-table");
   await expect(pricingTable).toBeVisible({ timeout: routeReadyTimeout });
+  await expectFirstActionGroupFitsButtonCluster(pricingTable);
   await pricingTable.getByRole("button", { name: "Name" }).click();
   await expect(pricingTable.getByText("Pricing 12", { exact: true })).toBeVisible();
   await pricingTable.getByLabel("Filter pricing templates").fill("Beta");
