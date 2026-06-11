@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useEffect } from "react"
-import { useForm, type Resolver, type UseFormRegisterReturn } from "react-hook-form"
+import { useForm, useWatch, type Resolver, type UseFormRegisterReturn } from "react-hook-form"
 import type { LoadbalanceStrategy } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -31,8 +31,9 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
     defaultValues: DEFAULT_BAN_POLICY_FORM_VALUES,
     mode: "onSubmit",
   })
-  const banMode = form.watch("ban_mode")
-  const strategyType = form.watch("legacy_strategy_type")
+  const banMode = useWatch({ control: form.control, name: "ban_mode" })
+  const strategyType = useWatch({ control: form.control, name: "legacy_strategy_type" })
+  const cycleRetryAttemptLimit = useWatch({ control: form.control, name: "cycle_retry_attempt_limit" })
 
   useEffect(() => {
     if (open) form.reset(initialValues)
@@ -105,7 +106,7 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                   <Field data-invalid={Boolean(form.formState.errors.cycle_retry_attempt_limit)}>
                     <FieldLabel htmlFor="cycle-limit">{copy.cycleRetryAttemptLimitLabel}</FieldLabel>
                     <FieldDescription>{copy.cycleRetryAttemptLimitDescription}</FieldDescription>
-                    <Input id="cycle-limit" type="number" min={1} max={50} step={1} aria-invalid={Boolean(form.formState.errors.cycle_retry_attempt_limit)} value={form.watch("cycle_retry_attempt_limit")} onChange={(event) => updateCycleLimit(event.target.value)} />
+                    <Input id="cycle-limit" type="number" min={1} max={50} step={1} aria-invalid={Boolean(form.formState.errors.cycle_retry_attempt_limit)} value={cycleRetryAttemptLimit} onChange={(event) => updateCycleLimit(event.target.value)} />
                     <FieldError>{form.formState.errors.cycle_retry_attempt_limit?.message}</FieldError>
                   </Field>
                   <NumberField id="cumulative-threshold" label={copy.banCumulativeRetryAttemptThresholdLabel} description={copy.banCumulativeRetryAttemptThresholdDescription} error={form.formState.errors.ban_cumulative_retry_attempt_threshold?.message} inputProps={form.register("ban_cumulative_retry_attempt_threshold", { valueAsNumber: true })} min={0} max={500} />
