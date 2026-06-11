@@ -38,7 +38,7 @@ type BootstrapConfigManager struct {
 
 const (
 	BootstrapConfigSecretDatabaseURL                        = "database.url"
-	BootstrapConfigSecretRuntimeSecretEncryptionKey         = "secretEncryptionKey"
+	BootstrapConfigSecretRuntimeSecretEncryptionKey         = "runtime.secretEncryptionKey"
 	BootstrapConfigSecretAuthJWTSigningKey                  = "auth.jwtSigningKey"
 	BootstrapConfigSecretStateTransferBundleKey             = "stateTransfer.bundleEncryptionKey"
 	BootstrapConfigSecretMailSMTPPassword                   = "mail.smtp.password"

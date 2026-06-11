@@ -80,9 +80,15 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 			t.Fatalf("expected database URL metadata to mask sensitive query value %q", leaked)
 		}
 	}
-	runtimeSecret := snapshot.Secrets[BootstrapConfigSecretRuntimeSecretEncryptionKey]
+	runtimeSecret, ok := snapshot.Secrets["runtime.secretEncryptionKey"]
+	if !ok {
+		t.Fatal("expected safe metadata to expose runtime.secretEncryptionKey")
+	}
 	if !runtimeSecret.Configured || runtimeSecret.Editable || runtimeSecret.Masked != "set" {
 		t.Fatal("expected runtime secret metadata to be configured and read-only")
+	}
+	if _, ok := snapshot.Secrets["secretEncryptionKey"]; ok {
+		t.Fatal("expected safe metadata to omit bare secretEncryptionKey")
 	}
 	smtpSecret := snapshot.Secrets[BootstrapConfigSecretMailSMTPPassword]
 	if !smtpSecret.Configured || !smtpSecret.Editable || smtpSecret.Masked != "set" {

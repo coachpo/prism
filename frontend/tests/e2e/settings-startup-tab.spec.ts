@@ -444,23 +444,6 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
 });
 
-test("startup tab accepts live backend runtime secret metadata key", async ({ page }) => {
-  const response: BootstrapTestResponse = createBootstrapResponse();
-  const runtimeSecret = response.secrets["runtime.secretEncryptionKey"];
-  const backendSecrets = { ...response.secrets };
-  Reflect.deleteProperty(backendSecrets, "runtime.secretEncryptionKey");
-  response.secrets = { ...backendSecrets, secretEncryptionKey: runtimeSecret };
-  const pageErrors: string[] = [];
-  page.on("pageerror", (error) => pageErrors.push(error.message));
-
-  await mockSettingsStartupRoutes(page, { bootstrapResponse: response });
-  await page.goto("/system/settings?tab=startup");
-
-  await expect(page.getByText("Review and save")).toBeVisible({ timeout: 5000 });
-  await expect(page.getByText(maskedRuntimeKey)).toBeVisible();
-  expect(pageErrors).toEqual([]);
-});
-
 test("initial startup revision drift shows neutral running-file status", async ({ page }) => {
   const response = createBootstrapResponse();
   response.file_revision = 8;

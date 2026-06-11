@@ -17,7 +17,6 @@ import type {
   BootstrapConfigMailSMTPValues,
   BootstrapConfigResponse,
   BootstrapConfigSecretKey,
-  BootstrapConfigSecretMetadata,
   BootstrapConfigSecretUpdates,
   BootstrapConfigUpdateRequest,
   BootstrapConfigValues,
@@ -65,18 +64,6 @@ import {
   type SettingsStartupCopy,
   type ValidationRow,
 } from "./startup/startupFieldMetadata";
-
-const BACKEND_RUNTIME_SECRET_KEY = "secretEncryptionKey";
-
-function normalizeBootstrapSecretMetadata(
-  secrets: BootstrapConfigResponse["secrets"] & Partial<Record<typeof BACKEND_RUNTIME_SECRET_KEY, BootstrapConfigSecretMetadata>>,
-): BootstrapConfigResponse["secrets"] {
-  if (secrets["runtime.secretEncryptionKey"]) {
-    return secrets;
-  }
-  const runtimeSecret = secrets[BACKEND_RUNTIME_SECRET_KEY];
-  return runtimeSecret ? { ...secrets, "runtime.secretEncryptionKey": runtimeSecret } : secrets;
-}
 
 function StartupSectionGroup({
   children,
@@ -237,7 +224,7 @@ export function SettingsStartupTab() {
   const hydrateConfig = useCallback((response: BootstrapConfigResponse) => {
     const normalizedResponse = {
       ...response,
-      secrets: normalizeBootstrapSecretMetadata(response.secrets),
+      secrets: response.secrets,
       values: normalizeBootstrapValues(response.values),
     };
     setBootstrapConfig(normalizedResponse);

@@ -95,6 +95,19 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 	}
 }
 
+func TestBootstrapConfigApplyRegistryUsesCanonicalRuntimeSecretPath(t *testing.T) {
+	capability, ok := ClassifyBootstrapConfigField("runtime.secretEncryptionKey")
+	if !ok {
+		t.Fatal("expected runtime.secretEncryptionKey to be the canonical runtime secret API field")
+	}
+	if capability.Mode != BootstrapConfigApplyModeRestartRequired {
+		t.Fatalf("expected runtime.secretEncryptionKey to require restart, got %s", capability.Mode)
+	}
+	if _, ok := ClassifyBootstrapConfigField("secretEncryptionKey"); ok {
+		t.Fatal("expected bare secretEncryptionKey to stay out of the bootstrap API field registry")
+	}
+}
+
 func TestBootstrapConfigFieldDiffDetectsHotOnlyChanges(t *testing.T) {
 	current := bootstrapApplyTestValues(t)
 	requested := cloneManagementValues(t, current)

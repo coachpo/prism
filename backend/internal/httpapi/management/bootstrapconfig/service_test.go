@@ -84,6 +84,38 @@ func TestBootstrapConfigRouteGetReturnsSafeMetadata(t *testing.T) {
 	}
 }
 
+func TestBootstrapConfigRouteValidateUsesCanonicalRuntimeSecretPath(t *testing.T) {
+	fixture := newBootstrapRouteFixture(t)
+	request := bootstrapRouteRequestForSnapshot(t, fixture.snapshot)
+	delete(request.SecretUpdates, config.BootstrapConfigSecretRuntimeSecretEncryptionKey)
+	request.SecretUpdates["runtime.secretEncryptionKey"] = config.BootstrapConfigSecretUpdate{Action: config.BootstrapConfigSecretActionPreserve}
+
+	response := fixture.doJSON(t, http.MethodPost, "/api/config/bootstrap/validate", request)
+
+	requireStatus(t, response, http.StatusOK)
+	body := decodeBootstrapConfigResponse(t, response)
+	if _, ok := body.Secrets["runtime.secretEncryptionKey"]; !ok {
+		t.Fatal("expected validate response to expose runtime.secretEncryptionKey metadata")
+	}
+	if _, ok := body.Secrets["secretEncryptionKey"]; ok {
+		t.Fatal("expected validate response to omit bare secretEncryptionKey metadata")
+	}
+}
+
+func TestBootstrapConfigRouteValidateRejectsBareRuntimeSecretPath(t *testing.T) {
+	fixture := newBootstrapRouteFixture(t)
+	request := bootstrapRouteRequestForSnapshot(t, fixture.snapshot)
+	request.SecretUpdates["secretEncryptionKey"] = config.BootstrapConfigSecretUpdate{Action: config.BootstrapConfigSecretActionPreserve}
+
+	response := fixture.doJSON(t, http.MethodPost, "/api/config/bootstrap/validate", request)
+
+	requireStatus(t, response, http.StatusUnprocessableEntity)
+	detail := decodeErrorDetailMap(t, response)
+	if detail["field"] != "secretEncryptionKey" || detail["reason"] != "unsupported secret field" {
+		t.Fatalf("expected bare secretEncryptionKey to be rejected as unsupported, got %+v", detail)
+	}
+}
+
 func TestBootstrapConfigGetIncludesTelemetry(t *testing.T) {
 	fixture := newBootstrapRouteFixture(t)
 
