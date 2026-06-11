@@ -21,6 +21,7 @@ export type {
   RoutingDiagramFlowNode,
 } from "./routing-diagram/routingDiagramFlowLayout";
 export {
+  filterRoutingDiagramGraphByModelIds,
   getRoutingDiagramEmptyState,
   getRoutingDiagramGraph,
   getRoutingDiagramMobileData,

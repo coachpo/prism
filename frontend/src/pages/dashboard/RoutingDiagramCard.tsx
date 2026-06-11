@@ -1,5 +1,16 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@/components/ui/field";
+import {
+  filterRoutingDiagramGraphByModelIds,
   getRoutingDiagramEmptyState,
   getRoutingDiagramGraph,
   getRoutingDiagramMobileData,
@@ -19,6 +30,8 @@ interface RoutingDiagramCardProps {
   onDrillDownRequests?: (params: { endpoint_id?: number; model_id?: string }) => void;
 }
 
+type RoutingDiagramModelFilterOption = Pick<RoutingDiagramNode, "id" | "label" | "sublabel">;
+
 export function RoutingDiagramCard({
   data,
   loading,
@@ -29,6 +42,7 @@ export function RoutingDiagramCard({
   const { messages } = useLocale();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [hiddenModelIds, setHiddenModelIds] = useState<ReadonlySet<string>>(() => new Set());
   const [viewportHeight, setViewportHeight] = useState(() =>
     typeof window === "undefined" ? 0 : window.innerHeight,
   );
@@ -70,13 +84,44 @@ export function RoutingDiagramCard({
     return data ? getRoutingDiagramGraph(data) : { nodes: [], edges: [] };
   }, [data]);
 
+  const modelFilterOptions = useMemo<RoutingDiagramModelFilterOption[]>(() => {
+    return graphData.nodes
+      .filter((node) => node.kind === "model")
+      .map((node) => ({
+        id: node.id,
+        label: node.label,
+        sublabel: node.sublabel,
+      }));
+  }, [graphData.nodes]);
+
+  const selectedModelIds = useMemo(() => {
+    return new Set(
+      modelFilterOptions
+        .filter((option) => !hiddenModelIds.has(option.id))
+        .map((option) => option.id),
+    );
+  }, [hiddenModelIds, modelFilterOptions]);
+
+  const filteredGraphData = useMemo(() => {
+    return filterRoutingDiagramGraphByModelIds(graphData, selectedModelIds);
+  }, [graphData, selectedModelIds]);
+
   const mobileData = useMemo(() => {
-    return getRoutingDiagramMobileData(graphData);
-  }, [graphData]);
+    return getRoutingDiagramMobileData(filteredGraphData);
+  }, [filteredGraphData]);
+
+  const modelFilterActive = selectedModelIds.size < modelFilterOptions.length;
 
   const emptyState = useMemo(() => {
     if (!data) {
       return null;
+    }
+
+    if (modelFilterOptions.length > 0 && filteredGraphData.nodes.length === 0) {
+      return {
+        title: messages.dashboard.routingFilteredEmptyTitle,
+        description: messages.dashboard.routingFilteredEmptyDescription,
+      };
     }
 
     const baseEmptyState = getRoutingDiagramEmptyState(data);
@@ -93,13 +138,55 @@ export function RoutingDiagramCard({
     };
   }, [
     data,
+    filteredGraphData.nodes.length,
+    messages.dashboard.routingFilteredEmptyDescription,
+    messages.dashboard.routingFilteredEmptyTitle,
     messages.dashboard.routingNoActiveRoutes,
     messages.dashboard.routingNoActiveRoutesDescription,
     messages.dashboard.routingNoRecentTraffic,
     messages.dashboard.routingNoRecentTrafficDescription,
+    modelFilterOptions.length,
   ]);
 
-  const hasChartContent = graphData.nodes.length > 0 && graphData.edges.length > 0;
+  const hasChartContent = modelFilterActive
+    ? filteredGraphData.nodes.length > 0
+    : graphData.nodes.length > 0 && graphData.edges.length > 0;
+
+  const toggleModelFilter = useCallback((modelId: string, checked: boolean) => {
+    setHiddenModelIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.delete(modelId);
+      } else {
+        next.add(modelId);
+      }
+      return next;
+    });
+  }, []);
+
+  const headerContent = useMemo(() => {
+    if (modelFilterOptions.length === 0) {
+      return null;
+    }
+
+    return (
+      <RoutingDiagramModelFilter
+        copy={{
+          description: messages.dashboard.routingModelFilterDescription,
+          label: messages.dashboard.routingModelFilterLabel,
+        }}
+        options={modelFilterOptions}
+        selectedModelIds={selectedModelIds}
+        onToggleModel={toggleModelFilter}
+      />
+    );
+  }, [
+    messages.dashboard.routingModelFilterDescription,
+    messages.dashboard.routingModelFilterLabel,
+    modelFilterOptions,
+    selectedModelIds,
+    toggleModelFilter,
+  ]);
 
   const activateNode = useCallback(
     (node: RoutingDiagramNode) => {
@@ -122,7 +209,7 @@ export function RoutingDiagramCard({
               <RoutingDiagramMobileList mobileData={mobileData} onActivateNode={activateNode} />
             ) : hasMeasuredContainer ? (
               <RoutingDiagramFlow
-                graphData={graphData}
+                graphData={filteredGraphData}
                 chartHeight={chartHeight}
                 onActivateNode={activateNode}
               />
@@ -145,9 +232,61 @@ export function RoutingDiagramCard({
             : undefined
         }
         error={error}
-        headerContent={null}
+        headerContent={headerContent}
         loading={loading}
       />
     </div>
+  );
+}
+
+function RoutingDiagramModelFilter({
+  copy,
+  onToggleModel,
+  options,
+  selectedModelIds,
+}: {
+  copy: {
+    description: string;
+    label: string;
+  };
+  onToggleModel: (modelId: string, checked: boolean) => void;
+  options: RoutingDiagramModelFilterOption[];
+  selectedModelIds: ReadonlySet<string>;
+}) {
+  return (
+    <FieldSet className="rounded-xl border border-border/70 bg-muted/20 p-3">
+      <FieldLegend className="mb-1 text-sm">{copy.label}</FieldLegend>
+      <FieldDescription>{copy.description}</FieldDescription>
+      <FieldGroup data-slot="checkbox-group" className="flex-row flex-wrap gap-2 pt-1">
+        {options.map((option) => {
+          const inputId = `routing-model-filter-${option.id}`;
+          const checked = selectedModelIds.has(option.id);
+
+          return (
+            <Field
+              key={option.id}
+              orientation="horizontal"
+              className="w-auto items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-2"
+            >
+              <Checkbox
+                id={inputId}
+                checked={checked}
+                onCheckedChange={(nextChecked) => onToggleModel(option.id, nextChecked === true)}
+              />
+              <FieldContent className="min-w-0 gap-0.5">
+                <FieldLabel htmlFor={inputId} className="max-w-48 truncate text-sm">
+                  {option.label}
+                </FieldLabel>
+                {option.sublabel ? (
+                  <FieldDescription className="max-w-48 truncate text-xs">
+                    {option.sublabel}
+                  </FieldDescription>
+                ) : null}
+              </FieldContent>
+            </Field>
+          );
+        })}
+      </FieldGroup>
+    </FieldSet>
   );
 }

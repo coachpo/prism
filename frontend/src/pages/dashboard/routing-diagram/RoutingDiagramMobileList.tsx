@@ -5,6 +5,11 @@ import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
 import { RoutingDiagramLegend } from "./RoutingDiagramLegend";
 import { RoutingDiagramVisualizationShell } from "./RoutingDiagramVisualizationShell";
+import {
+  getRoutingDiagramNodeCardStyle,
+  getRoutingDiagramNodeVisualMetadata,
+  isRoutingDiagramMutedNode,
+} from "./routingDiagramPresentationUtils";
 import type {
   RoutingDiagramMobileData,
   RoutingDiagramMobileNode,
@@ -83,9 +88,19 @@ function MobileNodeCard({
   const actionLabel = getNodeActionLabel(node, messages);
   const incomingGroups = groupRelationsByKind(node.incoming);
   const outgoingGroups = groupRelationsByKind(node.outgoing);
+  const nodeVisual = getRoutingDiagramNodeVisualMetadata(node.kind);
+  const muted = isRoutingDiagramMutedNode(node);
 
   return (
-    <article className="rounded-xl border border-border/70 bg-background/80 p-3 shadow-none">
+    <article
+      className={cn(
+        "border border-border/70 p-3 shadow-none",
+        nodeVisual.shapeClassName,
+        muted && "border-dashed opacity-70",
+      )}
+      data-node-shape={nodeVisual.shape}
+      style={getRoutingDiagramNodeCardStyle(nodeVisual, muted)}
+    >
       <div className="flex flex-col gap-3">
         <div className="grid gap-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -214,12 +229,16 @@ function MetricPill({ children }: { children: ReactNode }) {
 }
 
 function NodeKindDot({ kind }: { kind: RoutingDiagramNodeKind }) {
+  const nodeVisual = getRoutingDiagramNodeVisualMetadata(kind);
+
   return (
     <span
-      className={cn("h-2.5 w-2.5 shrink-0 rounded-full border")}
+      className={cn("h-2.5 w-2.5 shrink-0 border", nodeVisual.markerClassName)}
+      data-node-shape={nodeVisual.shape}
       style={{
-        backgroundColor: getNodeKindColor(kind),
+        backgroundColor: nodeVisual.color,
         borderColor: "transparent",
+        clipPath: nodeVisual.markerClipPath,
         opacity: 0.9,
       }}
       aria-hidden="true"
@@ -272,18 +291,6 @@ function getNodeKindLabel(
   }
 
   return messages.dashboard.routingEndpointNodeType;
-}
-
-function getNodeKindColor(kind: RoutingDiagramNodeKind) {
-  if (kind === "endpoint") {
-    return "var(--chart-2)";
-  }
-
-  if (kind === "terminal_target") {
-    return "var(--chart-4)";
-  }
-
-  return "var(--chart-1)";
 }
 
 function groupRelationsByKind(

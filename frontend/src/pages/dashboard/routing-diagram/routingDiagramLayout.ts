@@ -124,6 +124,63 @@ export function getRoutingDiagramGraph(data: RoutingDiagramData): RoutingDiagram
   return { nodes: graphNodes, edges: graphEdges };
 }
 
+export function filterRoutingDiagramGraphByModelIds(
+  graphData: RoutingDiagramGraph,
+  selectedModelIds: ReadonlySet<string>,
+): RoutingDiagramGraph {
+  const modelNodeIds = graphData.nodes
+    .filter((node) => node.kind === "model")
+    .map((node) => node.id);
+  const selectedCurrentModelIds = modelNodeIds.filter((id) => selectedModelIds.has(id));
+
+  if (selectedCurrentModelIds.length === modelNodeIds.length) {
+    return graphData;
+  }
+
+  if (selectedCurrentModelIds.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  const nodeById = new Map(graphData.nodes.map((node) => [node.id, node]));
+  const outgoingEdgesBySource = new Map<string, RoutingDiagramGraphEdge[]>();
+  for (const edge of graphData.edges) {
+    const outgoingEdges = outgoingEdgesBySource.get(edge.sourceNodeId) ?? [];
+    outgoingEdges.push(edge);
+    outgoingEdgesBySource.set(edge.sourceNodeId, outgoingEdges);
+  }
+
+  const includedNodeIds = new Set(selectedCurrentModelIds);
+  const queue = [...selectedCurrentModelIds];
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const sourceNodeId = queue[index];
+    for (const edge of outgoingEdgesBySource.get(sourceNodeId) ?? []) {
+      const targetNode = nodeById.get(edge.targetNodeId);
+      if (!targetNode) {
+        continue;
+      }
+
+      if (targetNode.kind === "model" && !selectedModelIds.has(targetNode.id)) {
+        continue;
+      }
+
+      if (includedNodeIds.has(targetNode.id)) {
+        continue;
+      }
+
+      includedNodeIds.add(targetNode.id);
+      queue.push(targetNode.id);
+    }
+  }
+
+  return {
+    nodes: graphData.nodes.filter((node) => includedNodeIds.has(node.id)),
+    edges: graphData.edges.filter(
+      (edge) => includedNodeIds.has(edge.sourceNodeId) && includedNodeIds.has(edge.targetNodeId),
+    ),
+  };
+}
+
 export function getRoutingDiagramMobileData(graphData: RoutingDiagramGraph): RoutingDiagramMobileData {
   const nodeById = new Map(graphData.nodes.map((node) => [node.id, node]));
   const relationsByNodeId = new Map(

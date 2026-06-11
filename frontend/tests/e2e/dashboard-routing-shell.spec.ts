@@ -560,9 +560,9 @@ test.describe("dashboard routing shell", () => {
             /(parent container|width and height)/i.test(message),
         ),
     ).toEqual([]);
-    await expect(routingCard.getByText("Disabled Model", { exact: true })).toBeVisible();
-    await expect(routingCard.getByText("Primary Target", { exact: true })).toBeVisible();
-    await expect(routingCard.getByText("Backup Target", { exact: true })).toBeVisible();
+    await expect(desktopDiagram.getByText("Disabled Model", { exact: true })).toBeVisible();
+    await expect(desktopDiagram.getByText("Primary Target", { exact: true })).toBeVisible();
+    await expect(desktopDiagram.getByText("Backup Target", { exact: true })).toBeVisible();
     await expect(primaryTargetNode.getByText("Terminal Targets · Active", { exact: true })).toBeVisible();
     await expect(backupTargetNode.getByText("Terminal Targets · Inactive", { exact: true })).toBeVisible();
     await primaryTargetNode.hover();
@@ -624,6 +624,94 @@ test.describe("dashboard routing shell", () => {
     await expect(page.getByRole("heading", { name: "Request Logs" })).toBeVisible();
     await expect(page.locator('input[name="request_id_lookup"]')).toBeVisible();
     await expect(page.locator('input[name="ingress_request_id"]')).toBeVisible();
+  });
+
+  test("filters desktop routing topology by local model checkboxes", async ({ page }) => {
+    await page.setViewportSize(desktopViewport);
+    await mockDashboardRoutes(page);
+
+    await page.goto("/observe?tab=routing");
+    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
+
+    const routingCard = getRoutingCard(page);
+    const modelACheckbox = routingCard.getByRole("checkbox", { name: "Model A" });
+    const disabledModelCheckbox = routingCard.getByRole("checkbox", { name: "Disabled Model" });
+
+    await expect(modelACheckbox).toBeChecked();
+    await expect(disabledModelCheckbox).toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-desktop")).toBeVisible();
+    await expect(routingCard.getByTestId("routing-diagram-node-model-model-101")).toBeVisible();
+    await expect(routingCard.getByTestId("routing-diagram-node-model-model-102")).toBeVisible();
+    await expect(routingCard.getByTestId("routing-diagram-node-terminal-target-terminal-target-501")).toBeVisible();
+
+    await disabledModelCheckbox.uncheck();
+    await expect(disabledModelCheckbox).not.toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-node-model-model-102")).toHaveCount(0);
+    await expect(routingCard.getByTestId("routing-diagram-node-model-model-101")).toBeVisible();
+    await expect(routingCard.getByTestId("routing-diagram-node-terminal-target-terminal-target-501")).toBeVisible();
+    await expect(routingCard.getByTestId("routing-diagram-node-endpoint-endpoint-201")).toBeVisible();
+
+    await modelACheckbox.uncheck();
+    await expect(modelACheckbox).not.toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-desktop")).toHaveCount(0);
+    await expect(routingCard.getByText("No models selected", { exact: true })).toBeVisible();
+    await expect(modelACheckbox).toBeVisible();
+    await expect(disabledModelCheckbox).toBeVisible();
+
+    await modelACheckbox.check();
+    await expect(modelACheckbox).toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-desktop")).toBeVisible();
+    await expect(routingCard.getByTestId("routing-diagram-node-model-model-101")).toBeVisible();
+    await expect(routingCard.getByTestId("routing-diagram-node-terminal-target-terminal-target-502")).toBeVisible();
+    await expect(routingCard.getByTestId("routing-diagram-node-model-model-102")).toHaveCount(0);
+
+    await disabledModelCheckbox.check();
+    await expect(disabledModelCheckbox).toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-node-model-model-102")).toBeVisible();
+  });
+
+  test("filters compact routing topology by local model checkboxes", async ({ page }) => {
+    await page.setViewportSize(mobileViewport);
+    await mockDashboardRoutes(page);
+
+    await page.goto("/observe?tab=routing");
+    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
+
+    const routingCard = getRoutingCard(page);
+    const modelACheckbox = routingCard.getByRole("checkbox", { name: "Model A" });
+    const disabledModelCheckbox = routingCard.getByRole("checkbox", { name: "Disabled Model" });
+
+    await expect(modelACheckbox).toBeChecked();
+    await expect(disabledModelCheckbox).toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-mobile")).toBeVisible();
+    await expect(routingCard.getByRole("heading", { name: "Model A", level: 5 })).toBeVisible();
+    await expect(routingCard.getByRole("heading", { name: "Disabled Model", level: 5 })).toBeVisible();
+    await expect(routingCard.getByRole("heading", { name: "Primary Target", level: 5 })).toBeVisible();
+
+    await modelACheckbox.uncheck();
+    await expect(modelACheckbox).not.toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-mobile")).toBeVisible();
+    await expect(routingCard.getByRole("heading", { name: "Model A", level: 5 })).toHaveCount(0);
+    await expect(routingCard.getByRole("heading", { name: "Disabled Model", level: 5 })).toBeVisible();
+    await expect(routingCard.getByRole("heading", { name: "Primary Target", level: 5 })).toHaveCount(0);
+
+    await disabledModelCheckbox.uncheck();
+    await expect(disabledModelCheckbox).not.toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-mobile")).toHaveCount(0);
+    await expect(routingCard.getByText("No models selected", { exact: true })).toBeVisible();
+    await expect(modelACheckbox).toBeVisible();
+    await expect(disabledModelCheckbox).toBeVisible();
+
+    await modelACheckbox.check();
+    await expect(modelACheckbox).toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-mobile")).toBeVisible();
+    await expect(routingCard.getByRole("heading", { name: "Model A", level: 5 })).toBeVisible();
+    await expect(routingCard.getByRole("heading", { name: "Primary Target", level: 5 })).toBeVisible();
+    await expect(routingCard.getByRole("heading", { name: "Disabled Model", level: 5 })).toHaveCount(0);
+
+    await disabledModelCheckbox.check();
+    await expect(disabledModelCheckbox).toBeChecked();
+    await expect(routingCard.getByRole("heading", { name: "Disabled Model", level: 5 })).toBeVisible();
   });
 
   test("preserves dragged desktop node positions across benign routing rerenders", async ({ page }) => {

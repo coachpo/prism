@@ -74,6 +74,7 @@ const { load } = createTsModuleLoader({
   },
 });
 const {
+  filterRoutingDiagramGraphByModelIds,
   getRoutingDiagramEmptyState,
   getRoutingDiagramFlowLayout,
   getRoutingDiagramGraph,
@@ -147,6 +148,84 @@ function loadRoutingDiagramFlowNodeModule() {
 function renderRoutingDiagramFlowNode(props) {
   const { RoutingDiagramFlowNode } = loadRoutingDiagramFlowNodeModule();
   return renderToStaticMarkup(createElement(RoutingDiagramFlowNode, props));
+}
+
+function loadRoutingDiagramLegendModule() {
+  const { load: loadLegend } = createTsModuleLoader({
+    rootDir: frontendDir,
+    mocks: {
+      "@/i18n/format": {
+        formatNumber,
+        getCurrentLocale: () => "en-US",
+      },
+      "@/i18n/useLocale": {
+        useLocale: () => ({
+          formatNumber: (value) => formatNumber(value),
+          messages: {
+            ...routingInspectorMessages,
+            dashboard: {
+              ...routingInspectorMessages.dashboard,
+              routingTitle: "Routing diagram",
+            },
+          },
+        }),
+      },
+      "@/lib/utils": {
+        cn: (...parts) => parts.filter(Boolean).join(" "),
+      },
+    },
+  });
+
+  return loadLegend(
+    path.join(frontendDir, "src/pages/dashboard/routing-diagram/RoutingDiagramLegend.tsx"),
+  );
+}
+
+function renderRoutingDiagramLegend() {
+  const { RoutingDiagramLegend } = loadRoutingDiagramLegendModule();
+  return renderToStaticMarkup(createElement(RoutingDiagramLegend));
+}
+
+function loadRoutingDiagramMobileListModule() {
+  const { load: loadMobileList } = createTsModuleLoader({
+    rootDir: frontendDir,
+    mocks: {
+      "@/components/ui/badge": {
+        Badge: ({ children, ...props }) => createElement("span", props, children),
+      },
+      "@/components/ui/button": {
+        Button: ({ children, ...props }) => createElement("button", props, children),
+      },
+      "@/i18n/format": {
+        formatNumber,
+        getCurrentLocale: () => "en-US",
+      },
+      "@/i18n/useLocale": {
+        useLocale: () => ({
+          formatNumber: (value) => formatNumber(value),
+          messages: {
+            ...routingInspectorMessages,
+            dashboard: {
+              ...routingInspectorMessages.dashboard,
+              routingTitle: "Routing diagram",
+            },
+          },
+        }),
+      },
+      "@/lib/utils": {
+        cn: (...parts) => parts.filter(Boolean).join(" "),
+      },
+    },
+  });
+
+  return loadMobileList(
+    path.join(frontendDir, "src/pages/dashboard/routing-diagram/RoutingDiagramMobileList.tsx"),
+  );
+}
+
+function renderRoutingDiagramMobileList(props) {
+  const { RoutingDiagramMobileList } = loadRoutingDiagramMobileListModule();
+  return renderToStaticMarkup(createElement(RoutingDiagramMobileList, props));
 }
 
 function loadRoutingDiagramFlowEdgeModule() {
@@ -272,6 +351,48 @@ test("normalizes topology graph into renderer-agnostic graph", () => {
     ["terminal-target-501", "terminal-target-502"],
   );
 });
+
+test("filters topology graph by selected model nodes", () => {
+  const graph = getRoutingDiagramGraph(createTopologyGraph());
+
+  assert.strictEqual(
+    filterRoutingDiagramGraphByModelIds(graph, new Set(["model-101", "model-102"])),
+    graph,
+  );
+
+  assert.deepEqual(
+    getGraphIds(filterRoutingDiagramGraphByModelIds(graph, new Set(["model-101"]))),
+    {
+      nodes: ["model-101", "terminal-target-502", "terminal-target-501", "endpoint-201"],
+      edges: [
+        "access-target-1002",
+        "access-target-1003",
+        "terminal-target-binding-501",
+        "terminal-target-binding-502",
+      ],
+    },
+  );
+
+  assert.deepEqual(
+    getGraphIds(filterRoutingDiagramGraphByModelIds(graph, new Set(["model-102"]))),
+    {
+      nodes: ["model-102"],
+      edges: [],
+    },
+  );
+
+  assert.deepEqual(
+    filterRoutingDiagramGraphByModelIds(graph, new Set()),
+    { nodes: [], edges: [] },
+  );
+});
+
+function getGraphIds(graph) {
+  return {
+    nodes: graph.nodes.map((node) => node.id),
+    edges: graph.edges.map((edge) => edge.id),
+  };
+}
 
 test("returns stable empty graph for empty topology", () => {
   const data = createEmptyTopologyGraph();
@@ -452,7 +573,9 @@ test("renders interactive flow node buttons with stable test ids", () => {
 
   assert.match(modelMarkup, /data-testid="routing-diagram-node-model-model-101"/);
   assert.match(modelMarkup, /data-muted="true"/);
-  assert.match(modelMarkup, /style="[^"]*--routing-node-color:var\(--chart-1\)[^"]*background:linear-gradient/);
+  assert.match(modelMarkup, /data-node-shape="panel"/);
+  assert.match(modelMarkup, /class="[^"]*rounded-xl[^"]*"/);
+  assert.match(modelMarkup, /style="[^"]*--routing-node-color:var\(--chart-1\)[^"]*--routing-node-background:color-mix\(in oklab, var\(--chart-1\) 14%, var\(--background\)\)[^"]*background:linear-gradient/);
   assert.doesNotMatch(modelMarkup, /size-2\.5 shrink-0 rounded-full/);
   assert.match(modelMarkup, /<button[^>]*type="button"[^>]*class="[^"]*nodrag[^"]*nopan[^"]*"[^>]*aria-label="View Model Details: Model A"/);
   assert.match(modelMarkup, /View Model Details: Model A/);
@@ -460,7 +583,9 @@ test("renders interactive flow node buttons with stable test ids", () => {
   assert.match(modelMarkup, /Disabled/);
 
   assert.match(endpointMarkup, /data-testid="routing-diagram-node-endpoint-endpoint-201"/);
-  assert.match(endpointMarkup, /style="[^"]*--routing-node-color:var\(--chart-2\)[^"]*background:linear-gradient/);
+  assert.match(endpointMarkup, /data-node-shape="capsule"/);
+  assert.match(endpointMarkup, /class="[^"]*rounded-\[1\.5rem\][^"]*"/);
+  assert.match(endpointMarkup, /style="[^"]*--routing-node-color:var\(--chart-2\)[^"]*--routing-node-background:color-mix\(in oklab, var\(--chart-2\) 16%, var\(--background\)\)[^"]*background:linear-gradient/);
   assert.doesNotMatch(endpointMarkup, /size-2\.5 shrink-0 rounded-full/);
   assert.match(endpointMarkup, /<button[^>]*type="button"[^>]*class="[^"]*nodrag[^"]*nopan[^"]*"[^>]*aria-label="View Request Logs: Endpoint A"/);
   assert.match(endpointMarkup, /<span class="block w-full truncate">View Request Logs<\/span><\/button>/);
@@ -488,7 +613,10 @@ test("renders terminal target node without button semantics", () => {
 
   assert.match(markup, /data-testid="routing-diagram-node-terminal-target-terminal-target-501"/);
   assert.match(markup, /data-muted="true"/);
-  assert.match(markup, /style="[^"]*--routing-node-color:var\(--chart-4\)[^"]*background:linear-gradient/);
+  assert.match(markup, /data-node-shape="cut-corner"/);
+  assert.match(markup, /class="[^"]*rounded-md[^"]*"/);
+  assert.match(markup, /style="[^"]*--routing-node-color:var\(--chart-4\)[^"]*--routing-node-background:color-mix\(in oklab, var\(--chart-4\) 16%, var\(--background\)\)[^"]*background:linear-gradient/);
+  assert.match(markup, /style="[^"]*clip-path:polygon\(0 0, calc\(100% - 0\.875rem\) 0, 100% 0\.875rem, 100% 100%, 0 100%\)/);
   assert.doesNotMatch(markup, /size-2\.5 shrink-0 rounded-full/);
   assert.doesNotMatch(markup, /<button/);
   assert.doesNotMatch(markup, /role="button"/);
@@ -497,6 +625,28 @@ test("renders terminal target node without button semantics", () => {
   assert.match(markup, /Terminal Targets/);
   assert.match(markup, /Inactive/);
   assert.match(markup, /41 successful requests in 24h/);
+});
+
+test("renders routing node kind markers with metadata-driven shapes", () => {
+  const graph = getRoutingDiagramGraph(createTopologyGraph());
+  const mobileData = getRoutingDiagramMobileData(graph);
+  const legendMarkup = renderRoutingDiagramLegend();
+  const mobileMarkup = renderRoutingDiagramMobileList({
+    mobileData,
+    onActivateNode: () => {},
+  });
+
+  assert.match(legendMarkup, /class="[^"]*rounded-\[0\.2rem\][^"]*" data-node-shape="panel"/);
+  assert.match(legendMarkup, /class="[^"]*rounded-full[^"]*" data-node-shape="capsule"/);
+  assert.match(legendMarkup, /class="[^"]*\[clip-path:polygon\(0_0,70%_0,100%_30%,100%_100%,0_100%\)\][^"]*" data-node-shape="cut-corner"/);
+  assert.match(legendMarkup, /data-node-shape="cut-corner" style="[^"]*clip-path:polygon\(0 0, 70% 0, 100% 30%, 100% 100%, 0 100%\)/);
+  assert.doesNotMatch(legendMarkup, /clip-path:polygon\(0 0, calc\(100% - 0\.875rem\)/);
+
+  assert.match(mobileMarkup, /data-testid="routing-diagram-mobile"/);
+  assert.match(mobileMarkup, /class="[^"]*rounded-xl[^"]*" data-node-shape="panel" style="[^"]*--routing-node-color:var\(--chart-1\)[^"]*--routing-node-background:color-mix\(in oklab, var\(--chart-1\) 14%, var\(--background\)\)/);
+  assert.match(mobileMarkup, /class="[^"]*rounded-\[1\.5rem\][^"]*" data-node-shape="capsule" style="[^"]*--routing-node-color:var\(--chart-2\)[^"]*--routing-node-background:color-mix\(in oklab, var\(--chart-2\) 16%, var\(--background\)\)/);
+  assert.match(mobileMarkup, /class="[^"]*rounded-md[^"]*" data-node-shape="cut-corner" style="[^"]*--routing-node-color:var\(--chart-4\)[^"]*clip-path:polygon\(0 0, calc\(100% - 0\.875rem\) 0, 100% 0\.875rem, 100% 100%, 0 100%\)/);
+  assert.match(mobileMarkup, /class="[^"]*\[clip-path:polygon\(0_0,70%_0,100%_30%,100%_100%,0_100%\)\][^"]*" data-node-shape="cut-corner" style="[^"]*clip-path:polygon\(0 0, 70% 0, 100% 30%, 100% 100%, 0 100%\)/);
 });
 
 test("maps edge health to bezier style values", () => {

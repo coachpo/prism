@@ -1,11 +1,11 @@
-import type { CSSProperties } from "react";
-
 import type { RoutingDiagramFlowNode as RoutingDiagramFlowLayoutNode, RoutingDiagramNode } from "../routingDiagram";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
 import {
+  getRoutingDiagramNodeCardStyle,
+  getRoutingDiagramNodeVisualMetadata,
   isRoutingDiagramInteractiveNode,
   isRoutingDiagramMutedNode,
   truncateLabel,
@@ -23,6 +23,7 @@ export function RoutingDiagramFlowNode({
   const { formatNumber, messages } = useLocale();
   const interactive = isRoutingDiagramInteractiveNode(data);
   const muted = isRoutingDiagramMutedNode(data);
+  const nodeVisual = getRoutingDiagramNodeVisualMetadata(data.kind);
   const testId = getNodeTestId(data);
   const secondaryText = getSecondaryText(data, messages);
   const actionLabel = getNodeActionLabel(data, messages);
@@ -38,15 +39,17 @@ export function RoutingDiagramFlowNode({
     <article
       data-interactive={interactive ? "true" : "false"}
       data-muted={muted ? "true" : "false"}
+      data-node-shape={nodeVisual.shape}
       data-testid={testId}
       className={cn(data.kind === "terminal_target" ? "w-[208px]" : "w-[224px]")}
     >
       <div
         className={cn(
-          "grid gap-2.5 rounded-xl border border-border/70 bg-background/90 p-3 shadow-none transition-opacity",
+          "grid gap-2.5 border border-border/70 p-3 shadow-none transition-opacity",
+          nodeVisual.shapeClassName,
           muted && "border-dashed opacity-70",
         )}
-        style={getNodeCardStyle(data.kind, muted)}
+        style={getRoutingDiagramNodeCardStyle(nodeVisual, muted)}
       >
         <div className="flex items-start">
           <div className="min-w-0 flex-1 space-y-1">
@@ -165,29 +168,4 @@ function getStateBadge(
   }
 
   return null;
-}
-
-function getNodeCardStyle(
-  kind: RoutingDiagramNode["kind"],
-  muted: boolean,
-): CSSProperties & Record<"--routing-node-color", string> {
-  const nodeColor = getNodeKindColor(kind);
-
-  return {
-    "--routing-node-color": nodeColor,
-    background: "linear-gradient(135deg, color-mix(in oklab, var(--routing-node-color) 14%, transparent), transparent 44%), var(--background)",
-    borderColor: muted ? "var(--border)" : "color-mix(in oklab, var(--routing-node-color) 45%, var(--border))",
-  };
-}
-
-function getNodeKindColor(kind: RoutingDiagramNode["kind"]) {
-  if (kind === "endpoint") {
-    return "var(--chart-2)";
-  }
-
-  if (kind === "terminal_target") {
-    return "var(--chart-4)";
-  }
-
-  return "var(--chart-1)";
 }

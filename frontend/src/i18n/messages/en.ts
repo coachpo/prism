@@ -103,7 +103,11 @@ export interface Messages {
     routingLegendNoRecentRequests: string;
     routingLink: string;
     routingLinkAria: (endpoint: string, model: string) => string;
+    routingFilteredEmptyTitle: string;
+    routingFilteredEmptyDescription: string;
     routingModel: string;
+    routingModelFilterDescription: string;
+    routingModelFilterLabel: string;
     routingModelNodeType: string;
     routingNoActiveRoutes: string;
     routingNoActiveRoutesDescription: string;
@@ -2326,7 +2330,11 @@ export const enMessages: Messages = {
     routingLegendNoRecentRequests: "No recent requests",
     routingLink: "Routing link",
     routingLinkAria: (endpoint, model) => `Route from ${endpoint} to ${model}`,
+    routingFilteredEmptyTitle: "No models selected",
+    routingFilteredEmptyDescription: "Select at least one model to show its routing topology.",
     routingModel: "Model",
+    routingModelFilterDescription: "Choose which models appear in this diagram.",
+    routingModelFilterLabel: "Model filter",
     routingModelNodeType: "Model",
     routingNoActiveRoutes: "No active routes",
     routingNoActiveRoutesDescription:
