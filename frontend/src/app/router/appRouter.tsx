@@ -160,9 +160,6 @@ function ProtectedModelDetailRoute() {
           searchParams={searchParams}
           onBack={() => void navigate({ to: "/models" })}
           onNavigateTo={(to) => void navigate({ to })}
-          onNavigateToRequestLogs={(requestedModelId) => {
-            window.location.assign(`/observe/requests?model_id=${encodeURIComponent(requestedModelId)}`)
-          }}
           onSearchParamsChange={(nextSearchParams, options) => void navigate({
             to: "/models/$modelId",
             params: { modelId },

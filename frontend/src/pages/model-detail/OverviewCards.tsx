@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
@@ -7,7 +6,7 @@ import { formatApiFamily } from "@/lib/utils";
 import { formatMoneyMicros } from "@/lib/costing";
 import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { useTimezone } from "@/hooks/useTimezone";
-import { Coins, FileText } from "lucide-react";
+import { Coins } from "lucide-react";
 import type { ModelConfig, SpendingSummary } from "@/lib/types";
 import type { AccessTargetSummary } from "./useModelDetailDataSupport";
 
@@ -18,7 +17,6 @@ interface OverviewCardsProps {
   spendingCurrencySymbol: string;
   spendingCurrencyCode: string;
   accessTargetSummary?: AccessTargetSummary;
-  onViewRequestLogs?: () => void;
 }
 
 export function OverviewCards({
@@ -28,7 +26,6 @@ export function OverviewCards({
   spendingCurrencySymbol,
   spendingCurrencyCode,
   accessTargetSummary,
-  onViewRequestLogs,
 }: OverviewCardsProps) {
   const { format: formatTime } = useTimezone();
   const { formatNumber, locale, messages } = useLocale();
@@ -175,17 +172,6 @@ export function OverviewCards({
           </CardContent>
         </Card>
       </div>
-
-      {onViewRequestLogs && (
-        <Card>
-          <CardContent className="p-4">
-            <Button variant="outline" size="sm" className="mt-3 w-full gap-1.5 text-xs" onClick={onViewRequestLogs}>
-              <FileText className="h-3.5 w-3.5" />
-              {copy.viewRequestLogs}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
     </>
   );
 }

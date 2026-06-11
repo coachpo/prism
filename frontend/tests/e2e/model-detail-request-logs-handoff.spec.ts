@@ -290,26 +290,15 @@ async function mockModelDetailRequestLogRoutes(page: Page) {
   return { requestSearches };
 }
 
-test("model detail overview CTA preserves the existing model_id request-log browse contract", async ({ page }) => {
-  const { requestSearches } = await mockModelDetailRequestLogRoutes(page);
+test("model detail overview omits the standalone request-log CTA card", async ({ page }) => {
+  await mockModelDetailRequestLogRoutes(page);
 
   await page.goto(`/models/${modelConfigId}`);
   await expect(page.getByRole("heading", { name: "Model A" })).toBeVisible();
   await expect(page.getByText("120 tokens")).toBeVisible();
   await expect(page.getByText("Input 60 · Output 40 · Cached 15 · Reasoning 5")).toBeVisible();
-  await expect(page.getByRole("button", { name: "View Request Logs" })).toBeVisible();
-
-  await page.getByRole("button", { name: "View Request Logs" }).click();
-
-  await expect(page).toHaveURL(/\/observe\/requests\?.*model_id=model-a/);
-  await expect(page.getByTestId("request-logs-table")).toBeVisible();
-  await expect(page.getByRole("button").filter({ hasText: "Model A Request" })).toBeVisible();
-
-  await expect.poll(() => requestSearches[requestSearches.length - 1] ?? "").toContain("model_id=model-a");
-  const lastRequestSearch = requestSearches[requestSearches.length - 1] ?? "";
-  expect(lastRequestSearch).toContain("model_id=model-a");
-  expect(lastRequestSearch).not.toContain("request_id=");
-  expect(lastRequestSearch).not.toContain("model_config_id=");
+  await expect(page.getByTestId("model-detail-feature-page").locator("> [data-slot='card']")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "View Request Logs" })).toHaveCount(0);
 });
 
 test("model detail Ban Policy state and event detail use until-reset snapshot wording", async ({ page }) => {

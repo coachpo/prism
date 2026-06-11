@@ -17,7 +17,6 @@ interface ModelDetailFeaturePageProps {
   searchParams?: URLSearchParams
   onBack?: () => void
   onNavigateTo?: (to: string) => void
-  onNavigateToRequestLogs?: (modelId: string) => void
   onSearchParamsChange?: (searchParams: URLSearchParams, options?: { replace?: boolean }) => void
   onTabChange?: (tab: ModelDetailTab) => void
 }
@@ -47,7 +46,6 @@ export function ModelDetailFeaturePage({
   searchParams,
   onBack,
   onNavigateTo,
-  onNavigateToRequestLogs,
   onSearchParamsChange,
 }: ModelDetailFeaturePageProps) {
   const resolvedSearchParams = useMemo(
@@ -115,13 +113,6 @@ export function ModelDetailFeaturePage({
         spendingCurrencySymbol={data.spendingCurrencySymbol}
         spendingCurrencyCode={data.spendingCurrencyCode}
         accessTargetSummary={data.accessTargetSummary}
-        onViewRequestLogs={() => {
-          if (onNavigateToRequestLogs) {
-            onNavigateToRequestLogs(model.model_id)
-            return
-          }
-          navigateTo(`/observe/requests?model=${encodeURIComponent(model.model_id)}`)
-        }}
       />
 
       <AccessTargetsEditor
