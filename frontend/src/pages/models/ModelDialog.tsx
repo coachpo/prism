@@ -62,8 +62,6 @@ function CapabilityField({ children, description, error, id, label }: Capability
 }
 
 const NO_PROMOTION_TARGET_VALUE = "__none__";
-const OVERFLOW_PROMOTION_TARGET_LABEL = "Overflow promotion target";
-const OVERFLOW_PROMOTION_TARGET_DESCRIPTION = "Optional selected-profile model ID for one replay when a non-stream response proves context overflow. Prism validates eligibility on save.";
 const OVERFLOW_PROMOTION_TARGET_PLACEHOLDER = "Select model";
 const OVERFLOW_PROMOTION_TARGET_NONE_LABEL = "None";
 const OVERFLOW_PROMOTION_TARGET_PREFIX = "context_overflow_promotion_target_id";
@@ -297,8 +295,8 @@ export function ModelDialog({
                 <div className="sm:col-span-2 xl:col-span-4">
                   <CapabilityField
                     id="model-overflow-promotion-target"
-                    label={OVERFLOW_PROMOTION_TARGET_LABEL}
-                    description={OVERFLOW_PROMOTION_TARGET_DESCRIPTION}
+                    label={copy.overflowPromotionTarget}
+                    description={copy.overflowPromotionTargetDescription}
                     error={promotionTargetError}
                   >
                     <Select

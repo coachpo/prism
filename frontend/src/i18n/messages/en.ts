@@ -1637,6 +1637,8 @@ export interface Messages {
     noSameFamilyModelsAvailable: string;
     noTerminalTargetsSelected: string;
     optionalFriendlyName: string;
+    overflowPromotionTarget: string;
+    overflowPromotionTargetDescription: string;
     priority: (value: string) => string;
     routingTypeDescription: string;
     save: string;
@@ -3958,6 +3960,8 @@ export const enMessages: Messages = {
     noSameFamilyModelsAvailable: "No other same-family models are available. Save disabled now, or add a model fallback target later before enabling.",
     noTerminalTargetsSelected: "No terminal targets are attached yet. Create or manage them from Model Detail.",
     optionalFriendlyName: "Optional friendly name",
+    overflowPromotionTarget: "Overflow promotion target",
+    overflowPromotionTargetDescription: "Optional selected-profile model ID for one replay when a non-stream response proves context overflow. Prism validates eligibility on save.",
     priority: (value) => `Priority ${value}`,
     routingTypeDescription:
       "Choose the Ban Policy and terminal-target selection family this entry model uses after access-target routing.",

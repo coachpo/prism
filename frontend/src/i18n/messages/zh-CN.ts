@@ -1668,6 +1668,8 @@ export const zhCNMessages: Messages = {
     noSameFamilyModelsAvailable: "没有其他可用的同家族模型。现在可以先以禁用状态保存，稍后在启用前再添加模型回退目标。",
     noTerminalTargetsSelected: "还没有附加终端目标。请在模型详情中创建或管理这些终端目标。",
     optionalFriendlyName: "可选的友好名称",
+    overflowPromotionTarget: "溢出提升目标",
+    overflowPromotionTargetDescription: "可选的所选配置档案模型 ID；当非流式响应证明上下文溢出时用于一次重放。Prism 会在保存时验证资格。",
     priority: (value) => `优先级 ${value}`,
     routingTypeDescription: "选择此入口模型在访问目标之后使用的 Ban Policy 与终端目标选择族。",
     save: "保存",
