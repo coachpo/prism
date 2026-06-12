@@ -44,7 +44,7 @@ func TestRequestGenerationParamsByOperation(t *testing.T) {
 	}
 }
 
-func TestOpenAIChatTokenizerDependencyLoadsOfflineModelsAndEncodings(t *testing.T) {
+func TestOpenAIChatTokenizerGPT5DependencyLoadsOfflineModelsAndEncodings(t *testing.T) {
 	roundTripper := &tokenizerNetworkBlocker{}
 	oldTransport := http.DefaultTransport
 	http.DefaultTransport = roundTripper
@@ -59,7 +59,7 @@ func TestOpenAIChatTokenizerDependencyLoadsOfflineModelsAndEncodings(t *testing.
 			t.Fatalf("expected %s to count offline, count=%d err=%v", encoding, count, err)
 		}
 	}
-	modelEncodings := map[string]string{"gpt-5": "o200k_base", "gpt-5-2025-08-07": "o200k_base", "gpt-4.1": "o200k_base", "gpt-4.1-2025-04-14": "o200k_base", "gpt-4o": "o200k_base", "gpt-4o-2024-08-06": "o200k_base", "gpt-4": "cl100k_base"}
+	modelEncodings := map[string]string{"gpt-5": "o200k_base", "gpt-5.5": "o200k_base", "gpt-5.4": "o200k_base", "gpt-5.4-mini": "o200k_base", "gpt-5.4-nano": "o200k_base", "gpt-5.3-codex": "o200k_base", "gpt-5.3-codex-spark": "o200k_base", "gpt-5-2025-08-07": "o200k_base", "gpt-4.1": "o200k_base", "gpt-4.1-2025-04-14": "o200k_base", "gpt-4o": "o200k_base", "gpt-4o-2024-08-06": "o200k_base", "gpt-4": "cl100k_base"}
 	for modelID, wantEncoding := range modelEncodings {
 		codec, err := openAIChatTokenizerForModel(modelID)
 		if err != nil {
@@ -102,9 +102,21 @@ func TestOpenAIChatTokenizerCountsMessagesToolsAndResponseFormat(t *testing.T) {
 }
 
 func TestOpenAIChatTokenizerUnknownModelUnavailableForStreamingPromotion(t *testing.T) {
-	_, err := estimateOpenAIChatCompletionsRequestTokens([]byte(`{"model":"gpt-unknown-future","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":32}`), requestContextEstimationOptions{ModelID: "gpt-unknown-future"})
-	if !isContextEstimationUnavailableError(err) {
-		t.Fatalf("expected unknown model estimation unavailable, got %v", err)
+	tests := []struct {
+		name    string
+		modelID string
+	}{
+		{name: "unknown future model", modelID: "gpt-unknown-future"},
+		{name: "broad gpt-5 prefix guard", modelID: "gpt-50"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(`{"model":"` + test.modelID + `","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":32}`)
+			_, err := estimateOpenAIChatCompletionsRequestTokens(body, requestContextEstimationOptions{ModelID: test.modelID})
+			if !isContextEstimationUnavailableError(err) {
+				t.Fatalf("expected unknown model estimation unavailable, got %v", err)
+			}
+		})
 	}
 }
 
@@ -115,6 +127,7 @@ func TestOpenAIChatTokenizerUnsupportedShapesUnavailable(t *testing.T) {
 	}{
 		{name: "image content part", body: `{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}]}]}`},
 		{name: "unsafe tool type", body: `{"model":"gpt-4o","messages":[{"role":"user","content":"search"}],"tools":[{"type":"web_search_preview"}]}`},
+		{name: "mcp tool type", body: `{"model":"gpt-4o","messages":[{"role":"user","content":"search"}],"tools":[{"type":"mcp","function":{"name":"search"}}]}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -1,6 +1,7 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -625,6 +626,31 @@ func TestChatStreamingPreDispatchPromotionRequestLogAndTraceMetadata(t *testing.
 	assertRuntimePromotionTracePositiveInt(t, attrs, "prism.context_overflow_promotion.estimated_total_context_tokens")
 }
 
+func TestChatStreamingPreDispatchPromotionGPT5DottedSkipsSourceUpstream(t *testing.T) {
+	runChatStreamingPreDispatchDottedGPTPromotion(t)
+}
+
+func TestChatStreamingPreDispatchPromotionGPT5DottedRequestLogAndTraceMetadata(t *testing.T) {
+	recorder := installRuntimePromotionTraceRecorder(t)
+	result := runChatStreamingPreDispatchDottedGPTPromotion(t)
+	attrs := waitForRuntimePromotionTraceAttributes(t, recorder, "pre_dispatch_estimate")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.trigger_phase", "pre_dispatch_estimate")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_mode", "preflight_estimated")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_method", "openai_chat_tokenizer_v1")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.result", "promoted_success")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.from_model_id", "gpt-5.5")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.to_model_id", "gpt-5.4")
+	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.source_attempt_count", 0)
+	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.final_attempt_count", 1)
+	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.from_selected_terminal_target_id", result.sourceConnectionID)
+	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.to_selected_terminal_target_id", result.promotedConnectionID)
+	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.from_usable_context_window_tokens", result.sourceContextWindow)
+	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.to_usable_context_window_tokens", result.promotedContextWindow)
+	assertRuntimePromotionTracePositiveInt(t, attrs, "prism.context_overflow_promotion.estimated_input_tokens")
+	assertRuntimePromotionTracePositiveInt(t, attrs, "prism.context_overflow_promotion.reserved_output_tokens")
+	assertRuntimePromotionTracePositiveInt(t, attrs, "prism.context_overflow_promotion.estimated_total_context_tokens")
+}
+
 func TestProviderOverflowPromotionRequestLogAndUsageMetadata(t *testing.T) {
 	t.Run("non_stream_chat", func(t *testing.T) {
 		recorder := installRuntimePromotionTraceRecorder(t)
@@ -764,49 +790,189 @@ func runChatStreamingPreDispatchPromotionSkipsSourceUpstream(t *testing.T, slug 
 	assertLatestChatPreDispatchPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID, 256, 4096)
 }
 
-func TestChatStreamingPreDispatchPromotionUnavailableEstimateUsesSource(t *testing.T) {
+type chatStreamingDottedGPTPromotionResult struct {
+	sourceConnectionID    int
+	promotedConnectionID  int
+	sourceContextWindow   int
+	promotedContextWindow int
+}
+
+func runChatStreamingPreDispatchDottedGPTPromotion(t *testing.T) chatStreamingDottedGPTPromotionResult {
+	t.Helper()
+	const (
+		requestedModelID       = "gpt-5.5"
+		promotedModelID        = "gpt-5.4"
+		sourceContextWindow    = 1_024
+		promotedContextWindow  = 16_384
+		maxCompletionTokens    = 600
+		promotedStreamFragment = "promoted dotted gpt chat predispatch"
+	)
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	sourceStream := "data: {\"id\":\"chatcmpl-source-" + suffix + "\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"source chat stream\"}}]}\n\n" +
+	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "gpt-5.5 source upstream should not receive pre-dispatch promoted stream"})
+	_, sourceConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, requestedModelID, sourceUpstream.baseURL("/overflow/chat-predispatch/gpt55/source"), "overflow-chat-predispatch-gpt55-source-key", nil, sourceContextWindow)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, sourceConnectionID, sourceContextWindow, 64, 1.0)
+	promotedStream := "data: {\"id\":\"chatcmpl-gpt54-promoted-" + suffix + "\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"" + promotedStreamFragment + "\"}}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":4,\"total_tokens\":13}}\n\n" +
 		"data: [DONE]\n\n"
-	sourceUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", sourceStream)
-	route := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "gpt-5-chat-predispatch-unavailable-" + suffix,
-		TargetModelID:   "overflow-chat-predispatch-unavailable-source-" + suffix,
-		EndpointBaseURL: sourceUpstream.baseURL("/overflow/chat-predispatch/unavailable/source"),
-		EndpointAPIKey:  "overflow-chat-predispatch-unavailable-source-key",
-	})
-	promotedModelID := "overflow-chat-predispatch-unavailable-promoted-" + suffix
-	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-unavailable-should-not-run"})
-	seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/chat-predispatch/unavailable/promoted"), "overflow-chat-predispatch-unavailable-promoted-key", nil, 4_096)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
-	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+	promotedUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", promotedStream)
+	_, promotedConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/chat-predispatch/gpt54/promoted"), "overflow-chat-predispatch-gpt54-promoted-key", nil, promotedContextWindow)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, requestedModelID, promotedModelID)
 
+	messages := dottedGPTOverflowChatMessages()
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"max_completion_tokens": 600,
-		"messages": []map[string]any{{
-			"role": "user",
-			"content": []map[string]any{{
-				"type":      "image_url",
-				"image_url": map[string]any{"url": "https://example.invalid/image.png"},
-			}},
-		}},
-		"model":  route.PublicModelID,
-		"stream": true,
+		"max_completion_tokens": maxCompletionTokens,
+		"messages":              messages,
+		"model":                 requestedModelID,
+		"stream":                true,
 	}, nil)
 	assertStatus(t, response, http.StatusOK)
 	body := readResponseBody(t, response)
-	if !strings.HasPrefix(body, "data: {\"id\":\"chatcmpl-source-") || !strings.Contains(body, "source chat stream") {
-		t.Fatalf("expected unavailable estimate path to stream source SSE, got %q", body)
+	if !strings.HasPrefix(body, "data: {\"id\":\"chatcmpl-gpt54-promoted-") || !strings.Contains(body, promotedStreamFragment) {
+		t.Fatalf("expected client-visible bytes to begin with promoted Chat SSE, got %q", body)
 	}
-	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/overflow/chat-predispatch/unavailable/source/v1/chat/completions",
-		ModelID: route.TargetModelID,
+	assertNoScriptedUpstreamRequests(t, sourceUpstream, "gpt-5.5 chat streaming pre-dispatch source")
+	promotedRequests := promotedUpstream.requestsSnapshot()
+	assertProxySelectorRequestSequence(t, promotedRequests, []proxySelectorExpectedRequest{{
+		Path:    "/overflow/chat-predispatch/gpt54/promoted/v1/chat/completions",
+		ModelID: promotedModelID,
 	}})
-	assertNoScriptedUpstreamRequests(t, promotedUpstream, "unavailable estimate promotion target")
+	assertDottedGPTChatStreamingPromotedRequestBody(t, promotedRequests[0], promotedModelID, len(messages), maxCompletionTokens)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, requestedModelID, promotedModelID)
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  promotedConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
+	assertLatestChatPreDispatchPromotionMetadata(t, harness, profileID, requestedModelID, promotedModelID, sourceConnectionID, promotedConnectionID, sourceContextWindow, promotedContextWindow)
+	return chatStreamingDottedGPTPromotionResult{
+		sourceConnectionID:    sourceConnectionID,
+		promotedConnectionID:  promotedConnectionID,
+		sourceContextWindow:   sourceContextWindow,
+		promotedContextWindow: promotedContextWindow,
+	}
+}
+
+func dottedGPTOverflowChatMessages() []map[string]any {
+	messages := make([]map[string]any, 0, 12)
+	for len(messages) < cap(messages) {
+		messages = append(messages,
+			map[string]any{"role": "user", "content": "live dotted gpt overflow user turn " + strings.Repeat("alpha beta gamma delta epsilon zeta ", 40)},
+			map[string]any{"role": "assistant", "content": "live dotted gpt overflow assistant turn " + strings.Repeat("eta theta iota kappa lambda mu ", 40)},
+		)
+	}
+	return messages
+}
+
+func assertDottedGPTChatStreamingPromotedRequestBody(t *testing.T, request upstreamRequestSnapshot, wantModelID string, wantMessageCount int, wantMaxCompletionTokens int) {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(request.Body, &payload); err != nil {
+		t.Fatalf("decode dotted gpt chat streaming promoted request body %q: %v", string(request.Body), err)
+	}
+	if got, _ := payload["model"].(string); got != wantModelID {
+		t.Fatalf("expected promoted dotted gpt chat model %q, got %+v", wantModelID, payload)
+	}
+	if got, ok := payload["stream"].(bool); !ok || !got {
+		t.Fatalf("expected promoted dotted gpt chat stream=true, got %+v", payload)
+	}
+	if got, ok := payload["max_completion_tokens"].(float64); !ok || int(got) != wantMaxCompletionTokens {
+		t.Fatalf("expected promoted dotted gpt chat max_completion_tokens=%d, got %+v", wantMaxCompletionTokens, payload)
+	}
+	messages, ok := payload["messages"].([]any)
+	if !ok || len(messages) != wantMessageCount {
+		t.Fatalf("expected promoted dotted gpt chat messages to be preserved, got %+v", payload)
+	}
+	firstMessage, ok := messages[0].(map[string]any)
+	content, contentOK := firstMessage["content"].(string)
+	if !ok || !contentOK || !strings.Contains(content, "live dotted gpt overflow user turn") {
+		t.Fatalf("expected promoted dotted gpt chat first message content to be preserved, got %+v", payload)
+	}
+}
+
+func TestChatStreamingPreDispatchPromotionUnavailableEstimateUsesSource(t *testing.T) {
+	tests := []struct {
+		name string
+		body map[string]any
+	}{
+		{
+			name: "image content",
+			body: map[string]any{
+				"max_completion_tokens": 600,
+				"messages": []map[string]any{{
+					"role": "user",
+					"content": []map[string]any{{
+						"type":      "image_url",
+						"image_url": map[string]any{"url": "https://example.invalid/image.png"},
+					}},
+				}},
+			},
+		},
+		{
+			name: "unsafe tool type",
+			body: map[string]any{
+				"max_completion_tokens": 600,
+				"messages": []map[string]any{{
+					"role":    "user",
+					"content": "search",
+				}},
+				"tools": []map[string]any{{
+					"type": "web_search_preview",
+				}},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			harness := newRuntimeHarness(t)
+			profileID := harness.activeProfileID(t)
+			suffix := randomSuffix()
+			sourceStream := "data: {\"id\":\"chatcmpl-source-" + suffix + "\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"source chat stream\"}}]}\n\n" +
+				"data: [DONE]\n\n"
+			sourceUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", sourceStream)
+			route := harness.seedProxyRoute(t, runtimeRouteSeed{
+				ProfileID:       profileID,
+				APIFamily:       "openai",
+				PublicModelID:   "gpt-5-chat-predispatch-unavailable-" + suffix,
+				TargetModelID:   "overflow-chat-predispatch-unavailable-source-" + suffix,
+				EndpointBaseURL: sourceUpstream.baseURL("/overflow/chat-predispatch/unavailable/source"),
+				EndpointAPIKey:  "overflow-chat-predispatch-unavailable-source-key",
+			})
+			promotedModelID := "overflow-chat-predispatch-unavailable-promoted-" + suffix
+			promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-unavailable-should-not-run"})
+			seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/chat-predispatch/unavailable/promoted"), "overflow-chat-predispatch-unavailable-promoted-key", nil, 4_096)
+			setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+			setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+			requestBody := map[string]any{
+				"model":  route.PublicModelID,
+				"stream": true,
+			}
+			for key, value := range test.body {
+				requestBody[key] = value
+			}
+
+			response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", requestBody, nil)
+			assertStatus(t, response, http.StatusOK)
+			body := readResponseBody(t, response)
+			if !strings.HasPrefix(body, "data: {\"id\":\"chatcmpl-source-") || !strings.Contains(body, "source chat stream") {
+				t.Fatalf("expected unavailable estimate path to stream source SSE, got %q", body)
+			}
+			assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+				Path:    "/overflow/chat-predispatch/unavailable/source/v1/chat/completions",
+				ModelID: route.TargetModelID,
+			}})
+			assertNoScriptedUpstreamRequests(t, promotedUpstream, "unavailable estimate promotion target")
+		})
+	}
 }
 
 func TestResponsesStreamingPreCommitOverflowPromotesToSSETarget(t *testing.T) {
@@ -996,6 +1162,332 @@ func TestResponsesStreamingPreviousResponsePromotedFailureBecomesFinal(t *testin
 	}})
 }
 
+func TestResponsesStreamingSSECreatedThenOverflowErrorReplaysBeforeVisibleBytes(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-source-" + suffix + "\"}}\n\n" +
+		"event: response.in_progress\n" +
+		"data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp-source-" + suffix + "\"}}\n\n" +
+		"event: error\n" +
+		"data: {\"type\":\"error\",\"code\":\"context_too_large\",\"message\":\"source responses SSE overflow should promote\"}\n\n"
+	sourceUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", sourceStream)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-sse-error-public-" + suffix,
+		TargetModelID:              "overflow-responses-sse-error-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-sse-error/source"),
+		EndpointAPIKey:             "overflow-responses-sse-error-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &responsesOnlyCapability,
+	})
+	promotedModelID := "overflow-responses-sse-error-promoted-" + suffix
+	promotedStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-promoted-" + suffix + "\"}}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"promoted after staged overflow\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-promoted-" + suffix + "\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3,\"total_tokens\":8}}}\n\n"
+	promotedUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", promotedStream)
+	_, promotedConnectionID := seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-sse-error/promoted"), "overflow-responses-sse-error-promoted-key", &sourceVariant, &responsesOnlyCapability, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             "responses SSE overflow should promote before visible bytes",
+		"model":             route.PublicModelID,
+		"max_output_tokens": 64,
+		"stream":            true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if !strings.HasPrefix(body, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-promoted-") {
+		t.Fatalf("expected client-visible bytes to begin with promoted SSE, got %q", body)
+	}
+	if strings.Contains(body, "resp-source-") || strings.Contains(body, "source responses SSE overflow") || !strings.Contains(body, "promoted after staged overflow") {
+		t.Fatalf("expected promoted SSE body without staged source prelude/error, got %q", body)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-sse-error/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-sse-error/promoted/v1/responses",
+		ModelID: promotedModelID,
+	}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 2, 2)
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  route.ConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, route.ConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}, {
+		AttemptNumber: 2,
+		ConnectionID:  promotedConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
+	assertLatestProviderOverflowPromotionMetadataWithCode(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID, http.StatusOK, "context_too_large")
+}
+
+func TestResponsesStreamingSSECreatedThenNonOverflowErrorPassesThrough(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-non-overflow-" + suffix + "\"}}\n\n" +
+		"event: error\n" +
+		"data: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"temporary upstream throttling\"}\n\n"
+	sourceUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", sourceStream)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-non-overflow-public-" + suffix,
+		TargetModelID:              "overflow-responses-non-overflow-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-non-overflow/source"),
+		EndpointAPIKey:             "overflow-responses-non-overflow-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &responsesOnlyCapability,
+	})
+	promotedModelID := "overflow-responses-non-overflow-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "resp-non-overflow-should-not-run"})
+	seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-non-overflow/promoted"), "overflow-responses-non-overflow-promoted-key", &sourceVariant, &responsesOnlyCapability, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             "responses non-overflow SSE error must pass through",
+		"model":             route.PublicModelID,
+		"max_output_tokens": 64,
+		"stream":            true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if body != strings.TrimSpace(sourceStream) {
+		t.Fatalf("expected non-overflow source SSE stream unchanged, got %q", body)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-non-overflow/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, promotedUpstream, "non-overflow responses stream promotion target")
+}
+
+func TestResponsesStreamingSSEPreludeTimeoutFlushesSourceAndDisablesReplay(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceUpstream := newDelayedResponsesSSEOverflowUpstream(t, suffix)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-sse-timeout-public-" + suffix,
+		TargetModelID:              "overflow-responses-sse-timeout-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-sse-timeout/source"),
+		EndpointAPIKey:             "overflow-responses-sse-timeout-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &responsesOnlyCapability,
+	})
+	promotedModelID := "overflow-responses-sse-timeout-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "resp-timeout-should-not-run"})
+	seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-sse-timeout/promoted"), "overflow-responses-sse-timeout-promoted-key", &sourceVariant, &responsesOnlyCapability, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	responseResult := make(chan delayedResponsesSSEClientResult, 1)
+	startedAt := time.Now()
+	go func() {
+		response, err := startDelayedResponsesSSERequest(harness, route.PublicModelID)
+		responseResult <- delayedResponsesSSEClientResult{response: response, err: err, elapsed: time.Since(startedAt)}
+	}()
+	sourceUpstream.waitUntilFirstChunk(t, 2*time.Second)
+
+	var result delayedResponsesSSEClientResult
+	select {
+	case result = <-responseResult:
+		if result.err != nil {
+			t.Fatalf("start delayed Responses SSE request: %v", result.err)
+		}
+	case <-time.After(1500 * time.Millisecond):
+		t.Fatal("timed out waiting for staged response.created to flush before delayed overflow event")
+	}
+	defer func() { _ = result.response.Body.Close() }()
+	assertStatus(t, result.response, http.StatusOK)
+	if result.elapsed < 200*time.Millisecond {
+		t.Fatalf("expected staged prelude to wait for the bounded window before flushing, returned after %s", result.elapsed)
+	}
+	firstEvent := readResponseSSEEvent(t, result.response.Body, time.Second)
+	if firstEvent != sourceUpstream.createdEvent {
+		t.Fatalf("expected first flushed event to be unchanged source prelude, got %q", firstEvent)
+	}
+	sourceUpstream.releaseTerminal()
+	remainder, err := io.ReadAll(result.response.Body)
+	if err != nil {
+		t.Fatalf("read delayed Responses SSE remainder: %v", err)
+	}
+	body := firstEvent + string(remainder)
+	if strings.TrimSpace(body) != strings.TrimSpace(sourceUpstream.sourceStream()) {
+		t.Fatalf("expected timeout-released source SSE stream unchanged, got %q", body)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-sse-timeout/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, promotedUpstream, "timeout-released responses stream promotion target")
+}
+
+func TestResponsesStreamingSSEOutputDeltaThenOverflowDoesNotReplay(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-visible-" + suffix + "\"}}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"source visible bytes\"}\n\n" +
+		"event: error\n" +
+		"data: {\"type\":\"error\",\"code\":\"context_too_large\",\"message\":\"too late to promote\"}\n\n"
+	sourceUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", sourceStream)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-visible-public-" + suffix,
+		TargetModelID:              "overflow-responses-visible-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-visible/source"),
+		EndpointAPIKey:             "overflow-responses-visible-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &responsesOnlyCapability,
+	})
+	promotedModelID := "overflow-responses-visible-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "resp-visible-should-not-run"})
+	seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-visible/promoted"), "overflow-responses-visible-promoted-key", &sourceVariant, &responsesOnlyCapability, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             "responses visible SSE output closes replay window",
+		"model":             route.PublicModelID,
+		"max_output_tokens": 64,
+		"stream":            true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if body != strings.TrimSpace(sourceStream) {
+		t.Fatalf("expected source SSE stream unchanged after visible output, got %q", body)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-visible/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, promotedUpstream, "visible responses stream promotion target")
+}
+
+func TestResponsesStreamingSSEStagingCapFlushesSourceAndDisablesReplay(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	capPadding := strings.Repeat("x", 17*1024)
+	sourceStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-cap-" + suffix + "\",\"metadata\":{\"pad\":\"" + capPadding + "\"}}}\n\n" +
+		"event: error\n" +
+		"data: {\"type\":\"error\",\"code\":\"context_too_large\",\"message\":\"cap-released overflow must stay source\"}\n\n"
+	sourceUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", sourceStream)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-sse-cap-public-" + suffix,
+		TargetModelID:              "overflow-responses-sse-cap-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-sse-cap/source"),
+		EndpointAPIKey:             "overflow-responses-sse-cap-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &responsesOnlyCapability,
+	})
+	promotedModelID := "overflow-responses-sse-cap-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "resp-cap-should-not-run"})
+	seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-sse-cap/promoted"), "overflow-responses-sse-cap-promoted-key", &sourceVariant, &responsesOnlyCapability, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             "responses SSE staging cap closes replay window",
+		"model":             route.PublicModelID,
+		"max_output_tokens": 64,
+		"stream":            true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if body != strings.TrimSpace(sourceStream) {
+		t.Fatalf("expected cap-exceeded source SSE stream unchanged, got %q", body)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-sse-cap/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, promotedUpstream, "cap-exceeded responses stream promotion target")
+}
+
+func TestResponsesStreamingUnknownPreludeEventFlushesAndDisablesReplay(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-unknown-" + suffix + "\"}}\n\n" +
+		"event: response.queued\n" +
+		"data: {\"type\":\"response.queued\",\"response\":{\"id\":\"resp-unknown-" + suffix + "\"}}\n\n" +
+		"event: error\n" +
+		"data: {\"type\":\"error\",\"code\":\"context_too_large\",\"message\":\"unknown-prelude overflow must stay source\"}\n\n"
+	sourceUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", sourceStream)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-sse-unknown-public-" + suffix,
+		TargetModelID:              "overflow-responses-sse-unknown-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-sse-unknown/source"),
+		EndpointAPIKey:             "overflow-responses-sse-unknown-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &responsesOnlyCapability,
+	})
+	promotedModelID := "overflow-responses-sse-unknown-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "resp-unknown-should-not-run"})
+	seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-sse-unknown/promoted"), "overflow-responses-sse-unknown-promoted-key", &sourceVariant, &responsesOnlyCapability, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             "unknown Responses SSE prelude event closes replay window",
+		"model":             route.PublicModelID,
+		"max_output_tokens": 64,
+		"stream":            true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if body != strings.TrimSpace(sourceStream) {
+		t.Fatalf("expected unknown-prelude source SSE stream unchanged, got %q", body)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-sse-unknown/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, promotedUpstream, "unknown-prelude responses stream promotion target")
+}
+
 func TestResponsesStreamingNormalSSEPreCommitDoesNotPromote(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -1123,6 +1615,24 @@ func overflowAffinityCacheHeaders() map[string]string {
 	return map[string]string{"x-session-affinity": overflowAffinityCacheTestHeaderValue}
 }
 
+type delayedResponsesSSEClientResult struct {
+	response *http.Response
+	err      error
+	elapsed  time.Duration
+}
+
+type delayedResponsesSSEOverflowUpstream struct {
+	server       *httptest.Server
+	mu           sync.Mutex
+	requests     []upstreamRequestSnapshot
+	firstChunk   chan struct{}
+	terminal     chan struct{}
+	firstOnce    sync.Once
+	releaseOnce  sync.Once
+	createdEvent string
+	errorEvent   string
+}
+
 type rawRuntimeUpstream struct {
 	server      *httptest.Server
 	mu          sync.Mutex
@@ -1130,6 +1640,133 @@ type rawRuntimeUpstream struct {
 	statusCode  int
 	contentType string
 	body        string
+}
+
+func newDelayedResponsesSSEOverflowUpstream(t *testing.T, suffix string) *delayedResponsesSSEOverflowUpstream {
+	t.Helper()
+	upstream := &delayedResponsesSSEOverflowUpstream{
+		firstChunk:   make(chan struct{}),
+		terminal:     make(chan struct{}),
+		createdEvent: "event: response.created\n" + "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-timeout-" + suffix + "\"}}\n\n",
+		errorEvent:   "event: error\n" + "data: {\"type\":\"error\",\"code\":\"context_too_large\",\"message\":\"delayed overflow must stay source after timeout\"}\n\n",
+	}
+	upstream.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestBody, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read delayed Responses SSE upstream request body: %v", err)
+		}
+		_ = r.Body.Close()
+		upstream.mu.Lock()
+		upstream.requests = append(upstream.requests, upstreamRequestSnapshot{Method: r.Method, URL: r.URL.String(), Path: r.URL.Path, Query: r.URL.RawQuery, Headers: r.Header.Clone(), Body: append([]byte(nil), requestBody...)})
+		upstream.mu.Unlock()
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("delayed Responses SSE upstream writer does not support flushing")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, upstream.createdEvent)
+		flusher.Flush()
+		upstream.firstOnce.Do(func() { close(upstream.firstChunk) })
+		<-upstream.terminal
+		_, _ = io.WriteString(w, upstream.errorEvent)
+		flusher.Flush()
+	}))
+	t.Cleanup(func() {
+		upstream.releaseTerminal()
+		upstream.server.Close()
+	})
+	return upstream
+}
+
+func (u *delayedResponsesSSEOverflowUpstream) baseURL(path string) string {
+	return strings.TrimRight(u.server.URL, "/") + path
+}
+
+func (u *delayedResponsesSSEOverflowUpstream) waitUntilFirstChunk(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-u.firstChunk:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for delayed Responses SSE first chunk")
+	}
+}
+
+func (u *delayedResponsesSSEOverflowUpstream) releaseTerminal() {
+	u.releaseOnce.Do(func() { close(u.terminal) })
+}
+
+func (u *delayedResponsesSSEOverflowUpstream) sourceStream() string {
+	return u.createdEvent + u.errorEvent
+}
+
+func (u *delayedResponsesSSEOverflowUpstream) requestsSnapshot() []upstreamRequestSnapshot {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	cloned := make([]upstreamRequestSnapshot, len(u.requests))
+	copy(cloned, u.requests)
+	return cloned
+}
+
+func startDelayedResponsesSSERequest(harness *runtimeHarness, modelID string) (*http.Response, error) {
+	payload := map[string]any{
+		"input":             "responses delayed SSE overflow must not replay after timeout",
+		"model":             modelID,
+		"max_output_tokens": 64,
+		"stream":            true,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequest(http.MethodPost, harness.url+"/v1/responses", bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	return harness.client.Do(request)
+}
+
+func readResponseSSEEvent(t *testing.T, reader io.Reader, timeout time.Duration) string {
+	t.Helper()
+	result := make(chan struct {
+		value string
+		err   error
+	}, 1)
+	go func() {
+		var builder strings.Builder
+		buffer := make([]byte, 1)
+		for {
+			n, err := reader.Read(buffer)
+			if n > 0 {
+				builder.WriteByte(buffer[0])
+				if strings.HasSuffix(builder.String(), "\n\n") || strings.HasSuffix(builder.String(), "\r\n\r\n") {
+					result <- struct {
+						value string
+						err   error
+					}{value: builder.String()}
+					return
+				}
+			}
+			if err != nil {
+				result <- struct {
+					value string
+					err   error
+				}{value: builder.String(), err: err}
+				return
+			}
+		}
+	}()
+	select {
+	case read := <-result:
+		if read.err != nil {
+			t.Fatalf("read SSE event: %v", read.err)
+		}
+		return read.value
+	case <-time.After(timeout):
+		t.Fatal("timed out reading SSE event")
+		return ""
+	}
 }
 
 func newRawRuntimeUpstream(t *testing.T, statusCode int, contentType string, body string) *rawRuntimeUpstream {
@@ -1236,20 +1873,25 @@ func assertChatPreDispatchPromotionMetadataRow(t *testing.T, harness *runtimeHar
 
 func assertLatestProviderOverflowPromotionMetadata(t *testing.T, harness *runtimeHarness, profileID int, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int) {
 	t.Helper()
-	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
-	assertProviderOverflowPromotionMetadataRow(t, harness, profileID, ingressRequestID, "request_logs", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID)
-	assertProviderOverflowPromotionMetadataRow(t, harness, profileID, ingressRequestID, "usage_request_events", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID)
+	assertLatestProviderOverflowPromotionMetadataWithCode(t, harness, profileID, wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, http.StatusBadRequest, "context_length_exceeded")
 }
 
-func assertProviderOverflowPromotionMetadataRow(t *testing.T, harness *runtimeHarness, profileID int, ingressRequestID string, table string, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int) {
+func assertLatestProviderOverflowPromotionMetadataWithCode(t *testing.T, harness *runtimeHarness, profileID int, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int, wantTriggerStatus int, wantTriggerCode string) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+	assertProviderOverflowPromotionMetadataRow(t, harness, profileID, ingressRequestID, "request_logs", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantTriggerStatus, wantTriggerCode)
+	assertProviderOverflowPromotionMetadataRow(t, harness, profileID, ingressRequestID, "usage_request_events", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantTriggerStatus, wantTriggerCode)
+}
+
+func assertProviderOverflowPromotionMetadataRow(t *testing.T, harness *runtimeHarness, profileID int, ingressRequestID string, table string, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int, wantTriggerStatus int, wantTriggerCode string) {
 	t.Helper()
 	contextRouting := loadLatestRuntimeContextRoutingForIngress(t, harness, profileID, ingressRequestID, table)
 	promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
 	label := "provider overflow " + table
-	if promotion["trigger_phase"] != "provider_overflow" || promotion["trigger_error_code"] != "context_length_exceeded" || promotion["trigger_classifier"] != "error_code" || promotion["result"] != "promoted_success" {
+	if promotion["trigger_phase"] != "provider_overflow" || promotion["trigger_error_code"] != wantTriggerCode || promotion["trigger_classifier"] != "error_code" || promotion["result"] != "promoted_success" {
 		t.Fatalf("expected %s trigger/result metadata, got %+v", label, promotion)
 	}
-	assertTranslatedPromotionNumber(t, label, promotion, "trigger_status", http.StatusBadRequest)
+	assertTranslatedPromotionNumber(t, label, promotion, "trigger_status", wantTriggerStatus)
 	assertTranslatedPromotionNumber(t, label, promotion, "source_attempt_count", 1)
 	assertTranslatedPromotionNumber(t, label, promotion, "final_attempt_count", 2)
 	assertTranslatedPromotionNumber(t, label, promotion, "from_selected_terminal_target_id", wantSourceConnectionID)

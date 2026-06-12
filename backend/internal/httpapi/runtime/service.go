@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -513,6 +514,29 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	if strings.Contains(contentType, "text/event-stream") {
 		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
 			if translationMode == "" || translationMode == TranslationModeNone {
+				updatedExecution, promotedPlan, promotedExecution, sourceClassification, promotedErr, promoted := s.tryResponsesStreamingSSEPreVisibleContextOverflowPromotion(r, plan, execution)
+				if promoted {
+					if promotedErr != nil {
+						var domainErr *domainError
+						if errors.As(promotedErr, &domainErr) && domainErr != nil {
+							runtimeTraceSetStatusCode(responseSpan, domainErr.StatusCode)
+							writeDomainError(w, promotedErr)
+							return
+						}
+						runtimeTraceMarkError(responseSpan, "response_handle_failed")
+						writeError(w, http.StatusBadGateway, "", "Failed to replay promoted upstream response", nil)
+						return
+					}
+					finalPlan := mergeContextOverflowPromotedPlan(plan, promotedPlan, execution, promotedExecution, sourceClassification)
+					finalExecution := mergeContextOverflowPromotedExecution(execution, promotedExecution)
+					runtimeTraceSetStatusCode(responseSpan, finalExecution.Response.StatusCode)
+					if promotedExecution.Response != nil && promotedExecution.Response.Body != nil {
+						defer func() { _ = promotedExecution.Response.Body.Close() }()
+					}
+					s.writeProxyResponse(w, r, finalPlan, finalExecution, startedAt)
+					return
+				}
+				execution = updatedExecution
 				copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 				proxyWriter.WriteHeader(execution.Response.StatusCode)
 				acceptedRowID := int64(0)
@@ -837,6 +861,296 @@ func planAllowsResponsesStreamingPreCommitProviderOverflowPromotion(plan request
 		return false
 	}
 	return plan.ContextRouting == nil || plan.ContextRouting.ContextOverflowPromotion == nil
+}
+
+const (
+	responsesStreamingSSEPreludeMaxBytes  = 16 * 1024
+	responsesStreamingSSEPreludeMaxEvents = 2
+	responsesStreamingSSEPreludeMaxWindow = 250 * time.Millisecond
+)
+
+var errResponsesStreamingSSEPreludeWindowExpired = errors.New("responses streaming SSE prelude window expired")
+
+type runtimeBodyReplayReadCloser struct {
+	reader io.Reader
+	closer io.Closer
+}
+
+func (readCloser runtimeBodyReplayReadCloser) Read(payload []byte) (int, error) {
+	return readCloser.reader.Read(payload)
+}
+
+func (readCloser runtimeBodyReplayReadCloser) Close() error {
+	if readCloser.closer == nil {
+		return nil
+	}
+	return readCloser.closer.Close()
+}
+
+type responsesStreamingSSEPreludeReadResult struct {
+	data []byte
+	err  error
+}
+
+type responsesStreamingSSEPreludeReadCloser struct {
+	source     io.ReadCloser
+	now        func() time.Time
+	chunks     chan responsesStreamingSSEPreludeReadResult
+	closed     chan struct{}
+	closeOnce  sync.Once
+	pending    []byte
+	pendingErr error
+	deadline   *time.Time
+}
+
+func newResponsesStreamingSSEPreludeReadCloser(source io.ReadCloser, now func() time.Time) *responsesStreamingSSEPreludeReadCloser {
+	readCloser := &responsesStreamingSSEPreludeReadCloser{
+		source: source,
+		now:    now,
+		chunks: make(chan responsesStreamingSSEPreludeReadResult, 1),
+		closed: make(chan struct{}),
+	}
+	go readCloser.readSource()
+	return readCloser
+}
+
+func (readCloser *responsesStreamingSSEPreludeReadCloser) readSource() {
+	defer close(readCloser.chunks)
+	buffer := make([]byte, 4*1024)
+	for {
+		n, err := readCloser.source.Read(buffer)
+		if n > 0 || err != nil {
+			result := responsesStreamingSSEPreludeReadResult{err: err}
+			if n > 0 {
+				result.data = append([]byte(nil), buffer[:n]...)
+			}
+			select {
+			case readCloser.chunks <- result:
+			case <-readCloser.closed:
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (readCloser *responsesStreamingSSEPreludeReadCloser) Read(payload []byte) (int, error) {
+	if len(readCloser.pending) > 0 {
+		written := copy(payload, readCloser.pending)
+		readCloser.pending = readCloser.pending[written:]
+		return written, nil
+	}
+	if readCloser.pendingErr != nil {
+		err := readCloser.pendingErr
+		readCloser.pendingErr = nil
+		return 0, err
+	}
+	result, err := readCloser.nextResult()
+	if err != nil {
+		return 0, err
+	}
+	if len(result.data) == 0 {
+		return 0, result.err
+	}
+	written := copy(payload, result.data)
+	if written < len(result.data) {
+		readCloser.pending = append(readCloser.pending, result.data[written:]...)
+	}
+	if result.err != nil {
+		readCloser.pendingErr = result.err
+	}
+	return written, nil
+}
+
+func (readCloser *responsesStreamingSSEPreludeReadCloser) nextResult() (responsesStreamingSSEPreludeReadResult, error) {
+	if readCloser.deadline == nil {
+		select {
+		case result, ok := <-readCloser.chunks:
+			if !ok {
+				return responsesStreamingSSEPreludeReadResult{}, io.EOF
+			}
+			return result, nil
+		case <-readCloser.closed:
+			return responsesStreamingSSEPreludeReadResult{}, io.ErrClosedPipe
+		}
+	}
+	remaining := readCloser.deadline.Sub(readCloser.now())
+	if remaining <= 0 {
+		return responsesStreamingSSEPreludeReadResult{}, errResponsesStreamingSSEPreludeWindowExpired
+	}
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+	select {
+	case result, ok := <-readCloser.chunks:
+		if !ok {
+			return responsesStreamingSSEPreludeReadResult{}, io.EOF
+		}
+		return result, nil
+	case <-timer.C:
+		return responsesStreamingSSEPreludeReadResult{}, errResponsesStreamingSSEPreludeWindowExpired
+	case <-readCloser.closed:
+		return responsesStreamingSSEPreludeReadResult{}, io.ErrClosedPipe
+	}
+}
+
+func (readCloser *responsesStreamingSSEPreludeReadCloser) setDeadline(deadline time.Time) {
+	readCloser.deadline = &deadline
+}
+
+func (readCloser *responsesStreamingSSEPreludeReadCloser) clearDeadline() {
+	readCloser.deadline = nil
+}
+
+func (readCloser *responsesStreamingSSEPreludeReadCloser) Close() error {
+	var err error
+	readCloser.closeOnce.Do(func() {
+		close(readCloser.closed)
+		err = readCloser.source.Close()
+	})
+	return err
+}
+
+func (s *Service) tryResponsesStreamingSSEPreVisibleContextOverflowPromotion(request *http.Request, sourcePlan requestPlan, execution executionResult) (executionResult, requestPlan, executionResult, cliProxyAPIOverflowClassification, error, bool) {
+	if !planAllowsResponsesStreamingPreCommitProviderOverflowPromotion(sourcePlan) || execution.Response == nil || execution.Response.Body == nil {
+		return execution, requestPlan{}, executionResult{}, cliProxyAPIOverflowClassification{}, nil, false
+	}
+	if !strings.Contains(strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type"))), "text/event-stream") {
+		return execution, requestPlan{}, executionResult{}, cliProxyAPIOverflowClassification{}, nil, false
+	}
+
+	preludeReadCloser := newResponsesStreamingSSEPreludeReadCloser(execution.Response.Body, s.nowUTC)
+	reader := bufio.NewReader(preludeReadCloser)
+	staged := bytes.Buffer{}
+	preludeEvents := 0
+	var firstEventAt *time.Time
+
+	continueWithSource := func(current []byte) (executionResult, requestPlan, executionResult, cliProxyAPIOverflowClassification, error, bool) {
+		preludeReadCloser.clearDeadline()
+		if len(current) > 0 {
+			staged.Write(current)
+		}
+		execution.Response.Body = runtimeBodyReplayReadCloser{reader: io.MultiReader(bytes.NewReader(staged.Bytes()), reader), closer: preludeReadCloser}
+		return execution, requestPlan{}, executionResult{}, cliProxyAPIOverflowClassification{}, nil, false
+	}
+
+	for {
+		if firstEventAt != nil {
+			preludeReadCloser.setDeadline(firstEventAt.Add(responsesStreamingSSEPreludeMaxWindow))
+		}
+		eventRaw, eventName, payload, observedAt, err := readResponsesStreamingSSEEvent(reader, s.nowUTC)
+		if len(eventRaw) > 0 && firstEventAt == nil {
+			first := observedAt
+			firstEventAt = &first
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return continueWithSource(eventRaw)
+			}
+			return continueWithSource(eventRaw)
+		}
+		if len(eventRaw) == 0 {
+			continue
+		}
+		if staged.Len()+len(eventRaw) > responsesStreamingSSEPreludeMaxBytes {
+			return continueWithSource(eventRaw)
+		}
+		if firstEventAt != nil && observedAt.Sub(*firstEventAt) > responsesStreamingSSEPreludeMaxWindow {
+			return continueWithSource(eventRaw)
+		}
+
+		normalizedEvent := normalizedResponsesStreamingSSEEventName(eventName, payload)
+		if normalizedEvent == "error" {
+			if classification := classifyResponsesStreamingSSEOverflowError(payload); classification.Promotable {
+				promotedPlan, promotedExecution, promotedErr, promoted := s.tryResponsesStreamingPreCommitContextOverflowPromotion(request, sourcePlan, execution, classification)
+				if promoted {
+					_ = preludeReadCloser.Close()
+					execution.Response.Body = io.NopCloser(bytes.NewReader(nil))
+					return execution, promotedPlan, promotedExecution, classification, promotedErr, true
+				}
+			}
+			return continueWithSource(eventRaw)
+		}
+		if !responsesStreamingSSEEventIsReplaySafePrelude(normalizedEvent) {
+			return continueWithSource(eventRaw)
+		}
+		preludeEvents++
+		if preludeEvents > responsesStreamingSSEPreludeMaxEvents {
+			return continueWithSource(eventRaw)
+		}
+		staged.Write(eventRaw)
+	}
+}
+
+func readResponsesStreamingSSEEvent(reader *bufio.Reader, now func() time.Time) ([]byte, string, map[string]any, time.Time, error) {
+	var raw bytes.Buffer
+	var eventName string
+	dataLines := make([]string, 0, 2)
+	observedAt := now()
+	for {
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			observedAt = now()
+			raw.Write(line)
+			trimmed := strings.TrimRight(string(line), "\r\n")
+			switch {
+			case trimmed == "":
+				return raw.Bytes(), eventName, responsesStreamingSSEPayloadFromDataLines(dataLines), observedAt, nil
+			case strings.HasPrefix(trimmed, "event:"):
+				eventName = trimSSEFieldValue(strings.TrimPrefix(trimmed, "event:"))
+			case strings.HasPrefix(trimmed, "data:"):
+				dataLines = append(dataLines, trimSSEFieldValue(strings.TrimPrefix(trimmed, "data:")))
+			}
+		}
+		if err != nil {
+			return raw.Bytes(), eventName, responsesStreamingSSEPayloadFromDataLines(dataLines), observedAt, err
+		}
+	}
+}
+
+func responsesStreamingSSEPayloadFromDataLines(dataLines []string) map[string]any {
+	if len(dataLines) == 0 {
+		return nil
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(strings.Join(dataLines, "\n")), &payload); err != nil {
+		return nil
+	}
+	return payload
+}
+
+func normalizedResponsesStreamingSSEEventName(eventName string, payload map[string]any) string {
+	normalized := strings.ToLower(strings.TrimSpace(eventName))
+	if normalized != "" {
+		return normalized
+	}
+	payloadType, _ := payload["type"].(string)
+	return strings.ToLower(strings.TrimSpace(payloadType))
+}
+
+func responsesStreamingSSEEventIsReplaySafePrelude(eventName string) bool {
+	switch eventName {
+	case "response.created", "response.in_progress":
+		return true
+	default:
+		return false
+	}
+}
+
+func classifyResponsesStreamingSSEOverflowError(payload map[string]any) cliProxyAPIOverflowClassification {
+	if payload == nil {
+		return cliProxyAPIOverflowClassification{}
+	}
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		return cliProxyAPIOverflowClassification{}
+	}
+	classification := classifyCLIProxyAPIOverflowResponse(http.StatusBadRequest, rawPayload, TranslationModeNone)
+	if !classification.Promotable || classification.Classifier != cliProxyAPIOverflowClassifierErrorCode {
+		return cliProxyAPIOverflowClassification{}
+	}
+	return classification
 }
 
 func planAllowsChatStreamingPreDispatchContextOverflowPromotion(plan requestPlan) bool {

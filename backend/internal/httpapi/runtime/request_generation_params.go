@@ -265,7 +265,7 @@ func openAIChatTokenizerForModel(modelID string) (tokenizer.Codec, error) {
 	if normalized == "" {
 		return nil, contextEstimationUnavailableDomainError()
 	}
-	if normalized == "gpt-5" || strings.HasPrefix(normalized, "gpt-5-") {
+	if normalized == "gpt-5" || strings.HasPrefix(normalized, "gpt-5-") || strings.HasPrefix(normalized, "gpt-5.") {
 		codec, err := tokenizer.Get(tokenizer.O200kBase)
 		if err != nil {
 			return nil, contextEstimationUnavailableDomainError()
