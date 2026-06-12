@@ -1,6 +1,7 @@
 import { useContext, useMemo } from "react";
 import { LocaleContext } from "./locale-context";
 import {
+  formatCompactNumber,
   formatNumber,
   formatRelativeTimeFromNow,
   formatTimestampForLocale,
@@ -19,6 +20,7 @@ export function useLocale() {
       locale,
       messages,
       setLocale,
+      formatCompactNumber: (value: number) => formatCompactNumber(value, locale),
       formatNumber: (value: number, options?: Intl.NumberFormatOptions) =>
         formatNumber(value, locale, options),
       formatRelativeTimeFromNow: (isoString: string, now?: number) =>

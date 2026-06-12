@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-12T00:00:00Z";
@@ -16,6 +16,7 @@ const evidenceDirectory = resolve(
 );
 const populatedEvidencePath = resolve(evidenceDirectory, "task-3-chart-populated.txt");
 const emptyEvidencePath = resolve(evidenceDirectory, "task-3-chart-empty.txt");
+const compactEvidencePath = resolve(evidenceDirectory, "analytics-token-chart-compact.txt");
 
 function createProfile(id: number, name: string, isActive = false) {
   return {
@@ -427,7 +428,124 @@ function createUsageSnapshot(options?: { empty?: boolean; profileId?: number }) 
   };
 }
 
-async function mockUsageRoutes(page: Page, options?: { empty?: boolean }) {
+function applyLargeTokenAxisValues(snapshot: ReturnType<typeof createUsageSnapshot>) {
+  const samples = [
+    { cached_tokens: 1_052_928, input_tokens: 1_083_619, output_tokens: 232, reasoning_tokens: 1_480 },
+    { cached_tokens: 825_000, input_tokens: 940_000, output_tokens: 512, reasoning_tokens: 2_048 },
+  ];
+
+  snapshot.overview.input_tokens = samples[0].input_tokens;
+  snapshot.overview.output_tokens = samples[0].output_tokens;
+  snapshot.overview.cached_tokens = samples[0].cached_tokens;
+  snapshot.overview.reasoning_tokens = samples[0].reasoning_tokens;
+  snapshot.overview.total_tokens =
+    samples[0].input_tokens + samples[0].output_tokens + samples[0].cached_tokens + samples[0].reasoning_tokens;
+
+  for (const series of [...snapshot.token_usage_trends.hourly, ...snapshot.token_usage_trends.daily]) {
+    series.total_tokens = snapshot.overview.total_tokens;
+    for (const [index, point] of series.points.entries()) {
+      const sample = samples[index % samples.length];
+      point.input_tokens = sample.input_tokens;
+      point.output_tokens = sample.output_tokens;
+      point.cached_tokens = sample.cached_tokens;
+      point.reasoning_tokens = sample.reasoning_tokens;
+      point.total_tokens = sample.input_tokens + sample.output_tokens + sample.cached_tokens + sample.reasoning_tokens;
+      point.tpm = point.total_tokens;
+    }
+  }
+
+  for (const points of [snapshot.token_type_breakdown.hourly, snapshot.token_type_breakdown.daily]) {
+    for (const [index, point] of points.entries()) {
+      const sample = samples[index % samples.length];
+      point.input_tokens = sample.input_tokens;
+      point.output_tokens = sample.output_tokens;
+      point.cached_tokens = sample.cached_tokens;
+      point.reasoning_tokens = sample.reasoning_tokens;
+    }
+  }
+}
+
+function applyRequestBreakdownValues(snapshot: ReturnType<typeof createUsageSnapshot>) {
+  snapshot.overview.total_requests = 6;
+  snapshot.endpoint_statistics = [
+    {
+      endpoint_id: 10,
+      endpoint_label: "Primary canonical endpoint",
+      p50_ttft_ms: 120,
+      p95_ttft_ms: 220,
+      request_count: 4,
+      success_rate: 100,
+      total_tokens: 1600,
+      avg_output_rate_tps: 81.63,
+      total_cost_micros: 420000,
+    },
+    {
+      endpoint_id: 20,
+      endpoint_label: "Secondary backup endpoint",
+      p50_ttft_ms: 180,
+      p95_ttft_ms: 280,
+      request_count: 2,
+      success_rate: 50,
+      total_tokens: 800,
+      avg_output_rate_tps: 42.5,
+      total_cost_micros: 200000,
+    },
+  ];
+  snapshot.model_statistics = [
+    { ...snapshot.model_statistics[0], model_id: "gpt-5.4", model_label: "Primary canonical model", request_count: 4 },
+    { ...snapshot.model_statistics[0], model_id: "claude-3.7-sonnet", model_label: "Secondary global-only model", request_count: 2, total_cost_micros: 200000 },
+  ];
+}
+
+function applyCurvedSparklineValues(snapshot: ReturnType<typeof createUsageSnapshot>) {
+  const requestSamples = [2, 4, 3];
+  const tokenSamples = [900, 1500, 1200];
+  const dayBuckets = ["2026-04-07T00:00:00Z", "2026-04-08T00:00:00Z", "2026-04-09T00:00:00Z"];
+  const hourBuckets = ["2026-04-09T00:00:00Z", "2026-04-09T01:00:00Z", "2026-04-09T02:00:00Z"];
+
+  for (const series of snapshot.request_trends.hourly) {
+    series.points = hourBuckets.map((bucket_start, index) => ({
+      bucket_start,
+      request_count: requestSamples[index],
+      success_count: requestSamples[index],
+      failed_count: 0,
+      rpm: requestSamples[index],
+    }));
+  }
+  for (const series of snapshot.request_trends.daily) {
+    series.points = dayBuckets.map((bucket_start, index) => ({
+      bucket_start,
+      request_count: requestSamples[index],
+      success_count: requestSamples[index],
+      failed_count: 0,
+      rpm: requestSamples[index] / 24,
+    }));
+  }
+  for (const series of snapshot.token_usage_trends.hourly) {
+    series.points = hourBuckets.map((bucket_start, index) => ({
+      bucket_start,
+      total_tokens: tokenSamples[index],
+      input_tokens: Math.round(tokenSamples[index] * 0.56),
+      output_tokens: Math.round(tokenSamples[index] * 0.38),
+      cached_tokens: Math.round(tokenSamples[index] * 0.03),
+      reasoning_tokens: Math.round(tokenSamples[index] * 0.03),
+      tpm: tokenSamples[index],
+    }));
+  }
+  for (const series of snapshot.token_usage_trends.daily) {
+    series.points = dayBuckets.map((bucket_start, index) => ({
+      bucket_start,
+      total_tokens: tokenSamples[index],
+      input_tokens: Math.round(tokenSamples[index] * 0.56),
+      output_tokens: Math.round(tokenSamples[index] * 0.38),
+      cached_tokens: Math.round(tokenSamples[index] * 0.03),
+      reasoning_tokens: Math.round(tokenSamples[index] * 0.03),
+      tpm: tokenSamples[index] / 24,
+    }));
+  }
+}
+
+async function mockUsageRoutes(page: Page, options?: { empty?: boolean; largeTokenAxes?: boolean; requestBreakdowns?: boolean; curvedSparklines?: boolean }) {
   const profiles = [createProfile(1, "Red Team", true), createProfile(2, "Blue Team")];
 
   await page.route("**/*", async (route) => {
@@ -478,6 +596,13 @@ async function mockUsageRoutes(page: Page, options?: { empty?: boolean }) {
     }
 
     if (pathname === "/api/models") {
+      if (options?.requestBreakdowns) {
+        return fulfillJson([
+          createModel("gpt-5.4", "Primary canonical model", 1),
+          createModel("claude-3.7-sonnet", "Secondary global-only model", 2),
+        ]);
+      }
+
       return fulfillJson([
         createModel(profileId === 2 ? "claude-3.7-sonnet" : "gpt-5.4", profileId === 2 ? "Secondary global-only model" : "Primary canonical model", profileId),
       ]);
@@ -496,7 +621,17 @@ async function mockUsageRoutes(page: Page, options?: { empty?: boolean }) {
     }
 
     if (pathname === "/api/stats/usage-snapshot") {
-      return fulfillJson(createUsageSnapshot({ empty: options?.empty, profileId }));
+      const snapshot = createUsageSnapshot({ empty: options?.empty, profileId });
+      if (options?.largeTokenAxes) {
+        applyLargeTokenAxisValues(snapshot);
+      }
+      if (options?.requestBreakdowns) {
+        applyRequestBreakdownValues(snapshot);
+      }
+      if (options?.curvedSparklines) {
+        applyCurvedSparklineValues(snapshot);
+      }
+      return fulfillJson(snapshot);
     }
 
     const endpointModelsMatch = pathname.match(/^\/api\/stats\/endpoints\/(\d+)\/models$/);
@@ -557,9 +692,13 @@ async function expectSharedPopulatedSurface(page: Page) {
     timeout: sharedSurfaceTimeout,
   });
 
-  await expect(page.getByRole("heading", { name: "Request Trends" }).first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Token Usage Trends" }).first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Token Type Breakdown" }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Overview" })).toHaveCount(0);
+  await expect(page.getByText("One request-based usage snapshot across requests, tokens, cost, endpoints, models, and proxy API keys.", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Request Trends" })).toHaveCount(1);
+  await expect(page.getByText("Request Count Over Time", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "Token Usage Trends" })).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "Token Type Breakdown" })).toHaveCount(1);
+  await expect(page.getByText("Cost Overview", { exact: true })).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Service Health" }).first()).toBeVisible();
 
   await expect(page.getByTestId("usage-trends-grid").getByText("No data available", { exact: true })).toHaveCount(0);
@@ -571,9 +710,36 @@ async function expectSharedPopulatedSurface(page: Page) {
   await expect(tokensCard).toContainText("Cached 50");
   await expect(tokensCard).toContainText("Reasoning 50");
   await expect(page.getByText("Input + Output + Cached + Reasoning", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("usage-top-endpoints-card")).toHaveCount(0);
+  await expect(page.getByTestId("usage-top-models-card")).toHaveCount(0);
   await expect(page.getByTestId("usage-cost-summary-total")).toHaveText(/\$0\.62(?:\sUSD)?/);
   await expect(page.getByTestId("usage-health-availability-badge")).toHaveText("97.5%");
   await expect(page.locator('[data-testid="usage-health-cell"][data-status="ok"]').first()).toBeVisible();
+}
+
+function chartCardByHeading(page: Page, name: string) {
+  return page
+    .locator("[class*='bg-card']")
+    .filter({ has: page.getByRole("heading", { name }) })
+    .first();
+}
+
+async function readYAxisLabels(chart: Locator) {
+  return (await chart.locator(".recharts-yAxis .recharts-cartesian-axis-tick text").allTextContents())
+    .map((label) => label.trim())
+    .filter(Boolean);
+}
+
+async function expectCompactYAxisLabels(chart: Locator) {
+  await expect
+    .poll(async () => {
+      const labels = await readYAxisLabels(chart);
+      return {
+        hasCompactUnit: labels.some((label) => /[KMB]$/.test(label)),
+        hasGroupedFullNumber: labels.some((label) => /\d,\d{3}/.test(label)),
+      };
+    })
+    .toEqual({ hasCompactUnit: true, hasGroupedFullNumber: false });
 }
 
 test.describe("shared chart statistics regression", () => {
@@ -610,6 +776,93 @@ test.describe("shared chart statistics regression", () => {
     ]);
   });
 
+  test("renders compact token axes and shaded token type breakdown lines", async ({ page }) => {
+    await mockUsageRoutes(page, { largeTokenAxes: true });
+    await seedUsageStatisticsState(page, ["gpt-5.4"]);
+
+    await page.goto("/observe?tab=analytics");
+
+    await expect(page).toHaveURL(/\/observe\?tab=analytics$/);
+    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("usage-kpi-grid")).toBeVisible({ timeout: 15000 });
+
+    const tokenUsageCard = chartCardByHeading(page, "Token Usage Trends");
+    const tokenBreakdownCard = chartCardByHeading(page, "Token Type Breakdown");
+
+    await expectCompactYAxisLabels(tokenUsageCard);
+    await expectCompactYAxisLabels(tokenBreakdownCard);
+    await expect.poll(async () => tokenBreakdownCard.locator(".recharts-area-curve").count()).toBe(4);
+    await expect.poll(async () => tokenBreakdownCard.locator(".recharts-area-area").count()).toBe(4);
+    await expect(tokenBreakdownCard.locator(".recharts-bar-rectangle")).toHaveCount(0);
+
+    const tokenBreakdownLineStrokes = await tokenBreakdownCard
+      .locator(".recharts-area-curve")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("stroke")));
+    expect(tokenBreakdownLineStrokes).toEqual([
+      "var(--color-chart-1)",
+      "var(--color-chart-2)",
+      "var(--color-chart-4)",
+      "var(--color-chart-3)",
+    ]);
+    const tokenBreakdownAreaFills = await tokenBreakdownCard
+      .locator(".recharts-area-area")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("fill")));
+    expect(tokenBreakdownAreaFills.every((fill) => fill?.startsWith("url(#"))).toBe(true);
+
+    await writeEvidenceFile(compactEvidencePath, [
+      "scenario=analytics-token-chart-compact",
+      "dashboard.route=/observe?tab=analytics",
+      `tokenUsageYAxis=${(await readYAxisLabels(tokenUsageCard)).join(",")}`,
+      `tokenTypeBreakdownYAxis=${(await readYAxisLabels(tokenBreakdownCard)).join(",")}`,
+      `tokenTypeBreakdownLineStrokes=${tokenBreakdownLineStrokes.join(",")}`,
+      `tokenTypeBreakdownAreaFills=${tokenBreakdownAreaFills.join(",")}`,
+      "tokenTypeBreakdownBars=0",
+    ]);
+  });
+
+  test("renders top request breakdown pie charts with hover details", async ({ page }) => {
+    await mockUsageRoutes(page, { requestBreakdowns: true });
+    await seedUsageStatisticsState(page, ["gpt-5.4", "claude-3.7-sonnet"]);
+
+    await page.goto("/observe?tab=analytics");
+
+    await expect(page).toHaveURL(/\/observe\?tab=analytics$/);
+    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("usage-kpi-grid")).toBeVisible({ timeout: 15000 });
+
+    const requestBreakdownGrid = page.getByTestId("usage-request-breakdown-grid");
+    const modelPieCard = chartCardByHeading(page, "Top Models by Requests");
+    const endpointPieCard = chartCardByHeading(page, "Top Endpoints by Requests");
+
+    await expect(requestBreakdownGrid).toBeVisible();
+    await expect(modelPieCard.locator(".recharts-pie-sector")).toHaveCount(2);
+    await expect(endpointPieCard.locator(".recharts-pie-sector")).toHaveCount(2);
+
+    await modelPieCard.locator(".recharts-pie-sector").first().hover();
+    await expect(page.locator(".recharts-tooltip-wrapper").filter({ hasText: "Primary canonical model" })).toContainText("4");
+
+    await endpointPieCard.locator(".recharts-pie-sector").nth(1).hover();
+    await expect(page.locator(".recharts-tooltip-wrapper").filter({ hasText: "Secondary backup endpoint" })).toContainText("2");
+  });
+
+  test("renders curved overview sparkline lines", async ({ page }) => {
+    await mockUsageRoutes(page, { curvedSparklines: true });
+    await seedUsageStatisticsState(page, ["gpt-5.4"]);
+
+    await page.goto("/observe?tab=analytics");
+
+    await expect(page).toHaveURL(/\/observe\?tab=analytics$/);
+    await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("usage-kpi-grid")).toBeVisible({ timeout: 15000 });
+
+    const sparklinePaths = await page
+      .locator('[data-testid="usage-kpi-card"] .recharts-area-curve')
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("d") ?? ""));
+
+    expect(sparklinePaths).toHaveLength(5);
+    expect(sparklinePaths.every((path) => path.includes("C"))).toBe(true);
+  });
+
   test("navigates the overview analytics CTA to the analytics tab", async ({ page }) => {
     await mockUsageRoutes(page);
     await seedUsageStatisticsState(page, ["gpt-5.4"]);
@@ -643,9 +896,11 @@ test.describe("shared chart statistics regression", () => {
     await expect(page.getByTestId("usage-service-health-card")).toBeVisible();
     await expect(page.getByTestId("usage-health-heatmap")).toBeVisible();
 
-    await expect(page.getByRole("heading", { name: "Request Trends" }).first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Token Usage Trends" }).first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Token Type Breakdown" }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Overview" })).toHaveCount(0);
+    await expect(page.getByText("One request-based usage snapshot across requests, tokens, cost, endpoints, models, and proxy API keys.", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Request Trends" })).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: "Token Usage Trends" })).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: "Token Type Breakdown" })).toHaveCount(1);
     await expect(page.getByRole("heading", { name: "Service Health" }).first()).toBeVisible();
 
     await expect(trendsGrid.getByText("No data available", { exact: true })).toBeVisible();

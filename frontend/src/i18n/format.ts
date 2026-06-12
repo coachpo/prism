@@ -53,6 +53,25 @@ export function formatNumber(
   return new Intl.NumberFormat(locale, options).format(value);
 }
 
+export function formatCompactNumber(value: number, locale: Locale = getCurrentLocale()): string {
+  const absoluteValue = Math.abs(value);
+  const units: Array<[number, string]> = [
+    [1_000_000_000, "B"],
+    [1_000_000, "M"],
+    [1_000, "K"],
+  ];
+
+  for (const [unitValue, suffix] of units) {
+    if (absoluteValue >= unitValue) {
+      const scaledValue = value / unitValue;
+      const maximumFractionDigits = Math.abs(scaledValue) < 10 ? 1 : 0;
+      return `${formatNumber(scaledValue, locale, { maximumFractionDigits })}${suffix}`;
+    }
+  }
+
+  return formatNumber(value, locale, { maximumFractionDigits: 0 });
+}
+
 export function compareStringsForLocale(
   left: string,
   right: string,

@@ -1,9 +1,8 @@
-import { useMemo } from "react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { useId, useMemo } from "react";
+import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts";
 import { Link } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
 import { SpendTrustNote } from "@/components/SpendTrustIndicator";
-import { TopSpendingCard } from "@/components/statistics/TopSpendingCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +25,7 @@ import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import type {
   UsageChartGranularity,
   UsageCostOverviewPoint,
+  UsageEndpointStatistic,
   UsageModelStatistic,
   UsageSnapshotCurrency,
   UsageStatisticsChartKey,
@@ -44,12 +44,9 @@ interface UsageBreakdownSectionProps {
   };
   costOverviewSeries: UsageCostOverviewPoint[];
   currency: UsageSnapshotCurrency;
+  endpointStatistics: UsageEndpointStatistic[];
   modelStatistics: UsageModelStatistic[];
   onSetChartGranularity: (key: UsageStatisticsChartKey, granularity: UsageChartGranularity) => void;
-  topEndpointSpendStatistics: Array<{
-    endpoint_label: string;
-    total_cost_micros: number;
-  }>;
   tokenTypeBreakdown: UsageTokenTypeBreakdownPoint[];
 }
 
@@ -92,18 +89,155 @@ function ChartGranularityToggle({
   );
 }
 
+interface RequestBreakdownItem {
+  color: string;
+  id: string;
+  label: string;
+  requestCount: number;
+}
+
+const REQUEST_BREAKDOWN_COLORS = [
+  "var(--color-chart-1)",
+  "var(--color-chart-2)",
+  "var(--color-chart-3)",
+  "var(--color-chart-4)",
+  "var(--color-chart-5)",
+];
+
+function buildModelRequestItems(modelStatistics: UsageModelStatistic[]): RequestBreakdownItem[] {
+  return [...modelStatistics]
+    .filter((item) => item.request_count > 0)
+    .sort((left, right) => right.request_count - left.request_count || left.model_label.localeCompare(right.model_label))
+    .slice(0, 5)
+    .map((item, index) => ({
+      color: REQUEST_BREAKDOWN_COLORS[index % REQUEST_BREAKDOWN_COLORS.length],
+      id: item.model_id,
+      label: item.model_label,
+      requestCount: item.request_count,
+    }));
+}
+
+function buildEndpointRequestItems(endpointStatistics: UsageEndpointStatistic[]): RequestBreakdownItem[] {
+  return [...endpointStatistics]
+    .filter((item) => item.request_count > 0)
+    .sort((left, right) => right.request_count - left.request_count || left.endpoint_label.localeCompare(right.endpoint_label))
+    .slice(0, 5)
+    .map((item, index) => ({
+      color: REQUEST_BREAKDOWN_COLORS[index % REQUEST_BREAKDOWN_COLORS.length],
+      id: `${item.endpoint_id ?? item.endpoint_label}`,
+      label: item.endpoint_label,
+      requestCount: item.request_count,
+    }));
+}
+
+interface RequestBreakdownPieCardProps {
+  config: ChartConfig;
+  emptyTitle: string;
+  formatNumber: ReturnType<typeof useLocale>["formatNumber"];
+  items: RequestBreakdownItem[];
+  requestLabel: string;
+  title: string;
+}
+
+function RequestBreakdownPieCard({
+  config,
+  emptyTitle,
+  formatNumber,
+  items,
+  requestLabel,
+  title,
+}: RequestBreakdownPieCardProps) {
+  const totalRequests = items.reduce((sum, item) => sum + item.requestCount, 0);
+
+  return (
+    <Card className="border-border/70 bg-card/95 shadow-none">
+      <CardHeader className="gap-1 border-b">
+        <CardTitle className="text-base">
+          <h3>{title}</h3>
+        </CardTitle>
+        <CardDescription>{requestLabel}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4 pt-4 sm:pt-6">
+        {items.length === 0 ? (
+          <EmptyState className="py-10" description={emptyTitle} title={emptyTitle} />
+        ) : (
+          <>
+            <ChartContainer
+              className="aspect-auto h-56 w-full [&_.recharts-pie-sector]:[pointer-events:all]"
+              config={config}
+            >
+              <PieChart accessibilityLayer>
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      formatter={(value, name) => (
+                        <div className="flex w-full items-center justify-between gap-3">
+                          <span className="max-w-[12rem] truncate text-muted-foreground">{String(name)}</span>
+                          <span className="font-medium text-foreground">
+                            {formatNumber(Number(value))}
+                          </span>
+                        </div>
+                      )}
+                    />
+                  }
+                  cursor={false}
+                />
+                <Pie
+                  data={items}
+                  dataKey="requestCount"
+                  isAnimationActive={false}
+                  nameKey="label"
+                  outerRadius={86}
+                  paddingAngle={2}
+                  strokeWidth={2}
+                >
+                  {items.map((item) => (
+                    <Cell fill={item.color} key={item.id} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ChartContainer>
+
+            <div className="flex flex-col gap-2">
+              {items.map((item) => {
+                const percentage = totalRequests > 0 ? (item.requestCount / totalRequests) * 100 : 0;
+                return (
+                  <div className="flex items-center justify-between gap-3 text-sm" key={item.id}>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        aria-hidden="true"
+                        className="size-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span className="truncate font-medium text-foreground">{item.label}</span>
+                    </div>
+                    <span className="shrink-0 text-muted-foreground tabular-nums">
+                      {formatNumber(item.requestCount)} · {formatNumber(percentage, { maximumFractionDigits: 1 })}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function UsageBreakdownSection({
   chartGranularity,
   costSummary,
   costOverviewSeries,
   currency,
+  endpointStatistics,
   modelStatistics,
   onSetChartGranularity,
-  topEndpointSpendStatistics,
   tokenTypeBreakdown,
 }: UsageBreakdownSectionProps) {
   const { currencyState } = useReportingCurrencyContext();
-  const { formatNumber, locale, messages } = useLocale();
+  const { formatCompactNumber, formatNumber, locale, messages } = useLocale();
+  const chartId = useId().replace(/:/g, "");
   const spendTrust = resolveSpendTrustState(
     {
       costMicros: costSummary.total_cost_micros,
@@ -132,29 +266,52 @@ export function UsageBreakdownSection({
     }),
     [messages.statistics.totalSpend],
   );
+  const requestBreakdownConfig = useMemo<ChartConfig>(
+    () => ({
+      requestCount: { label: messages.statistics.requests },
+    }),
+    [messages.statistics.requests],
+  );
+  const tokenBreakdownSeries = useMemo(
+    () => [
+      {
+        color: "var(--color-chart-1)",
+        dataKey: "input_tokens",
+        gradientId: `${chartId}-input-tokens`,
+        label: messages.statistics.input,
+      },
+      {
+        color: "var(--color-chart-2)",
+        dataKey: "output_tokens",
+        gradientId: `${chartId}-output-tokens`,
+        label: messages.statistics.output,
+      },
+      {
+        color: "var(--color-chart-4)",
+        dataKey: "cached_tokens",
+        gradientId: `${chartId}-cached-tokens`,
+        label: messages.statistics.cachedPrefix,
+      },
+      {
+        color: "var(--color-chart-3)",
+        dataKey: "reasoning_tokens",
+        gradientId: `${chartId}-reasoning-tokens`,
+        label: messages.requestLogs.reasoning,
+      },
+    ] as const,
+    [
+      chartId,
+      messages.requestLogs.reasoning,
+      messages.statistics.cachedPrefix,
+      messages.statistics.input,
+      messages.statistics.output,
+    ],
+  );
+  const modelRequestItems = useMemo(() => buildModelRequestItems(modelStatistics), [modelStatistics]);
+  const endpointRequestItems = useMemo(() => buildEndpointRequestItems(endpointStatistics), [endpointStatistics]);
 
   const tokenBreakdownDescription = `${messages.statistics.input} + ${messages.statistics.output} + ${messages.statistics.cachedPrefix} + ${messages.requestLogs.reasoning}`;
   const tokenData = tokenTypeBreakdown;
-  const topEndpointItems = useMemo(
-    () =>
-      [...topEndpointSpendStatistics]
-        .sort((left, right) => right.total_cost_micros - left.total_cost_micros)
-        .slice(0, 5)
-        .map((item) => ({ label: item.endpoint_label, costMicros: item.total_cost_micros })),
-    [topEndpointSpendStatistics],
-  );
-  const topEndpointTotalCostMicros = useMemo(
-    () => topEndpointSpendStatistics.reduce((sum, item) => sum + item.total_cost_micros, 0),
-    [topEndpointSpendStatistics],
-  );
-  const topModelItems = useMemo(
-    () =>
-      [...modelStatistics]
-        .sort((left, right) => right.total_cost_micros - left.total_cost_micros)
-        .slice(0, 5)
-        .map((item) => ({ label: item.model_label, costMicros: item.total_cost_micros })),
-    [modelStatistics],
-  );
 
   const formatBucket = (value: string, granularity: UsageChartGranularity) => {
     const date = new Date(value);
@@ -171,9 +328,23 @@ export function UsageBreakdownSection({
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold tracking-tight">{messages.statistics.tokenTypeBreakdownTitle}</h2>
-        <p className="text-sm text-muted-foreground">{messages.statistics.costOverviewTitle}</p>
+      <div className="grid gap-4 xl:grid-cols-2" data-testid="usage-request-breakdown-grid">
+        <RequestBreakdownPieCard
+          config={requestBreakdownConfig}
+          emptyTitle={messages.statistics.noModelStatisticsTitle}
+          formatNumber={formatNumber}
+          items={modelRequestItems}
+          requestLabel={messages.statistics.requests}
+          title={messages.statistics.topModelsByCost}
+        />
+        <RequestBreakdownPieCard
+          config={requestBreakdownConfig}
+          emptyTitle={messages.statistics.noEndpointStatisticsTitle}
+          formatNumber={formatNumber}
+          items={endpointRequestItems}
+          requestLabel={messages.statistics.requests}
+          title={messages.statistics.topEndpointsByCost}
+        />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -206,25 +377,36 @@ export function UsageBreakdownSection({
           ) : (
             <CardContent className="pt-4 sm:pt-6">
               <ChartContainer className="aspect-auto h-80 w-full" config={tokenBreakdownConfig}>
-                <BarChart
+                <AreaChart
                   accessibilityLayer
-                  barCategoryGap="28%"
                   data={tokenData}
                   margin={{ bottom: 0, left: 12, right: 12, top: 8 }}
                 >
+                  <defs>
+                    {tokenBreakdownSeries.map((series) => (
+                      <linearGradient id={series.gradientId} key={series.gradientId} x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="5%" stopColor={series.color} stopOpacity={0.28} />
+                        <stop offset="95%" stopColor={series.color} stopOpacity={0.03} />
+                      </linearGradient>
+                    ))}
+                  </defs>
                   <CartesianGrid vertical={false} />
                   <XAxis
                     axisLine={false}
                     dataKey="bucket_start"
                     minTickGap={32}
+                    padding={{ left: 8, right: 8 }}
                     tickFormatter={(value) => formatBucket(String(value), chartGranularity.tokenTypeBreakdown)}
                     tickLine={false}
                     tickMargin={8}
                   />
                   <YAxis
+                    allowDataOverflow
                     axisLine={false}
+                    domain={[0, "dataMax"]}
+                    padding={{ top: 12 }}
                     tickCount={4}
-                    tickFormatter={(value) => formatNumber(Number(value))}
+                    tickFormatter={(value) => formatCompactNumber(Number(value))}
                     tickLine={false}
                     tickMargin={10}
                     width={72}
@@ -232,48 +414,28 @@ export function UsageBreakdownSection({
                   <ChartTooltip
                     content={
                       <ChartTooltipContent
+                        indicator="dot"
                         labelFormatter={(value) => formatBucket(String(value), chartGranularity.tokenTypeBreakdown)}
                       />
                     }
                     cursor={false}
                   />
-                  <Bar
-                    dataKey="input_tokens"
-                    fill="var(--color-chart-1)"
-                    isAnimationActive={false}
-                    radius={[4, 4, 0, 0]}
-                    stackId="tokens"
-                    stroke="var(--background)"
-                    strokeWidth={1}
-                  />
-                  <Bar
-                    dataKey="output_tokens"
-                    fill="var(--color-chart-2)"
-                    isAnimationActive={false}
-                    radius={[4, 4, 0, 0]}
-                    stackId="tokens"
-                    stroke="var(--background)"
-                    strokeWidth={1}
-                  />
-                  <Bar
-                    dataKey="cached_tokens"
-                    fill="var(--color-chart-4)"
-                    isAnimationActive={false}
-                    radius={[4, 4, 0, 0]}
-                    stackId="tokens"
-                    stroke="var(--background)"
-                    strokeWidth={1}
-                  />
-                  <Bar
-                    dataKey="reasoning_tokens"
-                    fill="var(--color-chart-3)"
-                    isAnimationActive={false}
-                    radius={[4, 4, 0, 0]}
-                    stackId="tokens"
-                    stroke="var(--background)"
-                    strokeWidth={1}
-                  />
-                </BarChart>
+                  {tokenBreakdownSeries.map((series) => (
+                    <Area
+                      activeDot={{ r: 4 }}
+                      dataKey={series.dataKey}
+                      fill={`url(#${series.gradientId})`}
+                      isAnimationActive={false}
+                      key={series.dataKey}
+                      name={series.label}
+                      stroke={series.color}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      type="monotone"
+                    />
+                  ))}
+                </AreaChart>
               </ChartContainer>
             </CardContent>
           )}
@@ -424,26 +586,7 @@ export function UsageBreakdownSection({
                 </AreaChart>
               </ChartContainer>
 
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div data-testid="usage-top-endpoints-card">
-                  <TopSpendingCard
-                    currencyCode={currency.code}
-                    currencySymbol={currency.symbol}
-                    items={topEndpointItems}
-                    title={messages.statistics.topEndpointsByCost}
-                    totalCostMicros={topEndpointTotalCostMicros}
-                  />
-                </div>
-                <div data-testid="usage-top-models-card">
-                  <TopSpendingCard
-                    currencyCode={currency.code}
-                    currencySymbol={currency.symbol}
-                    items={topModelItems}
-                    title={messages.statistics.topModelsByCost}
-                    totalCostMicros={costSummary.total_cost_micros}
-                  />
-                </div>
-              </div>
+
             </CardContent>
           )}
         </Card>

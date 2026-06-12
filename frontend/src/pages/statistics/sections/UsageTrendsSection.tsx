@@ -23,15 +23,10 @@ export function UsageTrendsSection({
   requestTrendSeries,
   tokenUsageTrendSeries,
 }: UsageTrendsSectionProps) {
-  const { formatNumber, messages } = useLocale();
+  const { formatCompactNumber, formatNumber, messages } = useLocale();
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold tracking-tight">{messages.statistics.requestTrendsTitle}</h2>
-        <p className="text-sm text-muted-foreground">{messages.statistics.requestsPerMinuteOverTime}</p>
-      </div>
-
       <div className="grid gap-4 xl:grid-cols-2" data-testid="usage-trends-grid">
         <UsageTrendChart
           description={messages.statistics.requestsPerMinuteOverTime}
@@ -52,6 +47,7 @@ export function UsageTrendsSection({
         />
 
         <UsageTrendChart
+          axisFormatValue={(value) => formatCompactNumber(value)}
           description={messages.statistics.tokenThroughput}
           emptyDescription={messages.statistics.adjustFiltersOrTimeRange}
           emptyTitle={messages.statistics.noTokenUsage}

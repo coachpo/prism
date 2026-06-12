@@ -89,9 +89,9 @@ export function UsageStatisticsContent({ data, state }: UsageStatisticsContentPr
             costSummary={data.costSummary ?? snapshot.cost_overview}
             costOverviewSeries={data.costOverviewSeries}
             currency={snapshot.currency}
+            endpointStatistics={snapshot.endpoint_statistics}
             modelStatistics={data.modelStatistics}
             onSetChartGranularity={state.setChartGranularity}
-            topEndpointSpendStatistics={data.topEndpointSpendStatistics}
             tokenTypeBreakdown={data.tokenTypeBreakdown}
           />
 

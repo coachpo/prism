@@ -79,11 +79,6 @@ export function UsageOverviewSection({
 
   return (
     <section className="flex flex-col gap-[var(--density-card-gap)]">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold tracking-tight">{messages.statistics.overviewTitle}</h2>
-        <p className="text-sm text-muted-foreground">{messages.statistics.statisticsDescription}</p>
-      </div>
-
       <div className="grid gap-[var(--density-card-gap)] md:grid-cols-2 xl:grid-cols-12" data-testid="usage-kpi-grid">
         <div className="rounded-[calc(var(--radius-xl)+2px)] bg-linear-to-br from-primary/12 via-primary/4 to-transparent p-px md:col-span-2 xl:col-span-6" data-testid="usage-kpi-dominant-card">
           <div data-testid="usage-kpi-card">

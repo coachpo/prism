@@ -52,7 +52,7 @@ export function UsageSparkline({
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={1.75}
-          type="linear"
+          type="monotone"
         />
       </AreaChart>
     </ChartContainer>

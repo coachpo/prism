@@ -46,11 +46,6 @@ interface UsageSelectedCostSummary {
   unpriced_request_count: number;
 }
 
-interface UsageTopEndpointSpendStatistic {
-  endpoint_label: string;
-  total_cost_micros: number;
-}
-
 interface AcceptedAnalyticsSnapshotMeta {
   generatedAtMs: number;
   preset: UsageSnapshotPreset;
@@ -270,45 +265,6 @@ function deriveSelectedCostSummary(
     total_cost_micros: totals.totalCostMicros,
     unpriced_request_count: totals.unpricedRequestCount,
   };
-}
-
-function deriveTopEndpointSpendStatistics(
-  endpointStatistics: UsageSnapshotResponse["endpoint_statistics"],
-  endpointModelStatisticsByEndpointId: Record<number, UsageModelStatistic[]>,
-  selectedModelLineIds: string[],
-): UsageTopEndpointSpendStatistic[] {
-  if (selectedModelLineIds.length === 0) {
-    return endpointStatistics.map((item) => ({
-      endpoint_label: item.endpoint_label,
-      total_cost_micros: item.total_cost_micros,
-    }));
-  }
-
-  return endpointStatistics.flatMap((item) => {
-    if (item.endpoint_id == null) {
-      return [];
-    }
-
-    const endpointModelStatistics = endpointModelStatisticsByEndpointId[item.endpoint_id];
-    if (!endpointModelStatistics) {
-      return [];
-    }
-
-    const totalCostMicros = endpointModelStatistics
-      .filter((modelStatistic) => selectedModelLineIds.includes(modelStatistic.model_id))
-      .reduce((sum, modelStatistic) => sum + modelStatistic.total_cost_micros, 0);
-
-    if (totalCostMicros <= 0) {
-      return [];
-    }
-
-    return [
-      {
-        endpoint_label: item.endpoint_label,
-        total_cost_micros: totalCostMicros,
-      },
-    ];
-  });
 }
 
 export function useUsageStatisticsPageData({
@@ -725,22 +681,6 @@ export function useUsageStatisticsPageData({
     return localizedSnapshot.cost_overview[state.chartGranularity.costOverview];
   }, [localizedSnapshot, state.chartGranularity.costOverview]);
 
-  const topEndpointSpendStatistics = useMemo<UsageTopEndpointSpendStatistic[]>(() => {
-    if (!localizedSnapshot) {
-      return [];
-    }
-
-    return deriveTopEndpointSpendStatistics(
-      localizedSnapshot.endpoint_statistics,
-      activeEndpointModelStatisticsByEndpointId,
-      selectedModelLineIds,
-    );
-  }, [
-    activeEndpointModelStatisticsByEndpointId,
-    localizedSnapshot,
-    selectedModelLineIds,
-  ]);
-
   return {
     availableModelLineIds,
     costSummary,
@@ -758,7 +698,6 @@ export function useUsageStatisticsPageData({
     requestTrendSeries,
     selectedModelLineIds,
     snapshot: localizedSnapshot,
-    topEndpointSpendStatistics,
     tokenTypeBreakdown,
     tokenUsageTrendSeries,
   };

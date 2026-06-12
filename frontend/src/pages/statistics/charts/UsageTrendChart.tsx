@@ -31,6 +31,7 @@ export interface UsageTrendChartSeries {
 }
 
 interface UsageTrendChartProps {
+  axisFormatValue?: (value: number) => string;
   description: string;
   emptyDescription: string;
   emptyTitle: string;
@@ -60,6 +61,7 @@ type ChartSeries = UsageTrendChartSeries & {
 };
 
 export function UsageTrendChart({
+  axisFormatValue,
   description,
   emptyDescription,
   emptyTitle,
@@ -205,7 +207,14 @@ export function UsageTrendChart({
                 axisLine={false}
                 domain={[0, "dataMax"]}
                 padding={{ top: 12 }}
-                tickFormatter={(value) => (formatValue ? formatValue(Number(value)) : String(value))}
+                tickFormatter={(value) => {
+                  const numericValue = Number(value);
+                  if (axisFormatValue) {
+                    return axisFormatValue(numericValue);
+                  }
+
+                  return formatValue ? formatValue(numericValue) : String(value);
+                }}
                 tickLine={false}
                 tickMargin={10}
                 tickCount={4}
