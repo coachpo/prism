@@ -254,10 +254,10 @@ function RoutingDiagramModelFilter({
   selectedModelIds: ReadonlySet<string>;
 }) {
   return (
-    <FieldSet className="rounded-xl border border-border/70 bg-muted/20 p-3">
+    <FieldSet className="min-w-0 max-w-full gap-2 [min-inline-size:0]">
       <FieldLegend className="mb-1 text-sm">{copy.label}</FieldLegend>
-      <FieldDescription>{copy.description}</FieldDescription>
-      <FieldGroup data-slot="checkbox-group" className="flex-row flex-wrap gap-2 pt-1">
+      <FieldDescription className="max-w-full text-xs">{copy.description}</FieldDescription>
+      <FieldGroup data-slot="checkbox-group" className="min-w-0 max-w-full flex-row flex-wrap gap-1.5 pt-0 [min-inline-size:0]">
         {options.map((option) => {
           const inputId = `routing-model-filter-${option.id}`;
           const checked = selectedModelIds.has(option.id);
@@ -266,19 +266,19 @@ function RoutingDiagramModelFilter({
             <Field
               key={option.id}
               orientation="horizontal"
-              className="w-auto items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-2"
+              className="w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-md border border-border/60 bg-background/40 px-2 py-1.5 [min-inline-size:0] sm:w-auto sm:flex-[1_1_9rem]"
             >
               <Checkbox
                 id={inputId}
                 checked={checked}
                 onCheckedChange={(nextChecked) => onToggleModel(option.id, nextChecked === true)}
               />
-              <FieldContent className="min-w-0 gap-0.5">
-                <FieldLabel htmlFor={inputId} className="max-w-48 truncate text-sm">
+              <FieldContent className="min-w-0 gap-0 overflow-hidden">
+                <FieldLabel htmlFor={inputId} className="block w-full max-w-full truncate text-xs font-medium">
                   {option.label}
                 </FieldLabel>
                 {option.sublabel ? (
-                  <FieldDescription className="max-w-48 truncate text-xs">
+                  <FieldDescription className="w-full max-w-full truncate text-[11px] leading-tight">
                     {option.sublabel}
                   </FieldDescription>
                 ) : null}

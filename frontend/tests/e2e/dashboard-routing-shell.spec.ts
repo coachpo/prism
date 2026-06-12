@@ -1,7 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
+import { createDashboardSnapshot, createTopologyGraph } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
+const constrainedViewport = { width: 320, height: 760 };
 const mobileViewport = { width: 390, height: 844 };
 const desktopViewport = { width: 1280, height: 900 };
 
@@ -213,6 +214,39 @@ function createRequestLogsResponse() {
       models: [],
     },
   };
+}
+
+const longModelFilterLabel = "Model A with a very long routing display name that must truncate";
+const longDisabledModelFilterLabel =
+  "Disabled Model with a very long routing display name that must truncate";
+
+function createLongModelFilterDashboardSnapshot() {
+  const topologyGraph = createTopologyGraph();
+
+  return createDashboardSnapshot({
+    topologyGraph: {
+      ...topologyGraph,
+      nodes: topologyGraph.nodes.map((node) => {
+        if (node.id === "model-101") {
+          return {
+            ...node,
+            label: longModelFilterLabel,
+            sublabel: "provider/model-a-with-an-unbroken-routing-identifier-that-cannot-expand-the-page",
+          };
+        }
+
+        if (node.id === "model-102") {
+          return {
+            ...node,
+            label: longDisabledModelFilterLabel,
+            sublabel: "provider/disabled-model-with-an-unbroken-routing-identifier-that-cannot-expand-the-page",
+          };
+        }
+
+        return node;
+      }),
+    },
+  });
 }
 
 async function mockDashboardRoutes(
@@ -712,6 +746,54 @@ test.describe("dashboard routing shell", () => {
     await disabledModelCheckbox.check();
     await expect(disabledModelCheckbox).toBeChecked();
     await expect(routingCard.getByRole("heading", { name: "Disabled Model", level: 5 })).toBeVisible();
+  });
+
+  test("keeps compact model filter bounded while filtering by local checkboxes", async ({ page }) => {
+    await page.setViewportSize(constrainedViewport);
+    await mockDashboardRoutes(page, {
+      dashboardSnapshot: createLongModelFilterDashboardSnapshot(),
+    });
+
+    await page.goto("/observe?tab=routing");
+    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
+
+    const routingCard = getRoutingCard(page);
+    const modelFilter = routingCard.getByRole("group", { name: "Model filter" });
+    const modelACheckbox = routingCard.getByRole("checkbox", { name: longModelFilterLabel });
+    const disabledModelCheckbox = routingCard.getByRole("checkbox", {
+      name: longDisabledModelFilterLabel,
+    });
+
+    await expect(modelFilter).toBeVisible();
+    await expect(modelACheckbox).toBeChecked();
+    await expect(disabledModelCheckbox).toBeChecked();
+    await expectNoHorizontalOverflow(page, modelFilter);
+    await expect(routingCard.getByTestId("routing-diagram-mobile")).toBeVisible();
+    await expect(
+      routingCard.getByRole("heading", { name: longModelFilterLabel, level: 5 }),
+    ).toBeVisible();
+    await expect(
+      routingCard.getByRole("heading", { name: longDisabledModelFilterLabel, level: 5 }),
+    ).toBeVisible();
+
+    await disabledModelCheckbox.uncheck();
+    await expect(disabledModelCheckbox).not.toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-mobile")).toBeVisible();
+    await expect(
+      routingCard.getByRole("heading", { name: longModelFilterLabel, level: 5 }),
+    ).toBeVisible();
+    await expect(
+      routingCard.getByRole("heading", { name: longDisabledModelFilterLabel, level: 5 }),
+    ).toHaveCount(0);
+    await expectNoHorizontalOverflow(page, modelFilter);
+
+    await modelACheckbox.uncheck();
+    await expect(modelACheckbox).not.toBeChecked();
+    await expect(routingCard.getByTestId("routing-diagram-mobile")).toHaveCount(0);
+    await expect(routingCard.getByText("No models selected", { exact: true })).toBeVisible();
+    await expect(modelACheckbox).toBeVisible();
+    await expect(disabledModelCheckbox).toBeVisible();
+    await expectNoHorizontalOverflow(page, modelFilter);
   });
 
   test("preserves dragged desktop node positions across benign routing rerenders", async ({ page }) => {
