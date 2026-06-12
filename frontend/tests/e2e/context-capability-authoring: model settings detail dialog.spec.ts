@@ -259,6 +259,45 @@ test("context-capability-authoring: model settings clears blank context window t
   await expect(dialog.locator("#model-preferred-context-utilization-threshold")).toHaveValue("");
 });
 
+test("context-capability-authoring: model settings dialog body scrolls without moving the shell", async ({ page }) => {
+  await mockModelSettingsRoutes(page);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(`/models/${modelConfigId}`);
+  await page.getByRole("button", { name: /edit model/i }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Model Settings" });
+  await expect(dialog).toBeVisible();
+  await dialog.evaluate(async (element) => {
+    await Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)));
+  });
+
+  const dialogBody = dialog.locator('[data-slot="dialog-body"]');
+  await expect(dialogBody).toBeVisible();
+  await expect.poll(async () => dialogBody.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+
+  const initialDialogRect = await dialog.boundingBox();
+  const dialogBodyRect = await dialogBody.boundingBox();
+  if (!initialDialogRect || !dialogBodyRect) {
+    throw new Error("Model Settings dialog or body rect was unavailable before scroll");
+  }
+
+  const initialBodyScrollTop = await dialogBody.evaluate((element) => element.scrollTop);
+  await page.mouse.move(dialogBodyRect.x + dialogBodyRect.width / 2, dialogBodyRect.y + dialogBodyRect.height / 2);
+  await page.mouse.wheel(0, 600);
+
+  await expect.poll(async () => dialogBody.evaluate((element) => element.scrollTop)).toBeGreaterThan(initialBodyScrollTop);
+
+  const scrolledDialogRect = await dialog.boundingBox();
+  if (!scrolledDialogRect) {
+    throw new Error("Model Settings dialog rect was unavailable after scroll");
+  }
+
+  expect(Math.abs(scrolledDialogRect.y - initialDialogRect.y)).toBeLessThan(1);
+  expect(Math.abs(scrolledDialogRect.x - initialDialogRect.x)).toBeLessThan(1);
+  expect(Math.abs(scrolledDialogRect.height - initialDialogRect.height)).toBeLessThan(1);
+});
+
 test("context-capability-authoring: model settings blocks invalid reserve and utilization before patch", async ({ page }) => {
   const routes = await mockModelSettingsRoutes(page);
 

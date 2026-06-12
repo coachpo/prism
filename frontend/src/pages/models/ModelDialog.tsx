@@ -158,12 +158,12 @@ export function ModelDialog({
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-      <DialogContent className="max-h-[90vh] sm:max-w-4xl">
+      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{resolvedDialogTitle}</DialogTitle>
           <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={onSubmit} className="flex min-h-0 flex-col gap-5" autoComplete="off" noValidate>
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col gap-5" autoComplete="off" noValidate>
           <input type="hidden" name="vendor_id" value={String(formData.vendor_id ?? "")} />
           <input type="hidden" name="api_family" value={formData.api_family ?? ""} />
           <input type="hidden" name="loadbalance_strategy_id" value={loadbalanceStrategyValue} />
