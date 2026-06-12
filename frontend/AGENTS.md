@@ -6,23 +6,7 @@
 ## STRUCTURE
 ```text
 frontend/
-├── src/
-│   ├── App.tsx
-│   ├── main.tsx
-│   ├── components/AGENTS.md
-│   ├── components/layout/app-layout/AGENTS.md
-│   ├── components/loadbalance/AGENTS.md
-│   ├── components/statistics/AGENTS.md
-│   ├── components/ui/AGENTS.md
-│   ├── context/AGENTS.md
-│   ├── context/auth/AGENTS.md
-│   ├── context/profile/AGENTS.md
-│   ├── hooks/AGENTS.md
-│   ├── i18n/AGENTS.md
-│   ├── lib/AGENTS.md
-│   ├── lib/api/AGENTS.md
-│   ├── lib/websocket/AGENTS.md
-│   └── pages/AGENTS.md
+├── src/{app,features,shared,pages,components,context,hooks,i18n,lib}/AGENTS.md
 ├── tests/AGENTS.md
 ├── components.json
 ├── package.json
@@ -31,26 +15,22 @@ frontend/
 ```
 
 ## ROUTE MAP
-- Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
-- `/` redirects to `/dashboard`
+- Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect there.
+- Protected rewrite routes: `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, `/control/proxy-keys`, and `/control/sidecars`.
+- Legacy protected routes redirect from `/dashboard`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, and `/request-logs`.
+- `/` redirects to `/observe`.
 
 ## HIERARCHY
-- `src/App.tsx` owns the mounted route surface and stays the source of truth for route mounting and shell boundaries.
-- `src/pages/AGENTS.md` owns route-domain handoff for compatibility clusters under `src/pages/`, while feature-owned startup and sidecars surfaces live under `src/features/`.
-- `src/components/AGENTS.md` owns shared shell and widget work, then points down to the layout shell cluster, feature renderers, and `ui/` primitives.
-- `src/components/{layout/app-layout,loadbalance,statistics,ui}/AGENTS.md` own shell, feature-renderer, and primitive leaves.
-- `src/components/ui/AGENTS.md` owns the shadcn/ui primitives and local wrappers checked into `src/components/ui/`.
-- `src/context/AGENTS.md` owns auth bootstrap, selected-profile management scope, and the reporting-currency provider over the shared cache.
-- `src/hooks/AGENTS.md` owns the shared realtime, polling, and timezone-formatting hooks, with `useRealtimeData()` as the preferred websocket consumer.
-- `src/i18n/AGENTS.md` owns locale catalogs, `staticMessages.ts` for non-hook callers, and shared formatting.
-- `src/lib/AGENTS.md` owns the typed API boundary, websocket singleton, shared reference-data caches, and reporting-currency cache and normalization helpers.
-- `src/lib/api/AGENTS.md` owns the typed client module split, shared request plumbing, and selected-profile route matcher beneath `api.ts`.
-- `src/lib/websocket/AGENTS.md` owns the helper split beneath the singleton realtime client while hook consumers go through `useRealtimeData()`.
-- `tests/AGENTS.md` owns the test split between Playwright browser flows and sibling seam-contract suites.
+- `src/App.tsx` is the thin browser wrapper over the rewrite router, query client, browser router, auth provider, and TanStack `RouterProvider`.
+- `src/app/AGENTS.md`: router construction, auth/public gates, rewrite metadata, legacy redirects, suspense, and QueryClient defaults.
+- `src/features/AGENTS.md`: active protected route modules, selected-profile features, global control pages, mixed settings, and observe surfaces.
+- `src/pages/AGENTS.md`: auth pages and oracle-compatible legacy route clusters still reused by feature routes and tests.
+- `src/components/AGENTS.md`, `src/context/AGENTS.md`, `src/hooks/AGENTS.md`, `src/i18n/AGENTS.md`, `src/shared/AGENTS.md`, and `src/lib/AGENTS.md`: shared shell, providers, hooks, locale, rewrite helpers, API, websocket, and browser integration.
+- `tests/AGENTS.md`: Playwright browser flows plus frontend seam-contract suites.
 
 ## WHERE TO LOOK
-- Mounted routes, auth/public split, protected shell mounts, and profile/reporting-currency provider handoff: `src/App.tsx`
+- Mounted routes, auth/public split, protected shell mounts, rewrite route metadata, and legacy redirects: `src/app/AGENTS.md`, `src/app/router/appRouter.tsx`, `src/app/router/rewriteRoutes.ts`, `src/App.tsx`
+- Active protected route modules and feature-local page/data handoffs: `src/features/AGENTS.md`
 - Shell chrome, sidebar entries, profile-prefixed navigation, version label, and profile switcher: `src/components/AGENTS.md`, `src/components/layout/app-layout/AGENTS.md`
 - Shared widgets, shell-safe controls, and design-system wrappers: `src/components/AGENTS.md`, `src/components/ui/AGENTS.md`
 - shadcn registry config, Tailwind entrypoint, and React Flow dependency/CSS import: `components.json`, `package.json`, `src/index.css`, `src/main.tsx`
@@ -63,14 +43,15 @@ frontend/
 - Vite version injection, optional same-origin proxying for `/api`, `/api/realtime/ws`, `/health`, `/v1`, and `/v1beta`, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
 - Production `dist/` static server, SPA fallback, `PORT` default `3000`, and `/health`: `server.mjs`
 - Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/{lib,loadbalance,main,model-detail,server}/`, `playwright.config.ts`
-- Page hierarchy and route-domain handoff plus feature-owned sidecars surface: `src/pages/AGENTS.md`, `src/features/sidecars/`
+- Cross-route rewrite helpers for query keys, invalidation, server validation, table rows, and design-system barrels: `src/shared/AGENTS.md`
+- Page hierarchy and oracle-compatible route-domain handoff plus feature-owned startup and sidecars leaves: `src/pages/AGENTS.md`, `src/features/settings/startup/AGENTS.md`, `src/features/sidecars/AGENTS.md`
 
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test:lib`, `test:config`, and `test:e2e`.
-- Treat `src/App.tsx` as the source of truth for routes and shell boundaries.
+- Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test`, `test:lib`, `test:server`, `test:config`, and `test:e2e`.
+- Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, route scopes, and legacy redirects; `src/App.tsx` stays the thin wrapper.
 - Keep selected profile separate from active runtime routing. `selectedProfile` scopes profile-scoped management APIs; it does not switch proxy traffic or global sidecar management.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep dashboard routing visualization on the React Flow-backed `src/pages/dashboard/routing-diagram/` leaf; `@xyflow/react` CSS is imported once from `src/main.tsx`.
