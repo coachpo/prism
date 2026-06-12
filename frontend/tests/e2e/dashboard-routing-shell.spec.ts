@@ -366,6 +366,13 @@ async function tabUntilFocused(page: Page, locator: Locator, maxTabs = 40) {
   await expect(locator).toBeFocused();
 }
 
+async function expectNativeCheckboxFieldRow(checkbox: Locator) {
+  const field = checkbox.locator("xpath=ancestor::*[@data-slot='field'][1]");
+
+  await expect(field).toHaveAttribute("data-orientation", "horizontal");
+  await expect(field).not.toHaveClass(/(?:^|\s)(rounded-md|border|bg-background\/40|px-2|py-1\.5)(?:\s|$)/);
+}
+
 async function expectNoHorizontalOverflow(page: Page, locator: Locator) {
   const [pageRootDimensions, elementDimensions] = await Promise.all([
     page.evaluate(() => ({
@@ -673,6 +680,8 @@ test.describe("dashboard routing shell", () => {
 
     await expect(modelACheckbox).toBeChecked();
     await expect(disabledModelCheckbox).toBeChecked();
+    await expectNativeCheckboxFieldRow(modelACheckbox);
+    await expectNativeCheckboxFieldRow(disabledModelCheckbox);
     await expect(routingCard.getByTestId("routing-diagram-desktop")).toBeVisible();
     await expect(routingCard.getByTestId("routing-diagram-node-model-model-101")).toBeVisible();
     await expect(routingCard.getByTestId("routing-diagram-node-model-model-102")).toBeVisible();

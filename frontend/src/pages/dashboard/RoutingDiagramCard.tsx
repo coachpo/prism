@@ -266,7 +266,7 @@ function RoutingDiagramModelFilter({
             <Field
               key={option.id}
               orientation="horizontal"
-              className="w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-md border border-border/60 bg-background/40 px-2 py-1.5 [min-inline-size:0] sm:w-auto sm:flex-[1_1_9rem]"
+              className="w-full min-w-0 max-w-full overflow-hidden [min-inline-size:0] sm:w-auto sm:flex-[1_1_9rem]"
             >
               <Checkbox
                 id={inputId}
