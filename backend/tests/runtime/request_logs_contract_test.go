@@ -192,7 +192,7 @@ func TestRequestLogsDetailContractIncludesContextRoutingMetadata(t *testing.T) {
 		t.Fatalf("expected selected_terminal_target_id=34, got %+v", routing)
 	}
 	contextRouting := asMapRuntime(t, routing["context_routing"])
-	if contextRouting["policy"] != "cheapest_eligible_context" || contextRouting["estimation_method"] != "openai_chat_heuristic_v1" {
+	if contextRouting["policy"] != "cheapest_eligible_context" || contextRouting["estimation_method"] != "openai_chat_tokenizer_v1" {
 		t.Fatalf("expected context routing policy and estimation method, got %+v", contextRouting)
 	}
 	if got, ok := contextRouting["selected_endpoint_id"].(float64); !ok || int(got) != 12 {
@@ -318,7 +318,7 @@ func TestRequestLogsNoFitPlanningFailurePersistsContextRoutingMetadata(t *testin
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "request-logs-no-fit-public-" + suffix
+	publicModelID := "gpt-4o-request-logs-no-fit-public-" + suffix
 	strategyID := harness.seedLegacyStrategy(t, profileID, "request-logs-no-fit-"+suffix, "cheapest_eligible_context")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	smallEndpointID := harness.seedEndpoint(t, profileID, "request-logs-no-fit-small-"+suffix, harness.upstream.baseURL("/request-logs/no-fit/small"), "request-logs-no-fit-small-key", 0)
@@ -355,7 +355,7 @@ func TestRequestLogsNoFitPlanningFailurePersistsContextRoutingMetadata(t *testin
 		t.Fatalf("expected terminal_target_id=null for no-fit rejection detail, got %+v", routing)
 	}
 	contextRouting := asMapRuntime(t, routing["context_routing"])
-	if contextRouting["policy"] != "cheapest_eligible_context" || contextRouting["estimation_method"] != "openai_chat_heuristic_v1" {
+	if contextRouting["policy"] != "cheapest_eligible_context" || contextRouting["estimation_method"] != "openai_chat_tokenizer_v1" {
 		t.Fatalf("expected persisted no-fit context routing metadata, got %+v", contextRouting)
 	}
 	if got, ok := contextRouting["estimated_total_context_tokens"].(float64); !ok || int(got) <= 400 {
@@ -375,7 +375,7 @@ func TestRequestLogsFacadeSuccessDetailIncludesFacadeSelectionMetadata(t *testin
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	route := seedOpenAIFacadeRoute(t, harness, profileID, "request-logs-facade-success-public-"+suffix, []facadeTargetSeed{
+	route := seedOpenAIFacadeRoute(t, harness, profileID, "gpt-4o-request-logs-facade-success-public-"+suffix, []facadeTargetSeed{
 		{ModelID: "request-logs-facade-success-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/first"), EndpointAPIKey: "request-logs-facade-success-first-key", Weight: 1},
 		{ModelID: "request-logs-facade-success-blocked-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/blocked"), EndpointAPIKey: "request-logs-facade-success-blocked-key", Weight: 100},
 		{ModelID: "request-logs-facade-success-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/second"), EndpointAPIKey: "request-logs-facade-success-second-key", Weight: 1},
@@ -415,7 +415,7 @@ func TestRequestLogsFacadeNoFitPlanningFailureIncludesFacadeSelectionMetadata(t 
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "request-logs-facade-no-fit-public-" + suffix
+	publicModelID := "gpt-4o-request-logs-facade-no-fit-public-" + suffix
 	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
 		{ModelID: "request-logs-facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/small"), EndpointAPIKey: "request-logs-facade-no-fit-small-key", Weight: 1},
 		{ModelID: "request-logs-facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/large"), EndpointAPIKey: "request-logs-facade-no-fit-large-key", Weight: 1},
@@ -450,7 +450,7 @@ func TestRequestLogsFacadeNoEligiblePlanningFailureIncludesFacadeSelectionMetada
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "request-logs-facade-no-eligible-public-" + suffix
+	publicModelID := "gpt-4o-request-logs-facade-no-eligible-public-" + suffix
 	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
 		{ModelID: "request-logs-facade-no-eligible-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/first"), EndpointAPIKey: "request-logs-facade-no-eligible-first-key", Weight: 1},
 		{ModelID: "request-logs-facade-no-eligible-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/second"), EndpointAPIKey: "request-logs-facade-no-eligible-second-key", Weight: 1},
@@ -2985,7 +2985,7 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, vendor_id, vendor_key, vendor_name, resolved_target_model_id, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, reasoning_tokens, input_cost_micros, output_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_reasoning, cache_read_input_tokens, cache_creation_input_tokens, cache_read_input_cost_micros, cache_creation_input_cost_micros, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NULL, $24, $25, $26, $27, $28, $29, $30, $31, $32, NULL, NULL, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, NULL, $45, $46, $47, $48, $49, $50, $51, $52)`, 101, profileID, "gpt-4o", "openai", 1, "openai", "OpenAI", "gpt-4o-native", 12, 34, "ingress_req_42", 2, "req_upstream_abc123", "https://api.openai.com", 200, 1234, false, 15, 42, 57, true, true, true, 0, 500, 750, 0, 1250, 1250, "USD", "USD", "$", "1M tokens", "2.500000", "10.000000", "0.000000", 0, 0, 0, 0, "1.250000", "0.000000", 1, "/v1/chat/completions", "Primary production key", createdAt, "codex/1.0", "OpenAI/Python 1.0", 914, 320, false, false); err != nil {
 		t.Fatalf("seed fixture request log: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET operation_name = 'openai.chat_completions', upstream_operation_name = 'openai.chat_completions', operation_translation_mode = 'none', upstream_request_path = '/v1/chat/completions', request_generation_params = $1::jsonb, request_generation_params_status = 'complete', selected_terminal_target_id = 34, context_routing = $2::jsonb WHERE profile_id = $3 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, `{"policy":"cheapest_eligible_context","selected_terminal_target_id":34,"selected_endpoint_id":12,"selected_context_band":"preferred","selected_usable_context_window_tokens":8192,"estimation_method":"openai_chat_heuristic_v1","estimated_input_tokens":15,"reserved_output_tokens":1024,"estimated_total_context_tokens":1039,"usable_context_window_tokens":8192,"cost_ranking_method":"estimated_blended_request_cost_then_access_target_position_then_terminal_target_id","skipped_terminal_targets":[{"terminal_target_id":35,"endpoint_id":13,"context_band":"ineligible","reason":"estimated_context_exceeds_usable_window","usable_context_window_tokens":512,"estimated_total_context_tokens":1039}],"context_overflow_promotion":{"trigger_status":400,"trigger_error_code":"context_length_exceeded","trigger_classifier":"context_length_exceeded","estimation_mode":"preflight_estimated","from_resolved_target_model_id":"gpt-4o","from_selected_terminal_target_id":22,"to_resolved_target_model_id":"gpt-4o-native","to_selected_terminal_target_id":34,"from_usable_context_window_tokens":4096,"to_usable_context_window_tokens":8192,"source_attempt_count":1,"final_attempt_count":2,"result":"promoted_success"}}`, profileID); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET operation_name = 'openai.chat_completions', upstream_operation_name = 'openai.chat_completions', operation_translation_mode = 'none', upstream_request_path = '/v1/chat/completions', request_generation_params = $1::jsonb, request_generation_params_status = 'complete', selected_terminal_target_id = 34, context_routing = $2::jsonb WHERE profile_id = $3 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, `{"policy":"cheapest_eligible_context","selected_terminal_target_id":34,"selected_endpoint_id":12,"selected_context_band":"preferred","selected_usable_context_window_tokens":8192,"estimation_method":"openai_chat_tokenizer_v1","estimated_input_tokens":15,"reserved_output_tokens":1024,"estimated_total_context_tokens":1039,"usable_context_window_tokens":8192,"cost_ranking_method":"estimated_blended_request_cost_then_access_target_position_then_terminal_target_id","skipped_terminal_targets":[{"terminal_target_id":35,"endpoint_id":13,"context_band":"ineligible","reason":"estimated_context_exceeds_usable_window","usable_context_window_tokens":512,"estimated_total_context_tokens":1039}],"context_overflow_promotion":{"trigger_status":400,"trigger_error_code":"context_length_exceeded","trigger_classifier":"context_length_exceeded","estimation_mode":"preflight_estimated","from_resolved_target_model_id":"gpt-4o","from_selected_terminal_target_id":22,"to_resolved_target_model_id":"gpt-4o-native","to_selected_terminal_target_id":34,"from_usable_context_window_tokens":4096,"to_usable_context_window_tokens":8192,"source_attempt_count":1,"final_attempt_count":2,"result":"promoted_success"}}`, profileID); err != nil {
 		t.Fatalf("seed fixture request generation params: %v", err)
 	}
 }

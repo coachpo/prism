@@ -3,10 +3,15 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/tiktoken-go/tokenizer"
 )
 
 func TestRequestGenerationParamsByOperation(t *testing.T) {
@@ -39,9 +44,40 @@ func TestRequestGenerationParamsByOperation(t *testing.T) {
 	}
 }
 
-func TestEstimateOpenAIChatCompletionsRequestTokens(t *testing.T) {
+func TestOpenAIChatTokenizerDependencyLoadsOfflineModelsAndEncodings(t *testing.T) {
+	roundTripper := &tokenizerNetworkBlocker{}
+	oldTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripper
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	for _, encoding := range []tokenizer.Encoding{tokenizer.O200kBase, tokenizer.Cl100kBase} {
+		codec, err := tokenizer.Get(encoding)
+		if err != nil {
+			t.Fatalf("load encoding %s: %v", encoding, err)
+		}
+		if count, err := codec.Count("offline tokenizer smoke"); err != nil || count <= 0 {
+			t.Fatalf("expected %s to count offline, count=%d err=%v", encoding, count, err)
+		}
+	}
+	modelEncodings := map[string]string{"gpt-5": "o200k_base", "gpt-5-2025-08-07": "o200k_base", "gpt-4.1": "o200k_base", "gpt-4.1-2025-04-14": "o200k_base", "gpt-4o": "o200k_base", "gpt-4o-2024-08-06": "o200k_base", "gpt-4": "cl100k_base"}
+	for modelID, wantEncoding := range modelEncodings {
+		codec, err := openAIChatTokenizerForModel(modelID)
+		if err != nil {
+			t.Fatalf("load tokenizer for %s: %v", modelID, err)
+		}
+		if codec.GetName() != wantEncoding {
+			t.Fatalf("expected %s to use %s, got %s", modelID, wantEncoding, codec.GetName())
+		}
+	}
+	if calls := roundTripper.calls.Load(); calls != 0 {
+		t.Fatalf("expected tokenizer construction/counting to avoid runtime network fetches, got %d HTTP calls", calls)
+	}
+}
+
+func TestOpenAIChatTokenizerCountsMessagesToolsAndResponseFormat(t *testing.T) {
 	contextWindowTokens := 10_000
-	estimation, err := estimateOpenAIChatCompletionsRequestTokens([]byte(`{"model":"gpt-4o","messages":[{"role":"system","content":"You are terse."},{"role":"user","content":[{"type":"text","text":"Summarize this request."}]}],"response_format":{"type":"json_schema","json_schema":{"name":"summary","schema":{"type":"object"}}},"max_completion_tokens":512}`), requestContextEstimationOptions{ContextWindowTokens: &contextWindowTokens})
+	rawBody := []byte(`{"model":"gpt-4o","messages":[{"role":"system","content":"You are terse."},{"role":"user","name":"tester","content":[{"type":"text","text":"Summarize this request."}]},{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"summarize","arguments":"{\"topic\":\"routing\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"done"}],"tools":[{"type":"function","function":{"name":"summarize","parameters":{"type":"object","properties":{"topic":{"type":"string"}}}}}],"tool_choice":{"type":"function","function":{"name":"summarize"}},"response_format":{"type":"json_schema","json_schema":{"name":"summary","schema":{"type":"object"}}},"max_completion_tokens":512}`)
+	estimation, err := estimateOpenAIChatCompletionsRequestTokens(rawBody, requestContextEstimationOptions{ModelID: "gpt-4o", ContextWindowTokens: &contextWindowTokens})
 	if err != nil {
 		t.Fatalf("estimate chat request tokens: %v", err)
 	}
@@ -63,6 +99,64 @@ func TestEstimateOpenAIChatCompletionsRequestTokens(t *testing.T) {
 	if estimation.EstimatedTotalContextTokens != estimation.EstimatedInputTokens+512 {
 		t.Fatalf("expected chat total context to include explicit reserve, got %+v", estimation)
 	}
+}
+
+func TestOpenAIChatTokenizerUnknownModelUnavailableForStreamingPromotion(t *testing.T) {
+	_, err := estimateOpenAIChatCompletionsRequestTokens([]byte(`{"model":"gpt-unknown-future","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":32}`), requestContextEstimationOptions{ModelID: "gpt-unknown-future"})
+	if !isContextEstimationUnavailableError(err) {
+		t.Fatalf("expected unknown model estimation unavailable, got %v", err)
+	}
+}
+
+func TestOpenAIChatTokenizerUnsupportedShapesUnavailable(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "image content part", body: `{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}]}]}`},
+		{name: "unsafe tool type", body: `{"model":"gpt-4o","messages":[{"role":"user","content":"search"}],"tools":[{"type":"web_search_preview"}]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := estimateOpenAIChatCompletionsRequestTokens([]byte(test.body), requestContextEstimationOptions{ModelID: "gpt-4o"})
+			if !isContextEstimationUnavailableError(err) {
+				t.Fatalf("expected estimation unavailable, got %v", err)
+			}
+		})
+	}
+}
+
+func TestOpenAIChatTokenizerReservedOutputOrder(t *testing.T) {
+	baseBody := `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]%s}`
+	tests := []struct {
+		name           string
+		suffix         string
+		defaultReserve *int
+		wantReserve    int
+	}{
+		{name: "max completion wins", suffix: `,"max_completion_tokens":111,"max_tokens":222`, defaultReserve: intPtr(333), wantReserve: 111},
+		{name: "max tokens second", suffix: `,"max_tokens":222`, defaultReserve: intPtr(333), wantReserve: 222},
+		{name: "model default third", suffix: ``, defaultReserve: intPtr(333), wantReserve: 333},
+		{name: "hard fallback last", suffix: ``, wantReserve: defaultOutputTokenReserve},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			estimation, err := estimateOpenAIChatCompletionsRequestTokens([]byte(fmt.Sprintf(baseBody, test.suffix)), requestContextEstimationOptions{ModelID: "gpt-4o", DefaultOutputTokenReserve: test.defaultReserve})
+			if err != nil {
+				t.Fatalf("estimate chat request tokens: %v", err)
+			}
+			if estimation.ReservedOutputTokens != test.wantReserve {
+				t.Fatalf("expected reserve %d, got %+v", test.wantReserve, estimation)
+			}
+		})
+	}
+}
+
+type tokenizerNetworkBlocker struct{ calls atomic.Int64 }
+
+func (blocker *tokenizerNetworkBlocker) RoundTrip(*http.Request) (*http.Response, error) {
+	blocker.calls.Add(1)
+	return nil, errors.New("tokenizer test blocked runtime HTTP fetch")
 }
 
 func TestEstimateOpenAIResponsesRequestTokens(t *testing.T) {

@@ -42,8 +42,8 @@ func TestRuntimePlannerUsesCompiledPlanForRequestedModel(t *testing.T) {
 		{
 			name: "requested-model cheapest eligible context selection",
 			snapshot: func() *planningSnapshot {
-				snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "planner-cheap-openai"})
-				model := snapshot.ModelsByID["planner-cheap-openai"]
+				snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-planner-cheap-openai"})
+				model := snapshot.ModelsByID["gpt-4o-planner-cheap-openai"]
 				setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 				snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 				contextWindowTokens := 20_000
@@ -61,7 +61,7 @@ func TestRuntimePlannerUsesCompiledPlanForRequestedModel(t *testing.T) {
 				return snapshot
 			},
 			path:    "/v1/chat/completions",
-			rawBody: []byte(`{"model":"planner-cheap-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`),
+			rawBody: []byte(`{"model":"gpt-4o-planner-cheap-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`),
 			assert: func(t *testing.T, plan requestPlan) {
 				attempts := plan.orderedTerminalAttempts()
 				if len(attempts) == 0 || attempts[0].Connection.ID != 2_802 {

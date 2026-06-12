@@ -484,6 +484,10 @@ func (s *Service) handlePlannedProxy(w http.ResponseWriter, r *http.Request, pla
 		executionPlan = preselectedPlan
 		executionBodySource = newBufferedRuntimeRequestBodySource(plan.RawRequestBody)
 	}
+	if promotedPlan, ok := s.tryChatStreamingPreDispatchContextOverflowPromotion(r, executionPlan); ok {
+		executionPlan = promotedPlan
+		executionBodySource = newBufferedRuntimeRequestBodySource(promotedPlan.UpstreamBody)
+	}
 	execution, err := s.executeRequest(r.Context(), r.Method, executionPlan, r.URL.RawQuery, executionBodySource)
 	if err != nil {
 		s.recordRuntimeExecutionFailure(executionPlan, execution, r, startedAt, err)
@@ -568,6 +572,65 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			proxyWriter.Commit()
 			return
 		}
+	}
+	if planAllowsResponsesStreamingPreCommitProviderOverflowPromotion(plan) {
+		sourceRawBody, err := readAndCloseRuntimeResponseBody(execution.Response)
+		if err != nil {
+			runtimeTraceMarkError(responseSpan, "response_handle_failed")
+			if translationMode != "" && translationMode != TranslationModeNone {
+				writeDomainError(w, openAITranslatedUpstreamResponseReadFailedDomainError(plan.RuntimeOperation, translationMode))
+				return
+			}
+			writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
+			return
+		}
+		sourceClassification := classifyCLIProxyAPIOverflowResponse(execution.Response.StatusCode, sourceRawBody, translationMode)
+		if promotedPlan, promotedExecution, promotedErr, promoted := s.tryResponsesStreamingPreCommitContextOverflowPromotion(r, plan, execution, sourceClassification); promoted {
+			if promotedErr != nil {
+				var domainErr *domainError
+				if errors.As(promotedErr, &domainErr) && domainErr != nil {
+					runtimeTraceSetStatusCode(responseSpan, domainErr.StatusCode)
+					writeDomainError(w, promotedErr)
+					return
+				}
+				runtimeTraceMarkError(responseSpan, "response_handle_failed")
+				writeError(w, http.StatusBadGateway, "", "Failed to replay promoted upstream response", nil)
+				return
+			}
+			finalPlan := mergeContextOverflowPromotedPlan(plan, promotedPlan, execution, promotedExecution, sourceClassification)
+			finalExecution := mergeContextOverflowPromotedExecution(execution, promotedExecution)
+			runtimeTraceSetStatusCode(responseSpan, finalExecution.Response.StatusCode)
+			if promotedExecution.Response != nil && promotedExecution.Response.Body != nil {
+				defer func() { _ = promotedExecution.Response.Body.Close() }()
+			}
+			s.writeProxyResponse(w, r, finalPlan, finalExecution, startedAt)
+			return
+		}
+		responseCapture, err = s.writeBufferedNonStreamResponse(proxyWriter, plan, execution, sourceRawBody)
+		if err != nil {
+			runtimeTraceMarkError(responseSpan, "response_handle_failed")
+			var domainErr *domainError
+			if errors.As(err, &domainErr) && domainErr != nil {
+				writeTranslatedOpenAIError(w, err, "Failed to translate upstream response")
+				return
+			}
+			if !proxyWriter.Committed() {
+				writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
+			}
+			return
+		}
+		runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
+		if s.runtimeResponseRequiresDurableHandoff(execution) {
+			if err := s.enqueueRuntimeActivityBeforeResponse(plan, execution, r, startedAt, responseCapture); err != nil {
+				runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
+				writeRuntimeObservabilityHandoffError(w)
+				return
+			}
+		} else {
+			s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
+		}
+		proxyWriter.Commit()
+		return
 	}
 	if !nonStreamResponseRequiresBufferedInspection(execution.Response.StatusCode, translationMode) {
 		copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
@@ -766,6 +829,45 @@ func planAllowsContextOverflowPromotion(plan requestPlan) bool {
 	}
 }
 
+func planAllowsResponsesStreamingPreCommitProviderOverflowPromotion(plan requestPlan) bool {
+	if !plan.IsStreamingRequest || len(plan.RawRequestBody) == 0 || plan.ContextOverflowPromotionPreselected {
+		return false
+	}
+	if strings.TrimSpace(plan.RuntimeOperation.Name) != openAIUpstreamOperationResponses {
+		return false
+	}
+	return plan.ContextRouting == nil || plan.ContextRouting.ContextOverflowPromotion == nil
+}
+
+func planAllowsChatStreamingPreDispatchContextOverflowPromotion(plan requestPlan) bool {
+	if !plan.IsStreamingRequest || len(plan.RawRequestBody) == 0 || plan.ContextOverflowPromotionPreselected {
+		return false
+	}
+	if strings.TrimSpace(plan.RuntimeOperation.Name) != openAIUpstreamOperationChatCompletions {
+		return false
+	}
+	return plan.ContextRouting == nil || plan.ContextRouting.ContextOverflowPromotion == nil
+}
+
+func selectedUsableContextWindowTokensForPlan(plan requestPlan) int {
+	if plan.ContextRouting != nil {
+		if plan.ContextRouting.SelectedUsableContextWindowTokens != nil && *plan.ContextRouting.SelectedUsableContextWindowTokens > 0 {
+			return *plan.ContextRouting.SelectedUsableContextWindowTokens
+		}
+		if plan.ContextRouting.UsableContextWindowTokens != nil && *plan.ContextRouting.UsableContextWindowTokens > 0 {
+			return *plan.ContextRouting.UsableContextWindowTokens
+		}
+	}
+	attempts := plan.orderedTerminalAttempts()
+	if len(attempts) > 0 {
+		return usableContextWindowTokensForConnection(attempts[0].Connection)
+	}
+	if plan.RequestContextEstimation != nil && plan.RequestContextEstimation.UsableContextWindowTokens != nil && *plan.RequestContextEstimation.UsableContextWindowTokens > 0 {
+		return *plan.RequestContextEstimation.UsableContextWindowTokens
+	}
+	return 0
+}
+
 func contextOverflowPromotionPlannedSourceModelID(plan requestPlan) string {
 	return contextOverflowPromotionSourceModelID(plan, executionResult{})
 }
@@ -839,6 +941,55 @@ func (s *Service) preselectOverflowAffinityPromotionPlanForSnapshot(request *htt
 	}
 	affinityMetadata := buildRuntimeContextOverflowAffinityDecision(runtimeContextOverflowAffinityStateAccepted, entry, nil)
 	return mergeContextOverflowPreselectedPlan(sourcePlan, promotedPlan, affinityMetadata), true
+}
+
+func (s *Service) tryChatStreamingPreDispatchContextOverflowPromotion(request *http.Request, sourcePlan requestPlan) (requestPlan, bool) {
+	if s == nil || s.cache == nil || !planAllowsChatStreamingPreDispatchContextOverflowPromotion(sourcePlan) {
+		return requestPlan{}, false
+	}
+	estimation := sourcePlan.RequestContextEstimation
+	if estimation == nil {
+		return requestPlan{}, false
+	}
+	sourceUsableContextWindowTokens := selectedUsableContextWindowTokensForPlan(sourcePlan)
+	if sourceUsableContextWindowTokens <= 0 || estimation.fitsUsableContextWindowTokens(sourceUsableContextWindowTokens) {
+		return requestPlan{}, false
+	}
+	sourceModelID := contextOverflowPromotionPlannedSourceModelID(sourcePlan)
+	if sourceModelID == "" {
+		return requestPlan{}, false
+	}
+	activeProfile, snapshot, err := s.cache.LoadFreshActiveRuntimePlan(request.Context())
+	if err != nil || snapshot == nil || activeProfile.ID != sourcePlan.ProfileID {
+		return requestPlan{}, false
+	}
+	sourceModel, found := snapshot.ModelsByID[sourceModelID]
+	if !found || sourceModel.ContextOverflowPromotionTargetID == nil {
+		return requestPlan{}, false
+	}
+	promotionTargetModelID := strings.TrimSpace(*sourceModel.ContextOverflowPromotionTargetID)
+	if promotionTargetModelID == "" || promotionTargetModelID == sourceModelID {
+		return requestPlan{}, false
+	}
+	if _, found := snapshot.ModelsByID[promotionTargetModelID]; !found {
+		return requestPlan{}, false
+	}
+	promotedPlan, err := s.buildExplicitTargetRequestPlan(request, sourcePlan.RawRequestBody, s.runtimeProxyConfigSnapshot(), activeProfile.ID, snapshot, promotionTargetModelID)
+	if err != nil {
+		return requestPlan{}, false
+	}
+	promotedUsableContextWindowTokens := selectedUsableContextWindowTokensForPlan(promotedPlan)
+	if !estimation.fitsUsableContextWindowTokens(promotedUsableContextWindowTokens) {
+		return requestPlan{}, false
+	}
+	if resolvedTargetModelID := strings.TrimSpace(dereferenceString(promotedPlan.ResolvedTargetModelID)); resolvedTargetModelID == "" || resolvedTargetModelID == sourceModelID {
+		return requestPlan{}, false
+	}
+	sourceSelectedTerminalTargetID := sourcePlan.selectedTerminalTargetID()
+	if promotedSelectedTerminalTargetID := promotedPlan.selectedTerminalTargetID(); promotedSelectedTerminalTargetID != nil && sourceSelectedTerminalTargetID != nil && *promotedSelectedTerminalTargetID == *sourceSelectedTerminalTargetID {
+		return requestPlan{}, false
+	}
+	return mergeChatStreamingPreDispatchContextOverflowPromotedPlan(sourcePlan, promotedPlan, sourceUsableContextWindowTokens, promotedUsableContextWindowTokens), true
 }
 
 func overflowAffinityCacheEntryMatchesPlan(entry overflowAffinityCacheEntry, sourceModelID string, sourceSelectedTerminalTargetID *int, promotionTargetModelID string, generationToken string, contextBucket string) bool {
@@ -1007,11 +1158,20 @@ func buildContextOverflowPromotionDecision(sourcePlan requestPlan, sourceExecuti
 	finalAttemptCount := sourceAttemptCount + runtimeContextOverflowPromotionAttemptCount(promotedExecution)
 	promotion := &runtimeContextOverflowPromotionDecision{
 		TriggerStatus:      sourceExecution.Response.StatusCode,
+		TriggerPhase:       runtimeContextOverflowPromotionTriggerPhaseProviderOverflow,
 		TriggerClassifier:  strings.TrimSpace(classification.Classifier),
 		EstimationMode:     contextOverflowPromotionEstimationMode(sourcePlan),
 		SourceAttemptCount: sourceAttemptCount,
 		FinalAttemptCount:  finalAttemptCount,
 		Result:             runtimeContextOverflowPromotionResultPromotedSuccess,
+	}
+	if estimation := sourcePlan.RequestContextEstimation; estimation != nil {
+		if method := strings.TrimSpace(estimation.Method); method != "" {
+			promotion.EstimationMethod = stringPtr(method)
+		}
+		promotion.EstimatedInputTokens = intPtr(estimation.EstimatedInputTokens)
+		promotion.ReservedOutputTokens = intPtr(estimation.ReservedOutputTokens)
+		promotion.EstimatedTotalContextTokens = intPtr(estimation.EstimatedTotalContextTokens)
 	}
 	if code := strings.TrimSpace(classification.ErrorCode); code != "" {
 		promotion.TriggerErrorCode = stringPtr(code)
@@ -1035,6 +1195,76 @@ func buildContextOverflowPromotionDecision(sourcePlan requestPlan, sourceExecuti
 	promotion.FromUsableContextWindowTokens = runtimeContextOverflowPromotionUsableContextWindowTokens(sourcePlan.ContextRouting)
 	promotion.ToUsableContextWindowTokens = runtimeContextOverflowPromotionUsableContextWindowTokens(promotedPlan.ContextRouting)
 	return promotion
+}
+
+func buildChatStreamingPreDispatchContextOverflowPromotionDecision(sourcePlan requestPlan, promotedPlan requestPlan, sourceUsableContextWindowTokens int, promotedUsableContextWindowTokens int) *runtimeContextOverflowPromotionDecision {
+	estimation := sourcePlan.RequestContextEstimation
+	if estimation == nil {
+		return nil
+	}
+	promotion := &runtimeContextOverflowPromotionDecision{
+		TriggerPhase:       runtimeContextOverflowPromotionTriggerPhasePreDispatchEstimate,
+		TriggerClassifier:  runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow,
+		EstimationMode:     runtimeContextOverflowPromotionEstimationModeEstimated,
+		SourceAttemptCount: 0,
+		FinalAttemptCount:  1,
+		Result:             runtimeContextOverflowPromotionResultPromotedSuccess,
+	}
+	if method := strings.TrimSpace(estimation.Method); method != "" {
+		promotion.EstimationMethod = stringPtr(method)
+	}
+	promotion.EstimatedInputTokens = intPtr(estimation.EstimatedInputTokens)
+	promotion.ReservedOutputTokens = intPtr(estimation.ReservedOutputTokens)
+	promotion.EstimatedTotalContextTokens = intPtr(estimation.EstimatedTotalContextTokens)
+	if sourceResolvedTargetModelID := strings.TrimSpace(contextOverflowPromotionPlannedSourceModelID(sourcePlan)); sourceResolvedTargetModelID != "" {
+		promotion.FromResolvedTargetModelID = stringPtr(sourceResolvedTargetModelID)
+	}
+	if sourceSelectedTerminalTargetID := sourcePlan.selectedTerminalTargetID(); sourceSelectedTerminalTargetID != nil {
+		promotion.FromSelectedTerminalTargetID = cloneRuntimeIntPointer(sourceSelectedTerminalTargetID)
+	}
+	if promotedResolvedTargetModelID := strings.TrimSpace(dereferenceString(promotedPlan.ResolvedTargetModelID)); promotedResolvedTargetModelID != "" {
+		promotion.ToResolvedTargetModelID = stringPtr(promotedResolvedTargetModelID)
+	}
+	if promotedSelectedTerminalTargetID := promotedPlan.selectedTerminalTargetID(); promotedSelectedTerminalTargetID != nil {
+		promotion.ToSelectedTerminalTargetID = cloneRuntimeIntPointer(promotedSelectedTerminalTargetID)
+	}
+	if sourceUsableContextWindowTokens > 0 {
+		promotion.FromUsableContextWindowTokens = intPtr(sourceUsableContextWindowTokens)
+	}
+	if promotedUsableContextWindowTokens > 0 {
+		promotion.ToUsableContextWindowTokens = intPtr(promotedUsableContextWindowTokens)
+	}
+	return promotion
+}
+
+func mergeChatStreamingPreDispatchContextOverflowPromotedPlan(sourcePlan requestPlan, promotedPlan requestPlan, sourceUsableContextWindowTokens int, promotedUsableContextWindowTokens int) requestPlan {
+	merged := promotedPlan
+	merged.RequestedModelID = sourcePlan.RequestedModelID
+	merged.RequestedVendorID = sourcePlan.RequestedVendorID
+	merged.RequestedVendorKey = sourcePlan.RequestedVendorKey
+	merged.RequestedVendorName = sourcePlan.RequestedVendorName
+	merged.ProfileID = sourcePlan.ProfileID
+	merged.APIFamily = sourcePlan.APIFamily
+	merged.RuntimeOperation = sourcePlan.RuntimeOperation
+	merged.RuntimeOperationPathParams = cloneStringMap(sourcePlan.RuntimeOperationPathParams)
+	merged.RawRequestBody = append([]byte(nil), sourcePlan.RawRequestBody...)
+	merged.ReportCurrencySnapshot = sourcePlan.ReportCurrencySnapshot
+	merged.ClientHeaders = cloneStringMap(sourcePlan.ClientHeaders)
+	merged.RequestGenerationParams = sourcePlan.RequestGenerationParamsSnapshot()
+	merged.RequestContextEstimation = sourcePlan.RequestContextEstimation
+	baseContextRouting := sourcePlan.ContextRouting
+	if baseContextRouting == nil {
+		baseContextRouting = promotedPlan.ContextRouting
+	}
+	if baseContextRouting == nil {
+		baseContextRouting = &runtimeContextRoutingDecision{Policy: runtimeContextRoutingPolicyName(sourcePlan.Strategy)}
+	}
+	promotion := buildChatStreamingPreDispatchContextOverflowPromotionDecision(sourcePlan, promotedPlan, sourceUsableContextWindowTokens, promotedUsableContextWindowTokens)
+	merged.ContextRouting = attachRuntimeContextOverflowPromotionDecision(baseContextRouting, promotion)
+	merged.ContextRouting = runtimeContextRoutingWithRouteReason(merged.ContextRouting, gatewaycore.RouteReasonContextOverflowPreflight, runtimeContextRoutingPolicyName(sourcePlan.Strategy))
+	merged.SelectedTerminalTargetID = cloneRuntimeIntPointer(sourcePlan.SelectedTerminalTargetID)
+	merged.ContextOverflowPromotionPreselected = true
+	return merged
 }
 
 func mergeContextOverflowPromotedPlan(sourcePlan requestPlan, promotedPlan requestPlan, sourceExecution executionResult, promotedExecution executionResult, classification cliProxyAPIOverflowClassification) requestPlan {
@@ -1141,7 +1371,21 @@ func (s *Service) buildContextOverflowPromotionPlan(request *http.Request, sourc
 }
 
 func (s *Service) tryContextOverflowPromotion(request *http.Request, sourcePlan requestPlan, execution executionResult, classification cliProxyAPIOverflowClassification) (requestPlan, executionResult, error, bool) {
-	if !classification.Promotable || !planAllowsContextOverflowPromotion(sourcePlan) {
+	if !planAllowsContextOverflowPromotion(sourcePlan) {
+		return requestPlan{}, executionResult{}, nil, false
+	}
+	return s.tryEligibleContextOverflowPromotion(request, sourcePlan, execution, classification)
+}
+
+func (s *Service) tryResponsesStreamingPreCommitContextOverflowPromotion(request *http.Request, sourcePlan requestPlan, execution executionResult, classification cliProxyAPIOverflowClassification) (requestPlan, executionResult, error, bool) {
+	if !planAllowsResponsesStreamingPreCommitProviderOverflowPromotion(sourcePlan) {
+		return requestPlan{}, executionResult{}, nil, false
+	}
+	return s.tryEligibleContextOverflowPromotion(request, sourcePlan, execution, classification)
+}
+
+func (s *Service) tryEligibleContextOverflowPromotion(request *http.Request, sourcePlan requestPlan, execution executionResult, classification cliProxyAPIOverflowClassification) (requestPlan, executionResult, error, bool) {
+	if !classification.Promotable {
 		return requestPlan{}, executionResult{}, nil, false
 	}
 	promotedPlan, err := s.buildContextOverflowPromotionPlan(request, sourcePlan, execution)

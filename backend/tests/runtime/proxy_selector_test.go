@@ -19,7 +19,7 @@ func TestRuntimeCheapestEligibleContextNoFitReturns413WithoutUpstreamAttemptOrBa
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "cheapest-no-fit-public-" + suffix
+	publicModelID := "gpt-5-cheapest-no-fit-public-" + suffix
 	strategyID := harness.seedLegacyStrategy(t, profileID, "cheapest-no-fit-"+suffix, "cheapest_eligible_context")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	smallEndpointID := harness.seedEndpoint(t, profileID, "cheapest-no-fit-small-"+suffix, harness.upstream.baseURL("/cheapest/no-fit/small"), "cheapest-no-fit-small-key", 0)
@@ -150,7 +150,7 @@ func TestContextWindowExceededNoFitStillReturns413(t *testing.T) {
 			harness := test.factory(t)
 			profileID := harness.activeProfileID(t)
 			suffix := randomSuffix()
-			publicModelID := "context-window-exceeded-public-" + suffix
+			publicModelID := "gpt-5-context-window-exceeded-public-" + suffix
 			strategyID := harness.seedLegacyStrategy(t, profileID, "context-window-exceeded-"+suffix, "cheapest_eligible_context")
 			publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 			smallEndpointID := harness.seedEndpoint(t, profileID, "context-window-exceeded-small-"+suffix, harness.upstream.baseURL("/context-window-exceeded/small"), "context-window-exceeded-small-key", 0)
@@ -206,11 +206,11 @@ func TestRuntimeCheapestEligibleContextSelectsLargerNestedTerminalBeforeUpstream
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "cheapest-nested-public-" + suffix
-	childModelID := "cheapest-nested-child-" + suffix
+	publicModelID := "gpt-5-cheapest-nested-public-" + suffix
+	childModelID := "gpt-5-cheapest-nested-child-" + suffix
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
-	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "cheapest-nested-public-"+suffix, "cheapest_eligible_context")
-	childStrategyID := harness.seedLegacyStrategy(t, profileID, "cheapest-nested-child-"+suffix, "fill-first")
+	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "gpt-5-cheapest-nested-public-"+suffix, "cheapest_eligible_context")
+	childStrategyID := harness.seedLegacyStrategy(t, profileID, "gpt-5-cheapest-nested-child-"+suffix, "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &publicStrategyID)
 	childModelConfigID := harness.seedModel(t, profileID, "openai", childModelID, "native", &childStrategyID)
 	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, childModelConfigID, 0, 1, 0)
@@ -293,7 +293,7 @@ func TestFacadeWeightedEligibleContextNoContextFitReturns413WithoutUpstreamAttem
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "facade-no-fit-public-" + suffix
+	publicModelID := "gpt-5-facade-no-fit-public-" + suffix
 	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
 		{ModelID: "facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/small"), EndpointAPIKey: "facade-no-fit-small-key", Weight: 1},
 		{ModelID: "facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/large"), EndpointAPIKey: "facade-no-fit-large-key", Weight: 1},
@@ -433,7 +433,7 @@ func TestProxySelectorPreferredContextPreferredBandWinsOverCheaperDiscretionaryT
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "proxy-selector-preferred-band-public-" + suffix
+	publicModelID := "gpt-5-proxy-selector-preferred-band-public-" + suffix
 	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-preferred-band-"+suffix, "cheapest_eligible_context")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	preferredEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-preferred-band-preferred-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/preferred"), "proxy-selector-preferred-band-preferred-key", 0)
@@ -464,7 +464,7 @@ func TestProxySelectorPreferredContextFallsBackToDiscretionaryWhenNoPreferredCan
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "proxy-selector-discretionary-fallback-public-" + suffix
+	publicModelID := "gpt-5-proxy-selector-discretionary-fallback-public-" + suffix
 	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-discretionary-fallback-"+suffix, "cheapest_eligible_context")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	expensiveEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-discretionary-fallback-expensive-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/fallback-expensive"), "proxy-selector-discretionary-fallback-expensive-key", 0)

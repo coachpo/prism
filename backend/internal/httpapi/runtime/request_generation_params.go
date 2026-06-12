@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/tiktoken-go/tokenizer"
 )
 
 const (
@@ -187,12 +189,15 @@ func (snapshot requestGenerationParamsSnapshot) clone() requestGenerationParamsS
 }
 
 const (
-	openAIChatContextEstimationMethod      = "openai_chat_heuristic_v1"
+	openAIChatContextEstimationMethod      = "openai_chat_tokenizer_v1"
 	openAIResponsesContextEstimationMethod = "openai_responses_heuristic_v1"
 	contextEstimationUnavailableErrorCode  = "context_estimation_unavailable"
 	contextEstimationUnavailableDetail     = "Preflight context estimation is unavailable for this request shape."
 	defaultOutputTokenReserve              = 4096
 	defaultMaxContextUtilization           = 0.90
+	openAIChatTokensPerMessage             = 3
+	openAIChatTokensPerName                = 1
+	openAIChatReplyPrimingTokens           = 3
 )
 
 type requestContextEstimation struct {
@@ -204,6 +209,7 @@ type requestContextEstimation struct {
 }
 
 type requestContextEstimationOptions struct {
+	ModelID                   string
 	DefaultOutputTokenReserve *int
 	ContextWindowTokens       *int
 	MaxContextUtilization     *float64
@@ -211,6 +217,7 @@ type requestContextEstimationOptions struct {
 
 func estimatePreflightRequestContext(operation RuntimeOperation, rawBody []byte, requestedModel runtimeModelRecord) (*requestContextEstimation, error) {
 	options := requestContextEstimationOptions{
+		ModelID:                   requestedModel.ModelID,
 		DefaultOutputTokenReserve: requestedModel.DefaultOutputTokenReserve,
 		ContextWindowTokens:       requestedModel.ContextWindowTokens,
 		MaxContextUtilization:     requestedModel.MaxContextUtilization,
@@ -230,18 +237,172 @@ func estimateOpenAIChatCompletionsRequestTokens(rawBody []byte, options requestC
 	if err != nil {
 		return nil, err
 	}
+	modelID := strings.TrimSpace(options.ModelID)
+	if modelID == "" {
+		modelID = strings.TrimSpace(stringValue(payload["model"]))
+	}
+	codec, err := openAIChatTokenizerForModel(modelID)
+	if err != nil {
+		return nil, err
+	}
 	if err := validateOpenAIChatMessagesShape(payload["messages"]); err != nil {
 		return nil, err
 	}
-	if err := validateOpenAIToolsShape(payload["tools"]); err != nil {
+	if err := validateOpenAIChatToolsShape(payload["tools"]); err != nil {
 		return nil, err
 	}
 	params := &requestGenerationParams{Provider: "openai"}
 	extractOpenAIChatGenerationParams(payload, params)
-	estimatedInputTokens := heuristicTokensForSerializedValue(payload["messages"])
-	estimatedInputTokens += heuristicTokensForSerializedValue(payload["tools"])
-	estimatedInputTokens += heuristicTokensForSerializedValue(payload["response_format"])
+	estimatedInputTokens, err := estimateOpenAIChatTokenizerInputTokens(payload, codec)
+	if err != nil {
+		return nil, err
+	}
 	return buildRequestContextEstimation(openAIChatContextEstimationMethod, estimatedInputTokens, params.MaxOutputTokens, options), nil
+}
+
+func openAIChatTokenizerForModel(modelID string) (tokenizer.Codec, error) {
+	normalized := strings.ToLower(strings.TrimSpace(modelID))
+	if normalized == "" {
+		return nil, contextEstimationUnavailableDomainError()
+	}
+	if normalized == "gpt-5" || strings.HasPrefix(normalized, "gpt-5-") {
+		codec, err := tokenizer.Get(tokenizer.O200kBase)
+		if err != nil {
+			return nil, contextEstimationUnavailableDomainError()
+		}
+		return codec, nil
+	}
+	codec, err := tokenizer.ForModel(tokenizer.Model(normalized))
+	if err != nil {
+		return nil, contextEstimationUnavailableDomainError()
+	}
+	return codec, nil
+}
+
+func estimateOpenAIChatTokenizerInputTokens(payload map[string]any, codec tokenizer.Codec) (int, error) {
+	messages, ok := payload["messages"].([]any)
+	if !ok {
+		if payload["messages"] == nil {
+			return openAIChatReplyPrimingTokens, nil
+		}
+		return 0, contextEstimationUnavailableDomainError()
+	}
+	total := openAIChatReplyPrimingTokens
+	for _, message := range messages {
+		messageTokens, err := countOpenAIChatMessageTokens(message, codec)
+		if err != nil {
+			return 0, err
+		}
+		total += messageTokens
+	}
+	for _, field := range []string{"tools", "tool_choice", "functions", "function_call", "response_format"} {
+		count, err := tokenizerTokensForSerializedValue(codec, payload[field])
+		if err != nil {
+			return 0, err
+		}
+		total += count
+	}
+	return total, nil
+}
+
+func countOpenAIChatMessageTokens(message any, codec tokenizer.Codec) (int, error) {
+	messageMap, ok := message.(map[string]any)
+	if !ok {
+		return 0, contextEstimationUnavailableDomainError()
+	}
+	total := openAIChatTokensPerMessage
+	for _, field := range []string{"role", "tool_call_id"} {
+		count, err := tokenizerTokensForStringValue(codec, messageMap[field])
+		if err != nil {
+			return 0, err
+		}
+		total += count
+	}
+	if name := stringValue(messageMap["name"]); strings.TrimSpace(name) != "" {
+		count, err := codec.Count(name)
+		if err != nil {
+			return 0, contextEstimationUnavailableDomainError()
+		}
+		total += openAIChatTokensPerName + count
+	}
+	contentTokens, err := countOpenAIChatContentTokens(messageMap["content"], codec)
+	if err != nil {
+		return 0, err
+	}
+	total += contentTokens
+	for _, field := range []string{"tool_calls", "function_call"} {
+		count, err := tokenizerTokensForSerializedValue(codec, messageMap[field])
+		if err != nil {
+			return 0, err
+		}
+		total += count
+	}
+	return total, nil
+}
+
+func countOpenAIChatContentTokens(value any, codec tokenizer.Codec) (int, error) {
+	switch typed := value.(type) {
+	case nil:
+		return 0, nil
+	case string:
+		return tokenizerTokensForStringValue(codec, typed)
+	case []any:
+		return countOpenAIChatContentPartTokens(typed, codec)
+	default:
+		return 0, contextEstimationUnavailableDomainError()
+	}
+}
+
+func countOpenAIChatContentPartTokens(parts []any, codec tokenizer.Codec) (int, error) {
+	total := 0
+	for _, part := range parts {
+		partMap, ok := part.(map[string]any)
+		if !ok {
+			return 0, contextEstimationUnavailableDomainError()
+		}
+		partType := strings.ToLower(strings.TrimSpace(stringValue(partMap["type"])))
+		switch partType {
+		case "", "text":
+			count, err := tokenizerTokensForStringValue(codec, partMap["text"])
+			if err != nil {
+				return 0, err
+			}
+			total += count
+		default:
+			return 0, contextEstimationUnavailableDomainError()
+		}
+	}
+	return total, nil
+}
+
+func tokenizerTokensForStringValue(codec tokenizer.Codec, value any) (int, error) {
+	if value == nil {
+		return 0, nil
+	}
+	text, ok := value.(string)
+	if !ok {
+		return 0, contextEstimationUnavailableDomainError()
+	}
+	count, err := codec.Count(text)
+	if err != nil {
+		return 0, contextEstimationUnavailableDomainError()
+	}
+	return count, nil
+}
+
+func tokenizerTokensForSerializedValue(codec tokenizer.Codec, value any) (int, error) {
+	if value == nil {
+		return 0, nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return 0, contextEstimationUnavailableDomainError()
+	}
+	count, err := codec.Count(string(raw))
+	if err != nil {
+		return 0, contextEstimationUnavailableDomainError()
+	}
+	return count, nil
 }
 
 func estimateOpenAIResponsesRequestTokens(rawBody []byte, options requestContextEstimationOptions) (*requestContextEstimation, error) {
@@ -397,35 +558,14 @@ func validateOpenAIChatMessageContent(value any) error {
 			}
 			switch strings.ToLower(strings.TrimSpace(stringValue(partMap["type"]))) {
 			case "", "text":
-				continue
-			case "image_url":
-				if err := validateOpenAIChatImagePart(partMap); err != nil {
-					return err
-				}
-			case "input_audio":
-				continue
-			case "file":
-				if err := validateInlineFileShape(partMap, "file"); err != nil {
-					return err
+				if _, ok := partMap["text"].(string); !ok && partMap["text"] != nil {
+					return contextEstimationUnavailableDomainError()
 				}
 			default:
 				return contextEstimationUnavailableDomainError()
 			}
 		}
 		return nil
-	default:
-		return contextEstimationUnavailableDomainError()
-	}
-}
-
-func validateOpenAIChatImagePart(part map[string]any) error {
-	imageURL := part["image_url"]
-	detail := stringValue(part["detail"])
-	switch typed := imageURL.(type) {
-	case string:
-		return validateInlineImageReference(typed, detail)
-	case map[string]any:
-		return validateInlineImageReference(stringValue(typed["url"]), stringValue(typed["detail"]))
 	default:
 		return contextEstimationUnavailableDomainError()
 	}
@@ -487,6 +627,33 @@ func validateOpenAIResponsesImageItem(item map[string]any) error {
 		return contextEstimationUnavailableDomainError()
 	}
 	return validateInlineImageReference(stringValue(item["image_url"]), stringValue(item["detail"]))
+}
+
+func validateOpenAIChatToolsShape(value any) error {
+	if value == nil {
+		return nil
+	}
+	tools, ok := value.([]any)
+	if !ok {
+		return contextEstimationUnavailableDomainError()
+	}
+	for _, tool := range tools {
+		toolMap, ok := tool.(map[string]any)
+		if !ok {
+			return contextEstimationUnavailableDomainError()
+		}
+		switch strings.ToLower(strings.TrimSpace(stringValue(toolMap["type"]))) {
+		case "", "function":
+			if functionValue := toolMap["function"]; functionValue != nil {
+				if _, ok := functionValue.(map[string]any); !ok {
+					return contextEstimationUnavailableDomainError()
+				}
+			}
+		default:
+			return contextEstimationUnavailableDomainError()
+		}
+	}
+	return nil
 }
 
 func validateOpenAIToolsShape(value any) error {

@@ -217,7 +217,7 @@ func TestObservability_PreservesProviderUsageTruthWithContextRoutingMetadata(t *
 	contextRouting := &runtimeContextRoutingDecision{
 		Policy:                      "cheapest_eligible_context",
 		SelectedTerminalTargetID:    selectedTerminalTargetID,
-		EstimationMethod:            stringPtr("openai_chat_heuristic_v1"),
+		EstimationMethod:            stringPtr("openai_chat_tokenizer_v1"),
 		EstimatedInputTokens:        intPtr(12),
 		ReservedOutputTokens:        intPtr(256),
 		EstimatedTotalContextTokens: intPtr(268),
@@ -266,7 +266,7 @@ func TestObservability_PreservesProviderUsageTruthWithContextRoutingMetadata(t *
 	assertRuntimeIntPtr(t, finalLog.SelectedTerminalTargetID, selectedConnection.ID, "final selected terminal target")
 	assertRuntimeIntPtr(t, firstLog.ConnectionID, selectedConnection.ID, "first connection")
 	assertRuntimeIntPtr(t, finalLog.ConnectionID, finalConnection.ID, "final connection")
-	if finalLog.ContextRouting == nil || finalLog.ContextRouting.EstimationMethod == nil || *finalLog.ContextRouting.EstimationMethod != "openai_chat_heuristic_v1" {
+	if finalLog.ContextRouting == nil || finalLog.ContextRouting.EstimationMethod == nil || *finalLog.ContextRouting.EstimationMethod != "openai_chat_tokenizer_v1" {
 		t.Fatalf("expected final request log context routing metadata, got %+v", finalLog.ContextRouting)
 	}
 	assertRuntimeIntPtr(t, finalLog.InputTokens, 10, "final provider input tokens")
@@ -356,7 +356,7 @@ func TestObservability_NoFitRoutingLeavesSelectedTerminalTargetNil(t *testing.T)
 	contextRouting := &runtimeContextRoutingDecision{
 		Policy:                      "cheapest_eligible_context",
 		SelectedTerminalTargetID:    nil,
-		EstimationMethod:            stringPtr("openai_chat_heuristic_v1"),
+		EstimationMethod:            stringPtr("openai_chat_tokenizer_v1"),
 		EstimatedInputTokens:        intPtr(14),
 		ReservedOutputTokens:        intPtr(600),
 		EstimatedTotalContextTokens: intPtr(614),
@@ -627,14 +627,14 @@ func TestObservabilityRecordsSourceAndPromotedAttempts(t *testing.T) {
 	assertRuntimeStringPtr(t, envelope.RequestLogs[0].ResolvedTargetModelID, sourceResolvedTargetModelID, "first source resolved target model")
 	assertRuntimeStringPtr(t, envelope.RequestLogs[1].ResolvedTargetModelID, sourceResolvedTargetModelID, "overflow source resolved target model")
 	assertRuntimeStringPtr(t, envelope.RequestLogs[2].ResolvedTargetModelID, promotedResolvedTargetModelID, "promoted resolved target model")
-	assertRuntimeContextOverflowPromotionDecision(t, envelope.RequestLogs[1].ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionEstimationModeEstimated, sourceResolvedTargetModelID, 11, promotedResolvedTargetModelID, 22, 243000, 900000, 2, 3, runtimeContextOverflowPromotionResultPromotedSuccess)
-	assertRuntimeContextOverflowPromotionDecision(t, envelope.RequestLogs[2].ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionEstimationModeEstimated, sourceResolvedTargetModelID, 11, promotedResolvedTargetModelID, 22, 243000, 900000, 2, 3, runtimeContextOverflowPromotionResultPromotedSuccess)
+	assertRuntimeContextOverflowPromotionDecision(t, envelope.RequestLogs[1].ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionTriggerPhaseProviderOverflow, runtimeContextOverflowPromotionEstimationModeEstimated, openAIChatContextEstimationMethod, 1200, 4000, 5200, sourceResolvedTargetModelID, 11, promotedResolvedTargetModelID, 22, 243000, 900000, 2, 3, runtimeContextOverflowPromotionResultPromotedSuccess)
+	assertRuntimeContextOverflowPromotionDecision(t, envelope.RequestLogs[2].ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionTriggerPhaseProviderOverflow, runtimeContextOverflowPromotionEstimationModeEstimated, openAIChatContextEstimationMethod, 1200, 4000, 5200, sourceResolvedTargetModelID, 11, promotedResolvedTargetModelID, 22, 243000, 900000, 2, 3, runtimeContextOverflowPromotionResultPromotedSuccess)
 	assertRuntimeIntPtr(t, envelope.UsageEvent.SelectedTerminalTargetID, 22, "usage event promoted selected terminal target")
 	assertRuntimeStringPtr(t, envelope.UsageEvent.ResolvedTargetModelID, promotedResolvedTargetModelID, "usage event promoted resolved target model")
 	if envelope.UsageEvent.AttemptCount != 3 {
 		t.Fatalf("expected usage event attempt_count=3, got %+v", envelope.UsageEvent)
 	}
-	assertRuntimeContextOverflowPromotionDecision(t, envelope.UsageEvent.ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionEstimationModeEstimated, sourceResolvedTargetModelID, 11, promotedResolvedTargetModelID, 22, 243000, 900000, 2, 3, runtimeContextOverflowPromotionResultPromotedSuccess)
+	assertRuntimeContextOverflowPromotionDecision(t, envelope.UsageEvent.ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionTriggerPhaseProviderOverflow, runtimeContextOverflowPromotionEstimationModeEstimated, openAIChatContextEstimationMethod, 1200, 4000, 5200, sourceResolvedTargetModelID, 11, promotedResolvedTargetModelID, 22, 243000, 900000, 2, 3, runtimeContextOverflowPromotionResultPromotedSuccess)
 }
 
 func TestUsageEventUsesFinalPromotedResponse(t *testing.T) {
@@ -793,7 +793,7 @@ func TestPromotionObservabilityPreservesFacadeSelection(t *testing.T) {
 
 	assertRuntimeFacadeSelectionDecision(t, envelope.RequestLogs[1].ContextRouting.FacadeSelection, "facade-public-model", stringPtr(sourceResolvedTargetModelID), intPtr(1), intPtr(2), stringPtr("estimated_context_exceeds_usable_window=1"))
 	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-public-model", stringPtr(sourceResolvedTargetModelID), intPtr(1), intPtr(2), stringPtr("estimated_context_exceeds_usable_window=1"))
-	assertRuntimeContextOverflowPromotionDecision(t, envelope.UsageEvent.ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionEstimationModeEstimated, sourceResolvedTargetModelID, 51, promotedResolvedTargetModelID, 61, 250000, 700000, 1, 2, runtimeContextOverflowPromotionResultPromotedSuccess)
+	assertRuntimeContextOverflowPromotionDecision(t, envelope.UsageEvent.ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionTriggerPhaseProviderOverflow, runtimeContextOverflowPromotionEstimationModeEstimated, openAIChatContextEstimationMethod, 900, 2048, 2948, sourceResolvedTargetModelID, 51, promotedResolvedTargetModelID, 61, 250000, 700000, 1, 2, runtimeContextOverflowPromotionResultPromotedSuccess)
 
 	planAttrs := attributesByKey(runtimeTracePlanAttributes(finalPlan))
 	if !planAttrs[runtimeTraceAttrContextOverflowPromotion].AsBool() || planAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || planAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != sourceResolvedTargetModelID || planAttrs[runtimeTraceAttrFacadeSelectedWeight].AsInt64() != 1 || planAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 2 || planAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" || planAttrs[runtimeTraceAttrContextOverflowPromotionFromModelID].AsString() != sourceResolvedTargetModelID || planAttrs[runtimeTraceAttrContextOverflowPromotionToModelID].AsString() != promotedResolvedTargetModelID || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerStatus].AsInt64() != 400 || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerCode].AsString() != "context_length_exceeded" || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerClassifier].AsString() != cliProxyAPIOverflowClassifierErrorCode || planAttrs[runtimeTraceAttrContextOverflowPromotionResult].AsString() != runtimeContextOverflowPromotionResultPromotedSuccess {
@@ -843,12 +843,12 @@ func assertRuntimeFacadeSelectionDecision(t *testing.T, got *runtimeFacadeSelect
 	}
 }
 
-func assertRuntimeContextOverflowPromotionDecision(t *testing.T, got *runtimeContextOverflowPromotionDecision, wantTriggerStatus int, wantTriggerErrorCode string, wantTriggerClassifier string, wantEstimationMode string, wantFromResolvedTargetModelID string, wantFromSelectedTerminalTargetID int, wantToResolvedTargetModelID string, wantToSelectedTerminalTargetID int, wantFromUsableContextWindowTokens int, wantToUsableContextWindowTokens int, wantSourceAttemptCount int, wantFinalAttemptCount int, wantResult string) {
+func assertRuntimeContextOverflowPromotionDecision(t *testing.T, got *runtimeContextOverflowPromotionDecision, wantTriggerStatus int, wantTriggerErrorCode string, wantTriggerClassifier string, wantTriggerPhase string, wantEstimationMode string, wantEstimationMethod string, wantEstimatedInputTokens int, wantReservedOutputTokens int, wantEstimatedTotalContextTokens int, wantFromResolvedTargetModelID string, wantFromSelectedTerminalTargetID int, wantToResolvedTargetModelID string, wantToSelectedTerminalTargetID int, wantFromUsableContextWindowTokens int, wantToUsableContextWindowTokens int, wantSourceAttemptCount int, wantFinalAttemptCount int, wantResult string) {
 	t.Helper()
 	if got == nil {
 		t.Fatal("expected context overflow promotion decision, got nil")
 	}
-	if got.TriggerStatus != wantTriggerStatus || dereferenceString(got.TriggerErrorCode) != wantTriggerErrorCode || got.TriggerClassifier != wantTriggerClassifier || got.EstimationMode != wantEstimationMode || dereferenceString(got.FromResolvedTargetModelID) != wantFromResolvedTargetModelID || dereferenceString(got.ToResolvedTargetModelID) != wantToResolvedTargetModelID || got.SourceAttemptCount != wantSourceAttemptCount || got.FinalAttemptCount != wantFinalAttemptCount || got.Result != wantResult {
+	if got.TriggerStatus != wantTriggerStatus || dereferenceString(got.TriggerErrorCode) != wantTriggerErrorCode || got.TriggerClassifier != wantTriggerClassifier || got.TriggerPhase != wantTriggerPhase || got.EstimationMode != wantEstimationMode || dereferenceString(got.EstimationMethod) != wantEstimationMethod || intValue(got.EstimatedInputTokens) != wantEstimatedInputTokens || intValue(got.ReservedOutputTokens) != wantReservedOutputTokens || intValue(got.EstimatedTotalContextTokens) != wantEstimatedTotalContextTokens || dereferenceString(got.FromResolvedTargetModelID) != wantFromResolvedTargetModelID || dereferenceString(got.ToResolvedTargetModelID) != wantToResolvedTargetModelID || got.SourceAttemptCount != wantSourceAttemptCount || got.FinalAttemptCount != wantFinalAttemptCount || got.Result != wantResult {
 		t.Fatalf("unexpected context overflow promotion decision: %+v", got)
 	}
 	assertRuntimeIntPtr(t, got.FromSelectedTerminalTargetID, wantFromSelectedTerminalTargetID, "promotion from selected terminal target")

@@ -544,8 +544,8 @@ func TestRuntimePlanningDepthOverflowFailsDeterministically(t *testing.T) {
 
 func TestBuildRequestPlan_CheapestEligibleContextChoosesCheaperTarget(t *testing.T) {
 	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "cheap-openai"})
-	model := snapshot.ModelsByID["cheap-openai"]
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-cheap-openai"})
+	model := snapshot.ModelsByID["gpt-4o-cheap-openai"]
 	setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 	contextWindowTokens := 20_000
@@ -572,7 +572,7 @@ func TestBuildRequestPlan_CheapestEligibleContextChoosesCheaperTarget(t *testing
 	})
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"cheap-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o-cheap-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
 		t.Fatalf("build cheapest-eligible-context request plan: %v", err)
 	}
@@ -587,8 +587,8 @@ func TestBuildRequestPlan_CheapestEligibleContextChoosesCheaperTarget(t *testing
 func TestBuildRequestPlan_CheapestEligibleContextRanksUnpricedTargetsLast(t *testing.T) {
 	t.Run("priced targets rank before unpriced targets", func(t *testing.T) {
 		service := newRequestPlanUnitService()
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "priced-openai"})
-		model := snapshot.ModelsByID["priced-openai"]
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-priced-openai"})
+		model := snapshot.ModelsByID["gpt-4o-priced-openai"]
 		setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 		contextWindowTokens := 20_000
@@ -606,7 +606,7 @@ func TestBuildRequestPlan_CheapestEligibleContextRanksUnpricedTargetsLast(t *tes
 		})
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-		plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"priced-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o-priced-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 		if err != nil {
 			t.Fatalf("build priced-vs-unpriced request plan: %v", err)
 		}
@@ -617,8 +617,8 @@ func TestBuildRequestPlan_CheapestEligibleContextRanksUnpricedTargetsLast(t *tes
 
 	t.Run("all unpriced ties fall back to access-target order", func(t *testing.T) {
 		service := newRequestPlanUnitService()
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "unpriced-openai"})
-		model := snapshot.ModelsByID["unpriced-openai"]
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-unpriced-openai"})
+		model := snapshot.ModelsByID["gpt-4o-unpriced-openai"]
 		setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 		contextWindowTokens := 20_000
@@ -627,7 +627,7 @@ func TestBuildRequestPlan_CheapestEligibleContextRanksUnpricedTargetsLast(t *tes
 		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_202, 9_202, 1, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization})
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-		plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"unpriced-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o-unpriced-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":64}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 		if err != nil {
 			t.Fatalf("build all-unpriced request plan: %v", err)
 		}
@@ -639,13 +639,13 @@ func TestBuildRequestPlan_CheapestEligibleContextRanksUnpricedTargetsLast(t *tes
 
 func TestBuildRequestPlan_CheapestEligibleContextPreferredContextRanksPreferredBeforeCheaperDiscretionary(t *testing.T) {
 	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "preferred-band-openai"})
-	model := snapshot.ModelsByID["preferred-band-openai"]
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-preferred-band-openai"})
+	model := snapshot.ModelsByID["gpt-4o-preferred-band-openai"]
 	setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"preferred-band-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+	rawBody := []byte(`{"model":"gpt-4o-preferred-band-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
 	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
 	if err != nil {
 		t.Fatalf("estimate preferred-context request: %v", err)
@@ -690,13 +690,13 @@ func TestBuildRequestPlan_CheapestEligibleContextPreferredContextRanksPreferredB
 
 func TestBuildRequestPlan_CheapestEligibleContextPreferredContextFallsBackToDiscretionaryCandidates(t *testing.T) {
 	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "discretionary-band-openai"})
-	model := snapshot.ModelsByID["discretionary-band-openai"]
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-discretionary-band-openai"})
+	model := snapshot.ModelsByID["gpt-4o-discretionary-band-openai"]
 	setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"discretionary-band-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+	rawBody := []byte(`{"model":"gpt-4o-discretionary-band-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
 	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
 	if err != nil {
 		t.Fatalf("estimate discretionary fallback request: %v", err)
@@ -742,13 +742,13 @@ func TestBuildRequestPlan_CheapestEligibleContextPreferredContextFallsBackToDisc
 func TestBuildRequestPlan_CheapestEligibleContextPreferredContextPreservesTieBreaksWithinBand(t *testing.T) {
 	t.Run("access-target position beats terminal target id within a preferred band", func(t *testing.T) {
 		service := newRequestPlanUnitService()
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "preferred-position-openai"})
-		model := snapshot.ModelsByID["preferred-position-openai"]
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-preferred-position-openai"})
+		model := snapshot.ModelsByID["gpt-4o-preferred-position-openai"]
 		setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-		rawBody := []byte(`{"model":"preferred-position-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+		rawBody := []byte(`{"model":"gpt-4o-preferred-position-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
 		estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
 		if err != nil {
 			t.Fatalf("estimate preferred position request: %v", err)
@@ -770,13 +770,13 @@ func TestBuildRequestPlan_CheapestEligibleContextPreferredContextPreservesTieBre
 
 	t.Run("terminal target id breaks same-position preferred ties", func(t *testing.T) {
 		service := newRequestPlanUnitService()
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "preferred-terminal-id-openai"})
-		model := snapshot.ModelsByID["preferred-terminal-id-openai"]
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-preferred-terminal-id-openai"})
+		model := snapshot.ModelsByID["gpt-4o-preferred-terminal-id-openai"]
 		setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-		rawBody := []byte(`{"model":"preferred-terminal-id-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+		rawBody := []byte(`{"model":"gpt-4o-preferred-terminal-id-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
 		estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
 		if err != nil {
 			t.Fatalf("estimate preferred terminal-id request: %v", err)
@@ -799,8 +799,8 @@ func TestBuildRequestPlan_CheapestEligibleContextPreferredContextPreservesTieBre
 
 func TestBuildRequestPlan_NoContextEligibleTargetReturns413WithoutBanMutation(t *testing.T) {
 	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "no-fit-openai"})
-	model := snapshot.ModelsByID["no-fit-openai"]
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-no-fit-openai"})
+	model := snapshot.ModelsByID["gpt-4o-no-fit-openai"]
 	setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 	smallContextWindowTokens := 200
@@ -812,7 +812,7 @@ func TestBuildRequestPlan_NoContextEligibleTargetReturns413WithoutBanMutation(t 
 	service.runtimeState.SeedConnectionState(requestPlanTestProfileID, model.ID, 2_301, loadbalance.RuntimeConnectionState{ConnectionID: 2_301, CycleRetryAttempts: 2, CumulativeRetryAttempts: 5, BanMode: "off"}, seededAt, seededAt)
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"no-fit-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+	rawBody := []byte(`{"model":"gpt-4o-no-fit-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
 	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
 	if err != nil {
 		t.Fatalf("estimate no-fit request context: %v", err)
@@ -867,11 +867,11 @@ func TestBuildRequestPlan_NoContextEligibleTargetReturns413WithoutBanMutation(t 
 func TestBuildRequestPlan_CheapestEligibleContextFiltersNestedTerminalAttemptsBeforeSelection(t *testing.T) {
 	service := newEnforcedRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "nested-router-openai"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "nested-child-openai"},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-nested-router-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "gpt-4o-nested-child-openai"},
 	)
-	router := snapshot.ModelsByID["nested-router-openai"]
-	child := snapshot.ModelsByID["nested-child-openai"]
+	router := snapshot.ModelsByID["gpt-4o-nested-router-openai"]
+	child := snapshot.ModelsByID["gpt-4o-nested-child-openai"]
 	setRequestPlanStrategyType(snapshot, router, "cheapest_eligible_context")
 	addRequestPlanProxyTarget(snapshot, router.ModelID, child.ModelID)
 	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
@@ -882,7 +882,7 @@ func TestBuildRequestPlan_CheapestEligibleContextFiltersNestedTerminalAttemptsBe
 	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_322, 9_322, 1, requestPlanConnectionTargetOptions{contextWindowTokens: &largeContextWindowTokens, maxContextUtilization: maxContextUtilization})
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"nested-router-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+	rawBody := []byte(`{"model":"gpt-4o-nested-router-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
 
 	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
@@ -2261,18 +2261,18 @@ func TestRuntimeFacadeRequestedModelLookupCarriesModelsByIDMetadata(t *testing.T
 	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "router-target-openai"},
 	)
 	targetModel := snapshot.ModelsByID["router-target-openai"]
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "router-target-openai", 0, 1, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, "gpt-4o-router-openai", "router-target-openai", 0, 1, 0)
 	snapshot.AccessTargetsBySourceModelID[targetModel.ID] = nil
 	contextWindowTokens := 16_384
 	addRequestPlanConnectionTargetWithOptions(snapshot, targetModel, 2_801, 9_801, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, defaultOutputTokenReserve: 1_024, maxContextUtilization: 1.0})
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	input := requestPlanningInput{
 		Request:         request,
-		RawBody:         []byte(`{"model":"router-openai","messages":[]}`),
+		RawBody:         []byte(`{"model":"gpt-4o-router-openai","messages":[]}`),
 		RuntimeConfig:   RuntimeProxyConfigSnapshot{},
 		OperationMatch:  mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path),
 		ActiveProfileID: requestPlanTestProfileID,
@@ -2310,7 +2310,7 @@ func TestRuntimeFacadeRejectsInvalidRequestedModelPolicies(t *testing.T) {
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{
 		ID:                    1,
 		APIFamily:             "openai",
-		ModelID:               "router-openai",
+		ModelID:               "gpt-4o-router-openai",
 		FacadeEnabled:         true,
 		FacadeSelectionPolicy: &invalidSelectionPolicy,
 		FacadeFallbackPolicy:  &fallbackPolicy,
@@ -2318,7 +2318,7 @@ func TestRuntimeFacadeRejectsInvalidRequestedModelPolicies(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
-	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o-router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "facade_selection_policy must be 'weighted_eligible_context'")
 }
 
@@ -2342,12 +2342,12 @@ func TestRuntimeFacadeCandidateEvaluationRejectsUnsupportedTranslatedChild(t *te
 	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-target-model"},
 	)
-	router := snapshot.ModelsByID["router-openai"]
+	router := snapshot.ModelsByID["gpt-4o-router-openai"]
 	child := snapshot.ModelsByID["chat-target-model"]
-	addRequestPlanProxyTarget(snapshot, "router-openai", "chat-target-model")
+	addRequestPlanProxyTarget(snapshot, "gpt-4o-router-openai", "chat-target-model")
 	setRequestPlanStrategyType(snapshot, child, "cheapest_eligible_context")
 	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
 	contextWindowTokens := 8_192
@@ -2359,7 +2359,7 @@ func TestRuntimeFacadeCandidateEvaluationRejectsUnsupportedTranslatedChild(t *te
 	})
 	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"router-openai","input":"hello","text":{"format":"json_schema"},"max_output_tokens":48}`)
+	rawBody := []byte(`{"model":"gpt-4o-router-openai","input":"hello","text":{"format":"json_schema"},"max_output_tokens":48}`)
 	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, router)
 	if err != nil {
 		t.Fatalf("estimate facade native-only request context: %v", err)
@@ -2389,19 +2389,19 @@ func TestRuntimeFacadeCandidateEvaluationReusesHardContextFiltering(t *testing.T
 	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "small-context-child"},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "gpt-4o-small-context-child"},
 	)
-	router := snapshot.ModelsByID["router-openai"]
-	child := snapshot.ModelsByID["small-context-child"]
-	addRequestPlanProxyTarget(snapshot, "router-openai", "small-context-child")
+	router := snapshot.ModelsByID["gpt-4o-router-openai"]
+	child := snapshot.ModelsByID["gpt-4o-small-context-child"]
+	addRequestPlanProxyTarget(snapshot, "gpt-4o-router-openai", "gpt-4o-small-context-child")
 	setRequestPlanStrategyType(snapshot, child, "cheapest_eligible_context")
 	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
 	smallContextWindowTokens := 400
 	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_851, 9_851, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &smallContextWindowTokens, maxContextUtilization: 1.0})
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"router-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+	rawBody := []byte(`{"model":"gpt-4o-router-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
 	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, router)
 	if err != nil {
 		t.Fatalf("estimate facade hard-context request context: %v", err)
@@ -2447,17 +2447,17 @@ func TestRuntimeFacadeCandidateEvaluationReusesPreferredContextCostAndRuntimeSta
 	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "preferred-child"},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "gpt-4o-preferred-child"},
 	)
-	router := snapshot.ModelsByID["router-openai"]
-	child := snapshot.ModelsByID["preferred-child"]
-	addRequestPlanProxyTarget(snapshot, "router-openai", "preferred-child")
+	router := snapshot.ModelsByID["gpt-4o-router-openai"]
+	child := snapshot.ModelsByID["gpt-4o-preferred-child"]
+	addRequestPlanProxyTarget(snapshot, "gpt-4o-router-openai", "gpt-4o-preferred-child")
 	setRequestPlanStrategyType(snapshot, child, "cheapest_eligible_context")
 	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"router-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+	rawBody := []byte(`{"model":"gpt-4o-router-openai","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
 	estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, router)
 	if err != nil {
 		t.Fatalf("estimate facade preferred-context request context: %v", err)
@@ -2535,12 +2535,12 @@ func TestBuildRequestPlan_ExactOpenAIFacadeWeightedEligibleContextRedistributesE
 	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "eligible-first-openai"},
 		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "blocked-openai"},
 		runtimeModelRecord{ID: 4, APIFamily: "openai", ModelID: "eligible-second-openai"},
 	)
-	facadeModel := snapshot.ModelsByID["facade-router-openai"]
+	facadeModel := snapshot.ModelsByID["gpt-4o-facade-router-openai"]
 	firstTarget := snapshot.ModelsByID["eligible-first-openai"]
 	blockedTarget := snapshot.ModelsByID["blocked-openai"]
 	secondTarget := snapshot.ModelsByID["eligible-second-openai"]
@@ -2567,7 +2567,7 @@ func TestBuildRequestPlan_ExactOpenAIFacadeWeightedEligibleContextRedistributesE
 	service.runtimeState.SeedConnectionState(requestPlanTestProfileID, blockedTarget.ID, 2_902, loadbalance.RuntimeConnectionState{ConnectionID: 2_902, BanMode: "temporary", BannedUntilAt: &blockedUntil}, seededAt, seededAt)
 
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
-	rawBody := []byte(`{"model":"facade-router-openai","messages":[{"role":"user","content":"eligible-only weighted facade selection"}],"max_completion_tokens":128}`)
+	rawBody := []byte(`{"model":"gpt-4o-facade-router-openai","messages":[{"role":"user","content":"eligible-only weighted facade selection"}],"max_completion_tokens":128}`)
 	wantModels := []string{"eligible-first-openai", "eligible-second-openai", "eligible-first-openai", "eligible-second-openai"}
 	for index, wantModelID := range wantModels {
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -2593,10 +2593,10 @@ func TestRuntimeExactOpenAIFacadeRequiresContextEstimation(t *testing.T) {
 	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "target-openai"},
 	)
-	facadeModel := snapshot.ModelsByID["facade-router-openai"]
+	facadeModel := snapshot.ModelsByID["gpt-4o-facade-router-openai"]
 	targetModel := snapshot.ModelsByID["target-openai"]
 	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, targetModel.ModelID, 0, 1, 0)
 	contextWindowTokens := 16_384
@@ -2619,14 +2619,14 @@ func TestBuildRequestPlan_ExactOpenAIFacadeRejectsNestedFacades(t *testing.T) {
 	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "nested-facade-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 	)
-	addRequestPlanModelTargetWithMetadata(snapshot, "facade-router-openai", "nested-facade-openai", 0, 1, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, "gpt-4o-facade-router-openai", "nested-facade-openai", 0, 1, 0)
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
-	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"facade-router-openai","messages":[{"role":"user","content":"nested facades should reject"}]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o-facade-router-openai","messages":[{"role":"user","content":"nested facades should reject"}]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, runtimeNestedFacadesNotSupportedDetail)
 }
 

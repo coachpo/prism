@@ -1581,9 +1581,9 @@ Wrong methods on supported runtime paths return a Prism JSON `405` response befo
 
 ### 2.2A Context-aware routing failures
 
-When the attached strategy is `cheapest_eligible_context`, Prism performs local preflight context estimation before provider transport for OpenAI Chat Completions and OpenAI Responses requests that have deterministic request-local input. The estimator methods are `openai_chat_heuristic_v1` and `openai_responses_heuristic_v1`. They add estimated input tokens plus an explicit request output limit when present, then `default_output_token_reserve`, then fallback `4096`. Hard-fit legality uses `floor(context_window_tokens * max_context_utilization)`, with the default utilization normalized to `0.90`. The nullable `preferred_context_utilization_threshold` creates an optional preferred band at `floor(context_window_tokens * preferred_context_utilization_threshold)`; `null` means no preferred band. Fitting candidates above the preferred band but within hard fit are discretionary, and candidates above hard fit are ineligible.
+When the attached strategy is `cheapest_eligible_context`, Prism performs local preflight context estimation before provider transport for OpenAI Chat Completions and OpenAI Responses requests that have deterministic request-local input. The estimator methods are `openai_chat_tokenizer_v1` and `openai_responses_heuristic_v1`. They add estimated input tokens plus an explicit request output limit when present, then `default_output_token_reserve`, then fallback `4096`. Hard-fit legality uses `floor(context_window_tokens * max_context_utilization)`, with the default utilization normalized to `0.90`. The nullable `preferred_context_utilization_threshold` creates an optional preferred band at `floor(context_window_tokens * preferred_context_utilization_threshold)`; `null` means no preferred band. Fitting candidates above the preferred band but within hard fit are discretionary, and candidates above hard fit are ineligible.
 
-When Prism cannot bound an OpenAI Chat Completions or Responses request locally, it passes the request through the normal resolved target path instead of returning local `400 context_estimation_unavailable`. This pass-through is non-stream and stream agnostic at the planning layer, but later overflow replay is non-stream only. Prism still returns local failures for non-OpenAI operations, unsupported translated shapes, and other planner errors that are not missing context estimation.
+When Prism cannot bound an OpenAI Chat Completions or Responses request locally, it passes the request through the normal resolved target path instead of returning local `400 context_estimation_unavailable`. This pass-through is non-stream and stream agnostic at the planning layer. Provider-overflow replay remains limited to the endpoint-specific promotion paths in section 2.2D. Prism still returns local failures for non-OpenAI operations, unsupported translated shapes, and other planner errors that are not missing context estimation.
 
 When context fit is evaluated and no terminal target fits, Prism returns HTTP `413` before provider transport with:
 
@@ -1665,9 +1665,11 @@ The known upstream for context overflow promotion is CLIProxyAPI, not official O
 
 Promotion scope is intentionally narrow:
 - Only `openai.chat_completions` and `openai.responses` are eligible.
-- Only non-stream responses are eligible. Streaming promotion is not implemented in v1.
-- Replay happens before downstream commit from the shared non-stream response branch.
-- Replay uses the original buffered ingress body exactly once.
+- `POST /v1/chat/completions` with `stream=true` can promote before dispatch when tokenizer-backed estimation is available, the source request exceeds the source target's usable context window, the source model has an explicit `context_overflow_promotion_target_id`, and the same estimate fits the promoted target. Prism builds the ordinary source plan but opens zero source upstream requests, executes one promoted attempt, and records `trigger_phase=pre_dispatch_estimate`, `source_attempt_count=0`, and `final_attempt_count=1`.
+- `POST /v1/responses` with `stream=true` can replay only when the source upstream returns a pre-stream JSON provider-overflow response before downstream commit. Normal SSE from the source is streamed unchanged and is not replayed. A source pre-stream overflow replays the original buffered ingress body exactly once to the explicit promotion target, and the promoted response is the first client-visible response.
+- Existing non-stream Chat Completions and Responses provider-overflow replay remains unchanged except for additive `trigger_phase=provider_overflow` metadata.
+- After headers, flush, SSE, or any client-visible bytes commit downstream output, Prism never retries, promotes, or switches upstreams for that stream.
+- Replay paths preserve the original buffered ingress body, including `previous_response_id`, `store`, and other continuation fields. Prism does not reconstruct, flatten, fabricate, or compact hidden Responses state.
 - Only a model's explicit `context_overflow_promotion_target_id` can be used. Prism never searches sibling facade targets, pricing metadata, display names, or vendor rows for a larger model.
 - Strict-mode promotion is not implemented in v1.
 
@@ -1675,7 +1677,9 @@ The selected-child exact-facade restriction is preserved. If a public facade sel
 
 The classifier is status plus body, never status alone. Eligible statuses are `400`, `413`, `422`, and body-confirmed `429`. Plain `429` never promotes; rate-limit, quota, capacity, auth, model lookup, malformed JSON, and ambiguous validation bodies are returned without promotion unless the body carries explicit context-overflow evidence. Native non-stream paths can classify OpenAI-style top-level `error` objects or unambiguous flat CLIProxyAPI gateway JSON. Translated non-stream paths accept only top-level `error` objects; translated flat-gateway JSON is rejected for promotion in v1 and the original source response is returned.
 
-If promotion starts, Prism closes the source response body and executes the promoted model once. The promoted model inherits the same planner behavior as ordinary terminal resolution: native-compatible attempts remain preferred, and adapter-approved OpenAI text sibling translations can run when the promoted target's `openai_text_capability` requires translation. Promotion is still a one-shot explicit replay path, not a promotion-only fallback exception, and a second promotion is never attempted. Final status, usage, pricing, and `usage_request_events` attribution come from the final response returned to the client. Failed source attempts remain visible as attempt-level `request_logs` rows and optional audit rows under the same `ingress_request_id`.
+If promotion starts, Prism closes any source response body and executes the promoted model once. The promoted model inherits the same planner behavior as ordinary terminal resolution: native-compatible attempts remain preferred, and adapter-approved OpenAI text sibling translations can run when the promoted target's `openai_text_capability` requires translation. Promotion is still a one-shot explicit replay path, not a promotion-only fallback exception, and a second promotion is never attempted. A promoted-target failure is final and is returned to the client. Final status, usage, pricing, and `usage_request_events` attribution come from the final response returned to the client. Failed source attempts remain visible as attempt-level `request_logs` rows and optional audit rows under the same `ingress_request_id`; Chat pre-dispatch promotion has no failed source upstream attempt because the source upstream is not opened.
+
+Promotion observability is additive under `context_routing.context_overflow_promotion` in request logs, usage events, and traces. Promotion metadata preserves the requested public model identity plus from/to resolved target IDs and from/to selected terminal target IDs. It records `trigger_phase`, with `pre_dispatch_estimate` for Chat streaming planning decisions and `provider_overflow` for Responses streaming replay and existing non-stream replay. Chat pre-dispatch metadata also records `estimation_method`, `estimated_input_tokens`, `reserved_output_tokens`, `estimated_total_context_tokens`, from/to usable context windows, `source_attempt_count=0`, and `final_attempt_count=1`. Provider-overflow metadata records source and promoted attempt counts, the source overflow status and code when available, and the final promoted status.
 
 ### 2.3 OpenAI Operations
 
@@ -2116,7 +2120,7 @@ Response `200`:
     "context_routing": {
       "policy": "cheapest_eligible_context",
       "selected_terminal_target_id": 1,
-      "estimation_method": "openai_chat_heuristic_v1",
+      "estimation_method": "openai_chat_tokenizer_v1",
       "estimated_input_tokens": 15,
       "reserved_output_tokens": 4096,
       "estimated_total_context_tokens": 4111,

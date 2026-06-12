@@ -25,9 +25,14 @@ const (
 	runtimeTraceAttrContextOverflowPromotionFromModelID                   = "prism.context_overflow_promotion.from_model_id"
 	runtimeTraceAttrContextOverflowPromotionToModelID                     = "prism.context_overflow_promotion.to_model_id"
 	runtimeTraceAttrContextOverflowPromotionTriggerStatus                 = "prism.context_overflow_promotion.trigger_status"
+	runtimeTraceAttrContextOverflowPromotionTriggerPhase                  = "prism.context_overflow_promotion.trigger_phase"
 	runtimeTraceAttrContextOverflowPromotionTriggerCode                   = "prism.context_overflow_promotion.trigger_code"
 	runtimeTraceAttrContextOverflowPromotionTriggerClassifier             = "prism.context_overflow_promotion.trigger_classifier"
 	runtimeTraceAttrContextOverflowPromotionEstimationMode                = "prism.context_overflow_promotion.estimation_mode"
+	runtimeTraceAttrContextOverflowPromotionEstimationMethod              = "prism.context_overflow_promotion.estimation_method"
+	runtimeTraceAttrContextOverflowPromotionEstimatedInputTokens          = "prism.context_overflow_promotion.estimated_input_tokens"
+	runtimeTraceAttrContextOverflowPromotionReservedOutputTokens          = "prism.context_overflow_promotion.reserved_output_tokens"
+	runtimeTraceAttrContextOverflowPromotionEstimatedTotalContextTokens   = "prism.context_overflow_promotion.estimated_total_context_tokens"
 	runtimeTraceAttrContextOverflowPromotionFromSelectedTerminalTargetID  = "prism.context_overflow_promotion.from_selected_terminal_target_id"
 	runtimeTraceAttrContextOverflowPromotionToSelectedTerminalTargetID    = "prism.context_overflow_promotion.to_selected_terminal_target_id"
 	runtimeTraceAttrContextOverflowPromotionFromUsableContextWindowTokens = "prism.context_overflow_promotion.from_usable_context_window_tokens"
@@ -196,6 +201,7 @@ func runtimeTraceContextOverflowPromotionAttributes(contextRouting *runtimeConte
 	attrs := []attribute.KeyValue{
 		attribute.Bool(runtimeTraceAttrContextOverflowPromotion, true),
 		attribute.Int(runtimeTraceAttrContextOverflowPromotionTriggerStatus, promotion.TriggerStatus),
+		attribute.String(runtimeTraceAttrContextOverflowPromotionTriggerPhase, runtimeTracePolicy.contextOverflowPromotionTriggerPhase(promotion.TriggerPhase)),
 		attribute.Int(runtimeTraceAttrContextOverflowPromotionSourceAttemptCount, promotion.SourceAttemptCount),
 		attribute.Int(runtimeTraceAttrContextOverflowPromotionFinalAttemptCount, promotion.FinalAttemptCount),
 		attribute.String(runtimeTraceAttrContextOverflowPromotionResult, runtimeTracePolicy.contextOverflowPromotionResult(promotion.Result)),
@@ -208,6 +214,18 @@ func runtimeTraceContextOverflowPromotionAttributes(contextRouting *runtimeConte
 	}
 	if strings.TrimSpace(promotion.EstimationMode) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationMode, runtimeTracePolicy.contextOverflowPromotionEstimationMode(promotion.EstimationMode)))
+	}
+	if promotion.EstimationMethod != nil && strings.TrimSpace(*promotion.EstimationMethod) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationMethod, strings.TrimSpace(*promotion.EstimationMethod)))
+	}
+	if promotion.EstimatedInputTokens != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionEstimatedInputTokens, *promotion.EstimatedInputTokens))
+	}
+	if promotion.ReservedOutputTokens != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionReservedOutputTokens, *promotion.ReservedOutputTokens))
+	}
+	if promotion.EstimatedTotalContextTokens != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionEstimatedTotalContextTokens, *promotion.EstimatedTotalContextTokens))
 	}
 	if promotion.FromResolvedTargetModelID != nil && strings.TrimSpace(*promotion.FromResolvedTargetModelID) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionFromModelID, strings.TrimSpace(*promotion.FromResolvedTargetModelID)))
@@ -527,6 +545,15 @@ func (policy runtimeTraceAttributePolicy) contextOverflowPromotionTriggerCode(va
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "context_length_exceeded", "context_too_large":
 		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) contextOverflowPromotionTriggerPhase(value string) string {
+	switch strings.TrimSpace(value) {
+	case runtimeContextOverflowPromotionTriggerPhasePreDispatchEstimate, runtimeContextOverflowPromotionTriggerPhaseProviderOverflow:
+		return strings.TrimSpace(value)
 	default:
 		return runtimeTraceValueUnknown
 	}

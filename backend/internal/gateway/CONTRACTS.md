@@ -72,11 +72,19 @@ Current usage behavior is provider-carrier based: OpenAI Chat Completions reads 
 
 Context overflow promotion is explicit and additive today:
 
-- It is allowed only for non-streaming OpenAI Chat Completions and OpenAI Responses requests with a buffered body.
+- It is allowed only for OpenAI Chat Completions and OpenAI Responses requests.
 - It requires a configured `context_overflow_promotion_target_id` on the source model.
-- It does not apply to streaming requests.
-- It records additive request-log and trace metadata without rewriting the requested model identity.
-- Promotion is not a generic retry, redirect, or fallback policy. A promoted attempt that overflows becomes the final response rather than chaining indefinitely.
+- Chat Completions streaming promotion applies only to `POST /v1/chat/completions` with `stream=true` when tokenizer-backed estimation is available, the source target is over its usable context window, and the explicit promoted target fits the same request. The gateway builds but does not execute the source plan, opens zero source upstream requests, executes one promoted attempt, and records `trigger_phase=pre_dispatch_estimate`.
+- Responses streaming promotion applies only to `POST /v1/responses` with `stream=true` when the source upstream returns a pre-stream JSON provider-overflow body before downstream commit. Source SSE is not replayed. The gateway replays the original buffered ingress body exactly once to the explicit promoted target, preserving `previous_response_id`, `store`, and other continuation fields.
+- Existing non-stream Chat Completions and Responses provider-overflow replay remains available with additive `trigger_phase=provider_overflow` metadata.
+- It records additive request-log and trace metadata without rewriting the requested model identity. Metadata includes `trigger_phase`, estimate fields when present, source and final attempt counts, and from/to resolved target and selected terminal target identities.
+- Promotion is not a generic retry, redirect, or fallback policy. It does not multi-hop, does not reopen facade siblings, and a promoted-target failure is final.
+- The streaming safety contract below remains the hard boundary: after the first downstream byte or event, the gateway must not promote or switch upstreams.
+
+`trigger_phase` values are part of the context-overflow promotion metadata contract:
+
+- `pre_dispatch_estimate`
+- `provider_overflow`
 
 ## Frozen Future Vocabularies
 

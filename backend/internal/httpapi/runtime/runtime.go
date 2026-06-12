@@ -256,9 +256,11 @@ type runtimeFacadeSelectionDecision struct {
 }
 
 const (
-	runtimeContextOverflowPromotionEstimationModeEstimated   = "preflight_estimated"
-	runtimeContextOverflowPromotionEstimationModePassThrough = "estimation_unavailable_pass_through"
-	runtimeContextOverflowPromotionResultPromotedSuccess     = "promoted_success"
+	runtimeContextOverflowPromotionTriggerPhasePreDispatchEstimate = "pre_dispatch_estimate"
+	runtimeContextOverflowPromotionTriggerPhaseProviderOverflow    = "provider_overflow"
+	runtimeContextOverflowPromotionEstimationModeEstimated         = "preflight_estimated"
+	runtimeContextOverflowPromotionEstimationModePassThrough       = "estimation_unavailable_pass_through"
+	runtimeContextOverflowPromotionResultPromotedSuccess           = "promoted_success"
 
 	runtimeContextOverflowAffinityStateConsidered              = "considered"
 	runtimeContextOverflowAffinityStateAccepted                = "accepted"
@@ -276,9 +278,14 @@ const (
 
 type runtimeContextOverflowPromotionDecision struct {
 	TriggerStatus                 int     `json:"trigger_status"`
+	TriggerPhase                  string  `json:"trigger_phase,omitempty"`
 	TriggerErrorCode              *string `json:"trigger_error_code,omitempty"`
 	TriggerClassifier             string  `json:"trigger_classifier"`
 	EstimationMode                string  `json:"estimation_mode,omitempty"`
+	EstimationMethod              *string `json:"estimation_method,omitempty"`
+	EstimatedInputTokens          *int    `json:"estimated_input_tokens,omitempty"`
+	ReservedOutputTokens          *int    `json:"reserved_output_tokens,omitempty"`
+	EstimatedTotalContextTokens   *int    `json:"estimated_total_context_tokens,omitempty"`
 	FromResolvedTargetModelID     *string `json:"from_resolved_target_model_id,omitempty"`
 	FromSelectedTerminalTargetID  *int    `json:"from_selected_terminal_target_id,omitempty"`
 	ToResolvedTargetModelID       *string `json:"to_resolved_target_model_id,omitempty"`
@@ -371,9 +378,14 @@ func cloneRuntimeContextOverflowPromotionDecision(source *runtimeContextOverflow
 	}
 	return &runtimeContextOverflowPromotionDecision{
 		TriggerStatus:                 source.TriggerStatus,
+		TriggerPhase:                  source.TriggerPhase,
 		TriggerErrorCode:              cloneRuntimeStringPointer(source.TriggerErrorCode),
 		TriggerClassifier:             source.TriggerClassifier,
 		EstimationMode:                source.EstimationMode,
+		EstimationMethod:              cloneRuntimeStringPointer(source.EstimationMethod),
+		EstimatedInputTokens:          cloneRuntimeIntPointer(source.EstimatedInputTokens),
+		ReservedOutputTokens:          cloneRuntimeIntPointer(source.ReservedOutputTokens),
+		EstimatedTotalContextTokens:   cloneRuntimeIntPointer(source.EstimatedTotalContextTokens),
 		FromResolvedTargetModelID:     cloneRuntimeStringPointer(source.FromResolvedTargetModelID),
 		FromSelectedTerminalTargetID:  cloneRuntimeIntPointer(source.FromSelectedTerminalTargetID),
 		ToResolvedTargetModelID:       cloneRuntimeStringPointer(source.ToResolvedTargetModelID),

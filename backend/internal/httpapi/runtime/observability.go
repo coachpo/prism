@@ -1400,7 +1400,7 @@ func runtimeContextOverflowPromotionForTelemetry(plan requestPlan) *runtimeConte
 	if plan.ContextRouting == nil {
 		return nil
 	}
-	return plan.ContextRouting.ContextOverflowPromotion
+	return cloneRuntimeContextOverflowPromotionDecision(plan.ContextRouting.ContextOverflowPromotion)
 }
 
 func selectedTerminalTargetIDForAttempt(plan requestPlan, attempt runtimeTelemetryAttemptContext) *int {

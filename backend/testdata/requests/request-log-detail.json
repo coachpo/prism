@@ -60,7 +60,7 @@
       "selected_endpoint_id": 12,
       "selected_context_band": "preferred",
       "selected_usable_context_window_tokens": 8192,
-      "estimation_method": "openai_chat_heuristic_v1",
+      "estimation_method": "openai_chat_tokenizer_v1",
       "estimated_input_tokens": 15,
       "reserved_output_tokens": 1024,
       "estimated_total_context_tokens": 1039,
