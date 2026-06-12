@@ -10,6 +10,7 @@ docs/
 ├── ARCHITECTURE.md
 ├── API_SPEC.md
 ├── DATA_MODEL.md
+├── CONTEXT_OVERFLOW_PROMOTION_TEST_MATRIX.md
 ├── PRD.md
 ├── REQUESTS_PAGE.md
 ├── SMOKE_TEST_PLAN.md
@@ -19,7 +20,7 @@ docs/
 
 ## OWNERSHIP
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source-of-truth trio.
-- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
+- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, `TEST_CASE_GENERATION_METHODOLOGY.md`, and `CONTEXT_OVERFLOW_PROMOTION_TEST_MATRIX.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
 - Active working plans belong in `../.omo/plans/`, not under `docs/`.
 - Live execution evidence and LLM test-run records belong in `../.omo/evidence/`, not under `docs/`.
 
@@ -28,6 +29,7 @@ docs/
 - Backend/frontend version surfaces: `../VERSION`, `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend container contract: `../backend/Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation contract, hook residency, rejected-route isolation, and `operation_name` persistence: `API_SPEC.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `../backend/internal/httpapi/runtime/AGENTS.md`, `../backend/internal/httpapi/runtime/operations.go`
+- CLIProxyAPI context overflow promotion regression matrix: `CONTEXT_OVERFLOW_PROMOTION_TEST_MATRIX.md`, `../backend/tests/runtime/context_overflow_promotion_test.go`, `../backend/internal/httpapi/runtime/operation_translation_request_test.go`, `../backend/internal/httpapi/runtime/operation_translation_stream_test.go`
 - Startup bootstrap contract, hot-apply effect reporting, and startup-tab ownership: `../backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `../backend/internal/platform/config/`, `../frontend/src/features/settings/startup/`
 - Config bundle and vendor catalog export/import ownership: `../backend/internal/httpapi/management/configbundle/AGENTS.md`, `../frontend/src/pages/settings/`, `../frontend/src/pages/settings/useConfigBackupData.ts`
 - Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000001_initial_schema.sql`
