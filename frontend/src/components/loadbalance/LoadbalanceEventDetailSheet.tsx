@@ -164,7 +164,6 @@ export function LoadbalanceEventDetailSheet({
                   <DetailRow fallback={messages.common.notApplicable} label={copy.modelId} value={event.model_id} />
                   <DetailRow fallback={messages.common.notApplicable} label={copy.connectionId} value={event.connection_id} />
                   <DetailRow fallback={messages.common.notApplicable} label={copy.endpointId} value={event.endpoint_id} />
-                  <DetailRow fallback={messages.common.notApplicable} label={copy.vendorId} value={event.vendor_id} />
                   <DetailRow fallback={messages.common.notApplicable} label={copy.profileId} value={event.profile_id} />
                   <DetailRow fallback={messages.common.notApplicable} label={copy.consecutiveFailures} value={event.cumulative_retry_attempts} />
                 </div>

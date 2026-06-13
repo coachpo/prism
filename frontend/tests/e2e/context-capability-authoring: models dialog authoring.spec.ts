@@ -54,8 +54,6 @@ function createModelListItem(
   return {
     id,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: modelId,
     display_name: displayName,
@@ -123,9 +121,6 @@ async function mockModelRoutes(page: Page, options: MockModelRoutesOptions = {})
     if (pathname === "/api/models" && request.method() === "GET") {
       return fulfillJson(models);
     }
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson(strategies);
     }
@@ -144,8 +139,6 @@ async function mockModelRoutes(page: Page, options: MockModelRoutesOptions = {})
       const createdModel = {
         id: 50,
         profile_id: 1,
-        vendor_id: payload.vendor_id ?? null,
-        vendor: null,
         api_family: payload.api_family,
         model_id: payload.model_id,
         display_name: payload.display_name,
@@ -180,8 +173,6 @@ async function mockModelRoutes(page: Page, options: MockModelRoutesOptions = {})
       const updatedModel = {
         id: existingModel.id,
         profile_id: existingModel.profile_id,
-        vendor_id: (payload.vendor_id as number | null | undefined) ?? existingModel.vendor_id,
-        vendor: existingModel.vendor,
         api_family: (payload.api_family as string | undefined) ?? existingModel.api_family,
         model_id: (payload.model_id as string | undefined) ?? existingModel.model_id,
         display_name: (payload.display_name as string | null | undefined) ?? existingModel.display_name,
@@ -236,10 +227,6 @@ test("context-capability-authoring: submits parsed context routing defaults on c
   await page.getByRole("button", { name: "New Model" }).click();
 
   const dialog = page.getByRole("dialog", { name: "New Model" });
-  await expect(dialog.getByText("Define the selected-profile entry model, its routing defaults, and the policy it will use to reach terminal targets.")).toBeVisible();
-  await expect(dialog.getByText("Set the entry-model context window, reserve, max utilization, and preferred band before terminal-target overrides apply.")).toBeVisible();
-  await expect(dialog.getByText("Access targets combine grouped same-family model fallback targets with model-private terminal targets. Manage fallback tiers here, then finish terminal-target routing from Model Detail.")).toBeVisible();
-  await expect(dialog.getByText("Choose the Ban Policy and terminal-target selection family this entry model uses after access-target routing.")).toBeVisible();
   await expect(dialog.getByText(contextWindowHelperCopy)).toBeVisible();
 
   await dialog.locator("#model-id").fill("context-routed-model");
@@ -253,7 +240,6 @@ test("context-capability-authoring: submits parsed context routing defaults on c
   await expect(page.getByText("Model created")).toBeVisible();
   expect(routes.getCreatedPayloads()).toEqual([
     {
-      vendor_id: null,
       api_family: "openai",
       model_id: "context-routed-model",
       display_name: "context-routed-model",
@@ -333,7 +319,6 @@ test("context-capability-authoring: overflow promotion target valid", async ({ p
   await expect(page.getByText("Model updated")).toBeVisible();
   expect(routes.getUpdatedPayloads()).toEqual([
     {
-      vendor_id: null,
       api_family: "openai",
       display_name: "GPT Small",
       model_id: "gpt-small",
@@ -398,7 +383,6 @@ test("context-capability-authoring: overflow promotion target validation error",
   await expect(page.getByText("Model updated")).toHaveCount(0);
   expect(routes.getUpdatedPayloads()).toEqual([
     {
-      vendor_id: null,
       api_family: "openai",
       display_name: "GPT Small",
       model_id: "gpt-small",

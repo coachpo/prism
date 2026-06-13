@@ -251,10 +251,6 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
       return;
     }
 
-    if (pathname === "/api/vendors") {
-      await fulfillJson(route, []);
-      return;
-    }
 
     if (pathname === "/api/config/header-blocklist-rules") {
       await fulfillJson(route, []);

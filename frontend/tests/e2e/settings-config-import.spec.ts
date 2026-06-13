@@ -95,8 +95,6 @@ function createModelListItem() {
   return {
     id: 1,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
@@ -119,14 +117,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
     return {
       version: 3 as const,
       bundle_kind: "profile_config" as const,
-      vendor_refs: [
-        {
-          key: "openai",
-          name_hint: "OpenAI",
-          description_hint: "Primary vendor",
-          icon_key_hint: "openai",
-        },
-      ],
       endpoints: [
         {
           name: "Alpha endpoint",
@@ -171,7 +161,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
       ],
       models: [
         {
-          vendor_key: "openai",
           api_family: "openai" as const,
           model_id: "alpha-model",
           display_name: "Alpha model",
@@ -218,14 +207,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
     return {
       version: 3 as const,
       bundle_kind: "profile_config" as const,
-      vendor_refs: [
-        {
-          key: "openai",
-          name_hint: "OpenAI",
-          description_hint: "Routing vendor",
-          icon_key_hint: "openai",
-        },
-      ],
       endpoints: [],
       pricing_templates: [],
       connections: [],
@@ -246,7 +227,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
       ],
       models: [
         {
-          vendor_key: "openai",
           api_family: "openai" as const,
           model_id: "router-model",
           display_name: "Router model",
@@ -265,7 +245,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
           ],
         },
         {
-          vendor_key: "openai",
           api_family: "openai" as const,
           model_id: "leaf-model",
           display_name: "Leaf model",
@@ -295,14 +274,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
   return {
     version: 3 as const,
     bundle_kind: "profile_config" as const,
-    vendor_refs: [
-      {
-        key: "anthropic",
-        name_hint: "Anthropic",
-        description_hint: "Fallback vendor",
-        icon_key_hint: "anthropic",
-      },
-    ],
     endpoints: [
       {
         name: "Beta endpoint A",
@@ -369,7 +340,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
     ],
     models: [
       {
-        vendor_key: "anthropic",
         api_family: "anthropic" as const,
         model_id: "beta-model",
         display_name: "Beta model",
@@ -441,13 +411,7 @@ function buildPreviewResponse(bundle: ProfileImportBundle, previewToken: string)
     },
     untouched_scope: {
       other_profiles: true,
-      existing_global_vendor_metadata: true,
       request_logs: true,
-    },
-    vendor_summary: {
-      create_count: bundle.vendor_refs.length,
-      reuse_count: 0,
-      warning_count: 1,
     },
     secret_summary: {
       endpoint_secret_refs: bundle.endpoints.filter((endpoint) => endpoint.api_key_secret_ref).length,
@@ -459,11 +423,6 @@ function buildPreviewResponse(bundle: ProfileImportBundle, previewToken: string)
     strategies_imported: bundle.loadbalance_strategies.length,
     models_imported: bundle.models.length,
     connections_imported: countConnections(bundle),
-    vendor_resolutions: bundle.vendor_refs.map((vendor) => ({
-      vendor_key: vendor.key,
-      resolution: "create" as const,
-      warning: "Vendor metadata will be created during import.",
-    })),
     secret_key_id: bundle.secret_payload.key_id,
     decryptable_secret_refs: bundle.secret_payload.entries.map((entry: { ref: string }) => entry.ref),
     blocking_errors: [],
@@ -542,9 +501,6 @@ async function mockSettingsRoutes(page: Page, options: MockSettingsRoutesOptions
     }
     if (pathname === "/api/models") {
       return fulfillJson([createModelListItem()]);
-    }
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
     }
     if (pathname === "/api/config/header-blocklist-rules") {
       return fulfillJson([]);
@@ -638,10 +594,7 @@ test("context-capability-authoring: config import requires an explicit preview b
   await expect(backupSection.getByText("This preview token is bound to Default (#1). Changing the file or selected profile requires a fresh preview before apply.")).toBeVisible();
   await expect(backupSection.getByText("Replacement scope", { exact: true })).toBeVisible();
   await expect(backupSection.getByText("Untouched scope", { exact: true })).toBeVisible();
-  await expect(backupSection.getByText("Vendor summary", { exact: true })).toBeVisible();
   await expect(backupSection.getByText("Secret summary", { exact: true })).toBeVisible();
-  await expect(backupSection.getByText("Vendor resolutions", { exact: true })).toBeVisible();
-  await expect(backupSection.getByText("Vendor metadata will be created during import.")).toBeVisible();
   await expect(backupSection.getByText("Secrets are imported only when the referenced key is available.")).toBeVisible();
   await expect(applyButton).toBeEnabled();
 
@@ -915,7 +868,7 @@ test("context-capability-authoring: config import invalidates a stale preview wh
   await page.getByTestId("shell-profile-switcher").getByRole("button").click();
   await page.getByRole("menuitem", { name: /Disaster recovery/ }).click();
 
-  await expect(page.getByText("Changes here manage Disaster recovery (#2).")).toBeVisible();
+  await expect(page.getByText("Export or restore profile bundle operations for Disaster recovery (#2).").first()).toBeVisible();
   await expect(backupSection.getByText("Loaded profile-import-alpha.json")).toHaveCount(0);
   await expect(applyButton).toHaveCount(0);
   expect(routes.getImportedPayloads()).toEqual([]);

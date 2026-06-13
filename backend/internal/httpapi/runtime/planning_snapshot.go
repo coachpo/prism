@@ -1347,13 +1347,11 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 	rows, err := tx.Query(
 		ctx,
 		`SELECT model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id,
-			vendors.id, vendors.key, vendors.name,
-			COALESCE(vendors.audit_enabled, FALSE), COALESCE(vendors.audit_capture_bodies, FALSE), model_configs.loadbalance_strategy_id,
-			model_configs.facade_enabled, model_configs.facade_selection_policy, model_configs.facade_fallback_policy,
-			model_configs.context_window_tokens, model_configs.default_output_token_reserve, model_configs.max_context_utilization,
-			model_configs.preferred_context_utilization_threshold, model_configs.context_overflow_promotion_target_id
+			model_configs.loadbalance_strategy_id, model_configs.facade_enabled, model_configs.facade_selection_policy,
+			model_configs.facade_fallback_policy, model_configs.context_window_tokens, model_configs.default_output_token_reserve,
+			model_configs.max_context_utilization, model_configs.preferred_context_utilization_threshold,
+			model_configs.context_overflow_promotion_target_id
 		FROM model_configs
-		LEFT JOIN vendors ON vendors.id = model_configs.vendor_id
 		WHERE model_configs.profile_id = $1 AND model_configs.is_enabled = TRUE
 		ORDER BY model_configs.model_id ASC, model_configs.id ASC`,
 		profileID,
@@ -1366,9 +1364,6 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 	items := make(map[string]runtimeModelRecord)
 	for rows.Next() {
 		var strategyID sql.NullInt32
-		var vendorID sql.NullInt32
-		var vendorKey sql.NullString
-		var vendorName sql.NullString
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
 		var contextWindowTokens sql.NullInt32
@@ -1377,7 +1372,7 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		var preferredContextUtilizationThreshold sql.NullFloat64
 		var contextOverflowPromotionTargetID sql.NullString
 		item := runtimeModelRecord{}
-		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &vendorID, &vendorKey, &vendorName, &item.AuditEnabled, &item.AuditCaptureBodies, &strategyID, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization, &preferredContextUtilizationThreshold, &contextOverflowPromotionTargetID); err != nil {
+		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &strategyID, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization, &preferredContextUtilizationThreshold, &contextOverflowPromotionTargetID); err != nil {
 			return nil, fmt.Errorf("scan enabled model for profile %d: %w", profileID, err)
 		}
 		if _, exists := items[item.ModelID]; exists {
@@ -1394,9 +1389,6 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		item.MaxContextUtilization = nullableFloat64(maxContextUtilization)
 		item.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 		item.ContextOverflowPromotionTargetID = nullableString(contextOverflowPromotionTargetID)
-		item.VendorID = nullableInt32(vendorID)
-		item.VendorKey = nullableString(vendorKey)
-		item.VendorName = nullableString(vendorName)
 		items[item.ModelID] = item
 	}
 	if err := rows.Err(); err != nil {

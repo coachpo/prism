@@ -32,6 +32,8 @@ export interface RequestLogPageState {
   ingress_request_id: string;
   model_id: string;
   endpoint_id: string;
+  client_rule_id: string;
+  resolved_target_model_id: string;
   time_range: TimeRange;
   status_family: StatusFamilyFilter;
   limit: number;
@@ -88,6 +90,8 @@ export function parsePageState(params: URLSearchParams): RequestLogPageState {
     ingress_request_id: normalizeSearchString(params.get("ingress_request_id")),
     model_id: normalizeSearchString(params.get("model") ?? params.get("model_id")),
     endpoint_id: normalizeSearchString(params.get("endpoint") ?? params.get("endpoint_id")),
+    client_rule_id: normalizeSearchString(params.get("client_rule_id")),
+    resolved_target_model_id: normalizeSearchString(params.get("resolved_target_model_id")),
     time_range: parseEnum(normalizeSearchString(params.get("time_range")), TIME_RANGE_OPTIONS, DEFAULTS.time_range),
     status_family: statusParam
       ? statusAliasToFamily(parseEnum(statusParam, STATUS_ALIAS_OPTIONS, "all"))
@@ -104,6 +108,8 @@ export function stateToParams(state: RequestLogPageState): URLSearchParams {
   if (state.ingress_request_id) p.set("ingress_request_id", state.ingress_request_id);
   if (state.model_id) p.set("model", state.model_id);
   if (state.endpoint_id) p.set("endpoint", state.endpoint_id);
+  if (state.client_rule_id) p.set("client_rule_id", state.client_rule_id);
+  if (state.resolved_target_model_id) p.set("resolved_target_model_id", state.resolved_target_model_id);
   if (state.time_range !== DEFAULTS.time_range) p.set("time_range", state.time_range);
   if (state.status_family !== DEFAULTS.status_family) p.set("status", statusFamilyToAlias(state.status_family));
   if (state.limit !== DEFAULTS.limit) p.set("limit", String(state.limit));

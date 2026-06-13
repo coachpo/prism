@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -443,7 +444,10 @@ func buildSnapshotEvents(records []usageEventRecord) []snapshotEvent {
 	events := make([]snapshotEvent, 0, len(records))
 	for _, rawRecord := range records {
 		record := normalizeUsageEventPricingCoherence(rawRecord)
-		endpointLabel := resolveEndpointLabel(record.CurrentEndpointName, record.CurrentEndpointBaseURL, nil, record.EndpointID, "Unknown Endpoint")
+		endpointLabel := strings.TrimSpace(record.EndpointLabelSnapshot)
+		if endpointLabel == "" {
+			endpointLabel = "Unknown Endpoint"
+		}
 		proxyAPIKeyLabel := record.ProxyAPIKeyNameSnapshot
 		if proxyAPIKeyLabel == nil {
 			proxyAPIKeyLabel = record.CurrentProxyAPIKeyName
@@ -872,7 +876,10 @@ func buildUsageEndpointStatistics(events []snapshotEvent) []UsageEndpointStatist
 		if items[i].RequestCount != items[j].RequestCount {
 			return items[i].RequestCount > items[j].RequestCount
 		}
-		return items[i].EndpointLabel < items[j].EndpointLabel
+		if items[i].EndpointLabel != items[j].EndpointLabel {
+			return items[i].EndpointLabel < items[j].EndpointLabel
+		}
+		return endpointIDOrMinusOne(items[i].EndpointID) < endpointIDOrMinusOne(items[j].EndpointID)
 	})
 	return items
 }

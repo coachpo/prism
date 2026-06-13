@@ -12,7 +12,7 @@ Prism does not expose a backend-local `/metrics` operations endpoint. Configure 
   - Profile-scoped management routes, which require `X-Profile-Id` and resolve against the selected profile.
   - Runtime proxy routes, which always use the active profile and ignore management scope overrides.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
-- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/sidecars/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `/api/config/bootstrap`, and `/api/config/bootstrap/validate`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
+- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `/api/config/bootstrap`, and `/api/config/bootstrap/validate`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
 - Profile-scoped management routes include `/api/config/profile/import`, `/api/settings/costing`, `/api/settings/timezone`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, `/api/connections/*`, and the other non-global `/api/config/profile/*` routes.
 - Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
@@ -364,115 +364,13 @@ Returns `400` if the target profile is currently active or is the default profil
 
 ---
 
-### 1.1 Vendors
+### 1.1 Catalog Management
 
-#### List Vendors
-```
-GET /api/vendors
-```
-Response `200`:
-```json
-[
-  {
-    "id": 1,
-    "name": "OpenAI",
-    "key": "openai",
-    "description": "OpenAI API (GPT models)",
-    "icon_key": "openai",
-    "is_readonly": true,
-    "audit_enabled": false,
-    "audit_capture_bodies": true,
-    "created_at": "2025-01-01T00:00:00Z",
-    "updated_at": "2025-01-01T00:00:00Z"
-  }
-]
-```
-
-#### Create Vendor
-```
-POST /api/vendors
-```
-Request:
-```json
-{
-  "key": "openrouter",
-  "name": "OpenRouter",
-  "description": "Shared vendor metadata for OpenRouter-backed models",
-  "icon_key": "openrouter"
-}
-```
-Response `201`: Created vendor object.
-
-Returns `403` when `key` matches a canonical readonly system vendor such as `openai`, `anthropic`, or `gemini`.
-
-#### Get Vendor
-```
-GET /api/vendors/{id}
-```
-Response `200`: Single vendor object (same schema as list item).
-
-#### Get Vendor Usage
-```
-GET /api/vendors/{id}/models
-```
-Response `200`:
-```json
-[
-  {
-    "model_config_id": 12,
-    "profile_id": 3,
-    "profile_name": "Default",
-    "model_id": "gpt-4o",
-    "display_name": "GPT-4o",
-    "api_family": "openai",
-    "is_enabled": true
-  }
-]
-```
-
-Returns the profile-scoped model rows currently referencing the vendor. The Settings → Global delete flow uses this endpoint as informational context before operators confirm removal; deleting the vendor clears those models' `vendor_id`/`vendor` metadata instead of blocking the delete.
-
-#### Update Vendor
-```
-PATCH /api/vendors/{id}
-```
-Request:
-```json
-{
-  "audit_enabled": true,
-  "audit_capture_bodies": false
-}
-```
-Response `200`: Updated vendor object.
-
-Mutable vendor fields:
-- `key` (stable vendor key; normalized to lowercase)
-- `name` (display name)
-- `description` (optional shared description)
-- `icon_key` (optional presentation-only vendor icon key; normalized to lowercase, nullable)
-- `audit_enabled` (enable or disable audit for this vendor)
-- `audit_capture_bodies` (when false, request/response bodies are stored as `null` for this vendor)
-
-Readonly vendor behavior:
-- API responses include derived `is_readonly` for canonical system vendors.
-- Readonly vendors may update audit toggles, but identity fields (`key`, `name`, `description`, `icon_key`) are rejected with `403`.
-
-#### Delete Vendor
-```
-DELETE /api/vendors/{id}
-```
-Response `204`: Vendor deleted.
-Readonly system vendors return `403` and cannot be deleted from `/api/vendors/*`.
-If an editable vendor is still referenced by live model rows, the delete still returns `204`. The backend nulls those models' `vendor_id` and returns `vendor: null` on later model reads. Runtime compatibility continues to come from each model's required `api_family`.
-
-Vendor name, key, and description are part of the global vendor catalog.
-
-Vendor records are global/shared and are not profile-scoped. The frontend manages them from Settings → Global, while profile-scoped audit toggles continue to consume the shared catalog from the Profile tab.
-`icon_key` is optional, persisted, and presentation-only. It never affects runtime routing or `api_family` behavior. Vendor icon presets are locally vendored from the pinned `cc-switch` source, and the frontend falls back to a monogram or generic placeholder when the stored `icon_key` is unknown or missing. Source-backed asset IDs are persisted directly, so Z.ai uses `icon_key="zhipu"` and Microsoft/Azure uses `icon_key="azure"`.
-The seeded OpenAI, Anthropic, and Gemini catalog rows currently surface as readonly system vendors in live API responses.
+Prism no longer exposes a catalog management product surface. Model compatibility is carried by each model's required `api_family`, and profile configuration import does not create or translate catalog data.
 
 ---
 
+### 1.2 Model Configurations
 ### 1.2 Model Configurations
 
 #### List Models
@@ -485,7 +383,7 @@ Response `200`: Array of model objects.
 ```
 GET /api/models/{id}
 ```
-Response `200`: Full model object with nullable vendor metadata, required `api_family`, optional `loadbalance_strategy_id`, exact-facade fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), ordered `access_targets`, and attached Terminal Target summaries in the effective profile scope. Public model target authoring uses only same-family model targets by exact `target_model_id`. Existing `target_type="connection"` rows are returned as internal ownership and runtime routing edges for the model's Terminal Targets. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`. These backend model routes are the authoritative Release 1 facade authoring surface; frontend facade authoring remains deferred.
+Response `200`: Full model object with required `api_family`, optional `loadbalance_strategy_id`, exact-facade fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), ordered `access_targets`, and attached Terminal Target summaries in the effective profile scope. Public model target authoring uses only same-family model targets by exact `target_model_id`. Existing `target_type="connection"` rows are returned as internal ownership and runtime routing edges for the model's Terminal Targets. These backend model routes are the authoritative Release 1 facade authoring surface; frontend facade authoring remains deferred.
 
 #### Get Models by Endpoints (Batch)
 ```
@@ -512,7 +410,6 @@ POST /api/models
 Request:
 ```json
 {
-  "vendor_id": null,
   "api_family": "openai",
   "model_id": "gpt-4o-public",
   "display_name": "GPT-4o Public",
@@ -542,7 +439,6 @@ Response `201`: Created model object.
 Validation rules:
 - `model_id` must be unique within the effective profile scope.
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
-- `vendor_id` is optional metadata and may be `null`.
 - `facade_enabled` defaults to `false`. When it is `true`, the model must use `api_family = "openai"`, `facade_selection_policy` must be exactly `"weighted_eligible_context"`, and `facade_fallback_policy` must be exactly `"redistribute_ineligible_weight"`.
 - Release 1 facade authoring is exact model-ID only. The management API does not accept regex matcher payloads or capability-metadata facade fields.
 - Public create and update payloads may author only ordered same-profile, same-`api_family` model targets by exact `target_model_id`.
@@ -561,7 +457,6 @@ PUT /api/models/{id}
 Request (all fields optional):
 ```json
 {
-  "vendor_id": null,
   "api_family": "openai",
   "model_id": "gpt-4o-public-updated",
   "display_name": "GPT-4o Public (Updated)",
@@ -905,10 +800,7 @@ Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`,
 
 ### 1.6 Config Export/Import
 
-Prism uses a split config-bundle contract with two explicit ownership domains:
-
-- **Profile bundle**: `version: 3`, profile-scoped config only
-- **Vendor catalog bundle**: `version: 1`, global vendor metadata only
+Prism uses one profile config-bundle ownership domain: `version: 3`, profile-scoped config only.
 
 #### Export Profile Configuration
 ```
@@ -920,14 +812,6 @@ Response `200`:
   "version": 3,
   "bundle_kind": "profile_config",
   "exported_at": "2026-04-04T15:00:00Z",
-  "vendor_refs": [
-    {
-      "key": "openai",
-      "name_hint": "OpenAI",
-      "description_hint": "OpenAI API (GPT models)",
-      "icon_key_hint": "openai"
-    }
-  ],
   "endpoints": [
     {
       "name": "Primary OpenAI",
@@ -962,7 +846,6 @@ Response `200`:
   "models": [
     {
       "model_id": "gpt-4o",
-      "vendor_key": "openai",
       "api_family": "openai",
       "display_name": "GPT-4o",
       "context_window_tokens": 128000,
@@ -1007,8 +890,6 @@ Profile export semantics:
 - `bundle_kind` is always `profile_config`.
 - `GET /api/config/profile/export` returns the safe redacted default bundle.
 - `POST /api/config/profile/export/with-secrets` returns the dangerous full secret-bearing bundle and requires `X-Prism-Dangerous-Confirm: profile-export`.
-- `vendor_refs` are non-authoritative hints keyed by actual referenced `vendor_key` values only.
-- Vendorless models export `vendor_key: null` and do not add entries to `vendor_refs`.
 - Safe exports never include plaintext `endpoints[].api_key`.
 - Safe exports null reusable endpoint secret refs and do not include `secret_payload.entries[]`.
 - Dangerous exports include `secret_payload.entries[]` and reusable endpoint secret refs.
@@ -1038,13 +919,6 @@ Response `200`:
   "strategies_imported": 2,
   "models_imported": 5,
   "connections_imported": 10,
-  "vendor_resolutions": [
-    {
-      "vendor_key": "openai",
-      "resolution": "reuse",
-      "warning": null
-    }
-  ],
   "replacement_scope": {
     "target": "selected_profile",
     "endpoints": 2,
@@ -1058,13 +932,7 @@ Response `200`:
   },
   "untouched_scope": {
     "other_profiles": true,
-    "existing_global_vendor_metadata": true,
     "request_logs": true
-  },
-  "vendor_summary": {
-    "create_count": 1,
-    "reuse_count": 2,
-    "warning_count": 0
   },
   "secret_summary": {
     "endpoint_secret_refs": 1,
@@ -1084,7 +952,7 @@ Response `200`:
 
 Preview semantics:
 - Preview is the authoritative backend readiness check for profile import.
-- The backend validates bundle kind/version, top-level private connection references, ordered model access targets, vendor resolution, and secret decryption before returning `ready: true`.
+- The backend validates bundle kind/version, top-level private connection references, ordered model access targets, required `api_family`, and secret decryption before returning `ready: true`.
 - Preview rejects any `connection_ref` used by multiple models or any imported connection ref that cannot be owned by exactly one model.
 - Preview rejects profile bundle versions other than `3`; older profile bundle versions return `400`.
 - Profile bundles stay on `version: 3` and carry OpenAI Terminal Target runtime text capability through `connections[].openai_text_capability`. There is no bootstrap-owned translation mode control in the bundle or startup config.
@@ -1121,13 +989,8 @@ Profile import semantics:
 - Import is profile-targeted and replaces configuration in the effective profile only.
 - Other profiles are not deleted or mutated.
 - The profile import lanes replace profile-scoped rows only, including endpoints, Terminal Targets represented as top-level private `connections`, model configs, model access targets, profile settings, loadbalance strategies, header blocklist rules, and user-agent client rules that belong to the effective profile.
-- Global vendor rows, other profiles, and request logs remain untouched.
-- `models[].vendor_key` is optional; when omitted or `null`, the imported model persists with `vendor_id = null` and `vendor = null`.
-- When `models[].vendor_key` is present, the backend resolves or creates the matching shared vendor row by that key only.
-- Global vendor rows are resolved by `vendor_key` only.
-- If a referenced `vendor_key` already exists globally, import reuses that vendor row.
-- If vendor hints differ from existing global metadata, import does not fail and does not mutate the existing global vendor row.
-- If a profile bundle would create a new vendor whose proposed name collides with an existing global vendor name, preview/import fail before profile replacement starts.
+- Other profiles and request logs remain untouched.
+- Imported models carry required `api_family` directly. Profile import rejects unsupported model compatibility shapes instead of translating catalog metadata.
 - When endpoint `position` is present, import uses it as the ordering hint; when omitted, import falls back to endpoint file order. Persisted endpoint positions are normalized to contiguous `0..N-1` values.
 - Exported model access targets are ordered by `position`. During import, access-target positions are normalized to contiguous `0..N-1` values while preserving relative payload order.
 - Legacy bundle omissions are normalized before validation and persistence: missing facade fields become `facade_enabled = false` with nil policies, and missing model-target `weight` / `target_priority` become `1` / `position`.
@@ -1145,89 +1008,7 @@ Profile import semantics:
 - Their explicit Ban Policy shape carries failure status codes, retry-window fields, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration. Import rejects removed keys and accepts only `off`, `temporary`, or `until_reset` for `ban_mode`.
 - Other profile config version numbers are unsupported.
 
-#### Export Vendor Catalog
-```
-GET /api/config/vendors/export
-```
-Vendor catalog routes are global and do not require `X-Profile-Id`.
-
-Response `200`:
-```json
-{
-  "version": 1,
-  "bundle_kind": "vendor_catalog",
-  "exported_at": "2026-04-04T15:00:00Z",
-  "vendors": [
-    {
-      "key": "openai",
-      "name": "OpenAI",
-      "description": "OpenAI API (GPT models)",
-      "icon_key": "openai",
-      "audit_enabled": false,
-      "audit_capture_bodies": true
-    }
-  ]
-}
-```
-
-#### Preview Vendor Catalog Import
-```
-POST /api/config/vendors/import/preview
-```
-Response `200`:
-```json
-{
-  "ready": true,
-  "version": 1,
-  "bundle_kind": "vendor_catalog",
-  "create_count": 1,
-  "update_count": 1,
-  "mutation_scope": {
-    "target": "global_vendor_catalog",
-    "create_count": 1,
-    "update_count": 1,
-    "unchanged_count": 0
-  },
-  "untouched_scope": {
-    "profiles": true,
-    "profile_scoped_config": true,
-    "request_logs": true
-  },
-  "preview_token": "ptok_...",
-  "bundle_fingerprint": "sha256:...",
-  "blocking_errors": [],
-  "warnings": []
-}
-```
-
-#### Import Vendor Catalog
-```
-POST /api/config/vendors/import
-```
-Response `200`:
-```json
-{
-  "created_count": 1,
-  "updated_count": 1
-}
-```
-
-Apply semantics:
-- `X-Prism-Preview-Token` is required on apply.
-- Missing preview token returns `400`.
-- Invalid, stale, or mismatched preview token returns `409`.
-- The preview/apply linkage lives in the header only; the raw bundle JSON stays unchanged.
-
-Vendor catalog semantics:
-- Vendor catalog bundles are authoritative for global vendor metadata only.
-- Vendor catalog import upserts vendor metadata by `key`.
-- Vendor catalog preview/import mutate only the shared vendor catalog.
-- Vendor catalog preview/import reject duplicate bundle keys, duplicate bundle names, and global name collisions before mutation.
-- Vendor catalog import is independent from the profile backup/import flow.
-- Vendor catalog exports and imports stay in the same split-bundle workflow, while vendor catalog payloads keep their own `version: 1` contract.
-
----
-
+### 1.7 Settings API
 ### 1.7 Settings API
 
 #### Get Auth Settings
@@ -1483,72 +1264,13 @@ Note: Delete is only available for effective-profile user rules. Attempting to d
 
 ---
 
-### 1.10 Sidecars (Global CLIProxyAPI Control Plane)
+### 1.10 Removed Management Surface
 
-Sidecar routes are global management routes. They omit `X-Profile-Id` and operate on instance-wide CLIProxyAPI registrations. Prism stores sidecar metadata plus optional normalized provider inventory for display. Auth-files are live control-plane reads from CLIProxyAPI, and CLIProxyAPI remains the source of truth for live auth/provider state.
-
-#### List Sidecars
-```
-GET /api/sidecars
-```
-Response `200`: `{ "items": SidecarInstance[] }`.
-
-#### Create Sidecar
-```
-POST /api/sidecars
-```
-Request includes `name`, `base_url`, required `management_password`, optional `environment_label`, `enabled`, `sync_interval_seconds`, `request_timeout_seconds`, `allow_private_network`, `allow_insecure_http`, and `skip_tls_verify`.
-
-Response `201`: Created sidecar. Raw management passwords are never returned; responses include `credential_state.management_password_configured` and may include the mask string `********` only.
-
-#### Get, Update, Delete Sidecar
-```
-GET /api/sidecars/{sidecar_id}
-PATCH /api/sidecars/{sidecar_id}
-DELETE /api/sidecars/{sidecar_id}
-```
-`PATCH` accepts the create fields as optional values. Supplying `management_password` rotates the stored credential and resets management-auth state. `DELETE` soft-deletes the registration and returns `204`.
-
-#### Test Connection and Sync
-```
-POST /api/sidecars/{sidecar_id}/test-connection
-POST /api/sidecars/{sidecar_id}/sync
-GET /api/sidecars/{sidecar_id}/sync-status
-```
-Connection tests call CLIProxyAPI management auth through the backend and return `state`, `management_auth_state`, and `status_code`. Manual sync returns `state` (`succeeded`, `skipped`, or `failed`), the updated `sidecar`, `sync_status`, `provider_snapshot_count`, and optional `error_code`/`error_detail`. Manual sync on a disabled sidecar returns `409`; invalid management auth returns `424`; other upstream failures return `502`.
-
-Prism reads CLIProxyAPI `/auth-files` live on demand as a strict top-level `files` envelope. Missing `files`, legacy `auth_files`, `files: null`, and non-array `files` are contract failures. An empty `files: []` response is valid live state and returns an empty Prism `items` list. Provider inventory is a separate display supplement and is never an auth-file fallback.
-
-#### Live Auth-Files and Provider Inventory
-```
-GET /api/sidecars/{sidecar_id}/auth-files
-GET /api/sidecars/{sidecar_id}/providers
-GET /api/sidecars/{sidecar_id}/provider-snapshots
-```
-`auth-files` returns live auth-file observations from CLIProxyAPI. Provider snapshots are optional normalized display inventory from CLIProxyAPI provider endpoints for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. Payloads are redacted before storage or display; auth-file metadata may include safe UI gating hints such as `path_present` and `delete_supported` without exposing file paths or secrets.
-
-#### Auth-File Models Discovery
-```
-GET /api/sidecars/{sidecar_id}/auth-files/models?name={auth-file-name-or-id}
-```
-This route is a read-only passthrough to CLIProxyAPI `GET /v0/management/auth-files/models?name=...`. Response `200` returns `{ "models": [...] }`; model items include `id` and may include `display_name`, `type`, and `owned_by`. A successful `{ "models": [] }` means discovery is supported but no models are currently available for that auth file. Upstream 404/not-found behavior is returned as Prism `404` with an explicit unsupported detail. Prism does not mutate auth state, does not persist model discoveries, and does not use retained auth rows or provider inventory as fallback model payloads.
-
-#### Auth-File Mutations
-```
-DELETE /api/sidecars/{sidecar_id}/auth-files/{auth_id}
-PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status
-PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields
-```
-Status mutations accept `disabled`. Field mutations are priority-only: the `/fields` request body requires `priority`; no other auth-file fields are mutable through Prism. Single auth-file delete accepts `{ "confirm_name": "..." }` and no batch/delete-all/upload/download surface. Mutations flow through Prism's backend service so the browser never calls CLIProxyAPI directly.
-
-Before any upstream PATCH or DELETE, Prism fetches live `/auth-files` state and allows mutation only when exactly one live row matches `{auth_id}`, that row has stable non-name-derived identity, and its current `name` is unique in the live auth list. Prism refuses duplicate-name collisions, name-derived/degraded rows, ambiguous live matches, and missing live rows. Local retained observations never authorize mutation and there is no retry control for stale cached data. Successful PATCH responses return `state: "succeeded"` with the refreshed live auth-file row when the post-mutation refresh succeeds, or `state: "succeeded_sync_failed"` plus `sync_error` when the upstream mutation succeeded but Prism could not refresh local truth.
-
-Delete is stricter than PATCH: Prism requires the live row to be file-backed, non-runtime-only, non-path-like by name, confirmed by an exact `confirm_name` match against the current live auth name, and backed by known-supported CLIProxyAPI delete capability from normal `/auth-files` management response metadata or a bounded non-mutating empty `DELETE /v0/management/auth-files` probe for CPA builds with metadata before calling CLIProxyAPI `DELETE /v0/management/auth-files` with `{ "names": [name] }`. Missing or unknown capability refuses the delete without issuing a named upstream `DELETE`. Successful clean delete returns `state: "succeeded"` and omits the auth-file row when the row is absent after the delete-only refresh, including the final remaining auth file case. If the upstream delete succeeds but Prism cannot refresh local truth, the response returns `state: "succeeded_sync_failed"`, the pre-delete live auth-file row, and `sync_error`.
-
-Authfile priority has two context-specific zero semantics. In CLIProxyAPI live `/auth-files` listing behavior, `priority=0` is a valid explicit baseline/lowest numeric bucket; higher numeric values are preferred, and a returned `priority: 0` is not absent or removed. The upstream CLIProxyAPI `/auth-files/fields` PATCH surface is the exception: sending `priority: 0` is the API-specific clear/remove sentinel for stored priority metadata, so Prism forwards that literal field-update value and then refreshes live auth-files from CLIProxyAPI state.
+The former CLIProxyAPI management control plane is not part of the current management API. CLIProxyAPI remains documented only for runtime context overflow promotion.
 
 ---
 
+## 2. Runtime Proxy API
 ## 2. Runtime Proxy API
 
 Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It forwards only the operations listed in this section through the active profile. Other vendor routes, including stored-object, list, retrieve, delete, cancel, compact, embedding, model-list, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
@@ -1974,7 +1696,7 @@ Query parameters:
 
 The snapshot is backed by `backend/internal/httpapi/management/stats/service.go` together with the aggregation types and query helpers in `backend/internal/domain/stats/snapshot.go` and `backend/internal/domain/stats/types.go`.
 
-The snapshot is aggregated from persisted usage-event rows. `/api/stats/dashboard` is the canonical overview aggregate that also includes the backend-computed Routing Health Map. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
+The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` is the canonical overview aggregate that also includes the backend-computed Routing Health Map. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 
@@ -2003,6 +1725,8 @@ Query parameters:
 | `status_family` | string | — | Filter by status family (`4xx` or `5xx`) |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `endpoint_id` | integer | — | Filter by endpoint ID |
+| `client_rule_id` | integer | none | Filter by caller client, matched against `caller_user_agent` only through enabled User-Agent Client Rules |
+| `resolved_target_model_id` | string | none | Filter by final target model selected for the attempt |
 | `limit` | integer | 50 | Max results (1-500) |
 | `offset` | integer | 0 | Pagination offset |
 
@@ -2021,6 +1745,18 @@ Response `200`:
         "model_id": "gpt-4o",
         "model_label": "GPT-4o"
       }
+    ],
+    "clients": [
+      {
+        "client_rule_id": 7,
+        "client_label": "Codex"
+      }
+    ],
+    "resolved_target_models": [
+      {
+        "resolved_target_model_id": "gpt-4o",
+        "model_label": "GPT-4o"
+      }
     ]
   },
   "items": [
@@ -2031,9 +1767,6 @@ Response `200`:
       "resolved_target_model_id": "gpt-4o",
       "resolved_target_model_label": "GPT-4o",
       "api_family": "openai",
-      "vendor_id": 1,
-      "vendor_key": "openai",
-      "vendor_name": "OpenAI",
       "endpoint_id": 12,
       "endpoint_label": "Primary OpenAI",
       "connection_id": 1,
@@ -2063,9 +1796,9 @@ Response `200`:
 }
 ```
 
-The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes requested-model labels, final-target labels, `stream_outcome`, and `stream_error_kind` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This retained-history route is the operator drill-in surface for investigation, not a dashboard aggregate or an OTLP metrics endpoint.
+The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown, `filter_options.models` for the requested-model dropdown, `filter_options.clients` for caller client filtering, and `filter_options.resolved_target_models` for final-target filtering. It includes requested-model labels, final-target labels, `stream_outcome`, and `stream_error_kind` for display. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This retained-history route is the operator drill-in surface for investigation, not a dashboard aggregate or an OTLP metrics endpoint.
 
-`filter_options` always includes both `endpoints` and `models`. `filter_options.models` is request-log scoped and contains `{ model_id, model_label }` entries; when no current model options exist, the backend still returns `models: []` instead of omitting the field. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. `model_id` stays the requested model and `resolved_target_model_id` captures the final target model for that attempt, while `resolved_target_model_label` surfaces the matching display label.
+`filter_options` always includes `endpoints`, `models`, `clients`, and `resolved_target_models`. `filter_options.models` is request-log scoped and contains `{ model_id, model_label }` entries. `filter_options.clients` contains `{ client_rule_id, client_label }` entries built from enabled User-Agent Client Rules. `client_rule_id` filtering is caller-only and matches `caller_user_agent`; it never matches `upstream_user_agent`. `filter_options.resolved_target_models` contains `{ resolved_target_model_id, model_label }` entries for final-target filtering. Empty option sets are returned as empty arrays instead of omitted fields. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. `model_id` stays the requested model and `resolved_target_model_id` captures the final target model for that attempt, while request-log row and detail payloads use `resolved_target_model_label` for the matching display label.
 
 Exact single-request investigation now lives on `GET /api/stats/requests/{request_id}` instead of the paginated list-query surface.
 
@@ -2085,9 +1818,6 @@ Response `200`:
     "resolved_target_model_id": "gpt-4o",
     "resolved_target_model_label": "GPT-4o",
     "api_family": "openai",
-    "vendor_id": 1,
-    "vendor_key": "openai",
-    "vendor_name": "OpenAI",
     "status_code": 200,
     "response_time_ms": 1234,
     "ttft_ms": 320,
@@ -2470,7 +2200,6 @@ Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `request_log_id` | integer | none | Filter audit rows linked to one request log |
-| `vendor_id` | integer | none | Filter by vendor ID |
 | `model_id` | string | none | Filter by model ID |
 | `status_code` | integer | none | Filter by response status code |
 | `endpoint_id` | integer | none | Filter by endpoint ID |
@@ -2491,7 +2220,6 @@ Response `200`:
       "id": 1,
       "profile_id": 2,
       "request_log_id": 42,
-       "vendor_id": 1,
       "model_id": "gpt-4o",
       "endpoint_id": 12,
       "connection_id": 1,
@@ -2532,7 +2260,6 @@ Response `200`:
   "id": 1,
   "profile_id": 2,
   "request_log_id": 42,
-   "vendor_id": 1,
   "model_id": "gpt-4o",
   "endpoint_id": 12,
   "connection_id": 1,
@@ -2552,7 +2279,7 @@ Response `200`:
 ```
 
 When body capture is enabled and non-empty response bytes are captured, `response_body` stores those bytes and `response_body_stored=true`; `is_stream` does not prevent storage. For translated OpenAI sibling-operation attempts, `request_body` and `response_body` remain raw upstream-native payloads or SSE bytes. They do not store the translated client-facing request or response shape.
-If vendor body capture is disabled, both `request_body` and `response_body` are `null`. Rows with `response_body_stored=false` have no stored response body, including old rows that were written before streaming response capture was available.
+If body capture is disabled for a request, both `request_body` and `response_body` are `null`. Rows with `response_body_stored=false` have no stored response body, including old rows that were written before streaming response capture was available.
 
 Response `404`: Audit log not found.
 
@@ -2614,11 +2341,11 @@ All audit log entries have sensitive header values redacted before storage:
 - Any header name containing `key`, `secret`, `token`, or `auth` (case-insensitive) → value replaced with `[REDACTED]`
 
 Request and response bodies are not header-redacted and may contain user-provided secrets or PII.
-Body capture is configurable per vendor via `audit_capture_bodies`; when disabled, both `request_body` and `response_body` are `null`.
+Body capture is request-time provenance via `audit_capture_bodies_at_request`; when disabled, both `request_body` and `response_body` are `null`.
 
 ### 5.5 Body Size Limits
 
-When body capture is enabled for the vendor, request and response bodies are truncated to 64KB before storage. A `[TRUNCATED]` marker is appended when truncation occurs.
+When body capture is enabled for the request, request and response bodies are truncated to 64KB before storage. A `[TRUNCATED]` marker is appended when truncation occurs.
 
 ---
 
@@ -2819,8 +2546,7 @@ Response `200`:
       "last_retry_delay_ms": 60000,
       "model_id": "gpt-4o",
       "endpoint_id": 12,
-      "vendor_id": 1,
-      "ban_mode": "until_reset",
+        "ban_mode": "until_reset",
       "banned_until_at": null,
       "last_success_at": null,
       "summary": {

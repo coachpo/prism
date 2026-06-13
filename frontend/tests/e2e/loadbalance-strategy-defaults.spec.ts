@@ -123,9 +123,6 @@ async function mockLoadbalanceRoutes(
       return fulfillJson(route, []);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson(route, []);
-    }
 
     if (pathname === "/api/loadbalance/strategies/defaults" && request.method() === "POST") {
       return fulfillJson(route, postResponse, postStatus);

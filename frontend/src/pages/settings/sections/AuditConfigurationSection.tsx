@@ -1,16 +1,12 @@
 import type { RefObject } from "react";
 import { cn } from "@/lib/utils";
-import type { HeaderBlocklistRule, UserAgentClientRule, Vendor } from "@/lib/types";
-import { AuditConfigurationDefaultsCard } from "./AuditConfigurationDefaultsCard";
+import type { HeaderBlocklistRule, UserAgentClientRule } from "@/lib/types";
 import { AuditConfigurationHeaderBlocklistCard } from "./AuditConfigurationHeaderBlocklistCard";
 import { AuditConfigurationUserAgentClientRulesCard } from "./AuditConfigurationUserAgentClientRulesCard";
 
 interface AuditConfigurationSectionProps {
   auditConfigurationRef: RefObject<HTMLDivElement | null>;
   isAuditConfigurationFocused: boolean;
-  vendors: Vendor[];
-  toggleAudit: (vendorId: number, checked: boolean) => Promise<void>;
-  toggleBodies: (vendorId: number, checked: boolean) => Promise<void>;
   loadingRules: boolean;
   systemRulesOpen: boolean;
   setSystemRulesOpen: (open: boolean) => void;
@@ -41,9 +37,6 @@ interface AuditConfigurationSectionProps {
 export function AuditConfigurationSection({
   auditConfigurationRef,
   isAuditConfigurationFocused,
-  vendors,
-  toggleAudit,
-  toggleBodies,
   loadingRules,
   systemRulesOpen,
   setSystemRulesOpen,
@@ -69,18 +62,12 @@ export function AuditConfigurationSection({
 }: AuditConfigurationSectionProps) {
   return (
     <section id="audit-configuration" tabIndex={-1} className="scroll-mt-24 space-y-4">
-      <AuditConfigurationDefaultsCard
+      <AuditConfigurationHeaderBlocklistCard
         cardRef={auditConfigurationRef}
         className={cn(
           "transition-all duration-300",
           isAuditConfigurationFocused && "ring-2 ring-primary/50 bg-primary/5"
         )}
-        vendors={vendors}
-        toggleAudit={toggleAudit}
-        toggleBodies={toggleBodies}
-      />
-
-      <AuditConfigurationHeaderBlocklistCard
         customRules={customRules}
         handleToggleRule={handleToggleRule}
         loadingRules={loadingRules}

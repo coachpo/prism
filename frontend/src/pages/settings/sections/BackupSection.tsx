@@ -132,37 +132,11 @@ export function BackupSection({
           variant: previewResult.untouched_scope.other_profiles ? "secondary" : "destructive",
         },
         {
-          label: copy.scopeExistingGlobalVendorMetadata,
-          value: previewResult.untouched_scope.existing_global_vendor_metadata
-            ? copy.statusUntouched
-            : copy.statusAffected,
-          variant: previewResult.untouched_scope.existing_global_vendor_metadata
-            ? "secondary"
-            : "destructive",
-        },
-        {
           label: copy.scopeRequestLogs,
           value: previewResult.untouched_scope.request_logs
             ? copy.statusUntouched
             : copy.statusAffected,
           variant: previewResult.untouched_scope.request_logs ? "secondary" : "destructive",
-        },
-      ]
-    : [];
-
-  const vendorSummaryItems = previewResult
-    ? [
-        {
-          label: copy.vendorSummaryCreateCount,
-          value: formatNumber(previewResult.vendor_summary.create_count),
-        },
-        {
-          label: copy.vendorSummaryReuseCount,
-          value: formatNumber(previewResult.vendor_summary.reuse_count),
-        },
-        {
-          label: copy.vendorSummaryWarningCount,
-          value: formatNumber(previewResult.vendor_summary.warning_count),
         },
       ]
     : [];
@@ -407,21 +381,6 @@ export function BackupSection({
 
                       <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4">
                         <div className="flex items-center gap-2">
-                          <Badge variant="outline">{copy.previewVendorSummary}</Badge>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          {vendorSummaryItems.map((item) => (
-                            <PreviewRow
-                              key={item.label}
-                              label={item.label}
-                              value={<Badge variant="secondary">{item.value}</Badge>}
-                            />
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4">
-                        <div className="flex items-center gap-2">
                           <Badge variant="outline">{copy.previewSecretSummary}</Badge>
                         </div>
                         <div className="flex flex-col gap-2">
@@ -434,31 +393,6 @@ export function BackupSection({
                           ))}
                         </div>
                       </div>
-
-                      {previewResult.vendor_resolutions.length ? (
-                        <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4 xl:col-span-2">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline">{copy.previewVendorResolutions}</Badge>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            {previewResult.vendor_resolutions.map((resolution) => (
-                              <div key={resolution.vendor_key} className="rounded-md border bg-background px-3 py-3">
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                  <div className="font-medium">{resolution.vendor_key}</div>
-                                  <Badge variant={resolution.resolution === "create" ? "default" : "secondary"}>
-                                    {resolution.resolution === "create"
-                                      ? copy.vendorResolutionCreate
-                                      : copy.vendorResolutionReuse}
-                                  </Badge>
-                                </div>
-                                {resolution.warning ? (
-                                  <p className="mt-2 text-sm text-warning">{resolution.warning}</p>
-                                ) : null}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
 
                       {previewResult.warnings.length ? (
                         <div className="flex flex-col gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-3 text-sm text-foreground xl:col-span-2">

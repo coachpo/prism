@@ -3,6 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 const timestamp = "2026-04-11T00:00:00Z";
 const modelOptionLabel = "Bootstrap Filter Model";
 const endpointOptionLabel = "Bootstrap Filter Endpoint";
+const clientOptionLabel = "Codex CLI";
+const finalTargetModelOptionLabel = "Terminal Model";
 
 function createProfile() {
   return {
@@ -32,9 +34,6 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     upstream_client_display: "Browse Fixture Row",
     user_agent_overridden: false,
     api_family: "openai",
-    vendor_id: 1,
-    vendor_key: "openai",
-    vendor_name: "OpenAI",
     endpoint_id: 1,
     endpoint_label: endpointOptionLabel,
     connection_id: null,
@@ -51,6 +50,91 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createRequestLogDetail() {
+  return {
+    summary: {
+      id: 101,
+      created_at: timestamp,
+      model_id: "gpt-4o-mini",
+      model_label: modelOptionLabel,
+      resolved_target_model_id: "terminal-model",
+      resolved_target_model_label: finalTargetModelOptionLabel,
+      api_family: "openai",
+      status_code: 200,
+      response_time_ms: 1250,
+      ttft_ms: 95,
+      completion_duration_ms: 280,
+      is_stream: true,
+      stream_outcome: "completed",
+      stream_error_kind: null,
+      stream_error_detail: null,
+    },
+    request: {
+      request_path: "/v1/responses",
+      ingress_request_id: "ingress-101",
+      attempt_number: 1,
+      provider_correlation_id: null,
+      proxy_api_key_id: null,
+      proxy_api_key_name_snapshot: null,
+      caller_user_agent: "codex-cli/1.0",
+      upstream_user_agent: "codex-cli/1.0",
+      caller_client_display: clientOptionLabel,
+      upstream_client_display: clientOptionLabel,
+      user_agent_overridden: false,
+      request_generation_params: null,
+      request_generation_params_status: null,
+      error_detail: null,
+    },
+    routing: {
+      profile_id: 1,
+      endpoint_label: endpointOptionLabel,
+      endpoint_id: 1,
+      terminal_target_id: null,
+      selected_terminal_target_id: null,
+      context_routing: null,
+      endpoint_base_url: null,
+      endpoint_description: null,
+      audit_enabled_at_request: false,
+      audit_capture_bodies_at_request: false,
+    },
+    usage: {
+      input_tokens: 50,
+      output_tokens: 150,
+      total_tokens: 200,
+      success_flag: true,
+      billable_flag: true,
+      priced_flag: true,
+      unpriced_reason: null,
+      cache_read_input_tokens: null,
+      cache_creation_input_tokens: null,
+      reasoning_tokens: null,
+    },
+    costing: {
+      input_cost_micros: null,
+      output_cost_micros: null,
+      cache_read_input_cost_micros: null,
+      cache_creation_input_cost_micros: null,
+      reasoning_cost_micros: null,
+      total_cost_original_micros: null,
+      total_cost_user_currency_micros: 750000,
+      currency_code_original: "USD",
+      report_currency_code: "USD",
+      report_currency_symbol: "$",
+      fx_rate_used: null,
+      fx_rate_source: null,
+    },
+    pricing: {
+      pricing_snapshot_unit: null,
+      pricing_snapshot_input: null,
+      pricing_snapshot_output: null,
+      pricing_snapshot_cache_read_input: null,
+      pricing_snapshot_cache_creation_input: null,
+      pricing_snapshot_reasoning: null,
+      pricing_config_version_used: null,
+    },
+  };
+}
+
 function createRequestLogsResponse(
   requestLogItems: Record<string, unknown>[],
   searchParams: URLSearchParams,
@@ -58,6 +142,18 @@ function createRequestLogsResponse(
     {
       model_id: "gpt-4o-mini",
       model_label: modelOptionLabel,
+    },
+  ],
+  clientOptions: Record<string, unknown>[] = [
+    {
+      client_rule_id: 123,
+      client_label: clientOptionLabel,
+    },
+  ],
+  resolvedTargetModelOptions: Record<string, unknown>[] = [
+    {
+      resolved_target_model_id: "terminal-model",
+      model_label: finalTargetModelOptionLabel,
     },
   ],
 ) {
@@ -80,6 +176,8 @@ function createRequestLogsResponse(
           endpoint_label: endpointOptionLabel,
         },
       ],
+      clients: clientOptions,
+      resolved_target_models: resolvedTargetModelOptions,
     },
   };
 }
@@ -87,6 +185,8 @@ function createRequestLogsResponse(
 interface MockRouteState {
   failRequestLogs: boolean;
   modelOptions?: Record<string, unknown>[];
+  clientOptions?: Record<string, unknown>[];
+  resolvedTargetModelOptions?: Record<string, unknown>[];
 }
 
 async function mockRequestLogRoutes(
@@ -137,9 +237,6 @@ async function mockRequestLogRoutes(
       return fulfillJson({ timezone_preference: "UTC" });
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson([]);
@@ -157,16 +254,34 @@ async function mockRequestLogRoutes(
       );
     }
 
+    if (pathname === "/api/stats/requests/101") {
+      return fulfillJson(createRequestLogDetail());
+    }
+
     if (pathname === "/api/stats/requests") {
       if (state.failRequestLogs) {
         return fulfillJson({ detail: "Failed to load request logs" }, 500);
       }
 
+      const filteredItems = searchParams.has("client_rule_id") || searchParams.has("resolved_target_model_id")
+        ? [
+            createRequestLogItem({
+              id: 202,
+              caller_client_display: "Server Filtered Row",
+              upstream_client_display: "Server Filtered Row",
+              resolved_target_model_id: "terminal-model",
+              resolved_target_model_label: finalTargetModelOptionLabel,
+            }),
+          ]
+        : requestLogItems;
+
       return fulfillJson(
         createRequestLogsResponse(
-          requestLogItems,
+          filteredItems,
           searchParams,
           state.modelOptions,
+          state.clientOptions,
+          state.resolvedTargetModelOptions,
         ),
       );
     }
@@ -258,5 +373,84 @@ test.describe("request logs filter option loading", () => {
 
     await page.getByText("All endpoints", { exact: true }).click();
     await expect(page.getByRole("option", { name: endpointOptionLabel })).toBeVisible();
+  });
+
+  test("selecting Client and final target model filters updates URL and stats requests", async ({ page }) => {
+    const requestUrls: string[] = [];
+    await mockRequestLogRoutes(page, { failRequestLogs: false });
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === "/api/stats/requests") {
+        requestUrls.push(request.url());
+      }
+    });
+
+    await page.goto("/observe/requests");
+    await expect(page.getByText("Browse Fixture Row")).toBeVisible();
+
+    const clientRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === "/api/stats/requests" && url.searchParams.get("client_rule_id") === "123";
+    });
+    await page.getByRole("combobox", { name: "Client" }).click();
+    await page.getByRole("option", { name: clientOptionLabel }).click();
+    const clientRequestUrl = new URL((await clientRequest).url());
+
+    await expect(page).toHaveURL(/client_rule_id=123/);
+    expect(clientRequestUrl.searchParams.get("client_rule_id")).toBe("123");
+    expect(clientRequestUrl.searchParams.has("client_scope")).toBe(false);
+    await expect(page.getByText("Server Filtered Row")).toBeVisible();
+
+    const targetRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === "/api/stats/requests"
+        && url.searchParams.get("client_rule_id") === "123"
+        && url.searchParams.get("resolved_target_model_id") === "terminal-model";
+    });
+    await page.getByRole("combobox", { name: "Final Target Model" }).click();
+    await page.getByRole("option", { name: finalTargetModelOptionLabel }).click();
+    const targetRequestUrl = new URL((await targetRequest).url());
+
+    await expect(page).toHaveURL(/resolved_target_model_id=terminal-model/);
+    expect(targetRequestUrl.searchParams.get("resolved_target_model_id")).toBe("terminal-model");
+    expect(requestUrls.some((url) => url.includes("client_scope"))).toBe(false);
+    await page.screenshot({ path: "../.omo/evidence/task-14-client-dropdown.png", fullPage: true });
+  });
+
+  test("clear filters removes client and final target browse filters", async ({ page }) => {
+    await mockRequestLogRoutes(page, { failRequestLogs: false });
+    await page.goto("/observe/requests?client_rule_id=123&resolved_target_model_id=terminal-model");
+    await expect(page.getByText("Server Filtered Row")).toBeVisible();
+
+    const clearRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === "/api/stats/requests"
+        && !url.searchParams.has("client_rule_id")
+        && !url.searchParams.has("resolved_target_model_id");
+    });
+    await page.getByRole("button", { name: /Clear Filters/i }).click();
+    await clearRequest;
+
+    await expect(page).not.toHaveURL(/client_rule_id=/);
+    await expect(page).not.toHaveURL(/resolved_target_model_id=/);
+    await expect(page.getByText("Browse Fixture Row")).toBeVisible();
+  });
+
+  test("exact request mode preserves request_id with browse filters present", async ({ page }) => {
+    const statsRequests: string[] = [];
+    await mockRequestLogRoutes(page, { failRequestLogs: false });
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === "/api/stats/requests") {
+        statsRequests.push(request.url());
+      }
+    });
+
+    await page.goto("/observe/requests?request_id=101&client_rule_id=123&resolved_target_model_id=terminal-model");
+    await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible({ timeout: 15000 });
+
+    await expect(page).toHaveURL(/request_id=101/);
+    expect(statsRequests).toEqual([]);
+    await page.screenshot({ path: "../.omo/evidence/task-14-exact-mode.png", fullPage: true });
   });
 });

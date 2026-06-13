@@ -16,8 +16,6 @@ frontend/
 
 ## ROUTE MAP
 - Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect there.
-- Protected rewrite routes: `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, `/control/proxy-keys`, and `/control/sidecars`.
-- Legacy protected routes redirect from `/dashboard`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, and `/request-logs`.
 - `/` redirects to `/observe`.
 
 ## HIERARCHY
@@ -44,7 +42,6 @@ frontend/
 - Production `dist/` static server, SPA fallback, `PORT` default `3000`, and `/health`: `server.mjs`
 - Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/{lib,loadbalance,main,model-detail,server}/`, `playwright.config.ts`
 - Cross-route rewrite helpers for query keys, invalidation, server validation, table rows, and design-system barrels: `src/shared/AGENTS.md`
-- Page hierarchy and oracle-compatible route-domain handoff plus feature-owned startup and sidecars leaves: `src/pages/AGENTS.md`, `src/features/settings/startup/AGENTS.md`, `src/features/sidecars/AGENTS.md`
 
 ## CONVENTIONS
 
@@ -52,7 +49,6 @@ frontend/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test`, `test:lib`, `test:server`, `test:config`, and `test:e2e`.
 - Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, route scopes, and legacy redirects; `src/App.tsx` stays the thin wrapper.
-- Keep selected profile separate from active runtime routing. `selectedProfile` scopes profile-scoped management APIs; it does not switch proxy traffic or global sidecar management.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep dashboard routing visualization on the React Flow-backed `src/pages/dashboard/routing-diagram/` leaf; `@xyflow/react` CSS is imported once from `src/main.tsx`.
 - Keep model context overflow promotion target authoring in `src/pages/models/` and typed/import validation in `src/lib/`; do not spread that field through unrelated page state.

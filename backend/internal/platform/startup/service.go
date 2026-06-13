@@ -22,7 +22,6 @@ type Step string
 
 const (
 	StepMigrations                  Step = "migrations"
-	StepVendorSeed                  Step = "vendor_seed"
 	StepProfileInvariantSeed        Step = "profile_invariant_seed"
 	StepUserSettingsSeed            Step = "user_settings_seed"
 	StepUserAgentClientRuleSeed     Step = "user_agent_client_rule_seed"
@@ -117,7 +116,6 @@ func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error
 		name Step
 		run  func(context.Context, *pgx.Conn) error
 	}{
-		{name: StepVendorSeed, run: s.seedVendors},
 		{name: StepProfileInvariantSeed, run: s.seedProfileInvariants},
 		{name: StepUserSettingsSeed, run: s.seedUserSettings},
 		{name: StepUserAgentClientRuleSeed, run: s.seedUserAgentClientRules},

@@ -4,7 +4,7 @@ This document maps Prism's current operator workflows from mounted frontend rout
 
 Validated again against current repo surfaces on 2026-06-05:
 - `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.4.0`, which is the current backend/frontend version surface.
-- The protected frontend route shell in `frontend/src/App.tsx` mounts `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, and `/request-logs`; analytics lives under `/dashboard?tab=analytics`.
+- The protected frontend route shell mounts observe, request-log, model, route, settings, proxy-key, and pricing workflows; analytics lives under `/observe`.
 
 ## Evidence Sources
 
@@ -12,7 +12,6 @@ Validated again against current repo surfaces on 2026-06-05:
 - Shell navigation and route scoping: `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`
 - Auth bootstrap and session flow: `frontend/src/context/AuthContext.tsx`
 - Selected-profile scoping: `frontend/src/context/ProfileContext.tsx`, `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
-- Sidecar route and API surface: `frontend/src/features/sidecars/`, `frontend/src/lib/api/sidecars.ts`, `backend/internal/httpapi/management/sidecars/`
 - Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, `backend/internal/httpapi/realtime/`, and `backend/internal/platform/http/server.go`
 - Backend API reference: `docs/API_SPEC.md`
 - Request-log details: `docs/REQUESTS_PAGE.md`
@@ -26,9 +25,9 @@ Validated again against current repo surfaces on 2026-06-05:
 ## Shared Scope Rules
 
 - Public auth routes are `/login`, `/forgot-password`, and `/reset-password`.
-- Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, and `/request-logs`; analytics is a dashboard tab at `/dashboard?tab=analytics`.
+- Protected shell routes cover observe, request logs, models, model detail, endpoints, Ban Policies, settings, proxy keys, and pricing templates; analytics is under `/observe`.
 - `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
-- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `/api/sidecars/*`, and `/api/realtime/ws`.
+- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, and `/api/realtime/ws`.
 - `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
 
@@ -177,39 +176,6 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 - `PUT /api/pricing-templates/{template_id}`
 - `DELETE /api/pricing-templates/{template_id}`
 
-## 5A. CLIProxyAPI Sidecars
-
-**User entrypoints**
-
-- `/sidecars`
-
-**Frontend flow**
-
-1. The sidecars page is global instance control-plane UI, not selected-profile configuration.
-2. Operators register CLIProxyAPI sidecar base URLs, management passwords, sync intervals, request timeout, and network policy flags.
-3. The page can test management auth, trigger manual provider sync, inspect live auth-files and provider inventory, open read-only auth-file model discovery, patch auth-file status or priority, and delete one confirmed auth file through Prism's backend.
-4. Auth-file reads, model discovery, status/priority mutations, and single-authfile delete flow through Prism backend routes; the browser never calls CLIProxyAPI directly.
-5. Auth mutation/delete responses can report `succeeded` or `succeeded_sync_failed`; the frontend should refetch live `/auth-files` after mutation attempts and surface returned `sync_status` / `sync_error` when refresh fails.
-6. Sidecar provider sync runs as a low-priority bounded scheduler job.
-
-**Backend touchpoints**
-
-- `GET /api/sidecars`
-- `POST /api/sidecars`
-- `GET /api/sidecars/{sidecar_id}`
-- `PATCH /api/sidecars/{sidecar_id}`
-- `DELETE /api/sidecars/{sidecar_id}`
-- `POST /api/sidecars/{sidecar_id}/test-connection`
-- `POST /api/sidecars/{sidecar_id}/sync`
-- `GET /api/sidecars/{sidecar_id}/auth-files`
-- `GET /api/sidecars/{sidecar_id}/auth-files/models?name=...`
-- `DELETE /api/sidecars/{sidecar_id}/auth-files/{auth_id}`
-- `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status`
-- `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields`
-- `GET /api/sidecars/{sidecar_id}/provider-snapshots`
-- `GET /api/sidecars/{sidecar_id}/providers`
-- `GET /api/sidecars/{sidecar_id}/sync-status`
-
 ## 6. Request Investigation
 
 **User entrypoints**
@@ -223,7 +189,8 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 2. Exact request investigation opens the detail drawer through `request_id`.
 3. `ingress_request_id` groups all upstream attempts for one incoming proxy request.
 4. The request-log UI keeps the requested `model_id` separate from the final `resolved_target_model_id` so operators can see authoring intent and execution target at the same time.
-5. Audit payloads load lazily only when the audit tab is opened.
+5. The Client filter sends `client_rule_id` to the backend and matches caller User-Agent Client Rules against `caller_user_agent` only.
+6. Audit payloads load lazily only when the audit tab is opened.
 
 **Backend touchpoints**
 
@@ -247,7 +214,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 
 1. Settings splits into Profile, Global, and Startup tabs.
 2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and retention/deletion actions. Rows with missing FX data remain pricing failures; explicit `"0"` component prices are configured free pricing and do not become `MISSING_PRICE_DATA`.
-3. Global settings cover operator authentication and shared vendor management.
+3. Global settings cover operator authentication and log retention.
 4. The Startup tab edits the plaintext bootstrap file under `/settings#startup`, but backend-provided values and backend-owned canonical defaults remain the source of truth.
 5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.
 
@@ -261,9 +228,8 @@ The configuration-operations flow is explicit in both lanes:
 - profile export defaults to the safe redacted bundle at `GET /api/config/profile/export`
 - secret-bearing profile export uses `POST /api/config/profile/export/with-secrets` with `X-Prism-Dangerous-Confirm: profile-export`
 - profile import uses upload, preview, then apply with `X-Prism-Preview-Token`
-- profile import replaces profile-scoped rows only, while global vendor rows, other profiles, and request logs remain untouched
+- profile import replaces profile-scoped rows only, while other profiles and request logs remain untouched
 - profile import rejects `connection_ref` values used by multiple models because imported connections are model-private endpoint bindings
-- vendor catalog import mutates only the shared vendor catalog and leaves profile-scoped rows untouched
 - apply stays header-bound, and the raw bundle JSON is not rewritten in transit
 
 **Backend touchpoints**
@@ -276,9 +242,6 @@ The configuration-operations flow is explicit in both lanes:
 - `POST /api/config/profile/export/with-secrets`
 - `POST /api/config/profile/import/preview`
 - `POST /api/config/profile/import`
-- `GET /api/config/vendors/export`
-- `POST /api/config/vendors/import/preview`
-- `POST /api/config/vendors/import`
 - `GET /api/config/header-blocklist-rules`
 - `PATCH /api/config/header-blocklist-rules/{rule_id}`
 - `DELETE /api/config/header-blocklist-rules/{rule_id}`
@@ -296,10 +259,6 @@ The configuration-operations flow is explicit in both lanes:
 - `PATCH /api/settings/auth/proxy-keys/{key_id}`
 - `POST /api/settings/auth/proxy-keys/{key_id}/rotate`
 - `DELETE /api/settings/auth/proxy-keys/{key_id}`
-- `GET /api/vendors`
-- `POST /api/vendors`
-- `PATCH /api/vendors/{vendor_id}`
-- `DELETE /api/vendors/{vendor_id}`
 - `GET /api/settings/log-retention`
 - `PUT /api/settings/log-retention`
 - `POST /api/maintenance/log-retention/jobs`
@@ -367,5 +326,4 @@ Operational triage by symptom:
 
 - Product scope: `docs/PRD.md`
 - API contracts: `docs/API_SPEC.md`
-- Sidecar implementation boundary: `backend/internal/httpapi/management/sidecars/AGENTS.md`, `frontend/src/features/sidecars/`
 - Request investigation details: `docs/REQUESTS_PAGE.md`

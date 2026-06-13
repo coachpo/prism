@@ -23,7 +23,6 @@ export type ShellSidebarItemId =
   | "loadbalance-strategies"
   | "settings"
   | "proxy-api-keys"
-  | "sidecars"
   | "pricing-templates"
   | "request-logs";
 
@@ -137,20 +136,6 @@ export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
       to: "/control/proxy-keys",
     },
     sidebarItemId: "proxy-api-keys",
-  },
-  {
-    canonicalPath: "/control/sidecars",
-    id: "sidecars",
-    pathPattern: "/control/sidecars",
-    profileScoped: false,
-    sidebarItem: {
-      groupId: "configuration",
-      icon: Server,
-      id: "sidecars",
-      labelKey: "sidecars",
-      to: "/control/sidecars",
-    },
-    sidebarItemId: "sidecars",
   },
   {
     canonicalPath: "/route/pricing",

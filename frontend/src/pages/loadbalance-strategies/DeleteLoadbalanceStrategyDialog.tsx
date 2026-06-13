@@ -75,7 +75,7 @@ export function DeleteLoadbalanceStrategyDialog({
               {copy.deleteStrategyInUse(formatNumber(attachedModelCount))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">{messages.vendorManagement.thisActionCannotBeUndone}</p>
+            <p className="text-sm text-muted-foreground">{messages.common.thisActionCannotBeUndone}</p>
           )}
         </DialogBody>
 

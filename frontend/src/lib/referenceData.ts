@@ -21,7 +21,6 @@ function createSharedReferenceDataAccessors<K extends ReferenceDataKind>(kind: K
 }
 
 const sharedModels = createSharedReferenceDataAccessors("models");
-const sharedVendors = createSharedReferenceDataAccessors("vendors");
 const sharedEndpoints = createSharedReferenceDataAccessors("endpoints");
 const sharedConnections = createSharedReferenceDataAccessors("connections");
 const sharedPricingTemplates = createSharedReferenceDataAccessors("pricingTemplates");
@@ -39,14 +38,6 @@ export function getSharedModels(revision: number, forceRefresh = false) {
 
 export function setSharedModels(revision: number, data: ReferenceDataValue<"models">) {
   sharedModels.set(revision, data);
-}
-
-export function getSharedVendors(revision: number, forceRefresh = false) {
-  return sharedVendors.get(revision, forceRefresh);
-}
-
-export function setSharedVendors(revision: number, data: ReferenceDataValue<"vendors">) {
-  sharedVendors.set(revision, data);
 }
 
 export function getSharedEndpoints(revision: number, forceRefresh = false) {

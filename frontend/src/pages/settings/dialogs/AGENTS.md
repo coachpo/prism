@@ -1,7 +1,7 @@
 # FRONTEND SETTINGS DIALOG CLUSTER KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/dialogs/` owns the local dialog cluster mounted by `../../SettingsPage.tsx`: destructive confirmations, vendor CRUD modals, and audit-rule editors or delete flows. Keep dialog rendering and per-form copy here while the parent settings hooks own mutation state and orchestration.
+`pages/settings/dialogs/` owns the local dialog cluster mounted by `../../SettingsPage.tsx`: destructive confirmations and audit-rule editors or delete flows. Keep dialog rendering and per-form copy here while the parent settings hooks own mutation state and orchestration.
 
 ## STRUCTURE
 ```
@@ -9,10 +9,9 @@ dialogs/
 ├── DeleteConfirmDialog.tsx
 ├── DeleteRuleConfirmDialog.tsx
 ├── DeleteUserAgentClientRuleConfirmDialog.tsx
-├── DeleteVendorDialog.tsx
 ├── RuleDialog.tsx
 ├── UserAgentClientRuleDialog.tsx
-└── VendorDialog.tsx
+
 ```
 
 ## WHERE TO LOOK
@@ -20,9 +19,8 @@ dialogs/
 - Mounted dialog surface and parent handoff: `../../SettingsPage.tsx`, `../AGENTS.md`
 - Shared delete-confirm flow for destructive settings actions: `DeleteConfirmDialog.tsx`
 - Audit-rule create, edit, and delete flows: `RuleDialog.tsx`, `DeleteRuleConfirmDialog.tsx`, `UserAgentClientRuleDialog.tsx`, `DeleteUserAgentClientRuleConfirmDialog.tsx`
-- Shared vendor create, edit, and delete flows: `VendorDialog.tsx`, `DeleteVendorDialog.tsx`
-- Mutation state, selected-profile labels, and save orchestration feeding the dialogs: `../useSettingsPageData.ts`, `../useAuditConfigurationData.ts`, `../useRetentionDeletionData.ts`, `../useVendorManagementData.ts`
-- E2E seams for vendor catalog preview/apply and user-agent/client rule copy: `../../../../tests/e2e/settings-vendor-catalog.spec.ts`, `../../../../tests/e2e/settings-user-agent-client-rules-copy.spec.ts`
+- Mutation state, selected-profile labels, and save orchestration feeding the dialogs: `../useSettingsPageData.ts`, `../useAuditConfigurationData.ts`, `../useRetentionDeletionData.ts`
+- E2E seams for user-agent/client rule copy: `../../../../tests/e2e/settings-user-agent-client-rules-copy.spec.ts`
 
 ## CONVENTIONS
 
@@ -30,7 +28,6 @@ dialogs/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep dialog files focused on rendering, field composition, and confirm-copy framing.
 - Keep mutation state, delete keywords, and save orchestration in the parent settings hooks.
-- Keep audit-rule dialogs separate from vendor CRUD dialogs; they share the mount point but not the form contract.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
@@ -41,4 +38,3 @@ dialogs/
 
 - Do not add inline modal branches back to `../../SettingsPage.tsx` or the section components when this cluster already owns the dialogs.
 - Do not duplicate delete-confirm or save orchestration logic inside the dialog files.
-- Do not collapse vendor CRUD and audit-rule editing into one generic dialog contract.

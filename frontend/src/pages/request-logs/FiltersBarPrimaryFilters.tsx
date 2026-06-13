@@ -21,6 +21,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "setRequestId"
     | "setEndpointId"
     | "setModelId"
+    | "setClientRuleId"
+    | "setResolvedTargetModelId"
     | "setStatusFamily"
     | "setTimeRange"
   >;
@@ -31,6 +33,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "ingress_request_id"
     | "endpoint_id"
     | "model_id"
+    | "client_rule_id"
+    | "resolved_target_model_id"
     | "status_family"
     | "time_range"
   >;
@@ -63,7 +67,7 @@ export function FiltersBarPrimaryFilters({
   };
 
   return (
-    <div className="grid gap-3 xl:grid-cols-6">
+    <div className="grid gap-3 xl:grid-cols-8">
       <div className="min-w-0">
         <ToolbarLabel>{messages.requestLogs.requestId}</ToolbarLabel>
         <Input
@@ -100,7 +104,10 @@ export function FiltersBarPrimaryFilters({
           value={state.model_id || "__all__"}
           onValueChange={(value) => actions.setModelId(value === "__all__" ? "" : value)}
         >
-          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs">
+          <SelectTrigger
+            aria-label={messages.requestLogs.model}
+            className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs"
+          >
             <SelectValue className="min-w-0" placeholder={messages.requestLogs.allModels} />
           </SelectTrigger>
           <SelectContent>
@@ -108,6 +115,54 @@ export function FiltersBarPrimaryFilters({
             {filterOptionsLoaded &&
               filterOptions.models.map((model) => (
                 <SelectItem key={model.model_id} value={model.model_id}>
+                  {model.model_label}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-w-0">
+        <ToolbarLabel>{messages.requestLogs.client}</ToolbarLabel>
+        <Select
+          value={state.client_rule_id || "__all__"}
+          onValueChange={(value) => actions.setClientRuleId(value === "__all__" ? "" : value)}
+        >
+          <SelectTrigger
+            aria-label={messages.requestLogs.client}
+            className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs"
+          >
+            <SelectValue className="min-w-0" placeholder={messages.requestLogs.allClients} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{messages.requestLogs.allClients}</SelectItem>
+            {filterOptionsLoaded &&
+              filterOptions.clients.map((client) => (
+                <SelectItem key={client.client_rule_id} value={String(client.client_rule_id)}>
+                  {client.client_label}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-w-0">
+        <ToolbarLabel>{messages.requestLogs.finalTargetModel}</ToolbarLabel>
+        <Select
+          value={state.resolved_target_model_id || "__all__"}
+          onValueChange={(value) => actions.setResolvedTargetModelId(value === "__all__" ? "" : value)}
+        >
+          <SelectTrigger
+            aria-label={messages.requestLogs.finalTargetModel}
+            className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs"
+          >
+            <SelectValue className="min-w-0" placeholder={messages.requestLogs.allFinalTargetModels} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{messages.requestLogs.allFinalTargetModels}</SelectItem>
+            {filterOptionsLoaded &&
+              filterOptions.resolved_target_models.map((model) => (
+                <SelectItem key={model.resolved_target_model_id} value={model.resolved_target_model_id}>
                   {model.model_label}
                 </SelectItem>
               ))}

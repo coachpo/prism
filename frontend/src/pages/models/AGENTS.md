@@ -18,8 +18,8 @@ models/
 ## WHERE TO LOOK
 
 - Feature route and table rendering: `../../features/models/`, `../../features/models/ModelsTable.tsx`
-- Shared model/vendor bootstrap and mutation patching: `useModelsPageData.ts`
-- Unified access-target form behavior, strategy attachment rules, overflow promotion target normalization, ordered target normalization, vendor selection, and payload transforms that carry `vendor_id` plus fixed `api_family` while preserving vendor metadata such as `icon_key`: `modelFormState.ts`
+- Shared model bootstrap and mutation patching: `useModelsPageData.ts`
+- Unified access-target form behavior, strategy attachment rules, overflow promotion target normalization, ordered target normalization, and payload transforms that carry fixed `api_family`: `modelFormState.ts`
 - Overflow promotion target selector, backend validation messages, and create/edit payload handoff: `ModelDialog.tsx`
 - 24h metrics and spend overlays: `useModelMetrics24h.ts`
 - Search toolbar: `ModelsToolbar.tsx`
@@ -28,11 +28,11 @@ models/
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Bootstrap models and vendors from `@/lib/referenceData`, then patch the local list with `setSharedModels()` after mutations.
-- Keep access-target validation, strategy attachment rules, vendor selection, context overflow promotion target normalization, and `api_family` handling in `modelFormState.ts` instead of scattering them across dialog components.
+- Bootstrap models from `@/lib/referenceData`, then patch the local list with `setSharedModels()` after mutations.
+- Keep access-target validation, strategy attachment rules, context overflow promotion target normalization, and `api_family` handling in `modelFormState.ts` instead of scattering them across dialog components.
 - Keep ordered target add/remove/reorder state in `modelFormState.ts`; `ModelDialog.tsx` should stay a thin rendering layer over that logic plus the overflow promotion selector and backend validation display.
 - Hydrate 24h metrics separately from the base model list so CRUD flows do not own observability queries.
-- Keep the grouped models table keyed by vendor, not api family, while still rendering the per-row `api_family` metadata.
+- Keep the grouped models table keyed by `api_family` while still rendering the per-row `api_family` metadata.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

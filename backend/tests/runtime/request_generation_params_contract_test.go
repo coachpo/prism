@@ -173,10 +173,6 @@ func TestRuntimeRequestGenerationParamsPersistGeminiDirectStreaming(t *testing.T
 func TestRuntimeRequestGenerationParamsPersistWithAuditDisabled(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
-	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = FALSE, audit_capture_bodies = FALSE WHERE id = $1`, vendorID); err != nil {
-		t.Fatalf("disable audit for request-generation params test: %v", err)
-	}
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "generation-audit-disabled"})
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "generation-audit-disabled-public-" + randomSuffix(), TargetModelID: "generation-audit-disabled-target-" + randomSuffix(), EndpointBaseURL: upstream.baseURL("/generation/audit-disabled"), EndpointAPIKey: "generation-audit-disabled-key"})
 
@@ -372,10 +368,6 @@ func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profi
 	targetModelID := targetModelPrefix + "-" + suffix
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
 	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
-	openAIVendorID := loadVendorIDByKey(t, harness.conn, "openai")
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE id = ANY($2::int[])`, openAIVendorID, []int{publicModelConfigID, targetModelConfigID}); err != nil {
-		t.Fatalf("mark translated OpenAI route models with OpenAI vendor: %v", err)
-	}
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
 	endpointID := harness.seedEndpoint(t, profileID, publicModelPrefix+"-endpoint-"+suffix, endpointBaseURL, endpointAPIKey, 0)
 	connectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAIProbeEndpointVariant, &openAITextCapability)

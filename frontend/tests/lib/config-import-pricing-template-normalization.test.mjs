@@ -15,7 +15,6 @@ function buildValidConfigImport() {
   return {
     version: 3,
     bundle_kind: "profile_config",
-    vendor_refs: [{ key: "openai", name_hint: "OpenAI" }],
     endpoints: [
       {
         name: "OpenAI",
@@ -59,7 +58,6 @@ function buildValidConfigImport() {
     ],
     models: [
       {
-        vendor_key: "openai",
         api_family: "openai",
         model_id: "demo-native",
         loadbalance_strategy_name: "Default round robin",

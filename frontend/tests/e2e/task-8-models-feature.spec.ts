@@ -15,13 +15,13 @@ function strategy() {
   return { id: 11, profile_id: 1, name: "Default fill-first routing", legacy_strategy_type: "fill-first", failure_status_codes: [429, 500], ban_mode: "off", retry_base_delay_ms: 1000, retry_backoff_multiplier: 2, retry_jitter_ratio: 0.2, retry_max_delay_ms: 8000, cycle_retry_attempt_limit: 3, ban_cumulative_retry_attempt_threshold: 0, ban_duration_seconds: 0, attached_model_count: 0, created_at: timestamp, updated_at: timestamp }
 }
 
-function model(id: number, modelId: string, displayName: string, apiFamily: "openai" | "anthropic" | "gemini" = "openai", vendorId: number | null = null) {
-  return { id, profile_id: 1, vendor_id: vendorId, vendor: vendorId ? { id: vendorId, key: "openai", name: "OpenAI", description: null, icon_key: null, audit_enabled: false, audit_capture_bodies: false, created_at: timestamp, updated_at: timestamp } : null, api_family: apiFamily, model_id: modelId, display_name: displayName, loadbalance_strategy_id: 11, loadbalance_strategy: strategy(), context_window_tokens: null, default_output_token_reserve: 4096, max_context_utilization: 0.9, preferred_context_utilization_threshold: null, context_overflow_promotion_target_id: null, access_targets: [], is_enabled: id !== 1, connection_count: 0, active_connection_count: 0, health_success_rate: null, health_total_requests: 0, created_at: timestamp, updated_at: timestamp }
+function model(id: number, modelId: string, displayName: string, apiFamily: "openai" | "anthropic" | "gemini" = "openai") {
+  return { id, profile_id: 1, api_family: apiFamily, model_id: modelId, display_name: displayName, loadbalance_strategy_id: 11, loadbalance_strategy: strategy(), context_window_tokens: null, default_output_token_reserve: 4096, max_context_utilization: 0.9, preferred_context_utilization_threshold: null, context_overflow_promotion_target_id: null, access_targets: [], is_enabled: id !== 1, connection_count: 0, active_connection_count: 0, health_success_rate: null, health_total_requests: 0, created_at: timestamp, updated_at: timestamp }
 }
 
 async function mockRoutes(page: Page) {
   const requests: string[] = []
-  let models = [model(1, "gpt-small", "GPT Small", "openai", 101), model(2, "gpt-large", "GPT Large", "openai", 101), model(3, "claude-sonnet", "Claude Sonnet", "anthropic")]
+  let models = [model(1, "gpt-small", "GPT Small", "openai"), model(2, "gpt-large", "GPT Large", "openai"), model(3, "claude-sonnet", "Claude Sonnet", "anthropic")]
   await page.route("**/*", async (route) => {
     const request = route.request()
     const pathname = new URL(request.url()).pathname
@@ -32,13 +32,12 @@ async function mockRoutes(page: Page) {
     if (pathname === "/api/settings/costing") return json({ report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], timezone_preference: null })
     if (pathname === "/api/settings/timezone") return json({ timezone_preference: "UTC" })
     if (pathname === "/api/models" && request.method() === "GET") return json(models)
-    if (pathname === "/api/vendors") return json([{ id: 101, key: "openai", name: "OpenAI", description: null, icon_key: null, audit_enabled: false, audit_capture_bodies: false, created_at: timestamp, updated_at: timestamp }])
     if (pathname === "/api/loadbalance/strategies") return json([strategy()])
     if (pathname === "/api/stats/models/metrics") return json({ items: [] })
     if (pathname === "/api/models" && request.method() === "POST") {
       const payload = request.postDataJSON()
       requests.push(JSON.stringify({ method: request.method(), pathname, headers: { "x-profile-id": request.headers()["x-profile-id"] }, payload }, null, 2))
-      const created = { ...model(50, payload.model_id, payload.display_name, payload.api_family, payload.vendor_id), ...payload, id: 50, profile_id: 1, loadbalance_strategy: strategy(), connection_count: 0, active_connection_count: 0, health_success_rate: null, health_total_requests: 0, created_at: timestamp, updated_at: timestamp }
+      const created = { ...model(50, payload.model_id, payload.display_name, payload.api_family), ...payload, id: 50, profile_id: 1, loadbalance_strategy: strategy(), connection_count: 0, active_connection_count: 0, health_success_rate: null, health_total_requests: 0, created_at: timestamp, updated_at: timestamp }
       models = [...models, created]
       return json(created)
     }

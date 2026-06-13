@@ -521,6 +521,13 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
+	clientRuleID, err := parseOptionalInt(r, "client_rule_id")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid client_rule_id"}
+	}
+	if clientRuleID != nil && *clientRuleID <= 0 {
+		return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid client_rule_id"}
+	}
 	limit, err := parsePositiveIntWithDefault(r, "limit", 50)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
@@ -534,7 +541,7 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 		normalized := strings.ToLower(strings.TrimSpace(*statusFamily))
 		statusFamily = &normalized
 	}
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), StatusFamily: statusFamily, FromTime: fromTime, EndpointID: endpointID, Limit: limit, Offset: offset}, nil
+	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, FromTime: fromTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
 }
 
 func parseStatsSummaryParams(r *http.Request, profileID int) (statsdomain.StatsSummaryParams, error) {

@@ -8,7 +8,6 @@ import {
   getSharedLoadbalanceStrategies,
   getSharedModels,
   getSharedPricingTemplates,
-  getSharedVendors,
 } from "@/lib/referenceData";
 import type {
   Connection,
@@ -18,7 +17,6 @@ import type {
   ModelConfigListItem,
   PricingTemplate,
   SpendingSummary,
-  Vendor,
 } from "@/lib/types";
 import { getOwnedModelConnections } from "./useModelDetailDataSupport";
 
@@ -33,7 +31,6 @@ interface UseModelDetailBootstrapInput {
   setLoadbalanceStrategies: Dispatch<SetStateAction<LoadbalanceStrategy[]>>;
   setAllModels: Dispatch<SetStateAction<ModelConfigListItem[]>>;
   setPricingTemplates: Dispatch<SetStateAction<PricingTemplate[]>>;
-  setVendors: Dispatch<SetStateAction<Vendor[]>>;
   setLoading: Dispatch<SetStateAction<boolean>>;
   setSpending: Dispatch<SetStateAction<SpendingSummary | null>>;
   setSpendingLoading: Dispatch<SetStateAction<boolean>>;
@@ -65,7 +62,6 @@ export function useModelDetailBootstrap({
   setLoadbalanceStrategies,
   setAllModels,
   setPricingTemplates,
-  setVendors,
   setLoading,
   setSpending,
   setSpendingLoading,
@@ -128,13 +124,11 @@ export function useModelDetailBootstrap({
         loadbalanceStrategiesResult,
         modelsResult,
         pricingTemplatesResult,
-        vendorsResult,
       ] = await Promise.allSettled([
         getSharedEndpoints(revision),
         getSharedLoadbalanceStrategies(revision),
         getSharedModels(revision),
         getSharedPricingTemplates(revision),
-        getSharedVendors(revision),
       ]);
 
       if (requestId !== modelRequestIdRef.current) {
@@ -148,7 +142,6 @@ export function useModelDetailBootstrap({
       setLoadbalanceStrategies(resolveOptionalBootstrapValue(loadbalanceStrategiesResult, [], "model-detail loadbalance strategies"));
       setAllModels(resolveOptionalBootstrapValue(modelsResult, [], "model-detail models"));
       setPricingTemplates(resolveOptionalBootstrapValue(pricingTemplatesResult, [], "model-detail pricing templates"));
-      setVendors(resolveOptionalBootstrapValue(vendorsResult, [], "model-detail vendors"));
 
       void fetchSpending(data.model_id);
     } catch (error) {
@@ -177,8 +170,7 @@ export function useModelDetailBootstrap({
     setModel,
     setSpending,
     setPricingTemplates,
-    setVendors,
-  ]);
+    ]);
 
   useEffect(() => {
     void fetchModel();

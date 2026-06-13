@@ -74,7 +74,6 @@ type Event struct {
 	LastRetryDelayMS                   int          `json:"last_retry_delay_ms"`
 	ModelID                            *string      `json:"model_id"`
 	EndpointID                         *int         `json:"endpoint_id"`
-	VendorID                           *int         `json:"vendor_id"`
 	BanMode                            *string      `json:"ban_mode"`
 	CycleRetryAttemptLimit             *int         `json:"cycle_retry_attempt_limit"`
 	BanCumulativeRetryAttemptThreshold *int         `json:"ban_cumulative_retry_attempt_threshold"`
@@ -175,7 +174,7 @@ func ListEvents(ctx context.Context, exec queryExecutor, profileID int, modelID 
 	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM loadbalance_events WHERE profile_id = $1 AND model_id = $2`, profileID, modelID).Scan(&total); err != nil {
 		return EventListResponse{}, fmt.Errorf("count loadbalance events for profile %d model %q: %w", profileID, modelID, err)
 	}
-	rows, err := exec.Query(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, profileID, modelID, limit, offset)
+	rows, err := exec.Query(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, profileID, modelID, limit, offset)
 	if err != nil {
 		return EventListResponse{}, fmt.Errorf("query loadbalance events for profile %d model %q: %w", profileID, modelID, err)
 	}
@@ -195,7 +194,7 @@ func ListEvents(ctx context.Context, exec queryExecutor, profileID int, modelID 
 }
 
 func GetEvent(ctx context.Context, exec queryExecutor, profileID int, eventID int64) (*EventDetail, error) {
-	row := exec.QueryRow(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, eventID)
+	row := exec.QueryRow(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, eventID)
 	item, err := scanEvent(row)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -211,21 +210,19 @@ func scanEvent(scanner interface{ Scan(...any) error }) (EventDetail, error) {
 	var nextRetryAt sql.NullTime
 	var modelID sql.NullString
 	var endpointID sql.NullInt32
-	var vendorID sql.NullInt32
 	var banMode sql.NullString
 	var policyCycleRetryAttemptLimit sql.NullInt32
 	var policyBanCumulativeRetryAttemptThreshold sql.NullInt32
 	var bannedUntilAt sql.NullTime
 	var lastSuccessAt sql.NullTime
 	item := EventDetail{}
-	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.ConnectionID, &item.EventType, &failureKind, &item.CycleRetryAttempts, &item.CumulativeRetryAttempts, &nextRetryAt, &item.LastRetryDelayMS, &modelID, &endpointID, &vendorID, &banMode, &policyCycleRetryAttemptLimit, &policyBanCumulativeRetryAttemptThreshold, &bannedUntilAt, &lastSuccessAt, &item.CreatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.ConnectionID, &item.EventType, &failureKind, &item.CycleRetryAttempts, &item.CumulativeRetryAttempts, &nextRetryAt, &item.LastRetryDelayMS, &modelID, &endpointID, &banMode, &policyCycleRetryAttemptLimit, &policyBanCumulativeRetryAttemptThreshold, &bannedUntilAt, &lastSuccessAt, &item.CreatedAt); err != nil {
 		return EventDetail{}, err
 	}
 	item.FailureKind = nullableString(failureKind)
 	item.NextRetryAt = nullableTime(nextRetryAt)
 	item.ModelID = nullableString(modelID)
 	item.EndpointID = nullableInt32(endpointID)
-	item.VendorID = nullableInt32(vendorID)
 	item.BanMode = nullableString(banMode)
 	item.CycleRetryAttemptLimit = nullableInt32(policyCycleRetryAttemptLimit)
 	item.BanCumulativeRetryAttemptThreshold = nullableInt32(policyBanCumulativeRetryAttemptThreshold)

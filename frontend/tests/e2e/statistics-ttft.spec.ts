@@ -134,9 +134,6 @@ async function mockStatisticsRoutes(
       return fulfillJson([]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson([]);

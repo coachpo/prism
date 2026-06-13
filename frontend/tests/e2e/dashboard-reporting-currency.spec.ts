@@ -22,8 +22,6 @@ function createProfile(id: number, name: string, isActive = false) {
 function createModelListItem(profileId: number) {
   return {
     id: profileId,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: "gpt-4o-mini",
     display_name: `GPT-4o mini P${profileId}`,

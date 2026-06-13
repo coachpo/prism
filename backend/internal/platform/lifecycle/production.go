@@ -23,9 +23,7 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
-	managementsidecars "github.com/coachpo/prism/backend/internal/httpapi/management/sidecars"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
-	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/background"
@@ -187,12 +185,10 @@ type authServices struct {
 type managementServices struct {
 	dashboardSnapshots *statsdomain.DashboardAggregateStore
 	profiles           *managementprofiles.Service
-	vendors            *managementvendors.Service
 	models             *managementmodels.Service
 	endpoints          *managementendpoints.Service
 	connections        *managementconnections.Service
 	settings           *managementsettings.Service
-	sidecars           *managementsidecars.Service
 	loadbalance        *managementloadbalance.Service
 	audit              *managementaudit.Service
 	stats              *managementstats.Service
@@ -232,7 +228,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	if err != nil {
 		return err
 	}
-	if err := registerDatabaseBackgroundWorkers(backgroundServices, planning, auth, management, realtime, runtimeService); err != nil {
+	if err := registerDatabaseBackgroundWorkers(backgroundServices, planning, auth, realtime, runtimeService); err != nil {
 		return err
 	}
 	resources.publishDatabaseBackedDependencies(auth, management, realtime, runtimeService, planning)
@@ -313,12 +309,6 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	services.profiles = profileService
 	resources.registerServiceClose(closeFuncHook(profileService.Close))
 
-	vendorService, err := managementvendors.NewService(settings, managementvendors.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
-	if err != nil {
-		return services, err
-	}
-	services.vendors = vendorService
-	resources.registerServiceClose(closeFuncHook(vendorService.Close))
 	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
 	if err != nil {
 		return services, err
@@ -347,12 +337,6 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	services.settings = settingsService
 	resources.registerServiceClose(closeFuncHook(settingsService.Close))
 
-	sidecarsService, err := managementsidecars.NewService(settings, managementsidecars.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
-	if err != nil {
-		return services, err
-	}
-	services.sidecars = sidecarsService
-	resources.registerServiceClose(closeFuncHook(sidecarsService.Close))
 	loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, RuntimeState: runtimeState})
 	if err != nil {
 		return services, err
@@ -431,7 +415,7 @@ func (resources *productionResources) buildRuntimeService(settings config.Settin
 	return runtimeService, nil
 }
 
-func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServices, planning runtimePlanningServices, auth authServices, management managementServices, realtime realtimeServices, runtimeService *runtimeapi.Service) error {
+func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServices, planning runtimePlanningServices, auth authServices, realtime realtimeServices, runtimeService *runtimeapi.Service) error {
 	backgroundScheduler := backgroundServices.scheduler
 	runtimePlanningCache := planning.cache
 	managementAuthService := auth.management
@@ -439,7 +423,6 @@ func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServ
 	managementJobs := backgroundServices.managementJobs
 	managementSideEffects := backgroundServices.managementSideEffects
 	logRetentionStore := backgroundServices.logRetention
-	sidecarsService := management.sidecars
 	asyncDashboardPublisher := realtime.dashboardPublisher
 	asyncAnalyticsPublisher := realtime.analyticsPublisher
 	for _, register := range []func(*background.Scheduler) error{
@@ -449,7 +432,6 @@ func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServ
 		managementJobs.RegisterBackgroundWorker,
 		managementSideEffects.RegisterBackgroundWorker,
 		logRetentionStore.RegisterBackgroundWorker,
-		sidecarsService.RegisterBackgroundWorker,
 		asyncDashboardPublisher.RegisterBackgroundWorker,
 		asyncAnalyticsPublisher.RegisterBackgroundWorker,
 		runtimeService.RegisterBackgroundWorkers,
@@ -477,9 +459,7 @@ func (resources *productionResources) publishDatabaseBackedDependencies(auth aut
 	resources.deps.RuntimeCache = planning.cache
 	resources.deps.RuntimeState = planning.state
 	resources.deps.SettingsService = management.settings
-	resources.deps.SidecarsService = management.sidecars
 	resources.deps.StatsService = management.stats
-	resources.deps.VendorsService = management.vendors
 }
 
 func runtimeSideEffectOptions(settings config.Settings) runtimeapi.RuntimeSideEffectOptions {

@@ -2,7 +2,7 @@
 
 **A lightweight, self-hosted LLM proxy gateway with routing, load balancing, and observability.**
 
-Prism fronts multiple LLM API families and vendor-backed catalogs, letting you configure, route, and load-balance requests through a single gateway with a web-based management dashboard.
+Prism fronts multiple LLM API families through explicit runtime operations, letting you configure, route, and load-balance requests through a single gateway with a web-based management dashboard.
 
 ---
 
@@ -23,14 +23,14 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 - **Audit logging**: optional request/response body capture with header redaction
 - **Success-rate badges**: Terminal Target health based on recent request data
 - **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, restart-required OTLP telemetry fields, masked secret metadata, and explicit confirmation for dangerous structural changes
-- **Config export/import**: PostgreSQL-backed profile and vendor bundles with profile-scoped replace-mode import
-- **CLIProxyAPI sidecars**: global sidecar registrations, live auth-files, provider inventory, connection testing, manual sync, and direct auth-file mutations through `/sidecars` and `/api/sidecars/*`
+- **Config export/import**: PostgreSQL-backed profile bundles with profile-scoped replace-mode import
+- **Caller client filtering**: request logs filter caller clients through User-Agent Client Rules using `client_rule_id`, while final target filtering uses `resolved_target_model_id`
 
 ### Architecture
 
 - **Backend**: Go runtime service for the management API and runtime proxy surface
 - **Frontend**: React 19 with TypeScript, Vite, TailwindCSS, and shadcn/ui
-- **Database**: PostgreSQL with schema migrations managed by the backend runtime, including partitioned log tables, global retention jobs, and sidecar control-plane tables
+- **Database**: PostgreSQL with schema migrations managed by the backend runtime, including partitioned log tables, global retention jobs, and endpoint label snapshots
 - **Deployment**: GHCR images or local runs via `./start.sh`
 
 ---
@@ -147,7 +147,7 @@ docker pull ghcr.io/coachpo/prism-frontend:latest
 - [Smoke Test Plan](docs/SMOKE_TEST_PLAN.md)
 - [Active plans](.omo/plans/)
 
-The checked-in `docs/` tree is reserved for durable reference material and archive notes. Active working plans are kept outside `docs/`. Sidecar workflow, API, and data-model details live in the active docs rather than only in archived smoke evidence.
+The checked-in `docs/` tree is reserved for durable reference material and archive notes. Active working plans are kept outside `docs/`. Endpoint snapshot and request-log filter details live in the active docs rather than only in archived smoke evidence.
 
 ---
 
@@ -267,7 +267,7 @@ Other configuration notes:
 - `./start.sh full` serves the browser through the launcher origin, with Vite proxying management traffic and supported runtime operation traffic to the backend so local browser traffic stays same-origin
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
 
-If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults plus the launcher-provided local PostgreSQL DSN on host port `15432`; fresh seeds still default backend port to `8000`. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
+If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults plus the launcher-provided local PostgreSQL DSN on host port `15432`; fresh seeds still default backend port to `8000`. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Profile backup/restore and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./start.sh full` keeps management requests and supported runtime operation requests on the launcher origin through Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 

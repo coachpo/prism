@@ -6,9 +6,9 @@
 
 The Requests page is Prism's dedicated request-browser and investigation surface for proxied traffic. It is a mounted route at `/request-logs` that provides a profile-scoped view for browsing request history through a slim retained filter set and inspecting request-level details including linked audit payloads.
 
-The backend request-log and audit APIs remain the source of truth. The frontend route is responsible for presenting that data in an operator-friendly investigation workflow without changing runtime proxy semantics. The current browse filter set keeps `ingress_request_id`, `model_id`, `endpoint_id`, `status_family`, and `time_range`, while exact single-request investigation uses `request_id`.
+The backend request-log and audit APIs remain the source of truth. The frontend route is responsible for presenting that data in an operator-friendly investigation workflow without changing runtime proxy semantics. The current browse filter set keeps `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`, `status_family`, and `time_range`, while exact single-request investigation uses `request_id`.
 
-The request-log route now uses split HTTP contracts: a slim list payload for browsing and a dedicated grouped detail payload for the sheet. The table renders vendor as display-only metadata next to `api_family`, but vendor never becomes a server-backed request-log filter.
+The request-log route now uses split HTTP contracts: a slim list payload for browsing and a dedicated grouped detail payload for the sheet. Caller client filtering is server-backed through `client_rule_id` and matches `caller_user_agent` only. Upstream user-agent display stays informational.
 
 ## 2. Goals
 
@@ -48,7 +48,7 @@ The route should also integrate shared application services:
 
 Supported query parameters:
 
-- Browse filters: `ingress_request_id`, `model_id`, `endpoint_id`, `status_family`, `time_range`
+- Browse filters: `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`, `status_family`, `time_range`
 - Pagination: `limit`, `offset`
 - Exact-investigation flow: `request_id`
 
@@ -72,16 +72,16 @@ Primary APIs:
 Required behavior:
 
 - Debounce fetches by 300 ms.
-- Send server-supported browse filters for model, ingress request grouping, endpoint, status family, and time window.
+- Send server-supported browse filters for model, ingress request grouping, endpoint, caller client rule, final target model, status family, and time window.
 - Send `ingress_request_id` as an exact server-backed grouping filter when present.
 - Keep list browsing on the slim list schema and fetch exact-request sheet data from the dedicated detail endpoint.
 - Track fetch ordering so stale responses cannot overwrite newer state.
 
 ### 6.2 Filter Option Bootstrap
 
-The page bootstraps model reference data separately through `api.models.list()` and derives endpoint filter options from the paginated `/api/stats/requests` response (`filter_options.endpoints`).
+The page bootstraps model reference data separately through `api.models.list()` and derives endpoint, caller client, and final-target filter options from the paginated `/api/stats/requests` response: `filter_options.endpoints`, `filter_options.clients`, and `filter_options.resolved_target_models`.
 
-Partial failure in model bootstrap must not block request browsing, and endpoint filter options should become ready when the current list response arrives.
+Partial failure in model bootstrap must not block request browsing, and response-owned filter options should become ready when the current list response arrives. `filter_options.clients` entries use `{ client_rule_id, client_label }` and represent enabled User-Agent Client Rules. Selecting one sends `client_rule_id` back to the backend, where matching is caller-only against `caller_user_agent`.
 
 ### 6.3 Dedicated Audit Resolution
 
@@ -104,7 +104,7 @@ Required behavior:
 
 ### 7.1 Filter And Triage Workflow
 
-The page should use only the retained browse filters in URL state and send them directly to the backend list route. The current contract keeps `request_id`, `ingress_request_id`, `model_id`, `endpoint_id`, `status_family`, and `time_range`, and removes the old client-side search, token, latency, stream, outcome, and triage refinement layer.
+The page should use only the retained browse filters in URL state and send them directly to the backend list route. The current contract keeps `request_id`, `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`, `status_family`, and `time_range`, and removes the old client-side search, token, latency, stream, outcome, and triage refinement layer. The Client dropdown must not expose regex, `client_scope`, or upstream matching language.
 
 ### 7.2 Exact-Request Investigation Workflow
 
@@ -136,7 +136,7 @@ Required behavior:
 - Sticky headers in all views.
 - Page-size controls limited to `100`, `300`, and `500`, with `100` as the route default.
 - Footer controls for page size plus previous and next pagination.
-- Show one combined `Vendor / API` column that renders `vendor_name` (or `—`) on the first line and the formatted `api_family` with icon on the second line.
+- Show `api_family`, requested model, final target model, endpoint, and caller/upstream client display fields without adding browser-side post-filtering.
 
 ### 7.4 Detail Drawer Workflow
 
@@ -157,7 +157,7 @@ The `frontend/src/pages/request-logs/` helper cluster should remain page-specifi
 - query-parameter definitions and parsers
 - retained browse-filter state and exact-request mode orchestration
 - sticky filter-bar UI groups
-- column definitions and row renderers, including requested model vs final target model identity rendering and the display-only vendor column
+- column definitions and row renderers, including requested model vs final target model identity rendering and caller/upstream client display
 - overview-only detail drawer and shared panels over the dedicated request-detail payload
 - dedicated full audit page loading hook
 - dedicated tests for page state, filter options, page data, modal inspection, and audit detail loading
@@ -187,13 +187,13 @@ The Requests page must remain compatible with the following backend-facing and s
 - `api.stats.requests()` for browsing slices and `/api/stats/requests/{request_id}` for exact detail
 - audit API client methods
 - dashboard flows that consume request-derived backend responses
-- final-target observability fields such as `resolved_target_model_id`
+- caller-client and final-target observability fields such as `client_rule_id`, `filter_options.clients`, and `resolved_target_model_id`
 
 ## 11. Acceptance Criteria
 
 1. Visiting `/request-logs` loads a paginated request list plus filter-reference data for the selected profile.
 2. Server-backed filter changes update URL state with `replace: true` semantics and reset pagination to the first page.
-3. The retained browse filters update URL state with `replace: true` semantics and drive refreshed list requests directly, without a client-side search or triage refinement layer.
+3. The retained browse filters update URL state with `replace: true` semantics and drive refreshed list requests directly, without a client-side search or triage refinement layer. `client_rule_id` filters caller user agents only, and `resolved_target_model_id` filters final target models.
 4. Visiting `/request-logs?request_id=<id>` opens exact-request investigation mode with the focus banner and detail-drawer support.
 5. Visiting `/request-logs?ingress_request_id=<id>` filters the request list to all per-attempt rows for that incoming runtime request without breaking numeric `request_id` deep links.
 6. Opening the dedicated full audit page triggers audit resolution, skips lookup when audit capture was disabled for that request, and keeps modal inspection free of audit payload fetches.

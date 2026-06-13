@@ -122,9 +122,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Post("/config/profile/export/with-secrets", s.handleExportProfileBundleWithSecrets)
 	api.Post("/config/profile/import/preview", s.handlePreviewProfileImport)
 	api.Post("/config/profile/import", s.handleImportProfileBundle)
-	api.Get("/config/vendors/export", s.handleExportVendorCatalog)
-	api.Post("/config/vendors/import/preview", s.handlePreviewVendorCatalogImport)
-	api.Post("/config/vendors/import", s.handleImportVendorCatalog)
 }
 
 func (s *Service) resolvedBundleSecretKeyID() (string, error) {

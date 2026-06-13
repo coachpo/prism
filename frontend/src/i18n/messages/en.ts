@@ -45,16 +45,17 @@ export interface Messages {
     copyFailed: (label: string) => string;
     disconnected: string;
     endpointWithId: (id: string) => string;
+    edit: string;
     loadingApplication: string;
     notApplicable: string;
+    pageNotFound: string;
     profileFallback: string;
     reconnecting: string;
     requestFailed: string;
     syncing: string;
+    thisActionCannotBeUndone: string;
     unavailable: string;
     vendor: string;
-    vendorIconLabel: (label: string) => string;
-    vendorIconPlaceholder: string;
   };
   dashboard: {
     activeModels: string;
@@ -148,189 +149,6 @@ export interface Messages {
     pricingTemplates: string;
     requestLogs: string;
     settings: string;
-    sidecars: string;
-  };
-  sidecarsPage: {
-    actionApplyChange: string;
-    actionsColumn: string;
-    addSidecar: string;
-    allowInsecureHttpDescription: string;
-    allowInsecureHttpLabel: string;
-    allowPrivateNetworkDescription: string;
-    allowPrivateNetworkLabel: string;
-    authActionConfirmDescription: string;
-    authActionConfirmTitle: string;
-    authAuthFileColumn: string;
-    authDescription: string;
-    authDeleteAction: string;
-    authDeleteConfirmNameHint: (name: string) => string;
-    authDeleteConfirmNameLabel: string;
-    authDeleteConfirmNameMismatch: string;
-    authDeleteDeleting: string;
-    authDeleteDescription: (name: string) => string;
-    authDeleteFailed: (detail: string) => string;
-    authDeleteFor: (name: string) => string;
-    authDeleteRefreshWarning: (detail: string) => string;
-    authDeleteSucceeded: (name: string) => string;
-    authDeleteTitle: string;
-    authDeleteWarningDescription: string;
-    authDeleteWarningTitle: string;
-    authDisableAction: string;
-    authDisableAuth: (name: string) => string;
-    authDisabledLabel: string;
-    authEmptyDescription: string;
-    authEmptyTitle: string;
-    authEnableAction: string;
-    authEnableAuth: (name: string) => string;
-    authEnabledLabel: string;
-    authMissingPriorityResolves: string;
-    authModelsAction: string;
-    authModelsDescription: string;
-    authModelsDisplayNameColumn: string;
-    authModelsEmptyDescription: string;
-    authModelsEmptyTitle: string;
-    authModelsErrorDescription: string;
-    authModelsErrorTitle: string;
-    authModelsFor: (name: string) => string;
-    authModelsIdColumn: string;
-    authModelsLoading: string;
-    authModelsOwnedByColumn: string;
-    authModelsReadOnlyHint: string;
-    authModelsTitle: (name: string) => string;
-    authModelsTypeColumn: string;
-    authModelsUnsupportedDescription: string;
-    authModelsUnsupportedTitle: string;
-    authPriorityClearMutationWarning: string;
-    authPriorityMutationWarning: string;
-    authPriorityValueRequired: string;
-    authPriorityColumn: string;
-    authPriorityInputLabel: (name: string) => string;
-    authPriorityLabel: (priority: number) => string;
-    authPriorityRefreshWarning: (detail: string) => string;
-    authPriorityStaleBlocked: string;
-    authPriorityUpdated: (name: string) => string;
-    authRecentRequestsLabel: string;
-    authSavePriority: string;
-    authStatusMutationWarning: (disabled: boolean) => string;
-    authStatusRefreshWarning: (detail: string) => string;
-    authStatusRetryLive: string;
-    authStatusStaleBlocked: string;
-    authStatusUpdateApplied: string;
-    authStatusUpdateFailed: (detail: string) => string;
-    authStatusUpdated: (name: string, disabled: boolean) => string;
-    authStateColumn: string;
-    authSuccessRequestsLabel: string;
-    authFailedRequestsLabel: string;
-    authObservedLabel: string;
-    authRequestsColumn: string;
-    authTitle: string;
-    authFilterLabel: string;
-    authFilterPlaceholder: string;
-    authSortLabel: string;
-    authSortName: string;
-    authSortRoutingPriorityDesc: string;
-    authSortRoutingPriorityAsc: string;
-    authFilteredEmptyTitle: string;
-    authFilteredEmptyDescription: string;
-    authUnavailableLabel: string;
-    authUsageLimitEligiblePromoLabel: string;
-    authUsageLimitMessageLabel: string;
-    authUsageLimitPlanTypeLabel: string;
-    authUsageLimitResetsAtLabel: string;
-    authUsageLimitResetsInSecondsLabel: string;
-    authUsageLimitTitle: string;
-    authUsageLimitTypeLabel: string;
-    authUnobservedLabel: string;
-    baseUrlDescription: string;
-    baseUrlLabel: string;
-    baseUrlPlaceholder: string;
-    baseUrlRequired: string;
-    bucketSummary: (count: number) => string;
-    cancel: string;
-    connectionSectionTitle: string;
-    createSucceeded: (name: string) => string;
-    createTitle: string;
-    deleteAction: string;
-    deleteDescription: (name: string) => string;
-    deleteFailed: string;
-    deleteSucceeded: (name: string) => string;
-    deleteTitle: string;
-    deleteWarningDescription: string;
-    deleteWarningTitle: string;
-    deleting: string;
-    description: string;
-    detailTitle: (name: string) => string;
-    dialogDescription: string;
-    editSidecar: string;
-    editTitle: string;
-    emptyDescription: string;
-    emptyTitle: string;
-    enabledDescription: string;
-    enabledLabel: string;
-    environmentLabel: string;
-    environmentPlaceholder: string;
-    healthLabels: Record<"healthy" | "stale" | "degraded" | "disabled", string>;
-    insecureHttp: string;
-    lastSuccess: string;
-    lastSync: string;
-    loadFailed: string;
-    loadSingleFailed: string;
-    managementAuthLabels: Record<"unknown" | "valid" | "invalid_management_auth", string>;
-    managementPasswordCreateDescription: string;
-    managementPasswordCreatePlaceholder: string;
-    managementPasswordEditDescription: string;
-    managementPasswordEditPlaceholder: string;
-    managementPasswordLabel: string;
-    managementPasswordRequired: string;
-    maskedFields: (fields: string) => string;
-    nameLabel: string;
-    namePlaceholder: string;
-    noExtraSnapshotFields: string;
-    nameRequired: string;
-    passwordConfigured: string;
-    passwordMissing: string;
-    pollingDescription: string;
-    privateNetwork: string;
-    providerDescription: string;
-    providerEmptyDescription: string;
-    providerEmptyTitle: string;
-    providerItemColumn: string;
-    providerNameColumn: string;
-    providerObservedColumn: string;
-    providerSnapshotColumn: string;
-    providerTitle: string;
-    redactedLabel: string;
-    requestTimeoutLabel: string;
-    runtimeSectionTitle: string;
-    save: string;
-    saveFailed: string;
-    saving: string;
-    securityColumn: string;
-    skipTlsVerifyDescription: string;
-    skipTlsVerifyLabel: string;
-    snapshotFieldsMasked: string;
-    staleAfter: string;
-    stateSummary: (healthy: string, stale: string, degraded: string) => string;
-    statusColumn: string;
-    summaryDegraded: string;
-    summaryDisabled: string;
-    summaryHealthy: string;
-    summaryStale: string;
-    syncAccepted: (name: string) => string;
-    syncColumn: string;
-    syncFailed: string;
-    syncFailedWithDetail: (detail: string) => string;
-    syncIntervalLabel: string;
-    syncNow: string;
-    tableDescription: string;
-    tableTitle: string;
-    testConnection: string;
-    testFailed: string;
-    testSucceeded: (name: string, statusCode: number) => string;
-    tlsSkipped: string;
-    updateSucceeded: (name: string) => string;
-    validationPositiveWholeNumber: (fieldLabel: string) => string;
-    viewDetails: string;
   };
   loadbalanceStrategyDialog: {
     addTitle: string;
@@ -540,96 +358,6 @@ export interface Messages {
     reasoningPriceLabel: string;
     save: string;
     saving: string;
-  };
-  vendorManagement: {
-    actions: string;
-    addVendor: string;
-    cancel: string;
-    createVendor: string;
-    delete: string;
-    deleteDescription: (name: string) => string;
-    deleteInUse: (count: string) => string;
-    deleteTitle: string;
-    dependencyApiFamily: string;
-    dependencyModelId: string;
-    dependencyModelType: string;
-    dependencyProfile: string;
-    descriptionLabel: string;
-    descriptionPlaceholder: string;
-    edit: string;
-    editVendor: string;
-    emptyDescription: string;
-    emptyTitle: string;
-    currentIconPreviewLabel: string;
-    fallbackPreviewDescription: string;
-    iconPresetFallbackOption: string;
-    iconPresetHelp: string;
-    iconPresetLabel: string;
-    iconPresetPlaceholder: string;
-    keyLabel: string;
-    keyPlaceholder: string;
-    nameLabel: string;
-    namePlaceholder: string;
-    noDescription: string;
-    saveCreate: string;
-    saveEdit: string;
-    saving: string;
-    catalogExportAction: string;
-    catalogExportDescription: string;
-    catalogExportFailed: string;
-    catalogExportSucceeded: string;
-    catalogExporting: string;
-    catalogImportAction: string;
-    catalogImportDescription: string;
-    catalogImportFailed: string;
-    catalogImportSucceeded: (created: string, updated: string) => string;
-    catalogImportTitle: string;
-    catalogImporting: string;
-    catalogInvalidJsonFile: string;
-    catalogInvalidPayload: (errors: string) => string;
-    catalogLoadedSummary: (fileName: string, count: string) => string;
-    catalogPreviewAction: string;
-    catalogPreviewBlockingDescription: string;
-    catalogPreviewBlockingErrors: string;
-    catalogPreviewCreateCount: string;
-    catalogPreviewDescription: string;
-    catalogPreviewFailed: string;
-    catalogPreviewGlobalTarget: string;
-    catalogPreviewInProgress: string;
-    catalogPreviewMutationScope: string;
-    catalogPreviewNotReady: string;
-    catalogPreviewReady: string;
-    catalogPreviewReadyBoundToBundle: (fileName: string) => string;
-    catalogPreviewRequiresRefresh: string;
-    catalogPreviewSummary: (createCount: string, updateCount: string) => string;
-    catalogPreviewTarget: string;
-    catalogPreviewUnchangedCount: string;
-    catalogPreviewUntouchedScope: string;
-    catalogPreviewUpdateCount: string;
-    catalogPreviewWarnings: string;
-    catalogScopeProfileScopedConfig: string;
-    catalogScopeProfiles: string;
-    catalogScopeRequestLogs: string;
-    catalogStatusAffected: string;
-    catalogStatusUntouched: string;
-    catalogSectionDescription: string;
-    catalogSectionTitle: string;
-    catalogExportTitle: string;
-    sectionDescription: string;
-    sectionTitle: string;
-    tableDescription: string;
-    tableKey: string;
-    tableName: string;
-    thisActionCannotBeUndone: string;
-    vendorCreated: string;
-    vendorDeleteFailed: string;
-    vendorDeleted: string;
-    vendorInUseDeleteBlocked: string;
-    vendorKeyRequired: string;
-    vendorNameRequired: string;
-    vendorSaveFailed: string;
-    vendorUpdated: string;
-    vendorUsageLoadFailed: string;
   };
   settingsPage: {
     auditPrivacy: string;
@@ -1166,15 +894,12 @@ export interface Messages {
     previewRequiresRefreshAfterProfileChange: (profileLabel: string) => string;
     previewSecretSummary: string;
     previewUntouchedScope: string;
-    previewVendorResolutions: string;
-    previewVendorSummary: string;
     previewWarnings: string;
     safeDefault: string;
     scopeConnections: string;
     scopeDecryptableSecretRefs: string;
     scopeEndpointSecretRefs: string;
     scopeEndpoints: string;
-    scopeExistingGlobalVendorMetadata: string;
     scopeHeaderBlocklistRules: string;
     scopeModels: string;
     scopeOtherProfiles: string;
@@ -1189,11 +914,6 @@ export interface Messages {
     statusNotIncluded: string;
     statusUntouched: string;
     title: string;
-    vendorResolutionCreate: string;
-    vendorResolutionReuse: string;
-    vendorSummaryCreateCount: string;
-    vendorSummaryReuseCount: string;
-    vendorSummaryWarningCount: string;
   };
   settingsBackupData: {
     acknowledgeSecretsBeforeExport: string;
@@ -1212,17 +932,14 @@ export interface Messages {
     fxMappingMustReferenceImportedPair: (modelId: string, endpointName: string) => string;
     missingEndpointName: string;
     missingReferenceName: string;
-    modelMustIncludeVendorKey: (modelId: string) => string;
     referenceLabelEndpoint: string;
     referenceLabelLoadbalanceStrategy: string;
     referenceLabelPricingTemplate: string;
-    referenceLabelVendor: string;
     referenceNameEmpty: (referenceLabel: string) => string;
     statusCodesUnique: string;
     unknownEndpointName: (endpointName: string) => string;
     unknownLoadbalanceStrategy: (strategyName: string) => string;
     unknownPricingTemplateName: (templateName: string) => string;
-    unknownVendorKey: (vendorKey: string) => string;
   };
   costingUi: {
     default1To1: string;
@@ -1845,6 +1562,8 @@ export interface Messages {
     auditRecordList: string;
     auditRecordListDescription: (count: string) => string;
     auditStreamingResponseBodyNotStored: string;
+    allClients: string;
+    allFinalTargetModels: string;
     billableOnly: string;
     cacheCreation: string;
     cacheRead: string;
@@ -2271,16 +1990,17 @@ export const enMessages: Messages = {
     copyFailed: (label) => `Failed to copy ${label.toLowerCase()}`,
     disconnected: "Disconnected",
     endpointWithId: (id) => `Endpoint ${id}`,
+    edit: "Edit",
     loadingApplication: "Loading application...",
     notApplicable: "N/A",
+    pageNotFound: "Not Found",
     profileFallback: "profile",
     reconnecting: "Reconnecting...",
     requestFailed: "Request failed",
     syncing: "Syncing...",
+    thisActionCannotBeUndone: "This action cannot be undone.",
     unavailable: "Unavailable",
     vendor: "Vendor",
-    vendorIconLabel: (label) => `Vendor icon ${label}`,
-    vendorIconPlaceholder: "Vendor icon placeholder",
   },
   dashboard: {
     activeModels: "Active Models",
@@ -2381,189 +2101,6 @@ export const enMessages: Messages = {
     pricingTemplates: "Pricing Templates",
     requestLogs: "Request Logs",
     settings: "Settings",
-    sidecars: "Sidecars",
-  },
-  sidecarsPage: {
-    actionApplyChange: "Apply change",
-    actionsColumn: "Actions",
-    addSidecar: "Add sidecar",
-    allowInsecureHttpDescription: "Permit plain HTTP management endpoints when the sidecar is not using TLS.",
-    allowInsecureHttpLabel: "Allow insecure HTTP",
-    allowPrivateNetworkDescription: "Allow this control-plane entry to target private network addresses.",
-    allowPrivateNetworkLabel: "Allow private network",
-    authActionConfirmDescription: "Manual changes are sent directly to the sidecar auth file, then Prism refreshes the live auth-file view.",
-    authActionConfirmTitle: "Confirm manual auth mutation",
-    authAuthFileColumn: "Auth file",
-    authDescription: "Synced OAuth/auth inventory with routing priority. Secrets and raw tokens are never shown.",
-    authDeleteAction: "Delete auth file",
-    authDeleteConfirmNameHint: (name) => `Type ${name} exactly to confirm this single auth-file delete.`,
-    authDeleteConfirmNameLabel: "Confirm auth file name",
-    authDeleteConfirmNameMismatch: "The name must match the current live auth file exactly.",
-    authDeleteDeleting: "Deleting auth file...",
-    authDeleteDescription: (name) => `Delete ${name} from the live CLIProxyAPI auth file set?`,
-    authDeleteFailed: (detail) => `Auth file delete failed: ${detail}`,
-    authDeleteFor: (name) => `Delete auth file ${name}`,
-    authDeleteRefreshWarning: (detail) => `Auth file was deleted upstream, but Prism could not refresh auth details. Last-known detail remains visible. Refresh error: ${detail}`,
-    authDeleteSucceeded: (name) => `Deleted auth file ${name}.`,
-    authDeleteTitle: "Delete auth file",
-    authDeleteWarningDescription: "This calls CLIProxyAPI through Prism for exactly this auth file name. Prism first checks the current live row and requires the typed name to match.",
-    authDeleteWarningTitle: "This removes the live auth file upstream",
-    authDisableAction: "Disable",
-    authDisableAuth: (name) => `Disable auth ${name}`,
-    authDisabledLabel: "Disabled",
-    authEmptyDescription: "Run a sidecar sync to populate auth inventory.",
-    authEmptyTitle: "No auth files",
-    authEnableAction: "Enable",
-    authEnableAuth: (name) => `Enable auth ${name}`,
-    authEnabledLabel: "Enabled",
-    authMissingPriorityResolves: "missing routes in baseline 0 bucket",
-    authModelsAction: "Models",
-    authModelsDescription: "Read-only model discovery from the selected CLIProxyAPI auth file.",
-    authModelsDisplayNameColumn: "Display name",
-    authModelsEmptyDescription: "This sidecar supports model discovery, but no models were returned for this auth file.",
-    authModelsEmptyTitle: "No models returned",
-    authModelsErrorDescription: "Prism could not read models for this auth file.",
-    authModelsErrorTitle: "Models unavailable",
-    authModelsFor: (name) => `View read-only models for ${name}`,
-    authModelsIdColumn: "Model ID",
-    authModelsLoading: "Loading models...",
-    authModelsOwnedByColumn: "Owned by",
-    authModelsReadOnlyHint: "Observational only: this does not write auth files or use cached inventory as fallback model data.",
-    authModelsTitle: (name) => `${name} models`,
-    authModelsTypeColumn: "Type",
-    authModelsUnsupportedDescription: "This CLIProxyAPI sidecar does not expose the read-only auth-file models route yet. Upgrade CLIProxyAPI to use this modal.",
-    authModelsUnsupportedTitle: "Models discovery unsupported",
-    authPriorityClearMutationWarning: "Saving 0 sends PATCH priority: 0 as the priority clear/reset sentinel. After refresh, the priority field may be missing while runtime routing still falls into baseline bucket 0.",
-    authPriorityMutationWarning: "Positive priorities are written as explicit routing priorities. Higher numbers are preferred; use 0 only when you intend the PATCH clear/reset behavior.",
-    authPriorityValueRequired: "Enter 0 to clear/reset via PATCH, or a positive whole-number priority.",
-    authPriorityColumn: "Priority",
-    authPriorityInputLabel: (name) => `Priority for ${name}`,
-    authPriorityLabel: (priority) => priority === 0 ? "priority 0 (baseline)" : `priority ${priority}`,
-    authPriorityRefreshWarning: (detail) => `Priority changed upstream, but Prism could not refresh auth details. Last-known detail remains visible. Refresh error: ${detail}`,
-    authPriorityStaleBlocked: "The current live auth row has changed. Review it before retrying this exact priority change.",
-    authPriorityUpdated: (name) => `Updated priority for ${name}.`,
-    authRecentRequestsLabel: "Recent",
-    authSavePriority: "Save",
-    authStatusMutationWarning: (disabled) => `${disabled ? "Disabling" : "Enabling"} an auth file uses the backend safety gate and then refreshes Prism's live auth-file view.`,
-    authStatusRefreshWarning: (detail) => `Status changed upstream, but Prism could not refresh auth details. Last-known detail remains visible. Refresh error: ${detail}`,
-    authStatusRetryLive: "Retry with live auth file",
-    authStatusStaleBlocked: "The current live auth row has changed. Review it before retrying this exact status change.",
-    authStatusUpdateApplied: "Auth status updated and refreshed the live auth-file view.",
-    authStatusUpdateFailed: (detail) => `Auth status update failed: ${detail}`,
-    authStatusUpdated: (name, disabled) => `${disabled ? "Disabled" : "Enabled"} ${name}.`,
-    authStateColumn: "State",
-    authSuccessRequestsLabel: "Success",
-    authFailedRequestsLabel: "Failed",
-    authObservedLabel: "Observed",
-    authRequestsColumn: "Requests",
-    authTitle: "Auth files",
-    authFilterLabel: "Filter auth files",
-    authFilterPlaceholder: "Filter auth files...",
-    authSortLabel: "Sort",
-    authSortName: "Name",
-    authSortRoutingPriorityDesc: "Routing priority: high to low",
-    authSortRoutingPriorityAsc: "Routing priority: low to high",
-    authFilteredEmptyTitle: "No auth files match",
-    authFilteredEmptyDescription: "Try a different auth file, provider, status, or priority.",
-    authUnavailableLabel: "Unavailable",
-    authUsageLimitEligiblePromoLabel: "Eligible promo",
-    authUsageLimitMessageLabel: "Message",
-    authUsageLimitPlanTypeLabel: "Plan",
-    authUsageLimitResetsAtLabel: "Resets at",
-    authUsageLimitResetsInSecondsLabel: "Resets in",
-    authUsageLimitTitle: "Usage limit",
-    authUsageLimitTypeLabel: "Type",
-    authUnobservedLabel: "Not observed",
-    baseUrlDescription: "Use the backend sidecar API endpoint; Prism never contacts CLIProxyAPI directly from the browser.",
-    baseUrlLabel: "Base URL",
-    baseUrlPlaceholder: "https://cliproxyapi.internal:8443",
-    baseUrlRequired: "Base URL is required.",
-    bucketSummary: (count) => `${count} bucket${count === 1 ? "" : "s"}`,
-    cancel: "Cancel",
-    connectionSectionTitle: "Connection",
-    createSucceeded: (name) => `Created sidecar ${name}.`,
-    createTitle: "Add sidecar",
-    deleteAction: "Delete sidecar",
-    deleteDescription: (name) => `Delete ${name}? This removes the Prism sidecar registration only.`,
-    deleteFailed: "Failed to delete sidecar.",
-    deleteSucceeded: (name) => `Deleted sidecar ${name}.`,
-    deleteTitle: "Delete sidecar",
-    deleteWarningDescription: "Provider inventory and auth files remain backend-owned; this page only removes the instance registration.",
-    deleteWarningTitle: "This cannot be undone",
-    deleting: "Deleting...",
-    description: "Manage CLIProxyAPI sidecar instances from Prism's global control plane.",
-    detailTitle: (name) => `${name} detail`,
-    dialogDescription: "Configure the registered CLIProxyAPI management endpoint and polling behavior.",
-    editSidecar: "Edit sidecar",
-    editTitle: "Edit sidecar",
-    emptyDescription: "Register a CLIProxyAPI instance to start syncing provider inventory and health metadata.",
-    emptyTitle: "No sidecars registered",
-    enabledDescription: "Disabled sidecars stay registered but are excluded from sync and health checks.",
-    enabledLabel: "Enabled",
-    environmentLabel: "Environment label",
-    environmentPlaceholder: "production, staging, local",
-    healthLabels: { healthy: "Healthy", stale: "Stale", degraded: "Degraded", disabled: "Disabled" },
-    insecureHttp: "HTTP allowed",
-    lastSuccess: "Last successful sync",
-    lastSync: "Last sync",
-    loadFailed: "Failed to load sidecars.",
-    loadSingleFailed: "Failed to load sidecar details.",
-    managementAuthLabels: { unknown: "Unknown", valid: "Valid", invalid_management_auth: "Invalid management auth" },
-    managementPasswordCreateDescription: "Stored by the backend only; the value is never rendered back to the browser.",
-    managementPasswordCreatePlaceholder: "Management password",
-    managementPasswordEditDescription: "Leave blank to keep the existing backend-stored password.",
-    managementPasswordEditPlaceholder: "Replace password (optional)",
-    managementPasswordLabel: "Management password",
-    managementPasswordRequired: "Management password is required for new sidecars.",
-    maskedFields: (fields) => `Masked fields: ${fields}`,
-    nameLabel: "Name",
-    namePlaceholder: "CLIProxyAPI production",
-    noExtraSnapshotFields: "No extra inventory fields",
-    nameRequired: "Sidecar name is required.",
-    passwordConfigured: "Password configured",
-    passwordMissing: "Password missing",
-    pollingDescription: "The list refreshes every 30 seconds while this page is visible and stops on unmount.",
-    privateNetwork: "Private network",
-    providerDescription: "Read-only provider inventory synced through Prism backend APIs. API keys and provider secrets are masked and never requested.",
-    providerEmptyDescription: "Run a sidecar sync to populate provider inventory.",
-    providerEmptyTitle: "No provider inventory",
-    providerItemColumn: "Item",
-    providerNameColumn: "Provider",
-    providerObservedColumn: "Observed",
-    providerSnapshotColumn: "Masked inventory",
-    providerTitle: "Provider inventory",
-    redactedLabel: "redacted",
-    requestTimeoutLabel: "Request timeout (seconds)",
-    runtimeSectionTitle: "Runtime behavior",
-    save: "Save sidecar",
-    saveFailed: "Failed to save sidecar.",
-    saving: "Saving...",
-    securityColumn: "Secret state",
-    skipTlsVerifyDescription: "Skip certificate verification for this sidecar's management endpoint.",
-    skipTlsVerifyLabel: "Skip TLS verification",
-    snapshotFieldsMasked: "Inventory fields masked",
-    staleAfter: "Stale after",
-    stateSummary: (healthy, stale, degraded) => `Sidecars healthy:${healthy} stale:${stale} degraded:${degraded}`,
-    statusColumn: "Status",
-    summaryDegraded: "Degraded",
-    summaryDisabled: "Disabled",
-    summaryHealthy: "Healthy",
-    summaryStale: "Stale",
-    syncAccepted: (name) => `Manual sync accepted for ${name}.`,
-    syncColumn: "Sync metadata",
-    syncFailed: "Failed to request sidecar sync.",
-    syncFailedWithDetail: (detail) => `Sidecar sync did not complete: ${detail}`,
-    syncIntervalLabel: "Sync interval (seconds)",
-    syncNow: "Sync now",
-    tableDescription: "Global sidecar registrations, health state, sync metadata, and management-secret status.",
-    tableTitle: "Sidecar instances",
-    testConnection: "Test connection",
-    testFailed: "Failed to test sidecar connection.",
-    testSucceeded: (name, statusCode) => `Connection to ${name} succeeded with HTTP ${statusCode}.`,
-    tlsSkipped: "TLS verification skipped",
-    updateSucceeded: (name) => `Updated sidecar ${name}.`,
-    validationPositiveWholeNumber: (fieldLabel) => `${fieldLabel} must be a positive whole number.`,
-    viewDetails: "View details",
   },
   loadbalanceStrategyDialog: {
     addTitle: "Add Loadbalance Strategy",
@@ -2787,99 +2324,6 @@ export const enMessages: Messages = {
     reasoningPriceLabel: "Reasoning Price (per 1M tokens)",
     save: "Save Template",
     saving: "Saving...",
-  },
-  vendorManagement: {
-    actions: "Actions",
-    addVendor: "Add Vendor",
-    cancel: "Cancel",
-    createVendor: "Add Vendor",
-    delete: "Delete",
-    deleteDescription: (name) => `Are you sure you want to delete the vendor "${name}"?`,
-    deleteInUse: (count) => `This vendor is referenced by ${count} model${count === "1" ? "" : "s"}. Deleting it will keep those models and clear their vendor metadata.`,
-    deleteTitle: "Delete Vendor",
-    dependencyApiFamily: "API Family",
-    dependencyModelId: "Model ID",
-    dependencyModelType: "Model Type",
-    dependencyProfile: "Profile",
-    descriptionLabel: "Description (Optional)",
-    descriptionPlaceholder: "Optional details about this vendor",
-    edit: "Edit",
-    editVendor: "Edit Vendor",
-    emptyDescription: "Create a shared vendor entry here to make it available across profiles.",
-    emptyTitle: "No vendors configured",
-    currentIconPreviewLabel: "Current icon preview",
-    fallbackPreviewDescription: "If no preset fits, Prism falls back to a letter monogram.",
-    iconPresetFallbackOption: "No preset (use fallback)",
-    iconPresetHelp: "Choose a bundled vendor mark when one fits this vendor.",
-    iconPresetLabel: "Icon preset",
-    iconPresetPlaceholder: "Select an icon preset",
-    keyLabel: "Vendor Key",
-    keyPlaceholder: "e.g. openai",
-    nameLabel: "Vendor Name",
-    namePlaceholder: "e.g. OpenAI",
-    noDescription: "No description",
-    saveCreate: "Create Vendor",
-    saveEdit: "Save Vendor",
-    saving: "Saving...",
-    catalogExportAction: "Export Vendor Catalog",
-    catalogExportDescription: "Download the canonical shared vendor catalog bundle used across all profiles.",
-    catalogExportFailed: "Failed to export vendor catalog",
-    catalogExportSucceeded: "Vendor catalog exported successfully",
-    catalogExporting: "Exporting...",
-    catalogImportAction: "Apply vendor catalog",
-    catalogImportDescription: "Upload a vendor catalog bundle, run a preview, and only then apply the shared vendor catalog changes.",
-    catalogImportFailed: "Failed to import vendor catalog",
-    catalogImportSucceeded: (created, updated) => `Imported ${created} vendors and updated ${updated} vendors`,
-    catalogImportTitle: "Upload, preview & apply",
-    catalogImporting: "Importing...",
-    catalogInvalidJsonFile: "Invalid JSON file",
-    catalogInvalidPayload: (errors) => `Invalid vendor catalog payload: ${errors}`,
-    catalogLoadedSummary: (fileName, count) => `Loaded ${fileName}: ${count} vendor rows.`,
-    catalogPreviewAction: "Preview vendor catalog impact",
-    catalogPreviewBlockingDescription:
-      "This preview found blocking issues. Review them below and regenerate a preview after fixing the bundle.",
-    catalogPreviewBlockingErrors: "Preview blocking errors",
-    catalogPreviewCreateCount: "Create vendors",
-    catalogPreviewDescription:
-      "Preview shows exactly which shared vendor records will change while confirming that profiles, profile-scoped settings, and request logs stay untouched.",
-    catalogPreviewFailed: "Failed to preview vendor catalog",
-    catalogPreviewGlobalTarget: "Global vendor catalog",
-    catalogPreviewInProgress: "Generating preview...",
-    catalogPreviewMutationScope: "Mutation scope",
-    catalogPreviewNotReady: "Preview not ready to apply",
-    catalogPreviewReady: "Preview ready for apply",
-    catalogPreviewReadyBoundToBundle: (fileName) => `Apply is bound to the currently loaded bundle: ${fileName}.`,
-    catalogPreviewRequiresRefresh:
-      "Run preview to bind a fresh token for the currently loaded vendor bundle before applying it.",
-    catalogPreviewSummary: (createCount, updateCount) => `Preview: ${createCount} vendors to create, ${updateCount} vendors to update.`,
-    catalogPreviewTarget: "Target",
-    catalogPreviewUnchangedCount: "Leave unchanged",
-    catalogPreviewUntouchedScope: "Untouched scope",
-    catalogPreviewUpdateCount: "Update vendors",
-    catalogPreviewWarnings: "Preview warnings",
-    catalogScopeProfileScopedConfig: "Profile-scoped configuration",
-    catalogScopeProfiles: "All profiles",
-    catalogScopeRequestLogs: "Request logs",
-    catalogStatusAffected: "Affected",
-    catalogStatusUntouched: "Untouched",
-    catalogSectionDescription: "Export or preview-import the shared vendor catalog without leaving Global Settings.",
-    catalogSectionTitle: "Vendor Catalog Transport",
-    catalogExportTitle: "Export",
-    sectionDescription: "Manage the shared vendor catalog used by models and audit defaults across all profiles.",
-    sectionTitle: "Vendor Management",
-    tableDescription: "Description",
-    tableKey: "Key",
-    tableName: "Name",
-    thisActionCannotBeUndone: "This action cannot be undone.",
-    vendorCreated: "Vendor created",
-    vendorDeleteFailed: "Failed to delete vendor",
-    vendorDeleted: "Vendor deleted",
-    vendorInUseDeleteBlocked: "Cannot delete this vendor because it is still in use",
-    vendorKeyRequired: "Vendor key is required",
-    vendorNameRequired: "Vendor name is required",
-    vendorSaveFailed: "Failed to save vendor",
-    vendorUpdated: "Vendor updated",
-    vendorUsageLoadFailed: "Failed to load vendor usage",
   },
   settingsPage: {
     auditPrivacy: "Audit & Privacy",
@@ -3414,7 +2858,7 @@ export const enMessages: Messages = {
       `Loaded ${fileName}: ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} top-level connections.`,
     previewAction: "Preview import impact",
     previewBlockingErrors: "Blocking errors",
-    previewDescription: "Preview is required before apply so you can inspect replacement scope, untouched scope, vendor handling, and secret readiness.",
+    previewDescription: "Preview is required before apply so you can inspect replacement scope, untouched scope, and secret readiness.",
     previewInProgress: "Generating preview...",
     previewReady: "Preview status",
     previewReadyBoundToProfile: (profileLabel) => `This preview token is bound to ${profileLabel}. Changing the file or selected profile requires a fresh preview before apply.`,
@@ -3423,15 +2867,12 @@ export const enMessages: Messages = {
     previewRequiresRefreshAfterProfileChange: (profileLabel) => `The selected profile changed to ${profileLabel}. Run preview again before apply so the import token matches this profile.`,
     previewSecretSummary: "Secret summary",
     previewUntouchedScope: "Untouched scope",
-    previewVendorResolutions: "Vendor resolutions",
-    previewVendorSummary: "Vendor summary",
     previewWarnings: "Warnings",
     safeDefault: "Safe default",
     scopeConnections: "Top-level Connections",
     scopeDecryptableSecretRefs: "Decryptable secret refs",
     scopeEndpointSecretRefs: "Endpoint secret refs",
     scopeEndpoints: "Endpoints",
-    scopeExistingGlobalVendorMetadata: "Existing global vendor metadata",
     scopeHeaderBlocklistRules: "Header blocklist rules",
     scopeModels: "Models",
     scopeOtherProfiles: "Other profiles",
@@ -3446,11 +2887,6 @@ export const enMessages: Messages = {
     statusNotIncluded: "Not included",
     statusUntouched: "Untouched",
     title: "Configuration operations",
-    vendorResolutionCreate: "Create vendor",
-    vendorResolutionReuse: "Reuse vendor",
-    vendorSummaryCreateCount: "Vendors to create",
-    vendorSummaryReuseCount: "Vendors to reuse",
-    vendorSummaryWarningCount: "Vendor warnings",
   },
   settingsBackupData: {
     acknowledgeSecretsBeforeExport: "Acknowledge the dangerous secret-bearing export before continuing.",
@@ -3472,11 +2908,9 @@ export const enMessages: Messages = {
       `FX mapping must reference an imported model/endpoint pair: model_id='${modelId}', endpoint_name='${endpointName}'`,
     missingEndpointName: "Must include endpoint_name",
     missingReferenceName: "Must include a reference name",
-    modelMustIncludeVendorKey: (modelId) => `Model '${modelId}' must include vendor_key`,
     referenceLabelEndpoint: "endpoint",
     referenceLabelLoadbalanceStrategy: "loadbalance strategy",
     referenceLabelPricingTemplate: "pricing template",
-    referenceLabelVendor: "vendor",
     referenceNameEmpty: (referenceLabel) => `${referenceLabel} name must not be empty`,
     statusCodesUnique: "Failover status codes must be unique",
     unknownEndpointName: (endpointName) =>
@@ -3485,7 +2919,6 @@ export const enMessages: Messages = {
       `Unknown loadbalance strategy '${strategyName}' in import payload`,
     unknownPricingTemplateName: (templateName) =>
       `Unknown pricing_template_name '${templateName}' in import payload`,
-    unknownVendorKey: (vendorKey) => `Unknown vendor_key '${vendorKey}' in import payload`,
   },
   costingUi: {
     default1To1: "Default (1:1)",
@@ -4129,6 +3562,8 @@ export const enMessages: Messages = {
     auditRecordList: "Audit records",
     auditRecordListDescription: (count) => `${count} linked audit record${count === "1" ? "" : "s"}`,
     auditStreamingResponseBodyNotStored: "This streaming response body was not stored for this audit record.",
+    allClients: "All clients",
+    allFinalTargetModels: "All final target models",
     billableOnly: "Billable only",
     cacheCreation: "Cache creation",
     cacheRead: "Cache read",

@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 const frontendDir = path.resolve(__dirname, "../..");
 
 const { load } = createTsModuleLoader({ rootDir: frontendDir });
-const { ConfigImportSchema, VendorCatalogImportSchema } = load(
+const { ConfigImportSchema } = load(
   path.join(frontendDir, "src/lib/configImportValidation.ts")
 );
 const removedRetryAttemptsKey = ["retry", "max", "attempts"].join("_");
@@ -32,7 +32,6 @@ function buildValidConfigImport() {
   return {
     version: 3,
     bundle_kind: "profile_config",
-    vendor_refs: [{ key: "openai", name_hint: "OpenAI" }],
     endpoints: [
       {
         name: "OpenAI",
@@ -82,7 +81,6 @@ function buildValidConfigImport() {
     ],
     models: [
       {
-        vendor_key: "openai",
         api_family: "openai",
         model_id: "gpt-4o-mini",
         display_name: "GPT 4o Mini",
@@ -208,7 +206,6 @@ test("config import schema accepts backend-exported overflow promotion target fi
   payload.profile_settings.endpoint_fx_mappings = [];
   payload.models = [
     {
-      vendor_key: "openai",
       api_family: "openai",
       model_id: "gpt-4o-router",
       display_name: "GPT 4o Router",
@@ -228,7 +225,6 @@ test("config import schema accepts backend-exported overflow promotion target fi
       ],
     },
     {
-      vendor_key: "openai",
       api_family: "openai",
       model_id: "gpt-4o-terminal",
       display_name: "GPT 4o Terminal",
@@ -272,15 +268,6 @@ test("config import schema rejects profile bundles before v3", () => {
   assert.throws(() => ConfigImportSchema.parse(payload));
 });
 
-test("config import schema rejects vendor catalog bundles on the profile path", () => {
-  assert.throws(() =>
-    ConfigImportSchema.parse({
-      version: 1,
-      bundle_kind: "vendor_catalog",
-      vendors: [],
-    })
-  );
-});
 
 test("config import schema rejects removed model-local connection arrays", () => {
   const payload = buildValidConfigImport();
@@ -326,63 +313,9 @@ test("config import schema rejects removed strategy timeout policy fields", () =
   assert.throws(() => ConfigImportSchema.parse(payload));
 });
 
-test("vendor catalog import schema accepts the canonical vendor bundle", () => {
-  const parsed = VendorCatalogImportSchema.parse({
-    version: 1,
-    bundle_kind: "vendor_catalog",
-    vendors: [
-      {
-        key: "openai",
-        name: "OpenAI",
-        description: "Primary vendor",
-        icon_key: "openai",
-        audit_enabled: true,
-        audit_capture_bodies: false,
-      },
-    ],
-  });
 
-  assert.equal(parsed.bundle_kind, "vendor_catalog");
-  assert.equal(parsed.vendors[0].key, "openai");
-});
 
-test("vendor catalog import schema rejects profile bundles on the vendor path", () => {
-  assert.throws(() =>
-    VendorCatalogImportSchema.parse({
-      version: 1,
-      bundle_kind: "profile_config",
-      vendors: [],
-    })
-  );
-});
 
-test("vendor catalog import schema rejects non-v1 vendor bundles", () => {
-  assert.throws(() =>
-    VendorCatalogImportSchema.parse({
-      version: 2,
-      bundle_kind: "vendor_catalog",
-      vendors: [],
-    })
-  );
-});
-
-test("vendor catalog import schema requires explicit icon_key boundaries", () => {
-  assert.throws(() =>
-    VendorCatalogImportSchema.parse({
-      version: 1,
-      bundle_kind: "vendor_catalog",
-      vendors: [
-        {
-          key: "openai",
-          name: "OpenAI",
-          description: null,
-          audit_enabled: true,
-          audit_capture_bodies: false,
-        },
-      ],
-    })
-  );
-});
 
 test("config import schema accepts model access targets with sparse positions", () => {
   const payload = buildValidConfigImport();
@@ -399,7 +332,6 @@ test("config import schema accepts model target weight and target_priority metad
   payload.profile_settings.endpoint_fx_mappings = [];
   payload.models = [
     {
-      vendor_key: "openai",
       api_family: "openai",
       model_id: "gpt-4o-router",
       display_name: "GPT 4o Router",
@@ -418,7 +350,6 @@ test("config import schema accepts model target weight and target_priority metad
       ],
     },
     {
-      vendor_key: "openai",
       api_family: "openai",
       model_id: "gpt-4o-mini-terminal",
       display_name: "GPT 4o Mini Terminal",
@@ -450,7 +381,6 @@ test("config import schema rejects invalid model target routing metadata", () =>
   payload.profile_settings.endpoint_fx_mappings = [];
   payload.models = [
     {
-      vendor_key: "openai",
       api_family: "openai",
       model_id: "gpt-4o-router",
       display_name: "GPT 4o Router",
@@ -469,7 +399,6 @@ test("config import schema rejects invalid model target routing metadata", () =>
       ],
     },
     {
-      vendor_key: "openai",
       api_family: "openai",
       model_id: "gpt-4o-mini-terminal",
       display_name: "GPT 4o Mini Terminal",
@@ -521,7 +450,6 @@ test("config import schema rejects preferred thresholds above max context utiliz
 test("config import schema rejects duplicate connection_ref ownership across models", () => {
   const payload = buildValidConfigImport();
   payload.models.push({
-    vendor_key: "openai",
     api_family: "openai",
     model_id: "gpt-4o-mini-shadow",
     display_name: "GPT 4o Mini Shadow",

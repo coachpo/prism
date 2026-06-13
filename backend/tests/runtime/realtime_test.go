@@ -1090,13 +1090,14 @@ func (h *realtimeHarness) insertDashboardActivity(t *testing.T, route seededDash
 	}
 	if _, err := h.conn.Exec(
 		context.Background(),
-		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, $4, $5, 'openai', $6, $7, 200, TRUE, TRUE, TRUE, 11, 7, 25, 4, 2, 1, 1250, 'USD', '$', 1, '/v1/chat/completions', $8, 1200)`,
+		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, endpoint_label_snapshot, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, $4, $5, 'openai', $6, $7, $8, 200, TRUE, TRUE, TRUE, 11, 7, 25, 4, 2, 1, 1250, 'USD', '$', 1, '/v1/chat/completions', $9, 1200)`,
 		usageEventID,
 		profileID,
 		fmt.Sprintf("ingress-%d", requestLogID),
 		route.PublicModelID,
 		route.TargetModelID,
 		route.EndpointID,
+		route.EndpointName,
 		route.ConnectionID,
 		createdAt,
 	); err != nil {
@@ -1329,9 +1330,6 @@ func assertRealtimeRequestLogMatchesRESTDetail(t *testing.T, requestLog map[stri
 		{"resolved_target_model_id", summary, "resolved_target_model_id"},
 		{"resolved_target_model_label", summary, "resolved_target_model_label"},
 		{"api_family", summary, "api_family"},
-		{"vendor_id", summary, "vendor_id"},
-		{"vendor_key", summary, "vendor_key"},
-		{"vendor_name", summary, "vendor_name"},
 		{"status_code", summary, "status_code"},
 		{"response_time_ms", summary, "response_time_ms"},
 		{"ttft_ms", summary, "ttft_ms"},

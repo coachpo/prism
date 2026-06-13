@@ -1,4 +1,4 @@
-import type { ApiFamily, Vendor } from "./vendor";
+import type { ApiFamily } from "./vendor";
 import type {
   Connection,
   ContextCapabilityFields,
@@ -32,7 +32,6 @@ export type ModelAccessTargetType = "model" | PersistedTerminalTargetType;
 export interface ModelAccessTargetModelSummary {
   id: number;
   profile_id: number;
-  vendor_id: number | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
@@ -89,8 +88,6 @@ export interface ModelAccessTargetUpdate {
 export interface ModelConfig extends ContextCapabilityFields {
   id: number;
   profile_id: number;
-  vendor_id: number | null;
-  vendor: Vendor | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
@@ -105,8 +102,6 @@ export interface ModelConfig extends ContextCapabilityFields {
 export interface ModelConfigListItem extends ContextCapabilityFields {
   id: number;
   profile_id: number;
-  vendor_id: number | null;
-  vendor: Vendor | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
@@ -123,7 +118,6 @@ export interface ModelConfigListItem extends ContextCapabilityFields {
 }
 
 interface ModelConfigMutationBase {
-  vendor_id?: number | null;
   api_family?: ApiFamily;
   model_id?: string;
   display_name?: string | null;
@@ -153,9 +147,6 @@ export interface RequestLogEntry {
   resolved_target_model_label: string | null;
   profile_id: number;
   api_family?: ApiFamily;
-  vendor_id?: number | null;
-  vendor_key?: string | null;
-  vendor_name?: string | null;
   endpoint_id: number | null;
   connection_id: number | null;
   terminal_target_id?: number | null;
@@ -210,6 +201,16 @@ export interface RequestLogFilterModelOption {
   model_label: string;
 }
 
+export interface RequestLogFilterClientOption {
+  client_rule_id: number;
+  client_label: string;
+}
+
+export interface RequestLogFilterResolvedTargetModelOption {
+  resolved_target_model_id: string;
+  model_label: string;
+}
+
 export interface RequestLogListItem {
   id: number;
   created_at: string;
@@ -221,9 +222,6 @@ export interface RequestLogListItem {
   upstream_client_display: string | null;
   user_agent_overridden: boolean;
   api_family: ApiFamily;
-  vendor_id?: number | null;
-  vendor_key?: string | null;
-  vendor_name?: string | null;
   endpoint_id: number | null;
   endpoint_label: string;
   connection_id: number | null;
@@ -252,9 +250,6 @@ export interface RequestLogDetailSummary {
   resolved_target_model_id: string | null;
   resolved_target_model_label: string | null;
   api_family: ApiFamily;
-  vendor_id?: number | null;
-  vendor_key?: string | null;
-  vendor_name?: string | null;
   status_code: number;
   response_time_ms: number;
   ttft_ms: number | null;
@@ -396,6 +391,8 @@ export interface RequestLogListResponse {
   filter_options: {
     endpoints: RequestLogFilterEndpointOption[];
     models: RequestLogFilterModelOption[];
+    clients: RequestLogFilterClientOption[];
+    resolved_target_models: RequestLogFilterResolvedTargetModelOption[];
   };
 }
 
@@ -429,6 +426,8 @@ export const STATS_TO_TIME_PARAM = "to_time" as const;
 export interface StatsRequestParams {
   ingress_request_id?: string;
   model_id?: string;
+  client_rule_id?: number;
+  resolved_target_model_id?: string;
   status_family?: RequestStatusFamily;
   from_time?: string;
   endpoint_id?: number;

@@ -42,8 +42,6 @@ function model(id: number, modelId: string, displayName: string) {
   return {
     id,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: modelId,
     display_name: displayName,
@@ -114,9 +112,6 @@ function requestLogItem(id = 301) {
     upstream_client_display: "Task 17 test client",
     user_agent_overridden: false,
     api_family: "openai",
-    vendor_id: null,
-    vendor_key: null,
-    vendor_name: null,
     endpoint_id: endpoint.id,
     endpoint_label: endpoint.name,
     connection_id: 501,
@@ -141,9 +136,6 @@ function requestLogDetail(id = 301) {
   return {
     summary: {
       ...requestLogItem(id),
-      vendor_id: null,
-      vendor_key: null,
-      vendor_name: null,
       stream_error_detail: null,
     },
     request: {
@@ -215,7 +207,6 @@ function profileBundleV3() {
     version: 3,
     bundle_kind: "profile_config",
     exported_at: timestamp,
-    vendor_refs: [],
     endpoints: [{ name: endpoint.name, base_url: endpoint.base_url, api_key_secret_ref: null, position: 0 }],
     pricing_templates: [],
     connections: [{
@@ -248,7 +239,6 @@ function profileBundleV3() {
       ban_duration_seconds: 60,
     }],
     models: [{
-      vendor_key: null,
       api_family: "openai",
       model_id: requestedModel.model_id,
       display_name: requestedModel.display_name,
@@ -271,15 +261,6 @@ function pricingTemplate(id: number, name: string) {
 
 function task17PricingTemplates() {
   return Array.from({ length: 12 }, (_, index) => pricingTemplate(index + 1, index === 10 ? "Beta Task 17" : `Pricing ${String(index + 1).padStart(2, "0")}`));
-}
-
-function sidecar(id: number, name: string, state: "valid" | "missing_management_auth" = "valid") {
-  const hostSlug = name.toLowerCase().replace(/ /g, "-");
-  return { id, name, base_url: `https://${hostSlug}.example.invalid`, base_url_canonical: `https://${hostSlug}.example.invalid`, enabled: true, environment_label: id % 2 === 0 ? "production" : "staging", management_auth_state: state, credential_state: { management_password_configured: state === "valid" }, allow_insecure_http: false, skip_tls_verify: false, allow_private_network: false, last_sync_at: timestamp, last_successful_sync_at: state === "valid" ? timestamp : null, last_sync_error: state === "valid" ? null : "Missing management auth", snapshot_stale_after: "2099-01-01T00:00:00Z", pause_metadata: null, version: 1, created_at: timestamp, updated_at: timestamp };
-}
-
-function task17Sidecars() {
-  return Array.from({ length: 12 }, (_, index) => sidecar(index + 1, index === 10 ? "Beta Sidecar" : `Sidecar ${String(index + 1).padStart(2, "0")}`, index % 5 === 0 ? "missing_management_auth" : "valid"));
 }
 
 async function expectFirstActionGroupFitsButtonCluster(table: Locator) {
@@ -331,7 +312,6 @@ async function mockRoutes(page: Page) {
     if (pathname === "/api/settings/timezone") return fulfillJson({ timezone_preference: "UTC" });
     if (pathname === "/api/settings/auth") return fulfillJson({ auth_enabled: false, username: null, has_password: false, email: null, pending_email: null, email_bound_at: null, email_verification_required: false });
     if (pathname === "/api/settings/log-retention") return fulfillJson({ request_logs_retention_days: 30, statistics_retention_days: 30, audit_logs_retention_days: 30, loadbalance_events_retention_days: 30 });
-    if (pathname === "/api/vendors") return fulfillJson([]);
     if (pathname === "/api/config/header-blocklist-rules") return fulfillJson([]);
     if (pathname === "/api/config/user-agent-client-rules") return fulfillJson([]);
     if (pathname === "/api/models") return fulfillJson(task17Models());
@@ -346,10 +326,6 @@ async function mockRoutes(page: Page) {
     if (pathname === "/api/pricing-templates" && request.method() === "GET") return fulfillJson(task17PricingTemplates());
     if (/^\/api\/pricing-templates\/\d+$/.test(pathname) && request.method() === "GET") return fulfillJson(task17PricingTemplates().find((item) => pathname.endsWith(`/${item.id}`)) ?? task17PricingTemplates()[0]);
     if (/^\/api\/pricing-templates\/\d+\/connections$/.test(pathname)) return fulfillJson({ items: [] });
-    if (pathname === "/api/sidecars" && request.method() === "GET") return fulfillJson({ items: task17Sidecars() });
-    if (/^\/api\/sidecars\/\d+$/.test(pathname) && request.method() === "GET") return fulfillJson(task17Sidecars().find((item) => pathname.endsWith(`/${item.id}`)) ?? task17Sidecars()[0]);
-    if (/^\/api\/sidecars\/\d+\/auth-files$/.test(pathname)) return fulfillJson({ items: [] });
-    if (/^\/api\/sidecars\/\d+\/provider-snapshots$/.test(pathname)) return fulfillJson({ items: [] });
     if (pathname === "/api/stats/requests") {
       const offset = Number(url.searchParams.get("offset") ?? url.searchParams.get("cursor") ?? "0");
       const id = offset >= 100 ? 302 : 301;
@@ -358,7 +334,12 @@ async function mockRoutes(page: Page) {
         total: 150,
         limit: Number(url.searchParams.get("limit") ?? "100"),
         offset,
-        filter_options: { models: [{ model_id: requestedModel.model_id, model_label: requestedModel.display_name }], endpoints: [{ endpoint_id: endpoint.id, endpoint_label: endpoint.name }] },
+        filter_options: {
+          models: [{ model_id: requestedModel.model_id, model_label: requestedModel.display_name }],
+          endpoints: [{ endpoint_id: endpoint.id, endpoint_label: endpoint.name }],
+          clients: [],
+          resolved_target_models: [{ resolved_target_model_id: finalTargetModel.model_id, model_label: finalTargetModel.display_name }],
+        },
       });
     }
     if (pathname === "/api/stats/requests/301") return fulfillJson(requestLogDetail(301));
@@ -371,15 +352,13 @@ async function mockRoutes(page: Page) {
         preview_token: "task-17-preview",
         bundle_fingerprint: "task-17-fingerprint",
         replacement_scope: { target: "selected_profile", endpoints: 1, pricing_templates: 0, loadbalance_strategies: 1, models: 1, connections: 1, header_blocklist_rules: 0, user_agent_client_rules: 0, profile_settings: false },
-        untouched_scope: { other_profiles: true, existing_global_vendor_metadata: true, request_logs: true },
-        vendor_summary: { create_count: 0, reuse_count: 0, warning_count: 0 },
+        untouched_scope: { other_profiles: true, request_logs: true },
         secret_summary: { endpoint_secret_refs: 0, secret_payload_entries: 0, decryptable_secret_refs: 0 },
         endpoints_imported: 1,
         pricing_templates_imported: 0,
         strategies_imported: 1,
         models_imported: 1,
         connections_imported: 1,
-        vendor_resolutions: [],
         secret_key_id: "task-17",
         decryptable_secret_refs: [],
         blocking_errors: [],
@@ -462,7 +441,7 @@ test("task 17 operational tables keep dense controls keyboard accessible", async
   await expect(modelsTable).toBeVisible({ timeout: routeReadyTimeout });
   await expectFirstActionGroupFitsButtonCluster(modelsTable);
   await modelsTable.getByRole("button", { name: "Model ID", exact: true }).click();
-  await expect(modelsTable.getByText("Aux Model 01", { exact: true })).toBeVisible();
+  await expect(modelsTable.getByText("Aux Model 28", { exact: true })).toBeVisible();
   await page.getByPlaceholder("Search models...").fill("Aux Model 28");
   await expect(modelsTable.getByText("Aux Model 28", { exact: true })).toBeVisible();
   await expect(modelsTable.getByText("Public Model", { exact: true })).toHaveCount(0);
@@ -472,7 +451,7 @@ test("task 17 operational tables keep dense controls keyboard accessible", async
   await page.keyboard.press("Escape");
   await page.getByPlaceholder("Search models...").fill("");
   await modelsTable.getByRole("button", { name: "Next Page" }).click();
-  await expect(modelsTable.getByText("Aux Model 28", { exact: true })).toBeVisible();
+  await expect(modelsTable.getByText("Aux Model 05", { exact: true })).toBeVisible();
 
   await page.goto("/route/pricing");
   const pricingTable = page.getByTestId("pricing-templates-table");
@@ -491,19 +470,6 @@ test("task 17 operational tables keep dense controls keyboard accessible", async
   await pricingTable.getByRole("button", { name: "Next Page" }).click();
   await expect(pricingTable.getByText("Beta Task 17", { exact: true })).toBeVisible();
 
-  await page.goto("/control/sidecars");
-  const sidecarsTable = page.getByTestId("sidecars-summary");
-  await expect(sidecarsTable).toBeVisible({ timeout: routeReadyTimeout });
-  await sidecarsTable.getByRole("button", { name: "Name" }).click();
-  await page.getByLabel("Filter sidecars").fill("Beta");
-  await expect(sidecarsTable.getByText("Beta Sidecar", { exact: true })).toBeVisible();
-  await expect(sidecarsTable.getByText("Sidecar 01", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "View details: Beta Sidecar" }).focus();
-  await page.keyboard.press("Enter");
-  await expect(page.getByTestId("sidecar-detail").getByText("Beta Sidecar detail")).toBeVisible();
-  await page.getByLabel("Filter sidecars").fill("");
-  await sidecarsTable.getByRole("button", { name: "Next Page" }).click();
-  await expect(sidecarsTable.getByText("Beta Sidecar", { exact: true })).toBeVisible();
 
   await page.goto("/observe/requests?model=public-model&cursor=100");
   const requestLogsTable = page.getByTestId("request-logs-table");

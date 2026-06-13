@@ -36,7 +36,6 @@ type queryExecutor interface {
 type ListParams struct {
 	ProfileID    int
 	RequestLogID *int
-	VendorID     *int
 	ModelID      *string
 	StatusCode   *int
 	EndpointID   *int
@@ -78,7 +77,6 @@ type AuditLogListItem struct {
 	IngressRequestID            *string    `json:"ingress_request_id"`
 	RequestLogMissing           bool       `json:"request_log_missing"`
 	ProfileID                   int        `json:"profile_id"`
-	VendorID                    *int       `json:"vendor_id"`
 	ModelID                     string     `json:"model_id"`
 	EndpointID                  *int       `json:"endpoint_id"`
 	ConnectionID                *int       `json:"connection_id"`
@@ -105,7 +103,6 @@ type AuditLogDetail struct {
 	IngressRequestID            *string    `json:"ingress_request_id"`
 	RequestLogMissing           bool       `json:"request_log_missing"`
 	ProfileID                   int        `json:"profile_id"`
-	VendorID                    *int       `json:"vendor_id"`
 	ModelID                     string     `json:"model_id"`
 	EndpointID                  *int       `json:"endpoint_id"`
 	ConnectionID                *int       `json:"connection_id"`
@@ -173,7 +170,7 @@ func ListLogs(ctx context.Context, exec queryExecutor, params ListParams) (Audit
 		args = append(args, decodedCursor.LastCreatedAt.UTC(), decodedCursor.LastID)
 		visibleWhereClause += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", len(args)-1, len(args))
 	}
-	rows, err := exec.Query(ctx, `SELECT id, request_log_id, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE `+visibleWhereClause+` ORDER BY created_at DESC, id DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1), append(args, limit+1)...)
+	rows, err := exec.Query(ctx, `SELECT id, request_log_id, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE `+visibleWhereClause+` ORDER BY created_at DESC, id DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1), append(args, limit+1)...)
 	if err != nil {
 		return AuditLogListResponse{}, fmt.Errorf("query audit logs for profile %d: %w", params.ProfileID, err)
 	}
@@ -216,7 +213,7 @@ func GetLog(ctx context.Context, exec queryExecutor, profileID int, logID int) (
 	if !readState.AuditEnabledAtRequest {
 		return nil, &HTTPError{StatusCode: 409, Detail: "Audit capture unavailable for this request"}
 	}
-	row := exec.QueryRow(ctx, `SELECT id, request_log_id, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, logID)
+	row := exec.QueryRow(ctx, `SELECT id, request_log_id, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, logID)
 	item, err := scanDetail(row)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -233,10 +230,6 @@ func buildListWhere(params ListParams) (string, []any) {
 	if params.RequestLogID != nil {
 		args = append(args, *params.RequestLogID)
 		clauses = append(clauses, fmt.Sprintf("request_log_id = $%d", len(args)))
-	}
-	if params.VendorID != nil {
-		args = append(args, *params.VendorID)
-		clauses = append(clauses, fmt.Sprintf("vendor_id = $%d", len(args)))
 	}
 	if params.ModelID != nil && strings.TrimSpace(*params.ModelID) != "" {
 		args = append(args, strings.TrimSpace(*params.ModelID))
@@ -271,9 +264,6 @@ func auditListFiltersHash(params ListParams) string {
 	}
 	if params.RequestLogID != nil {
 		normalized["request_log_id"] = *params.RequestLogID
-	}
-	if params.VendorID != nil {
-		normalized["vendor_id"] = *params.VendorID
 	}
 	if params.ModelID != nil {
 		normalized["model_id"] = strings.TrimSpace(*params.ModelID)
@@ -355,20 +345,18 @@ func scanListItem(scanner interface{ Scan(...any) error }) (AuditLogListItem, er
 	var requestLogID sql.NullInt32
 	var requestLogCreatedAt sql.NullTime
 	var ingressRequestID sql.NullString
-	var vendorID sql.NullInt32
 	var endpointID sql.NullInt32
 	var connectionID sql.NullInt32
 	var endpointBaseURL sql.NullString
 	var endpointDescription sql.NullString
 	var requestBody sql.NullString
 	item := AuditLogListItem{}
-	if err := scanner.Scan(&item.ID, &requestLogID, &requestLogCreatedAt, &ingressRequestID, &item.RequestLogMissing, &item.ProfileID, &vendorID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &item.RequestHeaders, &requestBody, &item.RequestBodyStored, &item.ResponseStatus, &item.ResponseBodyStored, &item.IsStream, &item.DurationMS, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &item.CreatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &requestLogID, &requestLogCreatedAt, &ingressRequestID, &item.RequestLogMissing, &item.ProfileID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &item.RequestHeaders, &requestBody, &item.RequestBodyStored, &item.ResponseStatus, &item.ResponseBodyStored, &item.IsStream, &item.DurationMS, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &item.CreatedAt); err != nil {
 		return AuditLogListItem{}, fmt.Errorf("scan audit-log list row: %w", err)
 	}
 	item.RequestLogID = nullableInt32(requestLogID)
 	item.RequestLogCreatedAt = nullableTime(requestLogCreatedAt)
 	item.IngressRequestID = nullableString(ingressRequestID)
-	item.VendorID = nullableInt32(vendorID)
 	item.EndpointID = nullableInt32(endpointID)
 	item.ConnectionID = nullableInt32(connectionID)
 	item.EndpointBaseURL = nullableString(endpointBaseURL)
@@ -382,7 +370,6 @@ func scanDetail(scanner interface{ Scan(...any) error }) (AuditLogDetail, error)
 	var requestLogID sql.NullInt32
 	var requestLogCreatedAt sql.NullTime
 	var ingressRequestID sql.NullString
-	var vendorID sql.NullInt32
 	var endpointID sql.NullInt32
 	var connectionID sql.NullInt32
 	var endpointBaseURL sql.NullString
@@ -391,13 +378,12 @@ func scanDetail(scanner interface{ Scan(...any) error }) (AuditLogDetail, error)
 	var responseHeaders sql.NullString
 	var responseBody sql.NullString
 	item := AuditLogDetail{}
-	if err := scanner.Scan(&item.ID, &requestLogID, &requestLogCreatedAt, &ingressRequestID, &item.RequestLogMissing, &item.ProfileID, &vendorID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &item.RequestHeaders, &requestBody, &item.RequestBodyStored, &item.ResponseStatus, &responseHeaders, &responseBody, &item.ResponseBodyStored, &item.IsStream, &item.DurationMS, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &item.CreatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &requestLogID, &requestLogCreatedAt, &ingressRequestID, &item.RequestLogMissing, &item.ProfileID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &item.RequestHeaders, &requestBody, &item.RequestBodyStored, &item.ResponseStatus, &responseHeaders, &responseBody, &item.ResponseBodyStored, &item.IsStream, &item.DurationMS, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &item.CreatedAt); err != nil {
 		return AuditLogDetail{}, err
 	}
 	item.RequestLogID = nullableInt32(requestLogID)
 	item.RequestLogCreatedAt = nullableTime(requestLogCreatedAt)
 	item.IngressRequestID = nullableString(ingressRequestID)
-	item.VendorID = nullableInt32(vendorID)
 	item.EndpointID = nullableInt32(endpointID)
 	item.ConnectionID = nullableInt32(connectionID)
 	item.EndpointBaseURL = nullableString(endpointBaseURL)

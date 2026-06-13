@@ -197,10 +197,6 @@ func parseListParams(r *http.Request, profileID int) (auditdomain.ListParams, er
 	if err != nil {
 		return auditdomain.ListParams{}, err
 	}
-	vendorID, err := parseOptionalInt(r, "vendor_id")
-	if err != nil {
-		return auditdomain.ListParams{}, err
-	}
 	statusCode, err := parseOptionalInt(r, "status_code")
 	if err != nil {
 		return auditdomain.ListParams{}, err
@@ -239,11 +235,11 @@ func parseListParams(r *http.Request, profileID int) (auditdomain.ListParams, er
 	if sortOrder != "desc" {
 		return auditdomain.ListParams{}, &auditdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "audit_sort_unsupported", Detail: "Only descending audit sort is supported."}
 	}
-	return auditdomain.ListParams{ProfileID: profileID, RequestLogID: requestLogID, VendorID: vendorID, ModelID: normalizedQueryString(r, "model_id"), StatusCode: statusCode, EndpointID: endpointID, ConnectionID: connectionID, FromTime: fromTime, ToTime: toTime, Limit: limit, Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")), Sort: sortOrder}, nil
+	return auditdomain.ListParams{ProfileID: profileID, RequestLogID: requestLogID, ModelID: normalizedQueryString(r, "model_id"), StatusCode: statusCode, EndpointID: endpointID, ConnectionID: connectionID, FromTime: fromTime, ToTime: toTime, Limit: limit, Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")), Sort: sortOrder}, nil
 }
 
 func rejectUnsupportedListFilters(r *http.Request) error {
-	allowed := []string{"request_log_id", "vendor_id", "model_id", "status_code", "endpoint_id", "connection_id", "from", "to", "limit", "cursor", "sort"}
+	allowed := []string{"request_log_id", "model_id", "status_code", "endpoint_id", "connection_id", "from", "to", "limit", "cursor", "sort"}
 	for key := range r.URL.Query() {
 		if !slices.Contains(allowed, key) {
 			return &auditdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "audit_filter_unsupported", Detail: fmt.Sprintf("Unsupported audit filter %q.", key)}

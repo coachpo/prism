@@ -37,7 +37,6 @@ models/
 - When model `api_family` or access-target validation changes, evaluate OpenAI, Anthropic, and Gemini operation compatibility.
 
 ## ANTI-PATTERNS
-- Do not treat vendor metadata as runtime compatibility; use model `api_family`.
 - Do not move owner-scoped private connection route handling into model handlers.
 - Do not let access targets point at incompatible, missing, cyclic, or facade-enabled target models.
 - Do not accept context overflow promotion targets that bypass exact model IDs, same-profile ownership, same-family compatibility, or larger usable-context validation.

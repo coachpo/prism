@@ -90,8 +90,8 @@ func TestModelsStorePromotionTargetPersists(t *testing.T) {
 		t.Fatalf("expected stored promotion target %q, got %+v", nextTarget.ModelID, stored)
 	}
 
-	detail := buildModelDetailResponse(loaded, nil, nil, nil)
-	listItem := buildModelListResponse(listedSource, nil, nil, nil, nil, nil)
+	detail := buildModelDetailResponse(loaded, nil, nil)
+	listItem := buildModelListResponse(listedSource, nil, nil, nil, nil)
 	requirePromotionTargetEquals(t, detail.ContextOverflowPromotionTargetID, nextTarget.ModelID)
 	requirePromotionTargetEquals(t, listItem.ContextOverflowPromotionTargetID, nextTarget.ModelID)
 }
@@ -156,8 +156,8 @@ func TestModelsStorePromotionTargetNullRoundTrip(t *testing.T) {
 		t.Fatalf("expected stored promotion target to be NULL, got %+v", stored)
 	}
 
-	detail := buildModelDetailResponse(loaded, nil, nil, nil)
-	listItem := buildModelListResponse(listedSource, nil, nil, nil, nil, nil)
+	detail := buildModelDetailResponse(loaded, nil, nil)
+	listItem := buildModelListResponse(listedSource, nil, nil, nil, nil)
 	if detail.ContextOverflowPromotionTargetID != nil || listItem.ContextOverflowPromotionTargetID != nil {
 		t.Fatalf("expected nil response promotion targets, got detail=%v list=%v", detail.ContextOverflowPromotionTargetID, listItem.ContextOverflowPromotionTargetID)
 	}

@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw"
 import { afterEach, describe, expect, it } from "vitest"
-import { api, ApiError, setApiProfileId } from "@/lib/api"
+import { api, setApiProfileId } from "@/lib/api"
 import { rewriteTestServer } from "@/test"
 
 afterEach(() => {
@@ -60,44 +60,4 @@ describe("api client contracts", () => {
     expect(refreshRequests).toBe(1)
   })
 
-  it("extracts detail messages into ApiError instances", async () => {
-    rewriteTestServer.use(
-      http.get("/api/vendors", () =>
-        HttpResponse.json({ detail: { message: "Vendor catalog failed" } }, { status: 422 }),
-      ),
-    )
-
-    try {
-      await api.vendors.list()
-      throw new Error("api.vendors.list should reject")
-    } catch (error) {
-      expect(error).toBeInstanceOf(ApiError)
-      expect(error).toMatchObject({
-        detail: { detail: { message: "Vendor catalog failed" } },
-        message: "Vendor catalog failed",
-        status: 422,
-      })
-    }
-  })
-
-  it("keeps sidecars and vendor catalog global even when a profile is selected", async () => {
-    const observedProfileHeaders: Array<string | null> = []
-    setApiProfileId(42)
-
-    rewriteTestServer.use(
-      http.get("/api/sidecars", ({ request }) => {
-        observedProfileHeaders.push(request.headers.get("X-Profile-Id"))
-        return HttpResponse.json({ items: [] })
-      }),
-      http.get("/api/config/vendors/export", ({ request }) => {
-        observedProfileHeaders.push(request.headers.get("X-Profile-Id"))
-        return HttpResponse.json({ version: 1, bundle_kind: "vendor_catalog", vendors: [] })
-      }),
-    )
-
-    await api.sidecars.list()
-    await api.config.vendors.export()
-
-    expect(observedProfileHeaders).toEqual([null, null])
-  })
 })

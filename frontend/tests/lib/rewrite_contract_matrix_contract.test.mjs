@@ -55,11 +55,7 @@ test("rewrite contract matrix validates current frontend route and workflow cove
   for (const route of REQUIRED_CURRENT_ROUTES) {
     assert.ok(routePaths.has(route), `expected route ${route}`);
   }
-  assert.equal(rewriteContractMatrix.routes.length, 15);
-  assert.equal(
-    rewriteContractMatrix.routes.find((route) => route.currentPath === "/sidecars")?.scope,
-    "protected-global",
-  );
+  assert.equal(rewriteContractMatrix.routes.length, 14);
   assert.equal(
     rewriteContractMatrix.routes.find((route) => route.currentPath === "/models")?.scope,
     "protected-selected-profile",
@@ -87,7 +83,7 @@ test("rewrite contract matrix covers API rules, safeguards, imports, history, re
   assert.ok(rewriteContractMatrix.validationRules.length >= 10);
   assert.ok(rewriteContractMatrix.importExportFlows.length >= 4);
   assert.ok(rewriteContractMatrix.auditHistoryBehaviors.length >= 3);
-  assert.ok(rewriteContractMatrix.realtimeBehaviors.length >= 3);
+  assert.ok(rewriteContractMatrix.realtimeBehaviors.length >= 2);
   assert.ok(rewriteContractMatrix.featureDeletionCriteria.length >= 5);
 });
 
@@ -108,22 +104,20 @@ test("rewrite contract markdown renderer includes all major contract groups", ()
   ]) {
     assert.match(markdown, new RegExp(heading.replaceAll("/", "\\/")));
   }
-  assert.match(markdown, /`\/sidecars`/);
   assert.match(markdown, /X-Profile-Id/);
   assert.match(markdown, /X-Prism-Preview-Token/);
-  assert.match(markdown, /stale_auth_confirmation/);
 });
 
-test("missing route fails validation and reports /sidecars", () => {
+test("missing route fails validation and reports /proxy-api-keys", () => {
   const matrix = cloneMatrix({
-    routes: rewriteContractMatrix.routes.filter((route) => route.currentPath !== "/sidecars"),
+    routes: rewriteContractMatrix.routes.filter((route) => route.currentPath !== "/proxy-api-keys"),
   });
   const result = validateRewriteContractMatrix(matrix);
 
   assert.equal(result.valid, false);
-  assert.match(result.errors.join("\n"), /missing route \/sidecars/);
+  assert.match(result.errors.join("\n"), /missing route \/proxy-api-keys/);
   assert.throws(
     () => assertRewriteContractMatrix(matrix),
-    /missing route \/sidecars/,
+    /missing route \/proxy-api-keys/,
   );
 });

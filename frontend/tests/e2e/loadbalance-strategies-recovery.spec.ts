@@ -159,9 +159,6 @@ test("loadbalance strategies table shows explicit Ban Policy rows by name", asyn
       return fulfillJson([]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
   });
@@ -331,9 +328,6 @@ test("loadbalance strategy dialog creates and edits Cheapest target that fits co
       return fulfillJson([]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
   });

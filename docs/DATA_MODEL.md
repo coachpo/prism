@@ -1,24 +1,14 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped explicit Ban Policy routing, UNLOGGED routing hot state, global sidecar control-plane tables, and the current split-bundle configuration format (`version: 3` profile bundle, `version: 1` vendor catalog bundle).
+Scope: profile-isolated runtime and management model with pricing templates, profile-scoped explicit Ban Policy routing, UNLOGGED routing hot state, endpoint label snapshots, user-agent client rules, and the current `version: 3` profile bundle format.
 
 ## 1. Entity Relationship Diagram
 
 ```
-vendors (global)
-  id PK
-  name UNIQUE
-  key UNIQUE
-  description
-  icon_key NULLABLE
-  created_at, updated_at
-  created_at, updated_at
-      | 1:N
-      v
+model_configs (profile-scoped)
 model_configs (profile-scoped)
   id PK
   profile_id FK -> profiles.id
-  vendor_id FK -> vendors.id
   api_family (fixed enum)
   model_id
   display_name
@@ -182,7 +172,6 @@ audit_logs (partitioned immutable attribution)
   request_log_id weak request metadata, nullable
   request_log_created_at weak request metadata, nullable
   ingress_request_id weak request metadata, nullable
-  vendor_id FK -> vendors.id
   model_id, connection_id, endpoint_base_url, endpoint_description
   request/response payload fields
   is_stream, duration_ms
@@ -190,7 +179,6 @@ audit_logs (partitioned immutable attribution)
 
   id PK
   profile_id FK -> profiles.id
-  vendor_id FK -> vendors.id
   model_config_id FK -> model_configs.id
   connection_id FK -> connections.id
   endpoint_id
@@ -208,7 +196,7 @@ loadbalance_events (partitioned immutable attribution)
   cycle_retry_attempts, cumulative_retry_attempts
   next_retry_at, last_retry_delay_ms
   ban_mode, banned_until_at, last_success_at
-  model_id, endpoint_id, vendor_id
+  model_id, endpoint_id
   created_at
 
 app_auth_settings (singleton)
@@ -258,50 +246,13 @@ webauthn_credentials
   backup_eligible, backup_state
   last_used_at, last_used_ip, created_at, updated_at
 
-sidecar_instances (global)
-  id PK
-  live lower(name) UNIQUE, live base_url_canonical UNIQUE
-  encrypted management_password
-  enabled, sync_interval_seconds, request_timeout_seconds
-  network policy flags, management_auth_state, sync metadata
-      | 1:N optional display observations
-      v
-  sidecar_provider_snapshots
-  sidecar_id FK -> sidecar_instances.id
-  normalized provider observations
-
-  live auth-files remain in CLIProxyAPI
-  Prism reads them on demand through /api/sidecars/{id}/auth-files
 ```
+
+## 2. Table Definitions```
 
 ## 2. Table Definitions
 
-### 2.1 `vendors` (global/shared)
-
-Vendor records remain global and are shared across all profiles.
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| name | VARCHAR(100) | NOT NULL, UNIQUE | Display name (`OpenAI`, `Anthropic`, `Gemini`) |
-| key | VARCHAR(100) | NOT NULL, UNIQUE | Stable vendor key |
-| description | TEXT | NULLABLE | Optional description |
-| icon_key | VARCHAR(100) | NULLABLE | Optional presentation-only vendor icon key (`zhipu` for Z.ai, `azure` for Microsoft/Azure) |
-| audit_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Vendor-level audit toggle |
-| audit_capture_bodies | BOOLEAN | NOT NULL, DEFAULT TRUE | Vendor-level body capture toggle |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
-
-Lifecycle notes:
-- Vendor rows are managed globally from Settings → Global.
-- Vendor catalog import/export now lives under `/api/config/vendors/*` and is the authoritative bundle path for shared vendor metadata.
-- Profile config import/export now lives under `/api/config/profile/*`; profile bundles resolve vendors by `vendor_key` when present and never mutate existing global vendor metadata from profile bundle hint drift.
-- Canonical system vendor keys (`openai`, `anthropic`, `gemini`) surface through the API with a derived `is_readonly` flag and reject identity edits or deletion through `/api/vendors/*`; `is_readonly` is behavior, not a persisted table column.
-- `icon_key` is shared global metadata and is presentation-only; runtime routing and compatibility continue to use `api_family` on model rows.
-- `model_configs.vendor_id` references these shared rows as optional metadata; deleting a vendor never cascades into model deletion.
-- `GET /api/vendors/{id}/models` returns the current profile-scoped referencing model rows as informational delete context.
-- `DELETE /api/vendors/{id}` hard-deletes editable vendors and clears `model_configs.vendor_id` plus delete-safe observability vendor foreign keys to `NULL`; readonly system vendors are rejected earlier by the API layer.
-
+### 2.1 `profiles`
 ### 2.2 `profiles`
 
 Profiles are isolated configuration namespaces. One profile is active for runtime routing at any time.
@@ -327,13 +278,12 @@ Constraints and lifecycle rules:
 
 ### 2.3 `model_configs` (profile-scoped)
 
-Maps a model ID to optional vendor metadata, fixed api family, and routing behavior within one profile.
+Maps a model ID to fixed api family and routing behavior within one profile.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor metadata reference |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | model_id | VARCHAR(200) | NOT NULL | Model identifier (scoped by profile) |
 | display_name | VARCHAR(200) | NULLABLE | Human-readable name |
@@ -632,6 +582,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | operation_translation_mode | VARCHAR(80) | NOT NULL, DEFAULT `none` | Translation mode copied from the finalized attempt |
 | upstream_request_path | VARCHAR(500) | NULLABLE | Sanitized provider-facing operation path |
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
+| endpoint_label_snapshot | TEXT | NOT NULL | Endpoint label captured at runtime for retained aggregate display |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target for the finalized request |
 | route_reason | VARCHAR(80) | NULLABLE | Canonical finalized route reason copied from the request-log attempt that supplied the final response |
@@ -651,6 +602,7 @@ Usage-event semantics:
 - One row captures the finalized usage event that feeds the statistics snapshot.
 - `ingress_request_id` preserves the stable request-group identifier shared with the attempt-level `request_logs` rows for the same incoming runtime request.
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
+- `endpoint_label_snapshot` preserves the endpoint display label used by usage snapshots, spending, and Top Endpoints, even if the endpoint is later renamed or deleted. Public stats payloads expose this stored value as `endpoint_label`.
 - Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
 - Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, `route_reason`, `usage_source`, context-routing metadata when it exists, and additive ingress/upstream operation attribution. Exact facade events preserve the same top-level requested/resolved model split as request logs and carry facade planner detail only through nested `context_routing.facade_selection`. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
 - When context overflow promotion occurs, final usage ownership belongs to the final returned response only. The final usage event uses the final response status, usage, pricing, resolved target model, selected terminal target, and `attempt_count` across source plus promoted phases; failed source overflow attempts remain attempt-level rows and may have null usage.
@@ -667,7 +619,6 @@ Audit rows for upstream attempts with immutable profile attribution. The table i
 | request_log_id | INTEGER | NULLABLE | Weak request-log identifier retained for historical linking |
 | request_log_created_at | DATETIME | NULLABLE | Weak request-log partition key retained for historical linking |
 | ingress_request_id | VARCHAR(36) | NULLABLE | Weak incoming request grouping ID retained for correlation |
-| vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor reference |
 | model_id | VARCHAR(200) | NOT NULL | Model ID |
 | connection_id | INTEGER | NULLABLE | Connection snapshot |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
@@ -707,7 +658,6 @@ Persistent record of retry-window, ban, recovery, and admission transitions. The
 | last_retry_delay_ms | INTEGER | NOT NULL | Last resolved retry-window delay in milliseconds |
 | model_id | VARCHAR(200) | NULLABLE | Model ID snapshot |
 | endpoint_id | INTEGER | NULLABLE | Endpoint ID snapshot |
-| vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor snapshot |
 | ban_mode | VARCHAR(20) | NULLABLE | `off`, `temporary`, or `until_reset` when relevant |
 | banned_until_at | DATETIME | NULLABLE | Temporary-ban expiry when relevant |
 | last_success_at | DATETIME | NULLABLE | Successful response time that cleared retry state when relevant |
@@ -784,24 +734,7 @@ When an operator performs manual bounded deletes on the cutoff-overlapping bound
 VACUUM (ANALYZE, PROCESS_TOAST TRUE) public.request_logs_pYYYYMMDD;
 ```
 
-### 2.14A `sidecar_*` tables (global CLIProxyAPI control plane)
-
-Sidecar tables are global instance state. They are not profile-scoped and do not participate in profile bundle import/export. The baseline schema creates the sidecar domain.
-
-| Table | Purpose |
-|---|---|
-| `sidecar_instances` | Sidecar registration, canonical base URL, encrypted management password, enabled flag, sync interval, request timeout, network policy flags, management-auth state, pause metadata, and sync timestamps. |
-| `sidecar_provider_snapshots` | Optional normalized provider inventory observations for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. |
-
-Ownership notes:
-- Active `sidecar_instances` rows are unique on `lower(name)` and `base_url_canonical` among non-deleted registrations.
-- Stored management passwords use the backend secret-encryption key and are write-only at the API boundary.
-- Provider observation JSON must not persist raw token, secret, password, API-key, authorization, raw provider response, or raw provider identity values.
-- Auth-file inventory is sourced live from CLIProxyAPI and is not stored as a Prism table.
-- Provider inventory is sourced from CLIProxyAPI and may be persisted as normalized observations for operator display.
-- Sync work is scheduler-owned low-priority background work; request handlers enqueue or trigger bounded service methods rather than owning recurring timers.
-
-### 2.15 `routing_connection_runtime_state` (profile-scoped Ban Mode runtime state, `UNLOGGED`)
+### 2.15 `routing_connection_runtime_state`### 2.15 `routing_connection_runtime_state` (profile-scoped Ban Mode runtime state, `UNLOGGED`)
 
 Ephemeral hot-state row for per-connection admission counters and Ban Mode retry-cycle state. This table is intentionally `UNLOGGED`, so it resets after crash or unclean shutdown.
 
@@ -1019,15 +952,10 @@ CREATE INDEX idx_webauthn_credentials_auth_subject ON webauthn_credentials(auth_
 CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_used_at);
 ```
 
-Sidecar uniqueness and indexes are part of the baseline schema; they cover active sidecar names and canonical URLs plus per-sidecar snapshot lookups.
-
 ## 4. Relationship and Ownership Rules
 
-- `vendors` are global and shared across all profiles.
-- `model_configs` reference shared vendor rows without vendor-owned delete cascade semantics; deleting a vendor must not delete profile-scoped model rows.
 - `profiles` own all scoped entities: `model_configs`, `endpoints`, `connections`, `user_settings`, `endpoint_fx_rate_settings`, user `header_blocklist_rules`.
 - `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, and `password_reset_challenges`; retained `webauthn_credentials` rows remain schema-level historical state rather than an active supported workflow surface.
-- `sidecar_instances` is a global control-plane root for sidecar snapshots; it is not owned by a profile.
 - `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
 - `routing_connection_runtime_state` and `routing_connection_runtime_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
@@ -1038,7 +966,6 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 
 - Routine profile deletion (`DELETE /api/profiles/{id}`) is soft-delete of inactive profile (`deleted_at` set).
 - Active profile deletion is rejected.
-- Vendor deletion hard-deletes the shared vendor row and nulls `model_configs.vendor_id` plus delete-safe observability vendor foreign keys instead of rejecting the delete or cascading to model rows.
 - Profile-scoped config entities are removable through explicit profile-targeted replace/purge workflows.
 - Historical telemetry/audit retention is independent; routine profile delete does not erase historical attribution rows.
 
@@ -1058,18 +985,12 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 
 ## 7. Config Import/Export Versioning
 
-- Canonical profile export format is Go-era config version `3` with `bundle_kind = profile_config`, top-level `connections` for Terminal Targets, `models[].access_targets[]`, exact-facade model fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), nullable `models[].context_overflow_promotion_target_id`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable model `vendor_key`, and model `api_family`.
 - OpenAI text capability is profile-scoped Terminal Target data. Profile bundle v3 carries `connections[].openai_text_capability`, and startup config has no OpenAI text translation mode field.
-- Canonical global vendor export format is Go-era config version `1` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts version-3 profile bundles only and validates top-level `connections` for Terminal Targets, ordered model access targets, exact Release 1 facade fields, nullable context overflow promotion targets, explicit Ban Policy strategies, optional `vendor_key`, `loadbalance_strategy_name`, connection admission-limit fields, context capability fields, OpenAI text capability nullability, five concrete pricing fields, and encrypted `secret_payload` entries. Version-3 profile import rejects any `connection_ref` used by multiple models or colliding with existing private ownership, rejects regex/capability facade expansion and nested facades, validates promotion targets as enabled same-family non-facade models with larger effective usable windows, normalizes missing facade fields to `facade_enabled = false` with nil policies, normalizes missing model-target `weight` / `target_priority` to `1` / `position`, normalizes missing/null/blank pricing inputs to `"0"`, and serializes effective context defaults explicitly as `default_output_token_reserve = 4096` and `max_context_utilization = 0.90` before validation/export.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
-- Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
 - Persisted rows created by import always receive fresh database IDs; the version-3 profile bundle contract omits internal IDs entirely and relies on name-based references.
 - Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
-- Profile import reuses exact global vendor keys when provided, creates missing vendors when the proposed name is unique, and rejects duplicate bundle keys or vendor-name collisions before destructive profile-scoped replacement begins.
 
 
 ## 8. Invariant Notes
 
-- The canonical split-bundle contract version is `3` for profile bundles and `1` for vendor catalog bundles.
 - Runtime hot state remains profile-scoped and reset-on-crash by design.

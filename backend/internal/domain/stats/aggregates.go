@@ -423,10 +423,6 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 	if err != nil {
 		return SpendingReportResponse{}, err
 	}
-	_, currentEndpointsByID, err := loadCurrentEndpoints(ctx, exec, params.ProfileID)
-	if err != nil {
-		return SpendingReportResponse{}, err
-	}
 	successRecords := make([]usageEventRecord, 0)
 	for _, rawRecord := range records {
 		record := normalizeUsageEventPricingCoherence(rawRecord)
@@ -467,15 +463,20 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 		if record.BillableFlag {
 			spend = record.TotalCostUserCurrencyMicros
 		}
-		currentEndpoint, currentFound := endpointFromMap(currentEndpointsByID, record.EndpointID)
-		endpointLabel := resolveSpendingEndpointLabel(currentEndpoint, currentFound, record.EndpointID)
+		endpointLabel := usageEventEndpointLabel(record)
 		groupKey := spendingGroupKey(groupBy, record, endpointLabel)
+		groupDisplayKey := groupKey
+		if groupBy == "endpoint" {
+			groupKey = spendingEndpointKey(record.EndpointID, endpointLabel)
+			groupDisplayKey = endpointLabel
+		}
 		if groupBy == "" || groupBy == "none" {
 			groupKey = "all"
+			groupDisplayKey = "all"
 		}
 		aggregate := groupAggregates[groupKey]
 		if aggregate == nil {
-			groupAggregates[groupKey] = &spendingGroupAggregate{Key: groupKey}
+			groupAggregates[groupKey] = &spendingGroupAggregate{Key: groupDisplayKey}
 			aggregate = groupAggregates[groupKey]
 		}
 		aggregate.TotalCostMicros += spend
@@ -560,6 +561,9 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 	sort.Slice(endpointItems, func(i int, j int) bool {
 		if endpointItems[i].TotalCostMicros != endpointItems[j].TotalCostMicros {
 			return endpointItems[i].TotalCostMicros > endpointItems[j].TotalCostMicros
+		}
+		if endpointIDOrMinusOne(endpointItems[i].EndpointID) != endpointIDOrMinusOne(endpointItems[j].EndpointID) {
+			return endpointIDOrMinusOne(endpointItems[i].EndpointID) < endpointIDOrMinusOne(endpointItems[j].EndpointID)
 		}
 		return endpointItems[i].EndpointLabel < endpointItems[j].EndpointLabel
 	})
@@ -815,7 +819,7 @@ func loadUsageEventRecords(ctx context.Context, exec queryExecutor, profileID in
 		args = append(args, *connectionID)
 		clauses = append(clauses, fmt.Sprintf("usage_request_events.connection_id = $%d", len(args)))
 	}
-	rows, err := exec.Query(ctx, `SELECT usage_request_events.id, usage_request_events.created_at, usage_request_events.profile_id, usage_request_events.ingress_request_id, usage_request_events.model_id, usage_request_events.resolved_target_model_id, usage_request_events.api_family, usage_request_events.endpoint_id, usage_request_events.connection_id, usage_request_events.proxy_api_key_id, usage_request_events.proxy_api_key_name_snapshot, usage_request_events.status_code, usage_request_events.success_flag, usage_request_events.billable_flag, usage_request_events.priced_flag, usage_request_events.unpriced_reason, usage_request_events.input_tokens, usage_request_events.output_tokens, usage_request_events.total_tokens, usage_request_events.cache_read_input_tokens, usage_request_events.cache_creation_input_tokens, usage_request_events.reasoning_tokens, usage_request_events.total_cost_user_currency_micros, usage_request_events.attempt_count, usage_request_events.request_path, usage_request_events.response_time_ms, usage_request_events.ttft_ms, usage_request_events.completion_duration_ms, model_configs.display_name, endpoints.name, endpoints.base_url, proxy_api_keys.name, proxy_api_keys.key_prefix
+	rows, err := exec.Query(ctx, `SELECT usage_request_events.id, usage_request_events.created_at, usage_request_events.profile_id, usage_request_events.ingress_request_id, usage_request_events.model_id, usage_request_events.resolved_target_model_id, usage_request_events.api_family, usage_request_events.endpoint_id, usage_request_events.endpoint_label_snapshot, usage_request_events.connection_id, usage_request_events.proxy_api_key_id, usage_request_events.proxy_api_key_name_snapshot, usage_request_events.status_code, usage_request_events.success_flag, usage_request_events.billable_flag, usage_request_events.priced_flag, usage_request_events.unpriced_reason, usage_request_events.input_tokens, usage_request_events.output_tokens, usage_request_events.total_tokens, usage_request_events.cache_read_input_tokens, usage_request_events.cache_creation_input_tokens, usage_request_events.reasoning_tokens, usage_request_events.total_cost_user_currency_micros, usage_request_events.attempt_count, usage_request_events.request_path, usage_request_events.response_time_ms, usage_request_events.ttft_ms, usage_request_events.completion_duration_ms, model_configs.display_name, endpoints.name, endpoints.base_url, proxy_api_keys.name, proxy_api_keys.key_prefix
 		 FROM usage_request_events
 		 LEFT JOIN model_configs ON model_configs.profile_id = usage_request_events.profile_id AND model_configs.model_id = usage_request_events.model_id
 		 LEFT JOIN endpoints ON endpoints.profile_id = usage_request_events.profile_id AND endpoints.id = usage_request_events.endpoint_id
@@ -877,6 +881,7 @@ func spendingEndpointKey(endpointID *int, endpointLabel string) string {
 func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRecord, error) {
 	var resolvedTargetModelID sql.NullString
 	var endpointID sql.NullInt32
+	var endpointLabelSnapshot sql.NullString
 	var connectionID sql.NullInt32
 	var proxyAPIKeyID sql.NullInt32
 	var proxyAPIKeyNameSnapshot sql.NullString
@@ -899,12 +904,13 @@ func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRe
 	var currentProxyAPIKeyName sql.NullString
 	var currentProxyAPIKeyPrefix sql.NullString
 	item := usageEventRecord{}
-	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ProfileID, &item.IngressRequestID, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &connectionID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &item.StatusCode, &item.SuccessFlag, &billableFlag, &pricedFlag, &unpricedReason, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &totalCostUserCurrencyMicros, &item.AttemptCount, &item.RequestPath, &responseTimeMS, &ttftMS, &completionDurationMS, &currentModelLabel, &currentEndpointName, &currentEndpointBaseURL, &currentProxyAPIKeyName, &currentProxyAPIKeyPrefix); err != nil {
+	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ProfileID, &item.IngressRequestID, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &endpointLabelSnapshot, &connectionID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &item.StatusCode, &item.SuccessFlag, &billableFlag, &pricedFlag, &unpricedReason, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &totalCostUserCurrencyMicros, &item.AttemptCount, &item.RequestPath, &responseTimeMS, &ttftMS, &completionDurationMS, &currentModelLabel, &currentEndpointName, &currentEndpointBaseURL, &currentProxyAPIKeyName, &currentProxyAPIKeyPrefix); err != nil {
 		return usageEventRecord{}, fmt.Errorf("scan usage event: %w", err)
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.ResolvedTargetModelID = nullableString(resolvedTargetModelID)
 	item.EndpointID = nullableInt32(endpointID)
+	item.EndpointLabelSnapshot = stringValue(nullableString(endpointLabelSnapshot))
 	item.ConnectionID = nullableInt32(connectionID)
 	item.ProxyAPIKeyID = nullableInt32(proxyAPIKeyID)
 	item.ProxyAPIKeyNameSnapshot = nullableString(proxyAPIKeyNameSnapshot)

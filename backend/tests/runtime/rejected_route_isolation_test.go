@@ -35,9 +35,6 @@ func TestRejectedRouteIsolation_StaysOutsideTransportAdmissionSideEffectsAndPers
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 
-	openAIVendorID := enableRuntimeRejectedRouteAudit(t, harness, "openai")
-	anthropicVendorID := enableRuntimeRejectedRouteAudit(t, harness, "anthropic")
-	geminiVendorID := enableRuntimeRejectedRouteAudit(t, harness, "gemini")
 	openAIRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
 		ProfileID:       profileID,
 		APIFamily:       "openai",
@@ -62,9 +59,6 @@ func TestRejectedRouteIsolation_StaysOutsideTransportAdmissionSideEffectsAndPers
 		EndpointBaseURL: harness.upstream.baseURL("/rejected/gemini"),
 		EndpointAPIKey:  "rejected-gemini-key",
 	})
-	attachRuntimeRejectedRouteVendor(t, harness, profileID, openAIVendorID, openAIRoute)
-	attachRuntimeRejectedRouteVendor(t, harness, profileID, anthropicVendorID, anthropicRoute)
-	attachRuntimeRejectedRouteVendor(t, harness, profileID, geminiVendorID, geminiRoute)
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	assertRuntimeRejectedRouteNoAdmissionState(t, harness, profileID, openAIRoute.ConnectionID, anthropicRoute.ConnectionID, geminiRoute.ConnectionID)
 	baseline := loadRuntimeRejectedRoutePersistenceCounts(t, harness.conn, profileID)
@@ -161,32 +155,6 @@ func TestRejectedRouteIsolation_StaysOutsideTransportAdmissionSideEffectsAndPers
 		})
 	}
 	assertRuntimeRejectedRoutePersistenceCountsRemain(t, harness.conn, profileID, baseline, 500*time.Millisecond)
-}
-
-func enableRuntimeRejectedRouteAudit(t *testing.T, harness *runtimeHarness, vendorKey string) int {
-	t.Helper()
-	vendorID := loadVendorIDByKey(t, harness.conn, vendorKey)
-	if _, err := harness.conn.Exec(
-		context.Background(),
-		`UPDATE vendors SET audit_enabled = TRUE, audit_capture_bodies = TRUE WHERE id = $1`,
-		vendorID,
-	); err != nil {
-		t.Fatalf("enable rejected-route audit for vendor %q: %v", vendorKey, err)
-	}
-	return vendorID
-}
-
-func attachRuntimeRejectedRouteVendor(t *testing.T, harness *runtimeHarness, profileID int, vendorID int, route seededRuntimeRoute) {
-	t.Helper()
-	if _, err := harness.conn.Exec(
-		context.Background(),
-		`UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`,
-		vendorID,
-		profileID,
-		[]string{route.PublicModelID, route.TargetModelID},
-	); err != nil {
-		t.Fatalf("attach rejected-route vendor metadata: %v", err)
-	}
 }
 
 func assertRuntimeRejectedRouteError(t *testing.T, response *http.Response, wantDetail string, wantAllow string) {

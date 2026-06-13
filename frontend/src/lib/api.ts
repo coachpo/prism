@@ -1,6 +1,5 @@
 import { ApiError, getApiProfileId, setApiProfileId } from "./api/core";
 import { auth, settings } from "./api/authSettings";
-import { sidecars } from "./api/sidecars";
 import {
   audit,
   config,
@@ -17,7 +16,6 @@ import {
   models,
   pricingTemplates,
   profiles,
-  vendors,
 } from "./api/management";
 
 export { ApiError, getApiProfileId, setApiProfileId };
@@ -34,13 +32,11 @@ export const api = {
   models,
   pricingTemplates,
   profiles,
-  vendors,
   settings: {
     ...settings,
     costing: settingsCosting,
     retention: settingsRetention,
     timezone: settingsTimezone,
   },
-  sidecars,
   stats,
 };

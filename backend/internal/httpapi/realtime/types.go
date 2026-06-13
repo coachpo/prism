@@ -14,9 +14,6 @@ type RequestLogEntry struct {
 	ResolvedTargetModelID             *string   `json:"resolved_target_model_id"`
 	ResolvedTargetModelLabel          *string   `json:"resolved_target_model_label"`
 	APIFamily                         string    `json:"api_family"`
-	VendorID                          *int      `json:"vendor_id"`
-	VendorKey                         *string   `json:"vendor_key"`
-	VendorName                        *string   `json:"vendor_name"`
 	EndpointID                        *int      `json:"endpoint_id"`
 	ConnectionID                      *int      `json:"connection_id"`
 	TerminalTargetID                  *int      `json:"terminal_target_id"`

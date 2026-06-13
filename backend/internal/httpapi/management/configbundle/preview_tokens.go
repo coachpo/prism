@@ -12,13 +12,12 @@ import (
 )
 
 const (
-	dangerousConfirmHeader         = "X-Prism-Dangerous-Confirm"
-	dangerousConfirmProfileExport  = "profile-export"
-	previewTokenHeader             = "X-Prism-Preview-Token"
-	previewTokenVersion            = 1
-	previewTokenTTL                = 15 * time.Minute
-	previewTokenProfileScope       = "profile_config"
-	previewTokenVendorCatalogScope = "vendor_catalog"
+	dangerousConfirmHeader        = "X-Prism-Dangerous-Confirm"
+	dangerousConfirmProfileExport = "profile-export"
+	previewTokenHeader            = "X-Prism-Preview-Token"
+	previewTokenVersion           = 1
+	previewTokenTTL               = 15 * time.Minute
+	previewTokenProfileScope      = "profile_config"
 )
 
 type previewTokenClaims struct {
@@ -49,10 +48,6 @@ func profileImportBundleFingerprint(data profileImportRequest) (string, error) {
 	return bundleFingerprint(data)
 }
 
-func vendorCatalogImportBundleFingerprint(data vendorCatalogImportRequest) (string, error) {
-	return bundleFingerprint(normalizeVendorCatalogImportRequest(data))
-}
-
 func bundleFingerprint(value any) (string, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -67,11 +62,6 @@ func (s *Service) issueProfilePreviewToken(profileID int, fingerprint string) (s
 	return s.issuePreviewToken(previewTokenClaims{Version: previewTokenVersion, Scope: previewTokenProfileScope, ProfileID: &profileID, BundleFingerprint: fingerprint, IssuedAt: now, ExpiresAt: now.Add(previewTokenTTL)})
 }
 
-func (s *Service) issueVendorPreviewToken(fingerprint string) (string, error) {
-	now := s.nowUTC()
-	return s.issuePreviewToken(previewTokenClaims{Version: previewTokenVersion, Scope: previewTokenVendorCatalogScope, BundleFingerprint: fingerprint, IssuedAt: now, ExpiresAt: now.Add(previewTokenTTL)})
-}
-
 func (s *Service) validateProfilePreviewToken(token string, profileID int, data profileImportRequest) error {
 	fingerprint, err := profileImportBundleFingerprint(data)
 	if err != nil {
@@ -82,21 +72,6 @@ func (s *Service) validateProfilePreviewToken(token string, profileID int, data 
 		return err
 	}
 	if claims.Scope != previewTokenProfileScope || claims.ProfileID == nil || *claims.ProfileID != profileID || claims.BundleFingerprint != fingerprint || s.nowUTC().After(claims.ExpiresAt) {
-		return invalidPreviewTokenError()
-	}
-	return nil
-}
-
-func (s *Service) validateVendorPreviewToken(token string, data vendorCatalogImportRequest) error {
-	fingerprint, err := vendorCatalogImportBundleFingerprint(data)
-	if err != nil {
-		return err
-	}
-	claims, err := s.parsePreviewToken(token)
-	if err != nil {
-		return err
-	}
-	if claims.Scope != previewTokenVendorCatalogScope || claims.ProfileID != nil || claims.BundleFingerprint != fingerprint || s.nowUTC().After(claims.ExpiresAt) {
 		return invalidPreviewTokenError()
 	}
 	return nil

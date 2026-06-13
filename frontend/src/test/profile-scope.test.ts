@@ -54,18 +54,17 @@ describe("profile-scope api and query contracts", () => {
       "models",
     ])
 
-    expect(rewriteQueryKeys.global.sidecars()).toEqual(["rewrite", "global", "sidecars"])
-    expect(rewriteQueryKeys.global.vendors()).toEqual(["rewrite", "global", "vendors"])
-    expect(rewriteQueryKeys.global.sidecars()).not.toContain("42")
+    expect(rewriteQueryKeys.global.settingsAuth()).toEqual(["rewrite", "global", "settings", "auth"])
+    expect(rewriteQueryKeys.global.settingsAuth()).not.toContain("42")
   })
 
   it("invalidates selected-profile cache without touching global cache", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const profileModelsKey = rewriteQueryKeys.selectedProfile(42).models()
-    const sidecarsKey = rewriteQueryKeys.global.sidecars()
+    const settingsAuthKey = rewriteQueryKeys.global.settingsAuth()
 
     queryClient.setQueryData(profileModelsKey, [])
-    queryClient.setQueryData(sidecarsKey, { items: [] })
+    queryClient.setQueryData(settingsAuthKey, [])
 
     expect(getRewriteMutationInvalidationKeys({ scope: "selected-profile", profileId: 42 })).toEqual([
       rewriteQueryKeys.selectedProfile(42).all,
@@ -74,7 +73,7 @@ describe("profile-scope api and query contracts", () => {
     await invalidateRewriteMutationScope(queryClient, { scope: "selected-profile", profileId: 42 })
 
     expect(queryClient.getQueryState(profileModelsKey)?.isInvalidated).toBe(true)
-    expect(queryClient.getQueryState(sidecarsKey)?.isInvalidated).toBe(false)
+    expect(queryClient.getQueryState(settingsAuthKey)?.isInvalidated).toBe(false)
     queryClient.clear()
   })
 })

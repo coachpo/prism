@@ -2799,7 +2799,6 @@ func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily strin
 		context.Background(),
 		`INSERT INTO model_configs (
 			profile_id,
-			vendor_id,
 			api_family,
 			model_id,
 			display_name,
@@ -2807,10 +2806,9 @@ func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily strin
 			is_enabled,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $7)
+		) VALUES ($1, $2, $3, $4, $5, TRUE, $6, $6)
 		RETURNING id`,
 		profileID,
-		nil,
 		apiFamily,
 		modelID,
 		nil,

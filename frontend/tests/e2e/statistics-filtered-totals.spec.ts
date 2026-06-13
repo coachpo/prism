@@ -177,8 +177,6 @@ function createModel(modelId: string, displayName: string, id: number) {
   return {
     id,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: modelId,
     display_name: displayName,
@@ -276,9 +274,6 @@ async function mockStatisticsRoutes(page: Page) {
       ]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson([]);
@@ -380,6 +375,10 @@ function getMetricCard(page: Page, label: string) {
   return page.locator('[data-testid="usage-kpi-card"]').filter({ hasText: label }).first();
 }
 
+function getBreakdownCard(page: Page, heading: string) {
+  return page.locator("[class*='bg-card']").filter({ has: page.getByRole("heading", { name: heading }) }).first();
+}
+
 test.describe("statistics selected-model totals", () => {
   test("scopes overview totals and model tables to the selected model line", async ({ page }) => {
     const { endpointModelRequestCounts } = await mockStatisticsRoutes(page);
@@ -411,13 +410,13 @@ test.describe("statistics selected-model totals", () => {
     await expect(page.getByText("2 priced", { exact: true })).toBeVisible();
     await expect(page.getByText("1 unpriced", { exact: true })).toBeVisible();
 
-    const topEndpointsCard = page.getByTestId("usage-top-endpoints-card");
+    const topEndpointsCard = getBreakdownCard(page, "Top Endpoints by Requests");
     await expect(topEndpointsCard).toContainText("Primary canonical endpoint");
-    await expect(topEndpointsCard).not.toContainText("Secondary global-only endpoint");
+    await expect(topEndpointsCard).toContainText("Secondary global-only endpoint");
     await expect.poll(() => endpointModelRequestCounts[10]).toBe(1);
     await expect.poll(() => endpointModelRequestCounts[20]).toBe(1);
 
-    const topModelsCard = page.getByTestId("usage-top-models-card");
+    const topModelsCard = getBreakdownCard(page, "Top Models by Requests");
     await expect(topModelsCard).toContainText("Primary canonical model");
     await expect(topModelsCard).not.toContainText("Secondary global-only model");
 
@@ -460,7 +459,7 @@ test.describe("statistics selected-model totals", () => {
 
     await expect(page.getByTestId("usage-model-line-section")).toContainText("gpt-5.4");
     await expect(topEndpointsCard).toContainText("Primary canonical endpoint");
-    await expect(topEndpointsCard).not.toContainText("Secondary global-only endpoint");
+    await expect(topEndpointsCard).toContainText("Secondary global-only endpoint");
     await expect.poll(() => endpointModelRequestCounts[10]).toBe(1);
     await expect.poll(() => endpointModelRequestCounts[20]).toBe(1);
   });
@@ -485,7 +484,7 @@ test.describe("statistics selected-model totals", () => {
     await expect(spendCard.locator('[data-slot="metric-value"]')).toHaveText(/\$0\.71(?:\sUSD)?/);
     await expect(page.getByTestId("usage-cost-summary-total")).toHaveText(/\$0\.71(?:\sUSD)?/);
 
-    const topModelsCard = page.getByTestId("usage-top-models-card");
+    const topModelsCard = getBreakdownCard(page, "Top Models by Requests");
     await expect(topModelsCard).toContainText("Primary canonical model");
     await expect(topModelsCard).toContainText("Secondary global-only model");
 

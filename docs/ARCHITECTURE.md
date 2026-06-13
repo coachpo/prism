@@ -15,7 +15,7 @@
                     │  │ (profiles, models,        │          │
                     │  │  endpoints, connections,  │          │
                     │  │  settings, request_logs,  │          │
-                    │  │  audit_logs, sidecars)    │          │
+                    │  │  audit_logs, usage events)    │          │
                     │  └───────────────────────────┘          │
                      │           Configured Port*              │
                     └──────────────────────────────────────────┘
@@ -32,7 +32,7 @@ backend/
 ├── cmd/prism-backend/          # Go process entrypoint
 ├── internal/
 │   ├── httpapi/
-│   │   ├── management/         # /api/* management handlers, including sidecars
+│   │   ├── management/         # /api/* management handlers
 │   │   ├── runtime/            # operation-registered /v1 and /v1beta proxy handlers
 │   │   └── realtime/           # WebSocket room management and publishing
 │   ├── platform/
@@ -47,7 +47,6 @@ backend/
 │   │   └── stats/              # request-log and aggregate query logic
 │   ├── endpointdomain/         # endpoint and connection helpers
 │   ├── profiledomain/          # selected vs active profile helpers
-│   └── vendordomain/           # shared vendor catalog helpers
 ├── migrations/                 # Fresh-install SQL baseline applied at startup
 ├── testdata/                   # bundle, request, bootstrap, and realtime fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
@@ -91,8 +90,7 @@ frontend/
 │       ├── dashboard/DashboardPage.tsx # Dashboard shell with analytics tab and shared statistics content
 │       ├── RequestLogsPage.tsx     # Request-log investigation with lazy audit lookup
 │       ├── ProxyApiKeysPage.tsx
-│       ├── SidecarsPage.tsx        # Global CLIProxyAPI sidecar control plane
-│       ├── SettingsPage.tsx        # Profile-scoped settings shell + global auth/vendor management
+│       ├── SettingsPage.tsx        # Profile-scoped settings shell + global auth and startup management
 │       ├── PricingTemplatesPage.tsx
 │       └── LoadbalanceStrategiesPage.tsx
 
@@ -113,8 +111,8 @@ frontend/
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
 - Operational telemetry is startup-JSON-owned: the top-level `telemetry` section configures OTLP endpoint, protocol, compression, timeout, auth, TLS, metrics, and traces. Prism does not use long-lived `OTEL_*` environment variables as the steady-state config source.
 - The primary ops path is OTLP to an OpenTelemetry Collector or Grafana Alloy, with Prometheus/Grafana/Tempo or another backend attached from that collector layer. The backend does not mount a local `/metrics` scrape endpoint.
-- Profile backup/restore, vendor catalog export/import, request-history APIs, and other settings-page state flows remain PostgreSQL-backed product state instead of bootstrap or OTLP ownership.
-- The current implementation keeps the split-bundle contract canonical: `profile_config` bundles use `version: 3`, `vendor_catalog` bundles use `version: 1`, and no older profile-bundle narrative survives.
+- Profile backup/restore, request-history APIs, and other settings-page state flows remain PostgreSQL-backed product state instead of bootstrap or OTLP ownership.
+- The current implementation keeps the profile bundle contract canonical: `profile_config` bundles use `version: 3`, and no older profile-bundle narrative survives.
 - `backend/Dockerfile` is the live Go backend image build path and copies the backend binary, version surface, and `migrations/` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
@@ -194,7 +192,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
   -> On stream finalization or cancellation: release the stream lease, persist the per-attempt request log, and record runtime feedback
 ```
 
-### 3.4 Vendor and api_family Routing
+### 3.4 API Family Routing
 
 | API family            | Canonical operation names                       | Supported Prism operation paths                    | Upstream path                                      | Auth header                                          |
 | --------------------- | ----------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
@@ -213,7 +211,7 @@ Hot bootstrap projection builds a new aggregate snapshot, validates it, then ato
 
 Restart-required boundaries are structural process resources: listener host and port, PostgreSQL URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and the state-transfer bundle key. Those values can be written through the bootstrap API, but they do not change the running process until Prism restarts.
 
-Vendor rows are global publisher metadata. Models may keep `vendor_id = null` and `vendor = null`, while runtime compatibility and redirect checks still use the model's required `api_family`, not the vendor row. The frontend owns vendor icon rendering through a locally vendored registry sourced from pinned `cc-switch` presets, and it falls back to a monogram or placeholder only at render time when icon data or vendor metadata is missing or unknown. The Models page still renders each row's `api_family` metadata even when vendor identity is absent.
+Runtime compatibility and redirect checks use each model's required `api_family`. Model rows do not depend on catalog metadata for routing, validation, or display. The Models page renders each row's `api_family` metadata directly.
 
 ### 3.5 Management API Profile Scoping
 - Prism keeps one route-class matrix:
@@ -221,24 +219,21 @@ Vendor rows are global publisher metadata. Models may keep `vendor_id = null` an
   - Profile-scoped management routes require `X-Profile-Id` and resolve against the selected profile.
   - Supported runtime operations under `/v1` and `/v1beta` ignore management overrides and always use the active profile.
 - Profile-scoped config bundle routes live under `/api/config/profile/*`, and `POST /api/config/profile/import/preview` is also profile-scoped and requires `X-Profile-Id`.
-- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/config/vendors/*`, `/api/auth/*`, `/api/realtime/*`, and the auth/email/proxy-key settings routes under `/api/settings/auth*`.
+- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, and the auth/email/proxy-key settings routes under `/api/settings/auth*`.
 - Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
 - Scope-control errors return stable `code` values plus human-readable `detail` text.
 - Supported runtime operations always use active profile and ignore override headers.
 
 The protected frontend shell now boots profile state from `GET /api/profiles/bootstrap`, derives sidebar destinations and breadcrumbs from the route metadata registry in `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
 
-The Settings shell mirrors that split: the Profile tab keeps backup, billing and currency, timezone, audit and privacy flows scoped to the selected profile, while the Global tab owns instance-wide authentication, the shared vendor catalog, and global log retention. Normal log retention applies across all profiles; list and detail APIs still filter by the selected profile.
+The Settings shell mirrors that split: the Profile tab keeps backup, billing and currency, timezone, audit and privacy flows scoped to the selected profile, while the Global tab owns instance-wide authentication and global log retention. Normal log retention applies across all profiles; list and detail APIs still filter by the selected profile.
 
 The current split-bundle config workflow also mirrors that ownership split:
 - profile export/import uses `bundle_kind = profile_config` and is authoritative only for profile-scoped rows
 - `GET /api/config/profile/export` returns the safe redacted bundle, while `POST /api/config/profile/export/with-secrets` returns the dangerous full secret-bearing bundle
-- vendor catalog export/import uses `bundle_kind = vendor_catalog` and is authoritative only for shared vendor metadata
 - profile bundles never export plaintext endpoint API keys; safe exports null reusable endpoint secret refs and omit `secret_payload.entries[]`
 - dangerous profile exports include `secret_payload.entries[]` and reusable endpoint secret refs
-- profile import resolves vendors by `vendor_key` when present, keeps vendorless models vendorless when `vendor_key` is null, reuses existing global vendors, and never mutates existing global vendor metadata from profile-bundle hint drift
-- profile import replaces profile-scoped rows only, while global vendor rows, other profiles, and request logs remain untouched
-- vendor catalog import mutates only the shared vendor catalog and leaves profile-scoped rows untouched
+- profile import replaces profile-scoped rows only, while other profiles and request logs remain untouched
 - apply is header-bound with `X-Prism-Preview-Token`, and the raw bundle JSON stays unchanged in transit
 - these bundle and backup flows remain PostgreSQL-backed state transport and do not seed or replace the startup bootstrap JSON
 
@@ -340,7 +335,7 @@ Models resolve through ordered access targets. Public target authoring points on
 - Model IDs are unique within a profile.
 - The gateway may normalize provider request payloads before forwarding, for example rewriting the requested model ID to the final target model ID for upstream compatibility. Release 1 exact facades do not add response-body model rewriting on the client-facing way back out.
 
-Model contracts require `api_family`; `vendor_id` is optional metadata. Vendor CRUD remains global, while runtime compatibility is checked against `api_family` only.
+Model contracts require `api_family`; runtime compatibility is checked against `api_family` only.
 
 ### 5.3 Resolution
 
@@ -429,12 +424,12 @@ Client -> Operation registry -> Router / Planner -> Terminal target -> Endpoint 
 
                               Background best-effort logging (async):
                                 - Log request attempt to request_logs
-                                - If audit_enabled: log attempt to audit_logs
+                                - If audit capture is enabled: log attempt to audit_logs
 ```
 
 ### 7.3 Data Captured
 
-- Profile ID attribution, requested model ID, final target model ID, api family, vendor snapshot, terminal-target compatibility ID, endpoint base URL, and endpoint description
+- Profile ID attribution, requested model ID, final target model ID, api family, terminal-target compatibility ID, endpoint base URL, and endpoint description
 - Prism `ingress_request_id`, per-request `attempt_number`, persisted ingress `operation_name`, additive `upstream_operation_name`, `operation_translation_mode`, `upstream_request_path`, and best-effort `upstream_correlation_id`
 - HTTP status code, response time (ms)
 - Token usage (input, output, total), extracted by upstream operation response or stream hooks before any client-facing response translation
@@ -445,8 +440,8 @@ Request-log semantics are per-attempt: one incoming runtime request can create m
 
 ### 7.4 Query Capabilities
 
-- Filter by model, api family, status, time range
-- Aggregated statistics with grouping by model/api family/endpoint
+- Filter by model, final target model, caller client rule, endpoint, api family, status, and time range
+- Aggregated statistics with grouping by model/api family/endpoint using stored endpoint label snapshots
 - Pagination for request log listing
 
 These query APIs intentionally remain product-facing retained-history surfaces for the UI and operators. Prometheus/Grafana should consume Prism operations data from the configured OTLP Collector or Alloy path instead of scraping Prism for local metrics.
@@ -457,139 +452,46 @@ Runtime traces keep `prism.runtime.operation_name` as ingress-led. Additive trac
 
 ### 8.1 Concept
 
-Audit logging records the request-time provenance that was active when the request started. Vendorless models do not synthesize audit defaults from `api_family`; the request keeps the mode it started with, whether audit was disabled, metadata only, or full capture. Sensitive data in headers (API keys, auth tokens) is redacted before storage.
-Audit rows are written per upstream attempt, including failover attempts, and metadata-only requests still create audit metadata even when bodies are not stored. Translated OpenAI attempts keep audit request and response bodies upstream-native; the rewritten client-facing request or response body is never substituted into audit storage.
+Audit logging records request-time provenance without changing runtime proxy behavior. Sensitive headers are redacted before storage. Audit rows are written per upstream attempt, including failover attempts, and metadata-only requests still create audit metadata when capture is enabled. Translated OpenAI attempts keep audit request and response bodies upstream-native; the rewritten client-facing request or response body is never substituted into audit storage.
 
-### 8.2 Audit Flow (Non-Streaming)
+### 8.2 Audit Flow
 
 ```
-Client -> POST /v1/chat/completions {model: "gpt-4o"}
-  -> Router resolves optional requested-model vendor metadata separately from runtime api_family state
-  -> If vendor metadata exists: check vendor.audit_enabled; otherwise skip vendor-scoped audit
+Client -> supported runtime operation
+  -> Operation registry and planner resolve the attempt
   -> ProxyService forwards request to upstream
-  -> Upstream responds with JSON
-  -> Log to request_logs (including profile_id)
-  -> If audit_enabled:
+  -> Runtime persists request_logs with immutable profile attribution
+  -> If audit capture is enabled for the request:
        -> One audit row for this upstream attempt
        -> Redact sensitive headers
-       -> Record connection metadata (connection_id, endpoint_base_url, endpoint_description) as snapshot
-       -> Link to request_log entry via request_log_id
+       -> Record connection metadata as a snapshot
+       -> Link to request_log metadata when available
        -> Store immutable profile_id attribution
-       -> If audit_capture_bodies = TRUE: truncate bodies to 64KB
-       -> If audit_capture_bodies = FALSE: store request_body/response_body as NULL
-       -> INSERT into audit_logs (non-blocking, fire-and-forget)
+       -> Store bodies only when body capture is enabled
   -> Return response to client
 ```
 
-### 8.3 Audit Flow (Streaming)
-
-```
-Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
-  -> Router resolves optional requested-model vendor metadata separately from runtime api_family state
-  -> If vendor metadata exists: check vendor.audit_enabled; otherwise skip vendor-scoped audit
-  -> ProxyService opens streaming connection
-  -> SSE chunks piped to client
-  -> On stream complete (finally block):
-      -> Log to request_logs (including profile_id)
-       -> If audit_enabled:
-           -> One audit row for this upstream attempt
-           -> Record request headers/body + response headers/status
-           -> Record connection metadata (connection_id, endpoint_base_url, endpoint_description)
-           -> Link to request_log entry via request_log_id
-           -> Store immutable profile_id attribution
-           -> Store captured response bytes when body capture is enabled and bytes were captured; is_stream is metadata only
-            -> INSERT into audit_logs using a dedicated audit write path
-```
-
-### 8.4 Non-Interference Guarantees
+### 8.3 Non-Interference Guarantees
 
 - Audit INSERT failures are logged and never propagated to the client
-- Streaming audit uses its own write path, separate from the request-scoped runtime state
-- No modification to request or response pipeline
-- Minimal overhead when `audit_enabled = FALSE` (flag checked once, no payload serialization)
+- Streaming audit uses its own write path, separate from request-scoped runtime state
+- Audit never changes request routing or response handling
 
-### 8.5 Redaction
+### 8.4 Redaction
 
-Applied at write time before INSERT — sensitive data never reaches the database:
+Applied at write time before INSERT:
 
 - `authorization` preserves the scheme as `Bearer [REDACTED]`; `x-api-key` and `x-goog-api-key` become `[REDACTED]`
-- Any header name containing `key`, `secret`, `token`, `auth` → value redacted
-- Body fields are not redacted and may contain sensitive user data; body capture can be disabled per vendor
+- Any header name containing `key`, `secret`, `token`, or `auth` has its value redacted
+- Body fields are not redacted and may contain sensitive user data, so body capture remains an explicit request-time setting
 
-### 8.6 Vendor Toggle
+### 8.5 Audit Detail Sheet
 
-- `vendors.audit_enabled` (BOOLEAN, default FALSE)
-- `vendors.audit_capture_bodies` (BOOLEAN, default TRUE)
-- Managed through the shared vendor catalog. Vendor CRUD lives in Settings → Global → Vendor Management, while the profile-scoped audit defaults UI in Settings → Profile → Audit Configuration continues to toggle `audit_enabled` and `audit_capture_bodies` against those shared vendor rows.
+The audit detail view is reached from request investigation. It shows summary metadata, redacted request headers/body when stored, response status/headers/body when stored, and connection identity fields.
 
-### 8.7 Audit Detail Sheet
+### 8.6 Conditional Decompression
 
-The audit detail view is a right-side sheet with tabs for:
-
-- Summary strip: model, vendor, api family, connection (ID + description + endpoint base URL), status, duration, timestamp
-- Request tab: method, URL, headers (redacted), body (pretty-printed JSON)
-- Response tab: status, headers, body (pretty-printed JSON when stored, or a "not recorded" notice when no response body was stored)
-- Connection identity fields (`connection_id`, `endpoint_base_url`, `endpoint_description`) are displayed in the summary strip
-
-### 8.8 Conditional Decompression (Performance Optimization)
-
-**Background:** the Go runtime only requests decompressed response bodies when audit capture needs them. When body auditing is disabled, the proxy avoids unnecessary body decoding work.
-
-**Implementation:**
-
-1. **Compression Request Control:**
-   - When `audit_enabled=True AND audit_capture_bodies=True`: allow the upstream client to return a body suitable for capture
-   - When body auditing is disabled: Send `Accept-Encoding: identity` to request uncompressed responses
-   - Decision made via `should_request_compressed_response(audit_enabled, audit_capture_bodies)` helper
-
-2. **Header Filtering:**
-   - When compression/body decoding was used: strip `content-encoding` and `content-length` headers as needed
-   - When compression was NOT requested and upstream returns identity/no encoding: preserve `content-length`
-   - If upstream still responds with compressed encoding, strip stale `content-encoding` and `content-length`
-   - Controlled via `filter_response_headers(headers, was_requested_compressed=...)` parameter
-
-3. **Request Flow:**
-   ```
-   Client -> POST /v1/chat/completions
-     -> Router checks audit_enabled and audit_capture_bodies
-     -> Compute request_compressed = audit_enabled AND audit_capture_bodies
-     -> build_upstream_headers(..., request_compressed=request_compressed)
-        -> If request_compressed=False: inject Accept-Encoding: identity
-     -> Forward request to upstream
-     -> Upstream returns uncompressed response (or compressed if it ignores Accept-Encoding)
-     -> filter_response_headers(upstream_headers, was_requested_compressed=request_compressed)
-        -> Strip stale compression metadata whenever decoding may have occurred
-        -> Preserve content-length on identity/no-encoding path
-     -> Return response to client
-   ```
-
-**Benefits:**
-- Eliminates unnecessary decompression CPU overhead when body auditing is disabled
-- Preserves correct header/body alignment in both modes
-- No breaking changes to existing behavior when auditing is enabled
-- Upstream servers that don't support `Accept-Encoding: identity` will still work (proxy handles both compressed and uncompressed responses)
-
-**Testing:** Keep this behavior covered by current Go runtime/header regression tests under `backend/internal/httpapi/runtime/` or `backend/tests/runtime/`; the old Python smoke-defect regression tree is no longer part of this monorepo.
-
-## 8A. CLIProxyAPI Sidecars
-
-Sidecars are global management resources for coordinating CLIProxyAPI instances. Prism stores registration metadata plus optional normalized provider inventory for operator display. CLIProxyAPI remains the live authority for auth files and provider inventories.
-
-```text
-Frontend /sidecars
-  -> api.sidecars.* typed client
-  -> Backend /api/sidecars/* global management routes
-  -> Sidecar service validates network policy and management auth
-  -> CLIProxyAPI /v0/management/{auth-files,provider endpoints}
-  -> Prism persists sidecar registrations and optional provider observations in sidecar_* tables
-  -> Low-priority scheduler runs periodic provider sync
-```
-
-Sidecar control-plane routes omit `X-Profile-Id`. The browser never calls CLIProxyAPI directly; all management-password use, network policy enforcement, live auth-file reads, direct auth-file mutations, and provider observation redaction happen inside `backend/internal/httpapi/management/sidecars/`.
-
-The retained sidecar surface covers instance CRUD, connection testing, manual provider sync, sync-status reads, live auth-files, optional provider inventory snapshots, read-only auth-file model discovery, and direct auth-file status or field mutations. Provider inventory stays a read-only supplement and never substitutes for live auth-file state.
-
-The scheduler registers the bounded low-priority `sidecar_snapshot_sync` worker with queue limit 1, single concurrency, best-effort drain, and drop-new coalescing so sidecar background work cannot borrow protected proxy capacity.
+The Go runtime only requests decompressed response bodies when audit body capture needs them. When body auditing is disabled, the proxy avoids unnecessary body decoding work and preserves the response path without adding request latency for unused payload capture.
 
 ## 9. Global Log Retention
 
@@ -704,4 +606,4 @@ The runtime plane supports three fixed API families through the operation regist
 - **Anthropic** (`anthropic`): `anthropic.messages` and `anthropic.count_tokens`
 - **Gemini** (`gemini`): `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`
 
-The vendor catalog is separate and global. Models always carry required `api_family`, while `vendor_id` remains optional metadata, so operators may create additional vendor metadata rows such as `OpenRouter` without changing runtime compatibility. The Global settings tab exposes vendor create, edit, and delete flows, and deleting a vendor clears live model vendor metadata instead of blocking the delete.
+Models always carry required `api_family`; runtime compatibility does not depend on catalog metadata.

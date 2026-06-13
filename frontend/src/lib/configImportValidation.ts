@@ -236,7 +236,6 @@ const AccessTargetImportSchema = z.strictObject({
 });
 
 const ModelImportSchema = z.strictObject({
-  vendor_key: z.string().nullable().optional(),
   api_family: z.enum(["openai", "anthropic", "gemini"]),
   model_id: z.string(),
   display_name: z.string().nullable().optional(),
@@ -392,13 +391,6 @@ const ProfileSettingsImportSchema = z.strictObject({
   endpoint_fx_mappings: z.array(EndpointFxRateImportSchema).optional(),
 });
 
-const VendorRefImportSchema = z.strictObject({
-  key: z.string(),
-  name_hint: z.string().nullable().optional(),
-  description_hint: z.string().nullable().optional(),
-  icon_key_hint: z.string().nullable().optional(),
-});
-
 const SecretPayloadEntrySchema = z.strictObject({
   ref: z.string(),
   ciphertext: z.string(),
@@ -411,20 +403,10 @@ const SecretPayloadSchema = z.strictObject({
   entries: z.array(SecretPayloadEntrySchema),
 });
 
-const VendorCatalogRowSchema = z.strictObject({
-  key: z.string(),
-  name: z.string(),
-  description: z.string().nullable(),
-  icon_key: z.string().nullable(),
-  audit_enabled: z.boolean(),
-  audit_capture_bodies: z.boolean(),
-});
-
 export const ConfigImportSchema = z.strictObject({
   version: z.literal(3),
   bundle_kind: z.literal("profile_config"),
   exported_at: z.string().optional(),
-  vendor_refs: z.array(VendorRefImportSchema),
   endpoints: z.array(EndpointImportSchema),
   pricing_templates: z.array(PricingTemplateImportSchema),
   connections: z.array(ConnectionImportSchema),
@@ -471,12 +453,4 @@ export const ConfigImportSchema = z.strictObject({
   }
 });
 
-export const VendorCatalogImportSchema = z.strictObject({
-  version: z.literal(1),
-  bundle_kind: z.literal("vendor_catalog"),
-  exported_at: z.string().optional(),
-  vendors: z.array(VendorCatalogRowSchema),
-});
-
 export type ConfigImportSchemaType = z.infer<typeof ConfigImportSchema>;
-export type VendorCatalogImportSchemaType = z.infer<typeof VendorCatalogImportSchema>;

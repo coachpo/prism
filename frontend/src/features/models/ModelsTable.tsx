@@ -33,7 +33,7 @@ import type { ModelDerivedMetric } from "@/pages/models/modelTableContracts"
 
 const MODEL_PAGE_SIZE = 25
 
-type ModelSortColumn = "name" | "vendor" | "api_family" | "status" | "targets" | "success" | "spend"
+type ModelSortColumn = "name" | "api_family" | "status" | "targets" | "success" | "spend"
 
 type Props = {
   filtered: ManagedModelConfigListItem[]
@@ -49,10 +49,6 @@ function modelTitle(model: ManagedModelConfigListItem) {
   return model.display_name || model.model_id
 }
 
-function vendorLabel(model: ManagedModelConfigListItem, fallback: string) {
-  return model.vendor?.name?.trim() || model.vendor?.key?.trim() || fallback
-}
-
 function targetSummary(model: ManagedModelConfigListItem, fallback: string) {
   const firstTarget = [...model.access_targets].sort((left, right) => left.position - right.position)[0]
   if (!firstTarget) return fallback
@@ -63,10 +59,8 @@ function targetSummary(model: ManagedModelConfigListItem, fallback: string) {
 function getSortValue(
   model: ManagedModelConfigListItem,
   column: ModelSortColumn,
-  unknownVendor: string,
 ): OperationalSortValue {
   if (column === "name") return modelTitle(model)
-  if (column === "vendor") return vendorLabel(model, unknownVendor)
   if (column === "api_family") return model.api_family
   if (column === "status") return model.is_enabled
   if (column === "targets") return model.access_targets.length
@@ -128,7 +122,7 @@ export function ModelsTable({
   const { currencyState } = useReportingCurrencyContext()
   const { formatNumber, locale, messages } = useLocale()
   const navigate = useNavigate()
-  const [sort, setSort] = useState<OperationalSortState<ModelSortColumn>>({ column: "vendor", direction: "asc" })
+  const [sort, setSort] = useState<OperationalSortState<ModelSortColumn>>({ column: "name", direction: "asc" })
   const [pageIndex, setPageIndex] = useState(0)
 
   const sortedModels = useMemo(() => {
@@ -138,8 +132,8 @@ export function ModelsTable({
     if (sort.column === "spend") {
       return sortOperationalRows(filtered, sort, (model) => modelSpend30dMicros[model.id] ?? 0, locale)
     }
-    return sortOperationalRows(filtered, sort, (model, column) => getSortValue(model, column, messages.modelsUi.unknownVendor), locale)
-  }, [filtered, locale, messages.modelsUi.unknownVendor, modelMetrics24h, modelSpend30dMicros, sort])
+    return sortOperationalRows(filtered, sort, (model, column) => getSortValue(model, column), locale)
+  }, [filtered, locale, modelMetrics24h, modelSpend30dMicros, sort])
 
   const page = paginateOperationalRows(sortedModels, pageIndex, MODEL_PAGE_SIZE)
   const updateSort = (column: ModelSortColumn) => {
@@ -165,7 +159,6 @@ export function ModelsTable({
           <TableHeader>
             <TableRow>
               <SortableTableHead sortKey="name" sort={sort} onSort={updateSort}>{messages.modelDetail.modelIdLabel}</SortableTableHead>
-              <SortableTableHead sortKey="vendor" sort={sort} onSort={updateSort}>{messages.common.vendor}</SortableTableHead>
               <SortableTableHead sortKey="api_family" sort={sort} onSort={updateSort}>API</SortableTableHead>
               <SortableTableHead sortKey="status" sort={sort} onSort={updateSort}>Status</SortableTableHead>
               <SortableTableHead sortKey="targets" sort={sort} onSort={updateSort}>{messages.modelDetail.targets("#")}</SortableTableHead>
@@ -184,7 +177,6 @@ export function ModelsTable({
               return (
                 <TableRow key={model.id} data-testid={`models-table-row-${model.id}`}>
                   <TableCell><ModelIdentityCell model={model} /></TableCell>
-                  <TableCell><TypeBadge label={vendorLabel(model, messages.modelsUi.unknownVendor)} intent="muted" preserveLabel /></TableCell>
                   <TableCell><TypeBadge label={formatApiFamily(model.api_family ?? "")} intent="info" preserveLabel /></TableCell>
                   <TableCell><StatusBadge label={model.is_enabled ? messages.modelDetail.enabled : messages.modelDetail.disabled} intent={model.is_enabled ? "success" : "danger"} /></TableCell>
                   <TableCell>

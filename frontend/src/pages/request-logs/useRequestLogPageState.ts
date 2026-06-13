@@ -39,6 +39,8 @@ export function useRequestLogPageState() {
   const setIngressRequestId = useCallback((v: string) => update({ ingress_request_id: v }), [update]);
   const setModelId = useCallback((v: string) => update({ model_id: v }), [update]);
   const setEndpointId = useCallback((v: string) => update({ endpoint_id: v }), [update]);
+  const setClientRuleId = useCallback((v: string) => update({ client_rule_id: v }), [update]);
+  const setResolvedTargetModelId = useCallback((v: string) => update({ resolved_target_model_id: v }), [update]);
   const setTimeRange = useCallback((v: TimeRange) => update({ time_range: v }), [update]);
   const setStatusFamily = useCallback((v: StatusFamilyFilter) => update({ status_family: v }), [update]);
   const setLimit = useCallback((v: number) => update({ limit: v, offset: DEFAULTS.offset }), [update]);
@@ -88,6 +90,8 @@ export function useRequestLogPageState() {
     state.ingress_request_id ||
     state.model_id ||
     state.endpoint_id ||
+    state.client_rule_id ||
+    state.resolved_target_model_id ||
     state.time_range !== DEFAULTS.time_range ||
     state.status_family !== DEFAULTS.status_family
   );
@@ -99,6 +103,8 @@ export function useRequestLogPageState() {
     setIngressRequestId,
     setModelId,
     setEndpointId,
+    setClientRuleId,
+    setResolvedTargetModelId,
     setTimeRange,
     setStatusFamily,
     setLimit,

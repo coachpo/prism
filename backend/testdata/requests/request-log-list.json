@@ -10,7 +10,42 @@
         "endpoint_label": "Primary Anthropic"
       }
     ],
-    "models": []
+    "models": [],
+    "resolved_target_models": [],
+    "clients": [
+      {
+        "client_rule_id": 7,
+        "client_label": "Codex"
+      },
+      {
+        "client_rule_id": 8,
+        "client_label": "OpenAI SDK"
+      },
+      {
+        "client_rule_id": 1,
+        "client_label": "Opencode"
+      },
+      {
+        "client_rule_id": 2,
+        "client_label": "Codex"
+      },
+      {
+        "client_rule_id": 3,
+        "client_label": "Claude Code"
+      },
+      {
+        "client_rule_id": 4,
+        "client_label": "Gemini"
+      },
+      {
+        "client_rule_id": 5,
+        "client_label": "Python"
+      },
+      {
+        "client_rule_id": 6,
+        "client_label": "Curl"
+      }
+    ]
   },
   "items": [
     {
@@ -21,9 +56,6 @@
       "resolved_target_model_id": "gpt-4o-native",
       "resolved_target_model_label": "gpt-4o-native",
       "api_family": "openai",
-      "vendor_id": 1,
-      "vendor_key": "openai",
-      "vendor_name": "OpenAI",
       "endpoint_id": 12,
       "endpoint_label": "Primary OpenAI",
       "connection_id": 34,
@@ -54,9 +86,6 @@
       "resolved_target_model_id": "gpt-4o",
       "resolved_target_model_label": "gpt-4o",
       "api_family": "openai",
-      "vendor_id": null,
-      "vendor_key": null,
-      "vendor_name": null,
       "endpoint_id": 999,
       "endpoint_label": "Endpoint 999",
       "connection_id": null,

@@ -18,14 +18,11 @@ import (
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
 	"github.com/coachpo/prism/backend/internal/providercompat"
-	"github.com/coachpo/prism/backend/internal/vendordomain"
 )
 
 const (
 	canonicalProfileBundleVersion                       = 3
-	canonicalVendorCatalogVersion                       = 1
 	canonicalProfileBundleKind                          = "profile_config"
-	canonicalVendorCatalogKind                          = "vendor_catalog"
 	facadeSelectionPolicyWeightedEligibleContext        = "weighted_eligible_context"
 	facadeFallbackPolicyRedistributeIneligibleWeight    = "redistribute_ineligible_weight"
 	facadeEnabledRequiresOpenAIDetail                   = "facade_enabled requires api_family 'openai'"
@@ -61,16 +58,6 @@ func validateProfileBundleEnvelope(data profileImportRequest) error {
 	return nil
 }
 
-func validateVendorCatalogBundleEnvelope(data vendorCatalogImportRequest) error {
-	if data.Version != canonicalVendorCatalogVersion {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported vendor catalog bundle version '%d'; expected %d", data.Version, canonicalVendorCatalogVersion)}
-	}
-	if data.BundleKind != canonicalVendorCatalogKind {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported vendor catalog bundle kind '%s'; expected '%s'", data.BundleKind, canonicalVendorCatalogKind)}
-	}
-	return nil
-}
-
 func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, profileID int, data profileImportRequest) (profileImportPreviewResponse, error) {
 	if err := validateProfileImportRequest(data); err != nil {
 		return profileImportPreviewResponse{}, err
@@ -82,44 +69,32 @@ func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, 
 		return profileImportPreviewResponse{}, err
 	}
 
-	_, vendorResolutions, blockingErrors, err := previewImportVendors(ctx, exec, data.VendorRefs)
-	if err != nil {
-		return profileImportPreviewResponse{}, err
-	}
+	blockingErrors := []string{}
 	decryptedSecrets, err := s.decryptImportSecretPayload(data.SecretPayload)
 	if err != nil {
 		return profileImportPreviewResponse{}, err
 	}
 
-	warnings := make([]string, 0, len(vendorResolutions))
-	for _, resolution := range vendorResolutions {
-		if resolution.Warning != nil {
-			warnings = append(warnings, *resolution.Warning)
-		}
-	}
-
-	return buildProfilePreviewResponse(data, vendorResolutions, sortedSecretRefs(decryptedSecrets), blockingErrors, warnings), nil
+	return buildProfilePreviewResponse(data, sortedSecretRefs(decryptedSecrets), blockingErrors), nil
 }
 
-func buildProfilePreviewResponse(data profileImportRequest, vendorResolutions []profileImportVendorResolution, decryptableSecretRefs []string, blockingErrors []string, warnings []string) profileImportPreviewResponse {
+func buildProfilePreviewResponse(data profileImportRequest, decryptableSecretRefs []string, blockingErrors []string) profileImportPreviewResponse {
 	return profileImportPreviewResponse{
 		Ready:                    len(blockingErrors) == 0,
 		Version:                  canonicalProfileBundleVersion,
 		BundleKind:               canonicalProfileBundleKind,
 		ReplacementScope:         buildProfileImportReplacementScope(data),
 		UntouchedScope:           buildProfileImportUntouchedScope(),
-		VendorSummary:            buildProfileImportVendorSummary(vendorResolutions),
 		SecretSummary:            buildProfileImportSecretSummary(data, decryptableSecretRefs),
 		EndpointsImported:        len(data.Endpoints),
 		PricingTemplatesImported: len(data.PricingTemplates),
 		StrategiesImported:       len(data.LoadbalanceStrategies),
 		ModelsImported:           len(data.Models),
 		ConnectionsImported:      importedConnectionCount(data.Connections),
-		VendorResolutions:        vendorResolutions,
 		SecretKeyID:              data.SecretPayload.KeyID,
 		DecryptableSecretRefs:    decryptableSecretRefs,
 		BlockingErrors:           blockingErrors,
-		Warnings:                 warnings,
+		Warnings:                 []string{},
 	}
 }
 
@@ -138,21 +113,7 @@ func buildProfileImportReplacementScope(data profileImportRequest) profileImport
 }
 
 func buildProfileImportUntouchedScope() profileImportUntouchedScope {
-	return profileImportUntouchedScope{OtherProfiles: true, ExistingGlobalVendorMetadata: true, RequestLogs: true}
-}
-
-func buildProfileImportVendorSummary(vendorResolutions []profileImportVendorResolution) profileImportVendorSummary {
-	createCount := 0
-	warningCount := 0
-	for _, resolution := range vendorResolutions {
-		if resolution.Resolution == "create" {
-			createCount++
-		}
-		if resolution.Warning != nil {
-			warningCount++
-		}
-	}
-	return profileImportVendorSummary{CreateCount: createCount, ReuseCount: len(vendorResolutions) - createCount, WarningCount: warningCount}
+	return profileImportUntouchedScope{OtherProfiles: true, RequestLogs: true}
 }
 
 func buildProfileImportSecretSummary(data profileImportRequest, decryptableSecretRefs []string) profileImportSecretSummary {
@@ -182,14 +143,6 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 		return profileImportResponse{}, err
 	}
 
-	existingVendorsByKey, _, blockingErrors, err := previewImportVendors(ctx, exec, data.VendorRefs)
-	if err != nil {
-		return profileImportResponse{}, err
-	}
-	if len(blockingErrors) > 0 {
-		return profileImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: blockingErrors[0]}
-	}
-
 	decryptedSecrets, err := s.decryptImportSecretPayload(data.SecretPayload)
 	if err != nil {
 		return profileImportResponse{}, err
@@ -199,10 +152,6 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 	}
 
 	currentTime := s.nowUTC()
-	vendorIDsByKey, err := ensureImportVendors(ctx, exec, data.VendorRefs, existingVendorsByKey, currentTime)
-	if err != nil {
-		return profileImportResponse{}, err
-	}
 	endpointIDsByName, endpointsImported, err := insertImportedEndpoints(ctx, exec, profileID, data.Endpoints, decryptedSecrets, s.secretEncryptionKey, currentTime)
 	if err != nil {
 		return profileImportResponse{}, err
@@ -220,7 +169,7 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 		return profileImportResponse{}, err
 	}
 
-	connectionIDsByRef, importedPairs, connectionsImported, err := insertImportedModelsAndConnections(ctx, exec, profileID, data.Models, data.Connections, vendorIDsByKey, endpointIDsByName, pricingIDsByName, strategyIDsByName, currentTime)
+	connectionIDsByRef, importedPairs, connectionsImported, err := insertImportedModelsAndConnections(ctx, exec, profileID, data.Models, data.Connections, endpointIDsByName, pricingIDsByName, strategyIDsByName, currentTime)
 	if err != nil {
 		return profileImportResponse{}, err
 	}
@@ -243,70 +192,6 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 	}, nil
 }
 
-func (s *Service) previewVendorCatalogImport(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (vendorCatalogImportPreviewResponse, error) {
-	data = normalizeVendorCatalogImportRequest(data)
-	createCount, updateCount, unchangedCount, blockingErrors, _, err := countVendorCatalogChanges(ctx, exec, data)
-	if err != nil {
-		return vendorCatalogImportPreviewResponse{}, err
-	}
-	return buildVendorCatalogPreviewResponse(createCount, updateCount, unchangedCount, blockingErrors), nil
-}
-
-func buildVendorCatalogPreviewResponse(createCount int, updateCount int, unchangedCount int, blockingErrors []string) vendorCatalogImportPreviewResponse {
-	return vendorCatalogImportPreviewResponse{
-		Ready:          len(blockingErrors) == 0,
-		Version:        canonicalVendorCatalogVersion,
-		BundleKind:     canonicalVendorCatalogKind,
-		MutationScope:  buildVendorCatalogImportMutationScope(createCount, updateCount, unchangedCount),
-		UntouchedScope: buildVendorCatalogImportUntouchedScope(),
-		CreateCount:    createCount,
-		UpdateCount:    updateCount,
-		BlockingErrors: blockingErrors,
-		Warnings:       []string{},
-	}
-}
-
-func buildVendorCatalogImportMutationScope(createCount int, updateCount int, unchangedCount int) vendorCatalogImportMutationScope {
-	return vendorCatalogImportMutationScope{Target: "global_vendor_catalog", CreateCount: createCount, UpdateCount: updateCount, UnchangedCount: unchangedCount}
-}
-
-func buildVendorCatalogImportUntouchedScope() vendorCatalogImportUntouchedScope {
-	return vendorCatalogImportUntouchedScope{Profiles: true, ProfileScopedConfig: true, RequestLogs: true}
-}
-
-func (s *Service) importVendorCatalog(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (vendorCatalogImportResponse, error) {
-	data = normalizeVendorCatalogImportRequest(data)
-	_, _, _, blockingErrors, existingByKey, err := countVendorCatalogChanges(ctx, exec, data)
-	if err != nil {
-		return vendorCatalogImportResponse{}, err
-	}
-	if len(blockingErrors) > 0 {
-		return vendorCatalogImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: blockingErrors[0]}
-	}
-
-	createdCount := 0
-	updatedCount := 0
-	currentTime := s.nowUTC()
-	for _, vendor := range data.Vendors {
-		existing := existingByKey[vendor.Key]
-		if existing == nil {
-			if _, err := exec.Exec(ctx, `INSERT INTO vendors (key, name, description, icon_key, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, vendor.Key, vendor.Name, nullableString(vendor.Description), nullableString(vendor.IconKey), vendor.AuditEnabled, vendor.AuditCaptureBodies, currentTime); err != nil {
-				return vendorCatalogImportResponse{}, fmt.Errorf("insert vendor %q: %w", vendor.Key, err)
-			}
-			createdCount++
-			continue
-		}
-		if existing.Name != vendor.Name || !sameOptionalString(existing.Description, vendor.Description) || !sameOptionalString(existing.IconKey, vendor.IconKey) || existing.AuditEnabled != vendor.AuditEnabled || existing.AuditCaptureBodies != vendor.AuditCaptureBodies {
-			if _, err := exec.Exec(ctx, `UPDATE vendors SET name = $2, description = $3, icon_key = $4, audit_enabled = $5, audit_capture_bodies = $6, updated_at = $7 WHERE id = $1`, existing.ID, vendor.Name, nullableString(vendor.Description), nullableString(vendor.IconKey), vendor.AuditEnabled, vendor.AuditCaptureBodies, currentTime); err != nil {
-				return vendorCatalogImportResponse{}, fmt.Errorf("update vendor %q: %w", vendor.Key, err)
-			}
-			updatedCount++
-		}
-	}
-
-	return vendorCatalogImportResponse{CreatedCount: createdCount, UpdatedCount: updatedCount}, nil
-}
-
 func validateProfileImportRequest(data profileImportRequest) error {
 	if err := validateProfileBundleEnvelope(data); err != nil {
 		return err
@@ -315,10 +200,6 @@ func validateProfileImportRequest(data profileImportRequest) error {
 		return err
 	}
 
-	vendorKeys, err := validateImportedVendorRefs(data.VendorRefs)
-	if err != nil {
-		return err
-	}
 	endpointNames, endpointSecretRefs, err := validateImportedEndpoints(data.Endpoints)
 	if err != nil {
 		return err
@@ -336,7 +217,6 @@ func validateProfileImportRequest(data profileImportRequest) error {
 	}
 
 	modelRefs := profileImportModelValidationRefs{
-		vendorKeys:           vendorKeys,
 		endpointNames:        endpointNames,
 		pricingTemplateNames: pricingTemplateNames,
 		strategyNames:        strategyNames,
@@ -372,21 +252,6 @@ func validateImportedSecretPayloadEnvelope(secretPayload secretPayloadExport) er
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Config import secret payload cipher must be '%s'", bundleSecretCipher)}
 	}
 	return nil
-}
-
-func validateImportedVendorRefs(vendorRefs []vendorRefExport) (map[string]struct{}, error) {
-	vendorKeys := map[string]struct{}{}
-	for _, vendor := range vendorRefs {
-		key := strings.TrimSpace(vendor.Key)
-		if key == "" {
-			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "Vendor key must not be empty"}
-		}
-		if _, ok := vendorKeys[key]; ok {
-			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate vendor key: '%s'", key)}
-		}
-		vendorKeys[key] = struct{}{}
-	}
-	return vendorKeys, nil
 }
 
 func validateImportedEndpoints(endpoints []endpointExport) (map[string]struct{}, map[string]struct{}, error) {
@@ -481,7 +346,6 @@ func validateImportedLoadbalanceStrategies(strategies []loadbalanceStrategyExpor
 }
 
 type profileImportModelValidationRefs struct {
-	vendorKeys           map[string]struct{}
 	endpointNames        map[string]struct{}
 	pricingTemplateNames map[string]struct{}
 	strategyNames        map[string]struct{}
@@ -541,9 +405,6 @@ func validateImportedModels(models []modelExport, refs profileImportModelValidat
 		if !providercompat.IsSupportedAPIFamily(model.APIFamily) {
 			return nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown api family: '%s'", model.APIFamily)}
 		}
-		if err := validateImportedModelVendorRef(model, refs.vendorKeys); err != nil {
-			return nil, nil, err
-		}
 		if err := validateImportedModelStrategy(model, refs.strategyNames); err != nil {
 			return nil, nil, err
 		}
@@ -568,7 +429,6 @@ func normalizeImportedModels(models []modelExport) []importedModelPayload {
 	items := make([]importedModelPayload, 0, len(models))
 	for _, model := range models {
 		items = append(items, importedModelPayload{
-			VendorKey:                            trimmedOptionalString(model.VendorKey),
 			APIFamily:                            providercompat.NormalizeAPIFamily(model.APIFamily),
 			ModelID:                              strings.TrimSpace(model.ModelID),
 			DisplayName:                          trimmedOptionalString(model.DisplayName),
@@ -751,16 +611,6 @@ func importedPromotionUsableContextWindowTokens(settings contextcapability.Setti
 		return 0
 	}
 	return int(math.Floor(float64(*settings.ContextWindowTokens) * settings.MaxContextUtilization))
-}
-
-func validateImportedModelVendorRef(model importedModelPayload, vendorKeys map[string]struct{}) error {
-	if model.VendorKey == nil {
-		return nil
-	}
-	if _, ok := vendorKeys[*model.VendorKey]; !ok {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unknown vendor key: '%s'", *model.VendorKey)}
-	}
-	return nil
 }
 
 func validateImportedModelStrategy(model importedModelPayload, strategyNames map[string]struct{}) error {
@@ -1127,22 +977,6 @@ func validateImportedUserAgentClientRules(rules []userAgentClientRuleExport) err
 	return nil
 }
 
-func normalizeVendorCatalogImportRequest(data vendorCatalogImportRequest) vendorCatalogImportRequest {
-	normalized := data
-	normalized.Vendors = make([]vendorCatalogRow, 0, len(data.Vendors))
-	for _, vendor := range data.Vendors {
-		normalized.Vendors = append(normalized.Vendors, vendorCatalogRow{
-			Key:                strings.ToLower(strings.TrimSpace(vendor.Key)),
-			Name:               strings.TrimSpace(vendor.Name),
-			Description:        trimmedOptionalString(vendor.Description),
-			IconKey:            normalizedIconKey(vendor.IconKey),
-			AuditEnabled:       vendor.AuditEnabled,
-			AuditCaptureBodies: vendor.AuditCaptureBodies,
-		})
-	}
-	return normalized
-}
-
 // normalizeImportedPricingTemplatePrices accepts legacy bundle v1 gaps at ingress:
 // missing, null, empty, and whitespace-only price values all become concrete "0" strings.
 func normalizeImportedPricingTemplatePrices(template pricingTemplateExport) (pricingTemplateExport, error) {
@@ -1176,131 +1010,6 @@ func normalizeImportedPricingTemplatePrice(template pricingTemplateExport, field
 		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Pricing template '%s' %s must be a non-negative decimal string", name, fieldName)}
 	}
 	return trimmed, nil
-}
-
-func countVendorCatalogChanges(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (int, int, int, []string, map[string]*vendorRow, error) {
-	if err := validateVendorCatalogBundleEnvelope(data); err != nil {
-		return 0, 0, 0, nil, nil, err
-	}
-
-	seenKeys := map[string]struct{}{}
-	seenNames := map[string]string{}
-	blockingErrors := make([]string, 0)
-	keys := make([]string, 0, len(data.Vendors))
-	names := make([]string, 0, len(data.Vendors))
-	for _, vendor := range data.Vendors {
-		if _, ok := seenKeys[vendor.Key]; ok {
-			blockingErrors = append(blockingErrors, fmt.Sprintf("Vendor catalog bundle contains duplicate vendor key '%s'", vendor.Key))
-		}
-		seenKeys[vendor.Key] = struct{}{}
-		if existingKey, ok := seenNames[vendor.Name]; ok && existingKey != vendor.Key {
-			blockingErrors = append(blockingErrors, fmt.Sprintf("Vendor catalog bundle contains duplicate vendor name '%s' for keys '%s' and '%s'", vendor.Name, existingKey, vendor.Key))
-		} else {
-			seenNames[vendor.Name] = vendor.Key
-		}
-		keys = append(keys, vendor.Key)
-		names = append(names, vendor.Name)
-	}
-
-	existingByKey, existingByName, err := loadVendorsByKeysOrNames(ctx, exec, keys, names)
-	if err != nil {
-		return 0, 0, 0, nil, nil, err
-	}
-	createCount := 0
-	updateCount := 0
-	unchangedCount := 0
-	for _, vendor := range data.Vendors {
-		existing := existingByKey[vendor.Key]
-		existingNameVendor := existingByName[vendor.Name]
-		if vendordomain.IsReadonlyVendorKey(vendor.Key) {
-			canonical, ok := vendordomain.CanonicalSystemVendor(vendor.Key)
-			canonicalKey := vendor.Key
-			if ok {
-				canonicalKey = canonical.Key
-			}
-			if existing == nil {
-				blockingErrors = append(blockingErrors, fmt.Sprintf("Readonly system vendor '%s' cannot be created by vendor catalog import", canonicalKey))
-				continue
-			}
-			if !ok {
-				blockingErrors = append(blockingErrors, fmt.Sprintf("Readonly system vendor '%s' is missing a canonical definition", vendor.Key))
-				continue
-			}
-
-			if existing.Key != canonical.Key || existing.Name != canonical.Name || !sameOptionalString(existing.Description, stringPtr(canonical.Description)) || !sameOptionalString(existing.IconKey, stringPtr(canonical.IconKey)) || vendor.Name != canonical.Name || !sameOptionalString(vendor.Description, stringPtr(canonical.Description)) || !sameOptionalString(vendor.IconKey, stringPtr(canonical.IconKey)) || existing.AuditEnabled != vendor.AuditEnabled || existing.AuditCaptureBodies != vendor.AuditCaptureBodies {
-				blockingErrors = append(blockingErrors, fmt.Sprintf("Readonly system vendor '%s' cannot be overwritten by vendor catalog import", canonicalKey))
-				continue
-			}
-			unchangedCount++
-			continue
-		}
-		if existing == nil {
-			if existingNameVendor != nil && existingNameVendor.Key != vendor.Key {
-				blockingErrors = append(blockingErrors, fmt.Sprintf("Vendor catalog import would create vendor key '%s' with name '%s' that already exists on key '%s'", vendor.Key, vendor.Name, existingNameVendor.Key))
-				continue
-			}
-			createCount++
-			continue
-		}
-		if existingNameVendor != nil && existingNameVendor.Key != existing.Key {
-			blockingErrors = append(blockingErrors, fmt.Sprintf("Vendor catalog import would update key '%s' to duplicate existing vendor name '%s' used by key '%s'", vendor.Key, vendor.Name, existingNameVendor.Key))
-			continue
-		}
-		if existing.Name != vendor.Name || !sameOptionalString(existing.Description, vendor.Description) || !sameOptionalString(existing.IconKey, vendor.IconKey) || existing.AuditEnabled != vendor.AuditEnabled || existing.AuditCaptureBodies != vendor.AuditCaptureBodies {
-			updateCount++
-			continue
-		}
-		unchangedCount++
-	}
-
-	return createCount, updateCount, unchangedCount, blockingErrors, existingByKey, nil
-}
-
-func previewImportVendors(ctx context.Context, exec queryExecutor, vendorRefs []vendorRefExport) (map[string]*vendorRow, []profileImportVendorResolution, []string, error) {
-	keys := make([]string, 0, len(vendorRefs))
-	for _, vendor := range vendorRefs {
-		keys = append(keys, canonicalVendorKey(vendor.Key))
-	}
-	existingByKey, _, err := loadVendorsByKeysOrNames(ctx, exec, keys, nil)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	proposedNames := make([]string, 0)
-	for _, vendor := range vendorRefs {
-		if existingByKey[canonicalVendorKey(vendor.Key)] == nil {
-			proposedNames = append(proposedNames, resolvedNewVendorName(vendor))
-		}
-	}
-	_, existingByName, err := loadVendorsByKeysOrNames(ctx, exec, nil, proposedNames)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	resolutions := make([]profileImportVendorResolution, 0, len(vendorRefs))
-	blockingErrors := make([]string, 0)
-	proposedNameToKey := map[string]string{}
-	for _, vendor := range vendorRefs {
-		canonicalKey := canonicalVendorKey(vendor.Key)
-		existing := existingByKey[canonicalKey]
-		if existing == nil {
-			proposedName := resolvedNewVendorName(vendor)
-			if duplicateKey, ok := proposedNameToKey[proposedName]; ok && duplicateKey != vendor.Key {
-				blockingErrors = append(blockingErrors, fmt.Sprintf("Config import would create duplicate global vendor name '%s' for keys '%s' and '%s'", proposedName, duplicateKey, vendor.Key))
-			} else {
-				proposedNameToKey[proposedName] = vendor.Key
-			}
-			if existingByName[proposedName] != nil && existingByName[proposedName].Key != vendor.Key {
-				blockingErrors = append(blockingErrors, fmt.Sprintf("Config import vendor '%s' would create global vendor name '%s' that already exists on key '%s'", vendor.Key, proposedName, existingByName[proposedName].Key))
-			}
-			resolutions = append(resolutions, profileImportVendorResolution{VendorKey: vendor.Key, Resolution: "create"})
-			continue
-		}
-
-		warning := vendorResolutionWarning(existing, vendor)
-		resolutions = append(resolutions, profileImportVendorResolution{VendorKey: vendor.Key, Resolution: "reuse", Warning: warning})
-	}
-	return existingByKey, resolutions, blockingErrors, nil
 }
 
 func canonicalizeImportedStrategies(strategies []loadbalanceStrategyExport) ([]importedStrategyPayload, error) {
@@ -1373,7 +1082,7 @@ func lockProfileRow(ctx context.Context, exec queryExecutor, profileID int) erro
 }
 
 func lockImportTargetTables(ctx context.Context, exec queryExecutor) error {
-	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_access_targets, pricing_templates, vendors, user_settings, header_blocklist_rules, user_agent_client_rules IN SHARE ROW EXCLUSIVE MODE`)
+	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_access_targets, pricing_templates, user_settings, header_blocklist_rules, user_agent_client_rules IN SHARE ROW EXCLUSIVE MODE`)
 	if err != nil {
 		return fmt.Errorf("lock config bundle import tables: %w", err)
 	}
@@ -1447,41 +1156,6 @@ func clearProfileImportState(ctx context.Context, exec queryExecutor, profileID 
 		}
 	}
 	return nil
-}
-
-func ensureImportVendors(ctx context.Context, exec queryExecutor, vendorRefs []vendorRefExport, existingByKey map[string]*vendorRow, currentTime time.Time) (map[string]int, error) {
-	vendorIDsByKey := map[string]int{}
-	for _, vendor := range vendorRefs {
-		canonicalKey := canonicalVendorKey(vendor.Key)
-		existing := existingByKey[canonicalKey]
-		if existing == nil {
-			canonical, ok := vendordomain.CanonicalSystemVendor(vendor.Key)
-			name := resolvedNewVendorName(vendor)
-			description := trimmedOptionalString(vendor.DescriptionHint)
-			iconKey := normalizedIconKey(vendor.IconKeyHint)
-			key := vendor.Key
-			if ok {
-				key = canonical.Key
-				name = canonical.Name
-				description = stringPtr(canonical.Description)
-				iconKey = stringPtr(canonical.IconKey)
-			}
-			existing = &vendorRow{
-				Key:                key,
-				Name:               name,
-				Description:        description,
-				IconKey:            iconKey,
-				AuditEnabled:       false,
-				AuditCaptureBodies: true,
-			}
-			if err := exec.QueryRow(ctx, `INSERT INTO vendors (key, name, description, icon_key, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, $2, $3, $4, FALSE, TRUE, $5, $5) RETURNING id`, key, name, nullableString(description), nullableString(iconKey), currentTime).Scan(&existing.ID); err != nil {
-				return nil, fmt.Errorf("insert imported vendor %q: %w", vendor.Key, err)
-			}
-			existingByKey[canonicalKey] = existing
-		}
-		vendorIDsByKey[vendor.Key] = existing.ID
-	}
-	return vendorIDsByKey, nil
 }
 
 func insertImportedEndpoints(ctx context.Context, exec queryExecutor, profileID int, endpoints []endpointExport, decryptedSecrets secretPayloadEntryMap, secretKey string, currentTime time.Time) (map[string]int, int, error) {
@@ -1585,7 +1259,7 @@ func validateImportedConnectionPreferredContextThresholds(models []importedModel
 	return nil
 }
 
-func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, connections []connectionExport, vendorIDsByKey map[string]int, endpointIDsByName map[string]int, pricingIDsByName map[string]int, strategyIDsByName map[string]int, currentTime time.Time) (map[string]int, map[string]struct{}, int, error) {
+func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, connections []connectionExport, endpointIDsByName map[string]int, pricingIDsByName map[string]int, strategyIDsByName map[string]int, currentTime time.Time) (map[string]int, map[string]struct{}, int, error) {
 	importedModels := normalizeImportedModels(models)
 	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(importedModels)
 	if err != nil {
@@ -1598,13 +1272,9 @@ func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor,
 
 	for _, model := range importedModels {
 		settings := modelSettingsByModelID[model.ModelID]
-		var vendorID any
-		if model.VendorKey != nil {
-			vendorID = vendorIDsByKey[*model.VendorKey]
-		}
 		strategyID := strategyIDsByName[*model.LoadbalanceStrategyName]
 		var modelConfigID int
-		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16) RETURNING id`, profileID, vendorID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), nullableString(model.ContextOverflowPromotionTargetID), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15) RETURNING id`, profileID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), nullableString(model.ContextOverflowPromotionTargetID), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
 			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", model.ModelID, err)
 		}
 		modelIDsByModelID[model.ModelID] = modelConfigID
@@ -1746,42 +1416,6 @@ func insertImportedUserAgentClientRules(ctx context.Context, exec queryExecutor,
 	return nil
 }
 
-func loadVendorsByKeysOrNames(ctx context.Context, exec queryExecutor, keys []string, names []string) (map[string]*vendorRow, map[string]*vendorRow, error) {
-	byKey := map[string]*vendorRow{}
-	byName := map[string]*vendorRow{}
-	if len(keys) == 0 && len(names) == 0 {
-		return byKey, byName, nil
-	}
-	if keys == nil {
-		keys = []string{}
-	}
-	if names == nil {
-		names = []string{}
-	}
-	rows, err := exec.Query(ctx, `SELECT id, key, name, description, icon_key, audit_enabled, audit_capture_bodies FROM vendors WHERE (cardinality($1::text[]) > 0 AND key = ANY($1)) OR (cardinality($2::text[]) > 0 AND name = ANY($2)) ORDER BY id ASC`, keys, names)
-	if err != nil {
-		return nil, nil, fmt.Errorf("query import vendors: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		item := vendorRow{}
-		var description sql.NullString
-		var iconKey sql.NullString
-		if err := rows.Scan(&item.ID, &item.Key, &item.Name, &description, &iconKey, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
-			return nil, nil, fmt.Errorf("scan import vendor row: %w", err)
-		}
-		item.Description = nullableStringValue(description)
-		item.IconKey = nullableStringValue(iconKey)
-		copy := item
-		byKey[item.Key] = &copy
-		byName[item.Name] = &copy
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, fmt.Errorf("iterate import vendors: %w", err)
-	}
-	return byKey, byName, nil
-}
-
 func sortedSecretRefs(entries secretPayloadEntryMap) []string {
 	refs := make([]string, 0, len(entries))
 	for ref := range entries {
@@ -1789,39 +1423,6 @@ func sortedSecretRefs(entries secretPayloadEntryMap) []string {
 	}
 	sort.Strings(refs)
 	return refs
-}
-
-func canonicalVendorKey(key string) string {
-	if canonical, ok := vendordomain.CanonicalSystemVendor(key); ok {
-		return canonical.Key
-	}
-	return strings.TrimSpace(key)
-}
-
-func resolvedNewVendorName(vendor vendorRefExport) string {
-	if name := strings.TrimSpace(vendor.NameHint); name != "" {
-		return name
-	}
-	return strings.TrimSpace(vendor.Key)
-}
-
-func vendorResolutionWarning(existing *vendorRow, vendor vendorRefExport) *string {
-	fields := make([]string, 0, 3)
-	if name := strings.TrimSpace(vendor.NameHint); name != "" && existing.Name != name {
-		fields = append(fields, "name_hint")
-	}
-	if description := trimmedOptionalString(vendor.DescriptionHint); description != nil && !sameOptionalString(existing.Description, description) {
-		fields = append(fields, "description_hint")
-	}
-	if iconKey := normalizedIconKey(vendor.IconKeyHint); iconKey != nil && !sameOptionalString(normalizedIconKey(existing.IconKey), iconKey) {
-		fields = append(fields, "icon_key_hint")
-	}
-
-	if len(fields) == 0 {
-		return nil
-	}
-	warning := fmt.Sprintf("Imported vendor hints differ from existing global vendor metadata for fields: %s", strings.Join(fields, ", "))
-	return &warning
 }
 
 func resolveImportedEndpointName(endpointName string, known map[string]struct{}) (string, error) {
@@ -1918,17 +1519,6 @@ func trimmedOptionalString(value *string) *string {
 	return &trimmed
 }
 
-func normalizedIconKey(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	trimmed := strings.ToLower(strings.TrimSpace(*value))
-	if trimmed == "" {
-		return nil
-	}
-	return &trimmed
-}
-
 func nullableString(value *string) any {
 	if value == nil {
 		return nil
@@ -1960,16 +1550,6 @@ func nullableInt(values map[string]int, key *string) any {
 		return nil
 	}
 	return values[*key]
-}
-
-func sameOptionalString(left *string, right *string) bool {
-	if left == nil && right == nil {
-		return true
-	}
-	if left == nil || right == nil {
-		return false
-	}
-	return *left == *right
 }
 
 func duplicateConnectionRefOwnerDetail(connectionRef string, first connectionOwnerRef, second connectionOwnerRef) string {

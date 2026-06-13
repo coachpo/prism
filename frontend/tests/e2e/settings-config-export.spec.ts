@@ -77,8 +77,6 @@ function createModelListItem() {
   return {
     id: 1,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
@@ -93,15 +91,6 @@ function createModelListItem() {
     health_total_requests: 0,
     created_at: fixedTimestamp,
     updated_at: fixedTimestamp,
-  };
-}
-
-function createExportVendorRef() {
-  return {
-    key: "openai",
-    name_hint: "OpenAI",
-    description_hint: "Primary vendor",
-    icon_key_hint: "openai",
   };
 }
 
@@ -142,7 +131,6 @@ function createExportConnection(overrides = {}) {
 
 function createExportModel(overrides = {}) {
   return {
-    vendor_key: "openai",
     api_family: "openai" as const,
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
@@ -175,7 +163,6 @@ function createSafeExportBundle() {
     version: 3 as const,
     bundle_kind: "profile_config" as const,
     exported_at: `${fixedDate}T12:00:00Z`,
-    vendor_refs: [createExportVendorRef()],
     endpoints: [
       {
         name: "Default endpoint",
@@ -210,7 +197,6 @@ function createDangerousExportBundle() {
     version: 3 as const,
     bundle_kind: "profile_config" as const,
     exported_at: `${fixedDate}T12:00:00Z`,
-    vendor_refs: [createExportVendorRef()],
     endpoints: [
       {
         name: "Default endpoint",
@@ -305,9 +291,6 @@ async function mockSettingsRoutes(page: Page) {
     }
     if (pathname === "/api/models") {
       return fulfillJson([createModelListItem()]);
-    }
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
     }
     if (pathname === "/api/config/header-blocklist-rules") {
       return fulfillJson([]);

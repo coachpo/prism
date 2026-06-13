@@ -51,8 +51,7 @@ func TestMigrations(t *testing.T) {
 func TestConfigBundle(t *testing.T) {
 	harness := newConfigBundleIntegrationHarness(t)
 	profileID := loadIntegrationDefaultProfileID(t, harness.conn)
-	vendorID := loadIntegrationVendorIDByKey(t, harness.conn, "openai")
-	seedIntegrationConfigBundleGraph(t, harness.conn, profileID, vendorID, "Default single", "single")
+	seedIntegrationConfigBundleGraph(t, harness.conn, profileID, "Default single", "single")
 
 	exported := requestJSONMap(t, harness.client, http.MethodGet, harness.server.URL+"/api/config/profile/export", nil, profileHeader(profileID))
 	if integrationJSONInt(t, exported["version"]) != 3 {
@@ -114,8 +113,7 @@ func TestConfigBundle(t *testing.T) {
 func TestConfigBundleRoundTripsCheapestEligibleContext(t *testing.T) {
 	harness := newConfigBundleIntegrationHarness(t)
 	profileID := loadIntegrationDefaultProfileID(t, harness.conn)
-	vendorID := loadIntegrationVendorIDByKey(t, harness.conn, "openai")
-	seedIntegrationConfigBundleGraph(t, harness.conn, profileID, vendorID, "Default cheapest eligible context", "cheapest_eligible_context")
+	seedIntegrationConfigBundleGraph(t, harness.conn, profileID, "Default cheapest eligible context", "cheapest_eligible_context")
 
 	exported := requestJSONMap(t, harness.client, http.MethodGet, harness.server.URL+"/api/config/profile/export", nil, profileHeader(profileID))
 	strategies := exported["loadbalance_strategies"].([]any)
@@ -206,7 +204,7 @@ func newConfigBundleIntegrationHarness(t *testing.T) *configBundleIntegrationHar
 	return &configBundleIntegrationHarness{conn: conn, pool: pool, client: client, server: server}
 }
 
-func seedIntegrationConfigBundleGraph(t *testing.T, conn *pgx.Conn, profileID int, vendorID int, strategyName string, strategyType string) {
+func seedIntegrationConfigBundleGraph(t *testing.T, conn *pgx.Conn, profileID int, strategyName string, strategyType string) {
 	t.Helper()
 	now := integrationConfigBundleTime
 	var endpointID int
@@ -218,7 +216,7 @@ func seedIntegrationConfigBundleGraph(t *testing.T, conn *pgx.Conn, profileID in
 		t.Fatalf("insert integration strategy: %v", err)
 	}
 	var modelConfigID int
-	if err := conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $3, 128000, 4096, 0.90, TRUE, $4, $4) RETURNING id`, profileID, vendorID, strategyID, now).Scan(&modelConfigID); err != nil {
+	if err := conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $2, 128000, 4096, 0.90, TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert integration model: %v", err)
 	}
 	var connectionID int
@@ -237,15 +235,6 @@ func loadIntegrationDefaultProfileID(t *testing.T, conn *pgx.Conn) int {
 		t.Fatalf("load default profile id: %v", err)
 	}
 	return profileID
-}
-
-func loadIntegrationVendorIDByKey(t *testing.T, conn *pgx.Conn, key string) int {
-	t.Helper()
-	var vendorID int
-	if err := conn.QueryRow(context.Background(), `SELECT id FROM vendors WHERE key = $1 LIMIT 1`, key).Scan(&vendorID); err != nil {
-		t.Fatalf("load vendor %q: %v", key, err)
-	}
-	return vendorID
 }
 
 func assertContextCapabilityColumnContracts(t *testing.T, ctx context.Context, conn *pgx.Conn) {
@@ -436,8 +425,7 @@ func TestContextCapabilities(t *testing.T) {
 	t.Run("preferred-context-bundle-roundtrip", func(t *testing.T) {
 		harness := newConfigBundleIntegrationHarness(t)
 		profileID := loadIntegrationDefaultProfileID(t, harness.conn)
-		vendorID := loadIntegrationVendorIDByKey(t, harness.conn, "openai")
-		seedIntegrationConfigBundleGraph(t, harness.conn, profileID, vendorID, "Default single", "single")
+		seedIntegrationConfigBundleGraph(t, harness.conn, profileID, "Default single", "single")
 		if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET preferred_context_utilization_threshold = 0.70 WHERE profile_id = $1`, profileID); err != nil {
 			t.Fatalf("seed integration model preferred_context_utilization_threshold: %v", err)
 		}

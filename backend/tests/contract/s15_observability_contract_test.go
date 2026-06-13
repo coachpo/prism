@@ -156,6 +156,28 @@ func s15UsageModelTokenTotals(t *testing.T, payload map[string]any) s15UsageToke
 	return totals
 }
 
+func s15EndpointStatisticLabelsByID(t *testing.T, payload map[string]any) map[int]string {
+	t.Helper()
+	items := payload["endpoint_statistics"].([]any)
+	labels := make(map[int]string, len(items))
+	for _, raw := range items {
+		item := asMap(t, raw)
+		labels[jsonInt(t, item["endpoint_id"])] = item["endpoint_label"].(string)
+	}
+	return labels
+}
+
+func s15TopSpendingEndpointLabelsByID(t *testing.T, payload map[string]any) map[int]string {
+	t.Helper()
+	items := payload["top_spending_endpoints"].([]any)
+	labels := make(map[int]string, len(items))
+	for _, raw := range items {
+		item := asMap(t, raw)
+		labels[jsonInt(t, item["endpoint_id"])] = item["endpoint_label"].(string)
+	}
+	return labels
+}
+
 func TestUsageSnapshot(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -622,6 +644,94 @@ func TestThroughput(t *testing.T) {
 	}
 }
 
+func TestEndpointLabelSnapshotUsageSnapshotSurvivesEndpointRenameAndDelete(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Endpoint Snapshot Usage Strategy")
+	modelInsertModel(t, harness, profileID, nil, "openai", "snapshot-usage-model", stringPtr("Snapshot Usage Model"), "native", &strategyID, true)
+	endpointRenamed := modelInsertEndpoint(t, harness, profileID, "Current Endpoint Before Rename", 0)
+	endpointDeleted := modelInsertEndpoint(t, harness, profileID, "Current Endpoint Before Delete", 1)
+	insertUsageEvent(t, harness, usageEventSeed{ID: 25, ProfileID: profileID, IngressRequestID: "snapshot-label-usage-renamed", ModelID: "snapshot-usage-model", APIFamily: "openai", EndpointID: &endpointRenamed, EndpointLabelSnapshot: stringPtr("Historical Renamed Label"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(11), TotalCostUserCurrencyMicros: int64Ptr(1100), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-20 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 26, ProfileID: profileID, IngressRequestID: "snapshot-label-usage-deleted", ModelID: "snapshot-usage-model", APIFamily: "openai", EndpointID: &endpointDeleted, EndpointLabelSnapshot: stringPtr("Historical Deleted Label"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(13), TotalCostUserCurrencyMicros: int64Ptr(1300), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE endpoints SET name = 'Renamed Current Label' WHERE id = $1`, endpointRenamed); err != nil {
+		t.Fatalf("rename endpoint %d: %v", endpointRenamed, err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `DELETE FROM endpoints WHERE id = $1`, endpointDeleted); err != nil {
+		t.Fatalf("delete endpoint %d: %v", endpointDeleted, err)
+	}
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=all", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	labels := s15EndpointStatisticLabelsByID(t, payload)
+	if labels[endpointRenamed] != "Historical Renamed Label" || labels[endpointDeleted] != "Historical Deleted Label" {
+		t.Fatalf("expected usage snapshot endpoint labels from stored snapshots after rename/delete, got %+v", labels)
+	}
+}
+
+func TestEndpointLabelSnapshotSpendingSurvivesEndpointRenameAndDelete(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Endpoint Snapshot Spending Strategy")
+	modelInsertModel(t, harness, profileID, nil, "openai", "snapshot-spending-model", stringPtr("Snapshot Spending Model"), "native", &strategyID, true)
+	endpointRenamed := modelInsertEndpoint(t, harness, profileID, "Spend Current Before Rename", 0)
+	endpointDeleted := modelInsertEndpoint(t, harness, profileID, "Spend Current Before Delete", 1)
+	insertUsageEvent(t, harness, usageEventSeed{ID: 27, ProfileID: profileID, IngressRequestID: "snapshot-label-spend-renamed", ModelID: "snapshot-spending-model", APIFamily: "openai", EndpointID: &endpointRenamed, EndpointLabelSnapshot: stringPtr("Historical Spend Renamed"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(10), TotalCostUserCurrencyMicros: int64Ptr(5000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-20 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 28, ProfileID: profileID, IngressRequestID: "snapshot-label-spend-deleted", ModelID: "snapshot-spending-model", APIFamily: "openai", EndpointID: &endpointDeleted, EndpointLabelSnapshot: stringPtr("Historical Spend Deleted"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(12), TotalCostUserCurrencyMicros: int64Ptr(4000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE endpoints SET name = 'Spend Current After Rename' WHERE id = $1`, endpointRenamed); err != nil {
+		t.Fatalf("rename endpoint %d: %v", endpointRenamed, err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `DELETE FROM endpoints WHERE id = $1`, endpointDeleted); err != nil {
+		t.Fatalf("delete endpoint %d: %v", endpointDeleted, err)
+	}
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/spending?preset=all&group_by=endpoint&limit=50&offset=0&top_n=5", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	groupLabels := map[string]bool{}
+	for _, raw := range payload["groups"].([]any) {
+		groupLabels[asMap(t, raw)["key"].(string)] = true
+	}
+	if !groupLabels["Historical Spend Renamed"] || !groupLabels["Historical Spend Deleted"] || groupLabels["Spend Current After Rename"] || groupLabels[fmt.Sprintf("Endpoint %d", endpointDeleted)] {
+		t.Fatalf("expected spending endpoint groups from stored snapshots after rename/delete, got %+v", payload["groups"])
+	}
+	topLabels := s15TopSpendingEndpointLabelsByID(t, payload)
+	if topLabels[endpointRenamed] != "Historical Spend Renamed" || topLabels[endpointDeleted] != "Historical Spend Deleted" {
+		t.Fatalf("expected top spending endpoint labels from stored snapshots, got %+v", topLabels)
+	}
+}
+
+func TestEndpointLabelSnapshotTopEndpointDuplicateLabelsStayDistinct(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Endpoint Snapshot Duplicate Strategy")
+	modelInsertModel(t, harness, profileID, nil, "openai", "snapshot-duplicate-model", stringPtr("Snapshot Duplicate Model"), "native", &strategyID, true)
+	endpointA := modelInsertEndpoint(t, harness, profileID, "Duplicate Current A", 0)
+	endpointB := modelInsertEndpoint(t, harness, profileID, "Duplicate Current B", 1)
+	insertUsageEvent(t, harness, usageEventSeed{ID: 29, ProfileID: profileID, IngressRequestID: "snapshot-label-duplicate-a", ModelID: "snapshot-duplicate-model", APIFamily: "openai", EndpointID: &endpointA, EndpointLabelSnapshot: stringPtr("Shared Historical Label"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(10), TotalCostUserCurrencyMicros: int64Ptr(3000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-20 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 32, ProfileID: profileID, IngressRequestID: "snapshot-label-duplicate-b", ModelID: "snapshot-duplicate-model", APIFamily: "openai", EndpointID: &endpointB, EndpointLabelSnapshot: stringPtr("Shared Historical Label"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(12), TotalCostUserCurrencyMicros: int64Ptr(2000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
+
+	usageResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=all", nil, modelHeader(profileID))
+	assertStatus(t, usageResponse, http.StatusOK)
+	var usagePayload map[string]any
+	decodeJSONResponse(t, usageResponse, &usagePayload)
+	statsByID := s15EndpointStatisticLabelsByID(t, usagePayload)
+	if len(statsByID) != 2 || statsByID[endpointA] != "Shared Historical Label" || statsByID[endpointB] != "Shared Historical Label" {
+		t.Fatalf("expected duplicate snapshot labels to remain distinct by endpoint id in usage snapshot, got %+v", usagePayload["endpoint_statistics"])
+	}
+
+	spendingResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/spending?preset=all&group_by=endpoint&limit=50&offset=0&top_n=5", nil, modelHeader(profileID))
+	assertStatus(t, spendingResponse, http.StatusOK)
+	var spendingPayload map[string]any
+	decodeJSONResponse(t, spendingResponse, &spendingPayload)
+	topLabels := s15TopSpendingEndpointLabelsByID(t, spendingPayload)
+	if len(topLabels) != 2 || topLabels[endpointA] != "Shared Historical Label" || topLabels[endpointB] != "Shared Historical Label" {
+		t.Fatalf("expected duplicate snapshot labels to remain distinct by endpoint id in top endpoints, got %+v", spendingPayload["top_spending_endpoints"])
+	}
+}
+
 func TestSpending(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -1074,7 +1184,7 @@ func TestObservabilityLoadbalanceRetryWindowStateAndSummaryRemainCoherent(t *tes
 	}
 	assertS15NoPolicyThresholdFields(t, item)
 
-	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1150, ProfileID: profileID, ConnectionID: connectionID, EventType: "retry_scheduled", FailureKind: &failureKind, ConsecutiveFailures: 1, CooldownSeconds: 60.0, ModelID: stringPtr("lb-retry-window-model"), EndpointID: &endpointID, VendorID: &vendorID, BanMode: stringPtr("off"), CreatedAt: fixedS15Now})
+	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1150, ProfileID: profileID, ConnectionID: connectionID, EventType: "retry_scheduled", FailureKind: &failureKind, ConsecutiveFailures: 1, CooldownSeconds: 60.0, ModelID: stringPtr("lb-retry-window-model"), EndpointID: &endpointID, BanMode: stringPtr("off"), CreatedAt: fixedS15Now})
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/events?model_id=lb-retry-window-model&limit=20&offset=0", nil, modelHeader(profileID))
 	assertStatus(t, listResponse, http.StatusOK)
@@ -1127,8 +1237,8 @@ func TestLoadbalanceReset(t *testing.T) {
 func TestLoadbalanceEvents(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1000, ProfileID: profileID, ConnectionID: 1, EventType: "retry_scheduled", FailureKind: stringPtr("timeout"), ConsecutiveFailures: 2, CooldownSeconds: 60.0, ModelID: stringPtr("lb-events-model"), EndpointID: intPtr(12), VendorID: intPtr(1), BanMode: stringPtr("off"), CreatedAt: fixedS15Now.Add(-2 * time.Minute)})
-	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1001, ProfileID: profileID, ConnectionID: 1, EventType: "banned", FailureKind: stringPtr("transient_http"), ConsecutiveFailures: 3, CooldownSeconds: 120.0, ModelID: stringPtr("lb-events-model"), EndpointID: intPtr(12), VendorID: intPtr(1), BanMode: stringPtr("temporary"), PolicyCycleRetryAttemptLimit: intPtr(2), PolicyBanCumulativeRetryAttemptThreshold: intPtr(3), BannedUntilAt: timePtr(fixedS15Now.Add(1 * time.Hour)), CreatedAt: fixedS15Now.Add(-1 * time.Minute)})
+	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1000, ProfileID: profileID, ConnectionID: 1, EventType: "retry_scheduled", FailureKind: stringPtr("timeout"), ConsecutiveFailures: 2, CooldownSeconds: 60.0, ModelID: stringPtr("lb-events-model"), EndpointID: intPtr(12), BanMode: stringPtr("off"), CreatedAt: fixedS15Now.Add(-2 * time.Minute)})
+	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1001, ProfileID: profileID, ConnectionID: 1, EventType: "banned", FailureKind: stringPtr("transient_http"), ConsecutiveFailures: 3, CooldownSeconds: 120.0, ModelID: stringPtr("lb-events-model"), EndpointID: intPtr(12), BanMode: stringPtr("temporary"), PolicyCycleRetryAttemptLimit: intPtr(2), PolicyBanCumulativeRetryAttemptThreshold: intPtr(3), BannedUntilAt: timePtr(fixedS15Now.Add(1 * time.Hour)), CreatedAt: fixedS15Now.Add(-1 * time.Minute)})
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/events?model_id=lb-events-model&limit=50&offset=0", nil, modelHeader(profileID))
 	assertStatus(t, listResponse, http.StatusOK)
@@ -1377,6 +1487,7 @@ type usageEventSeed struct {
 	UpstreamOperationName             *string
 	OperationTranslationMode          *string
 	EndpointID                        *int
+	EndpointLabelSnapshot             *string
 	ConnectionID                      *int
 	ProxyAPIKeyID                     *int
 	ProxyAPIKeyNameSnapshot           *string
@@ -1471,7 +1582,6 @@ type loadbalanceEventSeed struct {
 	BlockedUntilMono                         *float64
 	ModelID                                  *string
 	EndpointID                               *int
-	VendorID                                 *int
 	FailureThreshold                         *int
 	BackoffMultiplier                        *float64
 	MaxCooldownSeconds                       *int
@@ -1488,7 +1598,7 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("usage_request_events", seed.CreatedAt))
 	if _, err := harness.conn.Exec(
 		context.Background(),
-		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name, upstream_operation_name, operation_translation_mode, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, attempt_count, request_path, upstream_request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason, context_routing) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51)`,
+		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name, upstream_operation_name, operation_translation_mode, endpoint_id, endpoint_label_snapshot, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, attempt_count, request_path, upstream_request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason, context_routing) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52)`,
 		seed.ID,
 		seed.ProfileID,
 		seed.IngressRequestID,
@@ -1499,6 +1609,7 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 		nullableTestString(seed.UpstreamOperationName),
 		nullableTestString(seed.OperationTranslationMode),
 		nullableTestInt(seed.EndpointID),
+		usageEventEndpointLabel(t, harness, seed),
 		nullableTestInt(seed.ConnectionID),
 		nullableTestInt(seed.ProxyAPIKeyID),
 		nullableTestString(seed.ProxyAPIKeyNameSnapshot),
@@ -1552,6 +1663,21 @@ func nullableTestJSON(value *string) any {
 	return []byte(*value)
 }
 
+func usageEventEndpointLabel(t *testing.T, harness *contractHarness, seed usageEventSeed) string {
+	t.Helper()
+	if seed.EndpointLabelSnapshot != nil && strings.TrimSpace(*seed.EndpointLabelSnapshot) != "" {
+		return strings.TrimSpace(*seed.EndpointLabelSnapshot)
+	}
+	if seed.EndpointID == nil {
+		return "Unknown Endpoint"
+	}
+	var label string
+	if err := harness.conn.QueryRow(context.Background(), `SELECT name FROM endpoints WHERE id = $1`, *seed.EndpointID).Scan(&label); err == nil && strings.TrimSpace(label) != "" {
+		return label
+	}
+	return fmt.Sprintf("Endpoint %d", *seed.EndpointID)
+}
+
 func insertRequestLogSummaryRow(t *testing.T, harness *contractHarness, id int, profileID int, modelID string, apiFamily string, endpointID int, connectionID int, statusCode int, responseTimeMS int, inputTokens int, outputTokens int, totalTokens int, createdAt time.Time) {
 	t.Helper()
 	insertRequestLogSummaryRowWithAuditEnabled(t, harness, id, profileID, modelID, apiFamily, endpointID, connectionID, statusCode, responseTimeMS, inputTokens, outputTokens, totalTokens, createdAt, false)
@@ -1580,7 +1706,7 @@ func insertAuditLog(t *testing.T, harness *contractHarness, seed auditLogSeed) {
 		auditCaptureBodiesAtRequest = true
 	}
 	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("audit_logs", seed.CreatedAt))
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO audit_logs (id, profile_id, request_log_id, request_log_created_at, ingress_request_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at) VALUES ($1, $2, $3, $4, $5, NULL, $6, NULL, NULL, 'https://audit.invalid', 'Audit endpoint', 'POST', 'https://audit.invalid/v1/chat/completions', $7, $8, $9, $10, $11, $12, $13, $14, 1234, $15, $16, $17)`, seed.ID, seed.ProfileID, nullableTestInt(seed.RequestLogID), nullableTestTime(seed.RequestLogCreatedAt), nullableTestString(seed.IngressRequestID), seed.ModelID, seed.RequestHeaders, nullableTestString(seed.RequestBody), requestBodyStored, seed.ResponseStatus, nullableTestString(seed.ResponseHeaders), nullableTestString(seed.ResponseBody), responseBodyStored, seed.IsStream, seed.AuditEnabledAtRequest, auditCaptureBodiesAtRequest, seed.CreatedAt); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO audit_logs (id, profile_id, request_log_id, request_log_created_at, ingress_request_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at) VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, 'https://audit.invalid', 'Audit endpoint', 'POST', 'https://audit.invalid/v1/chat/completions', $7, $8, $9, $10, $11, $12, $13, $14, 1234, $15, $16, $17)`, seed.ID, seed.ProfileID, nullableTestInt(seed.RequestLogID), nullableTestTime(seed.RequestLogCreatedAt), nullableTestString(seed.IngressRequestID), seed.ModelID, seed.RequestHeaders, nullableTestString(seed.RequestBody), requestBodyStored, seed.ResponseStatus, nullableTestString(seed.ResponseHeaders), nullableTestString(seed.ResponseBody), responseBodyStored, seed.IsStream, seed.AuditEnabledAtRequest, auditCaptureBodiesAtRequest, seed.CreatedAt); err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok {
 			t.Fatalf("insert audit log %d at %s: %s (%s)", seed.ID, seed.CreatedAt.UTC().Format(time.RFC3339), pgErr.Message, pgErr.Detail)
 		}
@@ -1638,7 +1764,7 @@ func insertLoadbalanceEvent(t *testing.T, harness *contractHarness, seed loadbal
 		nextRetryAt = &resolved
 	}
 	lastRetryDelayMS := int(seed.CooldownSeconds * 1000)
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO loadbalance_events (id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`, seed.ID, seed.ProfileID, seed.ConnectionID, seed.EventType, nullableTestString(seed.FailureKind), seed.ConsecutiveFailures, nullableTestTime(nextRetryAt), lastRetryDelayMS, nullableTestString(seed.ModelID), nullableTestInt(seed.EndpointID), nullableTestInt(seed.VendorID), nullableTestString(seed.BanMode), nullableTestInt(seed.PolicyCycleRetryAttemptLimit), nullableTestInt(seed.PolicyBanCumulativeRetryAttemptThreshold), nullableTestTime(seed.BannedUntilAt), seed.CreatedAt); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO loadbalance_events (id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`, seed.ID, seed.ProfileID, seed.ConnectionID, seed.EventType, nullableTestString(seed.FailureKind), seed.ConsecutiveFailures, nullableTestTime(nextRetryAt), lastRetryDelayMS, nullableTestString(seed.ModelID), nullableTestInt(seed.EndpointID), nullableTestString(seed.BanMode), nullableTestInt(seed.PolicyCycleRetryAttemptLimit), nullableTestInt(seed.PolicyBanCumulativeRetryAttemptThreshold), nullableTestTime(seed.BannedUntilAt), seed.CreatedAt); err != nil {
 		t.Fatalf("insert loadbalance event %d: %v", seed.ID, err)
 	}
 }

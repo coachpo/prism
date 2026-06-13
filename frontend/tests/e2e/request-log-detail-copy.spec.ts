@@ -56,9 +56,6 @@ function createRequestLogDetail(routingOverrides: Partial<RequestLogDetailRoutin
       model_id: "gpt-4o-mini",
       resolved_target_model_id: null,
       api_family: "openai",
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
       status_code: 502,
       response_time_ms: 125,
       is_stream: false,
@@ -228,7 +225,7 @@ async function mockRequestLogDetailRoutes(
         total: 0,
         limit: 20,
         offset: 0,
-        filter_options: { models: [], endpoints: [] },
+        filter_options: { models: [], endpoints: [], clients: [], resolved_target_models: [] },
       });
     }
 

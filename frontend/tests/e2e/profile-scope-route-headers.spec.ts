@@ -139,9 +139,6 @@ async function mockHeaderProbeRoutes(page: Page) {
       return fulfillJson([]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/config/header-blocklist-rules") {
       return fulfillJson([]);

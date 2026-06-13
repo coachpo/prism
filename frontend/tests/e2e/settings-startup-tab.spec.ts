@@ -330,9 +330,6 @@ async function mockSettingsStartupRoutes(page: Page, options: MockOptions = {}) 
     if (pathname === "/api/models") {
       return fulfillJson([]);
     }
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
     if (pathname === "/api/config/header-blocklist-rules") {
       return fulfillJson([]);
     }
@@ -418,7 +415,7 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
 
   gate.resolve();
 
-  await expect(page.getByText("Immediate settings apply on save; structural settings require restart.")).toBeVisible();
+  await expect(page.getByText("File status")).toBeVisible();
   await expect(page.getByText(maskedDatabaseUrl)).toBeVisible();
   await expect(page.getByText(maskedRuntimeKey)).toBeVisible();
   await expect(page.getByText(maskedJwtKey)).toBeVisible();

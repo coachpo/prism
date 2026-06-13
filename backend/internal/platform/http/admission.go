@@ -67,9 +67,6 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "profile config export with secrets", method: http.MethodPost, pattern: "/config/profile/export/with-secrets", tier: priority.ManagementTierM3},
 	{name: "profile config import preview", method: http.MethodPost, pattern: "/config/profile/import/preview", tier: priority.ManagementTierM3},
 	{name: "profile config import", method: http.MethodPost, pattern: "/config/profile/import", tier: priority.ManagementTierM3},
-	{name: "vendor config export", method: http.MethodGet, pattern: "/config/vendors/export", tier: priority.ManagementTierM3},
-	{name: "vendor config import preview", method: http.MethodPost, pattern: "/config/vendors/import/preview", tier: priority.ManagementTierM3},
-	{name: "vendor config import", method: http.MethodPost, pattern: "/config/vendors/import", tier: priority.ManagementTierM3},
 	{name: "config header rules list", method: http.MethodGet, pattern: "/config/header-blocklist-rules", tier: priority.ManagementTierM2},
 	{name: "config header rule read", method: http.MethodGet, pattern: "/config/header-blocklist-rules/{rule_id}", tier: priority.ManagementTierM2},
 	{name: "config header rule create", method: http.MethodPost, pattern: "/config/header-blocklist-rules", tier: priority.ManagementTierM2},
@@ -150,21 +147,6 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "settings timezone write", method: http.MethodPut, pattern: "/settings/timezone", tier: priority.ManagementTierM2},
 	{name: "settings log retention read", method: http.MethodGet, pattern: "/settings/log-retention", tier: priority.ManagementTierM2},
 	{name: "settings log retention write", method: http.MethodPut, pattern: "/settings/log-retention", tier: priority.ManagementTierM2},
-	{name: "sidecars list", method: http.MethodGet, pattern: "/sidecars", tier: priority.ManagementTierM2},
-	{name: "sidecar create", method: http.MethodPost, pattern: "/sidecars", tier: priority.ManagementTierM2},
-	{name: "sidecar read", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}", tier: priority.ManagementTierM2},
-	{name: "sidecar update", method: http.MethodPatch, pattern: "/sidecars/{sidecar_id}", tier: priority.ManagementTierM2},
-	{name: "sidecar delete", method: http.MethodDelete, pattern: "/sidecars/{sidecar_id}", tier: priority.ManagementTierM2},
-	{name: "sidecar connection test", method: http.MethodPost, pattern: "/sidecars/{sidecar_id}/test-connection", tier: priority.ManagementTierM3},
-	{name: "sidecar manual sync", method: http.MethodPost, pattern: "/sidecars/{sidecar_id}/sync", tier: priority.ManagementTierM3},
-	{name: "sidecar auth files list", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/auth-files", tier: priority.ManagementTierM3},
-	{name: "sidecar auth file models read", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/auth-files/models", tier: priority.ManagementTierM3},
-	{name: "sidecar auth file delete", method: http.MethodDelete, pattern: "/sidecars/{sidecar_id}/auth-files/{auth_id}", tier: priority.ManagementTierM2},
-	{name: "sidecar auth file status patch", method: http.MethodPatch, pattern: "/sidecars/{sidecar_id}/auth-files/{auth_id}/status", tier: priority.ManagementTierM2},
-	{name: "sidecar auth file fields patch", method: http.MethodPatch, pattern: "/sidecars/{sidecar_id}/auth-files/{auth_id}/fields", tier: priority.ManagementTierM2},
-	{name: "sidecar providers list", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/providers", tier: priority.ManagementTierM3},
-	{name: "sidecar provider snapshots list", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/provider-snapshots", tier: priority.ManagementTierM3},
-	{name: "sidecar sync status read", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/sync-status", tier: priority.ManagementTierM3},
 	{name: "stats requests list", method: http.MethodGet, pattern: "/stats/requests", tier: priority.ManagementTierM3},
 	{name: "dashboard stats", method: http.MethodGet, pattern: "/stats/dashboard", tier: priority.ManagementTierM3},
 	{name: "stats request read", method: http.MethodGet, pattern: "/stats/requests/{request_id}", tier: priority.ManagementTierM3},
@@ -175,12 +157,6 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "stats spending", method: http.MethodGet, pattern: "/stats/spending", tier: priority.ManagementTierM3},
 	{name: "stats usage snapshot", method: http.MethodGet, pattern: "/stats/usage-snapshot", tier: priority.ManagementTierM3},
 	{name: "stats endpoint model statistics", method: http.MethodGet, pattern: "/stats/endpoints/{endpoint_id}/models", tier: priority.ManagementTierM3},
-	{name: "vendors list", method: http.MethodGet, pattern: "/vendors", tier: priority.ManagementTierM2},
-	{name: "vendor create", method: http.MethodPost, pattern: "/vendors", tier: priority.ManagementTierM2},
-	{name: "vendor read", method: http.MethodGet, pattern: "/vendors/{vendor_id}", tier: priority.ManagementTierM2},
-	{name: "vendor models list", method: http.MethodGet, pattern: "/vendors/{vendor_id}/models", tier: priority.ManagementTierM2},
-	{name: "vendor update", method: http.MethodPatch, pattern: "/vendors/{vendor_id}", tier: priority.ManagementTierM2},
-	{name: "vendor delete", method: http.MethodDelete, pattern: "/vendors/{vendor_id}", tier: priority.ManagementTierM2},
 }
 
 func newHTTPAdmissionController(settings config.Settings) *admission.Controller {
@@ -229,10 +205,6 @@ func (c *managementAdmissionController) Middleware(next http.Handler) http.Handl
 		defer release()
 		next.ServeHTTP(w, r.WithContext(requestContext))
 	})
-}
-
-func proxyAdmissionMiddleware(controller *admission.Controller, timeout time.Duration, next http.Handler) http.Handler {
-	return proxyAdmissionProviderMiddleware(nil, controller, timeout, next)
 }
 
 func proxyAdmissionProviderMiddleware(provider hotAdmissionProvider, fallbackController *admission.Controller, fallbackTimeout time.Duration, next http.Handler) http.Handler {

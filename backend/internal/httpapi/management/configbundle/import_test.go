@@ -105,7 +105,6 @@ func TestProfileBundleV3RoundTrip(t *testing.T) {
 	exported := profileBundleResponse{
 		Version:               request.Version,
 		BundleKind:            request.BundleKind,
-		VendorRefs:            request.VendorRefs,
 		Endpoints:             request.Endpoints,
 		PricingTemplates:      request.PricingTemplates,
 		Connections:           request.Connections,
@@ -186,6 +185,55 @@ func TestProfileBundleImportRejectsRemovedRetryAttemptKey(t *testing.T) {
 	expectedDetail := `json: unknown field "` + removedRetryField + `"`
 	if body["detail"] != expectedDetail {
 		t.Fatalf("unexpected removed retry key rejection detail: %q", body["detail"])
+	}
+}
+
+func TestProfileBundleImportRejectsObsoleteVendorTransportFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload map[string]any
+		field   string
+	}{
+		{
+			name: "vendor refs",
+			payload: map[string]any{
+				"version":          3,
+				"bundle_kind":      "profile_config",
+				"vendor_" + "refs": []map[string]any{{"key": "openai", "name_hint": "OpenAI"}},
+			},
+			field: "vendor_" + "refs",
+		},
+		{
+			name: "model vendor key",
+			payload: map[string]any{
+				"version":     3,
+				"bundle_kind": "profile_config",
+				"models":      []map[string]any{{"vendor_" + "key": "openai"}},
+			},
+			field: "vendor_" + "key",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := json.Marshal(test.payload)
+			if err != nil {
+				t.Fatalf("marshal obsolete vendor payload: %v", err)
+			}
+			service := &Service{}
+			response := httptest.NewRecorder()
+			service.handlePreviewProfileImport(response, httptest.NewRequest(http.MethodPost, "/api/config/profile/import/preview", bytes.NewReader(raw)))
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("expected obsolete vendor field to reject with 400, got status=%d body=%s", response.Code, response.Body.String())
+			}
+			var body map[string]string
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+			expectedDetail := `json: unknown field "` + test.field + `"`
+			if body["detail"] != expectedDetail {
+				t.Fatalf("unexpected obsolete vendor field rejection detail: %q", body["detail"])
+			}
+		})
 	}
 }
 
@@ -301,7 +349,7 @@ func TestProfileBundleImportCountsTopLevelConnections(t *testing.T) {
 		t.Fatalf("validate top-level connections: %v", err)
 	}
 
-	preview := buildProfilePreviewResponse(request, nil, nil, nil, nil)
+	preview := buildProfilePreviewResponse(request, nil, nil)
 	if preview.ConnectionsImported != 2 || preview.ReplacementScope.Connections != 2 {
 		t.Fatalf("expected two top-level connections in preview, got imported=%d scope=%d", preview.ConnectionsImported, preview.ReplacementScope.Connections)
 	}
@@ -414,36 +462,9 @@ func TestProfileBundleImportRejectsEncryptedSecretPayloadFailures(t *testing.T) 
 	}
 }
 
-func TestVendorCatalogBundleHelpersRejectUnsupportedEnvelope(t *testing.T) {
-	tests := []struct {
-		name   string
-		bundle vendorCatalogImportRequest
-		detail string
-	}{
-		{
-			name:   "wrong version",
-			bundle: vendorCatalogImportRequest{Version: 2, BundleKind: canonicalVendorCatalogKind},
-			detail: "Unsupported vendor catalog bundle version '2'; expected 1",
-		},
-		{
-			name:   "wrong kind",
-			bundle: vendorCatalogImportRequest{Version: canonicalVendorCatalogVersion, BundleKind: "profile_config"},
-			detail: "Unsupported vendor catalog bundle kind 'profile_config'; expected 'vendor_catalog'",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := validateVendorCatalogBundleEnvelope(test.bundle)
-			requireConfigBundleDomainError(t, err, http.StatusBadRequest, test.detail)
-		})
-	}
-}
-
 func TestProfileBundleImportNormalizesLegacyFacadeAndTargetMetadataDefaults(t *testing.T) {
 	request := validProfileBundleV3Request()
 	request.Models = append(request.Models, modelExport{
-		VendorKey:               stringPtr("openai"),
 		APIFamily:               "openai",
 		ModelID:                 "gpt-4o-router",
 		DisplayName:             stringPtr("GPT 4o Router"),
@@ -553,7 +574,6 @@ func TestProfileBundleImportRejectsNestedFacades(t *testing.T) {
 	request.Models[0].FacadeSelectionPolicy = stringPtr("weighted_eligible_context")
 	request.Models[0].FacadeFallbackPolicy = stringPtr("redistribute_ineligible_weight")
 	request.Models = append(request.Models, modelExport{
-		VendorKey:               stringPtr("openai"),
 		APIFamily:               "openai",
 		ModelID:                 "gpt-4o-router",
 		DisplayName:             stringPtr("GPT 4o Router"),
@@ -577,10 +597,6 @@ func validProfileBundleV3Request() profileImportRequest {
 	return profileImportRequest{
 		Version:    canonicalProfileBundleVersion,
 		BundleKind: canonicalProfileBundleKind,
-		VendorRefs: []vendorRefExport{{
-			Key:      "openai",
-			NameHint: "OpenAI",
-		}},
 		Endpoints: []endpointExport{{
 			Name:     "OpenAI",
 			BaseURL:  "https://api.openai.com/v1",
@@ -621,7 +637,6 @@ func validProfileBundleV3Request() profileImportRequest {
 			BanDurationSeconds:                 intPtr(0),
 		}},
 		Models: []modelExport{{
-			VendorKey:               stringPtr("openai"),
 			APIFamily:               "openai",
 			ModelID:                 "gpt-4o-mini",
 			DisplayName:             stringPtr("GPT 4o Mini"),

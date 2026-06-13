@@ -25,8 +25,6 @@ const {
 
 const baseEditModel = {
   id: 7,
-  vendor_id: 11,
-  vendor: null,
   api_family: "openai",
   model_id: "native-model",
   display_name: "Native Model",
@@ -49,7 +47,7 @@ const baseEditModel = {
 };
 
 test("new model defaults seed canonical capability strings", () => {
-  const formData = createNewModelFormData([], 42);
+  const formData = createNewModelFormData(42);
 
   assert.equal(DEFAULT_MODEL_FORM_DATA.is_enabled, false);
   assert.equal(DEFAULT_MODEL_FORM_DATA.context_window_tokens, "");
@@ -143,7 +141,7 @@ test("edit hydration preserves explicit model tiers and defaults legacy model ta
         weight: 7,
         target_priority: 3,
         is_enabled: true,
-        target_model: { id: 91, profile_id: 7, vendor_id: 11, api_family: "openai", model_id: "peer-model-a", display_name: "Peer A", loadbalance_strategy_id: 21, is_enabled: true },
+        target_model: { id: 91, profile_id: 7, api_family: "openai", model_id: "peer-model-a", display_name: "Peer A", loadbalance_strategy_id: 21, is_enabled: true },
         connection: null,
         terminal_target: null,
         created_at: "2026-04-20T00:00:00Z",
@@ -159,7 +157,7 @@ test("edit hydration preserves explicit model tiers and defaults legacy model ta
         weight: null,
         target_priority: null,
         is_enabled: false,
-        target_model: { id: 92, profile_id: 7, vendor_id: 11, api_family: "openai", model_id: "peer-model-b", display_name: "Peer B", loadbalance_strategy_id: 21, is_enabled: true },
+        target_model: { id: 92, profile_id: 7, api_family: "openai", model_id: "peer-model-b", display_name: "Peer B", loadbalance_strategy_id: 21, is_enabled: true },
         connection: null,
         terminal_target: null,
         created_at: "2026-04-20T00:00:00Z",
@@ -191,7 +189,6 @@ test("edit hydration preserves explicit model tiers and defaults legacy model ta
 test("disabled drafts validate with no access targets", () => {
   assert.equal(
     validateModelFormData({
-      vendor_id: null,
       api_family: "openai",
       model_id: "draft-model",
       display_name: "Draft Model",
@@ -211,7 +208,6 @@ test("disabled drafts validate with no access targets", () => {
 test("validation rejects blank model id before other form work proceeds", () => {
   assert.equal(
     validateModelFormData({
-      vendor_id: null,
       api_family: "openai",
       model_id: "   ",
       display_name: "Draft Model",
@@ -231,7 +227,6 @@ test("validation rejects blank model id before other form work proceeds", () => 
 test("validation rejects blank reserve/utilization and invalid capability values", () => {
   assert.equal(
     validateModelFormData({
-      vendor_id: null,
       api_family: "openai",
       model_id: "bad-model",
       display_name: "Bad Model",
@@ -248,7 +243,6 @@ test("validation rejects blank reserve/utilization and invalid capability values
   );
   assert.equal(
     validateModelFormData({
-      vendor_id: null,
       api_family: "openai",
       model_id: "bad-model",
       display_name: "Bad Model",
@@ -265,7 +259,6 @@ test("validation rejects blank reserve/utilization and invalid capability values
   );
   assert.equal(
     validateModelFormData({
-      vendor_id: null,
       api_family: "openai",
       model_id: "bad-model",
       display_name: "Bad Model",
@@ -285,7 +278,6 @@ test("validation rejects blank reserve/utilization and invalid capability values
 test("validation rejects invalid preferred threshold values and bands above max", () => {
   assert.equal(
     validateModelFormData({
-      vendor_id: null,
       api_family: "openai",
       model_id: "bad-model",
       display_name: "Bad Model",
@@ -302,7 +294,6 @@ test("validation rejects invalid preferred threshold values and bands above max"
   );
   assert.equal(
     validateModelFormData({
-      vendor_id: null,
       api_family: "openai",
       model_id: "bad-model",
       display_name: "Bad Model",
@@ -331,7 +322,6 @@ test("model target tier number helpers keep UI one-based and payload zero-based"
 
 test("enabled models require at least one enabled valid access target", () => {
   const enabledDraft = {
-    vendor_id: null,
     api_family: "openai",
     model_id: "live-model",
     display_name: "Live Model",
@@ -371,7 +361,6 @@ test("enabled models require at least one enabled valid access target", () => {
 test("changing api family clears incompatible access targets", () => {
   const formData = setApiFamilyOnForm(
     {
-      vendor_id: 11,
       api_family: "openai",
       model_id: "targeted-model",
       display_name: "Targeted Model",
@@ -393,7 +382,6 @@ test("changing api family clears incompatible access targets", () => {
 
 test("payload shaping serializes capability strings to numeric fields", () => {
   const formData = {
-    vendor_id: 11,
     api_family: "openai",
     model_id: "live-model",
     display_name: "  Live Model  ",
@@ -422,7 +410,6 @@ test("payload shaping serializes capability strings to numeric fields", () => {
   }];
 
   assert.deepEqual(toModelCreatePayload(formData), {
-    vendor_id: 11,
     api_family: "openai",
     model_id: "live-model",
     display_name: "Live Model",
@@ -437,7 +424,6 @@ test("payload shaping serializes capability strings to numeric fields", () => {
   });
 
   assert.deepEqual(toModelUpdatePayload(formData), {
-    vendor_id: 11,
     api_family: "openai",
     display_name: "  Live Model  ",
     model_id: "live-model",

@@ -6,13 +6,9 @@ import { getStaticMessages } from "@/i18n/staticMessages";
 import {
   getSharedLoadbalanceStrategies,
   getSharedModels,
-  getSharedVendors,
   setSharedModels,
 } from "@/lib/referenceData";
-import type {
-  LoadbalanceStrategy,
-  Vendor,
-} from "@/lib/types";
+import type { LoadbalanceStrategy } from "@/lib/types";
 import { toast } from "sonner";
 import {
   createEditModelFormData,
@@ -119,7 +115,6 @@ function getModelSaveErrorMessage(error: unknown, fallback: string) {
 export function useModelsPageData(revision: number) {
   const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([]);
   const [models, setModels] = useState<ManagedModelConfigListItem[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<ManagedModelConfigListItem | null>(null);
@@ -132,23 +127,19 @@ export function useModelsPageData(revision: number) {
   const applyBootstrapData = useCallback((data: {
     loadbalanceStrategiesData: LoadbalanceStrategy[];
     modelsData: ManagedModelConfigListItem[];
-    vendorsData: Vendor[];
   }) => {
     setLoadbalanceStrategies(data.loadbalanceStrategiesData);
     setModels(data.modelsData);
-    setVendors(data.vendorsData);
   }, []);
 
   const fetchData = useCallback(async (currentRevision: number) => {
     return Promise.all([
       getSharedLoadbalanceStrategies(currentRevision),
       getSharedModels(currentRevision),
-      getSharedVendors(currentRevision),
     ]).then(
-      ([loadbalanceStrategiesData, modelsData, vendorsData]) => ({
+      ([loadbalanceStrategiesData, modelsData]) => ({
         loadbalanceStrategiesData,
         modelsData: modelsData as ManagedModelConfigListItem[],
-        vendorsData,
       })
     );
   }, []);
@@ -196,16 +187,8 @@ export function useModelsPageData(revision: number) {
       return;
     }
 
-    let nextVendors = vendors;
-    try {
-      nextVendors = await getSharedVendors(revision);
-      setVendors(nextVendors);
-    } catch {
-      nextVendors = vendors;
-    }
-
     setEditingModel(null);
-    setFormData(createNewModelFormData(nextVendors, loadbalanceStrategies[0]?.id ?? null));
+    setFormData(createNewModelFormData(loadbalanceStrategies[0]?.id ?? null));
     setFormError(null);
     setIsDialogOpen(true);
   };
@@ -283,7 +266,6 @@ export function useModelsPageData(revision: number) {
     }
   };
 
-  const selectedVendor = vendors.find((vendor) => vendor.id === formData.vendor_id);
   const targetModelsForApiFamily = getAccessTargetModelsForApiFamily(
     models,
     formData.api_family ?? "openai",
@@ -332,9 +314,7 @@ export function useModelsPageData(revision: number) {
     models,
     promotionTargetModelsForApiFamily,
     targetModelsForApiFamily,
-    vendors,
     search,
-    selectedVendor,
     setDeleteTarget,
     setFormData,
     setIsDialogOpen,

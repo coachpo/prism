@@ -126,8 +126,6 @@ function buildModelListItemPayload(overrides = {}) {
   return {
     id: 42,
     profile_id: 7,
-    vendor_id: 5,
-    vendor: { id: 5, key: "openai", name: "OpenAI" },
     api_family: "openai",
     model_id: "gpt-4.1",
     display_name: "GPT-4.1",
@@ -151,7 +149,6 @@ function buildModelListItemPayload(overrides = {}) {
         target_model: {
           id: 99,
           profile_id: 7,
-          vendor_id: 5,
           api_family: "openai",
           model_id: "peer-model",
           display_name: "Peer Model",

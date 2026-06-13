@@ -24,8 +24,6 @@ function createModelListItem(id: number, model_id: string, display_name: string)
   return {
     id,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id,
     display_name,
@@ -111,9 +109,6 @@ function createRequestLogItem(id: number, requestedModelId: string, modelLabel: 
     upstream_client_display: `${modelLabel} Request`,
     user_agent_overridden: false,
     api_family: "openai",
-    vendor_id: null,
-    vendor_key: null,
-    vendor_name: null,
     endpoint_id: 201,
     endpoint_label: "Endpoint A",
     connection_id: 501,
@@ -191,7 +186,6 @@ function createLoadbalanceEvent() {
     last_retry_delay_ms: 120000,
     model_id: modelId,
     endpoint_id: 201,
-    vendor_id: null,
     ban_mode: "until_reset",
     cycle_retry_attempt_limit: 2,
     ban_cumulative_retry_attempt_threshold: 4,
@@ -266,7 +260,6 @@ async function mockModelDetailRequestLogRoutes(page: Page) {
     if (pathname === `/api/models/${modelConfigId}/connections`) return fulfillJson([createConnection()]);
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([]);
     if (pathname === "/api/pricing-templates") return fulfillJson([]);
-    if (pathname === "/api/vendors") return fulfillJson([]);
     if (pathname === "/api/loadbalance/current-state") return fulfillJson({ items: [createCurrentStateItem()] });
     if (pathname === "/api/loadbalance/events") {
       return fulfillJson({

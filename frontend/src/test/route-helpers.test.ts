@@ -23,7 +23,6 @@ describe("rewrite route helpers", () => {
     expect(rewriteRoutePaths).toContain("/observe")
     expect(rewriteRoutePaths).toContain("/auth/login")
     expect(rewriteRoutePaths).toContain("/observe/requests/$requestId/audit")
-    expect(rewriteRoutePaths).toContain("/sidecars")
     expect(prismPathById["route-ban-policies"]).toBe("/route/ban-policies")
     expect(buildModelDetailPath("model/slash")).toBe("/models/model%2Fslash")
     expect(buildRequestAuditPath(123)).toBe("/observe/requests/123/audit")

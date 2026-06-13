@@ -10,7 +10,6 @@ type profileBundleResponse struct {
 	Version               int                         `json:"version"`
 	BundleKind            string                      `json:"bundle_kind"`
 	ExportedAt            time.Time                   `json:"exported_at"`
-	VendorRefs            []vendorRefExport           `json:"vendor_refs"`
 	Endpoints             []endpointExport            `json:"endpoints"`
 	PricingTemplates      []pricingTemplateExport     `json:"pricing_templates"`
 	Connections           []connectionExport          `json:"connections"`
@@ -20,20 +19,6 @@ type profileBundleResponse struct {
 	HeaderBlocklistRules  []headerBlocklistRuleExport `json:"header_blocklist_rules"`
 	UserAgentClientRules  []userAgentClientRuleExport `json:"user_agent_client_rules"`
 	SecretPayload         secretPayloadExport         `json:"secret_payload"`
-}
-
-type vendorCatalogResponse struct {
-	Version    int                `json:"version"`
-	BundleKind string             `json:"bundle_kind"`
-	ExportedAt time.Time          `json:"exported_at"`
-	Vendors    []vendorCatalogRow `json:"vendors"`
-}
-
-type vendorRefExport struct {
-	Key             string  `json:"key"`
-	NameHint        string  `json:"name_hint"`
-	DescriptionHint *string `json:"description_hint"`
-	IconKeyHint     *string `json:"icon_key_hint"`
 }
 
 type endpointExport struct {
@@ -71,7 +56,6 @@ type loadbalanceStrategyExport struct {
 }
 
 type modelExport struct {
-	VendorKey                            *string              `json:"vendor_key"`
 	APIFamily                            string               `json:"api_family"`
 	ModelID                              string               `json:"model_id"`
 	DisplayName                          *string              `json:"display_name"`
@@ -178,15 +162,6 @@ type secretPayloadEntry struct {
 	Ciphertext string `json:"ciphertext"`
 }
 
-type vendorCatalogRow struct {
-	Key                string  `json:"key"`
-	Name               string  `json:"name"`
-	Description        *string `json:"description"`
-	IconKey            *string `json:"icon_key"`
-	AuditEnabled       bool    `json:"audit_enabled"`
-	AuditCaptureBodies bool    `json:"audit_capture_bodies"`
-}
-
 type profileImportReplacementScope struct {
 	Target                string `json:"target"`
 	Endpoints             int    `json:"endpoints"`
@@ -200,32 +175,12 @@ type profileImportReplacementScope struct {
 }
 
 type profileImportUntouchedScope struct {
-	OtherProfiles                bool `json:"other_profiles"`
-	ExistingGlobalVendorMetadata bool `json:"existing_global_vendor_metadata"`
-	RequestLogs                  bool `json:"request_logs"`
-}
-
-type profileImportVendorSummary struct {
-	CreateCount  int `json:"create_count"`
-	ReuseCount   int `json:"reuse_count"`
-	WarningCount int `json:"warning_count"`
+	OtherProfiles bool `json:"other_profiles"`
+	RequestLogs   bool `json:"request_logs"`
 }
 
 type profileImportSecretSummary struct {
 	EndpointSecretRefs    int `json:"endpoint_secret_refs"`
 	SecretPayloadEntries  int `json:"secret_payload_entries"`
 	DecryptableSecretRefs int `json:"decryptable_secret_refs"`
-}
-
-type vendorCatalogImportMutationScope struct {
-	Target         string `json:"target"`
-	CreateCount    int    `json:"create_count"`
-	UpdateCount    int    `json:"update_count"`
-	UnchangedCount int    `json:"unchanged_count"`
-}
-
-type vendorCatalogImportUntouchedScope struct {
-	Profiles            bool `json:"profiles"`
-	ProfileScopedConfig bool `json:"profile_scoped_config"`
-	RequestLogs         bool `json:"request_logs"`
 }

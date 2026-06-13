@@ -86,7 +86,6 @@ CREATE TABLE public.audit_logs (
     request_log_id bigint,
     request_log_created_at timestamp with time zone,
     ingress_request_id character varying(36),
-    vendor_id integer,
     model_id character varying(200) NOT NULL,
     endpoint_id integer,
     connection_id integer,
@@ -343,7 +342,6 @@ CREATE TABLE public.loadbalance_events (
     last_retry_delay_ms integer NOT NULL,
     model_id character varying(200),
     endpoint_id integer,
-    vendor_id integer,
     ban_mode character varying(20),
     policy_cycle_retry_attempt_limit integer,
     policy_ban_cumulative_retry_attempt_threshold integer,
@@ -643,7 +641,6 @@ CREATE TABLE public.management_stat_refresh_state (
 CREATE TABLE public.model_configs (
     id integer NOT NULL,
     profile_id integer NOT NULL,
-    vendor_id integer,
     api_family character varying(50) NOT NULL,
     model_id character varying(200) NOT NULL,
     display_name character varying(200),
@@ -939,9 +936,6 @@ CREATE TABLE public.request_logs (
     operation_name character varying(120),
     upstream_operation_name character varying(120),
     operation_translation_mode character varying(80),
-    vendor_id integer,
-    vendor_key character varying(100),
-    vendor_name character varying(100),
     resolved_target_model_id character varying(200),
     endpoint_id integer,
     connection_id integer,
@@ -1144,98 +1138,6 @@ ALTER SEQUENCE public.runtime_telemetry_outbox_id_seq OWNED BY public.runtime_te
 
 
 --
--- Name: sidecar_instances; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.sidecar_instances (
-    id integer NOT NULL,
-    name text NOT NULL,
-    base_url text NOT NULL,
-    base_url_canonical text NOT NULL,
-    management_password text NOT NULL,
-    enabled boolean DEFAULT true NOT NULL,
-    environment_label text,
-    sync_interval_seconds integer DEFAULT 300 NOT NULL,
-    request_timeout_seconds integer DEFAULT 10 NOT NULL,
-    allow_private_network boolean DEFAULT false NOT NULL,
-    allow_insecure_http boolean DEFAULT false NOT NULL,
-    skip_tls_verify boolean DEFAULT false NOT NULL,
-    last_sync_at timestamp with time zone,
-    last_successful_sync_at timestamp with time zone,
-    snapshot_stale_after timestamp with time zone,
-    last_sync_error text,
-    management_auth_state text DEFAULT 'unknown'::text NOT NULL,
-    auth_failure_pause_until timestamp with time zone,
-    deleted_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT ck_sidecar_instances_management_auth_state CHECK ((management_auth_state = ANY (ARRAY['unknown'::text, 'valid'::text, 'invalid_management_auth'::text]))),
-    CONSTRAINT ck_sidecar_instances_request_timeout_positive CHECK ((request_timeout_seconds > 0)),
-    CONSTRAINT ck_sidecar_instances_sync_interval_positive CHECK ((sync_interval_seconds > 0))
-);
-
-
---
--- Name: sidecar_instances_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.sidecar_instances_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: sidecar_instances_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.sidecar_instances_id_seq OWNED BY public.sidecar_instances.id;
-
-
---
--- Name: sidecar_provider_snapshots; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.sidecar_provider_snapshots (
-    id integer NOT NULL,
-    sidecar_id integer NOT NULL,
-    provider_key text NOT NULL,
-    provider_item_key text NOT NULL,
-    name text,
-    label text,
-    status text,
-    disabled boolean,
-    snapshot_json jsonb DEFAULT '{}'::jsonb NOT NULL,
-    observed_at timestamp with time zone NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: sidecar_provider_snapshots_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.sidecar_provider_snapshots_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: sidecar_provider_snapshots_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.sidecar_provider_snapshots_id_seq OWNED BY public.sidecar_provider_snapshots.id;
-
-
---
 -- Name: usage_request_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1250,6 +1152,7 @@ CREATE TABLE public.usage_request_events (
     upstream_operation_name character varying(120),
     operation_translation_mode character varying(80),
     endpoint_id integer,
+    endpoint_label_snapshot text NOT NULL,
     connection_id integer,
     selected_terminal_target_id integer,
     proxy_api_key_id integer,
@@ -1394,43 +1297,6 @@ CREATE SEQUENCE public.user_settings_id_seq
 --
 
 ALTER SEQUENCE public.user_settings_id_seq OWNED BY public.user_settings.id;
-
-
---
--- Name: vendors; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.vendors (
-    id integer NOT NULL,
-    key character varying(100) NOT NULL,
-    name character varying(100) NOT NULL,
-    description text,
-    icon_key character varying(100),
-    audit_enabled boolean NOT NULL,
-    audit_capture_bodies boolean NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: vendors_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.vendors_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: vendors_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.vendors_id_seq OWNED BY public.vendors.id;
 
 
 --
@@ -1656,20 +1522,6 @@ ALTER TABLE ONLY public.runtime_telemetry_outbox ALTER COLUMN id SET DEFAULT nex
 
 
 --
--- Name: sidecar_instances id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sidecar_instances ALTER COLUMN id SET DEFAULT nextval('public.sidecar_instances_id_seq'::regclass);
-
-
---
--- Name: sidecar_provider_snapshots id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sidecar_provider_snapshots ALTER COLUMN id SET DEFAULT nextval('public.sidecar_provider_snapshots_id_seq'::regclass);
-
-
---
 -- Name: usage_request_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1688,13 +1540,6 @@ ALTER TABLE ONLY public.user_agent_client_rules ALTER COLUMN id SET DEFAULT next
 --
 
 ALTER TABLE ONLY public.user_settings ALTER COLUMN id SET DEFAULT nextval('public.user_settings_id_seq'::regclass);
-
-
---
--- Name: vendors id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vendors ALTER COLUMN id SET DEFAULT nextval('public.vendors_id_seq'::regclass);
 
 
 --
@@ -1968,22 +1813,6 @@ ALTER TABLE ONLY public.runtime_telemetry_outbox
 
 
 --
--- Name: sidecar_instances sidecar_instances_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sidecar_instances
-    ADD CONSTRAINT sidecar_instances_pkey PRIMARY KEY (id);
-
-
---
--- Name: sidecar_provider_snapshots sidecar_provider_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sidecar_provider_snapshots
-    ADD CONSTRAINT sidecar_provider_snapshots_pkey PRIMARY KEY (id);
-
-
---
 -- Name: app_auth_settings uq_app_auth_settings_singleton_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2096,14 +1925,6 @@ ALTER TABLE ONLY public.routing_connection_runtime_state
 
 
 --
--- Name: sidecar_provider_snapshots uq_sidecar_provider_snapshots_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sidecar_provider_snapshots
-    ADD CONSTRAINT uq_sidecar_provider_snapshots_key UNIQUE (sidecar_id, provider_key, provider_item_key);
-
-
---
 -- Name: user_settings uq_user_settings_profile_id; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2133,30 +1954,6 @@ ALTER TABLE ONLY public.user_agent_client_rules
 
 ALTER TABLE ONLY public.user_settings
     ADD CONSTRAINT user_settings_pkey PRIMARY KEY (id);
-
-
---
--- Name: vendors vendors_key_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vendors
-    ADD CONSTRAINT vendors_key_key UNIQUE (key);
-
-
---
--- Name: vendors vendors_name_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vendors
-    ADD CONSTRAINT vendors_name_key UNIQUE (name);
-
-
---
--- Name: vendors vendors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vendors
-    ADD CONSTRAINT vendors_pkey PRIMARY KEY (id);
 
 
 --
@@ -2229,13 +2026,6 @@ CREATE INDEX idx_audit_logs_profile_request_created_id_desc ON ONLY public.audit
 --
 
 CREATE INDEX idx_audit_logs_profile_status_created_id_desc ON ONLY public.audit_logs USING btree (profile_id, response_status, created_at DESC, id DESC);
-
-
---
--- Name: idx_audit_logs_profile_vendor_created_id_desc; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_audit_logs_profile_vendor_created_id_desc ON ONLY public.audit_logs USING btree (profile_id, vendor_id, created_at DESC, id DESC);
 
 
 --
@@ -2638,13 +2428,6 @@ CREATE INDEX idx_runtime_telemetry_outbox_profile_ingress_request_id ON public.r
 
 
 --
--- Name: idx_sidecar_provider_snapshots_sidecar_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_sidecar_provider_snapshots_sidecar_id ON public.sidecar_provider_snapshots USING btree (sidecar_id);
-
-
---
 -- Name: idx_uacr_enabled; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2754,13 +2537,6 @@ CREATE INDEX ix_audit_logs_request_log_id ON ONLY public.audit_logs USING btree 
 --
 
 CREATE INDEX ix_audit_logs_response_status ON ONLY public.audit_logs USING btree (response_status);
-
-
---
--- Name: ix_audit_logs_vendor_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_audit_logs_vendor_id ON ONLY public.audit_logs USING btree (vendor_id);
 
 
 --
@@ -2911,13 +2687,6 @@ CREATE INDEX ix_request_logs_status_code ON ONLY public.request_logs USING btree
 
 
 --
--- Name: ix_request_logs_vendor_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_request_logs_vendor_id ON ONLY public.request_logs USING btree (vendor_id);
-
-
---
 -- Name: ix_usage_request_events_api_family; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3016,20 +2785,6 @@ CREATE UNIQUE INDEX uq_profiles_single_default ON public.profiles USING btree (i
 
 
 --
--- Name: uq_sidecar_instances_live_base_url_canonical; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uq_sidecar_instances_live_base_url_canonical ON public.sidecar_instances USING btree (base_url_canonical) WHERE (deleted_at IS NULL);
-
-
---
--- Name: uq_sidecar_instances_live_name; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uq_sidecar_instances_live_name ON public.sidecar_instances USING btree (lower(name)) WHERE (deleted_at IS NULL);
-
-
---
 -- Name: uq_uacr_system_pattern; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3093,35 +2848,11 @@ ALTER TABLE ONLY public.endpoints
 
 
 --
--- Name: audit_logs fk_audit_logs_vendor_id_set_null; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE public.audit_logs
-    ADD CONSTRAINT fk_audit_logs_vendor_id_set_null FOREIGN KEY (vendor_id) REFERENCES public.vendors(id) ON DELETE SET NULL;
-
-
---
--- Name: loadbalance_events fk_loadbalance_events_vendor_id_set_null; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE public.loadbalance_events
-    ADD CONSTRAINT fk_loadbalance_events_vendor_id_set_null FOREIGN KEY (vendor_id) REFERENCES public.vendors(id) ON DELETE SET NULL;
-
-
---
 -- Name: model_configs fk_model_configs_profile_loadbalance_strategy; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.model_configs
     ADD CONSTRAINT fk_model_configs_profile_loadbalance_strategy FOREIGN KEY (profile_id, loadbalance_strategy_id) REFERENCES public.loadbalance_strategies(profile_id, id) ON DELETE RESTRICT;
-
-
---
--- Name: model_configs fk_model_configs_vendor_id_set_null; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.model_configs
-    ADD CONSTRAINT fk_model_configs_vendor_id_set_null FOREIGN KEY (vendor_id) REFERENCES public.vendors(id) ON DELETE SET NULL;
 
 
 --
@@ -3306,14 +3037,6 @@ ALTER TABLE ONLY public.routing_connection_runtime_state
 
 ALTER TABLE ONLY public.runtime_telemetry_outbox
     ADD CONSTRAINT runtime_telemetry_outbox_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE RESTRICT;
-
-
---
--- Name: sidecar_provider_snapshots sidecar_provider_snapshots_sidecar_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sidecar_provider_snapshots
-    ADD CONSTRAINT sidecar_provider_snapshots_sidecar_id_fkey FOREIGN KEY (sidecar_id) REFERENCES public.sidecar_instances(id) ON DELETE CASCADE;
 
 
 --

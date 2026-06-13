@@ -30,9 +30,6 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     upstream_client_display: "Prism QA Browser",
     user_agent_overridden: false,
     api_family: "openai",
-    vendor_id: 1,
-    vendor_key: "openai",
-    vendor_name: "OpenAI",
     endpoint_id: 1,
     endpoint_label: "Primary endpoint",
     connection_id: null,
@@ -77,6 +74,8 @@ function createRequestLogsResponse(
           endpoint_label: "Primary endpoint",
         },
       ],
+      clients: [],
+      resolved_target_models: [],
     },
   };
 }
@@ -131,9 +130,6 @@ async function mockRequestLogRoutes(page: Page, requestLogItems: Record<string, 
       );
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson([]);

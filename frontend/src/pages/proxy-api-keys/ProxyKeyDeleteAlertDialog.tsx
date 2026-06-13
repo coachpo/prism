@@ -110,7 +110,7 @@ export function ProxyKeyDeleteAlertDialog({
             ) : null}
 
             <Separator />
-            <p className="text-sm text-destructive">{messages.vendorManagement.thisActionCannotBeUndone}</p>
+            <p className="text-sm text-destructive">{messages.common.thisActionCannotBeUndone}</p>
           </div>
         ) : null}
 

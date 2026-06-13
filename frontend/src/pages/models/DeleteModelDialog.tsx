@@ -44,11 +44,7 @@ export function DeleteModelDialog({ deleteTarget, onDelete, setDeleteTarget }: P
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="flex min-w-0 flex-col gap-1">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{fieldCopy.vendor}</p>
-                  <p className="truncate text-sm text-foreground">{deleteTarget.vendor?.name ?? copy.unknownVendor}</p>
-                </div>
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex min-w-0 flex-col gap-1">
                   <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{fieldCopy.apiFamily}</p>
                   <p className="truncate text-sm text-foreground">{deleteTarget.api_family}</p>

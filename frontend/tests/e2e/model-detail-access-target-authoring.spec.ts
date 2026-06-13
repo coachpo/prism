@@ -31,7 +31,6 @@ function createAccessTarget(targetModelId: string, position: number, displayName
     target_model: {
       id: 100 + position,
       profile_id: 1,
-      vendor_id: null,
       api_family: "openai",
       model_id: targetModelId,
       display_name: displayName,
@@ -111,8 +110,6 @@ function createModelListItem(
   return {
     id,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: apiFamily,
     model_id: modelId,
     display_name: displayName,
@@ -227,7 +224,6 @@ async function mockModelDetailRoutes(page: Page) {
       },
     ]);
     if (pathname === "/api/pricing-templates") return fulfillJson([]);
-    if (pathname === "/api/vendors") return fulfillJson([]);
     if (pathname === "/api/loadbalance/current-state") return fulfillJson({ items: [] });
     if (pathname === "/api/stats/spending") return fulfillJson(createSpendingResponse());
 
@@ -247,7 +243,6 @@ async function mockModelDetailRoutes(page: Page) {
 
     if (pathname === `/api/models/${modelConfigId}` && request.method() === "PUT") {
       const payload = request.postDataJSON() as {
-        vendor_id: number | null;
         api_family: "openai" | "anthropic";
         model_id: string;
         display_name: string | null;
@@ -269,7 +264,6 @@ async function mockModelDetailRoutes(page: Page) {
       );
       return fulfillJson({
         ...createAccessTargetModelDetail(currentAccessTargets, currentModelEnabled),
-        vendor_id: payload.vendor_id ?? null,
         api_family: payload.api_family,
         model_id: payload.model_id,
         display_name: payload.display_name,
@@ -321,7 +315,6 @@ test("model detail editing supports disabled targetless drafts and later enabled
 
   expect(routes.getUpdatePayloads()).toEqual([
     {
-      vendor_id: null,
       api_family: "openai",
       model_id: "routed-openai",
       display_name: "Routed OpenAI",
@@ -357,7 +350,6 @@ test("model detail editing supports disabled targetless drafts and later enabled
 
   expect(routes.getUpdatePayloads()).toEqual([
     {
-      vendor_id: null,
       api_family: "openai",
       model_id: "routed-openai",
       display_name: "Routed OpenAI",
@@ -371,7 +363,6 @@ test("model detail editing supports disabled targetless drafts and later enabled
       context_overflow_promotion_target_id: null,
     },
     {
-      vendor_id: null,
       api_family: "openai",
       model_id: "routed-openai",
       display_name: "Routed OpenAI",
@@ -442,7 +433,6 @@ async function mockPrivateConnectionRoutes(page: Page) {
     if (pathname === "/api/endpoints") return fulfillJson([endpoint]);
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([]);
     if (pathname === "/api/pricing-templates") return fulfillJson([]);
-    if (pathname === "/api/vendors") return fulfillJson([]);
     if (pathname === "/api/loadbalance/current-state") return fulfillJson({ items: [] });
     if (pathname === "/api/stats/spending") return fulfillJson(createSpendingResponse());
 

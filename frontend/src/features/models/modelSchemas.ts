@@ -7,7 +7,6 @@ import {
 import type { ModelAccessTargetMutation, ModelConfigListItem } from "@/lib/types"
 
 export const modelAuthoringSchema = z.object({
-  vendor_id: z.number().int().positive().nullable(),
   api_family: z.enum(["openai", "anthropic", "gemini"]),
   model_id: z.string().trim().min(1, "Model ID is required."),
   display_name: z.string(),

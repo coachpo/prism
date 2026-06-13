@@ -58,7 +58,6 @@ function createAccessTarget(targetModelId: string, position: number, displayName
     target_model: {
       id: 100 + position,
       profile_id: 1,
-      vendor_id: null,
       api_family: "openai",
       model_id: targetModelId,
       display_name: displayName,
@@ -80,8 +79,6 @@ function createModelRecord(
   return {
     id: modelConfigId,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai" as const,
     model_id: "routed-openai",
     display_name: "Routed OpenAI",
@@ -156,7 +153,6 @@ async function mockModelSettingsRoutes(page: Page) {
     if (pathname === "/api/connections") return fulfillJson([]);
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([createStrategy()]);
     if (pathname === "/api/pricing-templates") return fulfillJson([]);
-    if (pathname === "/api/vendors") return fulfillJson([]);
     if (pathname === "/api/loadbalance/current-state") return fulfillJson({ items: [] });
     if (pathname === "/api/stats/spending") return fulfillJson(createSpendingResponse());
 
@@ -189,7 +185,6 @@ async function mockModelSettingsRoutes(page: Page) {
       updatePayloads.push(payload);
       currentModel = {
         ...currentModel,
-        vendor_id: (payload.vendor_id as number | null | undefined) ?? null,
         api_family: (payload.api_family as "openai") ?? "openai",
         model_id: (payload.model_id as string) ?? currentModel.model_id,
         display_name: (payload.display_name as string | null) ?? currentModel.display_name,
@@ -237,7 +232,6 @@ test("context-capability-authoring: model settings clears blank context window t
   await expect(page.getByText("Model updated").last()).toBeVisible();
   expect(routes.getUpdatePayloads()).toEqual([
     {
-      vendor_id: null,
       api_family: "openai",
       model_id: "routed-openai",
       display_name: "Routed OpenAI",

@@ -42,7 +42,6 @@ type modelAccessTargetMoveRequest struct {
 }
 
 type modelCreateRequest struct {
-	VendorID                             *int                       `json:"vendor_id"`
 	APIFamily                            string                     `json:"api_family"`
 	ModelID                              string                     `json:"model_id"`
 	DisplayName                          *string                    `json:"display_name"`
@@ -150,7 +149,6 @@ func (value *optionalAccessTargets) UnmarshalJSON(data []byte) error {
 }
 
 type modelUpdateRequest struct {
-	VendorID                             optionalInt           `json:"vendor_id"`
 	APIFamily                            optionalString        `json:"api_family"`
 	ModelID                              optionalString        `json:"model_id"`
 	DisplayName                          optionalString        `json:"display_name"`
@@ -165,19 +163,6 @@ type modelUpdateRequest struct {
 	ContextOverflowPromotionTargetID     optionalString        `json:"context_overflow_promotion_target_id"`
 	AccessTargets                        optionalAccessTargets `json:"access_targets"`
 	IsEnabled                            optionalBool          `json:"is_enabled"`
-}
-
-type vendorResponse struct {
-	ID                 int       `json:"id"`
-	Key                string    `json:"key"`
-	Name               string    `json:"name"`
-	Description        *string   `json:"description"`
-	IconKey            *string   `json:"icon_key"`
-	IsReadonly         bool      `json:"is_readonly"`
-	AuditEnabled       bool      `json:"audit_enabled"`
-	AuditCaptureBodies bool      `json:"audit_capture_bodies"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type loadbalanceStrategySummary struct {
@@ -258,7 +243,6 @@ type terminalTargetSummary = connectionTargetSummary
 type modelTargetSummary struct {
 	ID                                   int      `json:"id"`
 	ProfileID                            int      `json:"profile_id"`
-	VendorID                             *int     `json:"vendor_id"`
 	APIFamily                            string   `json:"api_family"`
 	ModelID                              string   `json:"model_id"`
 	DisplayName                          *string  `json:"display_name"`
@@ -293,8 +277,6 @@ type modelAccessTargetResponse struct {
 type modelConfigListResponse struct {
 	ID                                   int                         `json:"id"`
 	ProfileID                            int                         `json:"profile_id"`
-	VendorID                             *int                        `json:"vendor_id"`
-	Vendor                               *vendorResponse             `json:"vendor"`
 	APIFamily                            string                      `json:"api_family"`
 	ModelID                              string                      `json:"model_id"`
 	DisplayName                          *string                     `json:"display_name"`
@@ -321,8 +303,6 @@ type modelConfigListResponse struct {
 type modelConfigResponse struct {
 	ID                                   int                         `json:"id"`
 	ProfileID                            int                         `json:"profile_id"`
-	VendorID                             *int                        `json:"vendor_id"`
-	Vendor                               *vendorResponse             `json:"vendor"`
 	APIFamily                            string                      `json:"api_family"`
 	ModelID                              string                      `json:"model_id"`
 	DisplayName                          *string                     `json:"display_name"`

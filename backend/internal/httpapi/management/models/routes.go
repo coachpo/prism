@@ -56,13 +56,13 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		vendors, strategies, accessTargets, health, err := loadModelRelations(r.Context(), tx, profile.ID, records)
+		strategies, accessTargets, health, err := loadModelRelations(r.Context(), tx, profile.ID, records)
 		if err != nil {
 			return nil, err
 		}
 		response := make([]modelConfigListResponse, 0, len(records))
 		for _, record := range records {
-			response = append(response, buildModelListResponse(record, vendors, strategies, accessTargets, counts, health))
+			response = append(response, buildModelListResponse(record, strategies, accessTargets, counts, health))
 		}
 		return response, nil
 	})
@@ -91,11 +91,11 @@ func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 		if !found {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
 		}
-		vendors, strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{record})
+		strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{record})
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		return buildModelDetailResponse(record, vendors, strategies, accessTargets), nil
+		return buildModelDetailResponse(record, strategies, accessTargets), nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -120,11 +120,6 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		if requestBody.VendorID != nil {
-			if err := ensureVendorExists(r.Context(), tx, *requestBody.VendorID); err != nil {
-				return modelConfigResponse{}, err
-			}
-		}
 		if err := ensureModelIDAvailable(r.Context(), tx, profile.ID, requestBody.ModelID, nil); err != nil {
 			return modelConfigResponse{}, err
 		}
@@ -136,7 +131,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, contextCapabilityDomainError(err)
 		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, VendorID: requestBody.VendorID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, PreferredContextUtilizationThreshold: capabilitySettings.PreferredContextUtilizationThreshold, FacadeEnabled: resolveFacadeEnabled(requestBody.FacadeEnabled), FacadeSelectionPolicy: requestBody.FacadeSelectionPolicy, FacadeFallbackPolicy: requestBody.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: requestBody.ContextOverflowPromotionTargetID, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
+		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, PreferredContextUtilizationThreshold: capabilitySettings.PreferredContextUtilizationThreshold, FacadeEnabled: resolveFacadeEnabled(requestBody.FacadeEnabled), FacadeSelectionPolicy: requestBody.FacadeSelectionPolicy, FacadeFallbackPolicy: requestBody.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: requestBody.ContextOverflowPromotionTargetID, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
 		created, err := insertModel(r.Context(), tx, record)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -163,11 +158,11 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		if err := s.validateContextOverflowPromotionTarget(r.Context(), tx, profile.ID, created); err != nil {
 			return modelConfigResponse{}, err
 		}
-		vendors, strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{created})
+		strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{created})
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		return buildModelDetailResponse(created, vendors, strategies, accessTargets), nil
+		return buildModelDetailResponse(created, strategies, accessTargets), nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -211,16 +206,8 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		if requestBody.VendorID.Set && requestBody.VendorID.Value != nil {
-			if err := ensureVendorExists(r.Context(), tx, *requestBody.VendorID.Value); err != nil {
-				return modelConfigResponse{}, err
-			}
-		}
 		next := current
 		originalModelID := current.ModelID
-		if requestBody.VendorID.Set {
-			next.VendorID = requestBody.VendorID.Value
-		}
 		if requestBody.APIFamily.Set {
 			next.APIFamily = *requestBody.APIFamily.Value
 		}
@@ -352,11 +339,11 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 				return modelConfigResponse{}, err
 			}
 		}
-		vendors, strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{updated})
+		strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{updated})
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		return buildModelDetailResponse(updated, vendors, strategies, accessTargets), nil
+		return buildModelDetailResponse(updated, strategies, accessTargets), nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -1043,13 +1030,13 @@ func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request)
 		sort.Slice(records, func(left int, right int) bool {
 			return records[left].ModelID < records[right].ModelID
 		})
-		vendors, strategies, accessTargets, health, err := loadModelRelations(r.Context(), tx, profile.ID, records)
+		strategies, accessTargets, health, err := loadModelRelations(r.Context(), tx, profile.ID, records)
 		if err != nil {
 			return nil, err
 		}
 		response := make([]modelConfigListResponse, 0, len(records))
 		for _, record := range records {
-			response = append(response, buildModelListResponse(record, vendors, strategies, accessTargets, counts, health))
+			response = append(response, buildModelListResponse(record, strategies, accessTargets, counts, health))
 		}
 		return response, nil
 	})
@@ -1079,7 +1066,7 @@ func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request
 			return endpointModelsBatchResponse{}, err
 		}
 		byEndpointRecords, byEndpointCounts, allRecords := collectBatchEndpointModels(rows)
-		vendors, strategies, accessTargets, health, err := loadModelRelations(r.Context(), tx, profile.ID, allRecords)
+		strategies, accessTargets, health, err := loadModelRelations(r.Context(), tx, profile.ID, allRecords)
 		if err != nil {
 			return endpointModelsBatchResponse{}, err
 		}
@@ -1091,7 +1078,7 @@ func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request
 			})
 			models := make([]modelConfigListResponse, 0, len(records))
 			for _, record := range records {
-				models = append(models, buildModelListResponse(record, vendors, strategies, accessTargets, byEndpointCounts[endpointID], health))
+				models = append(models, buildModelListResponse(record, strategies, accessTargets, byEndpointCounts[endpointID], health))
 			}
 			items = append(items, endpointModelsBatchItem{EndpointID: endpointID, Models: models})
 		}
@@ -1108,27 +1095,22 @@ func resolveEffectiveProfile(ctx context.Context, tx pgx.Tx, r *http.Request) (p
 	return profiledomain.ResolveEffectiveProfile(ctx, tx, r.Header.Get(profiledomain.ProfileIDHeader))
 }
 
-func loadModelRelations(ctx context.Context, tx pgx.Tx, profileID int, records []modelRecord) (map[int]vendorRecord, map[int]strategyRecord, map[int][]accessTargetRecord, map[string]modelHealthStats, error) {
-	vendorIDs := uniqueIntValues(records, func(record modelRecord) *int { return record.VendorID })
+func loadModelRelations(ctx context.Context, tx pgx.Tx, profileID int, records []modelRecord) (map[int]strategyRecord, map[int][]accessTargetRecord, map[string]modelHealthStats, error) {
 	strategyIDs := uniqueIntValues(records, func(record modelRecord) *int { return record.LoadbalanceStrategyID })
 	modelIDs := uniqueModelIDs(records)
-	vendors, err := loadVendorRecordsByIDs(ctx, tx, vendorIDs)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
 	strategies, err := loadStrategyRecordsByIDs(ctx, tx, profileID, strategyIDs)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 	accessTargets, err := loadAccessTargetsForModels(ctx, tx, profileID, modelIDs)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 	health, err := listModelHealthStats(ctx, tx, profileID)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
-	return vendors, strategies, accessTargets, health, nil
+	return strategies, accessTargets, health, nil
 }
 
 func collectEndpointModelCounts(rows []endpointModelConnectionRow) ([]modelRecord, map[int]modelConnectionCounts) {

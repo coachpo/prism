@@ -61,7 +61,6 @@ type strategyRow struct {
 
 type modelRow struct {
 	ID                                   int
-	VendorID                             *int
 	APIFamily                            string
 	ModelID                              string
 	DisplayName                          *string
@@ -109,16 +108,6 @@ type connectionRow struct {
 	MaxInFlightStream                    *int
 }
 
-type vendorRow struct {
-	ID                 int
-	Key                string
-	Name               string
-	Description        *string
-	IconKey            *string
-	AuditEnabled       bool
-	AuditCaptureBodies bool
-}
-
 type userSettingsRow struct {
 	ReportCurrencyCode   string
 	ReportCurrencySymbol string
@@ -142,19 +131,6 @@ type userAgentClientRuleRow struct {
 	Name    string
 	Pattern string
 	Enabled bool
-}
-
-func buildVendorCatalog(ctx context.Context, exec queryExecutor, exportTime time.Time) (vendorCatalogResponse, error) {
-	vendors, err := listAllVendors(ctx, exec)
-	if err != nil {
-		return vendorCatalogResponse{}, err
-	}
-	return vendorCatalogResponse{
-		Version:    canonicalVendorCatalogVersion,
-		BundleKind: canonicalVendorCatalogKind,
-		ExportedAt: exportTime,
-		Vendors:    vendors,
-	}, nil
 }
 
 func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, profileID int, exportTime time.Time, bundleSecretKeyID string, includeSecrets bool) (profileBundleResponse, error) {
@@ -205,7 +181,7 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 	if err != nil {
 		return profileBundleResponse{}, err
 	}
-	exportedVendorRefs, exportedModels, err := buildModelExports(ctx, exec, models, strategyNameByID, connectionRefByID)
+	exportedModels, err := buildModelExports(ctx, exec, models, strategyNameByID, connectionRefByID)
 	if err != nil {
 		return profileBundleResponse{}, err
 	}
@@ -218,7 +194,6 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 		Version:               canonicalProfileBundleVersion,
 		BundleKind:            canonicalProfileBundleKind,
 		ExportedAt:            exportTime,
-		VendorRefs:            exportedVendorRefs,
 		Endpoints:             exportedEndpoints,
 		PricingTemplates:      exportedPricingTemplates,
 		Connections:           exportedConnections,
@@ -321,33 +296,25 @@ func buildLoadbalanceStrategyExports(strategies []strategyRow) ([]loadbalanceStr
 	return exportedStrategies, strategyNameByID
 }
 
-func buildModelExports(ctx context.Context, exec queryExecutor, models []modelRow, strategyNameByID map[int]string, connectionRefByID map[int]string) ([]vendorRefExport, []modelExport, error) {
-	modelIDs, vendorIDs := profileModelExportIDs(models)
-	vendorsByID, err := loadVendorsByIDs(ctx, exec, vendorIDs)
-	if err != nil {
-		return nil, nil, err
-	}
+func buildModelExports(ctx context.Context, exec queryExecutor, models []modelRow, strategyNameByID map[int]string, connectionRefByID map[int]string) ([]modelExport, error) {
+	modelIDs := profileModelExportIDs(models)
 	accessTargetsByModelID, err := listAccessTargetsByModelIDs(ctx, exec, modelIDs)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := validateExportedConnectionOwners(models, accessTargetsByModelID, connectionRefByID); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	exportedVendorRefs, err := buildVendorRefExports(vendorIDs, vendorsByID)
-	if err != nil {
-		return nil, nil, err
-	}
 	exportedModels := make([]modelExport, 0, len(models))
 	for _, model := range models {
-		exportedModel, err := buildModelExport(model, vendorsByID, strategyNameByID, accessTargetsByModelID[model.ID], connectionRefByID)
+		exportedModel, err := buildModelExport(model, strategyNameByID, accessTargetsByModelID[model.ID], connectionRefByID)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		exportedModels = append(exportedModels, exportedModel)
 	}
-	return exportedVendorRefs, exportedModels, nil
+	return exportedModels, nil
 }
 
 func validateExportedConnectionOwners(models []modelRow, accessTargetsByModelID map[int][]accessTargetRow, connectionRefByID map[int]string) error {
@@ -374,44 +341,15 @@ func validateExportedConnectionOwners(models []modelRow, accessTargetsByModelID 
 	return nil
 }
 
-func profileModelExportIDs(models []modelRow) ([]int, []int) {
+func profileModelExportIDs(models []modelRow) []int {
 	modelIDs := make([]int, 0, len(models))
-	vendorIDs := make([]int, 0, len(models))
-	seenVendorIDs := map[int]struct{}{}
 	for _, model := range models {
 		modelIDs = append(modelIDs, model.ID)
-		if model.VendorID != nil {
-			if _, ok := seenVendorIDs[*model.VendorID]; !ok {
-				seenVendorIDs[*model.VendorID] = struct{}{}
-				vendorIDs = append(vendorIDs, *model.VendorID)
-			}
-		}
 	}
-	return modelIDs, vendorIDs
+	return modelIDs
 }
 
-func buildVendorRefExports(vendorIDs []int, vendorsByID map[int]vendorRow) ([]vendorRefExport, error) {
-	exportedVendorRefs := make([]vendorRefExport, 0, len(vendorIDs))
-	for _, vendorID := range vendorIDs {
-		vendor, ok := vendorsByID[vendorID]
-		if !ok {
-			return nil, fmt.Errorf("load vendor %d for vendor refs", vendorID)
-		}
-		exportedVendorRefs = append(exportedVendorRefs, vendorRefExport{
-			Key:             vendor.Key,
-			NameHint:        vendor.Name,
-			DescriptionHint: vendor.Description,
-			IconKeyHint:     vendor.IconKey,
-		})
-	}
-	return exportedVendorRefs, nil
-}
-
-func buildModelExport(model modelRow, vendorsByID map[int]vendorRow, strategyNameByID map[int]string, accessTargets []accessTargetRow, connectionRefByID map[int]string) (modelExport, error) {
-	vendorKey, err := buildModelVendorKey(model, vendorsByID)
-	if err != nil {
-		return modelExport{}, err
-	}
+func buildModelExport(model modelRow, strategyNameByID map[int]string, accessTargets []accessTargetRow, connectionRefByID map[int]string) (modelExport, error) {
 	strategyName, err := buildModelLoadbalanceStrategyName(model, strategyNameByID)
 	if err != nil {
 		return modelExport{}, err
@@ -421,7 +359,6 @@ func buildModelExport(model modelRow, vendorsByID map[int]vendorRow, strategyNam
 		return modelExport{}, err
 	}
 	return modelExport{
-		VendorKey:                            vendorKey,
 		APIFamily:                            model.APIFamily,
 		ModelID:                              model.ModelID,
 		DisplayName:                          model.DisplayName,
@@ -437,18 +374,6 @@ func buildModelExport(model modelRow, vendorsByID map[int]vendorRow, strategyNam
 		IsEnabled:                            model.IsEnabled,
 		AccessTargets:                        exportedTargets,
 	}, nil
-}
-
-func buildModelVendorKey(model modelRow, vendorsByID map[int]vendorRow) (*string, error) {
-	if model.VendorID == nil {
-		return nil, nil
-	}
-	vendor, ok := vendorsByID[*model.VendorID]
-	if !ok {
-		return nil, fmt.Errorf("load vendor %d for model %q", *model.VendorID, model.ModelID)
-	}
-	value := vendor.Key
-	return &value, nil
 }
 
 func buildModelLoadbalanceStrategyName(model modelRow, strategyNameByID map[int]string) (*string, error) {
@@ -677,7 +602,7 @@ func listStrategies(ctx context.Context, exec queryExecutor, profileID int) ([]s
 }
 
 func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]modelRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query models for profile %d: %w", profileID, err)
 	}
@@ -685,7 +610,6 @@ func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]model
 
 	items := make([]modelRow, 0)
 	for rows.Next() {
-		var vendorID sql.NullInt32
 		var displayName sql.NullString
 		var strategyID sql.NullInt32
 		var contextWindowTokens sql.NullInt32
@@ -694,10 +618,9 @@ func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]model
 		var facadeFallbackPolicy sql.NullString
 		var contextOverflowPromotionTargetID sql.NullString
 		item := modelRow{}
-		if err := rows.Scan(&item.ID, &vendorID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &preferredContextUtilizationThreshold, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &item.IsEnabled); err != nil {
+		if err := rows.Scan(&item.ID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &preferredContextUtilizationThreshold, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &item.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan model row: %w", err)
 		}
-		item.VendorID = nullableInt32(vendorID)
 		item.DisplayName = nullableStringValue(displayName)
 		item.LoadbalanceStrategyID = nullableInt32(strategyID)
 		item.ContextWindowTokens = nullableInt32(contextWindowTokens)
@@ -788,34 +711,6 @@ func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]
 	return items, nil
 }
 
-func loadVendorsByIDs(ctx context.Context, exec queryExecutor, vendorIDs []int) (map[int]vendorRow, error) {
-	items := map[int]vendorRow{}
-	if len(vendorIDs) == 0 {
-		return items, nil
-	}
-	rows, err := exec.Query(ctx, `SELECT id, key, name, description, icon_key, audit_enabled, audit_capture_bodies FROM vendors WHERE id = ANY($1) ORDER BY key ASC, id ASC`, toInt32Slice(vendorIDs))
-	if err != nil {
-		return nil, fmt.Errorf("query vendors: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var description sql.NullString
-		var iconKey sql.NullString
-		item := vendorRow{}
-		if err := rows.Scan(&item.ID, &item.Key, &item.Name, &description, &iconKey, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
-			return nil, fmt.Errorf("scan vendor row: %w", err)
-		}
-		item.Description = nullableStringValue(description)
-		item.IconKey = nullableStringValue(iconKey)
-		items[item.ID] = item
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate vendors: %w", err)
-	}
-	return items, nil
-}
-
 func loadUserSettings(ctx context.Context, exec queryExecutor, profileID int) (*userSettingsRow, error) {
 	var timezone sql.NullString
 	item := userSettingsRow{}
@@ -889,31 +784,6 @@ func listProfileUserAgentClientRules(ctx context.Context, exec queryExecutor, pr
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate user-agent client rules for profile %d: %w", profileID, err)
-	}
-	return items, nil
-}
-
-func listAllVendors(ctx context.Context, exec queryExecutor) ([]vendorCatalogRow, error) {
-	rows, err := exec.Query(ctx, `SELECT key, name, description, icon_key, audit_enabled, audit_capture_bodies FROM vendors ORDER BY id ASC`)
-	if err != nil {
-		return nil, fmt.Errorf("query vendor catalog: %w", err)
-	}
-	defer rows.Close()
-
-	items := make([]vendorCatalogRow, 0)
-	for rows.Next() {
-		var description sql.NullString
-		var iconKey sql.NullString
-		item := vendorCatalogRow{}
-		if err := rows.Scan(&item.Key, &item.Name, &description, &iconKey, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
-			return nil, fmt.Errorf("scan vendor catalog row: %w", err)
-		}
-		item.Description = nullableStringValue(description)
-		item.IconKey = nullableStringValue(iconKey)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate vendor catalog: %w", err)
 	}
 	return items, nil
 }
@@ -993,13 +863,4 @@ func nullableFloat64(value sql.NullFloat64) *float64 {
 	}
 	resolved := value.Float64
 	return &resolved
-}
-
-func cloneBytes(value []byte) []byte {
-	if len(value) == 0 {
-		return nil
-	}
-	cloned := make([]byte, len(value))
-	copy(cloned, value)
-	return cloned
 }

@@ -32,8 +32,6 @@ function createAuthSettings() {
 function createModelListItem() {
   return {
     id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
@@ -152,9 +150,6 @@ async function mockSettingsRoutes(
       return fulfillJson([createModelListItem()]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/config/header-blocklist-rules") {
       return fulfillJson([]);

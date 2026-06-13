@@ -14,7 +14,6 @@ This smoke test plan validates all documented workflows and core function paths 
 - Batch data deletion semantics
 - Frontend management flows
 - Token costing and spending reports
-- CLIProxyAPI sidecar registration, inventory sync, and direct auth-file mutation
 
 The objective is a fast but thorough confidence pass that catches regressions before release.
 
@@ -78,7 +77,6 @@ Suggested startup:
 
 Prepare seed state through API (not manual DB edits):
 
-1. Vendors exist: OpenAI, Anthropic, Gemini, plus any extra publisher metadata rows needed for cross-vendor catalog cases.
 2. Profiles exist: A, B, C; start with A as active runtime profile.
 3. Profile-scoped Endpoints (credentials):
    - in profile A: one OpenAI endpoint
@@ -97,7 +95,6 @@ Prepare seed state through API (not manual DB edits):
    - one connection assigned a `pricing_template_id`
 7. Audit toggles initially disabled, then enabled per-case.
 8. At least one duplicated `model_id` and endpoint `name` across A/B to validate scoped uniqueness.
-9. Optional sidecar fixture or safe live sidecar endpoint for `/api/sidecars/*` coverage; management password must never be recorded in run notes.
 
 ---
 
@@ -113,9 +110,6 @@ Prepare seed state through API (not manual DB edits):
 | `PATCH /api/profiles/{id}` | M05 |
 | `POST /api/profiles/{id}/activate` | M06-M07 |
 | `DELETE /api/profiles/{id}` | M08-M09 |
-| `GET /api/vendors` | B01 |
-| `GET /api/vendors/{id}` | B03 |
-| `PATCH /api/vendors/{id}` | B02 |
 | `GET /api/models` | B04, E12, M03, M12 |
 | `POST /api/models/by-endpoints` | B04A, M03 |
 | `GET /api/models/{id}` | B18, M03 |
@@ -164,9 +158,6 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/config/profile/export/with-secrets` | H01A |
 | `POST /api/config/profile/import/preview` | H05-H07, L15-L16, M17-M18 |
 | `POST /api/config/profile/import` | H05-H07, L15-L16, M17-M18 |
-| `GET /api/config/vendors/export` | H10 |
-| `POST /api/config/vendors/import/preview` | H11 |
-| `POST /api/config/vendors/import` | H12 |
 | `GET /api/config/header-blocklist-rules` | K01, M20 |
 | `GET /api/config/header-blocklist-rules/{id}` | K05-K06, M20 |
 | `POST /api/config/header-blocklist-rules` | K02-K04, K12-K15, M20 |
@@ -192,19 +183,6 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/auth/logout` | N04 |
 | `POST /api/auth/refresh` | N05 |
 | `GET /api/auth/session` | N06 |
-| `GET /api/sidecars` | O01, O11 |
-| `POST /api/sidecars` | O02 |
-| `GET /api/sidecars/{sidecar_id}` | O03 |
-| `PATCH /api/sidecars/{sidecar_id}` | O04 |
-| `DELETE /api/sidecars/{sidecar_id}` | O05 |
-| `POST /api/sidecars/{sidecar_id}/test-connection` | O06 |
-| `POST /api/sidecars/{sidecar_id}/sync` | O07 |
-| `GET /api/sidecars/{sidecar_id}/auth-files` | O08 |
-| `GET /api/sidecars/{sidecar_id}/providers` | O09 |
-| `GET /api/sidecars/{sidecar_id}/provider-snapshots` | O09 |
-| `GET /api/sidecars/{sidecar_id}/sync-status` | O10 |
-| `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status` | O13 |
-| `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields` | O14 |
 | `WS /api/realtime/ws` | I26, I30, I31, I37 |
 
 ---
@@ -217,7 +195,7 @@ Prepare seed state through API (not manual DB edits):
 |---|---|---|---|
 | A01 | P0 | Start backend in `headless` mode | Backend process starts, API reachable |
 | A02 | P0 | Start in `full` mode | Backend + frontend reachable |
-| A03 | P0 | First boot with empty DB | DB created, vendors seeded |
+| A03 | P0 | First boot with empty DB | DB created and baseline profile seeded |
 | A04 | P0 | `GET /health` | `200`, JSON contains `status=ok` and a non-empty `version` string |
 | A05 | P1 | Backend-served API documentation surface | Not exposed by the backend |
 | A06 | P1 | CORS preflight | Local launcher traffic stays same-origin through the Vite proxy in `full` mode; explicit backend base URLs remain available for standalone frontend workflows |
@@ -226,9 +204,6 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| B01 | P0 | List vendors | Includes `audit_enabled`, `audit_capture_bodies` |
-| B02 | P0 | Patch vendor audit fields | Fields persist; omitted field unchanged |
-| B03 | P1 | Get/patch unknown vendor | `404` |
 | B04 | P0 | Create model | `201`, model stored |
 | B05 | P0 | Create duplicate `model_id` in same effective profile | `409` |
 | B06 | P0 | Create valid model with ordered access targets | `201` |
@@ -296,12 +271,12 @@ Prepare seed state through API (not manual DB edits):
 |---|---|---|---|
 | E01 | P0 | Successful request logging | `request_logs` row exists with required fields |
 | E02 | P0 | Failover attempt logging | Both failed and successful attempts logged |
-| E03 | P0 | Request log filters (`ingress_request_id`, `model_id`, `status_family`, `endpoint_id`, `from_time`) | Correct subsets returned |
+| E03 | P0 | Request log filters (`ingress_request_id`, `model_id`, `client_rule_id`, `resolved_target_model_id`, `status_family`, `endpoint_id`, `from_time`) | Correct subsets returned; `client_rule_id` matches caller user agent only |
 | E04 | P0 | Pagination (`limit`, `offset`, `total`) | Consistent counts and windows |
 | E05 | P0 | Summary without `from_time` | Uses all historical data |
-| E06 | P1 | Summary grouping (`model/api_family/endpoint`) | Groups and aggregates correct |
+| E06 | P1 | Summary grouping (`model/api_family/endpoint`) | Groups and aggregates correct with endpoint labels from stored snapshots |
 | E07 | P1 | Connection success-rate API | Values match request logs |
-| E08 | P0 | Non-stream token extraction | Token fields match vendor format rules |
+| E08 | P0 | Non-stream token extraction | Token fields match provider format rules |
 | E09 | P1 | Unsupported/malformed usage fallback | Token fields null |
 | E10 | P0 | Stream token extraction | Token fields populated |
 | E11 | P1 | Streaming without usage fields | Token fields null |
@@ -315,7 +290,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| F01 | P0 | Audit disabled vendor | No audit row created |
+| F01 | P0 | Audit disabled for request | No audit row created |
 | F02 | P0 | Audit enabled + body capture enabled | Request/response metadata and bodies recorded |
 | F03 | P0 | Body capture disabled | Bodies stored as null |
 | F04 | P0 | Streaming audited request with body capture | Raw captured SSE response body stored when bytes are captured; metadata-only or empty captures keep `response_body` null |
@@ -360,14 +335,11 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=3`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, `loadbalance_strategies`, top-level private `connections`, ordered model `access_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
+| H01 | P0 | Export schema and metadata | `version=3`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `profile_settings`, encrypted `secret_payload`, `loadbalance_strategies`, top-level private `connections`, ordered model `access_targets`, required `api_family`, and strategy-name model references |
 | H01A | P0 | Export includes endpoint position | Endpoints are ordered by `position` and each endpoint includes `position` |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
-| H03 | P0 | Profile export excludes global vendor audit policy | Profile bundle uses `vendor_refs` only for actually referenced vendor rows; vendor audit metadata remains in the vendor-catalog bundle/global vendor rows |
-| H03A | P0 | Profile export includes vendorless model | Vendorless models export `vendor_key: null` and do not synthesize `vendor_refs` |
 | H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
 | H05 | P0 | Valid import replace (target profile only) | Only effective profile config replaced; other profiles unchanged |
-| H05D | P0 | Import vendorless model | Imported model persists with `vendor_id = null` while keeping required `api_family` |
 | H05E | P0 | Import preview with selected-profile header | Preview requires `X-Profile-Id`, reports readiness or blocking errors, and does not mutate profile state |
 | H05A | P0 | Import with endpoint position hints | Imported endpoint order follows provided `position` values and is normalized contiguously |
 | H05B | P0 | Import payload without endpoint position | Imported endpoint order follows file order and remains valid |
@@ -376,9 +348,6 @@ Prepare seed state through API (not manual DB edits):
 | H07 | P0 | Validation matrix | Correct `400` errors |
 | H08 | P1 | Settings UI export filename | `prism-profile-config-v3-YYYY-MM-DD.json` |
 | H09 | P1 | Settings UI import error paths | Parse/backend errors surfaced in toast |
-| H10 | P0 | Vendor catalog export schema and metadata | Vendor-catalog bundle metadata, audit flags, descriptions, and `icon_key` included |
-| H11 | P0 | Vendor catalog preview validation | Preview is global/no-header, returns create/update counts, and rejects duplicate keys/names or readonly overwrite attempts before mutation |
-| H12 | P0 | Vendor catalog import | Editable vendor metadata upserts correctly while readonly system vendors remain protected |
 
 ## I. Frontend Workflow Smoke
 
@@ -492,7 +461,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | K19 | P0 | Proxy request with tracing header | Header blocked |
 | K20 | P0 | Proxy request with allowed header | Passes through to upstream |
 | K21 | P0 | `custom_headers` cannot re-add blocked header names | Blocked header still absent |
-| K22 | P0 | Vendor auth headers remain correct | Auth headers present and correct |
+| K22 | P0 | API-family auth headers remain correct | Auth headers present and correct |
 | K23 | P0 | Health-check also applies blocklist rules | Blocked headers excluded |
 | K24 | P1 | Disable all rules | Metadata headers flow through |
 
@@ -552,7 +521,6 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
 | L14 | P0 | Config export current format | Safe GET export returns `version: 3`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level `connections` for Terminal Targets, ordered model access targets, pricing templates, and profile-scoped `profile_settings` |
 | L15 | P0 | Config export with secrets | Dangerous POST export returns the full secret-bearing bundle and requires the dangerous-confirm header |
-| L16 | P0 | Config import current format | Preview and apply restore vendors, Ban Policy strategies, access targets, templates, Terminal Targets represented as `connections`, vendorless models, and settings into the target profile only |
 | L17 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | L18 | P1 | FX conversion with custom rate | Correct converted cost |
 | L19 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
@@ -603,27 +571,6 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | N05 | P0 | Session refresh | `200`, new session issued |
 | N06 | P0 | Get session | Returns current session info |
 
-## O. CLIProxyAPI Sidecars
-
-| ID | Pri | Scenario | Expected Result |
-|---|---|---|---|
-| O01 | P0 | List sidecars | `200`, returns global `items[]` with masked credential state only |
-| O02 | P0 | Create sidecar | `201`, persists canonical URL, network policy flags, sync intervals, and no raw password in response/body logs |
-| O03 | P0 | Get sidecar | `200` for existing sidecar, `404` for unknown sidecar |
-| O04 | P0 | Patch sidecar metadata or management password | `200`, updates metadata; password rotation resets management auth state without returning the raw value |
-| O05 | P0 | Delete sidecar | `204`, soft-deletes registration and removes it from list results |
-| O06 | P0 | Test sidecar connection | Success returns `state=succeeded`, management auth state, and status code; invalid management auth records pause state |
-| O07 | P0 | Manual sync | Success updates provider inventory and sync status; disabled sidecar returns `409`, invalid management auth returns `424` |
-| O08 | P0 | Auth inventory read | `auth-files` returns live, normalized, redacted auth observations from CLIProxyAPI |
-| O09 | P0 | Provider inventory read | Provider snapshots are normalized for supported provider keys and do not expose raw secrets |
-| O10 | P1 | Sync-status read | Status includes `management_auth_state`, `stale`, `due`, `paused`, sync timestamps, and auth-failure pause metadata without profile scope |
-| O11 | P0 | `/sidecars` UI load | Route loads outside selected-profile scope, shows sidecar health, can select a detail row, and renders live auth-files plus provider inventory |
-| O13 | P1 | Auth status mutation | Status patch succeeds only through Prism backend after live auth-file preflight |
-| O14 | P1 | Auth priority mutation | Field patch accepts only priority and rejects any other auth-file mutation field |
-| O15 | P1 | Sidecar worker priority | `sidecar_snapshot_sync` rejects elevated priority overrides |
-
----
-
 ## 8. Recommended Execution Order
 
 1. A (startup/health).
@@ -636,7 +583,6 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 8. L plus M19 (token costing and spending reports with profile isolation).
 9. G, H, K.4, and M16-M18 in isolated destructive lane.
 10. I and K.5 (frontend full-stack smoke, including selected vs active profile behavior).
-11. O (sidecar control-plane smoke when fixtures or a safe live sidecar are available).
 12. J and M21 (non-functional quick pass + failover memory isolation).
 
 ---
@@ -645,7 +591,6 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 
 - All `P0` tests pass.
 - No proxy contract regressions in routing/failover/logging/audit.
-- No sidecar secret leakage in sidecar responses, snapshots, run notes, or screenshots.
 - Any `P1` failure is triaged with reproducible payloads and logs.
 
 ---

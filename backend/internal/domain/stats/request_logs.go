@@ -17,9 +17,6 @@ type requestLogListRow struct {
 	ModelID                     string
 	ResolvedTargetModelID       *string
 	APIFamily                   string
-	VendorID                    *int
-	VendorKey                   *string
-	VendorName                  *string
 	EndpointID                  *int
 	ConnectionID                *int
 	StatusCode                  int
@@ -48,9 +45,6 @@ type requestLogDetailRow struct {
 	ModelID                           string
 	ResolvedTargetModelID             *string
 	APIFamily                         string
-	VendorID                          *int
-	VendorKey                         *string
-	VendorName                        *string
 	StatusCode                        int
 	ResponseTimeMS                    int
 	TTFTMS                            *int
@@ -139,6 +133,16 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	if err != nil {
 		return RequestLogListResponse{}, err
 	}
+	if params.ClientRuleID != nil {
+		rule, found, ruleErr := loadCompiledUserAgentRuleByID(ctx, exec, params.ProfileID, *params.ClientRuleID)
+		if ruleErr != nil {
+			return RequestLogListResponse{}, ruleErr
+		}
+		if !found {
+			return RequestLogListResponse{}, &HTTPError{StatusCode: 400, Detail: "invalid client_rule_id"}
+		}
+		params.ClientRulePattern = &rule.RawPattern
+	}
 	whereClause, args := buildRequestLogBrowseWhere(params)
 	countQuery := `SELECT COUNT(*) FROM request_logs WHERE ` + whereClause
 	var total int
@@ -147,7 +151,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	}
 	rows, err := exec.Query(
 		ctx,
-		`SELECT id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, stream_outcome, stream_error_kind, output_tokens, total_tokens, total_cost_user_currency_micros, priced_flag, unpriced_reason, request_generation_params #>> '{reasoning,effort}', report_currency_symbol, caller_user_agent, upstream_user_agent, endpoint_base_url
+		`SELECT id, created_at, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, stream_outcome, stream_error_kind, output_tokens, total_tokens, total_cost_user_currency_micros, priced_flag, unpriced_reason, request_generation_params #>> '{reasoning,effort}', report_currency_symbol, caller_user_agent, upstream_user_agent, endpoint_base_url
 		 FROM request_logs
 		 WHERE `+whereClause+`
 		 ORDER BY created_at DESC, id DESC
@@ -173,9 +177,6 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			ResolvedTargetModelID:       item.ResolvedTargetModelID,
 			ResolvedTargetModelLabel:    resolveRequestLogResolvedTargetModelLabel(currentModelsByID, item.ResolvedTargetModelID),
 			APIFamily:                   item.APIFamily,
-			VendorID:                    item.VendorID,
-			VendorKey:                   item.VendorKey,
-			VendorName:                  item.VendorName,
 			EndpointID:                  item.EndpointID,
 			EndpointLabel:               resolveEndpointLabel(currentEndpoint.Name, currentEndpoint.BaseURL, item.EndpointBaseURL, item.EndpointID, "Unknown Endpoint"),
 			ConnectionID:                item.ConnectionID,
@@ -204,8 +205,10 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	}
 	return RequestLogListResponse{
 		FilterOptions: RequestLogListFilterOptions{
-			Endpoints: buildRequestLogEndpointOptions(currentEndpoints, params.EndpointID),
-			Models:    buildRequestLogModelOptions(currentModels, params.ModelID),
+			Endpoints:            buildRequestLogEndpointOptions(currentEndpoints, params.EndpointID),
+			Models:               buildRequestLogModelOptions(currentModels, params.ModelID),
+			ResolvedTargetModels: buildRequestLogResolvedTargetModelOptions(currentModels, params.ResolvedTargetModelID),
+			Clients:              buildRequestLogClientOptions(rules),
 		},
 		Items:  items,
 		Total:  total,
@@ -246,9 +249,6 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 			ResolvedTargetModelID:    row.ResolvedTargetModelID,
 			ResolvedTargetModelLabel: resolveRequestLogResolvedTargetModelLabel(currentModelsByID, row.ResolvedTargetModelID),
 			APIFamily:                row.APIFamily,
-			VendorID:                 row.VendorID,
-			VendorKey:                row.VendorKey,
-			VendorName:               row.VendorName,
 			StatusCode:               row.StatusCode,
 			ResponseTimeMS:           row.ResponseTimeMS,
 			TTFTMS:                   row.TTFTMS,
@@ -348,6 +348,10 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 		args = append(args, strings.TrimSpace(*params.ModelID))
 		clauses = append(clauses, fmt.Sprintf("model_id = $%d", len(args)))
 	}
+	if params.ResolvedTargetModelID != nil && strings.TrimSpace(*params.ResolvedTargetModelID) != "" {
+		args = append(args, strings.TrimSpace(*params.ResolvedTargetModelID))
+		clauses = append(clauses, fmt.Sprintf("resolved_target_model_id = $%d", len(args)))
+	}
 	if params.StatusFamily != nil {
 		switch strings.TrimSpace(strings.ToLower(*params.StatusFamily)) {
 		case "4xx":
@@ -367,6 +371,10 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 	if params.EndpointID != nil {
 		args = append(args, *params.EndpointID)
 		clauses = append(clauses, fmt.Sprintf("endpoint_id = $%d", len(args)))
+	}
+	if params.ClientRulePattern != nil && strings.TrimSpace(*params.ClientRulePattern) != "" {
+		args = append(args, strings.TrimSpace(*params.ClientRulePattern))
+		clauses = append(clauses, fmt.Sprintf("caller_user_agent IS NOT NULL AND btrim(caller_user_agent) <> '' AND caller_user_agent ~* $%d", len(args)))
 	}
 	return strings.Join(clauses, " AND "), args
 }
@@ -446,6 +454,31 @@ func buildRequestLogModelOptions(currentModels []requestLogModelRecord, selected
 	return append([]RequestLogFilterModelOption{{ModelID: *selected, ModelLabel: *selected}}, items...)
 }
 
+func buildRequestLogResolvedTargetModelOptions(currentModels []requestLogModelRecord, selectedModelID *string) []RequestLogFilterResolvedTargetModelOption {
+	modelOptions := buildRequestLogModelOptions(currentModels, selectedModelID)
+	items := make([]RequestLogFilterResolvedTargetModelOption, 0, len(modelOptions))
+	for _, model := range modelOptions {
+		items = append(items, RequestLogFilterResolvedTargetModelOption{ResolvedTargetModelID: model.ModelID, ModelLabel: model.ModelLabel})
+	}
+	return items
+}
+
+func buildRequestLogClientOptions(rules []compiledUserAgentRule) []RequestLogFilterClientOption {
+	items := make([]RequestLogFilterClientOption, 0, len(rules))
+	seen := map[int]struct{}{}
+	for _, rule := range rules {
+		if rule.ID <= 0 {
+			continue
+		}
+		if _, exists := seen[rule.ID]; exists {
+			continue
+		}
+		items = append(items, RequestLogFilterClientOption{ClientRuleID: rule.ID, ClientLabel: rule.Name})
+		seen[rule.ID] = struct{}{}
+	}
+	return items
+}
+
 func requestLogModelLabel(model requestLogModelRecord) string {
 	if model.DisplayName != nil && strings.TrimSpace(*model.DisplayName) != "" {
 		return strings.TrimSpace(*model.DisplayName)
@@ -481,7 +514,7 @@ func endpointFromMap(items map[int]endpointRecord, endpointID *int) (endpointRec
 func loadRequestLogDetailRow(ctx context.Context, exec queryExecutor, profileID int, requestID int) (requestLogDetailRow, bool, error) {
 	row := exec.QueryRow(
 		ctx,
-		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, stream_outcome, stream_error_kind, stream_error_detail, operation_name, upstream_operation_name, operation_translation_mode, request_path, upstream_request_path, ingress_request_id, attempt_number, provider_correlation_id, proxy_api_key_id, proxy_api_key_name_snapshot, caller_user_agent, upstream_user_agent, error_detail, request_generation_params, request_generation_params_status, endpoint_id, connection_id, selected_terminal_target_id, context_routing, endpoint_base_url, endpoint_description, audit_enabled_at_request, audit_capture_bodies_at_request, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used
+		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, stream_outcome, stream_error_kind, stream_error_detail, operation_name, upstream_operation_name, operation_translation_mode, request_path, upstream_request_path, ingress_request_id, attempt_number, provider_correlation_id, proxy_api_key_id, proxy_api_key_name_snapshot, caller_user_agent, upstream_user_agent, error_detail, request_generation_params, request_generation_params_status, endpoint_id, connection_id, selected_terminal_target_id, context_routing, endpoint_base_url, endpoint_description, audit_enabled_at_request, audit_capture_bodies_at_request, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used
 		 FROM request_logs
 		 WHERE profile_id = $1 AND id = $2
 		 ORDER BY created_at DESC
@@ -501,9 +534,6 @@ func loadRequestLogDetailRow(ctx context.Context, exec queryExecutor, profileID 
 
 func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogListRow, error) {
 	var resolvedTargetModelID sql.NullString
-	var vendorID sql.NullInt32
-	var vendorKey sql.NullString
-	var vendorName sql.NullString
 	var endpointID sql.NullInt32
 	var connectionID sql.NullInt32
 	var ttftMS sql.NullInt32
@@ -521,14 +551,11 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	var upstreamUserAgent sql.NullString
 	var endpointBaseURL sql.NullString
 	item := requestLogListRow{}
-	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &endpointID, &connectionID, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind, &outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricedFlag, &unpricedReason, &reasoningEffort, &reportCurrencySymbol, &callerUserAgent, &upstreamUserAgent, &endpointBaseURL); err != nil {
+	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &connectionID, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind, &outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricedFlag, &unpricedReason, &reasoningEffort, &reportCurrencySymbol, &callerUserAgent, &upstreamUserAgent, &endpointBaseURL); err != nil {
 		return requestLogListRow{}, err
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.ResolvedTargetModelID = nullableString(resolvedTargetModelID)
-	item.VendorID = nullableInt32(vendorID)
-	item.VendorKey = nullableString(vendorKey)
-	item.VendorName = nullableString(vendorName)
 	item.EndpointID = nullableInt32(endpointID)
 	item.ConnectionID = nullableInt32(connectionID)
 	item.TTFTMS = nullableInt32(ttftMS)
@@ -551,9 +578,6 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 
 func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLogDetailRow, error) {
 	var resolvedTargetModelID sql.NullString
-	var vendorID sql.NullInt32
-	var vendorKey sql.NullString
-	var vendorName sql.NullString
 	var ttftMS sql.NullInt32
 	var completionDurationMS sql.NullInt32
 	var streamOutcome sql.NullString
@@ -609,14 +633,11 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	var pricingSnapshotReasoning sql.NullString
 	var pricingConfigVersionUsed sql.NullInt32
 	item := requestLogDetailRow{}
-	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind, &streamErrorDetail, &operationName, &upstreamOperationName, &operationTranslationMode, &item.RequestPath, &upstreamRequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &requestGenerationParams, &requestGenerationParamsStatus, &endpointID, &connectionID, &selectedTerminalTargetID, &contextRouting, &endpointBaseURL, &endpointDescription, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
+	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind, &streamErrorDetail, &operationName, &upstreamOperationName, &operationTranslationMode, &item.RequestPath, &upstreamRequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &requestGenerationParams, &requestGenerationParamsStatus, &endpointID, &connectionID, &selectedTerminalTargetID, &contextRouting, &endpointBaseURL, &endpointDescription, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
 		return requestLogDetailRow{}, err
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.ResolvedTargetModelID = nullableString(resolvedTargetModelID)
-	item.VendorID = nullableInt32(vendorID)
-	item.VendorKey = nullableString(vendorKey)
-	item.VendorName = nullableString(vendorName)
 	item.TTFTMS = nullableInt32(ttftMS)
 	item.CompletionDurationMS = nullableInt32(completionDurationMS)
 	item.StreamOutcome = normalizeRequestLogStreamOutcome(nullableString(streamOutcome), item.IsStream, item.CompletionDurationMS)

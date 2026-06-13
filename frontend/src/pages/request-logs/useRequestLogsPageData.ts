@@ -5,6 +5,8 @@ import {
   STATS_FROM_TIME_PARAM,
   type RequestLogFilterModelOption,
   type RequestLogFilterEndpointOption,
+  type RequestLogFilterClientOption,
+  type RequestLogFilterResolvedTargetModelOption,
   type RequestLogListItem,
 } from "@/lib/types";
 import type { RequestLogPageState } from "./queryParams";
@@ -13,11 +15,15 @@ import { timeRangeToFromTime } from "./queryParams";
 export interface FilterOptions {
   models: RequestLogFilterModelOption[];
   endpoints: RequestLogFilterEndpointOption[];
+  clients: RequestLogFilterClientOption[];
+  resolved_target_models: RequestLogFilterResolvedTargetModelOption[];
 }
 
 const EMPTY_FILTER_OPTIONS: FilterOptions = {
   models: [],
   endpoints: [],
+  clients: [],
+  resolved_target_models: [],
 };
 
 interface UseRequestLogsPageDataParams {
@@ -65,6 +71,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     const params = {
       ingress_request_id: state.ingress_request_id || undefined,
       model_id: state.model_id || undefined,
+      client_rule_id: state.client_rule_id ? parseInt(state.client_rule_id, 10) : undefined,
+      resolved_target_model_id: state.resolved_target_model_id || undefined,
       status_family: state.status_family === "all" ? undefined : state.status_family,
       endpoint_id: state.endpoint_id ? parseInt(state.endpoint_id, 10) : undefined,
       [STATS_FROM_TIME_PARAM]: fromTime,
@@ -82,6 +90,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
           ...prev,
           models: res.filter_options.models,
           endpoints: res.filter_options.endpoints,
+          clients: res.filter_options.clients,
+          resolved_target_models: res.filter_options.resolved_target_models,
         }));
 
         if (!endpointOptionsLoadedOnceRef.current) {
@@ -100,6 +110,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   }, [
     state.ingress_request_id,
     state.model_id,
+    state.client_rule_id,
+    state.resolved_target_model_id,
     state.status_family,
     state.endpoint_id,
     state.time_range,

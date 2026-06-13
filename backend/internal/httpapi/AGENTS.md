@@ -14,13 +14,11 @@ httpapi/
 ```
 
 ## WHERE TO LOOK
-- Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, `management/sidecars/`, `management/stats/`, `management/vendors/`, `management/audit/`
-- Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/connections/AGENTS.md`, `management/configrules/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/stats/AGENTS.md`, `management/vendors/AGENTS.md`
+- Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, ``management/stats/`, ``management/audit/`
+- Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/connections/AGENTS.md`, `management/configrules/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/stats/AGENTS.md`, ``
 - Startup bootstrap ownership: `management/bootstrapconfig/AGENTS.md`, `management/bootstrapconfig/service.go`
-- Config bundle, vendor catalog, and context overflow promotion target import/export ownership: `management/configbundle/AGENTS.md`, `management/configbundle/service.go`, `management/configbundle/routes.go`, `management/configbundle/import.go`, `management/configbundle/store.go`
 - Model CRUD, access-target, exact-facade, and context overflow promotion target authoring: `management/models/AGENTS.md`, `management/models/routes.go`, `management/models/store.go`
 - Management auth status/session/bootstrap, password-reset or verification delivery, proxy-key, realtime auth-state, and runtime-cache seams: `management/auth/AGENTS.md`
-- Global sidecar registration, CLIProxyAPI sync, auth/provider inventory, direct auth-file mutation, and worker seams: `management/sidecars/AGENTS.md`
 - Runtime proxy leaf, operation registry, ingress rejection semantics, planning helpers, and hook collections: `runtime/AGENTS.md`, `runtime/operations.go`, `runtime/service.go`, `runtime/runtime.go`, `runtime/planning_snapshot.go`, `runtime/proxy_selector_helpers.go`, `runtime/operation_request_hooks.go`, `runtime/operation_response_hooks.go`, `runtime/operation_stream_hooks.go`, `runtime/operation_media_hooks.go`
 - Realtime websocket contract, channels, auth gate, and async publishers: `realtime/AGENTS.md`, `realtime/service.go`, `realtime/manager.go`, `realtime/async_publisher.go`, `realtime/async_analytics_publisher.go`
 - Management settings leaf and package routes: `management/settings/AGENTS.md`, `management/settings/`
@@ -31,10 +29,9 @@ httpapi/
 ## CONVENTIONS
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Keep management selected-profile scope separate from runtime active-profile routing. `X-Profile-Id` affects profile-scoped `/api/*` management calls, not proxy traffic or global sidecar management.
 - Keep runtime proxy routes under `runtime/`; they are served from mounted `/v1` and `/v1beta` prefixes, but the exact supported operations live only in `runtime/operations.go`.
 - Keep realtime websocket delivery under `realtime/`; do not mix it into runtime or unrelated management packages.
-- Keep `api_family` as runtime compatibility truth. Vendor rows and `icon_key` are presentation metadata.
+- Keep `api_family` as runtime compatibility truth. No catalog metadata participates in runtime compatibility.
 - Keep startup bootstrap and config-bundle behavior in their own management subpackages instead of folding them into `settings/` or other CRUD surfaces.
 - Do not invent backend-local generated docs artifacts; keep durable API reference updates in the markdown docs.
 - Keep request-log and dashboard materialization off the hot request path by using runtime telemetry outboxes and realtime publishers.

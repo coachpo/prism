@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-10T00:00:00Z";
 const rawProxyKey = "sk-live-secret";
@@ -20,9 +20,6 @@ function createRequestLogDetail({
       resolved_target_model_label: null,
       is_proxy_origin: false,
       api_family: "openai",
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
       status_code: 200,
       response_time_ms: 125,
       is_stream: false,
@@ -89,7 +86,7 @@ function createRequestLogDetail({
 }
 
 async function mockRequestLogDetailRoutes(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   detail: ReturnType<typeof createRequestLogDetail>,
 ) {
   await page.route("**/*", async (route) => {
@@ -155,7 +152,7 @@ async function mockRequestLogDetailRoutes(
 }
 
 async function openRequestLogDetail(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   locale: "en" | "zh-CN",
   detail: ReturnType<typeof createRequestLogDetail>,
 ) {

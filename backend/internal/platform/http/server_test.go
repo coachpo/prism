@@ -26,9 +26,7 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
-	managementsidecars "github.com/coachpo/prism/backend/internal/httpapi/management/sidecars"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
-	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/admission"
@@ -53,11 +51,6 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 		{name: "protected profile activation route", method: http.MethodPost, path: "/api/profiles/42/activate", want: priority.ManagementTierM1, ok: true},
 		{name: "general management route has explicit m2 tier", method: http.MethodGet, path: "/api/settings/auth/proxy-keys", want: priority.ManagementTierM2, ok: true},
 		{name: "connection batch read uses m2 tier", method: http.MethodPost, path: "/api/models/connections/batch", want: priority.ManagementTierM2, ok: true},
-		{name: "sidecar auth files alias uses m3 tier", method: http.MethodGet, path: "/api/sidecars/42/auth-files", want: priority.ManagementTierM3, ok: true},
-		{name: "sidecar auth status mutation uses m2 tier", method: http.MethodPatch, path: "/api/sidecars/42/auth-files/gemini/status", want: priority.ManagementTierM2, ok: true},
-		{name: "sidecar auth fields mutation uses m2 tier", method: http.MethodPatch, path: "/api/sidecars/42/auth-files/gemini/fields", want: priority.ManagementTierM2, ok: true},
-		{name: "sidecar providers alias uses m3 tier", method: http.MethodGet, path: "/api/sidecars/42/providers", want: priority.ManagementTierM3, ok: true},
-		{name: "sidecar sync status uses m3 tier", method: http.MethodGet, path: "/api/sidecars/42/sync-status", want: priority.ManagementTierM3, ok: true},
 		{name: "first shed stats route", method: http.MethodGet, path: "/api/stats/summary", want: priority.ManagementTierM3, ok: true},
 		{name: "trimmed mounted path still matches", method: http.MethodGet, path: "/realtime/ws", want: priority.ManagementTierM3, ok: true},
 		{name: "head maps to get", method: http.MethodHead, path: "/api/profiles/active", want: priority.ManagementTierM1, ok: true},
@@ -248,7 +241,7 @@ func TestManagementAdmissionUsesPublishedHotLimitsWithoutBlockingInflightRelease
 
 	updated := settings
 	updated.ManagementAdmissionControlBudget = config.ManagementAdmissionBudget{M2MaxConcurrent: 2, M3MaxConcurrent: 1}
-	retired, err := Publish(updated)
+	retired, err := runtime.Publish(updated)
 	if err != nil {
 		t.Fatalf("publish updated admission limits: %v", err)
 	}
@@ -307,7 +300,7 @@ func TestProxyAdmissionAttachesServerSideWorkload(t *testing.T) {
 	t.Parallel()
 
 	controller := admission.NewController(admission.Limits{Proxy: 1})
-	handler := proxyAdmissionMiddleware(controller, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := proxyAdmissionProviderMiddleware(nil, controller, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		metadata, err := priority.RequireMetadata(r.Context())
 		if err != nil {
 			t.Fatalf("expected proxy priority metadata: %v", err)
@@ -416,9 +409,7 @@ func TestManagementRouteSpecsCoverMountedRoutes(t *testing.T) {
 		&managementprofiles.Service{},
 		&realtimeapi.Service{},
 		&managementsettings.Service{},
-		&managementsidecars.Service{},
 		&managementstats.Service{},
-		&managementvendors.Service{},
 	).(*chi.Mux)
 	if !ok {
 		t.Fatal("expected management router to be a chi mux")
@@ -513,7 +504,6 @@ func TestManagementRouteContractClassifiesRuntimeCacheInvalidation(t *testing.T)
 	seenAuthInvalidation := false
 	seenActiveProfileInvalidation := false
 	seenPlanningInvalidation := false
-	seenAllPlanningInvalidation := false
 	seenProfileScopedNonInvalidatingRead := false
 	seenProfileScopedNonInvalidatingMutation := false
 
@@ -527,9 +517,6 @@ func TestManagementRouteContractClassifiesRuntimeCacheInvalidation(t *testing.T)
 		}
 		if row.InvalidatesPlanning {
 			seenPlanningInvalidation = true
-		}
-		if row.InvalidatesAllPlanning {
-			seenAllPlanningInvalidation = true
 		}
 		if row.ProfileScoped && !row.InvalidatesAuth && !row.InvalidatesActiveProfile && !row.InvalidatesPlanning && !row.InvalidatesAllPlanning {
 			for _, method := range row.Methods {
@@ -567,9 +554,6 @@ func TestManagementRouteContractClassifiesRuntimeCacheInvalidation(t *testing.T)
 	}
 	if !seenPlanningInvalidation {
 		t.Fatal("manifest should include selected-profile planning invalidation rows")
-	}
-	if !seenAllPlanningInvalidation {
-		t.Fatal("manifest should include all-planning invalidation rows")
 	}
 	if !seenProfileScopedNonInvalidatingRead {
 		t.Fatal("manifest should include profile-scoped non-invalidating read rows")
@@ -707,7 +691,7 @@ func TestCORSMiddlewareUsesPublishedRuntimeOrigins(t *testing.T) {
 
 	updated := settings
 	updated.CORSAllowedOrigins = "https://new.example.test"
-	retired, err := Publish(updated)
+	retired, err := runtime.Publish(updated)
 	if err != nil {
 		t.Fatalf("publish CORS runtime update: %v", err)
 	}

@@ -34,10 +34,6 @@ import type {
   ProfileBootstrapResponse,
   ProfileCreate,
   ProfileUpdate,
-  Vendor,
-  VendorCreate,
-  VendorModelUsageItem,
-  VendorUpdate,
 } from "../types";
 import { normalizeFailureStatusCodes } from "../loadbalanceRoutingPolicy";
 import { request } from "./core";
@@ -327,23 +323,6 @@ export const profiles = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-};
-
-export const vendors = {
-  list: () => request<Vendor[]>("/api/vendors"),
-  get: (id: number) => request<Vendor>(`/api/vendors/${id}`),
-  create: (data: VendorCreate) =>
-    request<Vendor>("/api/vendors", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  update: (id: number, data: VendorUpdate) =>
-    request<Vendor>(`/api/vendors/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    }),
-  models: (id: number) => request<VendorModelUsageItem[]>(`/api/vendors/${id}/models`),
-  delete: (id: number) => request<void>(`/api/vendors/${id}`, { method: "DELETE" }),
 };
 
 export const models = {

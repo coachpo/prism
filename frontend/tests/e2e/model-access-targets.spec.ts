@@ -43,8 +43,6 @@ function createModelListItem(id: number, modelId: string, displayName: string) {
   return {
     id,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: modelId,
     display_name: displayName,
@@ -91,7 +89,6 @@ async function mockStaleConnectionTargetRoutes(page: Page) {
         createModelListItem(2, "target-beta", "Target Beta"),
       ]);
     }
-    if (pathname === "/api/vendors") return fulfillJson([]);
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([createStrategy()]);
     if (pathname === "/api/stats/models/metrics") return fulfillJson({ items: [] });
     if (pathname === "/api/endpoints/connections") return fulfillJson({ items: [] });

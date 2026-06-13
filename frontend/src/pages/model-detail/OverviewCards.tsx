@@ -34,7 +34,6 @@ export function OverviewCards({
   const strategyCopy = messages.loadbalanceStrategyCopy;
   const fieldCopy = messages.common;
   const apiFamily = model.api_family ?? "openai";
-  const vendorLabel = model.vendor?.name ?? copy.unassigned;
   const strategyAssignmentLabel = model.loadbalance_strategy
     ? getLoadbalanceStrategyDetailLabel(model.loadbalance_strategy, strategyCopy)
     : null;
@@ -68,12 +67,6 @@ export function OverviewCards({
           <CardContent className="p-4">
             <h3 className="mb-4 font-semibold">{copy.configuration}</h3>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">{fieldCopy.vendor}</p>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{vendorLabel}</span>
-                </div>
-              </div>
               <div>
                 <p className="text-xs text-muted-foreground mb-1">{fieldCopy.apiFamily}</p>
                 <div className="flex items-center gap-2">

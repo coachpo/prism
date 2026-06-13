@@ -17,7 +17,6 @@ components/
 ├── StatusBadge.tsx                                    # Shared status badge
 ├── SpendTrustIndicator.tsx                            # Shared spend trust and fallback note
 ├── SwitchController.tsx                               # Shared switch wrapper and control row
-├── VendorIcon.tsx + VendorSelect.tsx + vendorIcon*.tsx # Shared vendor icon and picker helpers
 ├── WebSocketStatusIndicator.tsx                       # Shared realtime connection badge
 ├── layout/app-layout/AGENTS.md                        # Post-upgrade shell cluster behind the mounted page wrapper
 ├── loadbalance/AGENTS.md                              # Shared loadbalance renderers
@@ -31,7 +30,6 @@ components/
 - Shared language/theme controls: `LanguageSwitcher.tsx`, `ThemeToggle.tsx`
 - Shared list, compact metric, copy, empty-state, icon action, metric, header, status badge, spend-trust note, and switch widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CompactMetricTile.tsx`, `CopyButton.tsx`, `EmptyState.tsx`, `IconActionGroup.tsx`, `MetricCard.tsx`, `PageHeader.tsx`, `StatusBadge.tsx`, `SpendTrustIndicator.tsx`, `SwitchController.tsx`
 - Shared realtime connection badge: `WebSocketStatusIndicator.tsx`
-- Shared vendor icon and picker surfaces: `VendorIcon.tsx`, `VendorSelect.tsx`, `vendorIconRegistry.tsx`, `vendorIconComponents.tsx`
 - Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`
 - Shared statistics rendering: `statistics/TopSpendingCard.tsx`
 - Design-system primitives and local wrappers: `ui/`
@@ -65,5 +63,5 @@ components/
 ## ANTI-PATTERNS
 - Do not move nav-link, profile-dialog, or version-label logic out of `layout/app-layout/`.
 - Do not put page-specific fetches or route-state parsing in shared components.
-- Do not duplicate vendor icon fallback logic or websocket-health badges across route folders.
+- Do not duplicate websocket-health badges across route folders.
 - Do not refer to deleted shell files or the old shell wrapper, header, or profile popover surfaces as live shared components.

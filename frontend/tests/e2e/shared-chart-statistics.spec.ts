@@ -36,8 +36,6 @@ function createProfile(id: number, name: string, isActive = false) {
 function createModel(modelId: string, displayName: string, id: number) {
   return {
     id,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: modelId,
     display_name: displayName,
@@ -469,8 +467,8 @@ function applyRequestBreakdownValues(snapshot: ReturnType<typeof createUsageSnap
   snapshot.overview.total_requests = 6;
   snapshot.endpoint_statistics = [
     {
-      endpoint_id: 10,
-      endpoint_label: "Primary canonical endpoint",
+      endpoint_id: 2,
+      endpoint_label: "Sub-CPA-B",
       p50_ttft_ms: 120,
       p95_ttft_ms: 220,
       request_count: 4,
@@ -480,8 +478,8 @@ function applyRequestBreakdownValues(snapshot: ReturnType<typeof createUsageSnap
       total_cost_micros: 420000,
     },
     {
-      endpoint_id: 20,
-      endpoint_label: "Secondary backup endpoint",
+      endpoint_id: 3,
+      endpoint_label: "DeepSeek",
       p50_ttft_ms: 180,
       p95_ttft_ms: 280,
       request_count: 2,
@@ -608,9 +606,6 @@ async function mockUsageRoutes(page: Page, options?: { empty?: boolean; largeTok
       ]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson([]);
@@ -838,11 +833,17 @@ test.describe("shared chart statistics regression", () => {
     await expect(modelPieCard.locator(".recharts-pie-sector")).toHaveCount(2);
     await expect(endpointPieCard.locator(".recharts-pie-sector")).toHaveCount(2);
 
+    await expect(endpointPieCard).toContainText("Sub-CPA-B");
+    await expect(endpointPieCard).toContainText("DeepSeek");
+    await expect(endpointPieCard).not.toContainText("Endpoint 2");
+    await expect(endpointPieCard).not.toContainText("Endpoint 3");
+
     await modelPieCard.locator(".recharts-pie-sector").first().hover();
     await expect(page.locator(".recharts-tooltip-wrapper").filter({ hasText: "Primary canonical model" })).toContainText("4");
 
     await endpointPieCard.locator(".recharts-pie-sector").nth(1).hover();
-    await expect(page.locator(".recharts-tooltip-wrapper").filter({ hasText: "Secondary backup endpoint" })).toContainText("2");
+    await expect(page.locator(".recharts-tooltip-wrapper").filter({ hasText: "DeepSeek" })).toContainText("2");
+    await expect(page.locator(".recharts-tooltip-wrapper").filter({ hasText: "Endpoint 3" })).toHaveCount(0);
   });
 
   test("renders curved overview sparkline lines", async ({ page }) => {

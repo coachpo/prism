@@ -112,9 +112,6 @@ async function mockSettingsRoutes(page: Page, options: RetentionRouteOptions = {
     if (pathname === "/api/models") {
       return fulfillJson([]);
     }
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
     if (pathname === "/api/config/header-blocklist-rules") {
       return fulfillJson([]);
     }

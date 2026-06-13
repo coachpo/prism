@@ -1,9 +1,6 @@
 import type { SettingsPageData } from "./useSettingsPageData";
-import { DeleteVendorDialog } from "./dialogs/DeleteVendorDialog";
-import { VendorDialog } from "./dialogs/VendorDialog";
 import { AuthenticationSection } from "./sections/AuthenticationSection";
 import { RetentionDeletionSection } from "./sections/RetentionDeletionSection";
-import { VendorManagementSection } from "./sections/VendorManagementSection";
 
 interface SettingsGlobalTabProps {
   data: SettingsPageData;
@@ -49,50 +46,6 @@ export function SettingsGlobalTab({ data }: SettingsGlobalTabProps) {
         retentionSettingsLoading={data.retentionSettingsLoading}
         retentionSettingsSaving={data.retentionSettingsSaving}
         setRetentionDays={data.setRetentionDays}
-      />
-
-      <VendorManagementSection
-        catalogExporting={data.catalogExporting}
-        catalogFileInputRef={data.catalogFileInputRef}
-        catalogImporting={data.catalogImporting}
-        catalogImportSummary={data.catalogImportSummary}
-        catalogParsedImport={data.catalogParsedImport}
-        catalogPreviewing={data.catalogPreviewing}
-        catalogPreviewInvalidationReason={data.catalogPreviewInvalidationReason}
-        catalogPreviewReadyForSelection={data.catalogPreviewReadyForSelection}
-        catalogPreviewResult={data.catalogPreviewResult}
-        catalogSelectedFile={data.catalogSelectedFile}
-        handleCatalogExport={data.handleCatalogExport}
-        handleCatalogFileSelect={data.handleCatalogFileSelect}
-        handleCatalogImport={data.handleCatalogImport}
-        handleCatalogPreview={data.handleCatalogPreview}
-        vendors={data.vendors}
-        vendorsLoading={data.vendorsLoading}
-        onCreateVendor={data.openCreateVendorDialog}
-        onEditVendor={data.handleEditVendor}
-        onDeleteVendor={data.handleDeleteVendorClick}
-      />
-
-      <VendorDialog
-        open={data.vendorDialogOpen}
-        onClose={data.closeVendorDialog}
-        editingVendor={data.editingVendor}
-        vendorForm={data.vendorForm}
-        setVendorForm={data.setVendorForm}
-        onSave={data.handleSaveVendor}
-        vendorSaving={data.vendorSaving}
-      />
-
-      <DeleteVendorDialog
-        deleteVendorConfirm={data.deleteVendorConfirm}
-        deleteVendorConflict={data.deleteVendorConflict}
-        displayedDeleteVendorConfirm={data.displayedDeleteVendorConfirm}
-        onClose={data.closeDeleteVendorDialog}
-        onDelete={data.handleDeleteVendor}
-        open={data.deleteVendorDialogOpen}
-        vendorDeleting={data.vendorDeleting}
-        vendorUsageLoading={data.vendorUsageLoading}
-        vendorUsageRows={data.vendorUsageRows}
       />
     </div>
   );

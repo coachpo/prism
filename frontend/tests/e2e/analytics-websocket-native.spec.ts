@@ -18,8 +18,6 @@ const profile = {
 function createModel(modelId: string, displayName: string, id: number) {
   return {
     id,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: modelId,
     display_name: displayName,
@@ -296,7 +294,7 @@ async function mockBackendRoutes(page: Page, forbiddenRequests: string[]) {
       return fulfillJson([createModel("gpt-websocket", "Websocket aggregate model", 101)]);
     }
 
-    if (pathname === "/api/vendors" || pathname === "/api/loadbalance/strategies" || pathname === "/api/endpoints") {
+    if (pathname === "/api/loadbalance/strategies" || pathname === "/api/endpoints") {
       return fulfillJson([]);
     }
 

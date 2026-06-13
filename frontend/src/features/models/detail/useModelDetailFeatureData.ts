@@ -9,7 +9,6 @@ import type {
   ModelConfigListItem,
   PricingTemplate,
   SpendingSummary,
-  Vendor,
 } from "@/lib/types"
 import {
   getAccessTargetModelsForApiFamily,
@@ -59,7 +58,6 @@ export function useModelDetailFeatureData({
   const [allModels, setAllModels] = useState<ModelConfigListItem[]>([])
   const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([])
   const [pricingTemplates, setPricingTemplates] = useState<PricingTemplate[]>([])
-  const [vendors, setVendors] = useState<Vendor[]>([])
   const [spending, setSpending] = useState<SpendingSummary | null>(null)
   const [spendingLoading, setSpendingLoading] = useState(false)
   const [spendingCurrencySymbol, setSpendingCurrencySymbol] = useState("$")
@@ -118,7 +116,6 @@ export function useModelDetailFeatureData({
     setLoadbalanceStrategies,
     setAllModels,
     setPricingTemplates,
-    setVendors,
     setLoading,
     setSpending,
     setSpendingLoading,
@@ -237,7 +234,6 @@ export function useModelDetailFeatureData({
     model,
     loading,
     loadbalanceStrategies,
-    vendors,
     isEditModelDialogOpen,
     setIsEditModelDialogOpen,
     formData,

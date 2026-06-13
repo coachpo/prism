@@ -123,8 +123,6 @@ func classifyRuntimeCacheInvalidation(method string, rawPath string, header http
 		action.addPlanningProfile(profileIDFromHeader(header))
 	case normalizedMethod == http.MethodPost && matchesSegments(segments, "config", "profile", "import"):
 		action.addPlanningProfile(profileIDFromHeader(header))
-	case normalizedMethod == http.MethodPost && matchesSegments(segments, "config", "vendors", "import"):
-		action.planningAll = true
 	case isHeaderBlocklistMutation(normalizedMethod, segments):
 		action.addPlanningProfile(profileIDFromHeader(header))
 	case isModelPlanningMutation(normalizedMethod, segments):
@@ -135,8 +133,6 @@ func classifyRuntimeCacheInvalidation(method string, rawPath string, header http
 		action.addPlanningProfile(profileIDFromHeader(header))
 	case isLoadbalancePlanningMutation(normalizedMethod, segments):
 		action.addPlanningProfile(profileIDFromHeader(header))
-	case isVendorPlanningMutation(normalizedMethod, segments):
-		action.planningAll = true
 	}
 
 	return action
@@ -277,10 +273,4 @@ func isLoadbalancePlanningMutation(method string, segments []string) bool {
 		(method == http.MethodPost && matchesSegments(segments, "loadbalance", "strategies", "defaults")) ||
 		(method == http.MethodPut && matchesSegments(segments, "loadbalance", "strategies", "*")) ||
 		(method == http.MethodDelete && matchesSegments(segments, "loadbalance", "strategies", "*"))
-}
-
-func isVendorPlanningMutation(method string, segments []string) bool {
-	return (method == http.MethodPost && matchesSegments(segments, "vendors")) ||
-		(method == http.MethodPatch && matchesSegments(segments, "vendors", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "vendors", "*"))
 }

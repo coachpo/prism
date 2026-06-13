@@ -12,9 +12,8 @@ lib/
 │   ├── core.ts                   # API base, X-Profile-Id injection, auth refresh, query builder
 │   ├── profileScope.ts           # Profile-scoped management route matcher
 │   ├── authSettings.ts           # Auth bootstrap, session flows, and proxy keys
-│   ├── management.ts             # Profiles, vendors, models, endpoints, connections, pricing templates
-│   ├── observability.ts          # Usage snapshot, stats, bootstrap config, config import/export, audit, loadbalance, settings costing/timezone
-│   └── sidecars.ts               # Global sidecar registration, sync, inventory, mutations
+│   ├── management.ts             # Profiles, models, endpoints, connections, pricing templates
+│   └── observability.ts          # Usage snapshot, stats, bootstrap config, config import/export, audit, loadbalance, settings costing/timezone
 ├── websocket.ts                  # Singleton WebSocket client with channel ref-counts and reconnects
 ├── websocket/AGENTS.md           # Helper split beneath the singleton client
 ├── websocket/                    # Protocol, subscription, transport/reconnect helpers
@@ -49,7 +48,7 @@ lib/
 
 ## CHILD DOCS
 
-- `api/AGENTS.md`: `core.ts`, `profileScope.ts`, `authSettings.ts`, `management.ts`, `observability.ts`, and `sidecars.ts` ownership beneath the public `api.ts` barrel.
+- `api/AGENTS.md`: `core.ts`, `profileScope.ts`, `authSettings.ts`, `management.ts`, and `observability.ts` ownership beneath the public `api.ts` barrel.
 - `websocket/AGENTS.md`: message helpers, subscription bookkeeping, and transport/reconnect rules beneath `websocket.ts`.
 
 ## CONVENTIONS
@@ -58,18 +57,18 @@ lib/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Pages and hooks should import from `api.ts` or its exported `stats` helper, not call `fetch()` directly.
 - `setApiProfileId()` is fed by `ProfileContext`, and `api/core.ts` is the only place that injects `X-Profile-Id` into selected `/api/*` requests.
-- `api/profileScope.ts` owns the route matcher for management calls that should receive `X-Profile-Id`; global sidecar calls intentionally stay out of that allowlist.
+- `api/profileScope.ts` owns the route matcher for management calls that should receive `X-Profile-Id`.
 - `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
 - Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
 - `referenceData.ts` and `referenceDataRegistry.ts` own shared cache reuse, request dedupe, and revision-keyed lookup invalidation.
-- `configImportValidation.ts` owns frontend-side mirrored validation of config import contracts, including config-bundle v3 top-level connections, ordered model access targets, `context_overflow_promotion_target_id`, explicit Ban Policy strategy data, and vendor `icon_key` presence, instead of leaving that logic in page components.
+- `configImportValidation.ts` owns frontend-side mirrored validation of config import contracts, including config-bundle v3 top-level connections, ordered model access targets, `context_overflow_promotion_target_id`, and explicit Ban Policy strategy data, instead of leaving that logic in page components.
 - `loadbalanceRoutingPolicy.ts` owns explicit Ban Policy defaults, retry-window labels, and normalized failure-status or ban-policy handling.
 - `appVersion.ts` owns the browser-facing frontend version contract so shell chrome reads the synced `frontend/package.json` version through Vite instead of hard-coded literals.
 - `reportingCurrency.ts` owns selected-profile keyed cache reuse, active-currency sync, `prime()` or `refresh()` support, fail-open defaults, and normalization of `report_currency_code` or `report_currency_symbol` used by `ReportingCurrencyContext.tsx`, settings, and costing.
 - `websocket.ts` owns the singleton client; `websocket/AGENTS.md` owns protocol parsing, subscription bookkeeping, and reconnect transport helpers, while shared React consumers should prefer `useRealtimeData()`.
 - `timezone.ts` owns shared timezone preference caching and helper access beneath `useTimezone()`.
 - `costing.ts` owns shared cost formatting and usage labels on top of the active reporting currency instead of duplicating cache or normalization logic.
-- Keep backend payload naming aligned with server schemas, including `vendor_id`, `vendor_key`, fixed `api_family` fields, `context_overflow_promotion_target_id`, vendor `icon_key` on vendor payloads only, `expected_active_profile_id`, and stats or request-log identifiers like `ingress_request_id`.
+- Keep backend payload naming aligned with server schemas, including fixed `api_family` fields, `context_overflow_promotion_target_id`, `expected_active_profile_id`, and stats or request-log identifiers like `ingress_request_id`.
 - Treat `types.ts` as a barrel. Backend-aligned contracts live in `types/` leaf files and should retain server field names.
 - Request-log clipboard fallback behavior is shared infrastructure through `clipboard.ts`; route sheets can supply scoped fallback roots, but copy helpers stay here.
 

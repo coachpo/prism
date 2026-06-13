@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -25,12 +26,10 @@ import (
 )
 
 const (
-	configBundleSecretKey         = "configbundle-contract-secret"
-	configBundlePreviewTokenKey   = "configbundle-contract-bundle-key"
-	configBundleFixtureKeyID      = "sha256:profile-v3-contract"
-	configBundleOpenAISecret      = "fixture-openai-secret"
-	configBundleVendorExistingKey = "contract-existing-vendor"
-	configBundleVendorCreatedKey  = "contract-created-vendor"
+	configBundleSecretKey       = "configbundle-contract-secret"
+	configBundlePreviewTokenKey = "configbundle-contract-bundle-key"
+	configBundleFixtureKeyID    = "sha256:profile-v3-contract"
+	configBundleOpenAISecret    = "fixture-openai-secret"
 )
 
 var configBundleFixtureTime = time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
@@ -49,6 +48,14 @@ func TestProfileBundleV3Contract(t *testing.T) {
 	var payload map[string]any
 	decodeJSONResponse(t, exportResponse, &payload)
 	assertProfileBundleV3Shape(t, payload)
+	if _, ok := payload["vendor_"+"refs"]; ok {
+		t.Fatalf("profile export must not include obsolete vendor refs: %+v", payload)
+	}
+	for _, model := range payload["models"].([]any) {
+		if _, ok := asMap(t, model)["vendor_"+"key"]; ok {
+			t.Fatalf("profile export model must not include obsolete vendor key: %+v", model)
+		}
+	}
 
 	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", payload, modelHeader(profileID))
 	assertStatus(t, previewResponse, http.StatusOK)
@@ -106,7 +113,6 @@ func TestProfileBundleImportRejectsNonOpenAIFacadeModel(t *testing.T) {
 	payload := exportProfileBundlePayload(t, harness, profileID)
 	models := payload["models"].([]any)
 	models = append(models, map[string]any{
-		"vendor_key":                "openai",
 		"api_family":                "anthropic",
 		"model_id":                  "claude-router",
 		"display_name":              "Claude Router",
@@ -370,127 +376,6 @@ func TestProfileBundleImportRejectsUndecryptableSecretPayloadWithoutMutation(t *
 	assertProfileImportStateUnchanged(t, harness, profileID, before)
 }
 
-func TestVendorCatalogContract(t *testing.T) {
-	harness := newConfigBundleV3ContractHarness(t)
-	seedVendorCatalogCustomVendor(t, harness, configBundleVendorExistingKey, "Contract Existing Vendor", "Original contract vendor", "contract-existing", false, false)
-
-	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/vendors/export", nil, nil)
-	assertStatus(t, exportResponse, http.StatusOK)
-	if got := exportResponse.Header.Get("Content-Disposition"); got != "attachment; filename=\"prism-vendor-catalog-v1-2026-04-18.json\"" {
-		t.Fatalf("expected vendor export filename header, got %q", got)
-	}
-
-	var exportedPayload map[string]any
-	decodeJSONResponse(t, exportResponse, &exportedPayload)
-	if jsonInt(t, exportedPayload["version"]) != 1 || exportedPayload["bundle_kind"] != "vendor_catalog" {
-		t.Fatalf("expected vendor catalog v1 export, got %+v", exportedPayload)
-	}
-
-	payload := mutateVendorCatalogHappyPathPayload(t, exportedPayload)
-	previewPayload := previewVendorCatalogImportPayload(t, harness, payload)
-	if previewPayload["ready"] != true || previewPayload["preview_token"] == "" {
-		t.Fatalf("expected ready vendor preview, got %+v", previewPayload)
-	}
-	if jsonInt(t, previewPayload["create_count"]) != 1 || jsonInt(t, previewPayload["update_count"]) != 1 {
-		t.Fatalf("expected one vendor create and one vendor update in preview, got %+v", previewPayload)
-	}
-	mutationScope := asMap(t, previewPayload["mutation_scope"])
-	if mutationScope["target"] != "global_vendor_catalog" || jsonInt(t, mutationScope["create_count"]) != 1 || jsonInt(t, mutationScope["update_count"]) != 1 {
-		t.Fatalf("expected global vendor mutation scope, got %+v", mutationScope)
-	}
-
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", payload, configBundleHeadersWithPreviewToken(nil, previewPayload["preview_token"].(string)))
-	assertStatus(t, response, http.StatusOK)
-	var importPayload map[string]any
-	decodeJSONResponse(t, response, &importPayload)
-	if jsonInt(t, importPayload["created_count"]) != 1 || jsonInt(t, importPayload["updated_count"]) != 1 {
-		t.Fatalf("expected vendor import create/update counts, got %+v", importPayload)
-	}
-
-	existingVendor := loadVendorCatalogRowState(t, harness, configBundleVendorExistingKey)
-	if !existingVendor.Exists || existingVendor.Name != "Contract Existing Vendor Updated" || existingVendor.Description != "Updated contract vendor" || existingVendor.IconKey != "contract-updated" || !existingVendor.AuditEnabled || !existingVendor.AuditCaptureBodies {
-		t.Fatalf("expected updated existing vendor row, got %+v", existingVendor)
-	}
-	createdVendor := loadVendorCatalogRowState(t, harness, configBundleVendorCreatedKey)
-	if !createdVendor.Exists || createdVendor.Name != "Contract Created Vendor" || createdVendor.Description != "Created contract vendor" || createdVendor.IconKey != "contract-created" || !createdVendor.AuditEnabled || createdVendor.AuditCaptureBodies {
-		t.Fatalf("expected created vendor row, got %+v", createdVendor)
-	}
-}
-
-func TestVendorCatalogImportRejectsMissingPreviewTokenWithoutMutation(t *testing.T) {
-	harness := newConfigBundleV3ContractHarness(t)
-	seedVendorCatalogCustomVendor(t, harness, configBundleVendorExistingKey, "Contract Existing Vendor", "Original contract vendor", "contract-existing", false, false)
-
-	payload := mutateVendorCatalogHappyPathPayload(t, exportVendorCatalogPayload(t, harness))
-	before := captureVendorCatalogState(t, harness, configBundleVendorExistingKey, configBundleVendorCreatedKey)
-
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", payload, nil)
-	assertErrorResponse(t, response, http.StatusBadRequest, "X-Prism-Preview-Token header is required")
-	assertVendorCatalogStateUnchanged(t, harness, before)
-}
-
-func TestVendorCatalogImportRejectsExpiredPreviewTokenWithoutMutation(t *testing.T) {
-	harness := newConfigBundleV3ContractHarness(t)
-	seedVendorCatalogCustomVendor(t, harness, configBundleVendorExistingKey, "Contract Existing Vendor", "Original contract vendor", "contract-existing", false, false)
-
-	payload := mutateVendorCatalogHappyPathPayload(t, exportVendorCatalogPayload(t, harness))
-	before := captureVendorCatalogState(t, harness, configBundleVendorExistingKey, configBundleVendorCreatedKey)
-	previewPayload := previewVendorCatalogImportPayload(t, harness, payload)
-	if previewPayload["ready"] != true || previewPayload["preview_token"] == "" {
-		t.Fatalf("expected ready vendor preview before expiring token, got %+v", previewPayload)
-	}
-
-	headers := configBundleHeadersWithPreviewToken(nil, expireConfigBundlePreviewToken(t, previewPayload["preview_token"].(string)))
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", payload, headers)
-	assertErrorResponse(t, response, http.StatusConflict, "Preview token is invalid, expired, or does not match this bundle. Run preview again and retry.")
-	assertVendorCatalogStateUnchanged(t, harness, before)
-}
-
-func TestVendorCatalogImportRejectsMismatchedPreviewTokenWithoutMutation(t *testing.T) {
-	harness := newConfigBundleV3ContractHarness(t)
-	seedVendorCatalogCustomVendor(t, harness, configBundleVendorExistingKey, "Contract Existing Vendor", "Original contract vendor", "contract-existing", false, false)
-
-	previewPayloadBody := mutateVendorCatalogHappyPathPayload(t, exportVendorCatalogPayload(t, harness))
-	before := captureVendorCatalogState(t, harness, configBundleVendorExistingKey, configBundleVendorCreatedKey)
-	previewPayload := previewVendorCatalogImportPayload(t, harness, previewPayloadBody)
-	if previewPayload["ready"] != true || previewPayload["preview_token"] == "" {
-		t.Fatalf("expected ready vendor preview before mismatched apply, got %+v", previewPayload)
-	}
-
-	mismatchedPayload := cloneVendorCatalogPayload(t, previewPayloadBody)
-	findVendorCatalogRowByKey(t, mismatchedPayload, configBundleVendorCreatedKey)["description"] = "Changed after preview"
-	headers := configBundleHeadersWithPreviewToken(nil, previewPayload["preview_token"].(string))
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", mismatchedPayload, headers)
-	assertErrorResponse(t, response, http.StatusConflict, "Preview token is invalid, expired, or does not match this bundle. Run preview again and retry.")
-	assertVendorCatalogStateUnchanged(t, harness, before)
-}
-
-func TestVendorCatalogImportRejectsDuplicateCollisionWithoutMutation(t *testing.T) {
-	harness := newConfigBundleV3ContractHarness(t)
-	seedVendorCatalogCustomVendor(t, harness, configBundleVendorExistingKey, "Contract Existing Vendor", "Original contract vendor", "contract-existing", false, false)
-
-	payload := cloneVendorCatalogPayload(t, exportVendorCatalogPayload(t, harness))
-	vendors := payload["vendors"].([]any)
-	vendors = append(vendors,
-		map[string]any{"key": "contract-duplicate-a", "name": "Duplicate Contract Vendor", "description": "First duplicate vendor", "icon_key": "duplicate-a", "audit_enabled": false, "audit_capture_bodies": false},
-		map[string]any{"key": "contract-duplicate-b", "name": "Duplicate Contract Vendor", "description": "Second duplicate vendor", "icon_key": "duplicate-b", "audit_enabled": true, "audit_capture_bodies": true},
-	)
-	payload["vendors"] = vendors
-	before := captureVendorCatalogState(t, harness, configBundleVendorExistingKey, "contract-duplicate-a", "contract-duplicate-b")
-	previewPayload := previewVendorCatalogImportPayload(t, harness, payload)
-	wantDetail := "Vendor catalog bundle contains duplicate vendor name 'Duplicate Contract Vendor' for keys 'contract-duplicate-a' and 'contract-duplicate-b'"
-	if previewPayload["ready"] != false || previewPayload["preview_token"] == "" {
-		t.Fatalf("expected blocking vendor preview with token for duplicate collision, got %+v", previewPayload)
-	}
-	if got := firstBlockingErrorDetail(t, previewPayload); got != wantDetail {
-		t.Fatalf("expected duplicate vendor preview detail %q, got %q", wantDetail, got)
-	}
-
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", payload, configBundleHeadersWithPreviewToken(nil, previewPayload["preview_token"].(string)))
-	assertErrorResponse(t, response, http.StatusBadRequest, wantDetail)
-	assertVendorCatalogStateUnchanged(t, harness, before)
-}
-
 func newConfigBundleV3ContractHarness(t *testing.T) *contractHarness {
 	t.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -556,8 +441,6 @@ func newConfigBundleV3ContractHarness(t *testing.T) *contractHarness {
 func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID int) {
 	t.Helper()
 	now := configBundleFixtureTime
-	openaiVendorID := modelLoadVendorIDByKey(t, harness, "openai")
-
 	for _, statement := range []string{
 		`DELETE FROM endpoint_fx_rate_settings WHERE profile_id = $1`,
 		`DELETE FROM model_access_targets WHERE profile_id = $1`,
@@ -595,7 +478,7 @@ func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID i
 	}
 
 	var modelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $3, 128000, 4096, 0.90, TRUE, $4, $4) RETURNING id`, profileID, openaiVendorID, strategyID, now).Scan(&modelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $2, 128000, 4096, 0.90, TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert model: %v", err)
 	}
 	var connectionID int
@@ -621,10 +504,9 @@ func seedConfigBundleOwnerCollision(t *testing.T, harness *contractHarness, prof
 	t.Helper()
 	now := configBundleFixtureTime.Add(time.Minute)
 
-	var vendorID int
 	var strategyID int
 	var connectionID int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT vendor_id, loadbalance_strategy_id FROM model_configs WHERE profile_id = $1 AND model_id = 'gpt-4o-mini'`, profileID).Scan(&vendorID, &strategyID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `SELECT loadbalance_strategy_id FROM model_configs WHERE profile_id = $1 AND model_id = 'gpt-4o-mini'`, profileID).Scan(&strategyID); err != nil {
 		t.Fatalf("load owner model references: %v", err)
 	}
 	if err := harness.conn.QueryRow(context.Background(), `SELECT target_connection_id FROM model_access_targets WHERE profile_id = $1 AND target_type = 'connection'`, profileID).Scan(&connectionID); err != nil {
@@ -635,7 +517,7 @@ func seedConfigBundleOwnerCollision(t *testing.T, harness *contractHarness, prof
 	}
 
 	var collisionModelID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', 'gpt-4o-collision', 'Collision GPT 4o', $3, TRUE, $4, $4) RETURNING id`, profileID, vendorID, strategyID, now).Scan(&collisionModelID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-collision', 'Collision GPT 4o', $2, TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&collisionModelID); err != nil {
 		t.Fatalf("insert collision owner model: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, collisionModelID, connectionID, now); err != nil {
@@ -648,14 +530,13 @@ func seedConfigBundleFacadeRoutingModel(t *testing.T, harness *contractHarness, 
 	t.Helper()
 	now := configBundleFixtureTime.Add(3 * time.Minute)
 
-	var vendorID int
 	var strategyID int
 	var targetModelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT vendor_id, loadbalance_strategy_id, id FROM model_configs WHERE profile_id = $1 AND model_id = 'gpt-4o-mini' LIMIT 1`, profileID).Scan(&vendorID, &strategyID, &targetModelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `SELECT loadbalance_strategy_id, id FROM model_configs WHERE profile_id = $1 AND model_id = 'gpt-4o-mini' LIMIT 1`, profileID).Scan(&strategyID, &targetModelConfigID); err != nil {
 		t.Fatalf("load facade routing fixture references: %v", err)
 	}
 	var routerModelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', 'gpt-4o-router', 'GPT 4o Router', $3, TRUE, 'weighted_eligible_context', 'redistribute_ineligible_weight', TRUE, $4, $4) RETURNING id`, profileID, vendorID, strategyID, now).Scan(&routerModelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-router', 'GPT 4o Router', $2, TRUE, 'weighted_eligible_context', 'redistribute_ineligible_weight', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&routerModelConfigID); err != nil {
 		t.Fatalf("insert facade routing model: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, 9, 4, TRUE, $4, $4)`, profileID, routerModelConfigID, targetModelConfigID, now); err != nil {
@@ -760,9 +641,7 @@ func cloneProfileBundleV3Payload(t *testing.T, payload map[string]any) map[strin
 
 func configBundleHeadersWithPreviewToken(headers map[string]string, token string) map[string]string {
 	merged := make(map[string]string, len(headers)+1)
-	for key, value := range headers {
-		merged[key] = value
-	}
+	maps.Copy(merged, headers)
 	merged["X-Prism-Preview-Token"] = token
 	return merged
 }
@@ -791,20 +670,6 @@ type profileImportStateSnapshot struct {
 	UserAgentPattern     string
 }
 
-type vendorCatalogRowState struct {
-	Exists             bool
-	Name               string
-	Description        string
-	IconKey            string
-	AuditEnabled       bool
-	AuditCaptureBodies bool
-}
-
-type vendorCatalogStateSnapshot struct {
-	TotalCount int
-	Rows       map[string]vendorCatalogRowState
-}
-
 func exportProfileBundlePayload(t *testing.T, harness *contractHarness, profileID int) map[string]any {
 	t.Helper()
 	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
@@ -825,27 +690,9 @@ func exportProfileBundleWithSecretsPayload(t *testing.T, harness *contractHarnes
 	return payload
 }
 
-func exportVendorCatalogPayload(t *testing.T, harness *contractHarness) map[string]any {
-	t.Helper()
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/vendors/export", nil, nil)
-	assertStatus(t, response, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	return payload
-}
-
 func previewProfileImportPayload(t *testing.T, harness *contractHarness, profileID int, payload map[string]any) map[string]any {
 	t.Helper()
 	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", payload, modelHeader(profileID))
-	assertStatus(t, response, http.StatusOK)
-	var previewPayload map[string]any
-	decodeJSONResponse(t, response, &previewPayload)
-	return previewPayload
-}
-
-func previewVendorCatalogImportPayload(t *testing.T, harness *contractHarness, payload map[string]any) map[string]any {
-	t.Helper()
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import/preview", payload, nil)
 	assertStatus(t, response, http.StatusOK)
 	var previewPayload map[string]any
 	decodeJSONResponse(t, response, &previewPayload)
@@ -874,58 +721,6 @@ func mutateFirstProfileEndpointBaseURL(t *testing.T, payload map[string]any, bas
 	}
 	endpoint := asMap(t, endpoints[0])
 	endpoint["base_url"] = baseURL
-	return mutated
-}
-
-func cloneVendorCatalogPayload(t *testing.T, payload map[string]any) map[string]any {
-	t.Helper()
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal vendor catalog payload: %v", err)
-	}
-	var cloned map[string]any
-	if err := json.Unmarshal(raw, &cloned); err != nil {
-		t.Fatalf("clone vendor catalog payload: %v", err)
-	}
-	return cloned
-}
-
-func findVendorCatalogRowByKey(t *testing.T, payload map[string]any, key string) map[string]any {
-	t.Helper()
-	vendors, ok := payload["vendors"].([]any)
-	if !ok {
-		t.Fatalf("expected vendor catalog payload vendors, got %+v", payload)
-	}
-	for _, item := range vendors {
-		vendor := asMap(t, item)
-		if vendor["key"] == key {
-			return vendor
-		}
-	}
-	t.Fatalf("expected vendor catalog payload to contain key %q: %+v", key, payload)
-	return nil
-}
-
-func mutateVendorCatalogHappyPathPayload(t *testing.T, payload map[string]any) map[string]any {
-	t.Helper()
-	mutated := cloneVendorCatalogPayload(t, payload)
-	existingVendor := findVendorCatalogRowByKey(t, mutated, configBundleVendorExistingKey)
-	existingVendor["name"] = "Contract Existing Vendor Updated"
-	existingVendor["description"] = "Updated contract vendor"
-	existingVendor["icon_key"] = "contract-updated"
-	existingVendor["audit_enabled"] = true
-	existingVendor["audit_capture_bodies"] = true
-
-	vendors := mutated["vendors"].([]any)
-	vendors = append(vendors, map[string]any{
-		"key":                  configBundleVendorCreatedKey,
-		"name":                 "Contract Created Vendor",
-		"description":          "Created contract vendor",
-		"icon_key":             "contract-created",
-		"audit_enabled":        true,
-		"audit_capture_bodies": false,
-	})
-	mutated["vendors"] = vendors
 	return mutated
 }
 
@@ -1016,63 +811,6 @@ func assertProfileImportStateUnchanged(t *testing.T, harness *contractHarness, p
 	after := captureProfileImportState(t, harness, profileID)
 	if after != before {
 		t.Fatalf("expected rejected profile import to preserve state, before=%+v after=%+v", before, after)
-	}
-}
-
-func captureVendorCatalogState(t *testing.T, harness *contractHarness, keys ...string) vendorCatalogStateSnapshot {
-	t.Helper()
-	state := vendorCatalogStateSnapshot{Rows: make(map[string]vendorCatalogRowState, len(keys))}
-	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM vendors`).Scan(&state.TotalCount); err != nil {
-		t.Fatalf("count vendors for vendor catalog snapshot: %v", err)
-	}
-	for _, key := range keys {
-		state.Rows[key] = loadVendorCatalogRowState(t, harness, key)
-	}
-	return state
-}
-
-func loadVendorCatalogRowState(t *testing.T, harness *contractHarness, key string) vendorCatalogRowState {
-	t.Helper()
-	ctx := context.Background()
-	var count int
-	if err := harness.conn.QueryRow(ctx, `SELECT COUNT(*) FROM vendors WHERE key = $1`, key).Scan(&count); err != nil {
-		t.Fatalf("count vendor %q for vendor catalog snapshot: %v", key, err)
-	}
-	if count == 0 {
-		return vendorCatalogRowState{}
-	}
-	row := vendorCatalogRowState{Exists: true}
-	if err := harness.conn.QueryRow(ctx, `SELECT name, COALESCE(description, ''), COALESCE(icon_key, ''), audit_enabled, audit_capture_bodies FROM vendors WHERE key = $1 LIMIT 1`, key).Scan(&row.Name, &row.Description, &row.IconKey, &row.AuditEnabled, &row.AuditCaptureBodies); err != nil {
-		t.Fatalf("load vendor %q for vendor catalog snapshot: %v", key, err)
-	}
-	return row
-}
-
-func assertVendorCatalogStateUnchanged(t *testing.T, harness *contractHarness, before vendorCatalogStateSnapshot) {
-	t.Helper()
-	after := captureVendorCatalogState(t, harness, func() []string {
-		keys := make([]string, 0, len(before.Rows))
-		for key := range before.Rows {
-			keys = append(keys, key)
-		}
-		return keys
-	}()...)
-	if after.TotalCount != before.TotalCount {
-		t.Fatalf("expected rejected vendor import to preserve total vendor count, before=%d after=%d", before.TotalCount, after.TotalCount)
-	}
-	for key, beforeRow := range before.Rows {
-		afterRow := after.Rows[key]
-		if afterRow != beforeRow {
-			t.Fatalf("expected rejected vendor import to preserve key %q, before=%+v after=%+v", key, beforeRow, afterRow)
-		}
-	}
-}
-
-func seedVendorCatalogCustomVendor(t *testing.T, harness *contractHarness, key string, name string, description string, iconKey string, auditEnabled bool, auditCaptureBodies bool) {
-	t.Helper()
-	now := configBundleFixtureTime.Add(2 * time.Minute)
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO vendors (key, name, description, icon_key, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, key, name, description, iconKey, auditEnabled, auditCaptureBodies, now); err != nil {
-		t.Fatalf("insert vendor %q: %v", key, err)
 	}
 }
 
@@ -1228,7 +966,6 @@ func TestConfigBundleLegacyFacadeAndTargetMetadataDefaults(t *testing.T) {
 	payload := exportProfileBundlePayload(t, harness, profileID)
 	models := payload["models"].([]any)
 	models = append(models, map[string]any{
-		"vendor_key":                "openai",
 		"api_family":                "openai",
 		"model_id":                  "gpt-4o-router",
 		"display_name":              "GPT 4o Router",

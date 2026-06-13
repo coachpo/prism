@@ -32,7 +32,6 @@ platform/
 - DB lane budgets and pool handles: `db/`
 - Partitioned log retention, daily partition horizon, retention deletes, and low-priority maintenance worker: `logretention/`, `managementjobs/jobs.go`
 - Background worker contracts and side-effect stores: `background/`, `managementsideeffects/`, `managementjobs/`, `email/outbox/`
-- Sidecar sync worker registration and lifecycle wiring: `../httpapi/management/sidecars/worker.go`, `lifecycle/production.go`
 
 ## CONVENTIONS
 

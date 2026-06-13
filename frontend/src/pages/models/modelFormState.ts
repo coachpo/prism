@@ -6,7 +6,6 @@ import type {
   ModelAccessTargetMutation,
   ModelConfig,
   ModelConfigListItem,
-  Vendor,
 } from "@/lib/types";
 import type {
   ManagedModelConfigCreate,
@@ -17,7 +16,6 @@ import type {
 export type SubmitEventLike = Pick<Event, "preventDefault">;
 
 export interface ModelFormData {
-  vendor_id: number | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string;
@@ -53,7 +51,6 @@ const DEFAULT_MODEL_TARGET_WEIGHT = 1;
 const DEFAULT_MODEL_TARGET_PRIORITY = 0;
 
 export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
-  vendor_id: null,
   api_family: DEFAULT_API_FAMILY,
   model_id: "",
   display_name: "",
@@ -72,12 +69,6 @@ export function resolveModelApiFamily(
   model: Pick<ModelConfigListItem, "api_family"> | Pick<ModelConfig, "api_family">,
 ): ApiFamily {
   return model.api_family;
-}
-
-function resolveModelVendorId(
-  model: Pick<ModelConfigListItem, "vendor_id"> | Pick<ModelConfig, "vendor_id">,
-): number | null {
-  return model.vendor_id ?? null;
 }
 
 function shouldAutoSyncDisplayName(formData: ModelFormData): boolean {
@@ -371,8 +362,7 @@ type EditableModelFormSource = (
   | Pick<
       ModelConfig,
       |
-        "vendor_id"
-        | "api_family"
+        "api_family"
         | "model_id"
         | "display_name"
         | "loadbalance_strategy_id"
@@ -386,8 +376,7 @@ type EditableModelFormSource = (
   | Pick<
       ModelConfigListItem,
       |
-        "vendor_id"
-        | "api_family"
+        "api_family"
         | "model_id"
         | "display_name"
         | "loadbalance_strategy_id"
@@ -418,10 +407,8 @@ export function getEditModelConnectionOptions(
 }
 
 export function createEditModelFormData(model: EditableModelFormSource): ModelFormData {
-  const vendorId = resolveModelVendorId(model);
   const displayName = model.display_name || "";
   return {
-    vendor_id: vendorId,
     api_family: resolveModelApiFamily(model),
     model_id: model.model_id,
     display_name: displayName,
@@ -439,9 +426,8 @@ export function createEditModelFormData(model: EditableModelFormSource): ModelFo
   };
 }
 
-export function createNewModelFormData(_vendors: Vendor[], loadbalanceStrategyId: number | null): ModelFormData {
+export function createNewModelFormData(loadbalanceStrategyId: number | null): ModelFormData {
   return {
-    vendor_id: DEFAULT_MODEL_FORM_DATA.vendor_id,
     api_family: DEFAULT_MODEL_FORM_DATA.api_family,
     model_id: DEFAULT_MODEL_FORM_DATA.model_id,
     display_name: DEFAULT_MODEL_FORM_DATA.display_name,
@@ -585,7 +571,6 @@ function getNormalizedCapabilityState(formData: ModelFormData) {
 export function toModelCreatePayload(formData: ModelFormData): ManagedModelConfigCreate {
   const normalizedDisplayName = formData.display_name?.trim() || formData.model_id.trim();
   return {
-    vendor_id: formData.vendor_id ?? null,
     api_family: formData.api_family,
     model_id: formData.model_id,
     display_name: normalizedDisplayName,
@@ -597,7 +582,6 @@ export function toModelCreatePayload(formData: ModelFormData): ManagedModelConfi
 
 export function toModelUpdatePayload(formData: ModelFormData): ManagedModelConfigUpdate {
   return {
-    vendor_id: formData.vendor_id ?? null,
     api_family: formData.api_family,
     display_name: formData.display_name || null,
     model_id: formData.model_id,
@@ -671,8 +655,6 @@ export function toModelListItem(
   return {
     id: model.id,
     profile_id: model.profile_id,
-    vendor_id: resolveModelVendorId(model),
-    vendor: model.vendor,
     api_family: model.api_family,
     model_id: model.model_id,
     display_name: model.display_name,

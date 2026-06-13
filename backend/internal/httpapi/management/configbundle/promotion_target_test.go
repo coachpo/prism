@@ -379,7 +379,7 @@ func insertConfigBundleModel(t *testing.T, ctx context.Context, exec interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, profileID int, strategyID int, modelID string, now time.Time) {
 	t.Helper()
-	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, 'openai', $2, $2, $3, NULL, 4096, 0.9, NULL, FALSE, NULL, NULL, NULL, TRUE, $4, $4) RETURNING id`, profileID, modelID, strategyID, now).Scan(new(int)); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $2, $3, NULL, 4096, 0.9, NULL, FALSE, NULL, NULL, NULL, TRUE, $4, $4) RETURNING id`, profileID, modelID, strategyID, now).Scan(new(int)); err != nil {
 		t.Fatalf("insert model %q: %v", modelID, err)
 	}
 }

@@ -24,8 +24,6 @@ function createProfile(id: number, name: string, isActive = false) {
 function createModelListItem() {
   return {
     id: 101,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai" as const,
     model_id: "model-a",
     display_name: "Model A",
@@ -97,9 +95,6 @@ function createRecentRequestLogItem() {
     upstream_client_display: "Dashboard Fixture Row",
     user_agent_overridden: false,
     api_family: "openai" as const,
-    vendor_id: null,
-    vendor_key: null,
-    vendor_name: null,
     endpoint_id: 201,
     endpoint_label: "Endpoint A",
     connection_id: 501,
@@ -130,9 +125,6 @@ function createRequestLogDetail() {
       resolved_target_model_id: null,
       resolved_target_model_label: null,
       api_family: "openai" as const,
-      vendor_id: null,
-      vendor_key: null,
-      vendor_name: null,
       status_code: 200,
       response_time_ms: 640,
       is_stream: false,
@@ -212,6 +204,8 @@ function createRequestLogsResponse() {
     filter_options: {
       endpoints: [],
       models: [],
+      clients: [],
+      resolved_target_models: [],
     },
   };
 }
@@ -332,9 +326,6 @@ async function mockDashboardRoutes(
       return fulfillJson([]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/loadbalance/current-state") {
       return fulfillJson({ items: [] });

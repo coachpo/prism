@@ -29,9 +29,6 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     upstream_client_display: "Redirected Target",
     user_agent_overridden: false,
     api_family: "openai",
-    vendor_id: 1,
-    vendor_key: "openai",
-    vendor_name: "OpenAI",
     endpoint_id: 1,
     endpoint_label: "Primary endpoint",
     connection_id: null,
@@ -76,6 +73,8 @@ function createRequestLogsResponse(
       endpoints: [
         { endpoint_id: 1, endpoint_label: "Primary endpoint" },
       ],
+      clients: [],
+      resolved_target_models: [],
     },
   };
 }
@@ -107,7 +106,6 @@ async function mockRequestLogRoutes(page: Page, requestLogItems: Record<string, 
       return fulfillJson({ report_currency_code: "USD", report_currency_symbol: "$", endpoint_fx_mappings: [], timezone_preference: null });
     }
     if (pathname === "/api/settings/timezone") return fulfillJson({ timezone_preference: "UTC" });
-    if (pathname === "/api/vendors") return fulfillJson([]);
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([]);
     if (pathname === "/api/models") throw new Error("Unexpected /api/models request during request-logs browse mode");
     if (pathname === "/api/endpoints") throw new Error("Unexpected /api/endpoints request during request-logs browse mode");

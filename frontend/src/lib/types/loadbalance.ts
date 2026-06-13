@@ -106,7 +106,6 @@ export interface LoadbalanceEvent {
   last_retry_delay_ms: number;
   model_id: string | null;
   endpoint_id: number | null;
-  vendor_id: number | null;
   ban_mode: LoadbalanceBanMode | null;
   cycle_retry_attempt_limit: number | null;
   ban_cumulative_retry_attempt_threshold: number | null;

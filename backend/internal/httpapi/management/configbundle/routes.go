@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"time"
 
@@ -134,109 +135,19 @@ func (s *Service) handleImportProfileBundle(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) handleExportVendorCatalog(w http.ResponseWriter, r *http.Request) {
-	exportTime := s.nowUTC()
-	bundle, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (vendorCatalogResponse, error) {
-		return buildVendorCatalog(r.Context(), tx, exportTime)
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-
-	writeDownloadJSON(w, http.StatusOK, bundle, vendorExportFilename(exportTime))
-}
-
-func (s *Service) handlePreviewVendorCatalogImport(w http.ResponseWriter, r *http.Request) {
-	var requestBody vendorCatalogImportRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	if err := validateVendorCatalogBundleEnvelope(requestBody); err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-
-	bundleFingerprint, err := vendorCatalogImportBundleFingerprint(requestBody)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	previewToken, err := s.issueVendorPreviewToken(bundleFingerprint)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (vendorCatalogImportPreviewResponse, error) {
-		preview, err := s.previewVendorCatalogImport(r.Context(), tx, requestBody)
-		if err != nil {
-			return vendorCatalogImportPreviewResponse{}, err
-		}
-		preview.PreviewToken = previewToken
-		preview.BundleFingerprint = bundleFingerprint
-		return preview, nil
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, response)
-}
-
-func (s *Service) handleImportVendorCatalog(w http.ResponseWriter, r *http.Request) {
-	var requestBody vendorCatalogImportRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	if err := validateVendorCatalogBundleEnvelope(requestBody); err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	previewToken, err := requirePreviewTokenHeader(r)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	if err := s.validateVendorPreviewToken(previewToken, requestBody); err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (vendorCatalogImportResponse, error) {
-		return s.importVendorCatalog(r.Context(), tx, requestBody)
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, response)
-}
-
 func profileExportFilename(exportTime time.Time) string {
 	return fmt.Sprintf("prism-profile-config-v%d-%s.json", canonicalProfileBundleVersion, exportTime.UTC().Format("2006-01-02"))
 }
 
-func vendorExportFilename(exportTime time.Time) string {
-	return fmt.Sprintf("prism-vendor-catalog-v%d-%s.json", canonicalVendorCatalogVersion, exportTime.UTC().Format("2006-01-02"))
-}
-
 func buildProfilePreviewErrorResponse(data profileImportRequest, detail string) profileImportPreviewResponse {
-	return buildProfilePreviewResponse(data, []profileImportVendorResolution{}, []string{}, []string{detail}, []string{})
+	return buildProfilePreviewResponse(data, []string{}, []string{detail})
 }
 
 func previewErrorDetail(err error) string {
-	var bundleErr *domainError
-
-	if errors.As(err, &bundleErr) {
+	if bundleErr, ok := errors.AsType[*domainError](err); ok {
 		return bundleErr.Detail
 	}
-	var profileErr *profiledomain.HTTPError
-	if errors.As(err, &profileErr) {
+	if profileErr, ok := errors.AsType[*profiledomain.HTTPError](err); ok {
 		return profileErr.Detail
 	}
 	return "Internal server error"
@@ -265,14 +176,11 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
-	var bundleErr *domainError
-	if errors.As(err, &bundleErr) {
+	if bundleErr, ok := errors.AsType[*domainError](err); ok {
 		writeErrorFields(w, r, corsSnapshot, bundleErr.StatusCode, bundleErr.Detail, bundleErr.Fields)
-
 		return
 	}
-	var profileErr *profiledomain.HTTPError
-	if errors.As(err, &profileErr) {
+	if profileErr, ok := errors.AsType[*profiledomain.HTTPError](err); ok {
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
@@ -290,8 +198,6 @@ func writeErrorFields(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 		return
 	}
 	payload := map[string]any{"detail": detail}
-	for key, value := range fields {
-		payload[key] = value
-	}
+	maps.Copy(payload, fields)
 	writeJSON(w, statusCode, payload)
 }

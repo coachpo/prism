@@ -14,7 +14,6 @@ export type PrismRouteId =
   | "route-ban-policies"
   | "system-settings"
   | "control-proxy-keys"
-  | "control-sidecars"
   | "route-pricing"
   | "observe-requests"
   | "observe-request-audit"
@@ -84,7 +83,6 @@ export const prismRouteDefinitions = [
   { id: "route-ban-policies", path: "/route/ban-policies", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "system-settings", path: "/system/settings", scope: "mixed", searchSchema: settingsSearchSchema },
   { id: "control-proxy-keys", path: "/control/proxy-keys", scope: "protected-global", searchSchema: emptySearchSchema },
-  { id: "control-sidecars", path: "/control/sidecars", scope: "protected-global", searchSchema: emptySearchSchema },
   { id: "route-pricing", path: "/route/pricing", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "observe-requests", path: "/observe/requests", scope: "protected-selected-profile", searchSchema: requestLogSearchSchema },
 ] as const satisfies readonly StaticRouteDefinition[]
@@ -102,7 +100,6 @@ export const rewriteCompatibilityRoutePaths = [
   "/loadbalance-strategies",
   "/settings",
   "/proxy-api-keys",
-  "/sidecars",
   "/pricing-templates",
   "/request-logs",
   "/request-logs/$requestId/audit",
@@ -127,7 +124,6 @@ export const prismPathById = {
   "route-ban-policies": "/route/ban-policies",
   "system-settings": "/system/settings",
   "control-proxy-keys": "/control/proxy-keys",
-  "control-sidecars": "/control/sidecars",
   "route-pricing": "/route/pricing",
   "observe-requests": "/observe/requests",
   "observe-request-audit": "/observe/requests/$requestId/audit",
@@ -143,7 +139,6 @@ export const legacyRouteRedirects = {
   "/loadbalance-strategies": "/route/ban-policies",
   "/settings": "/system/settings",
   "/proxy-api-keys": "/control/proxy-keys",
-  "/sidecars": "/control/sidecars",
   "/pricing-templates": "/route/pricing",
   "/request-logs": "/observe/requests",
 } as const

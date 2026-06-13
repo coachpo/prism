@@ -178,9 +178,6 @@ function createRequestLogListItem(scenario: Scenario = "full") {
     upstream_client_display: "Prism QA Browser",
     user_agent_overridden: false,
     api_family: apiFamily,
-    vendor_id: 1,
-    vendor_key: apiFamily,
-    vendor_name: apiFamily,
     endpoint_id: 1,
     endpoint_label: "Primary endpoint",
     connection_id: null,
@@ -215,9 +212,6 @@ function createRequestLogDetail(scenario: Scenario) {
       resolved_target_model_label: null,
       is_proxy_origin: false,
       api_family: apiFamily,
-      vendor_id: 1,
-      vendor_key: apiFamily,
-      vendor_name: apiFamily,
       status_code: 200,
       response_time_ms: 125,
       ttft_ms: null,
@@ -299,7 +293,6 @@ function createAuditListItem(id: number, scenario: Scenario) {
     id,
     request_log_id: 101,
     profile_id: 1,
-    vendor_id: 1,
     model_id: getScenarioModelId(scenario),
     endpoint_id: 1,
     connection_id: null,
@@ -402,7 +395,7 @@ async function mockPrismRoutes(page: Page, scenario: Scenario) {
         total: 1,
         limit: 100,
         offset: 0,
-        filter_options: { models: [], endpoints: [] },
+        filter_options: { models: [], endpoints: [], clients: [], resolved_target_models: [] },
       });
     }
 

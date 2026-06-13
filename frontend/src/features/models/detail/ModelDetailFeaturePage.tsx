@@ -177,7 +177,6 @@ export function ModelDetailFeaturePage({
         loadbalanceStrategies={data.loadbalanceStrategies}
         promotionTargetModelsForApiFamily={data.promotionTargetModelsForApiFamily}
         targetModelsForApiFamily={data.targetModelsForApiFamily}
-        vendors={data.vendors}
         dialogTitle={messages.modelDetail.modelSettingsTitle}
         dialogDescription={messages.modelDetail.modelSettingsAccessTargetsDescription}
         includeTerminalTargetConnectionOptions={false}

@@ -21,29 +21,20 @@ export function ModelsFeaturePage() {
   const data = useModelsPageData(revision)
   const copy = messages.modelsPage
   const [apiFamilyFilter, setApiFamilyFilter] = useState(DEFAULT_MODELS_LIST_FILTERS.api_family)
-  const [vendorFilter, setVendorFilter] = useState(DEFAULT_MODELS_LIST_FILTERS.vendor_id)
   const [statusFilter, setStatusFilter] = useState(DEFAULT_MODELS_LIST_FILTERS.status)
 
   const filters = normalizeModelsListFilters({
     search: data.search,
     api_family: apiFamilyFilter,
-    vendor_id: vendorFilter,
     status: statusFilter,
   })
   const queryKey = modelsQueryKeys.list(selectedProfile?.id ?? null, filters)
   const filtered = data.filtered.filter((model) => {
     if (filters.api_family !== "all" && model.api_family !== filters.api_family) return false
-    if (filters.vendor_id !== "all" && String(model.vendor_id ?? "none") !== filters.vendor_id) return false
     if (filters.status === "enabled" && !model.is_enabled) return false
     if (filters.status === "disabled" && model.is_enabled) return false
     return true
   })
-  const vendorOptions = Array.from(new Map(data.models.map((model) => {
-    const value = String(model.vendor_id ?? "none")
-    const label = model.vendor?.name ?? model.vendor?.key ?? messages.modelsUi.unknownVendor
-    return [value, label] as const
-  })).entries())
-
   if (data.loading) {
     return (
       <div className="flex flex-col gap-6" data-testid="models-feature-loading">
@@ -88,18 +79,6 @@ export function ModelsFeaturePage() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field className="md:max-w-56">
-              <FieldLabel>Vendor</FieldLabel>
-              <Select value={vendorFilter} onValueChange={setVendorFilter}>
-                <SelectTrigger aria-label="Filter vendor"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All vendors</SelectItem>
-                  {vendorOptions.map(([value, label]) => (
-                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
             <Field className="md:max-w-48">
               <FieldLabel>Status</FieldLabel>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -134,7 +113,6 @@ export function ModelsFeaturePage() {
         loadbalanceStrategies={data.loadbalanceStrategies}
         promotionTargetModelsForApiFamily={data.promotionTargetModelsForApiFamily}
         targetModelsForApiFamily={data.targetModelsForApiFamily}
-        vendors={data.vendors}
         setFormData={data.setFormData}
         setIsDialogOpen={data.setIsDialogOpen}
         setLoadbalanceStrategyId={data.setLoadbalanceStrategyId}

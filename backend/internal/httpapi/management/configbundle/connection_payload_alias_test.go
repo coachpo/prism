@@ -13,7 +13,6 @@ func TestProfileBundleV3ConnectionAliasesStayConnectionShaped(t *testing.T) {
 	bundle := profileBundleResponse{
 		Version:               request.Version,
 		BundleKind:            request.BundleKind,
-		VendorRefs:            request.VendorRefs,
 		Endpoints:             request.Endpoints,
 		PricingTemplates:      request.PricingTemplates,
 		Connections:           request.Connections,

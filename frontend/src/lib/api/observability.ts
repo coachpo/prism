@@ -44,10 +44,6 @@ import type {
   UserAgentClientRule,
   UserAgentClientRuleCreate,
   UserAgentClientRuleUpdate,
-  VendorCatalogExportResponse,
-  VendorCatalogImportPreviewResponse,
-  VendorCatalogImportRequest,
-  VendorCatalogImportResponse,
 } from "../types";
 import { buildQuery, request } from "./core";
 
@@ -168,22 +164,6 @@ export const config = {
       },
       body: JSON.stringify(data),
     }),
-  vendors: {
-    export: () => request<VendorCatalogExportResponse>("/api/config/vendors/export"),
-    previewImport: (data: VendorCatalogImportRequest) =>
-      request<VendorCatalogImportPreviewResponse>("/api/config/vendors/import/preview", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    import: (data: VendorCatalogImportRequest, previewToken: string) =>
-      request<VendorCatalogImportResponse>("/api/config/vendors/import", {
-        method: "POST",
-        headers: {
-          "X-Prism-Preview-Token": previewToken,
-        },
-        body: JSON.stringify(data),
-      }),
-  },
   headerBlocklistRules: {
     list: (includeDisabled = true) =>
       request<HeaderBlocklistRule[]>(

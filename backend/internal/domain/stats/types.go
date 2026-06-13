@@ -6,15 +6,18 @@ import (
 )
 
 type RequestLogListParams struct {
-	ProfileID        int
-	IngressRequestID *string
-	ModelID          *string
-	StatusFamily     *string
-	FromTime         *time.Time
-	ToTime           *time.Time
-	EndpointID       *int
-	Limit            int
-	Offset           int
+	ProfileID             int
+	IngressRequestID      *string
+	ModelID               *string
+	ResolvedTargetModelID *string
+	StatusFamily          *string
+	FromTime              *time.Time
+	ToTime                *time.Time
+	EndpointID            *int
+	ClientRuleID          *int
+	ClientRulePattern     *string
+	Limit                 int
+	Offset                int
 }
 
 type RequestLogFilterEndpointOption struct {
@@ -27,9 +30,21 @@ type RequestLogFilterModelOption struct {
 	ModelLabel string `json:"model_label"`
 }
 
+type RequestLogFilterResolvedTargetModelOption struct {
+	ResolvedTargetModelID string `json:"resolved_target_model_id"`
+	ModelLabel            string `json:"model_label"`
+}
+
+type RequestLogFilterClientOption struct {
+	ClientRuleID int    `json:"client_rule_id"`
+	ClientLabel  string `json:"client_label"`
+}
+
 type RequestLogListFilterOptions struct {
-	Endpoints []RequestLogFilterEndpointOption `json:"endpoints"`
-	Models    []RequestLogFilterModelOption    `json:"models"`
+	Endpoints            []RequestLogFilterEndpointOption            `json:"endpoints"`
+	Models               []RequestLogFilterModelOption               `json:"models"`
+	ResolvedTargetModels []RequestLogFilterResolvedTargetModelOption `json:"resolved_target_models"`
+	Clients              []RequestLogFilterClientOption              `json:"clients"`
 }
 
 type RequestLogListItem struct {
@@ -40,9 +55,6 @@ type RequestLogListItem struct {
 	ResolvedTargetModelID       *string   `json:"resolved_target_model_id"`
 	ResolvedTargetModelLabel    *string   `json:"resolved_target_model_label"`
 	APIFamily                   string    `json:"api_family"`
-	VendorID                    *int      `json:"vendor_id"`
-	VendorKey                   *string   `json:"vendor_key"`
-	VendorName                  *string   `json:"vendor_name"`
 	EndpointID                  *int      `json:"endpoint_id"`
 	EndpointLabel               string    `json:"endpoint_label"`
 	ConnectionID                *int      `json:"connection_id"`
@@ -82,9 +94,6 @@ type RequestLogDetailSummary struct {
 	ResolvedTargetModelID    *string   `json:"resolved_target_model_id"`
 	ResolvedTargetModelLabel *string   `json:"resolved_target_model_label"`
 	APIFamily                string    `json:"api_family"`
-	VendorID                 *int      `json:"vendor_id"`
-	VendorKey                *string   `json:"vendor_key"`
-	VendorName               *string   `json:"vendor_name"`
 	StatusCode               int       `json:"status_code"`
 	ResponseTimeMS           int       `json:"response_time_ms"`
 	TTFTMS                   *int      `json:"ttft_ms"`

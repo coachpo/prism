@@ -128,7 +128,6 @@ export interface ConfigAccessTargetImport {
 }
 
 export interface ConfigModelExport {
-  vendor_key: string | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
@@ -146,7 +145,6 @@ export interface ConfigModelExport {
 }
 
 export interface ConfigModelImport {
-  vendor_key?: string | null;
   api_family: ApiFamily;
   model_id: string;
   display_name?: string | null;
@@ -189,13 +187,6 @@ export interface ConfigUserSettingsImport {
   timezone_preference?: string | null;
 }
 
-export interface ConfigVendorRef {
-  key: string;
-  name_hint?: string | null;
-  description_hint?: string | null;
-  icon_key_hint?: string | null;
-}
-
 export interface ConfigSecretPayloadEntry {
   ref: string;
   ciphertext: string;
@@ -208,22 +199,10 @@ export interface ConfigSecretPayload {
   entries: ConfigSecretPayloadEntry[];
 }
 
-export interface ConfigVendorExport {
-  key: string;
-  name: string;
-  description: string | null;
-  icon_key: string | null;
-  audit_enabled: boolean;
-  audit_capture_bodies: boolean;
-}
-
-export type ConfigVendorImport = ConfigVendorExport;
-
 export interface ConfigExportResponse {
   version: 3;
   bundle_kind: "profile_config";
   exported_at: string;
-  vendor_refs: ConfigVendorRef[];
   endpoints: ConfigEndpointExport[];
   pricing_templates: ConfigPricingTemplateExport[];
   connections: ConfigConnectionExport[];
@@ -239,7 +218,6 @@ export interface ConfigImportRequest {
   version: 3;
   bundle_kind: "profile_config";
   exported_at?: string;
-  vendor_refs: ConfigVendorRef[];
   endpoints: ConfigEndpointImport[];
   pricing_templates: ConfigPricingTemplateImport[];
   connections: ConfigConnectionImport[];
@@ -259,12 +237,6 @@ export interface ConfigImportResponse {
   connections_imported: number;
 }
 
-export interface ConfigImportVendorResolution {
-  vendor_key: string;
-  resolution: "reuse" | "create";
-  warning?: string | null;
-}
-
 export interface ConfigImportReplacementScope {
   target: "selected_profile";
   endpoints: number;
@@ -279,14 +251,7 @@ export interface ConfigImportReplacementScope {
 
 export interface ConfigImportUntouchedScope {
   other_profiles: boolean;
-  existing_global_vendor_metadata: boolean;
   request_logs: boolean;
-}
-
-export interface ConfigImportVendorSummary {
-  create_count: number;
-  reuse_count: number;
-  warning_count: number;
 }
 
 export interface ConfigImportSecretSummary {
@@ -303,64 +268,16 @@ export interface ConfigImportPreviewResponse {
   bundle_fingerprint: string;
   replacement_scope: ConfigImportReplacementScope;
   untouched_scope: ConfigImportUntouchedScope;
-  vendor_summary: ConfigImportVendorSummary;
   secret_summary: ConfigImportSecretSummary;
   endpoints_imported: number;
   pricing_templates_imported: number;
   strategies_imported: number;
   models_imported: number;
   connections_imported: number;
-  vendor_resolutions: ConfigImportVendorResolution[];
   secret_key_id: string;
   decryptable_secret_refs: string[];
   blocking_errors: string[];
   warnings: string[];
-}
-
-export interface VendorCatalogExportResponse {
-  version: 1;
-  bundle_kind: "vendor_catalog";
-  exported_at: string;
-  vendors: ConfigVendorExport[];
-}
-
-export interface VendorCatalogImportRequest {
-  version: 1;
-  bundle_kind: "vendor_catalog";
-  exported_at?: string;
-  vendors: ConfigVendorImport[];
-}
-
-export interface VendorCatalogImportMutationScope {
-  target: "global_vendor_catalog";
-  create_count: number;
-  update_count: number;
-  unchanged_count: number;
-}
-
-export interface VendorCatalogImportUntouchedScope {
-  profiles: boolean;
-  profile_scoped_config: boolean;
-  request_logs: boolean;
-}
-
-export interface VendorCatalogImportPreviewResponse {
-  ready: boolean;
-  version: 1;
-  bundle_kind: "vendor_catalog";
-  preview_token: string;
-  bundle_fingerprint: string;
-  mutation_scope: VendorCatalogImportMutationScope;
-  untouched_scope: VendorCatalogImportUntouchedScope;
-  create_count: number;
-  update_count: number;
-  blocking_errors: string[];
-  warnings: string[];
-}
-
-export interface VendorCatalogImportResponse {
-  created_count: number;
-  updated_count: number;
 }
 
 export interface AuditLogListItem {

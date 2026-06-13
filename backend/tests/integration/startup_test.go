@@ -146,20 +146,6 @@ func TestStartupSeeds(t *testing.T) {
 		t.Fatalf("expected exactly one seeded app auth settings row, got %d", appAuthCount)
 	}
 
-	vendors := loadVendorsByKey(t, testContext, conn)
-	if len(vendors) != len(startup.DefaultVendors) {
-		t.Fatalf("expected %d canonical vendors, got %d", len(startup.DefaultVendors), len(vendors))
-	}
-	for _, definition := range startup.DefaultVendors {
-		vendor, ok := vendors[definition.Key]
-		if !ok {
-			t.Fatalf("expected vendor %q to exist", definition.Key)
-		}
-		if vendor.Name != definition.Name || vendor.Description != definition.Description || vendor.IconKey != definition.IconKey {
-			t.Fatalf("expected canonical vendor %+v, got %+v", definition, vendor)
-		}
-	}
-
 	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM user_agent_client_rules WHERE is_system = TRUE`, len(startup.SystemUserAgentClientRuleDefaults))
 	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM header_blocklist_rules WHERE is_system = TRUE`, len(startup.SystemHeaderBlocklistDefaults))
 	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM loadbalance_strategies`, 0)
@@ -265,17 +251,17 @@ func TestStartupIgnoresLegacySkipEnv(t *testing.T) {
 	}
 }
 
-func TestStartupVendorAndRuleSeeds(t *testing.T) {
+func TestStartupRuleSeeds(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	conn := harness.openDatabase(t, testContext, "startup_vendor_rule_seeds")
+	conn := harness.openDatabase(t, testContext, "startup_rule_seeds")
 	defer func() { _ = conn.Close(testContext) }()
 
 	runner := newRunner(t)
 	if _, err := runner.Run(testContext, conn); err != nil {
-		t.Fatalf("apply baseline before startup vendor/rule test: %v", err)
+		t.Fatalf("apply baseline before startup rule test: %v", err)
 	}
 
 	now := time.Date(2026, 4, 18, 11, 30, 0, 0, time.UTC)
@@ -288,16 +274,6 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 		Version:     0,
 		CreatedAt:   now,
 		UpdatedAt:   now,
-	})
-	geminiVendorID := insertVendor(t, testContext, conn, vendorSeed{
-		Key:                "gemini",
-		Name:               "Gemini Existing",
-		Description:        "Previous Gemini vendor",
-		IconKey:            "gemini-old",
-		AuditEnabled:       true,
-		AuditCaptureBodies: false,
-		CreatedAt:          now,
-		UpdatedAt:          now,
 	})
 	insertSystemUserAgentRule(t, testContext, conn, systemUserAgentRuleSeed{
 		Name:      "Claude Code",
@@ -315,10 +291,10 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 		UpdatedAt: now,
 	})
 
-	service := newStartupService(t, harness.connectionString("startup_vendor_rule_seeds"), nil)
+	service := newStartupService(t, harness.connectionString("startup_rule_seeds"), nil)
 	result, err := service.RunWithConn(testContext, conn)
 	if err != nil {
-		t.Fatalf("run startup sequence for vendor/rule canonicalization: %v", err)
+		t.Fatalf("run startup sequence for rule canonicalization: %v", err)
 	}
 
 	assertStartupStepOrder(t, result)
@@ -326,20 +302,6 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 		t.Fatalf("expected startup migration step to noop after baseline apply, got %q", result.Migration.Outcome)
 	}
 
-	vendors := loadVendorsByKey(t, testContext, conn)
-	geminiVendor, ok := vendors["gemini"]
-	if !ok {
-		t.Fatalf("expected canonical gemini vendor to exist")
-	}
-	if geminiVendor.ID != geminiVendorID {
-		t.Fatalf("expected existing gemini vendor row id %d to be preserved, got %d", geminiVendorID, geminiVendor.ID)
-	}
-	if geminiVendor.Name != "Gemini" || geminiVendor.Description != "Google Gemini API" || geminiVendor.IconKey != "gemini" {
-		t.Fatalf("expected gemini vendor identity to be canonicalized, got %+v", geminiVendor)
-	}
-	if !geminiVendor.AuditEnabled || geminiVendor.AuditCaptureBodies {
-		t.Fatalf("expected existing gemini vendor audit flags to be preserved, got %+v", geminiVendor)
-	}
 	var claudeCount int
 	var claudePattern string
 	var claudeEnabled bool
@@ -571,20 +533,8 @@ type profileSeed struct {
 	UpdatedAt   time.Time
 }
 
-type vendorSeed struct {
-	Key                string
-	Name               string
-	Description        string
-	IconKey            string
-	AuditEnabled       bool
-	AuditCaptureBodies bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-}
-
 type modelConfigSeed struct {
 	ProfileID             int
-	VendorID              sql.NullInt64
 	APIFamily             string
 	ModelID               string
 	LoadbalanceStrategyID sql.NullInt64
@@ -644,16 +594,6 @@ type runtimeStateSeed struct {
 	LiveP95LatencyMS        *int32
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
-}
-
-type vendorSnapshot struct {
-	ID                 int    `json:"id"`
-	Key                string `json:"key"`
-	Name               string `json:"name"`
-	Description        string `json:"description"`
-	IconKey            string `json:"icon_key"`
-	AuditEnabled       bool   `json:"audit_enabled"`
-	AuditCaptureBodies bool   `json:"audit_capture_bodies"`
 }
 
 type profileSnapshot struct {
@@ -736,7 +676,6 @@ type startupStateSnapshot struct {
 	Profiles             []profileSnapshot             `json:"profiles"`
 	UserSettings         []userSettingSnapshot         `json:"user_settings"`
 	AppAuthSettings      []appAuthSettingsRecord       `json:"app_auth_settings"`
-	Vendors              []vendorSnapshot              `json:"vendors"`
 	HeaderBlocklistRules []systemHeaderRuleSnapshot    `json:"header_blocklist_rules"`
 	UserAgentClientRules []systemUserAgentRuleSnapshot `json:"user_agent_client_rules"`
 	Endpoints            []endpointSnapshot            `json:"endpoints"`
@@ -1045,7 +984,6 @@ func assertObservedStepOrder(t *testing.T, steps []startup.Step) {
 	t.Helper()
 	want := []startup.Step{
 		startup.StepMigrations,
-		startup.StepVendorSeed,
 		startup.StepProfileInvariantSeed,
 		startup.StepUserSettingsSeed,
 		startup.StepUserAgentClientRuleSeed,
@@ -1106,36 +1044,6 @@ func insertProfile(t *testing.T, ctx context.Context, conn *pgx.Conn, seed profi
 	return profileID
 }
 
-func insertVendor(t *testing.T, ctx context.Context, conn *pgx.Conn, seed vendorSeed) int {
-	t.Helper()
-	var vendorID int
-	if err := conn.QueryRow(
-		ctx,
-		`INSERT INTO vendors (
-			key,
-			name,
-			description,
-			icon_key,
-			audit_enabled,
-			audit_capture_bodies,
-			created_at,
-			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id`,
-		seed.Key,
-		seed.Name,
-		seed.Description,
-		seed.IconKey,
-		seed.AuditEnabled,
-		seed.AuditCaptureBodies,
-		seed.CreatedAt,
-		seed.UpdatedAt,
-	).Scan(&vendorID); err != nil {
-		t.Fatalf("insert vendor %q: %v", seed.Key, err)
-	}
-	return vendorID
-}
-
 func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed modelConfigSeed) int {
 	t.Helper()
 	var modelConfigID int
@@ -1143,7 +1051,6 @@ func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed m
 		ctx,
 		`INSERT INTO model_configs (
 			profile_id,
-			vendor_id,
 			api_family,
 			model_id,
 			display_name,
@@ -1151,10 +1058,9 @@ func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed m
 			is_enabled,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id`,
 		seed.ProfileID,
-		nullInt64(seed.VendorID),
 		seed.APIFamily,
 		seed.ModelID,
 		nil,
@@ -1372,38 +1278,12 @@ type profileSeedRow struct {
 	DeletedAt   sql.NullTime
 }
 
-func loadVendorsByKey(t *testing.T, ctx context.Context, conn *pgx.Conn) map[string]vendorSnapshot {
-	t.Helper()
-	rows, err := conn.Query(
-		ctx,
-		`SELECT id, key, name, COALESCE(description, ''), COALESCE(icon_key, ''), audit_enabled, audit_capture_bodies FROM vendors ORDER BY key ASC`,
-	)
-	if err != nil {
-		t.Fatalf("query vendors by key: %v", err)
-	}
-	defer rows.Close()
-
-	vendors := map[string]vendorSnapshot{}
-	for rows.Next() {
-		var row vendorSnapshot
-		if err := rows.Scan(&row.ID, &row.Key, &row.Name, &row.Description, &row.IconKey, &row.AuditEnabled, &row.AuditCaptureBodies); err != nil {
-			t.Fatalf("scan vendor by key: %v", err)
-		}
-		vendors[row.Key] = row
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate vendors by key: %v", err)
-	}
-	return vendors
-}
-
 func snapshotStartupState(t *testing.T, ctx context.Context, conn *pgx.Conn) string {
 	t.Helper()
 	snapshot := startupStateSnapshot{
 		Profiles:             loadProfileSnapshots(t, ctx, conn),
 		UserSettings:         loadUserSettingSnapshots(t, ctx, conn),
 		AppAuthSettings:      loadAppAuthSettingsRecords(t, ctx, conn),
-		Vendors:              loadVendorSnapshots(t, ctx, conn),
 		HeaderBlocklistRules: loadHeaderBlocklistRuleSnapshots(t, ctx, conn),
 		UserAgentClientRules: loadUserAgentRuleSnapshots(t, ctx, conn),
 		Endpoints:            loadEndpointSnapshots(t, ctx, conn),
@@ -1507,31 +1387,6 @@ func loadAppAuthSettingsRecords(t *testing.T, ctx context.Context, conn *pgx.Con
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate app_auth_settings snapshots: %v", err)
-	}
-	return items
-}
-
-func loadVendorSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn) []vendorSnapshot {
-	t.Helper()
-	rows, err := conn.Query(
-		ctx,
-		`SELECT id, key, name, COALESCE(description, ''), COALESCE(icon_key, ''), audit_enabled, audit_capture_bodies FROM vendors ORDER BY id ASC`,
-	)
-	if err != nil {
-		t.Fatalf("query vendor snapshots: %v", err)
-	}
-	defer rows.Close()
-
-	items := []vendorSnapshot{}
-	for rows.Next() {
-		var item vendorSnapshot
-		if err := rows.Scan(&item.ID, &item.Key, &item.Name, &item.Description, &item.IconKey, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
-			t.Fatalf("scan vendor snapshot: %v", err)
-		}
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate vendor snapshots: %v", err)
 	}
 	return items
 }

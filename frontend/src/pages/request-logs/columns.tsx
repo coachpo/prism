@@ -258,16 +258,13 @@ export function getColumns(): ColumnDef[] {
       ),
     },
     {
-      key: "vendor_api_family",
-      label: `${staticMessages.common.vendor} / API`,
-      width: 170,
-      grow: 2,
+      key: "api_family",
+      label: staticMessages.common.apiFamily,
+      width: 150,
+      grow: 1,
       render: (row) => (
         <div className="min-w-0">
-          <span className="block truncate text-xs font-medium">
-            {row.vendor_name ?? "—"}
-          </span>
-            <span className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-[11px] text-muted-foreground">
+          <span className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-[11px] text-muted-foreground">
             <ApiFamilyIcon apiFamily={row.api_family ?? ""} size={13} className="text-muted-foreground" />
             <span className="truncate">{formatApiFamily(row.api_family ?? "")}</span>
           </span>

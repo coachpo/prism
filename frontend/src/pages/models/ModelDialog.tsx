@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { ApiFamilySelect } from "@/components/ApiFamilySelect";
 import { SwitchController } from "@/components/SwitchController";
-import { VendorSelect } from "@/components/VendorSelect";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import {
@@ -17,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem, Vendor } from "@/lib/types";
+import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
@@ -33,7 +32,6 @@ type Props = {
   loadbalanceStrategies: LoadbalanceStrategy[];
   promotionTargetModelsForApiFamily: ModelConfigListItem[];
   targetModelsForApiFamily: ModelConfigListItem[];
-  vendors: Vendor[];
   dialogDescription?: string;
   dialogTitle?: string;
   includeTerminalTargetConnectionOptions?: boolean;
@@ -87,7 +85,6 @@ export function ModelDialog({
   loadbalanceStrategies,
   promotionTargetModelsForApiFamily,
   targetModelsForApiFamily,
-  vendors,
   dialogDescription: dialogDescriptionOverride,
   dialogTitle,
   includeTerminalTargetConnectionOptions = true,
@@ -164,7 +161,6 @@ export function ModelDialog({
           <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col gap-5" autoComplete="off" noValidate>
-          <input type="hidden" name="vendor_id" value={String(formData.vendor_id ?? "")} />
           <input type="hidden" name="api_family" value={formData.api_family ?? ""} />
           <input type="hidden" name="loadbalance_strategy_id" value={loadbalanceStrategyValue} />
           <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
@@ -176,20 +172,6 @@ export function ModelDialog({
             ) : null}
             <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="min-w-0 flex flex-col gap-2">
-                  <Label>{fieldCopy.vendor}</Label>
-                  <VendorSelect
-                    value={String(formData.vendor_id ?? "")}
-                    onValueChange={(value) => setFormData((prev) => ({ ...prev, vendor_id: value ? Number.parseInt(value, 10) : null }))}
-                    allowEmpty={true}
-                    valueType="vendor_id"
-                    vendors={vendors}
-                    showAll={false}
-                    className="w-full"
-                    placeholder={detailCopy.selectVendor}
-                  />
-                </div>
-
                 <div className="min-w-0 flex flex-col gap-2">
                   <Label>{fieldCopy.apiFamily}</Label>
                   <ApiFamilySelect

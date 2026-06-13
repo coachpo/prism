@@ -2081,10 +2081,6 @@ func seedRuntimePromotionNativeModelWithOpenAITextCapability(t *testing.T, harne
 	t.Helper()
 	strategyID := harness.seedLegacyStrategy(t, profileID, "overflow-promotion-native-"+randomSuffix(), "fill-first")
 	modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
-	openAIVendorID := loadVendorIDByKey(t, harness.conn, "openai")
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE id = $2`, openAIVendorID, modelConfigID); err != nil {
-		t.Fatalf("mark promotion model %q with OpenAI vendor: %v", modelID, err)
-	}
 	endpointID := harness.seedEndpoint(t, profileID, "overflow-promotion-endpoint-"+randomSuffix(), endpointBaseURL, endpointAPIKey, 0)
 	connectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, endpointID, "overflow-promotion-connection-"+randomSuffix(), nil, nil, 0, openAIProbeEndpointVariant, openAITextCapability)
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, connectionID, contextWindowTokens, 1_024, 1.0)

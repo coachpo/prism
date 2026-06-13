@@ -16,9 +16,7 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
-	managementsidecars "github.com/coachpo/prism/backend/internal/httpapi/management/sidecars"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
-	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -48,9 +46,7 @@ type Dependencies struct {
 	RuntimeState              *loadbalancedomain.LocalRuntimeStateStore
 	DatabasePools             *platformdb.DatabasePools
 	SettingsService           *managementsettings.Service
-	SidecarsService           *managementsidecars.Service
 	StatsService              *managementstats.Service
-	VendorsService            *managementvendors.Service
 }
 
 type ServerOptions struct {

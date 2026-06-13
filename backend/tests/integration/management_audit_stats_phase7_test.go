@@ -364,15 +364,15 @@ func TestManagementAuditStatsTopologyGraphDistinguishesTerminalRouteAndEndpointB
 	now := phase7Now.UTC()
 
 	var entryModelID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, 'openai', 'phase7-entry', 'Phase 7 Entry', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&entryModelID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'phase7-entry', 'Phase 7 Entry', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&entryModelID); err != nil {
 		t.Fatalf("insert entry model: %v", err)
 	}
 	var terminalModelID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, 'openai', 'phase7-terminal', 'Phase 7 Terminal', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&terminalModelID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'phase7-terminal', 'Phase 7 Terminal', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&terminalModelID); err != nil {
 		t.Fatalf("insert terminal model: %v", err)
 	}
 	var disabledModelID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, 'openai', 'phase7-disabled', 'Phase 7 Disabled', NULL, FALSE, $2, $2) RETURNING id`, profileID, now).Scan(&disabledModelID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'phase7-disabled', 'Phase 7 Disabled', NULL, FALSE, $2, $2) RETURNING id`, profileID, now).Scan(&disabledModelID); err != nil {
 		t.Fatalf("insert disabled model: %v", err)
 	}
 	var endpointID int
@@ -395,10 +395,10 @@ func TestManagementAuditStatsTopologyGraphDistinguishesTerminalRouteAndEndpointB
 	secondUsageAt := now.Add(-5 * time.Minute)
 	phase7EnsureLogPartition(t, ctx, conn, "usage_request_events", firstUsageAt)
 	phase7EnsureLogPartition(t, ctx, conn, "usage_request_events", secondUsageAt)
-	if _, err := conn.Exec(ctx, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, 'phase7-terminal', 'openai', $4, $5, 200, TRUE, TRUE, TRUE, 3, 5, 8, 750, 'USD', '$', 1, '/v1/chat/completions', $6, 100)`, 2001, profileID, "phase7-topology-1", endpointID, terminalTargetID, firstUsageAt); err != nil {
+	if _, err := conn.Exec(ctx, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, endpoint_label_snapshot, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, 'phase7-terminal', 'openai', $4, 'Phase 7 Topology Endpoint', $5, 200, TRUE, TRUE, TRUE, 3, 5, 8, 750, 'USD', '$', 1, '/v1/chat/completions', $6, 100)`, 2001, profileID, "phase7-topology-1", endpointID, terminalTargetID, firstUsageAt); err != nil {
 		t.Fatalf("insert first topology usage event: %v", err)
 	}
-	if _, err := conn.Exec(ctx, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, 'phase7-terminal', 'openai', $4, $5, 503, FALSE, FALSE, FALSE, 2, 1, 3, 0, 'USD', '$', 1, '/v1/chat/completions', $6, 120)`, 2002, profileID, "phase7-topology-2", endpointID, terminalTargetID, secondUsageAt); err != nil {
+	if _, err := conn.Exec(ctx, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, endpoint_label_snapshot, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, 'phase7-terminal', 'openai', $4, 'Phase 7 Topology Endpoint', $5, 503, FALSE, FALSE, FALSE, 2, 1, 3, 0, 'USD', '$', 1, '/v1/chat/completions', $6, 120)`, 2002, profileID, "phase7-topology-2", endpointID, terminalTargetID, secondUsageAt); err != nil {
 		t.Fatalf("insert second topology usage event: %v", err)
 	}
 	if err := conn.Close(ctx); err != nil {
@@ -1133,7 +1133,7 @@ func phase7InsertUsageEvent(t *testing.T, ctx context.Context, exec interface {
 }, profileID int, id int, createdAt time.Time) {
 	t.Helper()
 	phase7EnsureLogPartition(t, ctx, exec, "usage_request_events", createdAt)
-	if _, err := exec.Exec(ctx, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, 'phase7-model', 'openai', 200, TRUE, TRUE, TRUE, 7, 11, 18, 1250, 'USD', '$', 1, '/v1/chat/completions', $4, 100)`, id, profileID, fmt.Sprintf("phase7-ingress-%d", id), createdAt.UTC()); err != nil {
+	if _, err := exec.Exec(ctx, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_label_snapshot, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, 'phase7-model', 'openai', 'phase7-model endpoint', 200, TRUE, TRUE, TRUE, 7, 11, 18, 1250, 'USD', '$', 1, '/v1/chat/completions', $4, 100)`, id, profileID, fmt.Sprintf("phase7-ingress-%d", id), createdAt.UTC()); err != nil {
 		t.Fatalf("insert phase7 usage event %d: %v", id, err)
 	}
 }

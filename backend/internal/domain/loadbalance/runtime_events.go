@@ -11,7 +11,6 @@ import (
 type runtimeEventMetadata struct {
 	ModelID    *string
 	EndpointID *int
-	VendorID   *int
 }
 
 type PartitionEnsurer interface {
@@ -46,8 +45,8 @@ func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, part
 	}
 	_, err = exec.Exec(
 		ctx,
-		`INSERT INTO loadbalance_events (profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, vendor_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+		`INSERT INTO loadbalance_events (profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
 		profileID,
 		connectionID,
 		payload.EventType,
@@ -58,7 +57,6 @@ func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, part
 		payload.LastRetryDelayMS,
 		nullableStringPointerArg(metadata.ModelID),
 		nullableIntPointerArg(metadata.EndpointID),
-		nullableIntPointerArg(metadata.VendorID),
 		nullableStringPointerArg(payload.BanMode),
 		nullableIntPointerArg(payload.PolicyCycleRetryAttemptLimit),
 		nullableIntPointerArg(payload.PolicyBanCumulativeRetryAttemptThreshold),
@@ -75,10 +73,9 @@ func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, part
 func loadRuntimeEventMetadata(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionID int) (runtimeEventMetadata, error) {
 	var modelID sql.NullString
 	var endpointID sql.NullInt32
-	var vendorID sql.NullInt32
 	err := exec.QueryRow(
 		ctx,
-		`SELECT model_configs.model_id, connections.endpoint_id, model_configs.vendor_id
+		`SELECT model_configs.model_id, connections.endpoint_id
 		FROM model_access_targets
 		JOIN connections ON connections.id = model_access_targets.target_connection_id
 		JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id
@@ -88,14 +85,13 @@ func loadRuntimeEventMetadata(ctx context.Context, exec queryExecutor, profileID
 		profileID,
 		connectionID,
 		modelConfigID,
-	).Scan(&modelID, &endpointID, &vendorID)
+	).Scan(&modelID, &endpointID)
 	if err != nil {
 		return runtimeEventMetadata{}, fmt.Errorf("load runtime event metadata for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return runtimeEventMetadata{
 		ModelID:    nullableString(modelID),
 		EndpointID: nullableInt(endpointID),
-		VendorID:   nullableInt(vendorID),
 	}, nil
 }
 

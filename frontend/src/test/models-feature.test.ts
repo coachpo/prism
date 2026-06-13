@@ -12,13 +12,13 @@ const baseForm = {
 
 describe("models feature contracts", () => {
   it("includes selected profile and filters in the model list query key", () => {
-    expect(modelsQueryKeys.list(7, { search: " gpt ", api_family: "openai", vendor_id: "3", status: "enabled" })).toEqual([
+    expect(modelsQueryKeys.list(7, { search: " gpt ", api_family: "openai", status: "enabled" })).toEqual([
       "rewrite",
       "selected-profile",
       "7",
       "models",
       "list",
-      { search: "gpt", api_family: "openai", vendor_id: "3", status: "enabled" },
+      { search: "gpt", api_family: "openai", status: "enabled" },
     ])
   })
 
@@ -36,7 +36,6 @@ describe("models feature contracts", () => {
     })
 
     expect(payload).toEqual({
-      vendor_id: null,
       api_family: "openai",
       model_id: "gpt-entry",
       display_name: "GPT Entry",

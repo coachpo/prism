@@ -209,9 +209,6 @@ export function RequestLogOverviewTab({
               <div className="min-w-0 space-y-1.5">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                   <h3 className="truncate text-lg font-semibold tracking-tight sm:text-xl">{requestedModelLabel}</h3>
-                  {summary.vendor_name ? (
-                    <span className="text-xs text-muted-foreground">{summary.vendor_name}</span>
-                  ) : null}
                 </div>
                 {requestedModelLabel !== summary.model_id ? (
                   <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
@@ -376,9 +373,6 @@ export function RequestLogOverviewTab({
                   {formatApiFamily(apiFamily ?? "")}
                 </span>
               </DetailRow>
-              {summary.vendor_name ? (
-                <DetailRow label={messages.common.vendor}>{summary.vendor_name}</DetailRow>
-              ) : null}
               <DetailRow label={messages.requestLogs.path}>
                 <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                   {requestInfo.request_path}

@@ -45,8 +45,6 @@ function createModelResponse({
   return {
     id,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: apiFamily,
     model_id: modelId,
     display_name: displayName,
@@ -163,8 +161,6 @@ function createModelListItem({
   return {
     id,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: apiFamily,
     model_id: modelId,
     display_name: displayName,
@@ -370,9 +366,6 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
       return fulfillJson([]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/stats/spending") {
       return fulfillJson(createSpendingResponse());

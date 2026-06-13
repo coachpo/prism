@@ -12,7 +12,6 @@ import { useAuthenticationSettingsData } from "./useAuthenticationSettingsData";
 import { useConfigBackupData } from "./useConfigBackupData";
 import { useCostingSettingsData } from "./useCostingSettingsData";
 import { useRetentionDeletionData } from "./useRetentionDeletionData";
-import { useVendorManagementData } from "./useVendorManagementData";
 
 export function useSettingsPageData(activeTab: SettingsTab) {
   const navigate = useNavigate();
@@ -50,12 +49,6 @@ export function useSettingsPageData(activeTab: SettingsTab) {
     enabled: isGlobalTabActive,
     setRecentlySavedSection,
   });
-  const vendorManagement = useVendorManagementData({
-    bumpRevision,
-    enabled: isGlobalTabActive,
-    revision,
-  });
-  const { vendors: auditVendors, ...auditData } = audit;
 
   useEffect(() => {
     if (!recentlySavedSection) {
@@ -83,10 +76,8 @@ export function useSettingsPageData(activeTab: SettingsTab) {
     ...backup,
     ...auth,
     ...costing,
-    ...auditData,
-    auditVendors,
+    ...audit,
     ...retention,
-    ...vendorManagement,
   };
 }
 

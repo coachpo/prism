@@ -74,7 +74,7 @@ export function RecoveryEmailCard({
                     setEmailEditorOpen(true);
                   }}
                   >
-                    {messages.vendorManagement.edit}
+                    {messages.common.edit}
                   </Button>
               </div>
             </div>

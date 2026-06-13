@@ -1,9 +1,5 @@
 package startup
 
-import "github.com/coachpo/prism/backend/internal/vendordomain"
-
-type VendorDefinition = vendordomain.VendorDefinition
-
 type HeaderBlocklistRuleDefinition struct {
 	Name      string
 	MatchType string
@@ -14,16 +10,6 @@ type UserAgentClientRuleDefinition struct {
 	Name    string
 	Pattern string
 }
-
-var DefaultVendors = append([]VendorDefinition(nil), vendordomain.SystemVendorDefinitions...)
-
-var systemVendorByKey = func() map[string]VendorDefinition {
-	items := make(map[string]VendorDefinition, len(DefaultVendors))
-	for _, definition := range DefaultVendors {
-		items[definition.Key] = definition
-	}
-	return items
-}()
 
 var SystemHeaderBlocklistDefaults = []HeaderBlocklistRuleDefinition{
 	{Name: "Cloudflare headers", MatchType: "prefix", Pattern: "cf-"},

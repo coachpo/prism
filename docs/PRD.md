@@ -11,7 +11,6 @@ Developers and power users working with multiple LLM API families face:
 - No unified endpoint for switching between API families
 - No automatic failover when an API family is down or rate-limited
 - Manual configuration changes when rotating keys or endpoints
-- Limited visibility into external CLIProxyAPI auth/provider inventories when those sidecars are part of the local toolchain
 
 ## 3. Target User
 
@@ -26,7 +25,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Runtime compatibility is fixed by `api_family`
 
 ### 4.2 Model Configuration
-- Map each model to optional `vendor_id` metadata plus a fixed runtime `api_family`
+- Map each model to a fixed runtime `api_family`
 - Models expose one ordered `access_targets` list whose public entries point to same-family models
 - Terminal Targets carry endpoint, costing, health, admission-limit, and auth metadata as model-private endpoint bindings owned by one model
 - Select which access targets are enabled for each model; enabled models require at least one enabled target
@@ -61,9 +60,8 @@ Single operator (developer/power user) running the application locally or on a l
 - Failover, recovery, and probe-eligibility transitions are persisted as `loadbalance_events` for audit and observability.
 
 ### 4.5 Profile-Scoped Endpoints & Terminal Targets
-- **Vendors** remain global publisher metadata shared across profiles.
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
-- **Models** carry optional `vendor_id` metadata plus fixed `api_family` metadata.
+- **Models** carry fixed `api_family` metadata.
 - **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile.
 - Endpoints can be reused across multiple models within the same profile.
 - Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
@@ -118,25 +116,24 @@ Single operator (developer/power user) running the application locally or on a l
 - Dedicated model-detail route (`/models/:id`) with manual health checks, Terminal Target KPIs, current loadbalance state, and loadbalance event history
 - Dedicated request-log browsing and investigation at `/request-logs`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
-- Dedicated `/sidecars` route for global CLIProxyAPI sidecar registration, sync, auth/provider inventory, and direct auth-file mutation
 - Dashboard analytics lives under `/dashboard?tab=analytics` and replaces the old standalone statistics route
 - Global profile selector in the app shell controls the selected profile (management scope).
 - Active profile indicator is shown globally; runtime activation is an explicit action.
 - The protected shell bootstraps profile state from one profile-bootstrap response, while sidebar navigation and breadcrumbs are derived from local route metadata.
 - Profile create/edit/delete dialogs include active-profile delete guardrails and capacity guidance.
-- Settings is split between Profile-scoped sections (backup, billing/currency, timezone, audit/privacy, retention/deletion, and config rules) and a Global tab for instance auth plus shared vendor management.
+- Settings is split between Profile-scoped sections (backup, billing/currency, timezone, audit/privacy, retention/deletion, and config rules) and a Global tab for instance auth plus global retention.
 
 ### 4.8 Configuration Persistence
 - Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
 - Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file and managed through `/settings#startup`
 - The default profile exists from the first startup and remains editable after initialization
-- Config export/import uses the split-bundle contract: profile bundles are `version: 3` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 1` with `bundle_kind: vendor_catalog`
-- Profile bundles carry `vendor_refs`, `profile_settings`, encrypted `secret_payload`, top-level `loadbalance_strategies`, top-level `connections` for Terminal Targets, model `access_targets`, nullable `vendor_key`, and `api_family`
-- Profile import preview validates bundle kind, version, secret decryption, and vendor resolution before replace-mode import; unsupported versions are rejected
+- Config export/import uses the profile-bundle contract: profile bundles are `version: 3` with `bundle_kind: profile_config`
+- Profile bundles carry `profile_settings`, encrypted `secret_payload`, top-level `loadbalance_strategies`, top-level `connections` for Terminal Targets, model `access_targets`, and `api_family`
+- Profile import preview validates bundle kind, version, secret decryption, and model compatibility before replace-mode import; unsupported versions are rejected
 - Database setup is managed by the Go backend runtime and applies the checked-in fresh-install baseline on startup
 ### 4.9 Request Statistics & Analytics
 - Automatic logging of all proxy requests with telemetry data
-- Each request log captures: profile ID attribution, requested `model_id`, final `resolved_target_model_id` when an access-target path is selected, `api_family`, Terminal Target used through compatibility connection attribution (ID, endpoint base URL, description), Prism `ingress_request_id`, per-request `attempt_number`, best-effort `provider_correlation_id`, HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, context-routing detail when present, and timestamp
+- Each request log captures: profile ID attribution, requested `model_id`, final `resolved_target_model_id` when an access-target path is selected, `api_family`, Terminal Target used through compatibility connection attribution (ID, endpoint base URL, description), Prism `ingress_request_id`, per-request `attempt_number`, best-effort `provider_correlation_id`, caller and upstream client display, HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, context-routing detail when present, and timestamp
 - Request logs remain one row per upstream attempt; `ingress_request_id` groups all attempts from one incoming runtime request. Context overflow promotion detail records `trigger_phase=pre_dispatch_estimate` for Chat streaming pre-dispatch promotion and `trigger_phase=provider_overflow` for Responses streaming replay and non-stream replay.
 
 #### 4.9.1 Token Usage Extraction
@@ -159,10 +156,10 @@ The gateway computes the cost of each request based on the extracted token usage
 
 - Statistics dashboard in the Web UI with:
   - Overview cards: total requests, average response time, success rate, total tokens used
-  - Aggregate endpoint, model, and proxy-key usage views sourced from the unified usage snapshot
+  - Aggregate endpoint, model, and proxy-key usage views sourced from the unified usage snapshot with endpoint labels read from stored `endpoint_label_snapshot` values
   - Filters: date range, model, connection, time range presets (last 1h, 24h, 7d, all)
   - Summary statistics grouped by model and api family
-- Dedicated request investigation UI at `/request-logs` with server-backed coarse filters, grouped `ingress_request_id` tracking, and lazy audit lookup in a detail drawer
+- Dedicated request investigation UI at `/request-logs` with server-backed coarse filters, caller-only `client_rule_id` filtering, final-target `resolved_target_model_id` filtering, grouped `ingress_request_id` tracking, and lazy audit lookup in a detail drawer
 - REST API for querying statistics remains available for API callers and debugging:
   - List request logs with pagination and filters
   - Get aggregated statistics (counts, averages, totals) with grouping
@@ -173,10 +170,10 @@ The gateway computes the cost of each request based on the extracted token usage
 ### 4.10 Request Audit Logging
 Full HTTP request/response recording for proxied requests, stored in the database for auditing and debugging.
 
-#### 4.10.1 Per-Vendor Audit Toggle
-- Each vendor has `audit_enabled` and `audit_capture_bodies` flags
-- Vendorless models do not synthesize audit defaults from `api_family`; they simply skip vendor-scoped audit logging
-- Toggling audit on/off takes effect immediately for new requests
+#### 4.10.1 Request-Time Audit Flags
+- Audit rows store `audit_enabled_at_request` and `audit_capture_bodies_at_request` as request-time provenance
+- Audit behavior does not derive runtime compatibility from catalog metadata
+- Toggling audit settings affects new requests only
 
 #### 4.10.2 What Gets Recorded
 For each audited upstream attempt (including failover attempts):
@@ -218,7 +215,6 @@ Allow users to configure custom HTTP headers on individual Terminal Targets. The
 
 ### 4.13 Supported API Families
 - The application exclusively supports the shipped OpenAI, Anthropic, and Gemini `api_family` values
-- Vendor records are publisher metadata, not runtime compatibility switches
 
 ### 4.14 Configurable Header Blocklist
 Database-backed header blocklist with CRUD API. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata, tracing headers, and standard proxy headers. Applied by the Go runtime on every request.
@@ -226,7 +222,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 ### 4.15 Profile Isolation & Management
 - Profiles are isolated configuration namespaces (for example A/B/C) with one globally active profile for runtime routing at any time
 - Selected profile controls management/API scope; active profile controls `/v1/*` and `/v1beta/*` runtime traffic
-- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes (profiles, vendors, auth, realtime, auth-setting flows, and vendor-catalog config flows) stay outside selected-profile scoping; `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`
+- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes (profiles, auth, realtime, and auth-setting flows) stay outside selected-profile scoping; `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`
 - Profile lifecycle supports create/list/update/activate/delete where delete is soft-delete for inactive profiles (`deleted_at`)
 - Active profile deletion is rejected; activation uses an optimistic CAS guard (`expected_active_profile_id`) and returns `409` on conflict
 - Capacity is capped at 10 non-deleted profiles; creating an 11th profile is rejected until one profile is deleted

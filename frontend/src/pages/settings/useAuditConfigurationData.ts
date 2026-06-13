@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { getSharedVendors, setSharedVendors } from "@/lib/referenceData";
 import type {
   HeaderBlocklistRule,
   HeaderBlocklistRuleCreate,
   UserAgentClientRule,
   UserAgentClientRuleCreate,
-  Vendor,
 } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -33,20 +31,7 @@ function getMessages() {
   return getStaticMessages();
 }
 
-export type VendorAuditCaptureMode = "disabled" | "metadata_only" | "full";
-
-export function getVendorAuditCaptureMode(
-  vendor: Pick<Vendor, "audit_enabled" | "audit_capture_bodies">,
-): VendorAuditCaptureMode {
-  if (!vendor.audit_enabled) {
-    return "disabled";
-  }
-
-  return vendor.audit_capture_bodies ? "full" : "metadata_only";
-}
-
 export function useAuditConfigurationData({ enabled, revision }: UseAuditConfigurationDataInput) {
-  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [blocklistRules, setBlocklistRules] = useState<HeaderBlocklistRule[]>([]);
   const [userAgentClientRules, setUserAgentClientRules] = useState<UserAgentClientRule[]>([]);
   const [loadingRules, setLoadingRules] = useState(false);
@@ -73,36 +58,8 @@ export function useAuditConfigurationData({ enabled, revision }: UseAuditConfigu
     useState<UserAgentClientRule | null>(null);
   const [userAgentClientSystemRulesOpen, setUserAgentClientSystemRulesOpen] = useState(false);
   const [userAgentClientUserRulesOpen, setUserAgentClientUserRulesOpen] = useState(true);
-  const vendorsRequestIdRef = useRef(0);
   const rulesRequestIdRef = useRef(0);
   const userAgentClientRulesRequestIdRef = useRef(0);
-
-  const fetchVendors = useCallback(async () => {
-    const requestId = ++vendorsRequestIdRef.current;
-    try {
-      const data = await getSharedVendors(revision);
-      if (requestId !== vendorsRequestIdRef.current) {
-        return;
-      }
-      setVendors(data);
-    } catch {
-      if (requestId !== vendorsRequestIdRef.current) {
-        return;
-      }
-      toast.error(getMessages().settingsAuditData.loadVendorsFailed);
-    }
-  }, [revision]);
-
-  const commitVendors = useCallback(
-    (updater: (current: Vendor[]) => Vendor[]) => {
-      setVendors((current) => {
-        const next = updater(current);
-        setSharedVendors(revision, next);
-        return next;
-      });
-    },
-    [revision],
-  );
 
   const fetchRules = useCallback(async () => {
     const requestId = ++rulesRequestIdRef.current;
@@ -151,10 +108,10 @@ export function useAuditConfigurationData({ enabled, revision }: UseAuditConfigu
       return;
     }
 
-    void fetchVendors();
+    void revision;
     void fetchRules();
     void fetchUserAgentClientRules();
-  }, [enabled, fetchUserAgentClientRules, fetchVendors, fetchRules]);
+  }, [enabled, fetchUserAgentClientRules, fetchRules, revision]);
 
   const systemRules = useMemo(() => blocklistRules.filter((rule) => rule.is_system), [blocklistRules]);
   const customRules = useMemo(() => blocklistRules.filter((rule) => !rule.is_system), [blocklistRules]);
@@ -166,44 +123,6 @@ export function useAuditConfigurationData({ enabled, revision }: UseAuditConfigu
     () => userAgentClientRules.filter((rule) => !rule.is_system),
     [userAgentClientRules],
   );
-
-  const toggleAudit = async (vendorId: number, checked: boolean) => {
-    commitVendors((prev) =>
-      prev.map((vendor) =>
-        vendor.id === vendorId ? { ...vendor, audit_enabled: checked } : vendor
-      )
-    );
-
-    try {
-      await api.vendors.update(vendorId, { audit_enabled: checked });
-    } catch {
-      commitVendors((prev) =>
-        prev.map((vendor) =>
-          vendor.id === vendorId ? { ...vendor, audit_enabled: !checked } : vendor
-        )
-      );
-      toast.error(getMessages().settingsAuditData.updateVendorFailed);
-    }
-  };
-
-  const toggleBodies = async (vendorId: number, checked: boolean) => {
-    commitVendors((prev) =>
-      prev.map((vendor) =>
-        vendor.id === vendorId ? { ...vendor, audit_capture_bodies: checked } : vendor
-      )
-    );
-
-    try {
-      await api.vendors.update(vendorId, { audit_capture_bodies: checked });
-    } catch {
-      commitVendors((prev) =>
-        prev.map((vendor) =>
-          vendor.id === vendorId ? { ...vendor, audit_capture_bodies: !checked } : vendor
-        )
-      );
-      toast.error(getMessages().settingsAuditData.updateVendorFailed);
-    }
-  };
 
   const handleToggleRule = async (rule: HeaderBlocklistRule, checked: boolean) => {
     setBlocklistRules((prev) => prev.map((row) => (row.id === rule.id ? { ...row, enabled: checked } : row)));
@@ -405,7 +324,6 @@ export function useAuditConfigurationData({ enabled, revision }: UseAuditConfigu
     openAddUserAgentClientRuleDialog,
     openEditRuleDialog,
     openEditUserAgentClientRuleDialog,
-    vendors,
     ruleDialogOpen,
     ruleForm,
     setDeleteRuleConfirm,
@@ -420,8 +338,6 @@ export function useAuditConfigurationData({ enabled, revision }: UseAuditConfigu
     setUserAgentClientUserRulesOpen,
     systemRules,
     systemRulesOpen,
-    toggleAudit,
-    toggleBodies,
     userAgentClientCustomRules,
     userAgentClientRuleDialogOpen,
     userAgentClientRuleForm,

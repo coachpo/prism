@@ -117,7 +117,7 @@ async function installTask6Routes(
       return fulfillJson(route, createCostingSettings())
     }
 
-    if (pathname === "/api/loadbalance/strategies" || pathname === "/api/vendors") {
+    if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson(route, [])
     }
 

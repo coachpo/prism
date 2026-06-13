@@ -37,8 +37,8 @@ describe("rewrite Vitest harness", () => {
     })
     await userEvent.click(button)
 
-    expect(rewriteRoutePaths).toContain("/sidecars")
-    expect(rewriteShellNavItems.some((item) => item.path === "/sidecars" && item.scope === "global")).toBe(true)
+    expect(rewriteRoutePaths).toContain("/models")
+    expect(rewriteShellNavItems.some((item) => item.path === "/models" && item.scope === "selected-profile")).toBe(true)
     expect(rewriteProfileScopeSchema.safeParse({ profileId: crypto.randomUUID(), reason: "contract" }).success).toBe(true)
     expect(rewriteTableColumns[0].header).toBe("Label")
   })

@@ -37,8 +37,6 @@ function createProfile() {
 function createModelListItem() {
   return {
     id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
@@ -141,9 +139,6 @@ function createRequestLogDetail() {
       model_id: "gpt-4o-mini",
       resolved_target_model_id: null,
       api_family: "openai",
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
       status_code: 502,
       response_time_ms: 125,
       is_stream: false,
@@ -167,9 +162,6 @@ function createRequestLogDetail() {
       model_id: "gpt-4o-mini",
       resolved_target_model_id: null,
       api_family: "openai",
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
       endpoint_id: 1,
       connection_id: null,
       endpoint_base_url: "https://api.example.test",
@@ -312,9 +304,6 @@ async function mockProtectedShellRoutes(
       return fulfillJson(createAuthSettings());
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/config/header-blocklist-rules") {
       return fulfillJson([]);

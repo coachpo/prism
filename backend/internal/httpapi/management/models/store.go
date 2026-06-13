@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
-	"github.com/coachpo/prism/backend/internal/vendordomain"
 )
 
 type queryExecutor interface {
@@ -25,7 +24,6 @@ type queryExecutor interface {
 type modelRecord struct {
 	ID                                   int
 	ProfileID                            int
-	VendorID                             *int
 	APIFamily                            string
 	ModelID                              string
 	DisplayName                          *string
@@ -77,18 +75,6 @@ type preservedConnectionAccessTarget struct {
 	Update    bool
 }
 
-type vendorRecord struct {
-	ID                 int
-	Key                string
-	Name               string
-	Description        *string
-	IconKey            *string
-	AuditEnabled       bool
-	AuditCaptureBodies bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-}
-
 type strategyRecord struct {
 	ID                                 int
 	Name                               string
@@ -122,7 +108,7 @@ type endpointModelConnectionRow struct {
 	ReachableModelData   modelRecord
 }
 
-const modelRecordSelectColumns = `model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.loadbalance_strategy_id, model_configs.context_window_tokens, model_configs.default_output_token_reserve, model_configs.max_context_utilization, model_configs.preferred_context_utilization_threshold, model_configs.facade_enabled, model_configs.facade_selection_policy, model_configs.facade_fallback_policy, model_configs.context_overflow_promotion_target_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at`
+const modelRecordSelectColumns = `model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.loadbalance_strategy_id, model_configs.context_window_tokens, model_configs.default_output_token_reserve, model_configs.max_context_utilization, model_configs.preferred_context_utilization_threshold, model_configs.facade_enabled, model_configs.facade_selection_policy, model_configs.facade_fallback_policy, model_configs.context_overflow_promotion_target_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at`
 
 func listModelRecords(ctx context.Context, exec queryExecutor, profileID int) ([]modelRecord, error) {
 	rows, err := exec.Query(ctx, `SELECT `+modelRecordSelectColumns+` FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
@@ -242,35 +228,6 @@ func listModelHealthStats(ctx context.Context, exec queryExecutor, profileID int
 	return stats, nil
 }
 
-func loadVendorRecordsByIDs(ctx context.Context, exec queryExecutor, vendorIDs []int) (map[int]vendorRecord, error) {
-	if len(vendorIDs) == 0 {
-		return map[int]vendorRecord{}, nil
-	}
-	args := make([]any, 0, len(vendorIDs))
-	for _, vendorID := range vendorIDs {
-		args = append(args, vendorID)
-	}
-	query := fmt.Sprintf(`SELECT id, key, name, description, icon_key, audit_enabled, audit_capture_bodies, created_at, updated_at FROM vendors WHERE id IN (%s) ORDER BY id ASC`, placeholders(1, len(vendorIDs)))
-	rows, err := exec.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query vendors by id: %w", err)
-	}
-	defer rows.Close()
-
-	items := map[int]vendorRecord{}
-	for rows.Next() {
-		record, scanErr := scanVendorRecord(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		items[record.ID] = record
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate vendors by id: %w", err)
-	}
-	return items, nil
-}
-
 func loadStrategyRecordsByIDs(ctx context.Context, exec queryExecutor, profileID int, strategyIDs []int) (map[int]strategyRecord, error) {
 	if len(strategyIDs) == 0 {
 		return map[int]strategyRecord{}, nil
@@ -329,7 +286,7 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 			AND (model_access_targets.target_connection_id IS NOT NULL OR (model_access_targets.target_model_config_id IS NOT NULL AND NOT model_access_targets.target_model_config_id = ANY(terminal_reachability.path)))
 	)
 	SELECT DISTINCT connections.endpoint_id, connections.id, connections.is_active,
-		source_models.id, source_models.profile_id, source_models.vendor_id, source_models.api_family, source_models.model_id, source_models.display_name, source_models.loadbalance_strategy_id, source_models.context_window_tokens, source_models.default_output_token_reserve, source_models.max_context_utilization, source_models.preferred_context_utilization_threshold, source_models.facade_enabled, source_models.facade_selection_policy, source_models.facade_fallback_policy, source_models.context_overflow_promotion_target_id, source_models.is_enabled, source_models.created_at, source_models.updated_at
+		source_models.id, source_models.profile_id, source_models.api_family, source_models.model_id, source_models.display_name, source_models.loadbalance_strategy_id, source_models.context_window_tokens, source_models.default_output_token_reserve, source_models.max_context_utilization, source_models.preferred_context_utilization_threshold, source_models.facade_enabled, source_models.facade_selection_policy, source_models.facade_fallback_policy, source_models.context_overflow_promotion_target_id, source_models.is_enabled, source_models.created_at, source_models.updated_at
 	FROM terminal_reachability
 	JOIN connections ON connections.id = terminal_reachability.terminal_connection_id AND connections.profile_id = $1
 	JOIN model_configs AS source_models ON source_models.id = terminal_reachability.root_model_config_id AND source_models.profile_id = $1
@@ -346,7 +303,6 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 	items := make([]endpointModelConnectionRow, 0)
 	for rows.Next() {
 		var row endpointModelConnectionRow
-		var vendorID sql.NullInt32
 		var displayName sql.NullString
 		var loadbalanceStrategyID sql.NullInt32
 		var contextWindowTokens sql.NullInt32
@@ -354,10 +310,9 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
 		var contextOverflowPromotionTargetID sql.NullString
-		if err := rows.Scan(&row.EndpointID, &row.TerminalConnectionID, &row.ConnectionIsActive, &row.ReachableModelData.ID, &row.ReachableModelData.ProfileID, &vendorID, &row.ReachableModelData.APIFamily, &row.ReachableModelData.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &row.ReachableModelData.DefaultOutputTokenReserve, &row.ReachableModelData.MaxContextUtilization, &preferredContextUtilizationThreshold, &row.ReachableModelData.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &row.ReachableModelData.IsEnabled, &row.ReachableModelData.CreatedAt, &row.ReachableModelData.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.EndpointID, &row.TerminalConnectionID, &row.ConnectionIsActive, &row.ReachableModelData.ID, &row.ReachableModelData.ProfileID, &row.ReachableModelData.APIFamily, &row.ReachableModelData.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &row.ReachableModelData.DefaultOutputTokenReserve, &row.ReachableModelData.MaxContextUtilization, &preferredContextUtilizationThreshold, &row.ReachableModelData.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &row.ReachableModelData.IsEnabled, &row.ReachableModelData.CreatedAt, &row.ReachableModelData.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan reachable endpoint model row: %w", err)
 		}
-		row.ReachableModelData.VendorID = nullableInt32(vendorID)
 		row.ReachableModelData.DisplayName = nullableStringValue(displayName)
 		row.ReachableModelData.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
 		row.ReachableModelData.ContextWindowTokens = nullableInt32(contextWindowTokens)
@@ -372,18 +327,6 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 		return nil, fmt.Errorf("iterate reachable endpoint model rows: %w", err)
 	}
 	return items, nil
-}
-
-func ensureVendorExists(ctx context.Context, exec queryExecutor, vendorID int) error {
-	var existingID int
-	err := exec.QueryRow(ctx, `SELECT id FROM vendors WHERE id = $1 LIMIT 1`, vendorID).Scan(&existingID)
-	if err == pgx.ErrNoRows {
-		return &domainError{StatusCode: 400, Detail: "Vendor not found"}
-	}
-	if err != nil {
-		return fmt.Errorf("load vendor %d: %w", vendorID, err)
-	}
-	return nil
 }
 
 func ensureLoadbalanceStrategyExists(ctx context.Context, exec queryExecutor, profileID int, strategyID int) error {
@@ -448,7 +391,7 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 	for _, modelID := range modelIDs {
 		args = append(args, modelID)
 	}
-	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.weight, model_access_targets.target_priority, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.vendor_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.context_window_tokens, target_models.default_output_token_reserve, target_models.max_context_utilization, target_models.preferred_context_utilization_threshold, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.context_overflow_promotion_target_id, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.weight, model_access_targets.target_priority, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.context_window_tokens, target_models.default_output_token_reserve, target_models.max_context_utilization, target_models.preferred_context_utilization_threshold, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.context_overflow_promotion_target_id, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query model access targets for profile %d: %w", profileID, err)
@@ -462,7 +405,6 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 		target := modelRecord{}
 		var weight sql.NullInt32
 		var targetPriority sql.NullInt32
-		var vendorID sql.NullInt32
 		var displayName sql.NullString
 		var loadbalanceStrategyID sql.NullInt32
 		var contextWindowTokens sql.NullInt32
@@ -470,12 +412,11 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
 		var contextOverflowPromotionTargetID sql.NullString
-		if err := rows.Scan(&record.ID, &record.ProfileID, &record.SourceModelConfigID, &targetModelID, &record.Position, &weight, &targetPriority, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt, &target.ID, &target.ProfileID, &vendorID, &target.APIFamily, &target.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &target.DefaultOutputTokenReserve, &target.MaxContextUtilization, &preferredContextUtilizationThreshold, &target.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &target.IsEnabled, &target.CreatedAt, &target.UpdatedAt); err != nil {
+		if err := rows.Scan(&record.ID, &record.ProfileID, &record.SourceModelConfigID, &targetModelID, &record.Position, &weight, &targetPriority, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt, &target.ID, &target.ProfileID, &target.APIFamily, &target.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &target.DefaultOutputTokenReserve, &target.MaxContextUtilization, &preferredContextUtilizationThreshold, &target.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &target.IsEnabled, &target.CreatedAt, &target.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan model access target: %w", err)
 		}
 		record.Weight = nullableInt32(weight)
 		record.TargetPriority = nullableInt32(targetPriority)
-		target.VendorID = nullableInt32(vendorID)
 		target.DisplayName = nullableStringValue(displayName)
 		target.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
 		target.ContextWindowTokens = nullableInt32(contextWindowTokens)
@@ -883,7 +824,7 @@ func deleteConnectionRow(ctx context.Context, exec queryExecutor, connectionID i
 
 func insertModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
 	var createdID int
-	if err := tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`, record.ProfileID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.ContextOverflowPromotionTargetID), record.IsEnabled, record.CreatedAt, record.UpdatedAt).Scan(&createdID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`, record.ProfileID, record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.ContextOverflowPromotionTargetID), record.IsEnabled, record.CreatedAt, record.UpdatedAt).Scan(&createdID); err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
 		}
@@ -894,7 +835,7 @@ func insertModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecor
 }
 
 func updateModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
-	if _, err := tx.Exec(ctx, `UPDATE model_configs SET vendor_id = $2, api_family = $3, model_id = $4, display_name = $5, loadbalance_strategy_id = $6, context_window_tokens = $7, default_output_token_reserve = $8, max_context_utilization = $9, preferred_context_utilization_threshold = $10, facade_enabled = $11, facade_selection_policy = $12, facade_fallback_policy = $13, context_overflow_promotion_target_id = $14, is_enabled = $15, updated_at = $16 WHERE id = $1`, record.ID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.ContextOverflowPromotionTargetID), record.IsEnabled, record.UpdatedAt); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE model_configs SET api_family = $2, model_id = $3, display_name = $4, loadbalance_strategy_id = $5, context_window_tokens = $6, default_output_token_reserve = $7, max_context_utilization = $8, preferred_context_utilization_threshold = $9, facade_enabled = $10, facade_selection_policy = $11, facade_fallback_policy = $12, context_overflow_promotion_target_id = $13, is_enabled = $14, updated_at = $15 WHERE id = $1`, record.ID, record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.ContextOverflowPromotionTargetID), record.IsEnabled, record.UpdatedAt); err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
 		}
@@ -918,7 +859,6 @@ func syncRenamedModelReferences(ctx context.Context, tx pgx.Tx, profileID int, o
 }
 
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
-	var vendorID sql.NullInt32
 	var displayName sql.NullString
 	var loadbalanceStrategyID sql.NullInt32
 	var contextWindowTokens sql.NullInt32
@@ -927,10 +867,9 @@ func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, erro
 	var facadeFallbackPolicy sql.NullString
 	var contextOverflowPromotionTargetID sql.NullString
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &vendorID, &record.APIFamily, &record.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &record.DefaultOutputTokenReserve, &record.MaxContextUtilization, &preferredContextUtilizationThreshold, &record.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.APIFamily, &record.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &record.DefaultOutputTokenReserve, &record.MaxContextUtilization, &preferredContextUtilizationThreshold, &record.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return modelRecord{}, err
 	}
-	record.VendorID = nullableInt32(vendorID)
 	record.DisplayName = nullableStringValue(displayName)
 	record.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
 	record.ContextWindowTokens = nullableInt32(contextWindowTokens)
@@ -938,18 +877,6 @@ func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, erro
 	record.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
 	record.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
 	record.ContextOverflowPromotionTargetID = nullableStringValue(contextOverflowPromotionTargetID)
-	return record, nil
-}
-
-func scanVendorRecord(scanner interface{ Scan(...any) error }) (vendorRecord, error) {
-	var description sql.NullString
-	var iconKey sql.NullString
-	record := vendorRecord{}
-	if err := scanner.Scan(&record.ID, &record.Key, &record.Name, &description, &iconKey, &record.AuditEnabled, &record.AuditCaptureBodies, &record.CreatedAt, &record.UpdatedAt); err != nil {
-		return vendorRecord{}, err
-	}
-	record.Description = nullableStringValue(description)
-	record.IconKey = nullableStringValue(iconKey)
 	return record, nil
 }
 
@@ -1091,13 +1018,8 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	return item, nil
 }
 
-func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, counts map[int]modelConnectionCounts, health map[string]modelHealthStats) modelConfigListResponse {
-	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: record.ContextOverflowPromotionTargetID, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
-	if record.VendorID != nil {
-		if vendor, ok := vendors[*record.VendorID]; ok {
-			response.Vendor = vendorResponseFromRecord(vendor)
-		}
-	}
+func buildModelListResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, counts map[int]modelConnectionCounts, health map[string]modelHealthStats) modelConfigListResponse {
+	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: record.ContextOverflowPromotionTargetID, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.LoadbalanceStrategyID != nil {
 		if strategy, ok := strategies[*record.LoadbalanceStrategyID]; ok {
 			response.LoadbalanceStrategy = strategySummaryFromRecord(strategy)
@@ -1114,23 +1036,14 @@ func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, st
 	return response
 }
 
-func buildModelDetailResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord) modelConfigResponse {
-	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: record.ContextOverflowPromotionTargetID, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
-	if record.VendorID != nil {
-		if vendor, ok := vendors[*record.VendorID]; ok {
-			response.Vendor = vendorResponseFromRecord(vendor)
-		}
-	}
+func buildModelDetailResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord) modelConfigResponse {
+	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: record.ContextOverflowPromotionTargetID, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.LoadbalanceStrategyID != nil {
 		if strategy, ok := strategies[*record.LoadbalanceStrategyID]; ok {
 			response.LoadbalanceStrategy = strategySummaryFromRecord(strategy)
 		}
 	}
 	return response
-}
-
-func vendorResponseFromRecord(record vendorRecord) *vendorResponse {
-	return &vendorResponse{ID: record.ID, Key: record.Key, Name: record.Name, Description: record.Description, IconKey: record.IconKey, IsReadonly: vendordomain.IsReadonlyVendorKey(record.Key), AuditEnabled: record.AuditEnabled, AuditCaptureBodies: record.AuditCaptureBodies, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 }
 
 func strategySummaryFromRecord(record strategyRecord) *loadbalanceStrategySummary {
@@ -1160,7 +1073,7 @@ func accessTargetResponsesFromRecords(records []accessTargetRecord) []modelAcces
 }
 
 func modelTargetSummaryFromRecord(record modelRecord) *modelTargetSummary {
-	return &modelTargetSummary{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, IsEnabled: record.IsEnabled}
+	return &modelTargetSummary{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, IsEnabled: record.IsEnabled}
 }
 
 func accessTargetRequestsFromRecords(records []accessTargetRecord) []modelAccessTargetRequest {
@@ -1225,18 +1138,6 @@ func sortAccessTargetRecords(values []accessTargetRecord) {
 		}
 		return values[left].Position < values[right].Position
 	})
-}
-
-func sortAccessTargetRequestsByPosition(values []modelAccessTargetRequest) []modelAccessTargetRequest {
-	ordered := make([]modelAccessTargetRequest, len(values))
-	copy(ordered, values)
-	sort.Slice(ordered, func(left int, right int) bool {
-		if ordered[left].Position == ordered[right].Position {
-			return accessTargetInputKey(ordered[left]) < accessTargetInputKey(ordered[right])
-		}
-		return ordered[left].Position < ordered[right].Position
-	})
-	return ordered
 }
 
 func sortResolvedAccessTargetsByPosition(values []resolvedAccessTarget) []resolvedAccessTarget {

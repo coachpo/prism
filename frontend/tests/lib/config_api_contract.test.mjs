@@ -13,7 +13,6 @@ function buildProfileBundle() {
   return {
     version: 3,
     bundle_kind: "profile_config",
-    vendor_refs: [],
     endpoints: [],
     pricing_templates: [],
     connections: [],
@@ -25,23 +24,6 @@ function buildProfileBundle() {
       key_id: "test-key",
       entries: [],
     },
-  };
-}
-
-function buildVendorBundle() {
-  return {
-    version: 1,
-    bundle_kind: "vendor_catalog",
-    vendors: [
-      {
-        key: "openai",
-        name: "OpenAI",
-        description: null,
-        icon_key: "openai",
-        audit_enabled: true,
-        audit_capture_bodies: false,
-      },
-    ],
   };
 }
 
@@ -73,14 +55,6 @@ function assertHasProfileHeader(call, profileId) {
     call.init?.headers?.["X-Profile-Id"],
     String(profileId),
     `${call.url} should attach X-Profile-Id through api/core.ts`,
-  );
-}
-
-function assertLacksProfileHeader(call) {
-  assert.equal(
-    Object.hasOwn(call.init?.headers ?? {}, "X-Profile-Id"),
-    false,
-    `${call.url} should not attach X-Profile-Id through api/core.ts`,
   );
 }
 
@@ -146,54 +120,4 @@ test("api.config profile helpers attach X-Profile-Id and required confirmation h
     },
   ]);
   requests.forEach((request) => assertHasProfileHeader(request, 42));
-});
-
-test("api.config vendor helpers keep X-Profile-Id absent while preserving preview token headers", async () => {
-  const requests = [];
-  const restoreFetch = installFetchRecorder(requests);
-  const { api, setApiProfileId } = loadConfigApi();
-  const vendorBundle = buildVendorBundle();
-
-  try {
-    setApiProfileId(42);
-
-    await api.config.vendors.export();
-    await api.config.vendors.previewImport(vendorBundle);
-    await api.config.vendors.import(vendorBundle, "vendor-preview-token");
-  } finally {
-    setApiProfileId(null);
-    restoreFetch();
-  }
-
-  assert.deepEqual(requests, [
-    {
-      url: "/api/config/vendors/export",
-      init: {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      },
-    },
-    {
-      url: "/api/config/vendors/import/preview",
-      init: {
-        method: "POST",
-        body: JSON.stringify(vendorBundle),
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      },
-    },
-    {
-      url: "/api/config/vendors/import",
-      init: {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Prism-Preview-Token": "vendor-preview-token",
-        },
-        body: JSON.stringify(vendorBundle),
-        credentials: "include",
-      },
-    },
-  ]);
-  requests.forEach(assertLacksProfileHeader);
 });

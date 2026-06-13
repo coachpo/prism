@@ -94,7 +94,6 @@ export const REQUIRED_CURRENT_ROUTES = [
   "/loadbalance-strategies",
   "/settings",
   "/proxy-api-keys",
-  "/sidecars",
   "/pricing-templates",
   "/request-logs",
   "/request-logs/:requestId/audit",
@@ -112,7 +111,6 @@ export const REQUIRED_ROUTE_SCOPES = {
   "/loadbalance-strategies": "protected-selected-profile",
   "/settings": "mixed",
   "/proxy-api-keys": "protected-global",
-  "/sidecars": "protected-global",
   "/pricing-templates": "protected-selected-profile",
   "/request-logs": "protected-selected-profile",
   "/request-logs/:requestId/audit": "protected-selected-profile",
@@ -122,9 +120,7 @@ export const REQUIRED_DESTRUCTIVE_SAFEGUARDS = [
   "profiles",
   "loadbalance-strategies",
   "pricing-templates",
-  "vendors",
   "proxy-api-keys",
-  "sidecar-auth-files",
   "startup-structural-secrets",
   "retention-deletion",
 ] as const;
@@ -188,7 +184,7 @@ export const rewriteContractMatrix = {
       featureOwner: "src/features/models/",
       scope: "protected-selected-profile",
       protection: "Selected profile scopes model CRUD through X-Profile-Id; active runtime profile is not changed by selection.",
-      workflows: ["model list/create/edit/search", "vendor/api-family grouping", "context overflow promotion target"],
+      workflows: ["model list/create/edit/search", "api-family grouping", "context overflow promotion target"],
       deletionCriterion: "Old models directory deleted after model CRUD and promotion target parity tests pass.",
     },
     {
@@ -228,7 +224,7 @@ export const rewriteContractMatrix = {
       featureOwner: "src/features/settings/",
       scope: "mixed",
       protection: "Protected mixed route: Profile tab is selected-profile scoped; Global and Startup tabs are instance scoped.",
-      workflows: ["profile config import/export", "billing/currency", "timezone", "audit/privacy", "auth", "retention", "vendor catalog", "startup bootstrap"],
+      workflows: ["profile config import/export", "billing/currency", "timezone", "audit/privacy", "auth", "retention", "startup bootstrap"],
       deletionCriterion: "Old settings cluster deleted after profile/global/startup flow parity evidence exists.",
     },
     {
@@ -240,16 +236,6 @@ export const rewriteContractMatrix = {
       protection: "Global runtime credential management; selected profile must not scope proxy-key APIs.",
       workflows: ["create", "rotate", "one-time reveal", "edit metadata", "delete warnings", "quota/auth status"],
       deletionCriterion: "Old proxy-key directory deleted after credential lifecycle and delete warning evidence exists.",
-    },
-    {
-      currentPath: "/sidecars",
-      targetPath: "/control/sidecars",
-      component: "src/features/sidecars/SidecarsFeaturePage.tsx",
-      featureOwner: "src/features/sidecars/",
-      scope: "protected-global",
-      protection: "Global sidecar control plane; selected profile must not scope /api/sidecars routes.",
-      workflows: ["registration CRUD", "test connection", "manual sync", "auth files", "provider inventory", "stale auth mutation handling"],
-      deletionCriterion: "Old sidecars directory deleted after global control-plane and stale-auth parity evidence exists.",
     },
     {
       currentPath: "/pricing-templates",
@@ -293,7 +279,7 @@ export const rewriteContractMatrix = {
       module: "src/lib/api/profileScope.ts",
       responsibility: "Allowlist selected-profile management API families that receive X-Profile-Id.",
       scopeRule: "selected-profile",
-      criticalRules: ["models/endpoints/connections/pricing/stats/audit/loadbalance selected", "config profile import/export selected", "sidecars/vendors/proxy keys/auth global"],
+      criticalRules: ["models/endpoints/connections/pricing/stats/audit/loadbalance selected", "config profile import/export selected", "proxy keys/auth global"],
     },
     {
       module: "src/lib/api/authSettings.ts",
@@ -303,21 +289,15 @@ export const rewriteContractMatrix = {
     },
     {
       module: "src/lib/api/management.ts",
-      responsibility: "Profiles, vendors, models, endpoints, loadbalance strategies, connections, pricing templates.",
+      responsibility: "Profiles, models, endpoints, loadbalance strategies, connections, pricing templates.",
       scopeRule: "mixed",
-      criticalRules: ["profiles and vendors are global", "model/endpoint/loadbalance/pricing families are selected-profile", "Ban Policy fields are explicit and normalized"],
+      criticalRules: ["profiles are global", "model/endpoint/loadbalance/pricing families are selected-profile", "Ban Policy fields are explicit and normalized"],
     },
     {
       module: "src/lib/api/observability.ts",
       responsibility: "Stats, request logs, audit, bootstrap config, config import/export, loadbalance state/events, costing/timezone/retention.",
       scopeRule: "mixed",
-      criticalRules: ["stats/audit/loadbalance state are selected-profile", "bootstrap config and retention are global", "profile import/export tokens stay selected-profile", "vendor catalog import/export stays global"],
-    },
-    {
-      module: "src/lib/api/sidecars.ts",
-      responsibility: "Global sidecar registration, sync, provider inventory, auth-file mutations.",
-      scopeRule: "global",
-      criticalRules: ["/api/sidecars never receives X-Profile-Id", "auth-file delete sends confirm_name", "mutation responses include succeeded or succeeded_sync_failed"],
+      criticalRules: ["stats/audit/loadbalance state are selected-profile", "bootstrap config and retention are global", "profile import/export tokens stay selected-profile"],
     },
     {
       module: "runtime /v1 and /v1beta proxy paths",
@@ -336,7 +316,7 @@ export const rewriteContractMatrix = {
     {
       id: "global-management",
       scope: "global",
-      paths: ["/api/auth", "/api/profiles", "/api/vendors", "/api/sidecars", "/api/settings/auth", "/api/settings/auth/proxy-keys", "/api/settings/log-retention", "/api/maintenance/log-retention/jobs", "/api/config/bootstrap", "/api/config/vendors"],
+      paths: ["/api/auth", "/api/profiles", "/api/settings/auth", "/api/settings/auth/proxy-keys", "/api/settings/log-retention", "/api/maintenance/log-retention/jobs", "/api/config/bootstrap"],
       rule: "Never attach X-Profile-Id; these surfaces are instance-global or active-runtime orchestration.",
     },
     {
@@ -348,7 +328,6 @@ export const rewriteContractMatrix = {
   ],
   validationRules: [
     "Profile config import is bundle version 3 and kind profile_config with encrypted secret_payload.",
-    "Vendor catalog import is bundle version 1 and kind vendor_catalog with persisted icon_key metadata.",
     "Pricing import missing, null, blank, or whitespace component prices normalize to string '0' before decimal validation.",
     "OpenAI connection fields are valid only for api_family=openai, and OpenAI connections require openai_text_capability.",
     "preferred_context_utilization_threshold must be <= max_context_utilization for models and connections.",
@@ -388,15 +367,6 @@ export const rewriteContractMatrix = {
       evidence: ["src/features/pricing/DeletePricingTemplateDialog.tsx", "src/features/pricing/usePricingFeatureData.ts"],
     },
     {
-      id: "vendors",
-      surface: "Settings global vendor management",
-      scope: "protected-global",
-      trigger: "Delete shared vendor catalog row",
-      clientGuard: "Readonly vendors cannot be edited/deleted; referenced model usage rows are fetched and displayed before delete.",
-      serverConflict: "Referenced vendors block deletion and must show dependency rows by profile/model/api_family.",
-      evidence: ["src/pages/settings/useVendorManagementData.ts", "src/pages/settings/dialogs/DeleteVendorDialog.tsx"],
-    },
-    {
       id: "proxy-api-keys",
       surface: "Proxy API key delete alert",
       scope: "protected-global",
@@ -404,15 +374,6 @@ export const rewriteContractMatrix = {
       clientGuard: "Alert warns when auth enforcement is enabled and when a successor key exists; key preview and lifecycle remain visible.",
       serverConflict: "Delete result patches global key ledger without selected-profile scope.",
       evidence: ["src/pages/proxy-api-keys/ProxyKeyDeleteAlertDialog.tsx"],
-    },
-    {
-      id: "sidecar-auth-files",
-      surface: "Sidecar auth-file mutation dialogs",
-      scope: "protected-global",
-      trigger: "Delete live CLIProxyAPI auth file",
-      clientGuard: "Operator must type the current live auth-file name; request sends confirm_name for the selected auth_id.",
-      serverConflict: "404 refreshes live auth files; 409 stale_auth_confirmation and unsafe_auth_identity return explicit stale/unsafe messages; mutation state can be succeeded_sync_failed.",
-      evidence: ["src/features/sidecars/AuthFilesTable.tsx", "src/features/sidecars/useSidecarsPageData.ts", "src/lib/types/sidecar.ts"],
     },
     {
       id: "startup-structural-secrets",
@@ -454,14 +415,7 @@ export const rewriteContractMatrix = {
       scope: "selected-profile",
       transport: ["POST /api/config/profile/import/preview", "POST /api/config/profile/import", "X-Prism-Preview-Token from preview", "requires X-Profile-Id"],
       validation: ["frontend Zod mirror validates before preview", "preview invalidates on bundle or profile change", "blocking errors prevent apply", "preview token binds exact bundle/profile snapshot"],
-    },
-    {
-      id: "vendor-catalog-import-export",
-      surface: "Settings global vendor catalog",
-      scope: "global",
-      transport: ["GET /api/config/vendors/export", "POST /api/config/vendors/import/preview", "POST /api/config/vendors/import", "X-Prism-Preview-Token from preview", "no X-Profile-Id"],
-      validation: ["vendor_catalog version 1", "icon_key preserved", "blocking errors prevent apply", "shared vendor cache refreshes after import"],
-    },
+    }
   ],
   auditHistoryBehaviors: [
     {
@@ -496,12 +450,6 @@ export const rewriteContractMatrix = {
       scope: "protected-selected-profile",
       requirements: ["analytics.snapshot includes profile_id, preset, sequence, generated_at", "scope matching includes preset", "refresh message available for analytics", "events buffer during reconnect sync"],
     },
-    {
-      id: "sidecar-polling-status",
-      surface: "Sidecar control plane live inventory",
-      scope: "protected-global",
-      requirements: ["sidecar list/detail poll every 30s when visible", "manual sync shows succeeded or failed/sync-failed state", "auth/provider inventory refreshes after mutations"],
-    },
   ],
   featureDeletionCriteria: [
     {
@@ -530,9 +478,9 @@ export const rewriteContractMatrix = {
     },
     {
       feature: "Settings/startup/global controls",
-      currentFiles: ["src/pages/settings/*", "src/features/settings/startup/*", "src/pages/proxy-api-keys/*", "src/features/sidecars/*"],
-      requiredEvidence: ["config import/export e2e", "startup confirmation e2e", "sidecar stale-auth e2e", "proxy key lifecycle e2e"],
-      deleteWhen: "Mixed/global settings, startup bootstrap, proxy-key, and sidecar contracts are ported and verified.",
+      currentFiles: ["src/pages/settings/*", "src/features/settings/startup/*", "src/pages/proxy-api-keys/*", ],
+      requiredEvidence: ["config import/export e2e", "startup confirmation e2e", "proxy key lifecycle e2e"],
+      deleteWhen: "Mixed/global settings, startup bootstrap, and proxy-key contracts are ported and verified.",
     },
   ],
   assumptions: [
@@ -615,7 +563,7 @@ export function validateRewriteContractMatrix(matrix: RewriteContractMatrix): Re
   }
 
   const importFlowIds = collectIds(matrix.importExportFlows);
-  for (const flowId of ["profile-config-safe-export", "profile-config-dangerous-export", "profile-config-import", "vendor-catalog-import-export"]) {
+  for (const flowId of ["profile-config-safe-export", "profile-config-dangerous-export", "profile-config-import"]) {
     if (!importFlowIds.has(flowId)) {
       errors.push(`missing import/export flow ${flowId}`);
     }
@@ -624,10 +572,7 @@ export function validateRewriteContractMatrix(matrix: RewriteContractMatrix): Re
   if (!profileImportFlow?.transport.some((item) => item.includes("X-Prism-Preview-Token"))) {
     errors.push("profile import flow must require X-Prism-Preview-Token");
   }
-  const vendorFlow = matrix.importExportFlows.find((flow) => flow.id === "vendor-catalog-import-export");
-  if (vendorFlow?.scope !== "global" || !vendorFlow.transport.some((item) => item.includes("no X-Profile-Id"))) {
-    errors.push("vendor catalog flow must be global and omit X-Profile-Id");
-  }
+
 
   if (!matrix.validationRules.some((rule) => rule.includes("OpenAI") && rule.includes("openai_text_capability"))) {
     errors.push("missing OpenAI connection validation rule");

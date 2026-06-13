@@ -15,7 +15,7 @@
     "test": "vitest",
     "test:lib": "node --test tests/lib/bootstrap_config_contract.test.mjs tests/lib/config_import_validation_contract.test.mjs tests/lib/config-import-pricing-template-normalization.test.mjs tests/lib/profile_scope_header_contract.test.mjs tests/lib/config_api_contract.test.mjs tests/lib/management_api_context_capability_contract.test.mjs tests/lib/management_api_model_targets_contract.test.mjs tests/lib/model_dialog_i18n_contract.test.mjs tests/lib/model_form_state_contract.test.mjs tests/lib/dashboard_routing_flow_layout_contract.test.mjs tests/model-detail/connection_probe_behavior_contract.test.mjs tests/model-detail/context_capability_override_form_state_contract.test.mjs",
     "test:server": "node --test tests/server/server_health_entrypoint.test.mjs",
-    "test:config": "playwright test tests/e2e/settings-config-export.spec.ts tests/e2e/settings-config-import.spec.ts tests/e2e/settings-vendor-catalog.spec.ts",
+    "test:config": "playwright test tests/e2e/settings-config-export.spec.ts tests/e2e/settings-config-import.spec.ts",
     "test:e2e": "node --input-type=module -e \"import { spawnSync } from 'node:child_process'; let args = process.argv.slice(1); if (args[0] === '--') args = args.slice(1); for (let index = 0; index < args.length - 1; index += 1) { if (args[index] === '--grep' && args[index + 1].startsWith('^context-capability-authoring:')) { args[index + 1] = args[index + 1].slice(1); } } const result = spawnSync('pnpm', ['exec', 'playwright', 'test', ...args], { stdio: 'inherit' }); process.exit(result.status ?? 1);\" --"
   },
   "dependencies": {

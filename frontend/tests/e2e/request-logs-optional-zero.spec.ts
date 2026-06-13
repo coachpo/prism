@@ -30,9 +30,6 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     upstream_client_display: "Optional zero row",
     user_agent_overridden: false,
     api_family: "openai",
-    vendor_id: 1,
-    vendor_key: "openai",
-    vendor_name: "OpenAI",
     endpoint_id: 1,
     endpoint_label: "Primary endpoint",
     connection_id: null,
@@ -65,9 +62,6 @@ function createRequestLogDetail(overrides: Record<string, unknown> = {}) {
       resolved_target_model_label: null,
       is_proxy_origin: false,
       api_family: "openai",
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
       status_code: 200,
       response_time_ms: 120,
       ttft_ms: 40,
@@ -170,6 +164,8 @@ function createRequestLogsResponse(
           endpoint_label: "Primary endpoint",
         },
       ],
+      clients: [],
+      resolved_target_models: [],
     },
   };
 }
@@ -267,9 +263,6 @@ async function mockRequestLogRoutes(page: Page) {
       return fulfillJson({ timezone_preference: "UTC" });
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson([]);

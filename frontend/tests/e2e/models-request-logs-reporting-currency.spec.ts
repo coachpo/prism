@@ -26,8 +26,6 @@ function createModelListItem() {
   return {
     id: 1,
     profile_id: 42,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai" as const,
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
@@ -114,9 +112,6 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     upstream_client_display: "Payload symbol row",
     user_agent_overridden: false,
     api_family: "openai" as const,
-    vendor_id: 1,
-    vendor_key: "openai",
-    vendor_name: "OpenAI",
     endpoint_id: 1,
     endpoint_label: "Primary endpoint",
     connection_id: null,
@@ -165,9 +160,6 @@ function createRequestLogDetail({
       resolved_target_model_label: null,
       is_proxy_origin: false,
       api_family: "openai" as const,
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
       status_code: 200,
       response_time_ms: hasComputedCost ? 180 : 240,
       ttft_ms: hasComputedCost ? 60 : null,
@@ -306,6 +298,8 @@ function createRequestLogsResponse(
           endpoint_label: "Primary endpoint",
         },
       ],
+      clients: [],
+      resolved_target_models: [],
     },
   };
 }
@@ -398,9 +392,6 @@ async function mockCurrencyRoutes(
       return fulfillJson([model]);
     }
 
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
 
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson([]);
@@ -500,12 +491,11 @@ test.describe("models and request logs reporting currency", () => {
     await expect(page.getByText("$1.25")).toHaveCount(0);
   });
 
-  test("shows fallback currency guidance when reporting currency settings cannot be verified", async ({ page }) => {
+  test("uses fallback currency when reporting currency settings cannot be verified", async ({ page }) => {
     await mockCurrencyRoutes(page, { costingSettingsFailure: true });
 
     await page.goto("/models");
 
-    await expect(page.getByText("Spend is shown with fallback reporting currency until billing settings load again.")).toBeVisible();
     await expect(page.getByRole("row", { name: /GPT-4o mini/ }).getByText("$1.25")).toBeVisible();
   });
 

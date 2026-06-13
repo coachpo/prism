@@ -68,7 +68,7 @@ func TestManagementRequestBodyLimitClassifiesExpectedCaps(t *testing.T) {
 	}{
 		{name: "auth", method: http.MethodPost, path: "/api/auth/login", limitBytes: AuthRequestBodyLimitBytes, ok: true},
 		{name: "bootstrap", method: http.MethodPut, path: "/api/config/bootstrap", limitBytes: BootstrapRequestBodyLimitBytes, ok: true},
-		{name: "config bundle", method: http.MethodPost, path: "/api/config/vendors/import/preview", limitBytes: ConfigBundleRequestBodyLimitBytes, ok: true},
+		{name: "config bundle", method: http.MethodPost, path: "/api/config/profile/import/preview", limitBytes: ConfigBundleRequestBodyLimitBytes, ok: true},
 		{name: "generic management", method: http.MethodPut, path: "/api/settings/costing", limitBytes: ManagementJSONRequestBodyLimitBytes, ok: true},
 		{name: "profile export with secrets", method: http.MethodPost, path: "/api/config/profile/export/with-secrets", ok: false},
 		{name: "read route", method: http.MethodGet, path: "/api/settings/auth", ok: false},
@@ -93,8 +93,6 @@ func newManagementBodyLimitTestHandler() http.Handler {
 		&managementauth.Service{},
 		&managementbootstrapconfig.Service{},
 		&managementconfigbundle.Service{},
-		nil,
-		nil,
 		nil,
 		nil,
 		nil,

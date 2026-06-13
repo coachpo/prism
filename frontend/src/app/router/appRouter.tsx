@@ -38,7 +38,6 @@ const SettingsFeaturePage = lazy(() => import("@/features/settings/SettingsFeatu
 const PricingTemplatesPage = lazy(() => import("@/features/pricing/PricingFeaturePage"))
 const BanPoliciesFeaturePage = lazy(() => import("@/features/loadbalance/BanPoliciesFeaturePage"))
 const ProxyApiKeysPage = lazy(() => import("@/features/proxy-keys/ProxyKeysFeaturePage"))
-const SidecarsPage = lazy(() => import("@/features/sidecars/SidecarsFeaturePage"))
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((module) => ({ default: module.LoginPage })))
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage").then((module) => ({ default: module.ForgotPasswordPage })))
 const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage").then((module) => ({ default: module.ResetPasswordPage })))
@@ -55,6 +54,18 @@ export function RouteFallback() {
 
 function withRouteSuspense(element: ReactElement) {
   return <Suspense fallback={<RouteFallback />}>{element}</Suspense>
+}
+
+function NotFoundRoute() {
+  const { messages } = useLocale()
+
+  return (
+    <main className="flex min-h-svh items-center justify-center bg-background px-6 text-foreground">
+      <div className="max-w-md text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">{messages.common.pageNotFound}</h1>
+      </div>
+    </main>
+  )
 }
 
 export function RoutedAuthProvider({ children }: { children: ReactNode }) {
@@ -197,9 +208,6 @@ function ProtectedProxyKeysRoute() {
   return <ProtectedRoute>{withRouteSuspense(<ProxyApiKeysPage />)}</ProtectedRoute>
 }
 
-function ProtectedSidecarsRoute() {
-  return <ProtectedRoute>{withRouteSuspense(<SidecarsPage />)}</ProtectedRoute>
-}
 
 function ProtectedPricingRoute() {
   return <ProtectedRoute>{withRouteSuspense(<PricingTemplatesPage />)}</ProtectedRoute>
@@ -217,7 +225,7 @@ function ProtectedRequestAuditRoute() {
   )
 }
 
-const rootRoute = createRootRoute({ component: Outlet })
+const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFoundRoute })
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -283,12 +291,6 @@ const proxyKeysRoute = createRoute({
   validateSearch: (search) => emptySearchSchema.parse(search),
   component: ProtectedProxyKeysRoute,
 })
-const sidecarsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/control/sidecars",
-  validateSearch: (search) => emptySearchSchema.parse(search),
-  component: ProtectedSidecarsRoute,
-})
 const pricingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/route/pricing",
@@ -315,7 +317,6 @@ const legacyEndpointsRoute = createRoute({ getParentRoute: () => rootRoute, path
 const legacyBanPoliciesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/loadbalance-strategies", component: LegacyRedirectRoute })
 const legacySettingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: LegacyRedirectRoute })
 const legacyProxyKeysRoute = createRoute({ getParentRoute: () => rootRoute, path: "/proxy-api-keys", component: LegacyRedirectRoute })
-const legacySidecarsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sidecars", component: LegacyRedirectRoute })
 const legacyPricingRoute = createRoute({ getParentRoute: () => rootRoute, path: "/pricing-templates", component: LegacyRedirectRoute })
 const legacyRequestLogsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/request-logs", component: LegacyRedirectRoute })
 const legacyRequestAuditRoute = createRoute({ getParentRoute: () => rootRoute, path: "/request-logs/$requestId/audit", component: LegacyRedirectRoute })
@@ -332,7 +333,6 @@ export const prismRouteTree = rootRoute.addChildren([
   banPoliciesRoute,
   settingsRoute,
   proxyKeysRoute,
-  sidecarsRoute,
   pricingRoute,
   requestLogsRoute,
   requestAuditRoute,
@@ -344,7 +344,6 @@ export const prismRouteTree = rootRoute.addChildren([
   legacyBanPoliciesRoute,
   legacySettingsRoute,
   legacyProxyKeysRoute,
-  legacySidecarsRoute,
   legacyPricingRoute,
   legacyRequestLogsRoute,
   legacyRequestAuditRoute,

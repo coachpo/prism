@@ -32,8 +32,6 @@ function getValidationMessages() {
 function localizeReferenceLabel(value: string) {
   const copy = getValidationMessages();
   switch (value) {
-    case "vendor":
-      return copy.referenceLabelVendor;
     case "endpoint":
       return copy.referenceLabelEndpoint;
     case "pricing template":

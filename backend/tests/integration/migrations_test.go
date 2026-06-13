@@ -6,7 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +23,7 @@ var expectedPrismMigrationVersions = []string{
 	migrate.DefaultBaselineVersion,
 	"000002_context_overflow_promotion_target",
 	"000003_openai_text_capability",
+	"000004_endpoint_label_snapshot",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -48,10 +52,10 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertStreamOutcomeTelemetryColumnContracts(t, testContext, conn)
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
 	assertPartitionedLogSchemaContract(t, testContext, conn)
-	assertSidecarSchemaContract(t, testContext, conn)
 	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
 	assertContextCapabilityColumnContracts(t, testContext, conn)
 	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
+	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
 }
 
 func TestPartitionedLogSchemaContract(t *testing.T) {
@@ -74,28 +78,65 @@ func TestPartitionedLogSchemaContract(t *testing.T) {
 	assertPartitionedLogSchemaContract(t, testContext, conn)
 }
 
-func TestSidecarSchemaContract(t *testing.T) {
+func TestEndpointLabelSnapshotFreshSchemaContract(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "sidecar_schema_contract")
+	conn := harness.openDatabase(t, testContext, "endpoint_label_snapshot_fresh")
 	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("run sidecar schema baseline: %v", err)
+		t.Fatalf("run endpoint label snapshot fresh baseline: %v", err)
 	}
 	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected sidecar schema baseline to apply, got %q", result.Outcome)
+		t.Fatalf("expected endpoint label snapshot fresh baseline to apply, got %q", result.Outcome)
 	}
 
-	expectedVersions := expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion)
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
-	assertHistoryVersions(t, testContext, conn, expectedVersions)
-	assertSidecarSchemaContract(t, testContext, conn)
-	assertLogRetentionSettingsContract(t, testContext, conn)
+	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
+	partitionName := ensureDailyLogPartition(t, testContext, conn, "usage_request_events", time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC), "fresh")
+	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, partitionName)
+}
+
+func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	oldRunner := newRunnerThroughMigration(t, "000003_openai_text_capability", func(version string, sql string) string {
+		if version != migrate.DefaultBaselineVersion {
+			return sql
+		}
+		return strings.Replace(sql, "    endpoint_label_snapshot text NOT NULL,\n", "", 1)
+	})
+	conn := harness.openDatabase(t, testContext, "endpoint_label_snapshot_backfill")
+	defer func() { _ = conn.Close(testContext) }()
+
+	oldResult, err := oldRunner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run pre-endpoint-label-snapshot migrations: %v", err)
+	}
+	if oldResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected pre-endpoint-label-snapshot migrations to apply, got %q", oldResult.Outcome)
+	}
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsThrough(t, "000003_openai_text_capability"))
+
+	fixture := seedEndpointLabelSnapshotBackfillRows(t, testContext, conn, "migration", false)
+
+	newResult, err := newRunner(t).Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply endpoint label snapshot migration: %v", err)
+	}
+	if newResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected endpoint label snapshot migration to apply, got %q", newResult.Outcome)
+	}
+	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot"})
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
+	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
+	assertEndpointLabelSnapshotBackfillRows(t, testContext, conn, fixture.expectedLabels)
 }
 
 func TestDirtyDatabaseWithoutMigrationHistoryFails(t *testing.T) {
@@ -199,6 +240,8 @@ func TestTranslatedObservabilitySchemaGuardUpgradesStampedDatabase(t *testing.T)
 		t.Fatalf("expected first run to apply baseline, got %q", firstResult.Outcome)
 	}
 
+	fixture := seedEndpointLabelSnapshotBackfillRows(t, testContext, conn, "guard", true)
+
 	for _, statement := range []string{
 		`ALTER TABLE public.request_logs DROP COLUMN IF EXISTS upstream_operation_name`,
 		`ALTER TABLE public.request_logs DROP COLUMN IF EXISTS operation_translation_mode`,
@@ -206,6 +249,7 @@ func TestTranslatedObservabilitySchemaGuardUpgradesStampedDatabase(t *testing.T)
 		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS upstream_operation_name`,
 		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS operation_translation_mode`,
 		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS upstream_request_path`,
+		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS endpoint_label_snapshot`,
 	} {
 		if _, err := conn.Exec(testContext, statement); err != nil {
 			t.Fatalf("drop translated observability schema surface with %q: %v", statement, err)
@@ -221,6 +265,9 @@ func TestTranslatedObservabilitySchemaGuardUpgradesStampedDatabase(t *testing.T)
 	}
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
+	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
+	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
+	assertEndpointLabelSnapshotBackfillRows(t, testContext, conn, fixture.expectedLabels)
 }
 
 func TestPreferredContextSchemaGuardUpgradesStampedDatabase(t *testing.T) {
@@ -423,6 +470,44 @@ func expectedMigrationVersionsFrom(t *testing.T, start string) []string {
 	return nil
 }
 
+func expectedMigrationVersionsThrough(t *testing.T, end string) []string {
+	t.Helper()
+	for index, version := range expectedPrismMigrationVersions {
+		if version == end {
+			return append([]string(nil), expectedPrismMigrationVersions[:index+1]...)
+		}
+	}
+	t.Fatalf("unknown migration version %q", end)
+	return nil
+}
+
+func newRunnerThroughMigration(t *testing.T, latestVersion string, mutateSQL func(version string, sql string) string) migrate.Runner {
+	t.Helper()
+
+	migrationsDir := t.TempDir()
+	sourceDir := migrate.DefaultMigrationsDir()
+	for _, version := range expectedMigrationVersionsThrough(t, latestVersion) {
+		filename := version + ".sql"
+		raw, err := os.ReadFile(filepath.Join(sourceDir, filename))
+		if err != nil {
+			t.Fatalf("read source migration %s: %v", filename, err)
+		}
+		sql := string(raw)
+		if mutateSQL != nil {
+			sql = mutateSQL(version, sql)
+		}
+		if err := os.WriteFile(filepath.Join(migrationsDir, filename), []byte(sql), 0o600); err != nil {
+			t.Fatalf("write temporary migration %s: %v", filename, err)
+		}
+	}
+
+	runner, err := migrate.New(migrate.Options{MigrationsDir: migrationsDir})
+	if err != nil {
+		t.Fatalf("build temporary migration runner: %v", err)
+	}
+	return runner
+}
+
 func assertMigrationVersions(t *testing.T, label string, got []string, expected []string) {
 	t.Helper()
 	if len(got) != len(expected) {
@@ -497,95 +582,6 @@ func assertHistoryVersionMissing(t *testing.T, ctx context.Context, conn *pgx.Co
 	}
 }
 
-func assertSidecarSchemaContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	tables := []string{"sidecar_instances", "sidecar_provider_snapshots"}
-	for _, tableName := range tables {
-		var idDefault string
-		var createdType string
-		var updatedType string
-		if err := conn.QueryRow(ctx, `
-SELECT COALESCE(id.column_default, ''), created_at.data_type, updated_at.data_type
-FROM information_schema.columns id
-JOIN information_schema.columns created_at ON created_at.table_schema = id.table_schema AND created_at.table_name = id.table_name AND created_at.column_name = 'created_at'
-JOIN information_schema.columns updated_at ON updated_at.table_schema = id.table_schema AND updated_at.table_name = id.table_name AND updated_at.column_name = 'updated_at'
-WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id'`, tableName).Scan(&idDefault, &createdType, &updatedType); err != nil {
-			t.Fatalf("load sidecar table %s timestamp/id contract: %v", tableName, err)
-		}
-		if !strings.Contains(idDefault, "nextval") || createdType != "timestamp with time zone" || updatedType != "timestamp with time zone" {
-			t.Fatalf("unexpected sidecar table %s id/timestamp contract: id_default=%q created=%q updated=%q", tableName, idDefault, createdType, updatedType)
-		}
-	}
-	assertColumnDataType(t, ctx, conn, "sidecar_instances", "deleted_at", "timestamp with time zone")
-	for tableName, columnNames := range map[string][]string{
-		"sidecar_provider_snapshots": {"snapshot_json"},
-	} {
-		for _, columnName := range columnNames {
-			assertColumnDataType(t, ctx, conn, tableName, columnName, "jsonb")
-		}
-	}
-	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_instances_live_name", "lower(name)", "deleted_at IS NULL")
-	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_instances_live_base_url_canonical", "base_url_canonical", "deleted_at IS NULL")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_instances_management_auth_state", "invalid_management_auth")
-	assertCurrentSidecarTables(t, ctx, conn)
-}
-
-func assertColumnDataType(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string, dataType string) {
-	t.Helper()
-	var got string
-	if err := conn.QueryRow(ctx, `SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`, tableName, columnName).Scan(&got); err != nil {
-		t.Fatalf("load %s.%s column type: %v", tableName, columnName, err)
-	}
-	if got != dataType {
-		t.Fatalf("expected %s.%s type %q, got %q", tableName, columnName, dataType, got)
-	}
-}
-
-func assertCurrentSidecarTables(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT c.relname
-		FROM pg_class c
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public'
-		  AND c.relkind IN ('r', 'p')
-		  AND left(c.relname, length('sidecar_')) = 'sidecar_'
-		ORDER BY c.relname ASC`)
-	if err != nil {
-		t.Fatalf("load current sidecar tables: %v", err)
-	}
-	defer rows.Close()
-	got := map[string]bool{}
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			t.Fatalf("scan current sidecar table: %v", err)
-		}
-		got[tableName] = true
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate current sidecar tables: %v", err)
-	}
-	assertStringSet(t, "sidecar tables", got, map[string]bool{"sidecar_instances": true, "sidecar_provider_snapshots": true})
-}
-
-func assertStringSet(t *testing.T, label string, got map[string]bool, expected map[string]bool) {
-	t.Helper()
-	if len(got) != len(expected) {
-		t.Fatalf("%s = %v want %v", label, got, expected)
-	}
-	for value := range expected {
-		if !got[value] {
-			t.Fatalf("%s missing %s: got %v want %v", label, value, got, expected)
-		}
-	}
-	for value := range got {
-		if !expected[value] {
-			t.Fatalf("%s has unexpected %s: got %v want %v", label, value, got, expected)
-		}
-	}
-}
-
 func assertIndexDefinitionContains(t *testing.T, ctx context.Context, conn *pgx.Conn, indexName string, fragments ...string) {
 	t.Helper()
 	var definition string
@@ -639,7 +635,7 @@ func seedModelAccessTargetConnectionOwner(t *testing.T, ctx context.Context, con
 	now := time.Now().UTC()
 
 	var sourceModelConfigID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, NULL, 'openai', $2, NULL, NULL, TRUE, $3, $3) RETURNING id`, profileID, modelID, now).Scan(&sourceModelConfigID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, TRUE, $3, $3) RETURNING id`, profileID, modelID, now).Scan(&sourceModelConfigID); err != nil {
 		t.Fatalf("seed ownership source model %q: %v", modelID, err)
 	}
 	if _, err := conn.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, sourceModelConfigID, connectionID, now); err != nil {
@@ -747,6 +743,85 @@ func assertTranslatedObservabilityColumnContracts(t *testing.T, ctx context.Cont
 	assertColumnContract(t, contracts, "usage_request_events.upstream_operation_name", "character varying", 120, "YES")
 	assertColumnContract(t, contracts, "usage_request_events.operation_translation_mode", "character varying", 80, "YES")
 	assertColumnContract(t, contracts, "usage_request_events.upstream_request_path", "character varying", 500, "YES")
+}
+
+func assertEndpointLabelSnapshotColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	var dataType string
+	var nullable string
+	var columnDefault string
+	if err := conn.QueryRow(ctx, `
+		SELECT data_type, is_nullable, COALESCE(column_default, '')
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'usage_request_events'
+		  AND column_name = 'endpoint_label_snapshot'`).Scan(&dataType, &nullable, &columnDefault); err != nil {
+		t.Fatalf("load usage_request_events.endpoint_label_snapshot column contract: %v", err)
+	}
+	if dataType != "text" || nullable != "NO" {
+		t.Fatalf("expected usage_request_events.endpoint_label_snapshot text NOT NULL, got type=%q nullable=%q", dataType, nullable)
+	}
+	if columnDefault != "" {
+		t.Fatalf("expected usage_request_events.endpoint_label_snapshot to have no default, got %q", columnDefault)
+	}
+}
+
+func assertEndpointLabelSnapshotPartitionColumn(t *testing.T, ctx context.Context, conn *pgx.Conn, partitionName string) {
+	t.Helper()
+	var dataType string
+	var nullable string
+	if err := conn.QueryRow(ctx, `
+		SELECT data_type, is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = $1
+		  AND column_name = 'endpoint_label_snapshot'`, partitionName).Scan(&dataType, &nullable); err != nil {
+		t.Fatalf("load %s.endpoint_label_snapshot column contract: %v", partitionName, err)
+	}
+	if dataType != "text" || nullable != "NO" {
+		t.Fatalf("expected %s.endpoint_label_snapshot text NOT NULL, got type=%q nullable=%q", partitionName, dataType, nullable)
+	}
+}
+
+func assertEndpointLabelSnapshotBackfillRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected map[string]string) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `
+		SELECT ingress_request_id, endpoint_label_snapshot
+		FROM public.usage_request_events
+		WHERE ingress_request_id = ANY($1::text[])
+		ORDER BY ingress_request_id ASC`, sortedMapKeys(expected))
+	if err != nil {
+		t.Fatalf("load endpoint label snapshot backfill rows: %v", err)
+	}
+	defer rows.Close()
+
+	got := map[string]string{}
+	for rows.Next() {
+		var ingressRequestID string
+		var endpointLabelSnapshot string
+		if err := rows.Scan(&ingressRequestID, &endpointLabelSnapshot); err != nil {
+			t.Fatalf("scan endpoint label snapshot backfill row: %v", err)
+		}
+		got[ingressRequestID] = endpointLabelSnapshot
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate endpoint label snapshot backfill rows: %v", err)
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("expected endpoint label snapshot rows %+v, got %+v", expected, got)
+	}
+	for ingressRequestID, expectedLabel := range expected {
+		label, ok := got[ingressRequestID]
+		if !ok {
+			t.Fatalf("missing endpoint label snapshot for ingress %q in %+v", ingressRequestID, got)
+		}
+		if label != expectedLabel {
+			t.Fatalf("expected endpoint label snapshot for ingress %q to be %q, got %q", ingressRequestID, expectedLabel, label)
+		}
+		if strings.TrimSpace(label) == "" {
+			t.Fatalf("expected non-empty endpoint label snapshot for ingress %q", ingressRequestID)
+		}
+	}
 }
 
 func assertPricingTemplateConcretePriceColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
@@ -1270,6 +1345,142 @@ func assertNoLogChildPartitions(t *testing.T, ctx context.Context, conn *pgx.Con
 	}
 }
 
+type endpointLabelSnapshotFixture struct {
+	expectedLabels map[string]string
+	usagePartition string
+}
+
+func seedEndpointLabelSnapshotBackfillRows(t *testing.T, ctx context.Context, conn *pgx.Conn, label string, includeSnapshot bool) endpointLabelSnapshotFixture {
+	t.Helper()
+	createdAt := time.Date(2026, 2, 3, 12, 0, 0, 0, time.UTC)
+	ensureDailyLogPartition(t, ctx, conn, "request_logs", createdAt, label)
+	usagePartition := ensureDailyLogPartition(t, ctx, conn, "usage_request_events", createdAt, label)
+
+	profileID := seedEndpointLabelSnapshotProfile(t, ctx, conn, label)
+	endpointID := seedEndpointLabelSnapshotEndpoint(t, ctx, conn, profileID, "Current Endpoint "+label, "https://current-"+label+".invalid")
+	blankNameEndpointID := seedEndpointLabelSnapshotEndpoint(t, ctx, conn, profileID, "   ", "https://blank-name-"+label+".invalid")
+	missingEndpointID := 900000 + len(label)
+
+	rankedIngress := label + "-ranked-desc"
+	insertEndpointSnapshotRequestLog(t, ctx, conn, profileID, endpointID, rankedIngress, 1, createdAt.Add(time.Minute), "old description "+label, "https://old-"+label+".invalid")
+	insertEndpointSnapshotRequestLog(t, ctx, conn, profileID, endpointID, rankedIngress, 2, createdAt.Add(3*time.Minute), "ranked description "+label, "https://ranked-"+label+".invalid")
+	insertEndpointSnapshotRequestLog(t, ctx, conn, profileID, endpointID, rankedIngress, 2, createdAt.Add(2*time.Minute), "wrong latest "+label, "https://wrong-latest-"+label+".invalid")
+
+	tieIngress := label + "-tie-base"
+	tieCreatedAt := createdAt.Add(10 * time.Minute)
+	insertEndpointSnapshotRequestLog(t, ctx, conn, profileID, endpointID, tieIngress, 3, tieCreatedAt, "wrong id "+label, "https://wrong-id-"+label+".invalid")
+	insertEndpointSnapshotRequestLog(t, ctx, conn, profileID, endpointID, tieIngress, 3, tieCreatedAt, "", "https://tie-base-"+label+".invalid")
+
+	currentEndpointIngress := label + "-current-name"
+	insertEndpointSnapshotRequestLog(t, ctx, conn, profileID, endpointID, currentEndpointIngress, 1, createdAt.Add(20*time.Minute), "", "")
+
+	endpointBaseIngress := label + "-endpoint-base"
+	endpointIDIngress := label + "-endpoint-id"
+	unknownIngress := label + "-unknown"
+
+	insertEndpointSnapshotUsageEvent(t, ctx, conn, profileID, endpointID, rankedIngress, createdAt.Add(30*time.Minute), includeSnapshot)
+	insertEndpointSnapshotUsageEvent(t, ctx, conn, profileID, endpointID, tieIngress, createdAt.Add(31*time.Minute), includeSnapshot)
+	insertEndpointSnapshotUsageEvent(t, ctx, conn, profileID, endpointID, currentEndpointIngress, createdAt.Add(32*time.Minute), includeSnapshot)
+	insertEndpointSnapshotUsageEvent(t, ctx, conn, profileID, blankNameEndpointID, endpointBaseIngress, createdAt.Add(33*time.Minute), includeSnapshot)
+	insertEndpointSnapshotUsageEvent(t, ctx, conn, profileID, missingEndpointID, endpointIDIngress, createdAt.Add(34*time.Minute), includeSnapshot)
+	insertEndpointSnapshotUsageEvent(t, ctx, conn, profileID, 0, unknownIngress, createdAt.Add(35*time.Minute), includeSnapshot)
+
+	return endpointLabelSnapshotFixture{
+		expectedLabels: map[string]string{
+			rankedIngress:          "ranked description " + label,
+			tieIngress:             "https://tie-base-" + label + ".invalid",
+			currentEndpointIngress: "Current Endpoint " + label,
+			endpointBaseIngress:    "https://blank-name-" + label + ".invalid",
+			endpointIDIngress:      fmt.Sprintf("Endpoint %d", missingEndpointID),
+			unknownIngress:         "Unknown Endpoint",
+		},
+		usagePartition: usagePartition,
+	}
+}
+
+func seedEndpointLabelSnapshotProfile(t *testing.T, ctx context.Context, conn *pgx.Conn, label string) int {
+	t.Helper()
+	now := time.Now().UTC()
+	var profileID int
+	if err := conn.QueryRow(ctx, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ($1, NULL, FALSE, FALSE, TRUE, 1, NULL, $2, $2) RETURNING id`, "endpoint-snapshot-"+label, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed endpoint snapshot profile %q: %v", label, err)
+	}
+	return profileID
+}
+
+func seedEndpointLabelSnapshotEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, name string, baseURL string) int {
+	t.Helper()
+	now := time.Now().UTC()
+	var endpointID int
+	if err := conn.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, 'plain-api-key', 0, $4, $4) RETURNING id`, profileID, name, baseURL, now).Scan(&endpointID); err != nil {
+		t.Fatalf("seed endpoint snapshot endpoint %q: %v", name, err)
+	}
+	return endpointID
+}
+
+func insertEndpointSnapshotRequestLog(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, endpointID int, ingressRequestID string, attemptNumber int, createdAt time.Time, endpointDescription string, endpointBaseURL string) {
+	t.Helper()
+	_, err := conn.Exec(ctx, `
+		INSERT INTO request_logs (profile_id, model_id, api_family, endpoint_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, request_path, endpoint_description, created_at)
+		VALUES ($1, 'endpoint-snapshot-model', 'openai', $2, $3, $4, $5, 200, 100, FALSE, '/v1/chat/completions', $6, $7)`,
+		profileID, endpointID, ingressRequestID, attemptNumber, endpointBaseURL, endpointDescription, createdAt)
+	if err != nil {
+		t.Fatalf("insert endpoint snapshot request log %q: %v", ingressRequestID, err)
+	}
+}
+
+func insertEndpointSnapshotUsageEvent(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, endpointID int, ingressRequestID string, createdAt time.Time, includeSnapshot bool) {
+	t.Helper()
+	var endpointValue any
+	if endpointID != 0 {
+		endpointValue = endpointID
+	}
+	if includeSnapshot {
+		_, err := conn.Exec(ctx, `
+			INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, endpoint_id, status_code, success_flag, billable_flag, priced_flag, attempt_count, request_path, created_at, endpoint_label_snapshot)
+			VALUES ($1, $2, 'endpoint-snapshot-model', 'openai', $3, 200, TRUE, TRUE, TRUE, 1, '/v1/chat/completions', $4, 'pre-drop placeholder')`,
+			profileID, ingressRequestID, endpointValue, createdAt)
+		if err != nil {
+			t.Fatalf("insert endpoint snapshot usage event %q with snapshot: %v", ingressRequestID, err)
+		}
+		return
+	}
+	_, err := conn.Exec(ctx, `
+		INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, endpoint_id, status_code, success_flag, billable_flag, priced_flag, attempt_count, request_path, created_at)
+		VALUES ($1, $2, 'endpoint-snapshot-model', 'openai', $3, 200, TRUE, TRUE, TRUE, 1, '/v1/chat/completions', $4)`,
+		profileID, ingressRequestID, endpointValue, createdAt)
+	if err != nil {
+		t.Fatalf("insert endpoint snapshot usage event %q: %v", ingressRequestID, err)
+	}
+}
+
+func ensureDailyLogPartition(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, createdAt time.Time, label string) string {
+	t.Helper()
+	start := time.Date(createdAt.UTC().Year(), createdAt.UTC().Month(), createdAt.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 1)
+	partitionName := fmt.Sprintf("%s_%s_%s", tableName, start.Format("20060102"), strings.ReplaceAll(label, "-", "_"))
+	_, err := conn.Exec(ctx, fmt.Sprintf(
+		`CREATE TABLE public.%s PARTITION OF public.%s FOR VALUES FROM (%s) TO (%s)`,
+		quoteIdentifier(partitionName),
+		quoteIdentifier(tableName),
+		quoteLiteral(start.Format(time.RFC3339)),
+		quoteLiteral(end.Format(time.RFC3339)),
+	))
+	if err != nil {
+		t.Fatalf("create %s daily partition %s: %v", tableName, partitionName, err)
+	}
+	return partitionName
+}
+
+func sortedMapKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func connect(t *testing.T, ctx context.Context, dsn string) *pgx.Conn {
 	t.Helper()
 
@@ -1329,6 +1540,10 @@ func quoteIdentifier(identifier string) string {
 	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }
 
+func quoteLiteral(value string) string {
+	return `'` + strings.ReplaceAll(value, `'`, `''`) + `'`
+}
+
 func randomSuffix(t *testing.T) string {
 	t.Helper()
 
@@ -1338,24 +1553,4 @@ func randomSuffix(t *testing.T) string {
 	}
 
 	return hex.EncodeToString(buffer)
-}
-
-func TestSidecarCurrentSchemaConstraints(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "sidecar_current_constraints")
-	defer func() { _ = conn.Close(testContext) }()
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run sidecar current schema baseline: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected sidecar current schema baseline to apply, got %q", result.Outcome)
-	}
-
-	assertSidecarSchemaContract(t, testContext, conn)
 }

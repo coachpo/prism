@@ -79,7 +79,7 @@ test("Task 10 endpoints filter disables reorder and edit preserves masked secret
     }
     return route.fallback()
   })
-  await page.route("**/api/models/by-endpoints", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ endpoint_id: 101, models: [{ id: 1, model_id: "gpt-4o", display_name: "GPT-4o", api_family: "openai", vendor_id: null, vendor: null, model_type: "native", proxy_targets: [], loadbalance_strategy_id: null, loadbalance_strategy: null, is_enabled: true, connection_count: 1, active_connection_count: 1, health_success_rate: null, health_total_requests: 0, created_at: timestamp, updated_at: timestamp, access_targets: [] }] }] }) }))
+  await page.route("**/api/models/by-endpoints", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ endpoint_id: 101, models: [{ id: 1, model_id: "gpt-4o", display_name: "GPT-4o", api_family: "openai", model_type: "native", proxy_targets: [], loadbalance_strategy_id: null, loadbalance_strategy: null, is_enabled: true, connection_count: 1, active_connection_count: 1, health_success_rate: null, health_total_requests: 0, created_at: timestamp, updated_at: timestamp, access_targets: [] }] }] }) }))
 
   await page.goto("/route/endpoints")
   await expect(page.getByTestId("endpoints-feature-page")).toBeVisible()

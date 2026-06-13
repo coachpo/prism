@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import { Ban } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
@@ -5,6 +6,8 @@ import type { HeaderBlocklistRule } from "@/lib/types";
 import { AuditConfigurationRulesPanel } from "./AuditConfigurationRulesPanel";
 
 interface AuditConfigurationHeaderBlocklistCardProps {
+  cardRef: RefObject<HTMLDivElement | null>;
+  className?: string;
   loadingRules: boolean;
   systemRulesOpen: boolean;
   setSystemRulesOpen: (open: boolean) => void;
@@ -19,6 +22,8 @@ interface AuditConfigurationHeaderBlocklistCardProps {
 }
 
 export function AuditConfigurationHeaderBlocklistCard({
+  cardRef,
+  className,
   loadingRules,
   systemRulesOpen,
   setSystemRulesOpen,
@@ -35,7 +40,7 @@ export function AuditConfigurationHeaderBlocklistCard({
   const copy = messages.settingsAudit;
 
   return (
-    <Card>
+    <Card ref={cardRef} className={className}>
       <CardHeader className="pb-3">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2 text-sm">

@@ -94,8 +94,6 @@ function createModel(accessTargets: ReturnType<typeof createTarget>[]) {
   return {
     id: modelConfigId,
     profile_id: 71,
-    vendor_id: null,
-    vendor: null,
     api_family: "openai",
     model_id: "task-9-routed-model",
     display_name: "Task 9 Routed Model",
@@ -182,7 +180,6 @@ async function mockRoutes(page: Page, mode: ReorderMode) {
     if (pathname === "/api/endpoints") return fulfillJson([createEndpoint()])
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([])
     if (pathname === "/api/pricing-templates") return fulfillJson([])
-    if (pathname === "/api/vendors") return fulfillJson([])
     if (pathname === "/api/loadbalance/current-state") return fulfillJson({ items: [] })
     if (pathname === "/api/loadbalance/events") return fulfillJson({ items: [], total: 0, limit: 25, offset: 0 })
     if (pathname === "/api/stats/spending") return fulfillJson(createSpendingResponse())
@@ -206,7 +203,11 @@ async function mockRoutes(page: Page, mode: ReorderMode) {
       const moved = targets.find((target) => target.id === targetId)
       targets = targets.filter((target) => target.id !== targetId)
       if (moved && typeof payload.to_index === "number") targets.splice(payload.to_index, 0, moved)
-      targets = sortedTargets()
+      targets = targets.map((target, position) => ({
+        ...target,
+        position,
+        connection: { ...target.connection, priority: position },
+      }))
       return fulfillJson(sortedTargets())
     }
 
@@ -218,14 +219,19 @@ async function mockRoutes(page: Page, mode: ReorderMode) {
 }
 
 async function dragPrimaryBelowSecondary(page: Page) {
-  await page.getByRole("button", { name: "Move Primary terminal target down" }).click()
+  await page.getByRole("button", { name: "Move target 1 down" }).click()
 }
 
 async function expectConnectionOrder(page: Page, expectedNames: string[]) {
-  const cards = page.locator("[aria-label^='Drag to reorder terminal target']")
+  const cards = page.locator("[data-testid^='access-target-connection:']")
   await expect.poll(async () => {
-    const labels = await cards.evaluateAll((elements) => elements.map((element) => element.getAttribute("aria-label") ?? ""))
-    return labels.map((label) => label.replace("Drag to reorder terminal target ", ""))
+    const labels = await cards.evaluateAll((elements) => elements.map((element) => {
+      const text = element.textContent ?? "";
+      if (text.includes("Primary terminal target")) return "Primary terminal target";
+      if (text.includes("Secondary terminal target")) return "Secondary terminal target";
+      return "";
+    }).filter(Boolean))
+    return labels
   }).toEqual(expectedNames)
 }
 

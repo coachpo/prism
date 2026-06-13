@@ -73,7 +73,7 @@ func TestLogRetentionPartitionLifecycle(t *testing.T) {
 	cutoff := baseDay.AddDate(0, 0, 1).Add(12 * time.Hour)
 
 	task9InsertRuntimeActivityAcrossDays(t, testContext, databaseURL, pool, retentionStore, profileID, baseDay)
-	for _, tableName := range []string{"request_logs", "audit_logs", "usage_request_events"} {
+	for _, tableName := range []string{"request_logs", "usage_request_events"} {
 		task9AssertChildRows(t, testContext, pool, tableName, baseDay, 1)
 		task9AssertChildRows(t, testContext, pool, tableName, baseDay.AddDate(0, 0, 1), 1)
 		task9AssertChildRows(t, testContext, pool, tableName, baseDay.AddDate(0, 0, 2), 1)
@@ -264,7 +264,7 @@ func task9InsertManagedLogRow(t *testing.T, ctx context.Context, exec task9Exec,
 			t.Fatalf("insert audit_logs row %s: %v", marker, err)
 		}
 	case "usage_request_events":
-		_, err := exec.Exec(ctx, `INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, billable_flag, priced_flag, attempt_count, request_path, created_at) VALUES ($1, $2, 'task9-model', 'openai', 200, TRUE, TRUE, TRUE, 1, '/v1/task9', $3)`, profileID, marker, createdAt.UTC())
+		_, err := exec.Exec(ctx, `INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, endpoint_label_snapshot, status_code, success_flag, billable_flag, priced_flag, attempt_count, request_path, created_at) VALUES ($1, $2, 'task9-model', 'openai', 'task9 retained endpoint', 200, TRUE, TRUE, TRUE, 1, '/v1/task9', $3)`, profileID, marker, createdAt.UTC())
 		if err != nil {
 			t.Fatalf("insert usage_request_events row %s: %v", marker, err)
 		}
@@ -764,11 +764,10 @@ func task9SeedRuntimeRoute(t *testing.T, ctx context.Context, exec interface {
 	suffix := randomSuffix(t)
 	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	strategyID := task9InsertRuntimeStrategy(t, ctx, exec, profileID, "task9-runtime-strategy-"+suffix, now)
-	vendorID := task9InsertAuditEnabledVendor(t, ctx, exec, suffix, now)
 	publicModelID := "task9-runtime-public-" + suffix
 	targetModelID := "task9-runtime-target-" + suffix
-	targetModelConfigID := task9InsertRuntimeModel(t, ctx, exec, profileID, vendorID, "openai", targetModelID, "native", &strategyID, now)
-	publicModelConfigID := task9InsertRuntimeModel(t, ctx, exec, profileID, vendorID, "openai", publicModelID, "proxy", &strategyID, now)
+	targetModelConfigID := task9InsertRuntimeModel(t, ctx, exec, profileID, "openai", targetModelID, "native", &strategyID, now)
+	publicModelConfigID := task9InsertRuntimeModel(t, ctx, exec, profileID, "openai", publicModelID, "proxy", &strategyID, now)
 	task9InsertRuntimeProxyTarget(t, ctx, exec, publicModelConfigID, targetModelConfigID)
 	endpointID := task9InsertRuntimeEndpoint(t, ctx, exec, profileID, "task9-runtime-endpoint-"+suffix, upstreamURL, "task9-runtime-key", now)
 	task9InsertRuntimeConnection(t, ctx, exec, profileID, targetModelConfigID, endpointID, "task9-runtime-connection-"+suffix, now)
@@ -784,10 +783,10 @@ func task9InsertRuntimeStrategy(t *testing.T, ctx context.Context, exec task9Que
 	return strategyID
 }
 
-func task9InsertRuntimeModel(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, vendorID int, apiFamily string, modelID string, _ string, strategyID *int, now time.Time) int {
+func task9InsertRuntimeModel(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, apiFamily string, modelID string, _ string, strategyID *int, now time.Time) int {
 	t.Helper()
 	var modelConfigID int
-	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, NULL, $5, TRUE, $6, $6) RETURNING id`, profileID, vendorID, apiFamily, modelID, nullableTask9Int(strategyID), now).Scan(&modelConfigID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, NULL, $4, TRUE, $5, $5) RETURNING id`, profileID, apiFamily, modelID, nullableTask9Int(strategyID), now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert task9 runtime model %s: %v", modelID, err)
 	}
 	return modelConfigID
@@ -871,7 +870,6 @@ func task9WaitForRuntimePartitionRows(t *testing.T, ctx context.Context, queryer
 
 func task9RuntimePartitionCountsMatch(ctx context.Context, queryer task9QueryRower, profileID int, day time.Time, expected int) bool {
 	return task9CountProfileRowsInPartitionNoFatal(ctx, queryer, "request_logs", day, profileID) == expected &&
-		task9CountProfileRowsInPartitionNoFatal(ctx, queryer, "audit_logs", day, profileID) == expected &&
 		task9CountProfileRowsInPartitionNoFatal(ctx, queryer, "usage_request_events", day, profileID) == expected
 }
 
@@ -908,7 +906,7 @@ func task9ExpectedSeededRows(tableName string, directRows int) int {
 
 func task9ExpectedRuntimeRows(tableName string) int {
 	switch tableName {
-	case "request_logs", "audit_logs", "usage_request_events":
+	case "request_logs", "usage_request_events":
 		return 1
 	default:
 		return 0
@@ -936,15 +934,6 @@ func task9LoadActiveProfileID(t *testing.T, ctx context.Context, queryer task9Qu
 		t.Fatalf("load task9 active profile id: %v", err)
 	}
 	return profileID
-}
-
-func task9InsertAuditEnabledVendor(t *testing.T, ctx context.Context, exec task9QueryRower, suffix string, now time.Time) int {
-	t.Helper()
-	var vendorID int
-	if err := exec.QueryRow(ctx, `INSERT INTO vendors (key, name, description, icon_key, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, $2, NULL, NULL, TRUE, FALSE, $3, $3) RETURNING id`, "task9-runtime-"+suffix, "Task 9 Runtime "+suffix, now).Scan(&vendorID); err != nil {
-		t.Fatalf("insert task9 audit-enabled vendor: %v", err)
-	}
-	return vendorID
 }
 
 func task9BoundaryRowsOlderThanCutoff(tableName string) int {

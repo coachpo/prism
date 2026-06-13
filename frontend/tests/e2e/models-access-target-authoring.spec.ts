@@ -49,8 +49,6 @@ function createModelListItem(
   return {
     id,
     profile_id: 1,
-    vendor_id: null,
-    vendor: null,
     api_family: apiFamily,
     model_id: modelId,
     display_name: displayName,
@@ -109,9 +107,6 @@ async function mockModelRoutes(
     if (pathname === "/api/models" && request.method() === "GET") {
       return fulfillJson(models);
     }
-    if (pathname === "/api/vendors") {
-      return fulfillJson([]);
-    }
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson(strategies);
     }
@@ -130,8 +125,6 @@ async function mockModelRoutes(
       return fulfillJson({
         id: 50,
         profile_id: 1,
-        vendor_id: payload.vendor_id ?? null,
-        vendor: null,
         api_family: payload.api_family,
         model_id: payload.model_id,
         display_name: payload.display_name,
@@ -189,7 +182,6 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
 
   const dialog = page.getByRole("dialog", { name: "New Model" });
   await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
-  await expect(dialog.getByText("New models start disabled so you can save a draft now and attach model targets later.")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
   await expect(dialog.getByRole("switch", { name: "Enabled" })).toHaveAttribute("data-state", "unchecked");
 
@@ -199,7 +191,6 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
 
   expect(routes.getCreatedPayloads()).toEqual([
     {
-      vendor_id: null,
       api_family: "openai",
       model_id: "draft-openai",
       display_name: "draft-openai",
@@ -271,7 +262,6 @@ test("main model dialog keeps connection option absent while authoring ordered m
 
   expect(routes.getCreatedPayloads()).toEqual([
     {
-      vendor_id: null,
       api_family: "anthropic",
       model_id: "routed-openai",
       display_name: "routed-openai",

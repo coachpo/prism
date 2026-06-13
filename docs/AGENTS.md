@@ -31,12 +31,12 @@ docs/
 - Runtime operation contract, hook residency, rejected-route isolation, and `operation_name` persistence: `API_SPEC.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `../backend/internal/httpapi/runtime/AGENTS.md`, `../backend/internal/httpapi/runtime/operations.go`
 - CLIProxyAPI context overflow promotion regression matrix: `CONTEXT_OVERFLOW_PROMOTION_TEST_MATRIX.md`, `../backend/tests/runtime/context_overflow_promotion_test.go`, `../backend/internal/httpapi/runtime/operation_translation_request_test.go`, `../backend/internal/httpapi/runtime/operation_translation_stream_test.go`
 - Startup bootstrap contract, hot-apply effect reporting, and startup-tab ownership: `../backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `../backend/internal/platform/config/`, `../frontend/src/features/settings/startup/`
-- Config bundle and vendor catalog export/import ownership: `../backend/internal/httpapi/management/configbundle/AGENTS.md`, `../frontend/src/pages/settings/`, `../frontend/src/pages/settings/useConfigBackupData.ts`
+- Config bundle export/import ownership: `../backend/internal/httpapi/management/configbundle/AGENTS.md`, `../frontend/src/pages/settings/`, `../frontend/src/pages/settings/useConfigBackupData.ts`
 - Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000001_initial_schema.sql`
-- Sidecars control-plane contract: `../backend/internal/httpapi/management/sidecars/AGENTS.md`, `../backend/internal/httpapi/management/sidecars/`, `../backend/migrations/000001_initial_schema.sql`, `../frontend/src/features/sidecars/`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../backend/internal/httpapi/AGENTS.md`, `../backend/internal/httpapi/management/`, `../frontend/AGENTS.md`
-- Backend management child ownership: `../backend/internal/httpapi/management/audit/AGENTS.md`, `../backend/internal/httpapi/management/connections/AGENTS.md`, `../backend/internal/httpapi/management/configrules/AGENTS.md`, `../backend/internal/httpapi/management/endpoints/AGENTS.md`, `../backend/internal/httpapi/management/loadbalance/AGENTS.md`, `../backend/internal/httpapi/management/models/AGENTS.md`, `../backend/internal/httpapi/management/profiles/AGENTS.md`, `../backend/internal/httpapi/management/stats/AGENTS.md`, `../backend/internal/httpapi/management/vendors/AGENTS.md`
+- Backend management child ownership: `../backend/internal/httpapi/management/audit/AGENTS.md`, `../backend/internal/httpapi/management/connections/AGENTS.md`, `../backend/internal/httpapi/management/configrules/AGENTS.md`, `../backend/internal/httpapi/management/endpoints/AGENTS.md`, `../backend/internal/httpapi/management/loadbalance/AGENTS.md`, `../backend/internal/httpapi/management/models/AGENTS.md`, `../backend/internal/httpapi/management/profiles/AGENTS.md`, `../backend/internal/httpapi/management/stats/AGENTS.md`, `../backend/internal/httpapi/`
 - Product and request-log context: `PRD.md`, `REQUESTS_PAGE.md`
+- Endpoint label snapshots and request-log filter semantics: `API_SPEC.md`, `DATA_MODEL.md`, `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
 - Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
 - Active working plans and live execution evidence: `../.omo/plans/`, `../.omo/evidence/`
@@ -54,8 +54,6 @@ docs/
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
-- Keep sidecar docs aligned with `/sidecars`, `/api/sidecars/*`, the baseline sidecar schema, the low-priority sidecar sync worker, and the rule that CLIProxyAPI owns live auth/provider state.
-- Keep live sidecar implementation contracts, including the strict `/auth-files` top-level `files` envelope rule, in `../backend/internal/httpapi/management/sidecars/AGENTS.md`; run notes are evidence only.
 - State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans and execution evidence out of `docs/`. Use `../.omo/plans/` plus `../.omo/evidence/` while work is in flight.
 - Keep `REQUESTS_PAGE.md` subordinate to the live request-log route and tests. When request-log audit, clipboard, proxy-key usage, or reporting-currency behavior changes, refresh the page AGENTS and backend runtime tests before supporting prose.
@@ -71,7 +69,6 @@ docs/
 - Do not reintroduce any live-plan sink under `docs/`.
 - Do not treat transient run notes as the source of truth when a live doc or child AGENTS file already owns the topic.
 - Do not leave active implementation details stranded only in `docs/` when the owning backend or frontend AGENTS tree should carry the implementation map.
-- Do not leave CLIProxyAPI envelope rules, route contracts, or other live sidecar details canonical only in `.omo/evidence/`.
-- Do not describe bootstrap config as DB-backed, encrypted, hot-reloaded, or merged with PostgreSQL profile/vendor bundle import.
+- Do not describe bootstrap config as DB-backed, encrypted, hot-reloaded, or merged with PostgreSQL profile bundle import.
 - Do not document log retention as a generic cleanup query; it is partitioned-log ownership across runtime writers, management jobs, and platform maintenance.
 
