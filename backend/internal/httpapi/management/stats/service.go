@@ -205,6 +205,7 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Route("/stats", func(router chi.Router) {
 		router.Get("/dashboard", s.handleDashboardStats)
+		router.Get("/dashboard/recent-activity", s.handleDashboardRecentActivity)
 		router.Get("/requests", s.handleListRequestLogs)
 		router.Get("/requests/{request_id}", s.handleGetRequestLog)
 		router.Get("/summary", s.handleStatsSummary)
@@ -235,6 +236,26 @@ func (s *Service) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Service) handleDashboardRecentActivity(w http.ResponseWriter, r *http.Request) {
+	generatedAt := s.nowUTC()
+	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats dashboard recent activity", func(tx pgx.Tx) (statsdomain.DashboardRecentActivityResponse, error) {
+		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
+		if err != nil {
+			return statsdomain.DashboardRecentActivityResponse{}, err
+		}
+		limit, err := parseDashboardRecentActivityLimit(r)
+		if err != nil {
+			return statsdomain.DashboardRecentActivityResponse{}, err
+		}
+		return statsdomain.GetDashboardRecentActivity(r.Context(), tx, profile.ID, limit, generatedAt)
+	})
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
@@ -542,6 +563,23 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 		statusFamily = &normalized
 	}
 	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, FromTime: fromTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
+}
+
+func parseDashboardRecentActivityLimit(r *http.Request) (int, error) {
+	limit, err := parseOptionalInt(r, "limit")
+	if err != nil {
+		return 0, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid limit"}
+	}
+	if limit == nil {
+		return 12, nil
+	}
+	if *limit <= 0 {
+		return 0, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid limit"}
+	}
+	if *limit > 50 {
+		return 50, nil
+	}
+	return *limit, nil
 }
 
 func parseStatsSummaryParams(r *http.Request, profileID int) (statsdomain.StatsSummaryParams, error) {
