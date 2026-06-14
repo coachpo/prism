@@ -86,6 +86,39 @@ type RequestLogListResponse struct {
 	Offset        int                         `json:"offset"`
 }
 
+type DashboardRecentActivityItem struct {
+	RequestLogID                int       `json:"request_log_id"`
+	CreatedAt                   time.Time `json:"created_at"`
+	ModelID                     string    `json:"model_id"`
+	ModelLabel                  string    `json:"model_label"`
+	ResolvedTargetModelID       *string   `json:"resolved_target_model_id"`
+	ResolvedTargetModelLabel    *string   `json:"resolved_target_model_label"`
+	EndpointID                  *int      `json:"endpoint_id"`
+	EndpointLabel               string    `json:"endpoint_label"`
+	StatusCode                  int       `json:"status_code"`
+	ResponseTimeMS              int       `json:"response_time_ms"`
+	TTFTMS                      *int      `json:"ttft_ms"`
+	CompletionDurationMS        *int      `json:"completion_duration_ms"`
+	IsStream                    bool      `json:"is_stream"`
+	StreamOutcome               string    `json:"stream_outcome"`
+	TotalTokens                 *int      `json:"total_tokens"`
+	TotalCostUserCurrencyMicros *int64    `json:"total_cost_user_currency_micros"`
+	PricedFlag                  *bool     `json:"priced_flag"`
+	UnpricedReason              *string   `json:"unpriced_reason"`
+	ReportCurrencySymbol        *string   `json:"report_currency_symbol"`
+}
+
+type DashboardRecentActivityWatermark struct {
+	LatestRequestLogCreatedAt *time.Time `json:"latest_request_log_created_at"`
+	LatestRequestLogID        *int       `json:"latest_request_log_id"`
+}
+
+type DashboardRecentActivityResponse struct {
+	GeneratedAt       time.Time                        `json:"generated_at"`
+	ActivityWatermark DashboardRecentActivityWatermark `json:"activity_watermark"`
+	Items             []DashboardRecentActivityItem    `json:"items"`
+}
+
 type RequestLogDetailSummary struct {
 	ID                       int       `json:"id"`
 	CreatedAt                time.Time `json:"created_at"`

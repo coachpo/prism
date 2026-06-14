@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -104,8 +105,13 @@ func RefreshDashboardStatsRollup(ctx context.Context, exec queryExecutor, profil
 	}
 	var requestCount int64
 	var errorCount int64
-	if err := exec.QueryRow(ctx, `SELECT COUNT(*), COALESCE(SUM(CASE WHEN status_code < 200 OR status_code > 299 THEN 1 ELSE 0 END), 0) FROM request_logs WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3`, profileID, from, to).Scan(&requestCount, &errorCount); err != nil {
-		return fmt.Errorf("refresh request dashboard stats rollup: %w", err)
+	var usageHighWaterMark sql.NullTime
+	if err := exec.QueryRow(ctx, `SELECT COUNT(*), COALESCE(SUM(CASE WHEN success_flag = FALSE THEN 1 ELSE 0 END), 0), MAX(created_at) FROM usage_request_events WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3`, profileID, from, to).Scan(&requestCount, &errorCount, &usageHighWaterMark); err != nil {
+		return fmt.Errorf("refresh usage-event dashboard stats rollup: %w", err)
+	}
+	sourceHighWaterMark := from
+	if usageHighWaterMark.Valid {
+		sourceHighWaterMark = usageHighWaterMark.Time.UTC()
 	}
 	var auditEventCount int64
 	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3 AND audit_enabled_at_request = TRUE`, profileID, from, to).Scan(&auditEventCount); err != nil {
@@ -117,11 +123,11 @@ func RefreshDashboardStatsRollup(ctx context.Context, exec queryExecutor, profil
 	}
 	metrics := map[string]int64{"request_count": requestCount, "error_count": errorCount, "audit_event_count": auditEventCount, "active_profiles": activeProfiles}
 	for metric, value := range metrics {
-		if _, err := exec.Exec(ctx, `INSERT INTO management_stat_buckets (bucket_start, bucket_size, metric, dimension_key, dimension_value, value, source_high_water_mark, generated_at) VALUES ($1, $2, $3, 'profile_id', $4, $5, $6, $7) ON CONFLICT (bucket_start, bucket_size, metric, dimension_key, dimension_value) DO UPDATE SET value = EXCLUDED.value, source_high_water_mark = EXCLUDED.source_high_water_mark, generated_at = EXCLUDED.generated_at`, from, window, metric, fmt.Sprintf("%d", profileID), value, to, now.UTC()); err != nil {
+		if _, err := exec.Exec(ctx, `INSERT INTO management_stat_buckets (bucket_start, bucket_size, metric, dimension_key, dimension_value, value, source_high_water_mark, generated_at) VALUES ($1, $2, $3, 'profile_id', $4, $5, $6, $7) ON CONFLICT (bucket_start, bucket_size, metric, dimension_key, dimension_value) DO UPDATE SET value = EXCLUDED.value, source_high_water_mark = EXCLUDED.source_high_water_mark, generated_at = EXCLUDED.generated_at`, from, window, metric, fmt.Sprintf("%d", profileID), value, sourceHighWaterMark, now.UTC()); err != nil {
 			return fmt.Errorf("upsert dashboard stats rollup metric %s: %w", metric, err)
 		}
 	}
-	_, err = exec.Exec(ctx, `INSERT INTO management_stat_refresh_state (job_name, last_source_high_water_mark, last_success_at, last_error, updated_at) VALUES ('dashboard_stats', $1, $2, NULL, $2) ON CONFLICT (job_name) DO UPDATE SET last_source_high_water_mark = EXCLUDED.last_source_high_water_mark, last_success_at = EXCLUDED.last_success_at, last_error = NULL, updated_at = EXCLUDED.updated_at`, to, now.UTC())
+	_, err = exec.Exec(ctx, `INSERT INTO management_stat_refresh_state (job_name, last_source_high_water_mark, last_success_at, last_error, updated_at) VALUES ('dashboard_stats', $1, $2, NULL, $2) ON CONFLICT (job_name) DO UPDATE SET last_source_high_water_mark = EXCLUDED.last_source_high_water_mark, last_success_at = EXCLUDED.last_success_at, last_error = NULL, updated_at = EXCLUDED.updated_at`, sourceHighWaterMark, now.UTC())
 	return err
 }
 

@@ -97,6 +97,11 @@ type endpointModelAggregate struct {
 	EligibleOutputRates  int
 }
 
+type dashboardStatsSummaryGroup struct {
+	group          StatGroup
+	responseTimeMS []int
+}
+
 func GetStatsSummary(ctx context.Context, exec queryExecutor, params StatsSummaryParams) (StatsSummaryResponse, error) {
 	rows, err := loadSummaryRequestLogRows(ctx, exec, params)
 	if err != nil {
@@ -158,6 +163,87 @@ func GetStatsSummary(ctx context.Context, exec queryExecutor, params StatsSummar
 	return response, nil
 }
 
+func GetDashboardStatsSummary(ctx context.Context, exec queryExecutor, params StatsSummaryParams) (StatsSummaryResponse, error) {
+	records, err := loadUsageEventRecords(ctx, exec, params.ProfileID, params.FromTime, params.ToTime, params.APIFamily, params.ModelID, params.EndpointID, params.ConnectionID)
+	if err != nil {
+		return StatsSummaryResponse{}, err
+	}
+	return buildDashboardStatsSummary(records, params), nil
+}
+
+func buildDashboardStatsSummary(records []usageEventRecord, params StatsSummaryParams) StatsSummaryResponse {
+	response := StatsSummaryResponse{Groups: []StatGroup{}}
+	response.TotalRequests = len(records)
+	latencies := make([]int, 0, len(records))
+	groups := map[string]*dashboardStatsSummaryGroup{}
+	for _, rawRecord := range records {
+		record := normalizeUsageEventPricingCoherence(rawRecord)
+		if record.SuccessFlag {
+			response.SuccessCount++
+		}
+		if record.ResponseTimeMS != nil {
+			latencies = append(latencies, *record.ResponseTimeMS)
+		}
+		response.TotalInputTokens += record.InputTokens
+		response.TotalOutputTokens += record.OutputTokens
+		response.TotalTokens += record.TotalTokens
+		if normalizedGroupBy, ok := normalizedStatsSummaryGroupBy(params.GroupBy); ok {
+			key := summaryUsageEventGroupKey(normalizedGroupBy, record)
+			group := groups[key]
+			if group == nil {
+				groups[key] = &dashboardStatsSummaryGroup{group: StatGroup{Key: key}}
+				group = groups[key]
+			}
+			group.group.TotalRequests++
+			if record.SuccessFlag {
+				group.group.SuccessCount++
+			}
+			group.group.TotalTokens += record.TotalTokens
+			if record.ResponseTimeMS != nil {
+				group.responseTimeMS = append(group.responseTimeMS, *record.ResponseTimeMS)
+			}
+		}
+	}
+	response.ErrorCount = response.TotalRequests - response.SuccessCount
+	response.SuccessRate = successRate(response.SuccessCount, response.TotalRequests)
+	if len(latencies) > 0 {
+		response.AvgResponseTimeMS = roundFloat(sumInts(latencies)/float64(len(latencies)), 1)
+	}
+	if p95 := percentileContInt(latencies, 0.95); p95 != nil {
+		response.P95ResponseTimeMS = *p95
+	}
+	groupItems := make([]StatGroup, 0, len(groups))
+	for _, aggregate := range groups {
+		item := aggregate.group
+		item.ErrorCount = item.TotalRequests - item.SuccessCount
+		if len(aggregate.responseTimeMS) > 0 {
+			item.AvgResponseTimeMS = roundFloat(sumInts(aggregate.responseTimeMS)/float64(len(aggregate.responseTimeMS)), 1)
+		}
+		groupItems = append(groupItems, item)
+	}
+	sort.Slice(groupItems, func(i int, j int) bool {
+		if groupItems[i].TotalRequests != groupItems[j].TotalRequests {
+			return groupItems[i].TotalRequests > groupItems[j].TotalRequests
+		}
+		return groupItems[i].Key < groupItems[j].Key
+	})
+	response.Groups = groupItems
+	return response
+}
+
+func summaryUsageEventGroupKey(groupBy string, record usageEventRecord) string {
+	switch groupBy {
+	case "model":
+		return record.ModelID
+	case "api_family":
+		return record.APIFamily
+	case "endpoint":
+		return usageEventEndpointLabel(record)
+	default:
+		return ""
+	}
+}
+
 func GetConnectionSuccessRates(ctx context.Context, exec queryExecutor, params ConnectionSuccessRateParams) ([]ConnectionSuccessRate, error) {
 	query, args := buildConnectionSuccessRatesQuery(params)
 	rows, err := exec.Query(ctx, query, args...)
@@ -201,10 +287,27 @@ func GetThroughput(ctx context.Context, exec queryExecutor, params ThroughputPar
 	if err != nil {
 		return ThroughputStatsResponse{}, err
 	}
+	return buildThroughputStats(rows, params.FromTime, params.ToTime), nil
+}
+
+func GetDashboardThroughput(ctx context.Context, exec queryExecutor, params ThroughputParams) (ThroughputStatsResponse, error) {
+	records, err := loadUsageEventRecords(ctx, exec, params.ProfileID, params.FromTime, params.ToTime, params.APIFamily, params.ModelID, params.EndpointID, params.ConnectionID)
+	if err != nil {
+		return ThroughputStatsResponse{}, err
+	}
+	createdAtValues := make([]time.Time, 0, len(records))
+	for _, record := range records {
+		createdAtValues = append(createdAtValues, record.CreatedAt)
+	}
+	return buildThroughputStats(createdAtValues, params.FromTime, params.ToTime), nil
+}
+
+func buildThroughputStats(createdAtValues []time.Time, fromTime *time.Time, toTime *time.Time) ThroughputStatsResponse {
 	bucketCounts := map[time.Time]int{}
 	bucketOrder := make([]time.Time, 0)
 	seenBuckets := map[time.Time]struct{}{}
-	for _, createdAt := range rows {
+	for _, createdAt := range createdAtValues {
+		createdAt = createdAt.UTC()
 		bucket := time.Date(createdAt.Year(), createdAt.Month(), createdAt.Day(), createdAt.Hour(), createdAt.Minute(), 0, 0, time.UTC)
 		bucketCounts[bucket]++
 		if _, ok := seenBuckets[bucket]; !ok {
@@ -214,8 +317,8 @@ func GetThroughput(ctx context.Context, exec queryExecutor, params ThroughputPar
 	}
 	sort.Slice(bucketOrder, func(i int, j int) bool { return bucketOrder[i].Before(bucketOrder[j]) })
 	timeWindowSeconds := 0.0
-	if params.FromTime != nil && params.ToTime != nil {
-		timeWindowSeconds = params.ToTime.UTC().Sub(params.FromTime.UTC()).Seconds()
+	if fromTime != nil && toTime != nil {
+		timeWindowSeconds = toTime.UTC().Sub(fromTime.UTC()).Seconds()
 		if timeWindowSeconds < 0 {
 			timeWindowSeconds = 0
 		}
@@ -230,7 +333,7 @@ func GetThroughput(ctx context.Context, exec queryExecutor, params ThroughputPar
 			TotalRequests:     0,
 			TimeWindowSeconds: roundFloat(timeWindowSeconds, 1),
 			Buckets:           []ThroughputBucket{},
-		}, nil
+		}
 	}
 	totalRequests := 0
 	buckets := make([]ThroughputBucket, 0, len(bucketOrder))
@@ -263,7 +366,7 @@ func GetThroughput(ctx context.Context, exec queryExecutor, params ThroughputPar
 		TotalRequests:     totalRequests,
 		TimeWindowSeconds: roundFloat(timeWindowSeconds, 1),
 		Buckets:           buckets,
-	}, nil
+	}
 }
 
 func GetModelMetrics(ctx context.Context, exec queryExecutor, params ModelMetricsParams) (ModelMetricsBatchResponse, error) {
