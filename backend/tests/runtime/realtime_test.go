@@ -434,8 +434,6 @@ func TestAnalyticsRealtimeProtocolFixture(t *testing.T) {
 	preset := "1h"
 	startAt := generatedAt.Add(-time.Hour)
 	dayStart := time.Date(2026, time.April, 19, 0, 0, 0, 0, time.UTC)
-	availabilityPercentage := 95.24
-	cellAvailabilityPercentage := 100.0
 	message := realtimeapi.AnalyticsSnapshotMessage{
 		Type:        "analytics.snapshot",
 		Channel:     "analytics",
@@ -466,7 +464,6 @@ func TestAnalyticsRealtimeProtocolFixture(t *testing.T) {
 				RollingRPM:           0.8,
 				RollingTPM:           24,
 			},
-			ServiceHealth:         statsdomain.UsageServiceHealth{AvailabilityPercentage: &availabilityPercentage, RequestCount: 42, SuccessCount: 40, FailedCount: 2, IntervalMinutes: 5, Cells: []statsdomain.UsageServiceHealthCell{{BucketStart: generatedAt.Add(-5 * time.Minute), RequestCount: 4, SuccessCount: 4, FailedCount: 0, AvailabilityPercentage: &cellAvailabilityPercentage, Status: "ok"}}},
 			RequestTrends:         statsdomain.UsageRequestTrends{Hourly: []statsdomain.UsageRequestTrendSeries{{Key: "openai", Label: "OpenAI", TotalRequests: 42, Points: []statsdomain.UsageRequestTrendPoint{{BucketStart: startAt, RequestCount: 42, SuccessCount: 40, FailedCount: 2, RPM: 0.7}}}}, Daily: []statsdomain.UsageRequestTrendSeries{{Key: "openai", Label: "OpenAI", TotalRequests: 42, Points: []statsdomain.UsageRequestTrendPoint{{BucketStart: dayStart, RequestCount: 42, SuccessCount: 40, FailedCount: 2, RPM: 0.029}}}}},
 			TokenUsageTrends:      statsdomain.UsageTokenUsageTrends{Hourly: []statsdomain.UsageTokenTrendSeries{{Key: "gpt-4o", Label: "GPT-4o Proxy", TotalTokens: 1400, Points: []statsdomain.UsageTokenTrendPoint{{BucketStart: startAt, TotalTokens: 1400, InputTokens: 500, OutputTokens: 900, CachedTokens: 20, ReasoningTokens: 10, TPM: 23.333}}}}, Daily: []statsdomain.UsageTokenTrendSeries{{Key: "gpt-4o", Label: "GPT-4o Proxy", TotalTokens: 1400, Points: []statsdomain.UsageTokenTrendPoint{{BucketStart: dayStart, TotalTokens: 1400, InputTokens: 500, OutputTokens: 900, CachedTokens: 20, ReasoningTokens: 10, TPM: 0.972}}}}},
 			TokenTypeBreakdown:    statsdomain.UsageTokenTypeBreakdown{Hourly: []statsdomain.UsageTokenTypeBreakdownPoint{{BucketStart: startAt, InputTokens: 500, OutputTokens: 900, CachedTokens: 20, ReasoningTokens: 10}}, Daily: []statsdomain.UsageTokenTypeBreakdownPoint{{BucketStart: dayStart, InputTokens: 500, OutputTokens: 900, CachedTokens: 20, ReasoningTokens: 10}}},
@@ -479,6 +476,21 @@ func TestAnalyticsRealtimeProtocolFixture(t *testing.T) {
 	}
 	fixture := loadRealtimeFixture(t, "analytics-snapshot.json")
 	assertJSONShapeMatchesFixture(t, message, fixture)
+	raw, err := json.Marshal(message)
+	if err != nil {
+		t.Fatalf("marshal analytics snapshot: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode analytics snapshot: %v", err)
+	}
+	snapshotPayload, ok := payload["snapshot"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected analytics snapshot object, got %+v", payload["snapshot"])
+	}
+	if _, ok := snapshotPayload["service_health"]; ok {
+		t.Fatalf("expected analytics snapshot to omit service_health, got %+v", snapshotPayload["service_health"])
+	}
 	if message.Type != "analytics.snapshot" || message.Channel != "analytics" || message.ProfileID != profileID || message.Preset != preset {
 		t.Fatalf("unexpected analytics snapshot envelope: %+v", message)
 	}

@@ -35,23 +35,6 @@
       "rolling_rpm": 0.8,
       "rolling_tpm": 24
     },
-    "service_health": {
-      "availability_percentage": 95.24,
-      "request_count": 42,
-      "success_count": 40,
-      "failed_count": 2,
-      "interval_minutes": 5,
-      "cells": [
-        {
-          "bucket_start": "2026-04-19T11:55:00Z",
-          "request_count": 4,
-          "success_count": 4,
-          "failed_count": 0,
-          "availability_percentage": 100,
-          "status": "ok"
-        }
-      ]
-    },
     "request_trends": {
       "hourly": [
         {
