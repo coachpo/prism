@@ -421,6 +421,13 @@ func (s *Service) resolveExactFacadeModelAccessFromRoutingPlan(profileID int, ro
 	return resolved, nil
 }
 
+func validateRuntimeExactFacadeModelTargets(routingPlan *runtimeRoutingPlan, model runtimeModelRecord) error {
+	if len(routingPlan.orderedTerminalTargetsForModel(model)) > 0 {
+		return runtimeFacadeTerminalTargetError()
+	}
+	return nil
+}
+
 func (s *Service) selectModelPeerCandidateFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, ctx runtimeAccessResolutionContext) (runtimeModelPeerSelection, error) {
 	selection := runtimeModelPeerSelection{}
 	if !runtimeStrategyUsesContextFiltering(strategy) {
@@ -776,6 +783,24 @@ func mergeRuntimeRouteReason(current gatewaycore.RouteReason, next gatewaycore.R
 func runtimeStrategyUsesContextFiltering(strategy loadbalance.RuntimeStrategy) bool {
 	strategyType := normalizedRuntimeLegacyStrategyType(strategy)
 	return strategy.IsCheapestEligibleContextStrategy() || strategyType == runtimeFacadeSelectionPolicyWeightedEligibleContext
+}
+
+func selectedUsableContextWindowTokensForResolvedAccessPlan(plan runtimeResolvedAccessPlan) int {
+	if plan.ContextRouting != nil {
+		if plan.ContextRouting.EarlyDecisionStatus == runtimeContextEarlyDecisionStatusMissingWindow {
+			return 0
+		}
+		if plan.ContextRouting.SelectedUsableContextWindowTokens != nil && *plan.ContextRouting.SelectedUsableContextWindowTokens > 0 {
+			return *plan.ContextRouting.SelectedUsableContextWindowTokens
+		}
+		if plan.ContextRouting.UsableContextWindowTokens != nil && *plan.ContextRouting.UsableContextWindowTokens > 0 {
+			return *plan.ContextRouting.UsableContextWindowTokens
+		}
+	}
+	if len(plan.TerminalAttempts) > 0 {
+		return usableContextWindowTokensForConnection(plan.TerminalAttempts[0].Connection)
+	}
+	return 0
 }
 
 func filterRuntimeResolvedAccessPlanByContext(candidate runtimeResolvedAccessPlan, estimation *requestContextEstimation) (runtimeResolvedAccessPlan, []runtimeContextRoutingSkippedTerminalTarget, int, bool) {

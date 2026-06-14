@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/providercompat"
 )
@@ -2630,6 +2631,180 @@ func TestBuildRequestPlan_ExactOpenAIFacadeRejectsNestedFacades(t *testing.T) {
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, runtimeNestedFacadesNotSupportedDetail)
 }
 
+func TestBuildRequestPlanRecursiveContextOverflow(t *testing.T) {
+	service := newRequestPlanUnitService()
+	sourceWindow := 2_000
+	middleWindow := 2_000
+	finalWindow := 2_000
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-5-recursive-source", ContextWindowTokens: &sourceWindow},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "gpt-5-recursive-middle", ContextWindowTokens: &middleWindow},
+		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "gpt-5-recursive-final", ContextWindowTokens: &finalWindow},
+	)
+	setRequestPlanPromotionTarget(snapshot, "gpt-5-recursive-source", "gpt-5-recursive-middle")
+	setRequestPlanPromotionTarget(snapshot, "gpt-5-recursive-middle", "gpt-5-recursive-final")
+	source := snapshot.ModelsByID["gpt-5-recursive-source"]
+	middle := snapshot.ModelsByID["gpt-5-recursive-middle"]
+	final := snapshot.ModelsByID["gpt-5-recursive-final"]
+	snapshot.AccessTargetsBySourceModelID[source.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[middle.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[final.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, source, 3_101, 10_101, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(200), maxContextUtilization: 1.0})
+	addRequestPlanConnectionTargetWithOptions(snapshot, middle, 3_102, 10_102, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(400), maxContextUtilization: 1.0})
+	addRequestPlanConnectionTargetWithOptions(snapshot, final, 3_103, 10_103, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(2_000), maxContextUtilization: 1.0})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"gpt-5-recursive-source","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build recursive context-overflow plan: %v", err)
+	}
+	if plan.RequestedModelID != "gpt-5-recursive-source" {
+		t.Fatalf("expected requested model identity to stay source, got %q", plan.RequestedModelID)
+	}
+	if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "gpt-5-recursive-final" {
+		t.Fatalf("expected final promoted target, got %+v", plan.ResolvedTargetModelID)
+	}
+	if plan.ContextOverflowRecursivePlanner == nil || !plan.ContextOverflowRecursivePlanner.Promoted || plan.ContextOverflowRecursivePlanner.Depth != 2 {
+		t.Fatalf("expected recursive planner promotion depth 2, got %+v", plan.ContextOverflowRecursivePlanner)
+	}
+	if got, want := plan.ContextOverflowRecursivePlanner.PromotionChain, []string{"gpt-5-recursive-source", "gpt-5-recursive-middle", "gpt-5-recursive-final"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected promotion chain %+v, got %+v", want, got)
+	}
+	if plan.ContextRouting == nil || plan.ContextRouting.RouteReason != gatewaycore.RouteReasonContextOverflowPreflight || plan.ContextRouting.ContextOverflowPromotion == nil {
+		t.Fatalf("expected pre-dispatch context-overflow routing metadata, got %+v", plan.ContextRouting)
+	}
+}
+
+func TestBuildRequestPlanRecursiveContextOverflowNormalFitShortCircuits(t *testing.T) {
+	service := newRequestPlanUnitService()
+	promotionTargetID := "gpt-5-normal-fit-promoted"
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-5-normal-fit-source", ContextOverflowPromotionTargetID: &promotionTargetID},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: promotionTargetID},
+	)
+	source := snapshot.ModelsByID["gpt-5-normal-fit-source"]
+	promoted := snapshot.ModelsByID[promotionTargetID]
+	snapshot.AccessTargetsBySourceModelID[source.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[promoted.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, source, 3_111, 10_111, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(2_000), maxContextUtilization: 1.0})
+	addRequestPlanConnectionTargetWithOptions(snapshot, promoted, 3_112, 10_112, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(4_000), maxContextUtilization: 1.0})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"gpt-5-normal-fit-source","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":128}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build normal-fit plan: %v", err)
+	}
+	if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "gpt-5-normal-fit-source" {
+		t.Fatalf("expected source normal path to short-circuit promotion, got %+v", plan.ResolvedTargetModelID)
+	}
+	if plan.ContextOverflowRecursivePlanner != nil {
+		t.Fatalf("expected no recursive planner state for normal fit, got %+v", plan.ContextOverflowRecursivePlanner)
+	}
+}
+
+func TestBuildRequestPlanRecursiveContextOverflowStopsOnMissingEstimation(t *testing.T) {
+	service := newRequestPlanUnitService()
+	promotionTargetID := "gpt-5-missing-estimation-promoted"
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "unknown-tokenizer-recursive-source", ContextOverflowPromotionTargetID: &promotionTargetID},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: promotionTargetID},
+	)
+	source := snapshot.ModelsByID["unknown-tokenizer-recursive-source"]
+	promoted := snapshot.ModelsByID[promotionTargetID]
+	snapshot.AccessTargetsBySourceModelID[source.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[promoted.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, source, 3_121, 10_121, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(200), maxContextUtilization: 1.0})
+	addRequestPlanConnectionTargetWithOptions(snapshot, promoted, 3_122, 10_122, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(2_000), maxContextUtilization: 1.0})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"unknown-tokenizer-recursive-source","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build missing-estimation plan: %v", err)
+	}
+	if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "unknown-tokenizer-recursive-source" {
+		t.Fatalf("expected estimation-unavailable stop to keep source normal route, got %+v", plan.ResolvedTargetModelID)
+	}
+	assertRecursivePlannerStopReason(t, plan, runtimeRecursiveContextOverflowStopReasonEstimationUnavailable)
+}
+
+func TestBuildRequestPlanRecursiveContextOverflowStopsOnMissingWindow(t *testing.T) {
+	service := newRequestPlanUnitService()
+	promotionTargetID := "gpt-5-missing-window-promoted"
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-5-missing-window-recursive-source", ContextOverflowPromotionTargetID: &promotionTargetID},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: promotionTargetID},
+	)
+	source := snapshot.ModelsByID["gpt-5-missing-window-recursive-source"]
+	promoted := snapshot.ModelsByID[promotionTargetID]
+	snapshot.AccessTargetsBySourceModelID[source.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[promoted.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, source, 3_131, 10_131, 0, requestPlanConnectionTargetOptions{})
+	addRequestPlanConnectionTargetWithOptions(snapshot, promoted, 3_132, 10_132, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(2_000), maxContextUtilization: 1.0})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"gpt-5-missing-window-recursive-source","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build missing-window plan: %v", err)
+	}
+	if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "gpt-5-missing-window-recursive-source" {
+		t.Fatalf("expected missing-window stop to keep source normal route, got %+v", plan.ResolvedTargetModelID)
+	}
+	assertRecursivePlannerStopReason(t, plan, runtimeRecursiveContextOverflowStopReasonMissingContextWindow)
+}
+
+func TestBuildRequestPlanRecursiveContextOverflowRejectsCycle(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-5-cycle-source"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "gpt-5-cycle-promoted"},
+	)
+	setRequestPlanPromotionTarget(snapshot, "gpt-5-cycle-source", "gpt-5-cycle-promoted")
+	setRequestPlanPromotionTarget(snapshot, "gpt-5-cycle-promoted", "gpt-5-cycle-source")
+	for _, modelID := range []string{"gpt-5-cycle-source", "gpt-5-cycle-promoted"} {
+		model := snapshot.ModelsByID[modelID]
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 3_140+model.ID, 10_140+model.ID, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(200), maxContextUtilization: 1.0})
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"gpt-5-cycle-source","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	assertRecursivePlannerDomainError(t, err, runtimeRecursiveContextOverflowStopReasonCycle)
+}
+
+func TestBuildRequestPlanRecursiveContextOverflowRejectsMaxDepth(t *testing.T) {
+	service := newRequestPlanUnitService()
+	modelIDs := []string{"gpt-5-depth-a", "gpt-5-depth-b", "gpt-5-depth-c", "gpt-5-depth-d", "gpt-5-depth-e"}
+	models := make([]runtimeModelRecord, 0, len(modelIDs))
+	for index, modelID := range modelIDs {
+		models = append(models, runtimeModelRecord{ID: index + 1, APIFamily: "openai", ModelID: modelID})
+	}
+	snapshot := newRequestPlanSnapshot(models...)
+	for index := 0; index < len(modelIDs)-1; index++ {
+		setRequestPlanPromotionTarget(snapshot, modelIDs[index], modelIDs[index+1])
+	}
+	for _, modelID := range modelIDs {
+		model := snapshot.ModelsByID[modelID]
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 3_150+model.ID, 10_150+model.ID, 0, requestPlanConnectionTargetOptions{contextWindowTokens: intPtr(200), maxContextUtilization: 1.0})
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"gpt-5-depth-a","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":600}`)
+
+	_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	assertRecursivePlannerDomainError(t, err, runtimeRecursiveContextOverflowStopReasonMaxDepth)
+}
+
 func newRequestPlanUnitService() *Service {
 	return &Service{
 		runtimeState: loadbalance.NewLocalRuntimeStateStore(),
@@ -2783,6 +2958,36 @@ func setRequestPlanStrategyType(snapshot *planningSnapshot, model runtimeModelRe
 	strategy := snapshot.StrategiesByModelID[model.ID]
 	strategy.LegacyStrategyType = &legacyStrategyType
 	snapshot.StrategiesByModelID[model.ID] = strategy
+}
+
+func setRequestPlanPromotionTarget(snapshot *planningSnapshot, modelID string, promotionTargetID string) {
+	model := snapshot.ModelsByID[modelID]
+	model.ContextOverflowPromotionTargetID = stringPointerIfNotEmpty(promotionTargetID)
+	snapshot.ModelsByID[modelID] = model
+}
+
+func assertRecursivePlannerStopReason(t *testing.T, plan requestPlan, want runtimeRecursiveContextOverflowStopReason) {
+	t.Helper()
+	if plan.ContextOverflowRecursivePlanner == nil {
+		t.Fatalf("expected recursive planner state with stop reason %q", want)
+	}
+	if plan.ContextOverflowRecursivePlanner.StopReason != string(want) || plan.ContextOverflowRecursivePlanner.Promoted {
+		t.Fatalf("expected recursive planner stop reason %q without promotion, got %+v", want, plan.ContextOverflowRecursivePlanner)
+	}
+}
+
+func assertRecursivePlannerDomainError(t *testing.T, err error, want runtimeRecursiveContextOverflowStopReason) {
+	t.Helper()
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) || domainErr == nil {
+		t.Fatalf("expected recursive planner domain error, got %v", err)
+	}
+	if domainErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected recursive planner status %d, got %d", http.StatusServiceUnavailable, domainErr.StatusCode)
+	}
+	if got, _ := domainErr.Fields["recursive_context_overflow_stop_reason"].(string); got != string(want) {
+		t.Fatalf("expected recursive planner stop reason %q, got fields %+v detail %q", want, domainErr.Fields, domainErr.Detail)
+	}
 }
 
 func newRuntimeAccessResolutionContextForTest(service *Service, model runtimeModelRecord, operation RuntimeOperation, rawBody []byte, estimation *requestContextEstimation) runtimeAccessResolutionContext {
