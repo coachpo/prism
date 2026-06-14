@@ -25,8 +25,9 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/logretention"
 )
 
-type DashboardUpdatePublisher interface {
-	PublishDashboardUpdate(context.Context, int, int) (bool, error)
+type DashboardPublisher interface {
+	PublishDashboardSnapshot(context.Context, int) (bool, error)
+	PublishDashboardActivity(context.Context, int, int) (bool, error)
 }
 
 type AnalyticsUpdatePublisher interface {
@@ -40,7 +41,7 @@ type Options struct {
 	HTTPClient                 *http.Client
 	RuntimeProxyConfigProvider RuntimeProxyConfigProvider
 	Now                        func() time.Time
-	DashboardUpdates           DashboardUpdatePublisher
+	DashboardUpdates           DashboardPublisher
 	AnalyticsUpdates           AnalyticsUpdatePublisher
 	Cache                      *SharedCache
 	RuntimeState               *loadbalancedomain.LocalRuntimeStateStore
@@ -71,7 +72,7 @@ type Service struct {
 	staticRuntimeProxyConfig     RuntimeProxyConfigSnapshot
 	now                          func() time.Time
 	secretEncryptionKey          string
-	dashboardUpdates             DashboardUpdatePublisher
+	dashboardUpdates             DashboardPublisher
 	analyticsUpdates             AnalyticsUpdatePublisher
 	cache                        *SharedCache
 	overflowAffinityCache        *overflowAffinityCache

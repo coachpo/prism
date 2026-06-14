@@ -50,12 +50,12 @@ func assertErrorCode(t *testing.T, payload map[string]any, want string) {
 
 func assertDashboardSnapshotTopLevelShape(t *testing.T, payload map[string]any) {
 	t.Helper()
-	for _, key := range []string{"generated_at", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "recent_requests", "top_spending_models", "routing_health_map", "topology_graph"} {
+	for _, key := range []string{"generated_at", "snapshot_revision", "source_watermark", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "top_spending_models", "routing_health_map", "topology_graph"} {
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("expected dashboard snapshot field %q, got %+v", key, payload)
 		}
 	}
-	for _, legacyKey := range []string{"window", "covers", "freshness", "metrics"} {
+	for _, legacyKey := range []string{"window", "covers", "freshness", "metrics", "recent_requests"} {
 		if _, ok := payload[legacyKey]; ok {
 			t.Fatalf("dashboard snapshot must not expose legacy top-level %q, got %+v", legacyKey, payload)
 		}
@@ -418,9 +418,8 @@ func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 	profileID := modelLoadDefaultProfileID(t, harness)
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Dashboard Snapshot Strategy")
 	modelInsertModel(t, harness, profileID, nil, "openai", "dashboard-model", stringPtr("Dashboard Model"), "native", &strategyID, true)
-	insertRequestLogSummaryRow(t, harness, 100, profileID, "dashboard-model", "openai", 12, 41, 200, 100, 10, 20, 30, fixedS15Now.Add(-55*time.Minute))
-	insertRequestLogSummaryRow(t, harness, 101, profileID, "dashboard-model", "openai", 12, 41, 500, 300, 5, 10, 15, fixedS15Now.Add(-50*time.Minute))
-	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "dashboard-spend-1", ModelID: "dashboard-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalCostUserCurrencyMicros: int64Ptr(2500), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "dashboard-spend-1", ModelID: "dashboard-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(30), TotalCostUserCurrencyMicros: int64Ptr(2500), ResponseTimeMS: intPtr(100), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-55 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 31, ProfileID: profileID, IngressRequestID: "dashboard-error-1", ModelID: "dashboard-model", APIFamily: "openai", StatusCode: 500, SuccessFlag: false, BillableFlag: boolPtr(false), PricedFlag: boolPtr(false), InputTokens: intPtr(5), OutputTokens: intPtr(10), TotalTokens: intPtr(15), ResponseTimeMS: intPtr(300), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-50 * time.Minute)})
 
 	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard?window=24h", nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)

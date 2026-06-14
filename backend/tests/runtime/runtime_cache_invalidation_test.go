@@ -21,7 +21,7 @@ func TestRuntimeCacheInvalidation(t *testing.T) {
 	t.Run("AfterActiveProfileActivation", runtimeCacheInvalidationAfterActiveProfileActivation)
 	t.Run("PlanningCacheInvalidationAfterHeaderBlocklistWrite", runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite)
 	t.Run("PlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations", runtimePlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations)
-	t.Run("DashboardTopologyRepublishAfterModelMutation", TestRuntimeDashboardTopologyRepublishAfterModelMutation)
+	t.Run("DashboardTopologyRepublishAfterModelMutation", TestDashboardSnapshotReplayWithoutRequestLog)
 }
 
 func TestRuntimeCacheInvalidationAfterContextOverflowPromotionTargetMutation(t *testing.T) {
