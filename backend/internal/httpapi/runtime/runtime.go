@@ -33,6 +33,7 @@ const (
 	runtimeFacadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
 	runtimeFacadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
 	runtimeNestedFacadesNotSupportedDetail                  = "nested facades are not supported"
+	runtimeFacadeTerminalTargetsNotSupportedDetail          = "facade models must use model targets only"
 	runtimeActiveModelTargetDefaultWeight                   = modelrouting.DefaultModelTargetWeight
 	runtimeAdmissionExhaustedErrorCode                      = "admission_exhausted"
 )
@@ -153,6 +154,10 @@ func nestedRuntimeFacadeTargetError() error {
 	return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: runtimeNestedFacadesNotSupportedDetail}
 }
 
+func runtimeFacadeTerminalTargetError() error {
+	return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: runtimeFacadeTerminalTargetsNotSupportedDetail}
+}
+
 type runtimeEndpoint struct {
 	ID      int
 	Name    *string
@@ -264,6 +269,14 @@ const (
 	runtimeContextEstimationStatusPresent                          = "present"
 	runtimeContextEstimationStatusUnavailable                      = "unavailable"
 	runtimeContextOverflowPromotionResultPromotedSuccess           = "promoted_success"
+	runtimeContextOverflowPromotionResultNotPromoted               = "not_promoted"
+
+	runtimeRecursiveContextOverflowMaxTransitions = 3
+
+	runtimeRecursiveContextOverflowStopReasonEstimationUnavailable = runtimeRecursiveContextOverflowStopReason("estimation_unavailable")
+	runtimeRecursiveContextOverflowStopReasonMissingContextWindow  = runtimeRecursiveContextOverflowStopReason("missing_context_window")
+	runtimeRecursiveContextOverflowStopReasonCycle                 = runtimeRecursiveContextOverflowStopReason("cycle")
+	runtimeRecursiveContextOverflowStopReasonMaxDepth              = runtimeRecursiveContextOverflowStopReason("max_depth")
 
 	runtimeContextOverflowAffinityStateConsidered              = "considered"
 	runtimeContextOverflowAffinityStateAccepted                = "accepted"
@@ -279,27 +292,41 @@ const (
 	runtimeContextOverflowAffinityRejectionOperationIneligible = "operation_ineligible"
 )
 
+type runtimeRecursiveContextOverflowStopReason string
+
+type runtimeRecursiveContextOverflowPlannerResult struct {
+	PromotionChain []string `json:"promotion_chain,omitempty"`
+	Depth          int      `json:"depth"`
+	StopReason     string   `json:"stop_reason,omitempty"`
+	Promoted       bool     `json:"promoted"`
+}
+
 type runtimeContextOverflowPromotionDecision struct {
-	TriggerStatus                 int     `json:"trigger_status"`
-	TriggerPhase                  string  `json:"trigger_phase,omitempty"`
-	TriggerErrorCode              *string `json:"trigger_error_code,omitempty"`
-	TriggerClassifier             string  `json:"trigger_classifier"`
-	EstimationMode                string  `json:"estimation_mode,omitempty"`
-	EstimationStatus              string  `json:"estimation_status,omitempty"`
-	EstimationUnavailableReason   *string `json:"estimation_unavailable_reason,omitempty"`
-	EstimationMethod              *string `json:"estimation_method,omitempty"`
-	EstimatedInputTokens          *int    `json:"estimated_input_tokens,omitempty"`
-	ReservedOutputTokens          *int    `json:"reserved_output_tokens,omitempty"`
-	EstimatedTotalContextTokens   *int    `json:"estimated_total_context_tokens,omitempty"`
-	FromResolvedTargetModelID     *string `json:"from_resolved_target_model_id,omitempty"`
-	FromSelectedTerminalTargetID  *int    `json:"from_selected_terminal_target_id,omitempty"`
-	ToResolvedTargetModelID       *string `json:"to_resolved_target_model_id,omitempty"`
-	ToSelectedTerminalTargetID    *int    `json:"to_selected_terminal_target_id,omitempty"`
-	FromUsableContextWindowTokens *int    `json:"from_usable_context_window_tokens,omitempty"`
-	ToUsableContextWindowTokens   *int    `json:"to_usable_context_window_tokens,omitempty"`
-	SourceAttemptCount            int     `json:"source_attempt_count"`
-	FinalAttemptCount             int     `json:"final_attempt_count"`
-	Result                        string  `json:"result"`
+	TriggerStatus                 int      `json:"trigger_status,omitempty"`
+	TriggerPhase                  string   `json:"trigger_phase,omitempty"`
+	TriggerErrorCode              *string  `json:"trigger_error_code,omitempty"`
+	TriggerClassifier             string   `json:"trigger_classifier,omitempty"`
+	EstimationMode                string   `json:"estimation_mode,omitempty"`
+	EstimationStatus              string   `json:"estimation_status,omitempty"`
+	EstimationUnavailableReason   *string  `json:"estimation_unavailable_reason,omitempty"`
+	EstimationMethod              *string  `json:"estimation_method,omitempty"`
+	EstimatedInputTokens          *int     `json:"estimated_input_tokens,omitempty"`
+	ReservedOutputTokens          *int     `json:"reserved_output_tokens,omitempty"`
+	EstimatedTotalContextTokens   *int     `json:"estimated_total_context_tokens,omitempty"`
+	FromResolvedTargetModelID     *string  `json:"from_resolved_target_model_id,omitempty"`
+	FromSelectedTerminalTargetID  *int     `json:"from_selected_terminal_target_id,omitempty"`
+	ToResolvedTargetModelID       *string  `json:"to_resolved_target_model_id,omitempty"`
+	ToSelectedTerminalTargetID    *int     `json:"to_selected_terminal_target_id,omitempty"`
+	FinalResolvedTargetModelID    *string  `json:"final_resolved_target_model_id,omitempty"`
+	FinalSelectedTerminalTargetID *int     `json:"final_selected_terminal_target_id,omitempty"`
+	FromUsableContextWindowTokens *int     `json:"from_usable_context_window_tokens,omitempty"`
+	ToUsableContextWindowTokens   *int     `json:"to_usable_context_window_tokens,omitempty"`
+	PromotionChain                []string `json:"promotion_chain,omitempty"`
+	PromotionDepth                *int     `json:"promotion_depth,omitempty"`
+	StopReason                    *string  `json:"stop_reason,omitempty"`
+	SourceAttemptCount            int      `json:"source_attempt_count"`
+	FinalAttemptCount             int      `json:"final_attempt_count"`
+	Result                        string   `json:"result"`
 }
 
 type runtimeContextOverflowAffinityDecision struct {
@@ -383,6 +410,18 @@ func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *
 	return cloned
 }
 
+func cloneRuntimeRecursiveContextOverflowPlannerResult(source *runtimeRecursiveContextOverflowPlannerResult) *runtimeRecursiveContextOverflowPlannerResult {
+	if source == nil {
+		return nil
+	}
+	return &runtimeRecursiveContextOverflowPlannerResult{
+		PromotionChain: cloneRuntimeModelPath(source.PromotionChain),
+		Depth:          source.Depth,
+		StopReason:     source.StopReason,
+		Promoted:       source.Promoted,
+	}
+}
+
 func cloneRuntimeContextOverflowPromotionDecision(source *runtimeContextOverflowPromotionDecision) *runtimeContextOverflowPromotionDecision {
 	if source == nil {
 		return nil
@@ -403,8 +442,13 @@ func cloneRuntimeContextOverflowPromotionDecision(source *runtimeContextOverflow
 		FromSelectedTerminalTargetID:  cloneRuntimeIntPointer(source.FromSelectedTerminalTargetID),
 		ToResolvedTargetModelID:       cloneRuntimeStringPointer(source.ToResolvedTargetModelID),
 		ToSelectedTerminalTargetID:    cloneRuntimeIntPointer(source.ToSelectedTerminalTargetID),
+		FinalResolvedTargetModelID:    cloneRuntimeStringPointer(source.FinalResolvedTargetModelID),
+		FinalSelectedTerminalTargetID: cloneRuntimeIntPointer(source.FinalSelectedTerminalTargetID),
 		FromUsableContextWindowTokens: cloneRuntimeIntPointer(source.FromUsableContextWindowTokens),
 		ToUsableContextWindowTokens:   cloneRuntimeIntPointer(source.ToUsableContextWindowTokens),
+		PromotionChain:                cloneRuntimeModelPath(source.PromotionChain),
+		PromotionDepth:                cloneRuntimeIntPointer(source.PromotionDepth),
+		StopReason:                    cloneRuntimeStringPointer(source.StopReason),
 		SourceAttemptCount:            source.SourceAttemptCount,
 		FinalAttemptCount:             source.FinalAttemptCount,
 		Result:                        source.Result,
@@ -430,17 +474,142 @@ func attachRuntimeContextOverflowPromotionDecision(contextRouting *runtimeContex
 	if promotion == nil {
 		return cloneRuntimeContextRoutingDecision(contextRouting)
 	}
+	clonedPromotion := cloneRuntimeContextOverflowPromotionDecision(promotion)
+	if contextRouting != nil {
+		mergeRuntimeContextOverflowPromotionRecursiveMetadata(clonedPromotion, contextRouting.ContextOverflowPromotion)
+	}
+	ensureRuntimeContextOverflowPromotionFinalMetadata(clonedPromotion)
 	if contextRouting == nil {
-		return &runtimeContextRoutingDecision{EstimationStatus: promotion.EstimationStatus, EstimationUnavailableReason: cloneRuntimeStringPointer(promotion.EstimationUnavailableReason), ContextOverflowPromotion: cloneRuntimeContextOverflowPromotionDecision(promotion)}
+		return &runtimeContextRoutingDecision{EstimationStatus: clonedPromotion.EstimationStatus, EstimationUnavailableReason: cloneRuntimeStringPointer(clonedPromotion.EstimationUnavailableReason), ContextOverflowPromotion: clonedPromotion}
 	}
 	cloned := cloneRuntimeContextRoutingDecision(contextRouting)
 	if cloned.EstimationStatus == "" {
-		cloned.EstimationStatus = promotion.EstimationStatus
+		cloned.EstimationStatus = clonedPromotion.EstimationStatus
 	}
 	if cloned.EstimationUnavailableReason == nil {
-		cloned.EstimationUnavailableReason = cloneRuntimeStringPointer(promotion.EstimationUnavailableReason)
+		cloned.EstimationUnavailableReason = cloneRuntimeStringPointer(clonedPromotion.EstimationUnavailableReason)
 	}
-	cloned.ContextOverflowPromotion = cloneRuntimeContextOverflowPromotionDecision(promotion)
+	cloned.ContextOverflowPromotion = clonedPromotion
+	return cloned
+}
+
+func mergeRuntimeContextOverflowPromotionRecursiveMetadata(target *runtimeContextOverflowPromotionDecision, source *runtimeContextOverflowPromotionDecision) {
+	if target == nil || source == nil {
+		return
+	}
+	if len(target.PromotionChain) == 0 && len(source.PromotionChain) > 0 {
+		target.PromotionChain = cloneRuntimeModelPath(source.PromotionChain)
+	}
+	if target.PromotionDepth == nil {
+		target.PromotionDepth = cloneRuntimeIntPointer(source.PromotionDepth)
+	}
+	if target.StopReason == nil {
+		target.StopReason = cloneRuntimeStringPointer(source.StopReason)
+	}
+}
+
+func ensureRuntimeContextOverflowPromotionFinalMetadata(promotion *runtimeContextOverflowPromotionDecision) {
+	if promotion == nil {
+		return
+	}
+	if promotion.FinalResolvedTargetModelID == nil {
+		promotion.FinalResolvedTargetModelID = cloneRuntimeStringPointer(promotion.ToResolvedTargetModelID)
+	}
+	if promotion.FinalSelectedTerminalTargetID == nil {
+		promotion.FinalSelectedTerminalTargetID = cloneRuntimeIntPointer(promotion.ToSelectedTerminalTargetID)
+	}
+}
+
+func runtimeRecursiveContextOverflowPlannerResultFromFields(fields map[string]any) *runtimeRecursiveContextOverflowPlannerResult {
+	if len(fields) == 0 {
+		return nil
+	}
+	reason, _ := fields["recursive_context_overflow_stop_reason"].(string)
+	if strings.TrimSpace(reason) == "" {
+		return nil
+	}
+	var promotionChain []string
+	switch chain := fields["promotion_chain"].(type) {
+	case []string:
+		promotionChain = cloneRuntimeModelPath(chain)
+	case []any:
+		promotionChain = make([]string, 0, len(chain))
+		for _, item := range chain {
+			if modelID, ok := item.(string); ok && strings.TrimSpace(modelID) != "" {
+				promotionChain = append(promotionChain, strings.TrimSpace(modelID))
+			}
+		}
+	}
+	depth := 0
+	switch value := fields["promotion_depth"].(type) {
+	case int:
+		depth = value
+	case int32:
+		depth = int(value)
+	case int64:
+		depth = int(value)
+	case float64:
+		depth = int(value)
+	}
+	return newRuntimeRecursiveContextOverflowStoppedResult(promotionChain, depth, runtimeRecursiveContextOverflowStopReason(reason))
+}
+
+func runtimeContextRoutingWithRecursivePlannerMetadata(contextRouting *runtimeContextRoutingDecision, planner *runtimeRecursiveContextOverflowPlannerResult, finalResolvedTargetModelID *string, finalSelectedTerminalTargetID *int, estimation *requestContextEstimation, unavailableReason *string) *runtimeContextRoutingDecision {
+	cloned := cloneRuntimeContextRoutingDecision(contextRouting)
+	if planner == nil {
+		return cloned
+	}
+	if cloned == nil {
+		cloned = &runtimeContextRoutingDecision{}
+	}
+	promotion := cloneRuntimeContextOverflowPromotionDecision(cloned.ContextOverflowPromotion)
+	if promotion == nil {
+		promotion = &runtimeContextOverflowPromotionDecision{
+			TriggerPhase: runtimeContextOverflowPromotionTriggerPhasePreDispatchEstimate,
+			Result:       runtimeContextOverflowPromotionResultNotPromoted,
+		}
+	}
+	promotion.PromotionChain = cloneRuntimeModelPath(planner.PromotionChain)
+	promotion.PromotionDepth = intPtr(planner.Depth)
+	promotion.StopReason = stringPointerIfNotEmpty(planner.StopReason)
+	if promotion.FinalResolvedTargetModelID == nil {
+		promotion.FinalResolvedTargetModelID = cloneRuntimeStringPointer(finalResolvedTargetModelID)
+	}
+	if promotion.FinalSelectedTerminalTargetID == nil {
+		promotion.FinalSelectedTerminalTargetID = cloneRuntimeIntPointer(finalSelectedTerminalTargetID)
+	}
+	if estimation != nil {
+		if promotion.EstimationMode == "" {
+			promotion.EstimationMode = runtimeContextOverflowPromotionEstimationModeEstimated
+		}
+		if promotion.EstimationStatus == "" {
+			promotion.EstimationStatus = runtimeContextEstimationStatusPresent
+		}
+		if promotion.EstimationMethod == nil {
+			promotion.EstimationMethod = stringPointerIfNotEmpty(estimation.Method)
+		}
+		if promotion.EstimatedInputTokens == nil {
+			promotion.EstimatedInputTokens = intPtr(estimation.EstimatedInputTokens)
+		}
+		if promotion.ReservedOutputTokens == nil {
+			promotion.ReservedOutputTokens = intPtr(estimation.ReservedOutputTokens)
+		}
+		if promotion.EstimatedTotalContextTokens == nil {
+			promotion.EstimatedTotalContextTokens = intPtr(estimation.EstimatedTotalContextTokens)
+		}
+	} else if unavailableReason != nil && strings.TrimSpace(*unavailableReason) != "" {
+		if promotion.EstimationMode == "" {
+			promotion.EstimationMode = runtimeContextOverflowPromotionEstimationModePassThrough
+		}
+		if promotion.EstimationStatus == "" {
+			promotion.EstimationStatus = runtimeContextEstimationStatusUnavailable
+		}
+		if promotion.EstimationUnavailableReason == nil {
+			promotion.EstimationUnavailableReason = cloneRuntimeStringPointer(unavailableReason)
+		}
+	}
+	ensureRuntimeContextOverflowPromotionFinalMetadata(promotion)
+	cloned.ContextOverflowPromotion = promotion
 	return cloned
 }
 
@@ -658,6 +827,7 @@ type requestPlan struct {
 	RequestContextEstimation                  *requestContextEstimation
 	RequestContextEstimationUnavailableReason *string
 	ContextOverflowPromotionPreselected       bool
+	ContextOverflowRecursivePlanner           *runtimeRecursiveContextOverflowPlannerResult
 	RequestGenerationSnapshot                 func() requestGenerationParamsSnapshot
 	HTTPClient                                *http.Client
 }
@@ -758,6 +928,7 @@ type resolvedExecutionTarget struct {
 	TerminalAttempts         []runtimeTerminalAttempt
 	RuntimeStates            map[int]loadbalance.RuntimeConnectionState
 	Strategy                 loadbalance.RuntimeStrategy
+	RecursivePlanner         *runtimeRecursiveContextOverflowPlannerResult
 }
 
 type plannedUpstreamRequest struct {
@@ -1102,6 +1273,10 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 	if runtimeErr.ResolvedTargetModelID != nil && strings.TrimSpace(*runtimeErr.ResolvedTargetModelID) != "" {
 		resolvedTargetModelID = cloneRuntimeStringPointer(runtimeErr.ResolvedTargetModelID)
 	}
+	contextRouting := cloneRuntimeContextRoutingDecision(runtimeErr.ContextRouting)
+	if recursivePlanner := runtimeRecursiveContextOverflowPlannerResultFromFields(runtimeErr.Fields); recursivePlanner != nil {
+		contextRouting = runtimeContextRoutingWithRecursivePlannerMetadata(contextRouting, recursivePlanner, resolvedTargetModelID, selectedTerminalTargetID, nil, input.ContextEstimationUnavailableReason)
+	}
 	runtimeErr.PlanningFailure = &runtimePlanningFailureTelemetry{
 		ProfileID:                   input.ActiveProfileID,
 		RequestedModelID:            requestedModel.ModelID,
@@ -1120,7 +1295,7 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 		ReportCurrencySnapshot:      input.Snapshot.ReportCurrency,
 		RequestGenerationParams:     generationParams,
 		SelectedTerminalTargetID:    selectedTerminalTargetID,
-		ContextRouting:              cloneRuntimeContextRoutingDecision(runtimeErr.ContextRouting),
+		ContextRouting:              contextRouting,
 	}
 	runtimeErr.ResolvedTargetModelID = resolvedTargetModelID
 	return err
@@ -1216,6 +1391,8 @@ func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOp
 	}
 	firstAttempt := terminalAttempts[0]
 	connections := connectionsFromTerminalAttempts(terminalAttempts)
+	contextRouting := runtimeContextRoutingWithEstimationState(target.ContextRouting, contextEstimation, input.ContextEstimationUnavailableReason)
+	contextRouting = runtimeContextRoutingWithRecursivePlannerMetadata(contextRouting, target.RecursivePlanner, stringPointerIfNotEmpty(target.TargetModel.ModelID), target.SelectedTerminalTargetID, contextEstimation, input.ContextEstimationUnavailableReason)
 	return requestPlan{
 		RequestedModelID:                          operation.RequestedModelID,
 		ResolvedTargetModelID:                     stringPointerIfNotEmpty(firstAttempt.TargetModel.ModelID),
@@ -1235,7 +1412,7 @@ func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOp
 		UpstreamBody:                              upstreamRequest.UpstreamBody,
 		IsStreamingRequest:                        upstreamRequest.IsStreamingRequest,
 		SelectedTerminalTargetID:                  cloneRuntimeIntPointer(target.SelectedTerminalTargetID),
-		ContextRouting:                            runtimeContextRoutingWithEstimationState(target.ContextRouting, contextEstimation, input.ContextEstimationUnavailableReason),
+		ContextRouting:                            contextRouting,
 		TerminalAttempts:                          terminalAttempts,
 		Connections:                               connections,
 		RuntimeStates:                             target.RuntimeStates,
@@ -1246,6 +1423,7 @@ func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOp
 		RequestGenerationParams:                   upstreamRequest.RequestGenerationParams,
 		RequestContextEstimation:                  contextEstimation,
 		RequestContextEstimationUnavailableReason: cloneRuntimeStringPointer(input.ContextEstimationUnavailableReason),
+		ContextOverflowRecursivePlanner:           cloneRuntimeRecursiveContextOverflowPlannerResult(target.RecursivePlanner),
 		HTTPClient:                                input.RuntimeConfig.HTTPClient,
 	}, nil
 }

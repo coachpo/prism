@@ -841,8 +841,15 @@ func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCom
 	return responseCapture, nil
 }
 
+func planHasPreselectedContextOverflowPromotion(plan requestPlan) bool {
+	if plan.ContextOverflowPromotionPreselected {
+		return true
+	}
+	return plan.ContextOverflowRecursivePlanner != nil && plan.ContextOverflowRecursivePlanner.Promoted
+}
+
 func planAllowsContextOverflowPromotion(plan requestPlan) bool {
-	if plan.IsStreamingRequest || len(plan.RawRequestBody) == 0 || plan.ContextOverflowPromotionPreselected {
+	if plan.IsStreamingRequest || len(plan.RawRequestBody) == 0 || planHasPreselectedContextOverflowPromotion(plan) {
 		return false
 	}
 	switch strings.TrimSpace(plan.RuntimeOperation.Name) {
@@ -854,13 +861,10 @@ func planAllowsContextOverflowPromotion(plan requestPlan) bool {
 }
 
 func planAllowsResponsesStreamingPreCommitProviderOverflowPromotion(plan requestPlan) bool {
-	if !plan.IsStreamingRequest || len(plan.RawRequestBody) == 0 || plan.ContextOverflowPromotionPreselected {
+	if !plan.IsStreamingRequest || len(plan.RawRequestBody) == 0 || planHasPreselectedContextOverflowPromotion(plan) {
 		return false
 	}
-	if strings.TrimSpace(plan.RuntimeOperation.Name) != openAIUpstreamOperationResponses {
-		return false
-	}
-	return plan.ContextRouting == nil || plan.ContextRouting.ContextOverflowPromotion == nil
+	return strings.TrimSpace(plan.RuntimeOperation.Name) == openAIUpstreamOperationResponses
 }
 
 const (

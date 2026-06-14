@@ -864,8 +864,8 @@ func TestChatStreamingPreDispatchPromotionGPT5DottedRequestLogAndTraceMetadata(t
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_method", "openai_chat_tokenizer_v1")
 	assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.estimation_unavailable_reason")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.result", "promoted_success")
-	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.from_model_id", "gpt-5.5")
-	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.to_model_id", "gpt-5.4")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.from_model_id", "redacted_model")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.to_model_id", "redacted_model")
 	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.source_attempt_count", 0)
 	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.final_attempt_count", 1)
 	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.from_selected_terminal_target_id", result.sourceConnectionID)
@@ -1941,6 +1941,111 @@ func TestResponsesStreamingNormalSSEPreCommitDoesNotPromote(t *testing.T) {
 	assertNoScriptedUpstreamRequests(t, promotedUpstream, "normal responses stream promotion target")
 }
 
+func TestContextOverflowPromotionPreDispatchSelectionDoesNotProviderFallbackAgain(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "source should not run after recursive pre-dispatch promotion"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "gpt-5-chat-recursive-provider-public-" + suffix,
+		TargetModelID:   "overflow-recursive-provider-source-" + suffix,
+		EndpointBaseURL: sourceUpstream.baseURL("/overflow/recursive-provider/source"),
+		EndpointAPIKey:  "overflow-recursive-provider-source-key",
+	})
+	middleModelID := "overflow-recursive-provider-middle-" + suffix
+	middleUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "middle should not run when it still cannot fit"})
+	_, middleConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, middleModelID, middleUpstream.baseURL("/overflow/recursive-provider/middle"), "overflow-recursive-provider-middle-key", nil, 300)
+	finalModelID := "overflow-recursive-provider-final-" + suffix
+	finalUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("recursive pre-dispatch final overflow must stay final"))
+	_, finalConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, finalModelID, finalUpstream.baseURL("/overflow/recursive-provider/final"), "overflow-recursive-provider-final-key", nil, 4_096)
+	thirdModelID := "overflow-recursive-provider-third-" + suffix
+	thirdUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "recursive-provider-third-should-not-run"})
+	seedRuntimePromotionNativeModel(t, harness, profileID, thirdModelID, thirdUpstream.baseURL("/overflow/recursive-provider/third"), "overflow-recursive-provider-third-key", nil, 8_192)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, middleConnectionID, 300, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, finalConnectionID, 4_096, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.PublicModelID, middleModelID)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, middleModelID)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, middleModelID, finalModelID)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, finalModelID, thirdModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"max_completion_tokens": 600,
+		"messages":              []map[string]any{{"role": "user", "content": strings.Repeat("recursive provider fallback must not replay after final selection ", 80)}},
+		"model":                 route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusBadRequest)
+	payload := runtimeResponsePayload(t, response)
+	errorPayload, ok := payload["error"].(map[string]any)
+	if !ok || errorPayload["message"] != "recursive pre-dispatch final overflow must stay final" {
+		t.Fatalf("expected recursive pre-dispatch final overflow response without provider fallback, got %+v", payload)
+	}
+	assertNoScriptedUpstreamRequests(t, sourceUpstream, "recursive pre-dispatch source")
+	assertNoScriptedUpstreamRequests(t, middleUpstream, "recursive pre-dispatch middle")
+	assertProxySelectorRequestSequence(t, finalUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/recursive-provider/final/v1/chat/completions",
+		ModelID: finalModelID,
+	}})
+	assertNoScriptedUpstreamRequests(t, thirdUpstream, "provider fallback after recursive pre-dispatch final")
+}
+
+func TestProviderOverflowPassThroughMetadataIncludesUnavailableEstimationMode(t *testing.T) {
+	recorder := installRuntimePromotionTraceRecorder(t)
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sensitivePrompt := "pass-through prompt must stay out of metadata " + suffix
+	sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("source unavailable-estimation overflow should promote"))
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "gpt-5-unavailable-pass-through-public-" + suffix, TargetModelID: "unavailable-pass-through-source-" + suffix, EndpointBaseURL: sourceUpstream.baseURL("/overflow/unavailable-pass-through/source"), EndpointAPIKey: "unavailable-pass-through-source-key"})
+	promotedModelID := "unavailable-pass-through-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-unavailable-pass-through-" + suffix, "object": "chat.completion", "usage": map[string]any{"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12}})
+	_, promotedConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/unavailable-pass-through/promoted"), "unavailable-pass-through-promoted-key", nil, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.PublicModelID, promotedModelID)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"max_completion_tokens": 600,
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": []map[string]any{{"type": "text", "text": sensitivePrompt}, {"type": "image_url", "image_url": map[string]any{"url": "https://example.invalid/context.png"}}},
+		}},
+		"model": route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+	assertLatestProviderOverflowPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
+	assertLatestProviderOverflowPromotionEstimationMetadata(t, harness, profileID, "estimation_unavailable_pass_through", "unavailable", runtimeStringPtr("chat_non_text_content"), nil, false)
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+	for _, table := range []string{"request_logs", "usage_request_events"} {
+		contextRouting := loadLatestRuntimeContextRoutingForIngress(t, harness, profileID, ingressRequestID, table)
+		promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
+		if promotion["stop_reason"] != "estimation_unavailable" || promotion["estimation_mode"] != "estimation_unavailable_pass_through" {
+			t.Fatalf("expected %s explicit unavailable-estimation stop metadata, got %+v", table, promotion)
+		}
+		chain, ok := promotion["promotion_chain"].([]any)
+		if !ok || len(chain) != 1 || chain[0] != route.PublicModelID {
+			t.Fatalf("expected %s stopped promotion_chain with requested model, got %+v", table, promotion)
+		}
+		assertTranslatedPromotionNumber(t, table, promotion, "promotion_depth", 0)
+		raw, err := json.Marshal(contextRouting)
+		if err != nil || strings.Contains(string(raw), sensitivePrompt) || strings.Contains(string(raw), "image_url") {
+			t.Fatalf("%s pass-through metadata leaked prompt/body content: %s err=%v", table, raw, err)
+		}
+	}
+	attrs := waitForRuntimePromotionTraceAttributes(t, recorder, "provider_overflow")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_mode", "estimation_unavailable_pass_through")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_status", "unavailable")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_unavailable_reason", "chat_non_text_content")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.stop_reason", "estimation_unavailable")
+	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.promotion_depth", 0)
+	assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.estimation_method")
+	assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.estimated_input_tokens")
+}
+
 func TestPromotionDoesNotMultiHop(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -2650,4 +2755,125 @@ func loadRuntimeEndpointIDForConnection(t *testing.T, harness *runtimeHarness, c
 		t.Fatalf("load endpoint id for connection %d: %v", connectionID, err)
 	}
 	return endpointID
+}
+
+func TestBuildRequestPlanRecursiveContextOverflowPromotionTargetRoutingModel(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "source should not run when routing promotion fits"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "gpt-5-recursive-routing-promotion-public-" + suffix,
+		TargetModelID:   "recursive-routing-promotion-source-" + suffix,
+		EndpointBaseURL: sourceUpstream.baseURL("/overflow/recursive-routing/source"),
+		EndpointAPIKey:  "recursive-routing-source-key",
+	})
+	smallUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "small-child-should-not-run"})
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "primary final retries to secondary"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "recursive-routing-secondary-" + suffix, "object": "chat.completion", "usage": map[string]any{"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13}})
+
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	routerStrategyID := harness.seedLegacyStrategy(t, profileID, "recursive-routing-router-"+suffix, "fill-first")
+	smallStrategyID := harness.seedLegacyStrategy(t, profileID, "recursive-routing-small-"+suffix, "fill-first")
+	finalStrategyID := harness.seedLegacyStrategy(t, profileID, "recursive-routing-final-"+suffix, "fill-first")
+	routerModelID := "recursive-routing-promotion-router-" + suffix
+	smallModelID := "recursive-routing-promotion-small-" + suffix
+	finalModelID := "recursive-routing-promotion-final-" + suffix
+	routerModelConfigID := harness.seedModel(t, profileID, "openai", routerModelID, "proxy", &routerStrategyID)
+	smallModelConfigID := harness.seedModel(t, profileID, "openai", smallModelID, "native", &smallStrategyID)
+	finalModelConfigID := harness.seedModel(t, profileID, "openai", finalModelID, "native", &finalStrategyID)
+	harness.seedProxyTargetWithMetadata(t, routerModelConfigID, smallModelConfigID, 0, 1, 0)
+	harness.seedProxyTargetWithMetadata(t, routerModelConfigID, finalModelConfigID, 1, 1, 0)
+	smallEndpointID := harness.seedEndpoint(t, profileID, "recursive-routing-small-"+suffix, smallUpstream.baseURL("/overflow/recursive-routing/small"), "recursive-routing-small-key", 0)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "recursive-routing-primary-"+suffix, primaryUpstream.baseURL("/overflow/recursive-routing/final-primary"), "recursive-routing-primary-key", 1)
+	secondaryEndpointID := harness.seedEndpoint(t, profileID, "recursive-routing-secondary-"+suffix, secondaryUpstream.baseURL("/overflow/recursive-routing/final-secondary"), "recursive-routing-secondary-key", 2)
+	smallConnectionID := harness.seedConnection(t, profileID, smallModelConfigID, smallEndpointID, "recursive-routing-small-connection-"+suffix, nil, nil, 0)
+	primaryConnectionID := harness.seedConnection(t, profileID, finalModelConfigID, primaryEndpointID, "recursive-routing-primary-connection-"+suffix, nil, nil, 0)
+	secondaryConnectionID := harness.seedConnection(t, profileID, finalModelConfigID, secondaryEndpointID, "recursive-routing-secondary-connection-"+suffix, nil, nil, 1)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, smallConnectionID, 300, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 4_096, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, secondaryConnectionID, 4_096, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.PublicModelID, routerModelID)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"max_completion_tokens": 600,
+		"messages":              []map[string]any{{"role": "user", "content": strings.Repeat("recursive routing model promotion should select final child ", 80)}},
+		"model":                 route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertNoScriptedUpstreamRequests(t, sourceUpstream, "recursive routing source")
+	assertNoScriptedUpstreamRequests(t, smallUpstream, "non-fitting routing child")
+	assertProxySelectorRequestSequence(t, primaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/overflow/recursive-routing/final-primary/v1/chat/completions", ModelID: finalModelID}})
+	assertProxySelectorRequestSequence(t, secondaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/overflow/recursive-routing/final-secondary/v1/chat/completions", ModelID: finalModelID}})
+}
+
+func TestContextOverflowPromotionRecursivePreDispatchChoosesFinalTerminal(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	smallUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "small source terminal should not run"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "gpt-5-recursive-final-terminal-public-" + suffix, TargetModelID: "recursive-final-terminal-source-" + suffix, EndpointBaseURL: smallUpstream.baseURL("/overflow/final-terminal/source-small"), EndpointAPIKey: "recursive-final-source-small-key"})
+	finalUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "recursive-final-terminal-" + suffix, "object": "chat.completion", "usage": map[string]any{"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11}})
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "promotion-should-not-run"})
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	finalEndpointID := harness.seedEndpoint(t, profileID, "recursive-final-terminal-"+suffix, finalUpstream.baseURL("/overflow/final-terminal/source-final"), "recursive-final-source-final-key", 1)
+	finalConnectionID := harness.seedConnection(t, profileID, harness.modelConfigIDForConnection(t, route.ConnectionID), finalEndpointID, "recursive-final-terminal-connection-"+suffix, nil, nil, 1)
+	promotedModelID := "recursive-final-terminal-promoted-" + suffix
+	promotedModelConfigID, promotedConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/final-terminal/promoted"), "recursive-final-promoted-key", nil, 8_192)
+	_ = promotedModelConfigID
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, finalConnectionID, 4_096, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, promotedConnectionID, 8_192, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"max_completion_tokens": 600,
+		"messages":              []map[string]any{{"role": "user", "content": "normal flat route has a later fitting terminal"}},
+		"model":                 route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertNoScriptedUpstreamRequests(t, smallUpstream, "non-fitting source terminal")
+	assertProxySelectorRequestSequence(t, finalUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/overflow/final-terminal/source-final/v1/chat/completions", ModelID: route.TargetModelID}})
+	assertNoScriptedUpstreamRequests(t, promotedUpstream, "explicit promotion target when normal terminal fits")
+}
+
+func TestResolveExactFacadeModelRejectsDirectTerminalTargetsDuringRecursivePlanning(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "source should not run when facade guardrail rejects"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "gpt-5-recursive-facade-terminal-public-" + suffix, TargetModelID: "recursive-facade-terminal-source-" + suffix, EndpointBaseURL: sourceUpstream.baseURL("/overflow/facade-terminal/source"), EndpointAPIKey: "recursive-facade-source-key"})
+	facadeUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "facade-direct-terminal-should-not-run"})
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	facadeStrategyID := harness.seedLegacyStrategy(t, profileID, "recursive-facade-terminal-"+suffix, "fill-first")
+	facadeModelID := "recursive-facade-terminal-target-" + suffix
+	facadeModelConfigID := harness.seedModel(t, profileID, "openai", facadeModelID, "proxy", &facadeStrategyID)
+	enableRuntimeHarnessFacadeModel(t, harness, facadeModelConfigID)
+	facadeEndpointID := harness.seedEndpoint(t, profileID, "recursive-facade-terminal-"+suffix, facadeUpstream.baseURL("/overflow/facade-terminal/direct"), "recursive-facade-terminal-key", 0)
+	facadeConnectionID := harness.seedConnection(t, profileID, facadeModelConfigID, facadeEndpointID, "recursive-facade-terminal-connection-"+suffix, nil, nil, 0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, facadeConnectionID, 4_096, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.PublicModelID, facadeModelID)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"max_completion_tokens": 600,
+		"messages":              []map[string]any{{"role": "user", "content": strings.Repeat("facade direct terminal should reject recursively ", 80)}},
+		"model":                 route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	payload := runtimeResponsePayload(t, response)
+	if payload["detail"] != "facade models must use model targets only" {
+		t.Fatalf("expected facade direct terminal guardrail detail, got %+v", payload)
+	}
+	assertNoScriptedUpstreamRequests(t, sourceUpstream, "recursive facade guardrail source")
+	assertNoScriptedUpstreamRequests(t, facadeUpstream, "facade direct terminal")
 }

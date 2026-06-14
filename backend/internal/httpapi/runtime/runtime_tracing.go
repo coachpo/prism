@@ -37,6 +37,11 @@ const (
 	runtimeTraceAttrContextOverflowPromotionEstimatedTotalContextTokens   = "prism.context_overflow_promotion.estimated_total_context_tokens"
 	runtimeTraceAttrContextOverflowPromotionFromSelectedTerminalTargetID  = "prism.context_overflow_promotion.from_selected_terminal_target_id"
 	runtimeTraceAttrContextOverflowPromotionToSelectedTerminalTargetID    = "prism.context_overflow_promotion.to_selected_terminal_target_id"
+	runtimeTraceAttrContextOverflowPromotionFinalResolvedTargetModelID    = "prism.context_overflow_promotion.final_resolved_target_model_id"
+	runtimeTraceAttrContextOverflowPromotionFinalSelectedTerminalTargetID = "prism.context_overflow_promotion.final_selected_terminal_target_id"
+	runtimeTraceAttrContextOverflowPromotionPromotionChain                = "prism.context_overflow_promotion.promotion_chain"
+	runtimeTraceAttrContextOverflowPromotionPromotionDepth                = "prism.context_overflow_promotion.promotion_depth"
+	runtimeTraceAttrContextOverflowPromotionStopReason                    = "prism.context_overflow_promotion.stop_reason"
 	runtimeTraceAttrContextOverflowPromotionFromUsableContextWindowTokens = "prism.context_overflow_promotion.from_usable_context_window_tokens"
 	runtimeTraceAttrContextOverflowPromotionToUsableContextWindowTokens   = "prism.context_overflow_promotion.to_usable_context_window_tokens"
 	runtimeTraceAttrContextOverflowPromotionSourceAttemptCount            = "prism.context_overflow_promotion.source_attempt_count"
@@ -236,16 +241,31 @@ func runtimeTraceContextOverflowPromotionAttributes(contextRouting *runtimeConte
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionEstimatedTotalContextTokens, *promotion.EstimatedTotalContextTokens))
 	}
 	if promotion.FromResolvedTargetModelID != nil && strings.TrimSpace(*promotion.FromResolvedTargetModelID) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionFromModelID, strings.TrimSpace(*promotion.FromResolvedTargetModelID)))
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionFromModelID, runtimeTracePolicy.contextOverflowPromotionModelID(*promotion.FromResolvedTargetModelID)))
 	}
 	if promotion.ToResolvedTargetModelID != nil && strings.TrimSpace(*promotion.ToResolvedTargetModelID) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionToModelID, strings.TrimSpace(*promotion.ToResolvedTargetModelID)))
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionToModelID, runtimeTracePolicy.contextOverflowPromotionModelID(*promotion.ToResolvedTargetModelID)))
 	}
 	if promotion.FromSelectedTerminalTargetID != nil {
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionFromSelectedTerminalTargetID, *promotion.FromSelectedTerminalTargetID))
 	}
 	if promotion.ToSelectedTerminalTargetID != nil {
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionToSelectedTerminalTargetID, *promotion.ToSelectedTerminalTargetID))
+	}
+	if promotion.FinalResolvedTargetModelID != nil && strings.TrimSpace(*promotion.FinalResolvedTargetModelID) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionFinalResolvedTargetModelID, runtimeTracePolicy.contextOverflowPromotionModelID(*promotion.FinalResolvedTargetModelID)))
+	}
+	if promotion.FinalSelectedTerminalTargetID != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionFinalSelectedTerminalTargetID, *promotion.FinalSelectedTerminalTargetID))
+	}
+	if chain := runtimeTracePolicy.contextOverflowPromotionModelPath(promotion.PromotionChain); len(chain) > 0 {
+		attrs = append(attrs, attribute.StringSlice(runtimeTraceAttrContextOverflowPromotionPromotionChain, chain))
+	}
+	if promotion.PromotionDepth != nil {
+		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionPromotionDepth, *promotion.PromotionDepth))
+	}
+	if promotion.StopReason != nil && strings.TrimSpace(*promotion.StopReason) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionStopReason, runtimeTracePolicy.contextOverflowPromotionStopReason(*promotion.StopReason)))
 	}
 	if promotion.FromUsableContextWindowTokens != nil {
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionFromUsableContextWindowTokens, *promotion.FromUsableContextWindowTokens))
@@ -533,11 +553,43 @@ func (policy runtimeTraceAttributePolicy) preferredContextBand(value string) str
 
 func (policy runtimeTraceAttributePolicy) contextOverflowPromotionResult(value string) string {
 	switch strings.TrimSpace(value) {
-	case runtimeContextOverflowPromotionResultPromotedSuccess:
+	case runtimeContextOverflowPromotionResultPromotedSuccess, runtimeContextOverflowPromotionResultNotPromoted:
 		return strings.TrimSpace(value)
 	default:
 		return runtimeTraceValueUnknown
 	}
+}
+
+func (policy runtimeTraceAttributePolicy) contextOverflowPromotionStopReason(value string) string {
+	switch runtimeRecursiveContextOverflowStopReason(strings.TrimSpace(value)) {
+	case runtimeRecursiveContextOverflowStopReasonEstimationUnavailable,
+		runtimeRecursiveContextOverflowStopReasonMissingContextWindow,
+		runtimeRecursiveContextOverflowStopReasonCycle,
+		runtimeRecursiveContextOverflowStopReasonMaxDepth:
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) contextOverflowPromotionModelID(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return runtimeTraceValueUnknown
+	}
+	return "redacted_model"
+}
+
+func (policy runtimeTraceAttributePolicy) contextOverflowPromotionModelPath(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	path := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			path = append(path, policy.contextOverflowPromotionModelID(value))
+		}
+	}
+	return path
 }
 
 func (policy runtimeTraceAttributePolicy) contextOverflowPromotionClassifier(value string) string {

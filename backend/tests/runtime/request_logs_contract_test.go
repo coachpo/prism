@@ -408,6 +408,54 @@ func assertOverflowAffinityDetailMetadataRedacted(t *testing.T, payload map[stri
 	}
 }
 
+func TestRequestLogsPersistRecursivePromotionChain(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sensitivePrompt := "secret prompt must not appear in recursive metadata " + suffix
+	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "recursive source should not dispatch"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "gpt-5-request-log-recursive-public-" + suffix, TargetModelID: "request-log-recursive-source-" + suffix, EndpointBaseURL: sourceUpstream.baseURL("/request-logs/recursive/source"), EndpointAPIKey: "request-log-recursive-source-key"})
+	middleUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "recursive middle should not dispatch"})
+	_, middleConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, "request-log-recursive-middle-"+suffix, middleUpstream.baseURL("/request-logs/recursive/middle"), "request-log-recursive-middle-key", nil, 300)
+	finalModelID := "request-log-recursive-final-" + suffix
+	finalUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "recursive-request-log-" + suffix, "object": "chat.completion", "usage": map[string]any{"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11}})
+	_, finalConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, finalModelID, finalUpstream.baseURL("/request-logs/recursive/final"), "request-log-recursive-final-key", nil, 4_096)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, middleConnectionID, 300, 32, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, finalConnectionID, 4_096, 32, 1.0)
+	middleModelID := "request-log-recursive-middle-" + suffix
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.PublicModelID, middleModelID)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, middleModelID, finalModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": sensitivePrompt}}, "model": route.PublicModelID, "max_completion_tokens": 600}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertNoScriptedUpstreamRequests(t, sourceUpstream, "recursive request-log source")
+	assertNoScriptedUpstreamRequests(t, middleUpstream, "recursive request-log middle")
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, finalModelID)
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+	for _, table := range []string{"request_logs", "usage_request_events"} {
+		contextRouting := loadLatestRuntimeContextRoutingForIngress(t, harness, profileID, ingressRequestID, table)
+		promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
+		if promotion["trigger_phase"] != "pre_dispatch_estimate" || promotion["estimation_mode"] != "preflight_estimated" || promotion["result"] != "promoted_success" {
+			t.Fatalf("expected %s recursive pre-dispatch metadata, got %+v", table, promotion)
+		}
+		chain, ok := promotion["promotion_chain"].([]any)
+		if !ok || len(chain) != 3 || chain[0] != route.PublicModelID || chain[1] != middleModelID || chain[2] != finalModelID {
+			t.Fatalf("expected %s recursive promotion_chain public->middle->final, got %+v", table, promotion)
+		}
+		assertTranslatedPromotionNumber(t, table, promotion, "promotion_depth", 2)
+		assertTranslatedPromotionNumber(t, table, promotion, "final_selected_terminal_target_id", finalConnectionID)
+		if promotion["final_resolved_target_model_id"] != finalModelID || promotion["to_resolved_target_model_id"] != finalModelID {
+			t.Fatalf("expected %s additive final model metadata %q, got %+v", table, finalModelID, promotion)
+		}
+		raw, err := json.Marshal(contextRouting)
+		if err != nil || strings.Contains(string(raw), sensitivePrompt) || strings.Contains(string(raw), "raw request body") {
+			t.Fatalf("%s recursive metadata leaked prompt/body content: %s err=%v", table, raw, err)
+		}
+	}
+}
+
 func TestRequestLogsNoFitPlanningFailurePersistsContextRoutingMetadata(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
