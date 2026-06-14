@@ -127,6 +127,43 @@ func TestTranslateOpenAIResponsesToChatStreamAcceptsInProgressLifecycleEvent(t *
 	}
 }
 
+func TestTranslateOpenAIResponsesToChatStreamAcceptsContentPartAndOutputItemDoneLifecycleEvents(t *testing.T) {
+	stream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_text_lifecycle\",\"model\":\"responses-target\",\"created_at\":1700000000}}\n\n" +
+		"event: response.output_item.added\n" +
+		"data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n" +
+		"event: response.content_part.added\n" +
+		"data: {\"type\":\"response.content_part.added\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\"}}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"delta\":\"hello lifecycle\"}\n\n" +
+		"event: response.output_text.done\n" +
+		"data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"text\":\"hello lifecycle\"}\n\n" +
+		"event: response.content_part.done\n" +
+		"data: {\"type\":\"response.content_part.done\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":{\"type\":\"text\",\"text\":\"hello lifecycle\"}}\n\n" +
+		"event: response.output_item.done\n" +
+		"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello lifecycle\"}]}}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_text_lifecycle\",\"model\":\"responses-target\",\"created_at\":1700000000,\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello lifecycle\"}]}]}}\n\n"
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIChatCompletionsToResponses, "", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
+	if err != nil {
+		t.Fatalf("translate responses stream with text lifecycle events to chat: %v", err)
+	}
+	forwardedBody := forwarded.String()
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted {
+		t.Fatalf("expected completed translated stream after text lifecycle events, got %+v", capture)
+	}
+	for _, rawEvent := range []string{"event: response.content_part.added", "event: response.content_part.done", "event: response.output_text.done", "event: response.output_item.done"} {
+		if strings.Contains(forwardedBody, rawEvent) {
+			t.Fatalf("expected lifecycle event %s to be absorbed, got %q", rawEvent, forwardedBody)
+		}
+	}
+	if !strings.Contains(forwardedBody, "chat.completion.chunk") || !strings.Contains(forwardedBody, "hello lifecycle") || !strings.Contains(forwardedBody, "data: [DONE]") {
+		t.Fatalf("expected translated Chat chunks and DONE sentinel, got %q", forwardedBody)
+	}
+}
+
 func TestTranslateOpenAIResponsesToChatStreamRequestedModelPreserved(t *testing.T) {
 	stream := "event: response.created\n" +
 		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_public_model\",\"model\":\"responses-target\",\"created_at\":1700000000}}\n\n" +
@@ -292,6 +329,102 @@ func TestTranslateOpenAIStreamRejectsUnsupportedShape(t *testing.T) {
 			stream: "event: response.function_call_arguments.delta\n" +
 				"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"call_1\",\"delta\":\"{}\"}\n\n",
 			reason: "responses_stream_response_function_call_arguments_delta",
+		},
+		{
+			name:        "responses output item added function call",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.output_item.added\n" +
+				"data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"call_1\",\"type\":\"function_call\",\"name\":\"lookup\",\"arguments\":\"{}\"}}\n\n",
+			reason: "responses_stream_function_call",
+		},
+		{
+			name:        "responses output item done function call",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.output_item.done\n" +
+				"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"call_1\",\"type\":\"function_call\",\"name\":\"lookup\",\"arguments\":\"{}\"}}\n\n",
+			reason: "responses_stream_function_call",
+		},
+		{
+			name:        "responses output item done unsupported type",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.output_item.done\n" +
+				"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"img_1\",\"type\":\"image_generation_call\"}}\n\n",
+			reason: "responses_stream_output_item",
+		},
+		{
+			name:        "responses output item done message unsupported content part",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.output_item.done\n" +
+				"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_image\",\"image_url\":\"https://example.invalid/image.png\"}]}}\n\n",
+			reason: "responses_stream_content_part_type",
+		},
+		{
+			name:        "responses output item done message function call content part",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.output_item.done\n" +
+				"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"{}\"}]}}\n\n",
+			reason: "responses_stream_function_call",
+		},
+		{
+			name:        "responses content part added function call",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.content_part.added\n" +
+				"data: {\"type\":\"response.content_part.added\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":{\"type\":\"function_call\",\"name\":\"lookup\",\"arguments\":\"{}\"}}\n\n",
+			reason: "responses_stream_function_call",
+		},
+		{
+			name:        "responses content part added unsupported type",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.content_part.added\n" +
+				"data: {\"type\":\"response.content_part.added\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":{\"type\":\"output_image\",\"image_url\":\"https://example.invalid/image.png\"}}\n\n",
+			reason: "responses_stream_content_part_type",
+		},
+		{
+			name:        "responses content part added malformed part",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.content_part.added\n" +
+				"data: {\"type\":\"response.content_part.added\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":\"not-object\"}\n\n",
+			reason: "responses_stream_content_part",
+		},
+		{
+			name:        "responses content part done function call output",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.content_part.done\n" +
+				"data: {\"type\":\"response.content_part.done\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"{}\"}}\n\n",
+			reason: "responses_stream_function_call",
+		},
+		{
+			name:        "responses content part done unsupported type",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.content_part.done\n" +
+				"data: {\"type\":\"response.content_part.done\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":{\"type\":\"output_audio\",\"audio\":\"AAAA\"}}\n\n",
+			reason: "responses_stream_content_part_type",
+		},
+		{
+			name:        "responses output text done function call part",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.output_text.done\n" +
+				"data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":{\"type\":\"function_call\",\"name\":\"lookup\",\"arguments\":\"{}\"}}\n\n",
+			reason: "responses_stream_function_call",
+		},
+		{
+			name:        "responses output text done malformed part",
+			ingressPath: "/v1/chat/completions",
+			mode:        TranslationModeOpenAIChatCompletionsToResponses,
+			stream: "event: response.output_text.done\n" +
+				"data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":\"not-object\"}\n\n",
+			reason: "responses_stream_content_part",
 		},
 	}
 	for _, test := range tests {

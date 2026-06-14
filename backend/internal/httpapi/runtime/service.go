@@ -515,7 +515,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	translationMode := finalResponseTranslation.TranslationMode
 	if strings.Contains(contentType, "text/event-stream") {
 		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
-			if translationMode == "" || translationMode == TranslationModeNone {
+			if !finalResponseTranslation.ResponseTranslationDirection.requiresTranslation() {
 				updatedExecution, promotedPlan, promotedExecution, sourceClassification, promotedErr, promoted := s.tryResponsesStreamingSSEPreVisibleContextOverflowPromotion(r, plan, execution)
 				if promoted {
 					if promotedErr != nil {
@@ -658,7 +658,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		proxyWriter.Commit()
 		return
 	}
-	if !nonStreamResponseRequiresBufferedInspection(execution.Response.StatusCode, translationMode) {
+	if !nonStreamResponseRequiresBufferedInspection(execution.Response.StatusCode, finalResponseTranslation) {
 		copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 		proxyWriter.WriteHeader(execution.Response.StatusCode)
 		acceptedRowID := int64(0)
@@ -767,56 +767,65 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 func finalResponseTranslationForSerialization(plan requestPlan, execution executionResult) runtimeFinalResponseTranslationMetadata {
 	metadata := cloneRuntimeFinalResponseTranslationMetadata(execution.FinalResponseTranslation)
 	if metadata == nil && len(execution.Attempts) > 0 {
-		finalAttempt := execution.Attempts[len(execution.Attempts)-1]
-		metadata = &runtimeFinalResponseTranslationMetadata{
-			TranslationMode:          normalizedRuntimeTranslationMode(finalAttempt.OperationTranslationMode),
-			SelectedTerminalTargetID: intPtr(finalAttempt.Connection.ID),
-			UpstreamOperationName:    strings.TrimSpace(finalAttempt.UpstreamOperationName),
-			UpstreamRequestPath:      strings.TrimSpace(finalAttempt.UpstreamRequestPath),
-		}
+		metadata = finalResponseTranslationMetadataFromExecutionAttempt(execution.Attempts[len(execution.Attempts)-1])
 	}
 	if metadata == nil {
-		metadata = &runtimeFinalResponseTranslationMetadata{TranslationMode: TranslationModeNone}
+		metadata = &runtimeFinalResponseTranslationMetadata{TranslationMode: TranslationModeNone, ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionNone}
 	}
-	metadata.TranslationMode = normalizedRuntimeTranslationMode(metadata.TranslationMode)
-	if strings.TrimSpace(metadata.RequestedModelID) == "" {
-		metadata.RequestedModelID = strings.TrimSpace(plan.RequestedModelID)
-	}
-	if strings.TrimSpace(metadata.UpstreamOperationName) == "" {
-		metadata.UpstreamOperationName = runtimeUpstreamOperationName(plan.RuntimeOperation, metadata.TranslationMode)
-	}
-	if strings.TrimSpace(metadata.UpstreamRequestPath) == "" {
-		metadata.UpstreamRequestPath = dereferenceString(runtimeUpstreamRequestPath(plan.RuntimeOperation, metadata.TranslationMode, plan.EffectiveRequestPath))
-	}
-	return *metadata
+	return *completeFinalResponseTranslationMetadata(plan, metadata, false)
 }
 
 func finalResponseTranslationForPromotedMerge(finalPlan requestPlan, promotedExecution executionResult) *runtimeFinalResponseTranslationMetadata {
 	metadata := cloneRuntimeFinalResponseTranslationMetadata(promotedExecution.FinalResponseTranslation)
 	if metadata == nil && len(promotedExecution.Attempts) > 0 {
-		finalAttempt := promotedExecution.Attempts[len(promotedExecution.Attempts)-1]
-		metadata = &runtimeFinalResponseTranslationMetadata{
-			TranslationMode:          normalizedRuntimeTranslationMode(finalAttempt.OperationTranslationMode),
-			SelectedTerminalTargetID: intPtr(finalAttempt.Connection.ID),
-			UpstreamOperationName:    strings.TrimSpace(finalAttempt.UpstreamOperationName),
-			UpstreamRequestPath:      strings.TrimSpace(finalAttempt.UpstreamRequestPath),
-		}
+		metadata = finalResponseTranslationMetadataFromExecutionAttempt(promotedExecution.Attempts[len(promotedExecution.Attempts)-1])
 	}
 	if metadata == nil {
 		return nil
 	}
-	metadata.RequestedModelID = strings.TrimSpace(finalPlan.RequestedModelID)
+	return completeFinalResponseTranslationMetadata(finalPlan, metadata, true)
+}
+
+func finalResponseTranslationMetadataFromExecutionAttempt(finalAttempt executionAttempt) *runtimeFinalResponseTranslationMetadata {
+	translationMode := normalizedRuntimeTranslationMode(finalAttempt.OperationTranslationMode)
+	return &runtimeFinalResponseTranslationMetadata{
+		TranslationMode:              translationMode,
+		SelectedTerminalTargetID:     intPtr(finalAttempt.Connection.ID),
+		UpstreamOperationName:        strings.TrimSpace(finalAttempt.UpstreamOperationName),
+		UpstreamRequestPath:          strings.TrimSpace(finalAttempt.UpstreamRequestPath),
+		ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionFromMode(translationMode),
+	}
+}
+
+func completeFinalResponseTranslationMetadata(plan requestPlan, metadata *runtimeFinalResponseTranslationMetadata, overrideClientFields bool) *runtimeFinalResponseTranslationMetadata {
+	metadata.TranslationMode = normalizedRuntimeTranslationMode(metadata.TranslationMode)
+	metadata.ResponseTranslationDirection = normalizedRuntimeFinalResponseTranslationDirection(metadata.ResponseTranslationDirection)
+	if overrideClientFields || strings.TrimSpace(metadata.RequestedModelID) == "" {
+		metadata.RequestedModelID = strings.TrimSpace(plan.RequestedModelID)
+	}
+	if overrideClientFields || strings.TrimSpace(metadata.ClientOperationName) == "" {
+		metadata.ClientOperationName = strings.TrimSpace(plan.RuntimeOperation.Name)
+	}
+	upstreamMode := finalResponseTranslationUpstreamMetadataMode(*metadata)
 	if strings.TrimSpace(metadata.UpstreamOperationName) == "" {
-		metadata.UpstreamOperationName = runtimeUpstreamOperationName(finalPlan.RuntimeOperation, metadata.TranslationMode)
+		metadata.UpstreamOperationName = runtimeUpstreamOperationName(plan.RuntimeOperation, upstreamMode)
 	}
 	if strings.TrimSpace(metadata.UpstreamRequestPath) == "" {
-		metadata.UpstreamRequestPath = dereferenceString(runtimeUpstreamRequestPath(finalPlan.RuntimeOperation, metadata.TranslationMode, finalPlan.EffectiveRequestPath))
+		metadata.UpstreamRequestPath = dereferenceString(runtimeUpstreamRequestPath(plan.RuntimeOperation, upstreamMode, plan.EffectiveRequestPath))
 	}
 	return metadata
 }
 
-func nonStreamResponseRequiresBufferedInspection(statusCode int, translationMode TranslationMode) bool {
-	if translationMode != "" && translationMode != TranslationModeNone {
+func finalResponseTranslationUpstreamMetadataMode(metadata runtimeFinalResponseTranslationMetadata) TranslationMode {
+	translationMode, err := runtimeTranslationModeForFinalResponseDirection(metadata.ResponseTranslationDirection)
+	if err == nil && translationMode != TranslationModeNone {
+		return translationMode
+	}
+	return normalizedRuntimeTranslationMode(metadata.TranslationMode)
+}
+
+func nonStreamResponseRequiresBufferedInspection(statusCode int, finalResponseTranslation runtimeFinalResponseTranslationMetadata) bool {
+	if finalResponseTranslation.ResponseTranslationDirection.requiresTranslation() {
 		return true
 	}
 	return cliProxyAPIOverflowStatusAllowed(statusCode)
@@ -867,7 +876,7 @@ func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCom
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
 	translationMode := finalResponseTranslation.TranslationMode
-	if translationMode == "" || translationMode == TranslationModeNone || shouldPreserveRawTranslatedOverflowResponse(execution.Response.StatusCode, rawBody, translationMode) {
+	if !finalResponseTranslation.ResponseTranslationDirection.requiresTranslation() || shouldPreserveRawTranslatedOverflowResponse(execution.Response.StatusCode, rawBody, translationMode) {
 		copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 		proxyWriter.WriteHeader(execution.Response.StatusCode)
 		return proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, TranslationModeNone, proxyWriter, bytes.NewReader(rawBody), contentType, s.nowUTC, captureAuditBody)

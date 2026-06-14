@@ -757,6 +757,49 @@ func runtimeTranslationModePointer(mode TranslationMode) *string {
 	return stringPtr(string(normalized))
 }
 
+type runtimeFinalResponseTranslationDirection string
+
+const (
+	runtimeFinalResponseTranslationDirectionNone                          runtimeFinalResponseTranslationDirection = "none"
+	runtimeFinalResponseTranslationDirectionResponsesUpstreamToChatClient runtimeFinalResponseTranslationDirection = "responses_upstream_to_chat_client"
+	runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient runtimeFinalResponseTranslationDirection = "chat_upstream_to_responses_client"
+)
+
+func normalizedRuntimeFinalResponseTranslationDirection(direction runtimeFinalResponseTranslationDirection) runtimeFinalResponseTranslationDirection {
+	if strings.TrimSpace(string(direction)) == "" {
+		return runtimeFinalResponseTranslationDirectionNone
+	}
+	return direction
+}
+
+func (direction runtimeFinalResponseTranslationDirection) requiresTranslation() bool {
+	return normalizedRuntimeFinalResponseTranslationDirection(direction) != runtimeFinalResponseTranslationDirectionNone
+}
+
+func runtimeFinalResponseTranslationDirectionFromMode(mode TranslationMode) runtimeFinalResponseTranslationDirection {
+	switch normalizedRuntimeTranslationMode(mode) {
+	case TranslationModeOpenAIResponsesToChatCompletions:
+		return runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient
+	case TranslationModeOpenAIChatCompletionsToResponses:
+		return runtimeFinalResponseTranslationDirectionResponsesUpstreamToChatClient
+	default:
+		return runtimeFinalResponseTranslationDirectionNone
+	}
+}
+
+func runtimeTranslationModeForFinalResponseDirection(direction runtimeFinalResponseTranslationDirection) (TranslationMode, error) {
+	switch normalizedRuntimeFinalResponseTranslationDirection(direction) {
+	case runtimeFinalResponseTranslationDirectionNone:
+		return TranslationModeNone, nil
+	case runtimeFinalResponseTranslationDirectionResponsesUpstreamToChatClient:
+		return TranslationModeOpenAIChatCompletionsToResponses, nil
+	case runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient:
+		return TranslationModeOpenAIResponsesToChatCompletions, nil
+	default:
+		return TranslationModeNone, fmt.Errorf("unsupported final response translation direction %q", direction)
+	}
+}
+
 func runtimeUpstreamOperationName(operation RuntimeOperation, mode TranslationMode) string {
 	switch normalizedRuntimeTranslationMode(mode) {
 	case TranslationModeOpenAIResponsesToChatCompletions:
@@ -794,11 +837,13 @@ func runtimeUpstreamRequestPath(operation RuntimeOperation, mode TranslationMode
 func finalResponseTranslationMetadataFromAttempt(operation RuntimeOperation, attempt runtimeTerminalAttempt, requestedModelID string, selectedTerminalTargetID int) *runtimeFinalResponseTranslationMetadata {
 	mode := normalizedRuntimeTranslationMode(attempt.TranslationMode)
 	return &runtimeFinalResponseTranslationMetadata{
-		TranslationMode:          mode,
-		RequestedModelID:         strings.TrimSpace(requestedModelID),
-		SelectedTerminalTargetID: intPtr(selectedTerminalTargetID),
-		UpstreamOperationName:    runtimeUpstreamOperationName(operation, mode),
-		UpstreamRequestPath:      dereferenceString(runtimeUpstreamRequestPath(operation, mode, attempt.EffectiveRequestPath)),
+		TranslationMode:              mode,
+		RequestedModelID:             strings.TrimSpace(requestedModelID),
+		ClientOperationName:          strings.TrimSpace(operation.Name),
+		SelectedTerminalTargetID:     intPtr(selectedTerminalTargetID),
+		UpstreamOperationName:        runtimeUpstreamOperationName(operation, mode),
+		UpstreamRequestPath:          dereferenceString(runtimeUpstreamRequestPath(operation, mode, attempt.EffectiveRequestPath)),
+		ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionFromMode(mode),
 	}
 }
 
@@ -807,11 +852,13 @@ func cloneRuntimeFinalResponseTranslationMetadata(source *runtimeFinalResponseTr
 		return nil
 	}
 	return &runtimeFinalResponseTranslationMetadata{
-		TranslationMode:          normalizedRuntimeTranslationMode(source.TranslationMode),
-		RequestedModelID:         strings.TrimSpace(source.RequestedModelID),
-		SelectedTerminalTargetID: cloneRuntimeIntPointer(source.SelectedTerminalTargetID),
-		UpstreamOperationName:    strings.TrimSpace(source.UpstreamOperationName),
-		UpstreamRequestPath:      strings.TrimSpace(source.UpstreamRequestPath),
+		TranslationMode:              normalizedRuntimeTranslationMode(source.TranslationMode),
+		RequestedModelID:             strings.TrimSpace(source.RequestedModelID),
+		ClientOperationName:          strings.TrimSpace(source.ClientOperationName),
+		SelectedTerminalTargetID:     cloneRuntimeIntPointer(source.SelectedTerminalTargetID),
+		UpstreamOperationName:        strings.TrimSpace(source.UpstreamOperationName),
+		UpstreamRequestPath:          strings.TrimSpace(source.UpstreamRequestPath),
+		ResponseTranslationDirection: normalizedRuntimeFinalResponseTranslationDirection(source.ResponseTranslationDirection),
 	}
 }
 
@@ -1045,11 +1092,13 @@ type executionAttempt struct {
 }
 
 type runtimeFinalResponseTranslationMetadata struct {
-	TranslationMode          TranslationMode
-	RequestedModelID         string
-	SelectedTerminalTargetID *int
-	UpstreamOperationName    string
-	UpstreamRequestPath      string
+	TranslationMode              TranslationMode
+	RequestedModelID             string
+	ClientOperationName          string
+	SelectedTerminalTargetID     *int
+	UpstreamOperationName        string
+	UpstreamRequestPath          string
+	ResponseTranslationDirection runtimeFinalResponseTranslationDirection
 }
 
 type executionResult struct {
