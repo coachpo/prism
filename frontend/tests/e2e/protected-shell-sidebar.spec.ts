@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
+import {
+  createDashboardRecentActivityResponse,
+  createDashboardSnapshot,
+} from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-18T00:00:00Z";
 const routeReadyTimeout = 15_000;
@@ -298,6 +301,10 @@ async function mockProtectedShellRoutes(
     if (pathname === "/api/stats/dashboard") {
       requestCounts.dashboard += 1;
       return fulfillJson(createDashboardSnapshot());
+    }
+
+    if (pathname === "/api/stats/dashboard/recent-activity") {
+      return fulfillJson(createDashboardRecentActivityResponse([]));
     }
 
     if (pathname === "/api/settings/auth") {

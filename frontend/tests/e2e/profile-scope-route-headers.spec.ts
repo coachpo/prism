@@ -1,5 +1,8 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
-import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
+import {
+  createDashboardRecentActivityResponse,
+  createDashboardSnapshot,
+} from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-28T12:00:00Z";
 const PROFILE_STORAGE_KEY = "prism.selectedProfileId";
@@ -157,6 +160,10 @@ async function mockHeaderProbeRoutes(page: Page) {
           total_requests: Number.isFinite(profileId) && profileId === 2 ? 42 : 13,
         },
       }));
+    }
+
+    if (pathname === "/api/stats/dashboard/recent-activity") {
+      return fulfillJson(createDashboardRecentActivityResponse([]));
     }
 
     throw new Error(`Unhandled API request: ${request.method()} ${pathname}`);

@@ -1,5 +1,9 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { createDashboardSnapshot, createTopologyGraph } from "./dashboard-aggregate-fixtures";
+import {
+  createDashboardRecentActivityResponse,
+  createDashboardSnapshot,
+  createTopologyGraph,
+} from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
 const constrainedViewport = { width: 320, height: 760 };
@@ -214,6 +218,11 @@ const longModelFilterLabel = "Model A with a very long routing display name that
 const longDisabledModelFilterLabel =
   "Disabled Model with a very long routing display name that must truncate";
 
+type DashboardApiCalls = {
+  dashboardRecentActivity: number;
+  dashboardSnapshot: number;
+};
+
 function createLongModelFilterDashboardSnapshot() {
   const topologyGraph = createTopologyGraph();
 
@@ -245,14 +254,25 @@ function createLongModelFilterDashboardSnapshot() {
 
 async function mockDashboardRoutes(
   page: Page,
-  options: { dashboardSnapshot?: ReturnType<typeof createDashboardSnapshot> } = {},
+  options: {
+    dashboardRecentActivity?: ReturnType<typeof createDashboardRecentActivityResponse>;
+    dashboardSnapshot?: ReturnType<typeof createDashboardSnapshot>;
+  } = {},
 ) {
   const profiles = [createProfile(1, "Red Team", true)];
   const modelDetail = createModelDetail();
   const requestLogDetail = createRequestLogDetail();
-  const dashboardSnapshot = options.dashboardSnapshot ?? createDashboardSnapshot({
-    recentRequests: [createRecentRequestLogItem()],
-  });
+  const dashboardSnapshot = options.dashboardSnapshot ?? createDashboardSnapshot();
+  const dashboardRecentActivity =
+    options.dashboardRecentActivity ?? createDashboardRecentActivityResponse();
+  const apiCalls = { dashboardRecentActivity: 0, dashboardSnapshot: 0 };
+
+  const removedSnakeCaseActivityField = ["recent", "requests"].join("_");
+  const removedCamelCaseActivityField = `recent${"Requests"}`;
+
+  expect(dashboardSnapshot).not.toHaveProperty(removedSnakeCaseActivityField);
+  expect(dashboardSnapshot).not.toHaveProperty(removedCamelCaseActivityField);
+  expect(dashboardRecentActivity).toHaveProperty("items");
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -282,7 +302,13 @@ async function mockDashboardRoutes(
     }
 
     if (pathname === "/api/stats/dashboard") {
+      apiCalls.dashboardSnapshot += 1;
       return fulfillJson(dashboardSnapshot);
+    }
+
+    if (pathname === "/api/stats/dashboard/recent-activity") {
+      apiCalls.dashboardRecentActivity += 1;
+      return fulfillJson(dashboardRecentActivity);
     }
 
     if (pathname === "/api/settings/costing") {
@@ -335,10 +361,27 @@ async function mockDashboardRoutes(
   });
 
   await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
+
+  return { apiCalls };
 }
 
 function getRoutingCard(page: Page) {
   return page.getByTestId("routing-diagram-card");
+}
+
+async function expectDashboardBootstrapCalls(apiCalls: DashboardApiCalls) {
+  await expect.poll(() => apiCalls.dashboardSnapshot, { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect.poll(() => apiCalls.dashboardRecentActivity, { timeout: 10_000 }).toBeGreaterThan(0);
+}
+
+async function openRoutingTab(page: Page, { apiCalls }: { apiCalls: DashboardApiCalls }) {
+  await page.goto("/observe?tab=routing");
+  await expect(page).toHaveURL(/\/observe\?tab=routing$/);
+  await expectDashboardBootstrapCalls(apiCalls);
+
+  const routingCard = getRoutingCard(page);
+  await expect(routingCard).toBeVisible({ timeout: 10_000 });
+  return routingCard;
 }
 
 async function tabUntilFocused(page: Page, locator: Locator, maxTabs = 40) {
@@ -508,14 +551,11 @@ test.describe("dashboard routing shell", () => {
     });
 
     await page.setViewportSize(desktopViewport);
-    await mockDashboardRoutes(page);
+    const routeMocks = await mockDashboardRoutes(page);
 
-    await page.goto("/observe?tab=routing");
-    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
+    const routingCard = await openRoutingTab(page, routeMocks);
     await expect(page.getByRole("tab")).toHaveText(["Overview", "Analytics", "Routing"]);
     await expect(page.getByRole("tab", { name: "Routing" })).toHaveAttribute("aria-selected", "true");
-
-    const routingCard = getRoutingCard(page);
     const summaryPills = routingCard.locator('[aria-live="polite"]');
     const legend = routingCard.getByRole("list", { name: "Routing Target Health" });
     const legendItems = legend.getByRole("listitem");
@@ -638,9 +678,7 @@ test.describe("dashboard routing shell", () => {
     await modelAction.press("Enter");
     await expect(page).toHaveURL(/\/models\/101$/);
 
-    await page.goto("/observe?tab=routing");
-    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
-    const refreshedRoutingCard = getRoutingCard(page);
+    const refreshedRoutingCard = await openRoutingTab(page, routeMocks);
     const endpointAction = refreshedRoutingCard
       .getByTestId("routing-diagram-desktop")
       .getByTestId("routing-diagram-node-endpoint-endpoint-201")
@@ -660,12 +698,9 @@ test.describe("dashboard routing shell", () => {
 
   test("filters desktop routing topology by local model checkboxes", async ({ page }) => {
     await page.setViewportSize(desktopViewport);
-    await mockDashboardRoutes(page);
+    const routeMocks = await mockDashboardRoutes(page);
 
-    await page.goto("/observe?tab=routing");
-    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
-
-    const routingCard = getRoutingCard(page);
+    const routingCard = await openRoutingTab(page, routeMocks);
     const modelACheckbox = routingCard.getByRole("checkbox", { name: "Model A" });
     const disabledModelCheckbox = routingCard.getByRole("checkbox", { name: "Disabled Model" });
 
@@ -706,12 +741,9 @@ test.describe("dashboard routing shell", () => {
 
   test("filters compact routing topology by local model checkboxes", async ({ page }) => {
     await page.setViewportSize(mobileViewport);
-    await mockDashboardRoutes(page);
+    const routeMocks = await mockDashboardRoutes(page);
 
-    await page.goto("/observe?tab=routing");
-    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
-
-    const routingCard = getRoutingCard(page);
+    const routingCard = await openRoutingTab(page, routeMocks);
     const modelACheckbox = routingCard.getByRole("checkbox", { name: "Model A" });
     const disabledModelCheckbox = routingCard.getByRole("checkbox", { name: "Disabled Model" });
 
@@ -750,14 +782,11 @@ test.describe("dashboard routing shell", () => {
 
   test("keeps compact model filter bounded while filtering by local checkboxes", async ({ page }) => {
     await page.setViewportSize(constrainedViewport);
-    await mockDashboardRoutes(page, {
+    const routeMocks = await mockDashboardRoutes(page, {
       dashboardSnapshot: createLongModelFilterDashboardSnapshot(),
     });
 
-    await page.goto("/observe?tab=routing");
-    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
-
-    const routingCard = getRoutingCard(page);
+    const routingCard = await openRoutingTab(page, routeMocks);
     const modelFilter = routingCard.getByRole("group", { name: "Model filter" });
     const modelACheckbox = routingCard.getByRole("checkbox", { name: longModelFilterLabel });
     const disabledModelCheckbox = routingCard.getByRole("checkbox", {
@@ -798,12 +827,9 @@ test.describe("dashboard routing shell", () => {
 
   test("preserves dragged desktop node positions across benign routing rerenders", async ({ page }) => {
     await page.setViewportSize(desktopViewport);
-    await mockDashboardRoutes(page);
+    const routeMocks = await mockDashboardRoutes(page);
 
-    await page.goto("/observe?tab=routing");
-    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
-
-    const routingCard = getRoutingCard(page);
+    const routingCard = await openRoutingTab(page, routeMocks);
     const desktopDiagram = routingCard.getByTestId("routing-diagram-desktop");
     const modelNode = desktopDiagram.getByTestId("routing-diagram-node-model-model-101");
     const refreshButton = page.getByRole("button", { name: /refresh dashboard/i });
@@ -829,12 +855,14 @@ test.describe("dashboard routing shell", () => {
     expectBoundingBoxDistance(afterDragOrigin, beforeDragOrigin, { min: 40 });
 
     await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.url().includes("/api/stats/dashboard") &&
+      page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname === "/api/stats/dashboard" &&
           response.request().method() === "GET" &&
-          response.status() === 200,
-      ),
+          response.status() === 200
+        );
+      }),
       refreshButton.click(),
     ]);
 
@@ -851,12 +879,9 @@ test.describe("dashboard routing shell", () => {
 
   test("covers the compact routing list at 390x844 with keyboard drill-down and no overflow", async ({ page }) => {
     await page.setViewportSize(mobileViewport);
-    await mockDashboardRoutes(page);
+    const routeMocks = await mockDashboardRoutes(page);
 
-    await page.goto("/observe?tab=routing");
-    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
-
-    const routingCard = getRoutingCard(page);
+    const routingCard = await openRoutingTab(page, routeMocks);
     const modelAction = routingCard
       .getByRole("article")
       .filter({ has: page.getByRole("heading", { name: "Model A", level: 5 }) })
@@ -882,9 +907,7 @@ test.describe("dashboard routing shell", () => {
     await modelAction.press("Enter");
     await expect(page).toHaveURL(/\/models\/101$/);
 
-    await page.goto("/observe?tab=routing");
-    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
-    const refreshedRoutingCard = getRoutingCard(page);
+    const refreshedRoutingCard = await openRoutingTab(page, routeMocks);
     const endpointAction = refreshedRoutingCard
       .getByRole("article")
       .filter({ has: page.getByRole("heading", { name: "Endpoint A", level: 5 }) })
@@ -900,10 +923,9 @@ test.describe("dashboard routing shell", () => {
   });
 
   test("does not render the removed routing strategy mix card", async ({ page }) => {
-    await mockDashboardRoutes(page);
+    const routeMocks = await mockDashboardRoutes(page);
 
-    await page.goto("/observe?tab=routing");
-    await expect(page).toHaveURL(/\/observe\?tab=routing$/);
+    await openRoutingTab(page, routeMocks);
 
     await expect(page.getByText("Routing strategy mix")).toHaveCount(0);
     await expect(page.getByText("Legacy strategy 1")).toHaveCount(0);
@@ -911,10 +933,12 @@ test.describe("dashboard routing shell", () => {
     await expect(page.getByText("Strategy not configured 1")).toHaveCount(0);
   });
 
-  test("opens exact request investigation from recent activity", async ({ page }) => {
-    await mockDashboardRoutes(page);
+  test("opens exact request investigation from split recent activity", async ({ page }) => {
+    const { apiCalls } = await mockDashboardRoutes(page);
 
     await page.goto("/observe?tab=overview");
+
+    await expectDashboardBootstrapCalls(apiCalls);
 
     const recentActivityCard = page.locator('[data-slot="card"]').filter({ hasText: "Recent Activity" }).first();
 
