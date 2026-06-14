@@ -15,7 +15,7 @@ interface DashboardOverviewTabProps {
   onOpenAnalytics: () => void;
   onInspectSpending: () => void;
   onReviewRequests: () => void;
-  onSelectRecentRequest: (requestId: number) => void;
+  onSelectRecentActivity: (requestId: number) => void;
 }
 
 export function DashboardOverviewTab({
@@ -28,13 +28,13 @@ export function DashboardOverviewTab({
   onOpenAnalytics,
   onInspectSpending,
   onReviewRequests,
-  onSelectRecentRequest,
+  onSelectRecentActivity,
 }: DashboardOverviewTabProps) {
   const {
     apiFamilyRows,
     metricSnapshot,
     modelDisplayNames,
-    recentRequests,
+    recentActivityItems,
     topSpendingModels,
   } = overviewData;
 
@@ -57,12 +57,12 @@ export function DashboardOverviewTab({
 
       <div className="grid gap-[var(--density-card-gap)] md:grid-cols-2 lg:grid-cols-7">
         <RecentActivityCard
-          recentRequests={recentRequests}
+          recentActivityItems={recentActivityItems}
           recentNewIds={recentNewIds}
           clearRecentRequestHighlight={clearRecentRequestHighlight}
           modelDisplayNames={modelDisplayNames}
           formatTime={formatTime}
-          onSelectRequest={onSelectRecentRequest}
+          onSelectRequest={onSelectRecentActivity}
         />
 
         <TopSpendingModelsCard

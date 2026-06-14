@@ -55,9 +55,9 @@ function DashboardAggregateSection({
   const handleReviewRequests = useCallback(() => {
     navigate("/request-logs");
   }, [navigate]);
-  const handleSelectRecentRequest = useCallback(
-    (requestId: number) => {
-      const searchParams = new URLSearchParams({ request_id: String(requestId) });
+  const handleSelectRecentActivity = useCallback(
+    (requestLogId: number) => {
+      const searchParams = new URLSearchParams({ request_id: String(requestLogId) });
       navigate(`/request-logs?${searchParams.toString()}`);
     },
     [navigate],
@@ -117,7 +117,7 @@ function DashboardAggregateSection({
           onOpenAnalytics={openAnalyticsTab}
           onInspectSpending={openAnalyticsTab}
           onReviewRequests={handleReviewRequests}
-          onSelectRecentRequest={handleSelectRecentRequest}
+          onSelectRecentActivity={handleSelectRecentActivity}
         />
       ) : (
         <RoutingDiagramCard
