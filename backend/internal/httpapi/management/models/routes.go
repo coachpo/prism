@@ -2,12 +2,10 @@ package models
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -1429,9 +1427,10 @@ func ensureNoNestedFacadeTargets(resolvedTargets []resolvedAccessTarget) error {
 	return nil
 }
 
+const maxContextOverflowPromotionChainTransitions = 3
+
 type promotionTargetTerminalStats struct {
-	LargestUsableContextWindowTokens int
-	TerminalConnectionIDs            map[int]struct{}
+	TerminalConnectionIDs map[int]struct{}
 }
 
 func (stats promotionTargetTerminalStats) overlaps(other promotionTargetTerminalStats) bool {
@@ -1451,43 +1450,72 @@ func validateConfiguredPromotionTarget(ctx context.Context, exec queryExecutor, 
 	if targetModelID == "" {
 		return nil
 	}
-	target, foundInProfile, foundElsewhere, err := loadPromotionTargetModelRecord(ctx, exec, profileID, targetModelID)
+	target, err := validatePromotionTargetLink(ctx, exec, profileID, source, targetModelID)
 	if err != nil {
 		return err
-	}
-	if !foundInProfile {
-		if foundElsewhere {
-			return promotionTargetValidationIssueError(promotionTargetValidationCodeCrossProfile, "context_overflow_promotion_target_id must reference a model in the selected profile")
-		}
-		return promotionTargetValidationIssueError(promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an existing model")
-	}
-	if target.ID == source.ID || target.ModelID == source.ModelID {
-		return promotionTargetValidationIssueError(promotionTargetValidationCodeSelf, "context_overflow_promotion_target_id cannot reference the source model")
-	}
-	if !target.IsEnabled {
-		return promotionTargetValidationIssueError(promotionTargetValidationCodeDisabled, "context_overflow_promotion_target_id must reference an enabled model")
-	}
-	if target.FacadeEnabled {
-		return promotionTargetValidationIssueError(promotionTargetValidationCodeFacade, "context_overflow_promotion_target_id must reference a non-facade model")
-	}
-	if target.APIFamily != source.APIFamily {
-		return promotionTargetValidationIssueError(promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
 	}
 	sourceStats, err := loadPromotionTargetTerminalStats(ctx, exec, profileID, source.ID, source.APIFamily)
 	if err != nil {
 		return err
 	}
-	targetStats, err := loadPromotionTargetTerminalStats(ctx, exec, profileID, target.ID, target.APIFamily)
+	return validatePromotionTargetChain(ctx, exec, profileID, source, target, sourceStats)
+}
+
+func validatePromotionTargetLink(ctx context.Context, exec queryExecutor, profileID int, source modelRecord, targetModelID string) (modelRecord, error) {
+	target, foundInProfile, foundElsewhere, err := loadPromotionTargetModelRecord(ctx, exec, profileID, targetModelID)
 	if err != nil {
-		return err
+		return modelRecord{}, err
 	}
-	if sourceStats.overlaps(targetStats) {
-		return promotionTargetValidationIssueError(promotionTargetValidationCodeSameTerminal, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model")
+	if !foundInProfile {
+		if foundElsewhere {
+			return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeCrossProfile, "context_overflow_promotion_target_id must reference a model in the selected profile")
+		}
+		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an existing model")
 	}
-	if targetStats.LargestUsableContextWindowTokens <= sourceStats.LargestUsableContextWindowTokens {
-		return promotionTargetValidationIssueError(promotionTargetValidationCodeContextWindowNotLarger, "context_overflow_promotion_target_id must reference a model with a strictly larger usable context window")
+	if target.ID == source.ID || target.ModelID == source.ModelID {
+		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeSelf, "context_overflow_promotion_target_id cannot reference the source model")
 	}
-	return nil
+	if !target.IsEnabled {
+		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeDisabled, "context_overflow_promotion_target_id must reference an enabled model")
+	}
+	if target.FacadeEnabled {
+		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeFacade, "context_overflow_promotion_target_id must reference a non-facade model")
+	}
+	if target.APIFamily != source.APIFamily {
+		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
+	}
+	return target, nil
+}
+
+func validatePromotionTargetChain(ctx context.Context, exec queryExecutor, profileID int, source modelRecord, target modelRecord, sourceStats promotionTargetTerminalStats) error {
+	visited := map[int]struct{}{source.ID: {}}
+	current := source
+	for depth := 1; ; depth++ {
+		if _, ok := visited[target.ID]; ok {
+			return promotionTargetValidationIssueError(promotionTargetValidationCodeCycle, "context_overflow_promotion_target_id must not introduce a promotion target cycle")
+		}
+		visited[target.ID] = struct{}{}
+		targetStats, err := loadPromotionTargetTerminalStats(ctx, exec, profileID, target.ID, target.APIFamily)
+		if err != nil {
+			return err
+		}
+		if sourceStats.overlaps(targetStats) {
+			return promotionTargetValidationIssueError(promotionTargetValidationCodeSameTerminal, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model")
+		}
+		nextTargetModelID := strings.TrimSpace(nullablePromotionTargetID(target.ContextOverflowPromotionTargetID))
+		if nextTargetModelID == "" {
+			return nil
+		}
+		if depth == maxContextOverflowPromotionChainTransitions {
+			return promotionTargetValidationIssueError(promotionTargetValidationCodeMaxDepth, "context_overflow_promotion_target_id promotion chain cannot exceed depth 3")
+		}
+		current = target
+		nextTarget, err := validatePromotionTargetLink(ctx, exec, profileID, current, nextTargetModelID)
+		if err != nil {
+			return err
+		}
+		target = nextTarget
+	}
 }
 
 func nullablePromotionTargetID(value *string) string {
@@ -1588,7 +1616,7 @@ func loadPromotionTargetTerminalStats(ctx context.Context, exec queryExecutor, p
 					AND connections.api_family = $3)
 			)
 		)
-		SELECT terminal_connection_id, context_window_tokens, max_context_utilization
+		SELECT DISTINCT terminal_connection_id
 		FROM terminal_reachability
 		WHERE terminal_connection_id IS NOT NULL
 		ORDER BY terminal_connection_id ASC`, profileID, modelConfigID, apiFamily)
@@ -1600,31 +1628,15 @@ func loadPromotionTargetTerminalStats(ctx context.Context, exec queryExecutor, p
 	stats := promotionTargetTerminalStats{TerminalConnectionIDs: map[int]struct{}{}}
 	for rows.Next() {
 		var terminalConnectionID int
-		var contextWindowTokens sql.NullInt32
-		var maxContextUtilization sql.NullFloat64
-		if err := rows.Scan(&terminalConnectionID, &contextWindowTokens, &maxContextUtilization); err != nil {
+		if err := rows.Scan(&terminalConnectionID); err != nil {
 			return promotionTargetTerminalStats{}, fmt.Errorf("scan terminal promotion stats for model %d: %w", modelConfigID, err)
 		}
 		stats.TerminalConnectionIDs[terminalConnectionID] = struct{}{}
-		usableContextWindowTokens := promotionTargetUsableContextWindowTokens(contextWindowTokens, maxContextUtilization)
-		if usableContextWindowTokens > stats.LargestUsableContextWindowTokens {
-			stats.LargestUsableContextWindowTokens = usableContextWindowTokens
-		}
 	}
 	if err := rows.Err(); err != nil {
 		return promotionTargetTerminalStats{}, fmt.Errorf("iterate terminal promotion stats for model %d: %w", modelConfigID, err)
 	}
 	return stats, nil
-}
-
-func promotionTargetUsableContextWindowTokens(contextWindowTokens sql.NullInt32, maxContextUtilization sql.NullFloat64) int {
-	if !contextWindowTokens.Valid || contextWindowTokens.Int32 <= 0 {
-		return 0
-	}
-	if !maxContextUtilization.Valid || maxContextUtilization.Float64 <= 0 || maxContextUtilization.Float64 > 1 {
-		return 0
-	}
-	return int(math.Floor(float64(contextWindowTokens.Int32) * maxContextUtilization.Float64))
 }
 
 func routingPlanValidationIssueError(code string, path string, detail string) error {

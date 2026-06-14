@@ -35,15 +35,16 @@ type domainError struct {
 }
 
 const (
-	contextOverflowPromotionTargetField                 = "context_overflow_promotion_target_id"
-	promotionTargetValidationCodeUnknown                = "unknown_target"
-	promotionTargetValidationCodeSelf                   = "self_target"
-	promotionTargetValidationCodeDisabled               = "disabled_target"
-	promotionTargetValidationCodeFacade                 = "facade_target"
-	promotionTargetValidationCodeCrossProfile           = "cross_profile_target"
-	promotionTargetValidationCodeSameTerminal           = "same_terminal_target"
-	promotionTargetValidationCodeAPIFamilyMismatch      = "api_family_mismatch"
-	promotionTargetValidationCodeContextWindowNotLarger = "context_window_not_larger"
+	contextOverflowPromotionTargetField            = "context_overflow_promotion_target_id"
+	promotionTargetValidationCodeUnknown           = "unknown_target"
+	promotionTargetValidationCodeSelf              = "self_target"
+	promotionTargetValidationCodeDisabled          = "disabled_target"
+	promotionTargetValidationCodeFacade            = "facade_target"
+	promotionTargetValidationCodeCrossProfile      = "cross_profile_target"
+	promotionTargetValidationCodeSameTerminal      = "same_terminal_target"
+	promotionTargetValidationCodeAPIFamilyMismatch = "api_family_mismatch"
+	promotionTargetValidationCodeCycle             = "promotion_cycle_detected"
+	promotionTargetValidationCodeMaxDepth          = "promotion_max_depth_exceeded"
 )
 
 func (err *domainError) Error() string {

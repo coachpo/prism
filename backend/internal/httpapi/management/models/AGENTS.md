@@ -25,7 +25,7 @@ models/
 - Keep model `api_family` as runtime compatibility truth.
 - Keep selected-profile model IDs unique inside the profile.
 - Keep Release 1 facade authoring exact-ID only. This package owns backend CRUD for `facade_enabled`, `facade_selection_policy`, and `facade_fallback_policy`; do not add regex matcher fields, capability-metadata expansion, or frontend-only authoring assumptions here.
-- Keep context overflow promotion targets exact-ID, same-profile, same-family, enabled, non-facade, non-self, non-overlapping-terminal, and larger usable-context than the source model.
+- Keep context overflow promotion targets exact-ID, same-profile, same `api_family`, enabled, non-facade, non-self, acyclic explicit-chain, max-depth-3, and no-same-terminal-loop. Runtime planning owns terminal-fit decisions.
 - Keep model load-balance strategy checks in this package, but strategy CRUD in `loadbalance/`.
 - Keep owner-scoped private connection routes in `connections/`, even when model detail responses include owned private connections.
 - Keep access targets ordered, same-profile, same-family, acyclic, and nested-facade-safe.
@@ -39,5 +39,5 @@ models/
 ## ANTI-PATTERNS
 - Do not move owner-scoped private connection route handling into model handlers.
 - Do not let access targets point at incompatible, missing, cyclic, or facade-enabled target models.
-- Do not accept context overflow promotion targets that bypass exact model IDs, same-profile ownership, same-family compatibility, or larger usable-context validation.
+- Do not accept context overflow promotion targets that bypass exact model IDs, same-profile ownership, same `api_family`, enabled non-facade non-self targets, acyclic explicit chains, max depth 3, or no-same-terminal-loop validation.
 - Do not claim Release 1 regex matching, capability-metadata facade expansion, or frontend facade authoring from this package.

@@ -19,7 +19,10 @@ import (
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
-const promotionTargetScenarioValid = "valid"
+const (
+	promotionTargetScenarioValid          = "valid"
+	promotionTargetScenarioRecursiveValid = "recursive_valid"
+)
 
 type modelRouteErrorResponse struct {
 	Detail            string                       `json:"detail"`
@@ -62,12 +65,28 @@ func TestModelServiceRejectsSameTerminalPromotionTarget(t *testing.T) {
 	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeSameTerminal)
 }
 
-func TestModelServiceRejectsApiFamilyMismatchPromotionTarget(t *testing.T) {
+func TestModelServiceRejectsAPIFamilyMismatchPromotionTarget(t *testing.T) {
 	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeAPIFamilyMismatch)
 }
 
-func TestModelServiceRejectsSmallerPromotionTarget(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeContextWindowNotLarger)
+func TestModelServiceAcceptsRecursivePromotionChainWithoutImmediateLargerWindow(t *testing.T) {
+	ctx, conn, _ := createPromotionTargetTestDatabase(t, "model_service_accepts_recursive_promotion_chain")
+	now := time.Date(2026, time.June, 5, 20, 5, 0, 0, time.UTC)
+	source, targetModelID, profileID := seedPromotionTargetScenario(t, ctx, conn, now, promotionTargetScenarioRecursiveValid)
+	source.ContextOverflowPromotionTargetID = stringPtr(targetModelID)
+
+	service := &Service{}
+	if err := service.validateContextOverflowPromotionTarget(ctx, conn, profileID, source); err != nil {
+		t.Fatalf("expected recursive promotion chain to pass, got %v", err)
+	}
+}
+
+func TestModelServiceRejectsPromotionCycle(t *testing.T) {
+	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeCycle)
+}
+
+func TestModelServiceRejectsPromotionMaxDepth(t *testing.T) {
+	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeMaxDepth)
 }
 
 func TestModelRoutesExposePromotionTargetField(t *testing.T) {
@@ -122,7 +141,8 @@ func TestModelRoutesReturnStablePromotionTargetValidationErrors(t *testing.T) {
 		promotionTargetValidationCodeCrossProfile,
 		promotionTargetValidationCodeSameTerminal,
 		promotionTargetValidationCodeAPIFamilyMismatch,
-		promotionTargetValidationCodeContextWindowNotLarger,
+		promotionTargetValidationCodeCycle,
+		promotionTargetValidationCodeMaxDepth,
 	}
 	for _, code := range codes {
 		t.Run(code, func(t *testing.T) {
@@ -215,8 +235,10 @@ func expectedPromotionTargetDetail(code string) string {
 		return "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model"
 	case promotionTargetValidationCodeAPIFamilyMismatch:
 		return "context_overflow_promotion_target_id must reference a model with the same api_family"
-	case promotionTargetValidationCodeContextWindowNotLarger:
-		return "context_overflow_promotion_target_id must reference a model with a strictly larger usable context window"
+	case promotionTargetValidationCodeCycle:
+		return "context_overflow_promotion_target_id must not introduce a promotion target cycle"
+	case promotionTargetValidationCodeMaxDepth:
+		return "context_overflow_promotion_target_id promotion chain cannot exceed depth 3"
 	default:
 		panic(fmt.Sprintf("unexpected promotion target validation code %q", code))
 	}
@@ -328,6 +350,15 @@ func seedPromotionTargetScenario(t *testing.T, ctx context.Context, conn *pgx.Co
 			t.Fatalf("commit valid scenario: %v", err)
 		}
 		return source, target.ModelID, profileID
+	case promotionTargetScenarioRecursiveValid:
+		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-recursive", APIFamily: "openai", IsEnabled: true}, 16_000, 1.0)
+		intermediate, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-recursive-small", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
+		terminal, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-recursive-terminal", APIFamily: "openai", IsEnabled: true}, 32_000, 1.0)
+		setPromotionTargetID(t, ctx, tx, intermediate.ID, terminal.ModelID)
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("commit recursive valid scenario: %v", err)
+		}
+		return source, intermediate.ModelID, profileID
 	case promotionTargetValidationCodeUnknown:
 		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-openai", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
 		if err := tx.Commit(ctx); err != nil {
@@ -378,13 +409,27 @@ func seedPromotionTargetScenario(t *testing.T, ctx context.Context, conn *pgx.Co
 			t.Fatalf("commit api-family mismatch scenario: %v", err)
 		}
 		return source, target.ModelID, profileID
-	case promotionTargetValidationCodeContextWindowNotLarger:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-large-window", APIFamily: "openai", IsEnabled: true}, 16_000, 1.0)
-		target, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-small-window", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
+	case promotionTargetValidationCodeCycle:
+		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-cycle", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
+		target, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-cycle", APIFamily: "openai", IsEnabled: true}, 16_000, 1.0)
+		setPromotionTargetID(t, ctx, tx, target.ID, source.ModelID)
 		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit smaller-target scenario: %v", err)
+			t.Fatalf("commit promotion cycle scenario: %v", err)
 		}
 		return source, target.ModelID, profileID
+	case promotionTargetValidationCodeMaxDepth:
+		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-depth", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
+		first, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-depth-1", APIFamily: "openai", IsEnabled: true}, 16_000, 1.0)
+		second, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-depth-2", APIFamily: "openai", IsEnabled: true}, 24_000, 1.0)
+		third, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-depth-3", APIFamily: "openai", IsEnabled: true}, 32_000, 1.0)
+		fourth, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-depth-4", APIFamily: "openai", IsEnabled: true}, 40_000, 1.0)
+		setPromotionTargetID(t, ctx, tx, first.ID, second.ModelID)
+		setPromotionTargetID(t, ctx, tx, second.ID, third.ModelID)
+		setPromotionTargetID(t, ctx, tx, third.ID, fourth.ModelID)
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("commit promotion max-depth scenario: %v", err)
+		}
+		return source, first.ModelID, profileID
 	default:
 		t.Fatalf("unexpected promotion target scenario %q", scenarioCode)
 		return modelRecord{}, "", 0
@@ -447,6 +492,13 @@ func insertPromotionModel(t *testing.T, ctx context.Context, tx pgx.Tx, profileI
 		UpdatedAt:                 now,
 	}
 	return mustInsertModelRecord(t, ctx, tx, record)
+}
+
+func setPromotionTargetID(t *testing.T, ctx context.Context, tx pgx.Tx, modelConfigID int, targetModelID string) {
+	t.Helper()
+	if _, err := tx.Exec(ctx, `UPDATE model_configs SET context_overflow_promotion_target_id = $2 WHERE id = $1`, modelConfigID, targetModelID); err != nil {
+		t.Fatalf("set promotion target for model %d: %v", modelConfigID, err)
+	}
 }
 
 func insertPromotionEndpoint(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, name string, now time.Time) int {
