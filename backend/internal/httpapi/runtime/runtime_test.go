@@ -2900,3 +2900,132 @@ func TestGeminiProxyEventStreamClassifiesReadFailureAfterPartialChunk(t *testing
 		t.Fatalf("expected no completed usage after partial read failure, got %+v", capture)
 	}
 }
+
+func TestBuildRequestPlan_EstimationUnavailablePassesThroughForOpenAIText(t *testing.T) {
+	tests := []struct {
+		name             string
+		path             string
+		modelID          string
+		rawBody          []byte
+		variant          string
+		capability       string
+		wantPath         string
+		wantTranslation  TranslationMode
+		terminalTargetID int
+	}{
+		{
+			name:             "chat to responses translation",
+			path:             "/v1/chat/completions",
+			modelID:          "unknown-tokenizer-chat-public",
+			rawBody:          []byte(`{"model":"unknown-tokenizer-chat-public","messages":[{"role":"user","content":"hello"}]}`),
+			variant:          "responses_reasoning_none",
+			capability:       providercompat.OpenAITextCapabilityResponsesOnly,
+			wantPath:         "/v1/responses",
+			wantTranslation:  TranslationModeOpenAIChatCompletionsToResponses,
+			terminalTargetID: 2_971,
+		},
+		{
+			name:             "responses to chat translation",
+			path:             "/v1/responses",
+			modelID:          "unknown-tokenizer-responses-public",
+			rawBody:          []byte(`{"model":"unknown-tokenizer-responses-public","input":"hello"}`),
+			variant:          "chat_completions_reasoning_none",
+			capability:       providercompat.OpenAITextCapabilityChatCompletionsOnly,
+			wantPath:         "/v1/chat/completions",
+			wantTranslation:  TranslationModeOpenAIResponsesToChatCompletions,
+			terminalTargetID: 2_972,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := newRequestPlanUnitService()
+			snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: test.modelID})
+			model := snapshot.ModelsByID[test.modelID]
+			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+			contextWindowTokens := 16_384
+			addRequestPlanConnectionTargetWithOptions(snapshot, model, test.terminalTargetID, test.terminalTargetID+7_000, 0, requestPlanConnectionTargetOptions{
+				contextWindowTokens:        &contextWindowTokens,
+				maxContextUtilization:      1.0,
+				openAIProbeEndpointVariant: &test.variant,
+				openAITextCapability:       &test.capability,
+			})
+			request := httptest.NewRequest(http.MethodPost, test.path, nil)
+			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+			plan, err := service.buildRequestPlanFromSnapshot(request, test.rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+			if err != nil {
+				t.Fatalf("build request plan: %v", err)
+			}
+			if plan.RequestContextEstimation != nil {
+				t.Fatalf("expected unavailable estimation to pass through without planner estimate, got %+v", plan.RequestContextEstimation)
+			}
+			if plan.EffectiveRequestPath != test.wantPath {
+				t.Fatalf("expected effective request path %q, got %q", test.wantPath, plan.EffectiveRequestPath)
+			}
+			if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].TranslationMode != test.wantTranslation {
+				t.Fatalf("expected translation mode %q, got %+v", test.wantTranslation, plan.TerminalAttempts)
+			}
+		})
+	}
+}
+
+func TestBuildRequestPlan_MissingContextWindowDisablesPreDispatchPromotion(t *testing.T) {
+	service := newRequestPlanUnitService()
+	sourceMissingWindowTokens := 200
+	sourceMissingSnapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-source-missing-window", ContextWindowTokens: &sourceMissingWindowTokens})
+	sourceMissingModel := sourceMissingSnapshot.ModelsByID["gpt-4o-source-missing-window"]
+	sourceMissingSnapshot.AccessTargetsBySourceModelID[sourceMissingModel.ID] = nil
+	setRequestPlanStrategyType(sourceMissingSnapshot, sourceMissingModel, "cheapest_eligible_context")
+	addRequestPlanConnectionTargetWithOptions(sourceMissingSnapshot, sourceMissingModel, 2_980, 9_980, 0, requestPlanConnectionTargetOptions{})
+	sourceMissingRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	sourceMissingOperation := mustResolveRuntimeOperation(t, http.MethodPost, sourceMissingRequest.URL.Path)
+	sourceMissingBody := []byte(`{"model":"gpt-4o-source-missing-window","messages":[{"role":"user","content":"hello"}],"stream":true,"max_completion_tokens":600}`)
+	sourceMissingPlan, err := service.buildRequestPlanFromSnapshot(sourceMissingRequest, sourceMissingBody, RuntimeProxyConfigSnapshot{}, sourceMissingOperation, requestPlanTestProfileID, sourceMissingSnapshot)
+	if err != nil {
+		t.Fatalf("build source missing-window plan: %v", err)
+	}
+	if sourceMissingPlan.ContextRouting == nil || sourceMissingPlan.ContextRouting.EarlyDecisionStatus != runtimeContextEarlyDecisionStatusMissingWindow || selectedUsableContextWindowTokensForPlan(sourceMissingPlan) != 0 {
+		t.Fatalf("expected source missing-window plan to disable fit proof, got context_routing=%+v selected_window=%d", sourceMissingPlan.ContextRouting, selectedUsableContextWindowTokensForPlan(sourceMissingPlan))
+	}
+
+	promotionTargetID := "gpt-4o-missing-window-promoted"
+	sourceContextWindowTokens := 200
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-missing-window-source", ContextWindowTokens: &sourceContextWindowTokens, ContextOverflowPromotionTargetID: &promotionTargetID},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: promotionTargetID},
+	)
+	source := snapshot.ModelsByID["gpt-4o-missing-window-source"]
+	promoted := snapshot.ModelsByID[promotionTargetID]
+	snapshot.AccessTargetsBySourceModelID[source.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[promoted.ID] = nil
+	setRequestPlanStrategyType(snapshot, promoted, "cheapest_eligible_context")
+	addRequestPlanConnectionTargetWithOptions(snapshot, source, 2_981, 9_981, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &sourceContextWindowTokens, maxContextUtilization: 1.0})
+	addRequestPlanConnectionTargetWithOptions(snapshot, promoted, 2_982, 9_982, 0, requestPlanConnectionTargetOptions{})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"gpt-4o-missing-window-source","messages":[{"role":"user","content":"hello"}],"stream":true,"max_completion_tokens":600}`)
+
+	sourcePlan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build source request plan: %v", err)
+	}
+	if sourcePlan.RequestContextEstimation == nil || sourcePlan.RequestContextEstimation.fitsUsableContextWindowTokens(selectedUsableContextWindowTokensForPlan(sourcePlan)) {
+		t.Fatalf("expected source estimate to prove source non-fit before promotion, got estimation=%+v selected_window=%d", sourcePlan.RequestContextEstimation, selectedUsableContextWindowTokensForPlan(sourcePlan))
+	}
+	promotedPlan, err := service.buildExplicitTargetRequestPlan(request, rawBody, RuntimeProxyConfigSnapshot{}, requestPlanTestProfileID, snapshot, promotionTargetID)
+	if err != nil {
+		t.Fatalf("build promoted request plan with missing window: %v", err)
+	}
+	if promotedPlan.ContextRouting == nil {
+		t.Fatal("expected context routing state for missing-window promotion target")
+	}
+	if promotedPlan.ContextRouting.EarlyDecisionStatus != runtimeContextEarlyDecisionStatusMissingWindow {
+		t.Fatalf("expected early decision missing window, got %+v", promotedPlan.ContextRouting)
+	}
+	if promotedPlan.ContextRouting.SelectedUsableContextWindowTokens != nil || promotedPlan.ContextRouting.UsableContextWindowTokens != nil {
+		t.Fatalf("expected missing window not to be encoded as zero or unlimited capacity, got %+v", promotedPlan.ContextRouting)
+	}
+	if selectedUsableContextWindowTokensForPlan(promotedPlan) != 0 || sourcePlan.RequestContextEstimation.fitsUsableContextWindowTokens(selectedUsableContextWindowTokensForPlan(promotedPlan)) {
+		t.Fatalf("expected missing promotion window to disable pre-dispatch fit proof, got selected_window=%d", selectedUsableContextWindowTokensForPlan(promotedPlan))
+	}
+}

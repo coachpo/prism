@@ -221,6 +221,7 @@ const (
 
 	runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow = "estimated_context_exceeds_usable_window"
 	runtimeContextRoutingSkipReasonUsableContextWindowUnavailable      = "usable_context_window_unavailable"
+	runtimeContextEarlyDecisionStatusMissingWindow                     = "missing_context_window"
 
 	runtimePlannerTraceVersion          = "runtime-routing-plan-v1"
 	runtimePlannerTraceDecisionSelected = "selected"
@@ -260,6 +261,8 @@ const (
 	runtimeContextOverflowPromotionTriggerPhaseProviderOverflow    = "provider_overflow"
 	runtimeContextOverflowPromotionEstimationModeEstimated         = "preflight_estimated"
 	runtimeContextOverflowPromotionEstimationModePassThrough       = "estimation_unavailable_pass_through"
+	runtimeContextEstimationStatusPresent                          = "present"
+	runtimeContextEstimationStatusUnavailable                      = "unavailable"
 	runtimeContextOverflowPromotionResultPromotedSuccess           = "promoted_success"
 
 	runtimeContextOverflowAffinityStateConsidered              = "considered"
@@ -282,6 +285,8 @@ type runtimeContextOverflowPromotionDecision struct {
 	TriggerErrorCode              *string `json:"trigger_error_code,omitempty"`
 	TriggerClassifier             string  `json:"trigger_classifier"`
 	EstimationMode                string  `json:"estimation_mode,omitempty"`
+	EstimationStatus              string  `json:"estimation_status,omitempty"`
+	EstimationUnavailableReason   *string `json:"estimation_unavailable_reason,omitempty"`
 	EstimationMethod              *string `json:"estimation_method,omitempty"`
 	EstimatedInputTokens          *int    `json:"estimated_input_tokens,omitempty"`
 	ReservedOutputTokens          *int    `json:"reserved_output_tokens,omitempty"`
@@ -328,6 +333,9 @@ type runtimeContextRoutingDecision struct {
 	SelectedEndpointID                 *int                                         `json:"selected_endpoint_id,omitempty"`
 	SelectedContextBand                *string                                      `json:"selected_context_band,omitempty"`
 	SelectedUsableContextWindowTokens  *int                                         `json:"selected_usable_context_window_tokens,omitempty"`
+	EarlyDecisionStatus                string                                       `json:"early_decision_status,omitempty"`
+	EstimationStatus                   string                                       `json:"estimation_status,omitempty"`
+	EstimationUnavailableReason        *string                                      `json:"estimation_unavailable_reason,omitempty"`
 	EstimationMethod                   *string                                      `json:"estimation_method,omitempty"`
 	EstimatedInputTokens               *int                                         `json:"estimated_input_tokens,omitempty"`
 	ReservedOutputTokens               *int                                         `json:"reserved_output_tokens,omitempty"`
@@ -353,6 +361,9 @@ func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *
 		SelectedEndpointID:                 cloneRuntimeIntPointer(source.SelectedEndpointID),
 		SelectedContextBand:                cloneRuntimeStringPointer(source.SelectedContextBand),
 		SelectedUsableContextWindowTokens:  cloneRuntimeIntPointer(source.SelectedUsableContextWindowTokens),
+		EarlyDecisionStatus:                source.EarlyDecisionStatus,
+		EstimationStatus:                   source.EstimationStatus,
+		EstimationUnavailableReason:        cloneRuntimeStringPointer(source.EstimationUnavailableReason),
 		EstimationMethod:                   cloneRuntimeStringPointer(source.EstimationMethod),
 		EstimatedInputTokens:               cloneRuntimeIntPointer(source.EstimatedInputTokens),
 		ReservedOutputTokens:               cloneRuntimeIntPointer(source.ReservedOutputTokens),
@@ -382,6 +393,8 @@ func cloneRuntimeContextOverflowPromotionDecision(source *runtimeContextOverflow
 		TriggerErrorCode:              cloneRuntimeStringPointer(source.TriggerErrorCode),
 		TriggerClassifier:             source.TriggerClassifier,
 		EstimationMode:                source.EstimationMode,
+		EstimationStatus:              source.EstimationStatus,
+		EstimationUnavailableReason:   cloneRuntimeStringPointer(source.EstimationUnavailableReason),
 		EstimationMethod:              cloneRuntimeStringPointer(source.EstimationMethod),
 		EstimatedInputTokens:          cloneRuntimeIntPointer(source.EstimatedInputTokens),
 		ReservedOutputTokens:          cloneRuntimeIntPointer(source.ReservedOutputTokens),
@@ -418,10 +431,33 @@ func attachRuntimeContextOverflowPromotionDecision(contextRouting *runtimeContex
 		return cloneRuntimeContextRoutingDecision(contextRouting)
 	}
 	if contextRouting == nil {
-		return &runtimeContextRoutingDecision{ContextOverflowPromotion: cloneRuntimeContextOverflowPromotionDecision(promotion)}
+		return &runtimeContextRoutingDecision{EstimationStatus: promotion.EstimationStatus, EstimationUnavailableReason: cloneRuntimeStringPointer(promotion.EstimationUnavailableReason), ContextOverflowPromotion: cloneRuntimeContextOverflowPromotionDecision(promotion)}
 	}
 	cloned := cloneRuntimeContextRoutingDecision(contextRouting)
+	if cloned.EstimationStatus == "" {
+		cloned.EstimationStatus = promotion.EstimationStatus
+	}
+	if cloned.EstimationUnavailableReason == nil {
+		cloned.EstimationUnavailableReason = cloneRuntimeStringPointer(promotion.EstimationUnavailableReason)
+	}
 	cloned.ContextOverflowPromotion = cloneRuntimeContextOverflowPromotionDecision(promotion)
+	return cloned
+}
+
+func runtimeContextRoutingWithEstimationState(contextRouting *runtimeContextRoutingDecision, estimation *requestContextEstimation, unavailableReason *string) *runtimeContextRoutingDecision {
+	if contextRouting == nil {
+		return nil
+	}
+	cloned := cloneRuntimeContextRoutingDecision(contextRouting)
+	if estimation != nil {
+		cloned.EstimationStatus = runtimeContextEstimationStatusPresent
+		cloned.EstimationUnavailableReason = nil
+		return cloned
+	}
+	if unavailableReason != nil && strings.TrimSpace(*unavailableReason) != "" {
+		cloned.EstimationStatus = runtimeContextEstimationStatusUnavailable
+		cloned.EstimationUnavailableReason = cloneRuntimeStringPointer(unavailableReason)
+	}
 	return cloned
 }
 
@@ -592,37 +628,38 @@ type headerBlocklistRule struct {
 }
 
 type requestPlan struct {
-	RequestedModelID                    string
-	ResolvedTargetModelID               *string
-	ResolvedPricingModelID              string
-	RequestedVendorID                   *int
-	RequestedVendorKey                  *string
-	RequestedVendorName                 *string
-	ProfileID                           int
-	APIFamily                           string
-	RuntimeOperation                    RuntimeOperation
-	RuntimeOperationPathParams          map[string]string
-	AuditEnabledAtRequest               bool
-	AuditCaptureBodiesAtRequest         bool
-	ReportCurrencySnapshot              runtimeReportCurrencySnapshot
-	EffectiveRequestPath                string
-	RawRequestBody                      []byte
-	UpstreamBody                        []byte
-	IsStreamingRequest                  bool
-	SelectedTerminalTargetID            *int
-	ContextRouting                      *runtimeContextRoutingDecision
-	TerminalAttempts                    []runtimeTerminalAttempt
-	Connections                         []runtimeConnection
-	RuntimeStates                       map[int]loadbalance.RuntimeConnectionState
-	BlocklistRules                      []headerBlocklistRule
-	ClientHeaders                       map[string]string
-	FailoverStatusCodes                 []int
-	Strategy                            loadbalance.RuntimeStrategy
-	RequestGenerationParams             requestGenerationParamsSnapshot
-	RequestContextEstimation            *requestContextEstimation
-	ContextOverflowPromotionPreselected bool
-	RequestGenerationSnapshot           func() requestGenerationParamsSnapshot
-	HTTPClient                          *http.Client
+	RequestedModelID                          string
+	ResolvedTargetModelID                     *string
+	ResolvedPricingModelID                    string
+	RequestedVendorID                         *int
+	RequestedVendorKey                        *string
+	RequestedVendorName                       *string
+	ProfileID                                 int
+	APIFamily                                 string
+	RuntimeOperation                          RuntimeOperation
+	RuntimeOperationPathParams                map[string]string
+	AuditEnabledAtRequest                     bool
+	AuditCaptureBodiesAtRequest               bool
+	ReportCurrencySnapshot                    runtimeReportCurrencySnapshot
+	EffectiveRequestPath                      string
+	RawRequestBody                            []byte
+	UpstreamBody                              []byte
+	IsStreamingRequest                        bool
+	SelectedTerminalTargetID                  *int
+	ContextRouting                            *runtimeContextRoutingDecision
+	TerminalAttempts                          []runtimeTerminalAttempt
+	Connections                               []runtimeConnection
+	RuntimeStates                             map[int]loadbalance.RuntimeConnectionState
+	BlocklistRules                            []headerBlocklistRule
+	ClientHeaders                             map[string]string
+	FailoverStatusCodes                       []int
+	Strategy                                  loadbalance.RuntimeStrategy
+	RequestGenerationParams                   requestGenerationParamsSnapshot
+	RequestContextEstimation                  *requestContextEstimation
+	RequestContextEstimationUnavailableReason *string
+	ContextOverflowPromotionPreselected       bool
+	RequestGenerationSnapshot                 func() requestGenerationParamsSnapshot
+	HTTPClient                                *http.Client
 }
 
 func (plan requestPlan) requiresReplayableRequestBody() bool {
@@ -667,14 +704,15 @@ func (plan requestPlan) RequestGenerationParamsSnapshot() requestGenerationParam
 }
 
 type requestPlanningInput struct {
-	Request                       *http.Request
-	RawBody                       []byte
-	RuntimeConfig                 RuntimeProxyConfigSnapshot
-	OperationMatch                RuntimeOperationMatch
-	ActiveProfileID               int
-	Snapshot                      *planningSnapshot
-	RoutingPlan                   *runtimeRoutingPlan
-	AllowMissingContextEstimation bool
+	Request                            *http.Request
+	RawBody                            []byte
+	RuntimeConfig                      RuntimeProxyConfigSnapshot
+	OperationMatch                     RuntimeOperationMatch
+	ActiveProfileID                    int
+	Snapshot                           *planningSnapshot
+	RoutingPlan                        *runtimeRoutingPlan
+	AllowMissingContextEstimation      bool
+	ContextEstimationUnavailableReason *string
 }
 
 func (input requestPlanningInput) compiledRoutingPlan() (*runtimeRoutingPlan, error) {
@@ -1014,6 +1052,7 @@ func (s *Service) buildExplicitTargetRequestPlanCore(request *http.Request, rawB
 	}
 	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
 	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
+	input.ContextEstimationUnavailableReason = contextEstimationUnavailableReasonFromError(contextEstimationErr)
 	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
 	if err != nil {
 		var runtimeErr *domainError
@@ -1178,35 +1217,36 @@ func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOp
 	firstAttempt := terminalAttempts[0]
 	connections := connectionsFromTerminalAttempts(terminalAttempts)
 	return requestPlan{
-		RequestedModelID:            operation.RequestedModelID,
-		ResolvedTargetModelID:       stringPointerIfNotEmpty(firstAttempt.TargetModel.ModelID),
-		ResolvedPricingModelID:      strings.TrimSpace(firstAttempt.TargetModel.ModelID),
-		RequestedVendorID:           target.RequestedModel.VendorID,
-		RequestedVendorKey:          target.RequestedModel.VendorKey,
-		RequestedVendorName:         target.RequestedModel.VendorName,
-		ProfileID:                   input.ActiveProfileID,
-		APIFamily:                   firstAttempt.TargetModel.APIFamily,
-		RuntimeOperation:            operation.Match.Operation,
-		RuntimeOperationPathParams:  cloneStringMap(operation.Match.PathParams),
-		AuditEnabledAtRequest:       firstAttempt.AuditEnabledAtRequest,
-		AuditCaptureBodiesAtRequest: firstAttempt.AuditCaptureBodiesRequest,
-		ReportCurrencySnapshot:      input.Snapshot.ReportCurrency,
-		EffectiveRequestPath:        upstreamRequest.EffectiveRequestPath,
-		RawRequestBody:              upstreamRequest.RawRequestBody,
-		UpstreamBody:                upstreamRequest.UpstreamBody,
-		IsStreamingRequest:          upstreamRequest.IsStreamingRequest,
-		SelectedTerminalTargetID:    cloneRuntimeIntPointer(target.SelectedTerminalTargetID),
-		ContextRouting:              cloneRuntimeContextRoutingDecision(target.ContextRouting),
-		TerminalAttempts:            terminalAttempts,
-		Connections:                 connections,
-		RuntimeStates:               target.RuntimeStates,
-		BlocklistRules:              input.Snapshot.BlocklistRules,
-		ClientHeaders:               upstreamRequest.ClientHeaders,
-		FailoverStatusCodes:         firstAttempt.Strategy.FailoverStatusCodes(),
-		Strategy:                    firstAttempt.Strategy,
-		RequestGenerationParams:     upstreamRequest.RequestGenerationParams,
-		RequestContextEstimation:    contextEstimation,
-		HTTPClient:                  input.RuntimeConfig.HTTPClient,
+		RequestedModelID:                          operation.RequestedModelID,
+		ResolvedTargetModelID:                     stringPointerIfNotEmpty(firstAttempt.TargetModel.ModelID),
+		ResolvedPricingModelID:                    strings.TrimSpace(firstAttempt.TargetModel.ModelID),
+		RequestedVendorID:                         target.RequestedModel.VendorID,
+		RequestedVendorKey:                        target.RequestedModel.VendorKey,
+		RequestedVendorName:                       target.RequestedModel.VendorName,
+		ProfileID:                                 input.ActiveProfileID,
+		APIFamily:                                 firstAttempt.TargetModel.APIFamily,
+		RuntimeOperation:                          operation.Match.Operation,
+		RuntimeOperationPathParams:                cloneStringMap(operation.Match.PathParams),
+		AuditEnabledAtRequest:                     firstAttempt.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest:               firstAttempt.AuditCaptureBodiesRequest,
+		ReportCurrencySnapshot:                    input.Snapshot.ReportCurrency,
+		EffectiveRequestPath:                      upstreamRequest.EffectiveRequestPath,
+		RawRequestBody:                            upstreamRequest.RawRequestBody,
+		UpstreamBody:                              upstreamRequest.UpstreamBody,
+		IsStreamingRequest:                        upstreamRequest.IsStreamingRequest,
+		SelectedTerminalTargetID:                  cloneRuntimeIntPointer(target.SelectedTerminalTargetID),
+		ContextRouting:                            runtimeContextRoutingWithEstimationState(target.ContextRouting, contextEstimation, input.ContextEstimationUnavailableReason),
+		TerminalAttempts:                          terminalAttempts,
+		Connections:                               connections,
+		RuntimeStates:                             target.RuntimeStates,
+		BlocklistRules:                            input.Snapshot.BlocklistRules,
+		ClientHeaders:                             upstreamRequest.ClientHeaders,
+		FailoverStatusCodes:                       firstAttempt.Strategy.FailoverStatusCodes(),
+		Strategy:                                  firstAttempt.Strategy,
+		RequestGenerationParams:                   upstreamRequest.RequestGenerationParams,
+		RequestContextEstimation:                  contextEstimation,
+		RequestContextEstimationUnavailableReason: cloneRuntimeStringPointer(input.ContextEstimationUnavailableReason),
+		HTTPClient:                                input.RuntimeConfig.HTTPClient,
 	}, nil
 }
 
