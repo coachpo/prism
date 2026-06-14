@@ -3369,7 +3369,7 @@ export const enMessages: Messages = {
     noTerminalTargetsSelected: "No terminal targets are attached yet. Create or manage them from Model Detail.",
     optionalFriendlyName: "Optional friendly name",
     overflowPromotionTarget: "Overflow promotion target",
-    overflowPromotionTargetDescription: "Optional selected-profile model ID for one replay when a non-stream response proves context overflow. Prism validates eligibility on save.",
+    overflowPromotionTargetDescription: "Choose an enabled same-family model for recursive overflow promotion. Prism validates chain depth, cycles, terminal loops, and routing-plan issues on save.",
     priority: (value) => `Priority ${value}`,
     routingTypeDescription: "",
     save: "Save",

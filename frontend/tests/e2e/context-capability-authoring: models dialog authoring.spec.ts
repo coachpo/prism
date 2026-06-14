@@ -347,18 +347,18 @@ test("context-capability-authoring: overflow promotion target validation error",
       createModelListItem(2, "gpt-large", "GPT Large"),
     ],
     updateErrorResponseFactory: (payload) => {
-      if (payload.context_overflow_promotion_target_id !== "gpt-small") {
+      if (payload.context_overflow_promotion_target_id !== "gpt-large") {
         return null;
       }
       return {
         status: 400,
         body: {
-          detail: "context_overflow_promotion_target_id cannot reference the source model",
+          detail: "context_overflow_promotion_target_id must not introduce a promotion target cycle",
           routing_plan_issues: [
             {
-              code: "self_target",
+              code: "promotion_cycle_detected",
               path: "context_overflow_promotion_target_id",
-              message: "context_overflow_promotion_target_id cannot reference the source model",
+              message: "context_overflow_promotion_target_id must not introduce a promotion target cycle",
             },
           ],
         },
@@ -374,12 +374,13 @@ test("context-capability-authoring: overflow promotion target validation error",
   const promotionTargetField = dialog.getByLabel("Overflow promotion target");
 
   await promotionTargetField.click();
-  await page.getByRole("option", { name: "GPT Small (gpt-small)" }).click();
+  await expect(page.getByRole("option", { name: "GPT Small (gpt-small)" })).toHaveCount(0);
+  await page.getByRole("option", { name: "GPT Large (gpt-large)" }).click();
   await dialog.getByRole("button", { name: "Save" }).click();
 
-  await expect(dialog.getByText("context_overflow_promotion_target_id (self_target): context_overflow_promotion_target_id cannot reference the source model")).toBeVisible();
+  await expect(dialog.getByText("context_overflow_promotion_target_id (promotion_cycle_detected): context_overflow_promotion_target_id must not introduce a promotion target cycle")).toBeVisible();
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByLabel("Overflow promotion target")).toContainText("GPT Small (gpt-small)");
+  await expect(dialog.getByLabel("Overflow promotion target")).toContainText("GPT Large (gpt-large)");
   await expect(page.getByText("Model updated")).toHaveCount(0);
   expect(routes.getUpdatedPayloads()).toEqual([
     {
@@ -393,7 +394,7 @@ test("context-capability-authoring: overflow promotion target validation error",
       default_output_token_reserve: 4096,
       max_context_utilization: 0.9,
       preferred_context_utilization_threshold: null,
-      context_overflow_promotion_target_id: "gpt-small",
+      context_overflow_promotion_target_id: "gpt-large",
     },
   ]);
 });
