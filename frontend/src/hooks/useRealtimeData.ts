@@ -15,13 +15,26 @@ export const CHANNEL_PAYLOAD_EXTRACTORS: {
     message: RealtimeMessage
   ) => RealtimeChannelPayloadMap[K] | null;
 } = {
-  dashboard: (message) =>
-    message.type === "dashboard.update"
-      ? {
-          request_log: message.request_log,
-          snapshot: message.snapshot,
-        }
-      : null,
+  dashboard: (message) => {
+    if (message.type === "dashboard.snapshot") {
+      return {
+        type: message.type,
+        profile_id: message.profile_id,
+        snapshot: message.snapshot,
+      };
+    }
+
+    if (message.type === "dashboard.activity") {
+      return {
+        type: message.type,
+        profile_id: message.profile_id,
+        activity_watermark: message.activity_watermark,
+        activity: message.activity,
+      };
+    }
+
+    return null;
+  },
   analytics: (message) =>
     message.type === "analytics.snapshot"
       ? {
@@ -70,8 +83,12 @@ export function matchesRealtimeDataScope({
   profileId: number | null;
   scope?: RealtimeSubscriptionScope;
 }): boolean {
-  if (channel !== "analytics") {
-    return true;
+  if (channel === "dashboard") {
+    return (
+      (message.type === "dashboard.snapshot" ||
+        message.type === "dashboard.activity") &&
+      message.profile_id === profileId
+    );
   }
 
   return (

@@ -442,7 +442,7 @@ export const rewriteContractMatrix = {
       id: "dashboard-realtime",
       surface: "Dashboard overview realtime",
       scope: "mixed",
-      requirements: ["singleton websocket client", "dashboard.update payload reconciliation", "profile-aware subscription", "reconnect triggers REST bootstrap reconciliation"],
+      requirements: ["singleton websocket client", "dashboard.snapshot revision reconciliation", "dashboard.activity recent-activity reconciliation", "profile-aware subscription", "reconnect triggers REST bootstrap reconciliation"],
     },
     {
       id: "analytics-realtime",

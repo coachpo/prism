@@ -12,7 +12,7 @@ hooks/
 
 ## WHERE TO LOOK
 
-- Shared realtime subscription lifecycle, profile-aware channel wiring, and preferred consumer path over the singleton websocket client: `useRealtimeData.ts`, `../lib/websocket.ts`
+- Shared realtime subscription lifecycle, profile-aware channel wiring, split dashboard snapshot/activity payload handling, and preferred consumer path over the singleton websocket client: `useRealtimeData.ts`, `../lib/websocket.ts`
 - Shared timestamp formatting through the locale layer: `useTimezone.ts`, `../i18n/format.ts`
 
 ## CONVENTIONS
