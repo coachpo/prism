@@ -327,8 +327,18 @@ func TestChatStreamingPreDispatchPromotionToResponsesOnlyTarget(t *testing.T) {
 		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-chat-stream-to-responses-" + suffix + "\",\"model\":\"" + promotedModelID + "\",\"created_at\":1710000000}}\n\n" +
 		"event: response.in_progress\n" +
 		"data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp-chat-stream-to-responses-" + suffix + "\",\"model\":\"" + promotedModelID + "\"}}\n\n" +
+		"event: response.output_item.added\n" +
+		"data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n" +
+		"event: response.content_part.added\n" +
+		"data: {\"type\":\"response.content_part.added\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\"}}\n\n" +
 		"event: response.output_text.delta\n" +
-		"data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_1\",\"delta\":\"" + promotedText + "\"}\n\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"delta\":\"" + promotedText + "\"}\n\n" +
+		"event: response.output_text.done\n" +
+		"data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"text\":\"" + promotedText + "\"}\n\n" +
+		"event: response.content_part.done\n" +
+		"data: {\"type\":\"response.content_part.done\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":{\"type\":\"text\",\"text\":\"" + promotedText + "\"}}\n\n" +
+		"event: response.output_item.done\n" +
+		"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + promotedText + "\"}]}}\n\n" +
 		"event: response.completed\n" +
 		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-chat-stream-to-responses-" + suffix + "\",\"model\":\"" + promotedModelID + "\",\"created_at\":1710000000,\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + promotedText + "\"}]}],\"usage\":{\"input_tokens\":5,\"output_tokens\":3,\"total_tokens\":8}}}\n\n"
 	promotedUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", promotedStream)
@@ -364,6 +374,7 @@ func TestChatStreamingPreDispatchPromotionToResponsesOnlyTarget(t *testing.T) {
 		SuccessFlag:   true,
 	}})
 	assertLatestPreDispatchPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID, 256, 4096, "openai_chat_tokenizer_v1")
+	assertLatestChatToResponsesPreDispatchPromotionAttribution(t, harness, profileID, route.PublicModelID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
 }
 
 func TestAdapterGatedUnsupportedTranslatedResponsesShapeDoesNotPromoteToChatOnlyTarget(t *testing.T) {
@@ -2562,6 +2573,15 @@ func assertTranslatedChatCompletionPayload(t *testing.T, payload map[string]any,
 			t.Fatalf("expected translated Chat payload to hide raw Responses key %q, got %+v", rawResponseKey, payload)
 		}
 	}
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode translated Chat payload for leak checks: %v", err)
+	}
+	for _, forbidden := range []string{`"object":"response"`, resolvedTargetModelID} {
+		if strings.Contains(string(rawPayload), forbidden) {
+			t.Fatalf("expected translated Chat payload to hide raw Responses marker %q, got %s", forbidden, string(rawPayload))
+		}
+	}
 	choices, ok := payload["choices"].([]any)
 	if !ok || len(choices) != 1 {
 		t.Fatalf("expected one translated Chat choice, got %+v", payload)
@@ -2604,6 +2624,11 @@ func assertTranslatedChatCompletionStream(t *testing.T, body string, wantPublicM
 	}
 	if strings.Contains(body, resolvedTargetModelID) || strings.Contains(body, "openai_stream_translation_unsupported") {
 		t.Fatalf("expected translated Chat stream to hide resolved target and avoid unsupported errors, got %q", body)
+	}
+	for _, lifecycleEvent := range []string{"response.content_part.added", "response.content_part.done", "response.output_text.done", "response.output_item.done"} {
+		if strings.Contains(body, lifecycleEvent) {
+			t.Fatalf("expected translated Chat stream to absorb lifecycle event %q, got %q", lifecycleEvent, body)
+		}
 	}
 	payloads, done := parseRuntimeSSEDataPayloads(t, body)
 	if !done || len(payloads) == 0 {
@@ -2854,6 +2879,58 @@ func assertLatestChatToResponsesPromotionAttribution(t *testing.T, harness *runt
 		assertTranslatedPromotionNumber(t, label, promotion, "to_selected_terminal_target_id", wantPromotedTerminalTargetID)
 		if promotion["trigger_error_code"] != "context_length_exceeded" || promotion["trigger_classifier"] != "error_code" || promotion["result"] != "promoted_success" {
 			t.Fatalf("expected %s chat-to-responses promotion trigger/result metadata, got %+v", label, promotion)
+		}
+		if promotion["from_resolved_target_model_id"] != wantSourceResolvedTargetModelID || promotion["to_resolved_target_model_id"] != wantPromotedResolvedTargetModelID {
+			t.Fatalf("expected %s source/promoted model metadata %q -> %q, got %+v", label, wantSourceResolvedTargetModelID, wantPromotedResolvedTargetModelID, promotion)
+		}
+	}
+
+	assertAttributionRow("request_logs", `SELECT model_id, COALESCE(resolved_target_model_id, ''), COALESCE(operation_name, ''), COALESCE(upstream_operation_name, ''), COALESCE(operation_translation_mode, ''), COALESCE(upstream_request_path, ''), COALESCE(context_routing::text, '{}') FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`)
+	assertAttributionRow("usage_request_events", `SELECT model_id, COALESCE(resolved_target_model_id, ''), COALESCE(operation_name, ''), COALESCE(upstream_operation_name, ''), COALESCE(operation_translation_mode, ''), COALESCE(upstream_request_path, ''), COALESCE(context_routing::text, '{}') FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`)
+}
+
+func assertLatestChatToResponsesPreDispatchPromotionAttribution(t *testing.T, harness *runtimeHarness, profileID int, wantModelID string, wantSourceResolvedTargetModelID string, wantPromotedResolvedTargetModelID string, wantSourceTerminalTargetID int, wantPromotedTerminalTargetID int) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+
+	assertAttributionRow := func(label string, query string) {
+		t.Helper()
+		var modelID string
+		var resolvedTargetModelID string
+		var operationName string
+		var upstreamOperationName string
+		var translationMode string
+		var upstreamRequestPath string
+		var contextRoutingRaw string
+		if err := harness.conn.QueryRow(context.Background(), query, profileID, ingressRequestID).Scan(&modelID, &resolvedTargetModelID, &operationName, &upstreamOperationName, &translationMode, &upstreamRequestPath, &contextRoutingRaw); err != nil {
+			t.Fatalf("load %s pre-dispatch chat-to-responses promotion attribution: %v", label, err)
+		}
+		if modelID != wantModelID || resolvedTargetModelID != wantPromotedResolvedTargetModelID {
+			t.Fatalf("expected %s ingress model %q and promoted resolved target %q, got model=%q resolved=%q", label, wantModelID, wantPromotedResolvedTargetModelID, modelID, resolvedTargetModelID)
+		}
+		if operationName != "openai.chat_completions" {
+			t.Fatalf("expected %s operation_name openai.chat_completions, got %q", label, operationName)
+		}
+		if upstreamOperationName != "openai.responses" {
+			t.Fatalf("expected %s upstream_operation_name openai.responses, got %q", label, upstreamOperationName)
+		}
+		if translationMode != "openai_chat_completions_to_responses" {
+			t.Fatalf("expected %s operation_translation_mode openai_chat_completions_to_responses, got %q", label, translationMode)
+		}
+		if upstreamRequestPath != "/v1/responses" {
+			t.Fatalf("expected %s upstream_request_path /v1/responses, got %q", label, upstreamRequestPath)
+		}
+		var contextRouting map[string]any
+		if err := json.Unmarshal([]byte(contextRoutingRaw), &contextRouting); err != nil {
+			t.Fatalf("decode %s context routing %q: %v", label, contextRoutingRaw, err)
+		}
+		promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
+		assertTranslatedPromotionNumber(t, label, promotion, "source_attempt_count", 0)
+		assertTranslatedPromotionNumber(t, label, promotion, "final_attempt_count", 1)
+		assertTranslatedPromotionNumber(t, label, promotion, "from_selected_terminal_target_id", wantSourceTerminalTargetID)
+		assertTranslatedPromotionNumber(t, label, promotion, "to_selected_terminal_target_id", wantPromotedTerminalTargetID)
+		if promotion["trigger_phase"] != "pre_dispatch_estimate" || promotion["trigger_classifier"] != "estimated_context_exceeds_usable_window" || promotion["estimation_method"] != "openai_chat_tokenizer_v1" || promotion["result"] != "promoted_success" {
+			t.Fatalf("expected %s pre-dispatch chat-to-responses promotion metadata, got %+v", label, promotion)
 		}
 		if promotion["from_resolved_target_model_id"] != wantSourceResolvedTargetModelID || promotion["to_resolved_target_model_id"] != wantPromotedResolvedTargetModelID {
 			t.Fatalf("expected %s source/promoted model metadata %q -> %q, got %+v", label, wantSourceResolvedTargetModelID, wantPromotedResolvedTargetModelID, promotion)
