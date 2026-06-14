@@ -29,6 +29,7 @@ func (s *Service) buildRequestPlanFromSnapshotCore(request *http.Request, rawBod
 	}
 	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
 	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
+	input.ContextEstimationUnavailableReason = contextEstimationUnavailableReasonFromError(contextEstimationErr)
 	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
 	if err != nil {
 		var runtimeErr *domainError

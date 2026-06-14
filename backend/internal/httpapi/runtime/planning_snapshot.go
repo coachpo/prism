@@ -789,8 +789,18 @@ func filterRuntimeResolvedAccessPlanByContext(candidate runtimeResolvedAccessPla
 	filteredConnections := make([]runtimeConnection, 0, len(candidate.Connections))
 	filteredStates := make(map[int]loadbalance.RuntimeConnectionState, len(candidate.RuntimeStates))
 	skippedTerminalTargets := make([]runtimeContextRoutingSkippedTerminalTarget, 0)
+	contextFitEvaluated := false
 	for _, attempt := range candidate.TerminalAttempts {
 		usableContextWindowTokens := usableContextWindowTokensForConnection(attempt.Connection)
+		if usableContextWindowTokens <= 0 {
+			filteredAttempts = append(filteredAttempts, attempt)
+			filteredConnections = append(filteredConnections, attempt.Connection)
+			if state, ok := candidate.RuntimeStates[attempt.Connection.ID]; ok {
+				filteredStates[attempt.Connection.ID] = state
+			}
+			continue
+		}
+		contextFitEvaluated = true
 		if usableContextWindowTokens > largestUsableContextWindowTokens {
 			largestUsableContextWindowTokens = usableContextWindowTokens
 		}
@@ -809,13 +819,13 @@ func filterRuntimeResolvedAccessPlanByContext(candidate runtimeResolvedAccessPla
 	filtered.Connections = filteredConnections
 	filtered.RuntimeStates = filteredStates
 	filtered.LargestUsableContextWindowTokens = largestUsableContextWindowTokens
-	filtered.ContextFitEvaluated = true
+	filtered.ContextFitEvaluated = contextFitEvaluated
 	if len(filteredAttempts) == 0 {
 		filtered.SelectedTerminalTargetID = nil
-		return filtered, skippedTerminalTargets, largestUsableContextWindowTokens, true
+		return filtered, skippedTerminalTargets, largestUsableContextWindowTokens, contextFitEvaluated
 	}
 	filtered.SelectedTerminalTargetID = intPtr(filteredAttempts[0].Connection.ID)
-	return filtered, skippedTerminalTargets, largestUsableContextWindowTokens, true
+	return filtered, skippedTerminalTargets, largestUsableContextWindowTokens, contextFitEvaluated
 }
 
 func (s *Service) applyIngressOperationCompatibility(candidate runtimeResolvedAccessPlan, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
@@ -1042,10 +1052,14 @@ func buildRuntimeContextRoutingDecision(strategy loadbalance.RuntimeStrategy, es
 	}
 	if selectedCandidate != nil && len(selectedCandidate.resolved.TerminalAttempts) > 0 {
 		selectedConnection := selectedCandidate.resolved.TerminalAttempts[0].Connection
+		selectedUsableContextWindowTokens := usableContextWindowTokensForConnection(selectedConnection)
 		decision.SelectedTerminalTargetID = intPtr(selectedConnection.ID)
 		decision.SelectedEndpointID = intPtr(selectedConnection.Endpoint.ID)
 		decision.SelectedContextBand = runtimeContextBandPointer(selectedCandidate.contextBand)
-		decision.SelectedUsableContextWindowTokens = runtimeContextWindowTokensPointer(usableContextWindowTokensForConnection(selectedConnection))
+		decision.SelectedUsableContextWindowTokens = runtimeContextWindowTokensPointer(selectedUsableContextWindowTokens)
+		if estimation != nil && selectedUsableContextWindowTokens <= 0 {
+			decision.EarlyDecisionStatus = runtimeContextEarlyDecisionStatusMissingWindow
+		}
 		if selectedCandidate.priced {
 			decision.SelectedEstimatedBlendedCostMicros = int64Ptr(selectedCandidate.costMicros)
 		}

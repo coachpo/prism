@@ -462,3 +462,36 @@ func decodeTranslationTestPayload(t *testing.T, rawBody []byte) map[string]any {
 	}
 	return payload
 }
+
+func TestBuildRequestPlan_TranslationUnsupportedStaysHardRejectionWithEstimatePresent(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
+	model := snapshot.ModelsByID["gpt-4o"]
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	contextWindowTokens := 16_384
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_991, 9_991, 0, requestPlanConnectionTargetOptions{
+		contextWindowTokens:        &contextWindowTokens,
+		maxContextUtilization:      1.0,
+		openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
+		openAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"gpt-4o","input":"hello","text":{"format":"json_schema"}}`)
+	estimation, estimationErr := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
+	if estimationErr != nil || estimation == nil {
+		t.Fatalf("expected estimation-present request before translation rejection, estimation=%+v err=%v", estimation, estimationErr)
+	}
+
+	_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected domain error, got %v", err)
+	}
+	if domainErr.ErrorCode == contextEstimationUnavailableErrorCode {
+		t.Fatalf("expected translation rejection not context-estimation-unavailable, got %+v", domainErr)
+	}
+	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
+		t.Fatalf("expected translation unsupported hard rejection, got %+v", domainErr)
+	}
+}
