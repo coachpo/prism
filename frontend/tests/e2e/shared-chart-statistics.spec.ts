@@ -56,24 +56,6 @@ function createModel(modelId: string, displayName: string, id: number) {
   };
 }
 
-function createHealthCell(
-  bucketStart: string,
-  status: "ok" | "degraded" | "down" | "empty",
-  availabilityPercentage: number | null,
-  requestCount: number,
-  successCount: number,
-  failedCount: number,
-) {
-  return {
-    bucket_start: bucketStart,
-    request_count: requestCount,
-    success_count: successCount,
-    failed_count: failedCount,
-    availability_percentage: availabilityPercentage,
-    status,
-  };
-}
-
 function createUsageSnapshot(options?: { empty?: boolean; profileId?: number }) {
   const empty = options?.empty ?? false;
   const profileId = options?.profileId ?? 1;
@@ -106,21 +88,6 @@ function createUsageSnapshot(options?: { empty?: boolean; profileId?: number }) 
       rolling_token_count: empty ? 0 : 800,
       rolling_rpm: empty ? 0 : 0.07,
       rolling_tpm: empty ? 0 : 26.67,
-    },
-    service_health: {
-      availability_percentage: empty ? null : 97.5,
-      request_count: empty ? 0 : 6,
-      success_count: empty ? 0 : 5,
-      failed_count: empty ? 0 : 1,
-      interval_minutes: 60,
-      cells: empty
-        ? []
-        : [
-            createHealthCell("2026-04-09T00:00:00Z", "ok", 100, 1, 1, 0),
-            createHealthCell("2026-04-09T01:00:00Z", "ok", 100, 2, 2, 0),
-            createHealthCell("2026-04-09T02:00:00Z", "degraded", 50, 2, 1, 1),
-            createHealthCell("2026-04-09T03:00:00Z", "ok", 100, 1, 1, 0),
-          ],
     },
     request_trends: {
       hourly: [
@@ -687,12 +654,8 @@ async function expectSharedPopulatedSurface(page: Page) {
   await expect(page.getByTestId("usage-cost-summary-card")).toBeVisible({
     timeout: sharedSurfaceTimeout,
   });
-  await expect(page.getByTestId("usage-service-health-card")).toBeVisible({
-    timeout: sharedSurfaceTimeout,
-  });
-  await expect(page.getByTestId("usage-health-heatmap")).toBeVisible({
-    timeout: sharedSurfaceTimeout,
-  });
+  await expect(page.getByTestId("usage-service-health-card")).toHaveCount(0);
+  await expect(page.getByTestId("usage-health-heatmap")).toHaveCount(0);
 
   await expect(page.getByRole("heading", { name: "Overview" })).toHaveCount(0);
   await expect(page.getByText("One request-based usage snapshot across requests, tokens, cost, endpoints, models, and proxy API keys.", { exact: true })).toHaveCount(0);
@@ -701,7 +664,8 @@ async function expectSharedPopulatedSurface(page: Page) {
   await expect(page.getByRole("heading", { name: "Token Usage Trends" })).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Token Type Breakdown" })).toHaveCount(1);
   await expect(page.getByText("Cost Overview", { exact: true })).toHaveCount(1);
-  await expect(page.getByRole("heading", { name: "Service Health" }).first()).toBeVisible();
+  await expect(page.getByText("Service Health", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Service Health" })).toHaveCount(0);
 
   await expect(page.getByTestId("usage-trends-grid").getByText("No data available", { exact: true })).toHaveCount(0);
   await expect(page.getByText("No token usage", { exact: true })).toHaveCount(0);
@@ -715,8 +679,6 @@ async function expectSharedPopulatedSurface(page: Page) {
   await expect(page.getByTestId("usage-top-endpoints-card")).toHaveCount(0);
   await expect(page.getByTestId("usage-top-models-card")).toHaveCount(0);
   await expect(page.getByTestId("usage-cost-summary-total")).toHaveText(/\$0\.62(?:\sUSD)?/);
-  await expect(page.getByTestId("usage-health-availability-badge")).toHaveText("97.5%");
-  await expect(page.locator('[data-testid="usage-health-cell"][data-status="ok"]').first()).toBeVisible();
 }
 
 function chartCardByHeading(page: Page, name: string) {
@@ -759,21 +721,15 @@ test.describe("shared chart statistics regression", () => {
     await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
     await expectSharedPopulatedSurface(page);
 
-    const statisticsOkCells = await page
-      .locator('[data-testid="usage-health-cell"][data-status="ok"]')
-      .count();
-
-    const analyticsOkCells = statisticsOkCells;
-
     await writeEvidenceFile(populatedEvidencePath, [
       "scenario=populated-shared-chart-surfaces",
       "dashboard.route=/observe?tab=analytics",
-      "statistics.selectors=usage-controls-toolbar,usage-trends-grid,usage-cost-summary-card,usage-service-health-card,usage-health-heatmap",
-      `statistics.okHealthCells=${statisticsOkCells}`,
+      "statistics.selectors=usage-controls-toolbar,usage-trends-grid,usage-cost-summary-card,usage-kpi-grid",
+      "statistics.serviceHealthCard=absent",
+      "statistics.serviceHealthHeading=absent",
       "statistics.costSummary=$0.62 USD",
       "dashboard.sharedSurface=UsageStatisticsContent",
-      "dashboard.selectors=usage-controls-toolbar,usage-trends-grid,usage-cost-summary-card,usage-service-health-card,usage-health-heatmap",
-      `dashboard.okHealthCells=${analyticsOkCells}`,
+      "dashboard.selectors=usage-controls-toolbar,usage-trends-grid,usage-cost-summary-card,usage-kpi-grid",
       "dashboard.analyticsTab=active",
     ]);
   });
@@ -890,7 +846,7 @@ test.describe("shared chart statistics regression", () => {
     await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
   });
 
-  test("keeps empty statistics chart headers visible while service health falls back to idle cells", async ({ page }) => {
+  test("keeps empty statistics chart headers visible without service health surfaces", async ({ page }) => {
     await mockUsageRoutes(page, { empty: true });
     await seedUsageStatisticsState(page, ["gpt-5.4"]);
 
@@ -901,34 +857,27 @@ test.describe("shared chart statistics regression", () => {
 
     await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
     await expect(trendsGrid).toBeVisible();
-    await expect(page.getByTestId("usage-service-health-card")).toBeVisible();
-    await expect(page.getByTestId("usage-health-heatmap")).toBeVisible();
+    await expect(page.getByTestId("usage-service-health-card")).toHaveCount(0);
+    await expect(page.getByTestId("usage-health-heatmap")).toHaveCount(0);
 
     await expect(page.getByRole("heading", { name: "Overview" })).toHaveCount(0);
     await expect(page.getByText("One request-based usage snapshot across requests, tokens, cost, endpoints, models, and proxy API keys.", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Request Trends" })).toHaveCount(1);
     await expect(page.getByRole("heading", { name: "Token Usage Trends" })).toHaveCount(1);
     await expect(page.getByRole("heading", { name: "Token Type Breakdown" })).toHaveCount(1);
-    await expect(page.getByRole("heading", { name: "Service Health" }).first()).toBeVisible();
+    await expect(page.getByText("Service Health", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Service Health" })).toHaveCount(0);
 
     await expect(trendsGrid.getByText("No data available", { exact: true })).toBeVisible();
     await expect.poll(() => page.getByText("No token usage", { exact: true }).count()).toBe(2);
     await expect(page.getByTestId("usage-cost-summary-card")).toHaveCount(0);
-    await expect(page.getByTestId("usage-health-availability-badge")).toHaveText("—");
-    await expect(page.getByTestId("usage-health-window-label")).toHaveText("Last day");
-    await expect(page.locator('[data-testid="usage-health-cell"][data-status="empty"]').first()).toBeVisible();
-
-    const emptyHealthCellCount = await page
-      .locator('[data-testid="usage-health-cell"][data-status="empty"]')
-      .count();
 
     await writeEvidenceFile(emptyEvidencePath, [
       "scenario=empty-statistics-chart-surfaces",
       "dashboard.route=/observe?tab=analytics",
-      "visibleHeaders=Request Trends,Token Usage Trends,Token Type Breakdown,Service Health",
+      "visibleHeaders=Request Trends,Token Usage Trends,Token Type Breakdown",
+      "absentHeaders=Service Health",
       "visibleEmptyTitles=No data available,No token usage",
-      `emptyHealthCells=${emptyHealthCellCount}`,
-      "availabilityBadge=—",
       "costSummaryCard=hidden",
     ]);
   });

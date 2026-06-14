@@ -32,14 +32,6 @@ function createUsageSnapshot() {
       rolling_rpm: 0.07,
       rolling_tpm: 26.67,
     },
-    service_health: {
-      availability_percentage: 83.3,
-      request_count: 6,
-      success_count: 5,
-      failed_count: 1,
-      interval_minutes: 15,
-      cells: [],
-    },
     request_trends: {
       hourly: [
         { key: "all", label: "All requests", total_requests: 6, points: [] },
@@ -424,8 +416,6 @@ test.describe("statistics selected-model totals", () => {
     await expect(modelTable).toContainText("Primary canonical model");
     await expect(modelTable).not.toContainText("Secondary global-only model");
 
-    await expect(page.getByTestId("usage-health-availability-badge")).toHaveText("83.3%");
-
     await page.getByRole("button", { name: "Remove line gpt-5.4" }).click();
 
     await expect(page.getByTestId("usage-model-line-section")).toContainText("No data available");
@@ -448,7 +438,6 @@ test.describe("statistics selected-model totals", () => {
     await expect(topModelsCard).toContainText("Secondary global-only model");
     await expect(modelTable).toContainText("Primary canonical model");
     await expect(modelTable).toContainText("Secondary global-only model");
-    await expect(page.getByTestId("usage-health-availability-badge")).toHaveText("83.3%");
     await expect.poll(() => endpointModelRequestCounts[10]).toBe(1);
     await expect.poll(() => endpointModelRequestCounts[20]).toBe(1);
 
@@ -491,7 +480,6 @@ test.describe("statistics selected-model totals", () => {
     const modelTable = page.getByTestId("statistics-model-table");
     await expect(modelTable).toContainText("Primary canonical model");
     await expect(modelTable).toContainText("Secondary global-only model");
-    await expect(page.getByTestId("usage-health-availability-badge")).toHaveText("83.3%");
     await expect.poll(() => endpointModelRequestCounts[10]).toBe(1);
     await expect.poll(() => endpointModelRequestCounts[20]).toBe(1);
   });
