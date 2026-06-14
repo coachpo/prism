@@ -244,20 +244,35 @@ func dashboardRoutingEdgeForTraffic(edgeMap map[string]*dashboardRoutingEdgeAccu
 }
 
 func applyDashboardRoutingSuccessRates(ctx context.Context, exec queryExecutor, profileID int, fromTime time.Time, toTime time.Time, edgeMap map[string]*dashboardRoutingEdgeAccumulator, connectionToEdgeKeys map[int]map[string]struct{}) error {
-	rates, err := GetConnectionSuccessRates(ctx, exec, ConnectionSuccessRateParams{ProfileID: profileID, FromTime: &fromTime, ToTime: &toTime})
+	rows, err := exec.Query(ctx, `SELECT connection_id,
+		COUNT(*) AS total_requests,
+		COALESCE(SUM(CASE WHEN success_flag THEN 1 ELSE 0 END), 0) AS success_count
+		FROM usage_request_events
+		WHERE profile_id = $1 AND connection_id IS NOT NULL AND created_at >= $2 AND created_at <= $3
+		GROUP BY connection_id`, profileID, fromTime.UTC(), toTime.UTC())
 	if err != nil {
-		return err
+		return fmt.Errorf("query dashboard routing success rates for profile %d: %w", profileID, err)
 	}
-	for _, rate := range rates {
-		for edgeKey := range connectionToEdgeKeys[rate.ConnectionID] {
+	defer rows.Close()
+	for rows.Next() {
+		var connectionID int
+		var totalRequests int
+		var successCount int
+		if err := rows.Scan(&connectionID, &totalRequests, &successCount); err != nil {
+			return fmt.Errorf("scan dashboard routing success rate: %w", err)
+		}
+		for edgeKey := range connectionToEdgeKeys[connectionID] {
 			edge := edgeMap[edgeKey]
 			if edge == nil {
 				continue
 			}
-			edge.RequestCount24H += rate.TotalRequests
-			edge.SuccessCount24H += rate.SuccessCount
-			edge.ErrorCount24H += rate.ErrorCount
+			edge.RequestCount24H += totalRequests
+			edge.SuccessCount24H += successCount
+			edge.ErrorCount24H += totalRequests - successCount
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate dashboard routing success rates for profile %d: %w", profileID, err)
 	}
 	return nil
 }
