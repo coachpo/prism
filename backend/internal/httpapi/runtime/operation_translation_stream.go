@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 	"time"
 )
@@ -116,7 +117,7 @@ func newOpenAIStreamTranslator(mode TranslationMode, requestedModelID string) (o
 		}
 	case TranslationModeOpenAIChatCompletionsToResponses:
 		if hooks, ok := translatedOpenAIStreamHooksForMode(mode); ok {
-			return hooks, &openAIResponsesToChatStreamTranslator{messageRole: "assistant"}, nil
+			return hooks, &openAIResponsesToChatStreamTranslator{requestedModelID: requestedModelID, messageRole: "assistant"}, nil
 		}
 	}
 	return operationStreamHooks{}, nil, unsupportedTranslationModeError(mode)
@@ -345,20 +346,21 @@ func (translator *openAIChatToResponsesStreamTranslator) captureChatMetadata(pay
 }
 
 type openAIResponsesToChatStreamTranslator struct {
-	responseID  string
-	model       string
-	serviceTier string
-	created     *int
-	messageRole string
-	roleSent    bool
-	text        strings.Builder
+	responseID       string
+	model            string
+	requestedModelID string
+	serviceTier      string
+	created          *int
+	messageRole      string
+	roleSent         bool
+	text             strings.Builder
 }
 
 func (translator *openAIResponsesToChatStreamTranslator) consumeEvent(event string, payload map[string]any) ([][]byte, error) {
 	translator.captureResponsesMetadata(payload)
 	eventType := translatedResponsesEventType(event, payload)
 	switch eventType {
-	case "response.created":
+	case "response.created", "response.in_progress":
 		return nil, nil
 	case "response.output_item.added":
 		return translator.consumeResponsesOutputItemAdded(payload)
@@ -368,6 +370,8 @@ func (translator *openAIResponsesToChatStreamTranslator) consumeEvent(event stri
 		return translator.consumeResponsesTerminalEvent(payload, true)
 	case "response.incomplete":
 		return translator.consumeResponsesTerminalEvent(payload, false)
+	case "response.failed":
+		return translator.consumeResponsesFailedEvent(payload)
 	case "error":
 		return translator.consumeResponsesErrorEvent(payload)
 	case "":
@@ -405,11 +409,31 @@ func (translator *openAIResponsesToChatStreamTranslator) consumeResponsesOutputI
 	}
 }
 
+func (translator *openAIResponsesToChatStreamTranslator) consumeResponsesFailedEvent(payload map[string]any) ([][]byte, error) {
+	translator.captureResponsesMetadata(payload)
+	errorPayload := firstOpenAIResponseTranslationValue(payload, "error")
+	if errorPayload == nil {
+		errorPayload = firstValue(payload, "error", "message")
+	}
+	if errorPayload == nil {
+		errorPayload = map[string]any{"type": "response_failed"}
+	}
+	return translator.chatTerminalFailureFrames(errorPayload)
+}
+
 func (translator *openAIResponsesToChatStreamTranslator) consumeResponsesErrorEvent(payload map[string]any) ([][]byte, error) {
 	if len(payload) == 0 {
 		return nil, nil
 	}
-	frame, err := translator.marshalChatChunk(map[string]any{"error": firstValue(payload, "error", "message")})
+	errorPayload := firstValue(payload, "error", "message")
+	if errorPayload == nil {
+		errorPayload = payload
+	}
+	return translator.chatTerminalFailureFrames(errorPayload)
+}
+
+func (translator *openAIResponsesToChatStreamTranslator) chatTerminalFailureFrames(errorPayload any) ([][]byte, error) {
+	frame, err := translator.marshalChatChunk(map[string]any{"error": errorPayload})
 	if err != nil {
 		return nil, err
 	}
@@ -466,7 +490,7 @@ func (translator *openAIResponsesToChatStreamTranslator) translatedCompletedChat
 	if err != nil {
 		return nil, fmt.Errorf("marshal translated %s terminal payload: %w", TranslationModeOpenAIChatCompletionsToResponses, err)
 	}
-	translatedBody, _, _, err := translateOpenAIResponsesToChatResponse(rawPayload)
+	translatedBody, _, _, err := translateOpenAIResponsesToChatResponseWithRequestedModel(rawPayload, translator.requestedModelID)
 	if err != nil {
 		return nil, streamTranslationErrorFromResponseError(TranslationModeOpenAIChatCompletionsToResponses, err, "responses_terminal_payload")
 	}
@@ -507,6 +531,10 @@ func (translator *openAIResponsesToChatStreamTranslator) captureResponsesMetadat
 	}
 }
 
+func (translator *openAIResponsesToChatStreamTranslator) clientFacingModel() string {
+	return firstNonEmptyString(translator.requestedModelID, translator.model)
+}
+
 func (translator *openAIResponsesToChatStreamTranslator) chatRoleChunk() ([]byte, error) {
 	translator.roleSent = true
 	return translator.marshalChatChunk(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": firstNonEmptyString(translator.messageRole, "assistant")}}}})
@@ -537,8 +565,8 @@ func (translator *openAIResponsesToChatStreamTranslator) marshalChatChunk(payloa
 	if strings.TrimSpace(translator.responseID) != "" {
 		chunk["id"] = translator.responseID
 	}
-	if strings.TrimSpace(translator.model) != "" {
-		chunk["model"] = translator.model
+	if model := translator.clientFacingModel(); model != "" {
+		chunk["model"] = model
 	}
 	if translator.created != nil {
 		chunk["created"] = *translator.created
@@ -546,9 +574,7 @@ func (translator *openAIResponsesToChatStreamTranslator) marshalChatChunk(payloa
 	if strings.TrimSpace(translator.serviceTier) != "" {
 		chunk["service_tier"] = translator.serviceTier
 	}
-	for key, value := range payload {
-		chunk[key] = value
-	}
+	maps.Copy(chunk, payload)
 	rawChunk, err := json.Marshal(chunk)
 	if err != nil {
 		return nil, fmt.Errorf("marshal translated %s chat chunk: %w", TranslationModeOpenAIChatCompletionsToResponses, err)

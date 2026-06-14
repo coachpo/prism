@@ -80,13 +80,13 @@ func (hooks operationStreamHooks) mergeUsage(usage *responseUsage, event string,
 
 func classifyOpenAIResponsesStreamTerminal(event string, payload map[string]any) sseTerminalSignal {
 	switch event {
-	case "response.incomplete":
+	case "response.incomplete", "response.failed":
 		return sseTerminalSignalProviderIncomplete
 	case "response.completed":
 		return sseTerminalSignalCompleted
 	}
 	switch payloadType, _ := payload["type"].(string); payloadType {
-	case "response.incomplete":
+	case "response.incomplete", "response.failed":
 		return sseTerminalSignalProviderIncomplete
 	case "response.completed":
 		return sseTerminalSignalCompleted

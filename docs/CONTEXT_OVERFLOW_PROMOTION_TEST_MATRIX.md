@@ -73,6 +73,14 @@ Different Prism `api_family` values are not runtime matrix cases. A promotion ta
 | Existing metadata | `TestProviderOverflowPromotionRequestLogAndUsageMetadata/non_stream_chat` | Non-stream Chat provider overflow records additive request-log and usage metadata. |
 | Existing metadata | `TestProviderOverflowPromotionRequestLogAndUsageMetadata/responses_streaming` | Streaming Responses replay hides source overflow bytes and records provider-overflow metadata. |
 
+## Cross-Format OpenAI Text Regressions
+
+| ID | Regression | Coverage note |
+|---|---|---|
+| COP-P03 | `TestChatOverflowPromotesToResponsesOnlyTarget` | Covers non-stream Chat ingress promoted to a Responses-only target. The client receives Chat Completions JSON with `object`, `choices`, translated usage, and the requested public model, while resolved target model, upstream `/v1/responses` path, and translation mode stay additive observability metadata. |
+| COP-P04 | `TestChatStreamingPreDispatchPromotionToResponsesOnlyTarget` | Covers streaming Chat ingress promoted before source dispatch to a Responses-only target. The client receives Chat SSE chunks plus `[DONE]`; `response.in_progress` is absorbed as internal translator lifecycle metadata for Chat-facing stream translation, not client-visible Chat output, and Prism no longer emits `responses_stream_response_in_progress` for this lifecycle prelude. Requested public model identity remains client-visible while resolved target model, upstream path, and translation mode stay additive observability metadata. |
+| COP-P01, COP-P02, COP-P05, COP-P06, COP-P07, COP-P08 | `TestAdapterGatedResponsesOverflowPromotesToChatOnlyTarget`, `TestResponsesOverflowPromotesToDualNativeTargetWithoutTranslation`, `TestChatStreamingPreDispatchPromotionSkipsSourceUpstream`, `TestProviderOverflowPromotionRequestLogAndUsageMetadata` | Keeps existing passing same-format, Responses-to-Chat, source-skip, and provider-overflow guard coverage green while the Chat-to-Responses fixes remain narrow. |
+
 ## Validation Regressions
 
 | Area | Regression | Coverage note |

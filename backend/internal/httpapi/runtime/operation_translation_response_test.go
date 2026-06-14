@@ -60,6 +60,25 @@ func TestTranslateOpenAIResponsesToChatResponse(t *testing.T) {
 	}
 }
 
+func TestTranslateOpenAIResponsesToChatResponseWithRequestedModel(t *testing.T) {
+	rawBody := []byte(`{"id":"resp_123","created_at":1700000000,"model":"responses-target","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}]}`)
+
+	translated, _, _, err := translateOpenAIResponse(rawBody, TranslationModeOpenAIChatCompletionsToResponses, "chat-public")
+	if err != nil {
+		t.Fatalf("translate responses to chat response with requested model: %v", err)
+	}
+	payload := decodeTranslationTestPayload(t, translated)
+	if got := stringValue(payload["object"]); got != "chat.completion" {
+		t.Fatalf("expected chat completion object, got %q", got)
+	}
+	if got := stringValue(payload["model"]); got != "chat-public" {
+		t.Fatalf("expected translated chat model to normalize to requested public model, got %q", got)
+	}
+	if got := stringValue(payload["model"]); got == "responses-target" {
+		t.Fatalf("expected translated chat model to avoid leaking resolved target model, got %q", got)
+	}
+}
+
 func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 	rawBody := []byte(`{"id":"chatcmpl_123","created":1700000001,"model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":"thinking"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":3}}}`)
 

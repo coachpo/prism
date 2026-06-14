@@ -791,6 +791,30 @@ func runtimeUpstreamRequestPath(operation RuntimeOperation, mode TranslationMode
 	return stringPtr(trimmed)
 }
 
+func finalResponseTranslationMetadataFromAttempt(operation RuntimeOperation, attempt runtimeTerminalAttempt, requestedModelID string, selectedTerminalTargetID int) *runtimeFinalResponseTranslationMetadata {
+	mode := normalizedRuntimeTranslationMode(attempt.TranslationMode)
+	return &runtimeFinalResponseTranslationMetadata{
+		TranslationMode:          mode,
+		RequestedModelID:         strings.TrimSpace(requestedModelID),
+		SelectedTerminalTargetID: intPtr(selectedTerminalTargetID),
+		UpstreamOperationName:    runtimeUpstreamOperationName(operation, mode),
+		UpstreamRequestPath:      dereferenceString(runtimeUpstreamRequestPath(operation, mode, attempt.EffectiveRequestPath)),
+	}
+}
+
+func cloneRuntimeFinalResponseTranslationMetadata(source *runtimeFinalResponseTranslationMetadata) *runtimeFinalResponseTranslationMetadata {
+	if source == nil {
+		return nil
+	}
+	return &runtimeFinalResponseTranslationMetadata{
+		TranslationMode:          normalizedRuntimeTranslationMode(source.TranslationMode),
+		RequestedModelID:         strings.TrimSpace(source.RequestedModelID),
+		SelectedTerminalTargetID: cloneRuntimeIntPointer(source.SelectedTerminalTargetID),
+		UpstreamOperationName:    strings.TrimSpace(source.UpstreamOperationName),
+		UpstreamRequestPath:      strings.TrimSpace(source.UpstreamRequestPath),
+	}
+}
+
 type headerBlocklistRule struct {
 	MatchType string
 	Pattern   string
@@ -1020,6 +1044,14 @@ type executionAttempt struct {
 	OperationTranslationMode    TranslationMode
 }
 
+type runtimeFinalResponseTranslationMetadata struct {
+	TranslationMode          TranslationMode
+	RequestedModelID         string
+	SelectedTerminalTargetID *int
+	UpstreamOperationName    string
+	UpstreamRequestPath      string
+}
+
 type executionResult struct {
 	Response                    *http.Response
 	Connection                  runtimeConnection
@@ -1027,6 +1059,7 @@ type executionResult struct {
 	ResolvedTargetModelID       *string
 	AuditEnabledAtRequest       bool
 	AuditCaptureBodiesAtRequest bool
+	FinalResponseTranslation    *runtimeFinalResponseTranslationMetadata
 	AttemptCount                int
 	Attempts                    []executionAttempt
 	RouteReason                 gatewaycore.RouteReason
@@ -1677,7 +1710,7 @@ func (state *requestExecutionState) recordLaunchedAttempt(outcome executionOutco
 	state.attempts = append(state.attempts, outcome.Attempt)
 }
 
-func (state *requestExecutionState) result(outcome executionOutcome) executionResult {
+func (state *requestExecutionState) result(plan requestPlan, outcome executionOutcome) executionResult {
 	return executionResult{
 		Response:                    outcome.Response,
 		Connection:                  outcome.Connection,
@@ -1685,6 +1718,7 @@ func (state *requestExecutionState) result(outcome executionOutcome) executionRe
 		ResolvedTargetModelID:       stringPointerIfNotEmpty(outcome.TerminalAttempt.TargetModel.ModelID),
 		AuditEnabledAtRequest:       outcome.TerminalAttempt.AuditEnabledAtRequest,
 		AuditCaptureBodiesAtRequest: outcome.TerminalAttempt.AuditCaptureBodiesRequest,
+		FinalResponseTranslation:    finalResponseTranslationMetadataFromAttempt(plan.RuntimeOperation, outcome.TerminalAttempt, plan.RequestedModelID, outcome.TerminalAttempt.Connection.ID),
 		AttemptCount:                state.launchedAttempts,
 		Attempts:                    state.attempts,
 		RouteReason:                 runtimeExecutionRouteReason(state.routeReason),
@@ -1723,7 +1757,7 @@ func (s *Service) executionResultForHedgedWinner(ctx context.Context, plan reque
 	if winner.Response.StatusCode >= 200 && winner.Response.StatusCode <= 299 && winner.Launched {
 		s.recordRuntimeSuccess(ctx, plan, winner.Connection, winner.TerminalAttempt.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt)
 	}
-	return state.result(*winner)
+	return state.result(plan, *winner)
 }
 
 func (s *Service) handleSingleExecutionOutcome(ctx context.Context, plan requestPlan, state *requestExecutionState, outcome executionOutcome, index int, maxAttempts int) (executionResult, bool, error) {
@@ -1770,7 +1804,7 @@ func (s *Service) handleSingleExecutionOutcome(ctx context.Context, plan request
 	if outcome.Response.StatusCode >= 200 && outcome.Response.StatusCode <= 299 && outcome.Launched {
 		s.recordRuntimeSuccess(ctx, plan, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt)
 	}
-	return state.result(outcome), true, nil
+	return state.result(plan, outcome), true, nil
 }
 
 func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, startIndex int, hedgePolicy loadbalance.RuntimeHedgePolicy, bodySource *runtimeRequestBodySource) (hedgedExecutionResult, error) {

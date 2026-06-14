@@ -510,7 +510,8 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	var responseCapture runtimeResponseCapture
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
-	translationMode := responseTranslationModeForExecution(plan, execution)
+	finalResponseTranslation := finalResponseTranslationForSerialization(plan, execution)
+	translationMode := finalResponseTranslation.TranslationMode
 	if strings.Contains(contentType, "text/event-stream") {
 		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
 			if translationMode == "" || translationMode == TranslationModeNone {
@@ -528,7 +529,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 						return
 					}
 					finalPlan := mergeContextOverflowPromotedPlan(plan, promotedPlan, execution, promotedExecution, sourceClassification)
-					finalExecution := mergeContextOverflowPromotedExecution(execution, promotedExecution)
+					finalExecution := mergeContextOverflowPromotedExecution(finalPlan, execution, promotedExecution)
 					runtimeTraceSetStatusCode(responseSpan, finalExecution.Response.StatusCode)
 					if promotedExecution.Response != nil && promotedExecution.Response.Body != nil {
 						defer func() { _ = promotedExecution.Response.Body.Close() }()
@@ -550,7 +551,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 					acceptedRowID = rowID
 					proxyWriter.Flush()
 				}
-				responseCapture, streamErr := s.codingAgentFormatBridge().ProxyEventStreamAndCaptureCompletedResponse(plan.RuntimeOperation, TranslationModeNone, plan.RequestedModelID, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
+				responseCapture, streamErr := s.codingAgentFormatBridge().ProxyEventStreamAndCaptureCompletedResponseForFinalAttempt(plan.RuntimeOperation, finalResponseTranslation, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
 				if streamErr != nil {
 					runtimeTraceMarkError(responseSpan, "response_handle_failed")
 					slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
@@ -570,7 +571,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			}
 
 			var translatedStream bytes.Buffer
-			responseCapture, streamErr := s.codingAgentFormatBridge().ProxyEventStreamAndCaptureCompletedResponse(plan.RuntimeOperation, translationMode, plan.RequestedModelID, r.Context(), &translatedStream, execution.Response.Body, s.nowUTC, captureAuditBody)
+			responseCapture, streamErr := s.codingAgentFormatBridge().ProxyEventStreamAndCaptureCompletedResponseForFinalAttempt(plan.RuntimeOperation, finalResponseTranslation, r.Context(), &translatedStream, execution.Response.Body, s.nowUTC, captureAuditBody)
 			if streamErr != nil {
 				runtimeTraceMarkError(responseSpan, "response_handle_failed")
 				slog.Debug("runtime translated stream proxy failed", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
@@ -622,7 +623,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 				return
 			}
 			finalPlan := mergeContextOverflowPromotedPlan(plan, promotedPlan, execution, promotedExecution, sourceClassification)
-			finalExecution := mergeContextOverflowPromotedExecution(execution, promotedExecution)
+			finalExecution := mergeContextOverflowPromotedExecution(finalPlan, execution, promotedExecution)
 			runtimeTraceSetStatusCode(responseSpan, finalExecution.Response.StatusCode)
 			if promotedExecution.Response != nil && promotedExecution.Response.Body != nil {
 				defer func() { _ = promotedExecution.Response.Body.Close() }()
@@ -630,7 +631,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			s.writeProxyResponse(w, r, finalPlan, finalExecution, startedAt)
 			return
 		}
-		responseCapture, err = s.writeBufferedNonStreamResponse(proxyWriter, plan, execution, sourceRawBody)
+		responseCapture, err = s.writeBufferedNonStreamResponse(proxyWriter, plan, execution, finalResponseTranslation, sourceRawBody)
 		if err != nil {
 			runtimeTraceMarkError(responseSpan, "response_handle_failed")
 			var domainErr *domainError
@@ -718,13 +719,13 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			return
 		}
 		finalPlan = mergeContextOverflowPromotedPlan(plan, promotedPlan, execution, promotedExecution, sourceClassification)
-		finalExecution = mergeContextOverflowPromotedExecution(execution, promotedExecution)
+		finalExecution = mergeContextOverflowPromotedExecution(finalPlan, execution, promotedExecution)
 		finalRawBody, err = readAndCloseRuntimeResponseBody(promotedExecution.Response)
 		if err != nil {
 			runtimeTraceMarkError(responseSpan, "response_handle_failed")
-			promotedTranslationMode := responseTranslationModeForExecution(promotedPlan, promotedExecution)
-			if promotedTranslationMode != "" && promotedTranslationMode != TranslationModeNone {
-				writeDomainError(w, openAITranslatedUpstreamResponseReadFailedDomainError(promotedPlan.RuntimeOperation, promotedTranslationMode))
+			promotedResponseTranslation := finalResponseTranslationForSerialization(promotedPlan, promotedExecution)
+			if promotedResponseTranslation.TranslationMode != "" && promotedResponseTranslation.TranslationMode != TranslationModeNone {
+				writeDomainError(w, openAITranslatedUpstreamResponseReadFailedDomainError(promotedPlan.RuntimeOperation, promotedResponseTranslation.TranslationMode))
 				return
 			}
 			writeError(w, http.StatusBadGateway, "", "Failed to read promoted upstream response", nil)
@@ -735,7 +736,8 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		}
 		runtimeTraceSetStatusCode(responseSpan, finalExecution.Response.StatusCode)
 	}
-	responseCapture, err = s.writeBufferedNonStreamResponse(proxyWriter, finalPlan, finalExecution, finalRawBody)
+	finalResponseTranslation = finalResponseTranslationForSerialization(finalPlan, finalExecution)
+	responseCapture, err = s.writeBufferedNonStreamResponse(proxyWriter, finalPlan, finalExecution, finalResponseTranslation, finalRawBody)
 	if err != nil {
 		runtimeTraceMarkError(responseSpan, "response_handle_failed")
 		var domainErr *domainError
@@ -761,13 +763,55 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	proxyWriter.Commit()
 }
 
-func responseTranslationModeForExecution(plan requestPlan, execution executionResult) TranslationMode {
-	for _, attempt := range plan.orderedTerminalAttempts() {
-		if attempt.Connection.ID == execution.Connection.ID {
-			return attempt.TranslationMode
+func finalResponseTranslationForSerialization(plan requestPlan, execution executionResult) runtimeFinalResponseTranslationMetadata {
+	metadata := cloneRuntimeFinalResponseTranslationMetadata(execution.FinalResponseTranslation)
+	if metadata == nil && len(execution.Attempts) > 0 {
+		finalAttempt := execution.Attempts[len(execution.Attempts)-1]
+		metadata = &runtimeFinalResponseTranslationMetadata{
+			TranslationMode:          normalizedRuntimeTranslationMode(finalAttempt.OperationTranslationMode),
+			SelectedTerminalTargetID: intPtr(finalAttempt.Connection.ID),
+			UpstreamOperationName:    strings.TrimSpace(finalAttempt.UpstreamOperationName),
+			UpstreamRequestPath:      strings.TrimSpace(finalAttempt.UpstreamRequestPath),
 		}
 	}
-	return TranslationModeNone
+	if metadata == nil {
+		metadata = &runtimeFinalResponseTranslationMetadata{TranslationMode: TranslationModeNone}
+	}
+	metadata.TranslationMode = normalizedRuntimeTranslationMode(metadata.TranslationMode)
+	if strings.TrimSpace(metadata.RequestedModelID) == "" {
+		metadata.RequestedModelID = strings.TrimSpace(plan.RequestedModelID)
+	}
+	if strings.TrimSpace(metadata.UpstreamOperationName) == "" {
+		metadata.UpstreamOperationName = runtimeUpstreamOperationName(plan.RuntimeOperation, metadata.TranslationMode)
+	}
+	if strings.TrimSpace(metadata.UpstreamRequestPath) == "" {
+		metadata.UpstreamRequestPath = dereferenceString(runtimeUpstreamRequestPath(plan.RuntimeOperation, metadata.TranslationMode, plan.EffectiveRequestPath))
+	}
+	return *metadata
+}
+
+func finalResponseTranslationForPromotedMerge(finalPlan requestPlan, promotedExecution executionResult) *runtimeFinalResponseTranslationMetadata {
+	metadata := cloneRuntimeFinalResponseTranslationMetadata(promotedExecution.FinalResponseTranslation)
+	if metadata == nil && len(promotedExecution.Attempts) > 0 {
+		finalAttempt := promotedExecution.Attempts[len(promotedExecution.Attempts)-1]
+		metadata = &runtimeFinalResponseTranslationMetadata{
+			TranslationMode:          normalizedRuntimeTranslationMode(finalAttempt.OperationTranslationMode),
+			SelectedTerminalTargetID: intPtr(finalAttempt.Connection.ID),
+			UpstreamOperationName:    strings.TrimSpace(finalAttempt.UpstreamOperationName),
+			UpstreamRequestPath:      strings.TrimSpace(finalAttempt.UpstreamRequestPath),
+		}
+	}
+	if metadata == nil {
+		return nil
+	}
+	metadata.RequestedModelID = strings.TrimSpace(finalPlan.RequestedModelID)
+	if strings.TrimSpace(metadata.UpstreamOperationName) == "" {
+		metadata.UpstreamOperationName = runtimeUpstreamOperationName(finalPlan.RuntimeOperation, metadata.TranslationMode)
+	}
+	if strings.TrimSpace(metadata.UpstreamRequestPath) == "" {
+		metadata.UpstreamRequestPath = dereferenceString(runtimeUpstreamRequestPath(finalPlan.RuntimeOperation, metadata.TranslationMode, finalPlan.EffectiveRequestPath))
+	}
+	return metadata
 }
 
 func nonStreamResponseRequiresBufferedInspection(statusCode int, translationMode TranslationMode) bool {
@@ -818,10 +862,10 @@ func shouldPreserveRawTranslatedOverflowResponse(statusCode int, rawBody []byte,
 	return classifyCLIProxyAPIOverflowResponse(statusCode, rawBody, TranslationModeNone).Promotable
 }
 
-func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCommitWriter, plan requestPlan, execution executionResult, rawBody []byte) (runtimeResponseCapture, error) {
+func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCommitWriter, plan requestPlan, execution executionResult, finalResponseTranslation runtimeFinalResponseTranslationMetadata, rawBody []byte) (runtimeResponseCapture, error) {
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
-	translationMode := responseTranslationModeForExecution(plan, execution)
+	translationMode := finalResponseTranslation.TranslationMode
 	if translationMode == "" || translationMode == TranslationModeNone || shouldPreserveRawTranslatedOverflowResponse(execution.Response.StatusCode, rawBody, translationMode) {
 		copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 		proxyWriter.WriteHeader(execution.Response.StatusCode)
@@ -829,7 +873,7 @@ func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCom
 	}
 
 	var translatedBody bytes.Buffer
-	responseCapture, err := s.codingAgentFormatBridge().ProxyNonEventResponseAndCapture(translationMode, plan.RequestedModelID, &translatedBody, bytes.NewReader(rawBody), s.nowUTC, captureAuditBody)
+	responseCapture, err := s.codingAgentFormatBridge().ProxyNonEventResponseAndCaptureForFinalAttempt(finalResponseTranslation, &translatedBody, bytes.NewReader(rawBody), s.nowUTC, captureAuditBody)
 	if err != nil {
 		return runtimeResponseCapture{}, err
 	}
@@ -1662,9 +1706,10 @@ func mergeContextOverflowPreselectedPlan(sourcePlan requestPlan, promotedPlan re
 	return merged
 }
 
-func mergeContextOverflowPromotedExecution(sourceExecution executionResult, promotedExecution executionResult) executionResult {
+func mergeContextOverflowPromotedExecution(finalPlan requestPlan, sourceExecution executionResult, promotedExecution executionResult) executionResult {
 	merged := promotedExecution
 	merged.Attempts = append(append([]executionAttempt(nil), sourceExecution.Attempts...), promotedExecution.Attempts...)
+	merged.FinalResponseTranslation = finalResponseTranslationForPromotedMerge(finalPlan, promotedExecution)
 	merged.AttemptCount = sourceExecution.AttemptCount + promotedExecution.AttemptCount
 	merged.RouteReason = gatewaycore.RouteReasonContextOverflowProviderFallback
 	if len(merged.Attempts) > 0 {

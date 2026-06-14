@@ -607,7 +607,7 @@ func TestObservabilityRecordsSourceAndPromotedAttempts(t *testing.T) {
 	}
 
 	finalPlan := mergeContextOverflowPromotedPlan(sourcePlan, promotedPlan, sourceExecution, promotedExecution, cliProxyAPIOverflowClassification{Promotable: true, ErrorCode: "context_length_exceeded", Classifier: cliProxyAPIOverflowClassifierErrorCode})
-	finalExecution := mergeContextOverflowPromotedExecution(sourceExecution, promotedExecution)
+	finalExecution := mergeContextOverflowPromotedExecution(finalPlan, sourceExecution, promotedExecution)
 	envelope := service.buildRuntimeTelemetryEnvelope(finalPlan, finalExecution, request, startedAt, runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(9), OutputTokens: intPtr(5), TotalTokens: intPtr(14)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming})
 
 	if len(envelope.RequestLogs) != 3 {
@@ -699,7 +699,7 @@ func TestUsageEventUsesFinalPromotedResponse(t *testing.T) {
 	}
 
 	finalPlan := mergeContextOverflowPromotedPlan(sourcePlan, promotedPlan, sourceExecution, promotedExecution, cliProxyAPIOverflowClassification{Promotable: true, ErrorCode: "context_too_large", Classifier: cliProxyAPIOverflowClassifierErrorCode})
-	finalExecution := mergeContextOverflowPromotedExecution(sourceExecution, promotedExecution)
+	finalExecution := mergeContextOverflowPromotedExecution(finalPlan, sourceExecution, promotedExecution)
 	envelope := service.buildRuntimeTelemetryEnvelope(finalPlan, finalExecution, request, startedAt, runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(12), OutputTokens: intPtr(8), TotalTokens: intPtr(20)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming})
 
 	if len(envelope.RequestLogs) != 3 {
@@ -788,7 +788,7 @@ func TestPromotionObservabilityPreservesFacadeSelection(t *testing.T) {
 	}
 
 	finalPlan := mergeContextOverflowPromotedPlan(sourcePlan, promotedPlan, sourceExecution, promotedExecution, cliProxyAPIOverflowClassification{Promotable: true, ErrorCode: "context_length_exceeded", Classifier: cliProxyAPIOverflowClassifierErrorCode})
-	finalExecution := mergeContextOverflowPromotedExecution(sourceExecution, promotedExecution)
+	finalExecution := mergeContextOverflowPromotedExecution(finalPlan, sourceExecution, promotedExecution)
 	envelope := service.buildRuntimeTelemetryEnvelope(finalPlan, finalExecution, request, startedAt, runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(10), OutputTokens: intPtr(4), TotalTokens: intPtr(14)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming})
 
 	assertRuntimeFacadeSelectionDecision(t, envelope.RequestLogs[1].ContextRouting.FacadeSelection, "facade-public-model", stringPtr(sourceResolvedTargetModelID), intPtr(1), intPtr(2), stringPtr("estimated_context_exceeds_usable_window=1"))

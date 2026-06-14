@@ -27,7 +27,7 @@ func parseTranslatedSSEEvents(t *testing.T, body string) []translatedSSEEvent {
 		}
 		var eventName string
 		var dataLines []string
-		for _, line := range strings.Split(chunk, "\n") {
+		for line := range strings.SplitSeq(chunk, "\n") {
 			trimmed := strings.TrimSpace(line)
 			switch {
 			case strings.HasPrefix(trimmed, "event:"):
@@ -97,6 +97,83 @@ func TestTranslateOpenAIResponsesToChatStream(t *testing.T) {
 	}
 	if !strings.Contains(forwardedBody, "\"usage\":{") || !strings.Contains(forwardedBody, "\"prompt_tokens\":10") || !strings.Contains(forwardedBody, "\"completion_tokens\":6") || !strings.Contains(forwardedBody, "\"total_tokens\":16") {
 		t.Fatalf("expected translated chat usage payload from terminal responses usage, got %q", forwardedBody)
+	}
+}
+
+func TestTranslateOpenAIResponsesToChatStreamAcceptsInProgressLifecycleEvent(t *testing.T) {
+	stream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_in_progress\",\"model\":\"responses-target\",\"created_at\":1700000000}}\n\n" +
+		"event: response.in_progress\n" +
+		"data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_in_progress\",\"model\":\"responses-target\"}}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_1\",\"delta\":\"hello lifecycle\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_in_progress\",\"model\":\"responses-target\",\"created_at\":1700000000,\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello lifecycle\"}]}]}}\n\n"
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIChatCompletionsToResponses, "", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
+	if err != nil {
+		t.Fatalf("translate responses stream with in_progress lifecycle event to chat: %v", err)
+	}
+	forwardedBody := forwarded.String()
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted {
+		t.Fatalf("expected completed translated stream after in_progress lifecycle, got %+v", capture)
+	}
+	if strings.Contains(forwardedBody, "event: response.in_progress") || strings.Contains(forwardedBody, "responses_stream_response_in_progress") {
+		t.Fatalf("expected response.in_progress to be absorbed instead of forwarded or rejected, got %q", forwardedBody)
+	}
+	if !strings.Contains(forwardedBody, "chat.completion.chunk") || !strings.Contains(forwardedBody, "hello lifecycle") || !strings.Contains(forwardedBody, "data: [DONE]") {
+		t.Fatalf("expected translated Chat chunks and DONE sentinel, got %q", forwardedBody)
+	}
+}
+
+func TestTranslateOpenAIResponsesToChatStreamRequestedModelPreserved(t *testing.T) {
+	stream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_public_model\",\"model\":\"responses-target\",\"created_at\":1700000000}}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_1\",\"delta\":\"public model\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_public_model\",\"model\":\"responses-target\",\"created_at\":1700000000,\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"public model\"}]}]}}\n\n"
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIChatCompletionsToResponses, "responses-public", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, false)
+	if err != nil {
+		t.Fatalf("translate responses stream to chat with requested public model: %v", err)
+	}
+	forwardedBody := forwarded.String()
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted {
+		t.Fatalf("expected completed translated stream, got %+v", capture)
+	}
+	if strings.Contains(forwardedBody, "responses-target") || !strings.Contains(forwardedBody, "\"model\":\"responses-public\"") {
+		t.Fatalf("expected translated Chat chunks to preserve requested public model and hide resolved target, got %q", forwardedBody)
+	}
+	for _, event := range parseTranslatedSSEEvents(t, forwardedBody) {
+		if got := stringValue(event.payload["model"]); got != "responses-public" {
+			t.Fatalf("expected translated Chat chunk model responses-public, got payload %+v", event.payload)
+		}
+	}
+}
+
+func TestTranslateOpenAIResponsesToChatStreamHandlesFailedTerminalEvent(t *testing.T) {
+	stream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_failed\",\"model\":\"responses-target\",\"created_at\":1700000000}}\n\n" +
+		"event: response.failed\n" +
+		"data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_failed\",\"model\":\"responses-target\",\"status\":\"failed\",\"error\":{\"message\":\"upstream failed\",\"type\":\"server_error\",\"code\":\"bad_gateway\"}}}\n\n"
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIChatCompletionsToResponses, "responses-public", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, false)
+	if err != nil {
+		t.Fatalf("translate failed responses stream to chat: %v", err)
+	}
+	forwardedBody := forwarded.String()
+	if capture.StreamOutcome != runtimeStreamOutcomeProviderIncomplete || capture.StreamErrorKind != nil {
+		t.Fatalf("expected failed terminal event to produce provider_incomplete stream behavior, got %+v", capture)
+	}
+	if strings.Contains(forwardedBody, "event: response.failed") || strings.Contains(forwardedBody, "responses_stream_response_failed") {
+		t.Fatalf("expected response.failed to avoid raw forwarding and unknown-event rejection, got %q", forwardedBody)
+	}
+	if !strings.Contains(forwardedBody, "chat.completion.chunk") || !strings.Contains(forwardedBody, "upstream failed") || !strings.Contains(forwardedBody, "data: [DONE]") {
+		t.Fatalf("expected translated Chat error chunk and DONE sentinel, got %q", forwardedBody)
 	}
 }
 

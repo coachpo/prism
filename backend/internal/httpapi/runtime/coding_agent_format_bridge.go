@@ -77,6 +77,14 @@ func (bridge CodingAgentFormatBridge) ProxyNonEventResponseAndCapture(mode Trans
 	return capture, nil
 }
 
+func (bridge CodingAgentFormatBridge) ProxyNonEventResponseAndCaptureForFinalAttempt(metadata runtimeFinalResponseTranslationMetadata, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+	return bridge.ProxyNonEventResponseAndCapture(metadata.TranslationMode, metadata.RequestedModelID, dst, src, now, captureAuditBody)
+}
+
 func (bridge CodingAgentFormatBridge) ProxyEventStreamAndCaptureCompletedResponse(operation RuntimeOperation, mode TranslationMode, requestedModelID string, ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	return proxyEventStreamAndCaptureCompletedResponseByOperation(operation, mode, requestedModelID, ctx, dst, src, now, captureAuditBody)
+}
+
+func (bridge CodingAgentFormatBridge) ProxyEventStreamAndCaptureCompletedResponseForFinalAttempt(operation RuntimeOperation, metadata runtimeFinalResponseTranslationMetadata, ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+	return bridge.ProxyEventStreamAndCaptureCompletedResponse(operation, metadata.TranslationMode, metadata.RequestedModelID, ctx, dst, src, now, captureAuditBody)
 }

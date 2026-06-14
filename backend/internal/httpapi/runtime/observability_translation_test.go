@@ -119,7 +119,7 @@ func TestPromotionObservabilityPreservesTranslationAttrs(t *testing.T) {
 	}
 
 	finalPlan := mergeContextOverflowPromotedPlan(sourcePlan, promotedPlan, sourceExecution, promotedExecution, cliProxyAPIOverflowClassification{Promotable: true, ErrorCode: "context_length_exceeded", Classifier: cliProxyAPIOverflowClassifierErrorCode})
-	finalExecution := mergeContextOverflowPromotedExecution(sourceExecution, promotedExecution)
+	finalExecution := mergeContextOverflowPromotedExecution(finalPlan, sourceExecution, promotedExecution)
 	envelope := service.buildRuntimeTelemetryEnvelope(finalPlan, finalExecution, request, startedAt, runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(7), OutputTokens: intPtr(3), TotalTokens: intPtr(10)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming})
 
 	finalRequestLog := envelope.RequestLogs[1]

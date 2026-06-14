@@ -231,6 +231,141 @@ func TestResponsesOverflowPromotesToDualNativeTargetWithoutTranslation(t *testin
 	}})
 }
 
+func TestChatOverflowPromotesToResponsesOnlyTarget(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "chat_completions_reasoning_none"
+	sourceCapability := "chat_completions_only"
+	responsesOnlyVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("source chat overflow should promote to responses-only"))
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-chat-to-responses-public-" + suffix,
+		TargetModelID:              "overflow-chat-to-responses-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/chat-to-responses/source"),
+		EndpointAPIKey:             "overflow-chat-to-responses-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &sourceCapability,
+	})
+	promotedModelID := "overflow-chat-to-responses-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":         "resp-chat-to-responses-promoted-" + suffix,
+		"object":     "response",
+		"created_at": 1710000000,
+		"model":      promotedModelID,
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "promoted responses-only response"}},
+		}},
+		"usage": map[string]any{"input_tokens": 7, "output_tokens": 5, "total_tokens": 12},
+	})
+	_, promotedConnectionID := seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/chat-to-responses/promoted"), "overflow-chat-to-responses-promoted-key", &responsesOnlyVariant, &responsesOnlyCapability, 32_768)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages":              []map[string]any{{"role": "user", "content": "chat overflow should promote to responses-only"}},
+		"model":                 route.PublicModelID,
+		"max_completion_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	payload := runtimeResponsePayload(t, response)
+	assertTranslatedChatCompletionPayload(t, payload, route.PublicModelID, promotedModelID, "promoted responses-only response", 7, 5, 12)
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/chat-to-responses/source/v1/chat/completions",
+		ModelID: route.TargetModelID,
+	}})
+	assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/chat-to-responses/promoted/v1/responses",
+		ModelID: promotedModelID,
+	}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 2, 2)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  route.ConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, route.ConnectionID),
+		StatusCode:    http.StatusBadRequest,
+		SuccessFlag:   false,
+	}, {
+		AttemptNumber: 2,
+		ConnectionID:  promotedConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
+	assertLatestChatToResponsesPromotionAttribution(t, harness, profileID, route.PublicModelID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
+}
+
+func TestChatStreamingPreDispatchPromotionToResponsesOnlyTarget(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "chat_completions_reasoning_none"
+	sourceCapability := "chat_completions_only"
+	responsesOnlyVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "source upstream should not receive chat stream promoted to responses-only"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "gpt-5-chat-stream-to-responses-public-" + suffix,
+		TargetModelID:              "overflow-chat-stream-to-responses-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/chat-stream-to-responses/source"),
+		EndpointAPIKey:             "overflow-chat-stream-to-responses-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &sourceCapability,
+	})
+	promotedModelID := "overflow-chat-stream-to-responses-promoted-" + suffix
+	promotedText := "promoted responses-only stream"
+	promotedStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-chat-stream-to-responses-" + suffix + "\",\"model\":\"" + promotedModelID + "\",\"created_at\":1710000000}}\n\n" +
+		"event: response.in_progress\n" +
+		"data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp-chat-stream-to-responses-" + suffix + "\",\"model\":\"" + promotedModelID + "\"}}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_1\",\"delta\":\"" + promotedText + "\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-chat-stream-to-responses-" + suffix + "\",\"model\":\"" + promotedModelID + "\",\"created_at\":1710000000,\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + promotedText + "\"}]}],\"usage\":{\"input_tokens\":5,\"output_tokens\":3,\"total_tokens\":8}}}\n\n"
+	promotedUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", promotedStream)
+	_, promotedConnectionID := seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/chat-stream-to-responses/promoted"), "overflow-chat-stream-to-responses-promoted-key", &responsesOnlyVariant, &responsesOnlyCapability, 4_096)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"max_completion_tokens": 600,
+		"messages":              []map[string]any{{"role": "user", "content": "streaming chat overflow should promote to responses-only target"}},
+		"model":                 route.PublicModelID,
+		"stream":                true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	assertTranslatedChatCompletionStream(t, body, route.PublicModelID, promotedModelID, promotedText)
+	assertNoScriptedUpstreamRequests(t, sourceUpstream, "chat streaming responses-only pre-dispatch source")
+	promotedRequests := promotedUpstream.requestsSnapshot()
+	assertProxySelectorRequestSequence(t, promotedRequests, []proxySelectorExpectedRequest{{
+		Path:    "/overflow/chat-stream-to-responses/promoted/v1/responses",
+		ModelID: promotedModelID,
+	}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  promotedConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
+	assertLatestPreDispatchPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID, 256, 4096, "openai_chat_tokenizer_v1")
+}
+
 func TestAdapterGatedUnsupportedTranslatedResponsesShapeDoesNotPromoteToChatOnlyTarget(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -2414,6 +2549,151 @@ func assertPromotedRequestModel(t *testing.T, payload map[string]any, wantModelI
 	}
 }
 
+func assertTranslatedChatCompletionPayload(t *testing.T, payload map[string]any, wantPublicModelID string, resolvedTargetModelID string, wantContent string, wantPromptTokens int, wantCompletionTokens int, wantTotalTokens int) {
+	t.Helper()
+	if got, _ := payload["object"].(string); got != "chat.completion" {
+		t.Fatalf("expected translated Chat Completions object, got %+v", payload)
+	}
+	if got, _ := payload["model"].(string); got != wantPublicModelID || got == resolvedTargetModelID {
+		t.Fatalf("expected translated Chat model %q without resolved target %q, got %+v", wantPublicModelID, resolvedTargetModelID, payload)
+	}
+	for _, rawResponseKey := range []string{"output", "status", "created_at"} {
+		if _, ok := payload[rawResponseKey]; ok {
+			t.Fatalf("expected translated Chat payload to hide raw Responses key %q, got %+v", rawResponseKey, payload)
+		}
+	}
+	choices, ok := payload["choices"].([]any)
+	if !ok || len(choices) != 1 {
+		t.Fatalf("expected one translated Chat choice, got %+v", payload)
+	}
+	choice, ok := choices[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected translated Chat choice object, got %+v", choices[0])
+	}
+	if got, _ := choice["finish_reason"].(string); got != "stop" {
+		t.Fatalf("expected translated Chat finish_reason stop, got %+v", choice)
+	}
+	message, ok := choice["message"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected translated Chat message object, got %+v", choice)
+	}
+	if got, _ := message["role"].(string); got != "assistant" {
+		t.Fatalf("expected translated Chat assistant role, got %+v", message)
+	}
+	if got, _ := message["content"].(string); got != wantContent {
+		t.Fatalf("expected translated Chat content %q, got %+v", wantContent, message)
+	}
+	usage, ok := payload["usage"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected translated Chat usage payload, got %+v", payload)
+	}
+	assertRuntimeJSONNumber(t, "translated Chat usage", usage, "prompt_tokens", wantPromptTokens)
+	assertRuntimeJSONNumber(t, "translated Chat usage", usage, "completion_tokens", wantCompletionTokens)
+	assertRuntimeJSONNumber(t, "translated Chat usage", usage, "total_tokens", wantTotalTokens)
+	for _, rawResponsesUsageKey := range []string{"input_tokens", "output_tokens"} {
+		if _, ok := usage[rawResponsesUsageKey]; ok {
+			t.Fatalf("expected translated Chat usage to hide raw Responses key %q, got %+v", rawResponsesUsageKey, usage)
+		}
+	}
+}
+
+func assertTranslatedChatCompletionStream(t *testing.T, body string, wantPublicModelID string, resolvedTargetModelID string, wantContent string) {
+	t.Helper()
+	if strings.Contains(body, "event: response.") || strings.Contains(body, "response.in_progress") || strings.Contains(body, "\"object\":\"response\"") || strings.Contains(body, "\"output\":") {
+		t.Fatalf("expected Chat-facing stream without raw Responses frames, got %q", body)
+	}
+	if strings.Contains(body, resolvedTargetModelID) || strings.Contains(body, "openai_stream_translation_unsupported") {
+		t.Fatalf("expected translated Chat stream to hide resolved target and avoid unsupported errors, got %q", body)
+	}
+	payloads, done := parseRuntimeSSEDataPayloads(t, body)
+	if !done || len(payloads) == 0 {
+		t.Fatalf("expected translated Chat SSE payloads and DONE sentinel, got %q", body)
+	}
+	var sawContent bool
+	var sawStop bool
+	var sawUsage bool
+	for _, payload := range payloads {
+		if got, _ := payload["object"].(string); got != "chat.completion.chunk" {
+			t.Fatalf("expected translated Chat chunk object, got %+v", payload)
+		}
+		if got, _ := payload["model"].(string); got != wantPublicModelID || got == resolvedTargetModelID {
+			t.Fatalf("expected translated Chat chunk model %q without resolved target %q, got %+v", wantPublicModelID, resolvedTargetModelID, payload)
+		}
+		choices, ok := payload["choices"].([]any)
+		if !ok {
+			t.Fatalf("expected translated Chat chunk choices, got %+v", payload)
+		}
+		for _, rawChoice := range choices {
+			choice, ok := rawChoice.(map[string]any)
+			if !ok {
+				t.Fatalf("expected translated Chat stream choice object, got %+v", rawChoice)
+			}
+			if got, _ := choice["finish_reason"].(string); got == "stop" {
+				sawStop = true
+			}
+			if delta, ok := choice["delta"].(map[string]any); ok {
+				if got, _ := delta["content"].(string); got == wantContent {
+					sawContent = true
+				}
+			}
+		}
+		if usage, ok := payload["usage"].(map[string]any); ok {
+			sawUsage = true
+			assertRuntimeJSONNumber(t, "translated Chat stream usage", usage, "prompt_tokens", 5)
+			assertRuntimeJSONNumber(t, "translated Chat stream usage", usage, "completion_tokens", 3)
+			assertRuntimeJSONNumber(t, "translated Chat stream usage", usage, "total_tokens", 8)
+		}
+	}
+	if !sawContent || !sawStop || !sawUsage {
+		t.Fatalf("expected translated Chat stream content, stop, and usage chunks, got %q", body)
+	}
+}
+
+func parseRuntimeSSEDataPayloads(t *testing.T, body string) ([]map[string]any, bool) {
+	t.Helper()
+	chunks := strings.Split(body, "\n\n")
+	payloads := make([]map[string]any, 0, len(chunks))
+	var done bool
+	for _, chunk := range chunks {
+		chunk = strings.TrimSpace(chunk)
+		if chunk == "" {
+			continue
+		}
+		var dataLines []string
+		for line := range strings.SplitSeq(chunk, "\n") {
+			trimmed := strings.TrimSpace(line)
+			switch {
+			case strings.HasPrefix(trimmed, "event:"):
+				t.Fatalf("expected Chat SSE data-only chunk, got raw event line in %q", chunk)
+			case strings.HasPrefix(trimmed, "data:"):
+				dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(trimmed, "data:")))
+			}
+		}
+		if len(dataLines) == 0 {
+			continue
+		}
+		data := strings.Join(dataLines, "\n")
+		if data == "[DONE]" {
+			done = true
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(data), &payload); err != nil {
+			t.Fatalf("decode translated Chat SSE payload %q: %v", data, err)
+		}
+		payloads = append(payloads, payload)
+	}
+	return payloads, done
+}
+
+func assertRuntimeJSONNumber(t *testing.T, label string, payload map[string]any, field string, want int) {
+	t.Helper()
+	got, ok := payload[field].(float64)
+	if !ok || int(got) != want {
+		t.Fatalf("expected %s.%s=%d, got %+v", label, field, want, payload)
+	}
+}
+
 func assertLatestChatPreDispatchPromotionMetadata(t *testing.T, harness *runtimeHarness, profileID int, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int, wantSourceWindow int, wantPromotedWindow int) {
 	t.Helper()
 	assertLatestPreDispatchPromotionMetadata(t, harness, profileID, wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantSourceWindow, wantPromotedWindow, "openai_chat_tokenizer_v1")
@@ -2529,6 +2809,59 @@ func assertProviderOverflowPromotionMetadataRow(t *testing.T, harness *runtimeHa
 	if promotion["from_resolved_target_model_id"] != wantSourceModelID || promotion["to_resolved_target_model_id"] != wantPromotedModelID {
 		t.Fatalf("expected %s model metadata %q -> %q, got %+v", label, wantSourceModelID, wantPromotedModelID, promotion)
 	}
+}
+
+func assertLatestChatToResponsesPromotionAttribution(t *testing.T, harness *runtimeHarness, profileID int, wantModelID string, wantSourceResolvedTargetModelID string, wantPromotedResolvedTargetModelID string, wantSourceTerminalTargetID int, wantPromotedTerminalTargetID int) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+
+	assertAttributionRow := func(label string, query string) {
+		t.Helper()
+		var modelID string
+		var resolvedTargetModelID string
+		var operationName string
+		var upstreamOperationName string
+		var translationMode string
+		var upstreamRequestPath string
+		var contextRoutingRaw string
+		if err := harness.conn.QueryRow(context.Background(), query, profileID, ingressRequestID).Scan(&modelID, &resolvedTargetModelID, &operationName, &upstreamOperationName, &translationMode, &upstreamRequestPath, &contextRoutingRaw); err != nil {
+			t.Fatalf("load %s chat-to-responses promotion attribution: %v", label, err)
+		}
+		if modelID != wantModelID || resolvedTargetModelID != wantPromotedResolvedTargetModelID {
+			t.Fatalf("expected %s ingress model %q and promoted resolved target %q, got model=%q resolved=%q", label, wantModelID, wantPromotedResolvedTargetModelID, modelID, resolvedTargetModelID)
+		}
+		if operationName != "openai.chat_completions" {
+			t.Fatalf("expected %s operation_name openai.chat_completions, got %q", label, operationName)
+		}
+		if upstreamOperationName != "openai.responses" {
+			t.Fatalf("expected %s upstream_operation_name openai.responses, got %q", label, upstreamOperationName)
+		}
+		if translationMode != "openai_chat_completions_to_responses" {
+			t.Fatalf("expected %s operation_translation_mode openai_chat_completions_to_responses, got %q", label, translationMode)
+		}
+		if upstreamRequestPath != "/v1/responses" {
+			t.Fatalf("expected %s upstream_request_path /v1/responses, got %q", label, upstreamRequestPath)
+		}
+		var contextRouting map[string]any
+		if err := json.Unmarshal([]byte(contextRoutingRaw), &contextRouting); err != nil {
+			t.Fatalf("decode %s context routing %q: %v", label, contextRoutingRaw, err)
+		}
+		promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
+		assertTranslatedPromotionNumber(t, label, promotion, "trigger_status", http.StatusBadRequest)
+		assertTranslatedPromotionNumber(t, label, promotion, "source_attempt_count", 1)
+		assertTranslatedPromotionNumber(t, label, promotion, "final_attempt_count", 2)
+		assertTranslatedPromotionNumber(t, label, promotion, "from_selected_terminal_target_id", wantSourceTerminalTargetID)
+		assertTranslatedPromotionNumber(t, label, promotion, "to_selected_terminal_target_id", wantPromotedTerminalTargetID)
+		if promotion["trigger_error_code"] != "context_length_exceeded" || promotion["trigger_classifier"] != "error_code" || promotion["result"] != "promoted_success" {
+			t.Fatalf("expected %s chat-to-responses promotion trigger/result metadata, got %+v", label, promotion)
+		}
+		if promotion["from_resolved_target_model_id"] != wantSourceResolvedTargetModelID || promotion["to_resolved_target_model_id"] != wantPromotedResolvedTargetModelID {
+			t.Fatalf("expected %s source/promoted model metadata %q -> %q, got %+v", label, wantSourceResolvedTargetModelID, wantPromotedResolvedTargetModelID, promotion)
+		}
+	}
+
+	assertAttributionRow("request_logs", `SELECT model_id, COALESCE(resolved_target_model_id, ''), COALESCE(operation_name, ''), COALESCE(upstream_operation_name, ''), COALESCE(operation_translation_mode, ''), COALESCE(upstream_request_path, ''), COALESCE(context_routing::text, '{}') FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`)
+	assertAttributionRow("usage_request_events", `SELECT model_id, COALESCE(resolved_target_model_id, ''), COALESCE(operation_name, ''), COALESCE(upstream_operation_name, ''), COALESCE(operation_translation_mode, ''), COALESCE(upstream_request_path, ''), COALESCE(context_routing::text, '{}') FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`)
 }
 
 func loadLatestRuntimeContextRoutingForIngress(t *testing.T, harness *runtimeHarness, profileID int, ingressRequestID string, table string) map[string]any {

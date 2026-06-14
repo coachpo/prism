@@ -1328,6 +1328,13 @@ func TestWriteProxyResponseTranslatedOpenAIReadFailureReturnsDiagnostic502(t *te
 			Body:       io.NopCloser(&errorAfterReader{err: errors.New("truncated upstream response")}),
 		},
 		Connection: connection,
+		FinalResponseTranslation: &runtimeFinalResponseTranslationMetadata{
+			TranslationMode:          translationMode,
+			RequestedModelID:         plan.RequestedModelID,
+			SelectedTerminalTargetID: intPtr(connection.ID),
+			UpstreamOperationName:    openAIUpstreamOperationResponses,
+			UpstreamRequestPath:      "/v1/responses",
+		},
 	}
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	responseRecorder := httptest.NewRecorder()
@@ -1566,6 +1573,14 @@ func TestSSEStreamHooksByOperation(t *testing.T) {
 			name:         "openai responses incomplete owns provider incomplete terminal",
 			requestPath:  "/v1/responses",
 			stream:       "event: response.incomplete\ndata: {\"type\":\"response.incomplete\"}\n\n",
+			wantProvider: "openai",
+			wantKind:     operationResponseKindTextGeneration,
+			wantOutcome:  runtimeStreamOutcomeProviderIncomplete,
+		},
+		{
+			name:         "openai responses failed owns provider incomplete terminal",
+			requestPath:  "/v1/responses",
+			stream:       "event: response.failed\ndata: {\"type\":\"response.failed\"}\n\n",
 			wantProvider: "openai",
 			wantKind:     operationResponseKindTextGeneration,
 			wantOutcome:  runtimeStreamOutcomeProviderIncomplete,
