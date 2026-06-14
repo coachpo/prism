@@ -14,8 +14,10 @@ const {
   DEFAULT_MODEL_FORM_DATA,
   createEditModelFormData,
   createNewModelFormData,
+  getAccessTargetModelsForApiFamily,
   getEditModelConnectionOptions,
   getModelAccessTargetTierNumber,
+  getPromotionTargetModelsForApiFamily,
   parseModelAccessTargetTierNumberInput,
   setApiFamilyOnForm,
   toModelCreatePayload,
@@ -358,7 +360,7 @@ test("enabled models require at least one enabled valid access target", () => {
   );
 });
 
-test("changing api family clears incompatible access targets", () => {
+test("changing api family clears incompatible access targets and promotion target", () => {
   const formData = setApiFamilyOnForm(
     {
       api_family: "openai",
@@ -369,6 +371,7 @@ test("changing api family clears incompatible access targets", () => {
       default_output_token_reserve: "4096",
       max_context_utilization: "0.90",
       preferred_context_utilization_threshold: "",
+      context_overflow_promotion_target_id: "promoted-model",
       access_targets: [{ target_type: "connection", connection_id: 88, position: 0, is_enabled: true }],
       is_enabled: false,
       last_auto_display_name: "Targeted Model",
@@ -377,7 +380,28 @@ test("changing api family clears incompatible access targets", () => {
   );
 
   assert.equal(formData.api_family, "anthropic");
+  assert.equal(formData.context_overflow_promotion_target_id, "");
   assert.deepEqual(formData.access_targets, []);
+});
+
+test("promotion target filtering excludes obvious invalid local choices", () => {
+  const models = [
+    { id: 1, api_family: "openai", model_id: "current-model", is_enabled: true },
+    { id: 2, api_family: "openai", model_id: "enabled-target", is_enabled: true },
+    { id: 3, api_family: "openai", model_id: "disabled-target", is_enabled: false },
+    { id: 4, api_family: "openai", model_id: "facade-target", is_enabled: true, facade_enabled: true },
+    { id: 5, api_family: "openai", model_id: "legacy-facade-target", is_enabled: true, is_facade: true },
+    { id: 6, api_family: "anthropic", model_id: "wrong-family", is_enabled: true },
+  ];
+
+  assert.deepEqual(
+    getPromotionTargetModelsForApiFamily(models, "openai", " current-model ").map((model) => model.model_id),
+    ["enabled-target"],
+  );
+  assert.deepEqual(
+    getAccessTargetModelsForApiFamily(models, "openai", "current-model").map((model) => model.model_id),
+    ["enabled-target"],
+  );
 });
 
 test("payload shaping serializes capability strings to numeric fields", () => {
@@ -435,5 +459,48 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     preferred_context_utilization_threshold: 0.7,
     context_overflow_promotion_target_id: null,
     access_targets: expectedAccessTargets,
+  });
+});
+
+test("payload shaping keeps promotion target separate from access target normalization", () => {
+  const formData = {
+    api_family: "openai",
+    model_id: "live-model",
+    display_name: "Live Model",
+    loadbalance_strategy_id: 17,
+    context_window_tokens: "",
+    default_output_token_reserve: "4096",
+    max_context_utilization: "0.90",
+    preferred_context_utilization_threshold: "",
+    context_overflow_promotion_target_id: " promoted-model ",
+    access_targets: [
+      { target_type: "connection", connection_id: 77, position: 0, is_enabled: true },
+      { target_type: "model", target_model_id: "fallback-model", position: 1, weight: 3, target_priority: 2, is_enabled: true },
+    ],
+    is_enabled: true,
+    last_auto_display_name: "Live Model",
+  };
+
+  assert.deepEqual(toModelUpdatePayload(formData), {
+    api_family: "openai",
+    display_name: "Live Model",
+    model_id: "live-model",
+    is_enabled: true,
+    loadbalance_strategy_id: 17,
+    context_window_tokens: null,
+    default_output_token_reserve: 4096,
+    max_context_utilization: 0.9,
+    preferred_context_utilization_threshold: null,
+    context_overflow_promotion_target_id: "promoted-model",
+    access_targets: [
+      {
+        target_type: "model",
+        target_model_id: "fallback-model",
+        position: 0,
+        weight: 3,
+        target_priority: 2,
+        is_enabled: true,
+      },
+    ],
   });
 });

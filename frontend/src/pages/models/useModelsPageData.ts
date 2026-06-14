@@ -274,6 +274,7 @@ export function useModelsPageData(revision: number) {
   const promotionTargetModelsForApiFamily = getPromotionTargetModelsForApiFamily(
     models,
     formData.api_family ?? "openai",
+    formData.model_id,
   );
 
   const filtered = useMemo(

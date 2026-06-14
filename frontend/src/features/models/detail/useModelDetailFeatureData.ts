@@ -207,8 +207,8 @@ export function useModelDetailFeatureData({
     [allModels, effectiveTargetApiFamily, model?.model_id],
   )
   const promotionTargetModelsForApiFamily = useMemo(
-    () => getPromotionTargetModelsForApiFamily(allModels, effectiveTargetApiFamily),
-    [allModels, effectiveTargetApiFamily],
+    () => getPromotionTargetModelsForApiFamily(allModels, effectiveTargetApiFamily, formData.model_id),
+    [allModels, effectiveTargetApiFamily, formData.model_id],
   )
   const targetConnectionsForApiFamily = useMemo(
     () => getSameFamilyConnections(allConnections, effectiveTargetApiFamily, modelConfigId),

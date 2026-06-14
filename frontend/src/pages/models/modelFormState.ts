@@ -624,23 +624,43 @@ export function setDisplayNameOnForm(formData: ModelFormData, displayName: strin
 type ApiFamilyModelOption = {
   api_family: ApiFamily;
   model_id: string;
+  is_enabled?: boolean;
+  facade_enabled?: boolean | null;
+  is_facade?: boolean | null;
 };
+
+function isFacadeModelOption(model: ApiFamilyModelOption): boolean {
+  return model.facade_enabled === true || model.is_facade === true;
+}
 
 export function getAccessTargetModelsForApiFamily<T extends ApiFamilyModelOption>(
   models: T[],
   apiFamily: ApiFamily,
   excludedModelId?: string,
 ): T[] {
+  const normalizedExcludedModelId = excludedModelId?.trim() ?? "";
   return models.filter(
-    (model) => model.api_family === apiFamily && (!excludedModelId || model.model_id !== excludedModelId),
+    (model) =>
+      model.api_family === apiFamily
+      && (normalizedExcludedModelId === "" || model.model_id !== normalizedExcludedModelId)
+      && model.is_enabled !== false
+      && !isFacadeModelOption(model),
   );
 }
 
 export function getPromotionTargetModelsForApiFamily<T extends ApiFamilyModelOption>(
   models: T[],
   apiFamily: ApiFamily,
+  excludedModelId?: string,
 ): T[] {
-  return models.filter((model) => model.api_family === apiFamily);
+  const normalizedExcludedModelId = excludedModelId?.trim() ?? "";
+  return models.filter(
+    (model) =>
+      model.api_family === apiFamily
+      && (normalizedExcludedModelId === "" || model.model_id !== normalizedExcludedModelId)
+      && model.is_enabled !== false
+      && !isFacadeModelOption(model),
+  );
 }
 
 type ModelListItemSource = ModelConfig & {
