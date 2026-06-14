@@ -517,12 +517,6 @@ func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, pr
 			rollingTokenCount += event.TotalTokens
 		}
 	}
-	serviceHealthStart, _ := serviceHealthWindowBounds(normalizedEndAt)
-	serviceHealthRecords, err := loadUsageEventRecords(ctx, exec, profileID, &serviceHealthStart, &normalizedEndAt, nil, nil, nil, nil)
-	if err != nil {
-		return UsageSnapshotResponse{}, err
-	}
-	serviceHealthEvents := buildSnapshotEvents(serviceHealthRecords)
 	requestTrends := UsageRequestTrends{
 		Hourly: buildRequestTrendSeries(events, startAt, normalizedEndAt, "hour"),
 		Daily:  buildRequestTrendSeries(events, startAt, normalizedEndAt, "day"),
@@ -566,7 +560,6 @@ func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, pr
 			RollingRPM:           roundFloat(float64(rollingRequestCount)/float64(rollingWindowMinutes), 3),
 			RollingTPM:           roundFloat(float64(rollingTokenCount)/float64(rollingWindowMinutes), 3),
 		},
-		ServiceHealth:         buildServiceHealth(serviceHealthEvents, normalizedEndAt),
 		RequestTrends:         requestTrends,
 		TokenUsageTrends:      tokenUsageTrends,
 		TokenTypeBreakdown:    tokenTypeBreakdown,
@@ -706,69 +699,6 @@ func statsBoolPtr(value bool) *bool {
 func statsStringPtr(value string) *string {
 	resolved := value
 	return &resolved
-}
-
-func buildServiceHealth(events []snapshotEvent, endAt time.Time) UsageServiceHealth {
-	windowStart, windowEnd := serviceHealthWindowBounds(endAt)
-	type cellAggregate struct {
-		requestCount int
-		successCount int
-		failedCount  int
-	}
-	cellsByBucket := map[time.Time]*cellAggregate{}
-	requestCount := 0
-	successCount := 0
-	failedCount := 0
-	for _, event := range events {
-		if event.CreatedAt.Before(windowStart) || !event.CreatedAt.Before(windowEnd) {
-			continue
-		}
-		bucket := serviceHealthBucketFloor(event.CreatedAt)
-		cell := cellsByBucket[bucket]
-		if cell == nil {
-			cellsByBucket[bucket] = &cellAggregate{}
-			cell = cellsByBucket[bucket]
-		}
-		cell.requestCount++
-		requestCount++
-		if event.SuccessFlag {
-			cell.successCount++
-			successCount++
-		} else {
-			cell.failedCount++
-			failedCount++
-		}
-	}
-	cells := make([]UsageServiceHealthCell, 0, serviceHealthBucketCount)
-	bucket := windowStart
-	for i := 0; i < serviceHealthBucketCount; i++ {
-		cell := cellsByBucket[bucket]
-		requestCountValue := 0
-		successCountValue := 0
-		failedCountValue := 0
-		if cell != nil {
-			requestCountValue = cell.requestCount
-			successCountValue = cell.successCount
-			failedCountValue = cell.failedCount
-		}
-		cells = append(cells, UsageServiceHealthCell{
-			BucketStart:            bucket,
-			RequestCount:           requestCountValue,
-			SuccessCount:           successCountValue,
-			FailedCount:            failedCountValue,
-			AvailabilityPercentage: nullableSuccessRate(successCountValue, requestCountValue),
-			Status:                 serviceHealthStatus(requestCountValue, successCountValue, failedCountValue),
-		})
-		bucket = bucket.Add(time.Duration(serviceHealthIntervalMins) * time.Minute)
-	}
-	return UsageServiceHealth{
-		AvailabilityPercentage: nullableSuccessRate(successCount, requestCount),
-		RequestCount:           requestCount,
-		SuccessCount:           successCount,
-		FailedCount:            failedCount,
-		IntervalMinutes:        serviceHealthIntervalMins,
-		Cells:                  cells,
-	}
 }
 
 func buildRequestTrendSeries(events []snapshotEvent, startAt *time.Time, endAt time.Time, granularity string) []UsageRequestTrendSeries {
@@ -1159,14 +1089,6 @@ func dividePerMinute(total int, windowMinutes float64) float64 {
 		return 0
 	}
 	return roundFloat(float64(total)/windowMinutes, 3)
-}
-
-func nullableSuccessRate(successCount int, requestCount int) *float64 {
-	if requestCount <= 0 {
-		return nil
-	}
-	rate := successRate(successCount, requestCount)
-	return &rate
 }
 
 func endpointIDOrMinusOne(value *int) int {

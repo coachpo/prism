@@ -451,24 +451,6 @@ type UsageSnapshotOverview struct {
 	RollingTPM           float64 `json:"rolling_tpm"`
 }
 
-type UsageServiceHealthCell struct {
-	BucketStart            time.Time `json:"bucket_start"`
-	RequestCount           int       `json:"request_count"`
-	SuccessCount           int       `json:"success_count"`
-	FailedCount            int       `json:"failed_count"`
-	AvailabilityPercentage *float64  `json:"availability_percentage"`
-	Status                 string    `json:"status"`
-}
-
-type UsageServiceHealth struct {
-	AvailabilityPercentage *float64                 `json:"availability_percentage"`
-	RequestCount           int                      `json:"request_count"`
-	SuccessCount           int                      `json:"success_count"`
-	FailedCount            int                      `json:"failed_count"`
-	IntervalMinutes        int                      `json:"interval_minutes"`
-	Cells                  []UsageServiceHealthCell `json:"cells"`
-}
-
 type UsageRequestTrendPoint struct {
 	BucketStart  time.Time `json:"bucket_start"`
 	RequestCount int       `json:"request_count"`
@@ -586,7 +568,6 @@ type UsageSnapshotResponse struct {
 	TimeRange             UsageSnapshotTimeRange      `json:"time_range"`
 	Currency              UsageSnapshotCurrency       `json:"currency"`
 	Overview              UsageSnapshotOverview       `json:"overview"`
-	ServiceHealth         UsageServiceHealth          `json:"service_health"`
 	RequestTrends         UsageRequestTrends          `json:"request_trends"`
 	TokenUsageTrends      UsageTokenUsageTrends       `json:"token_usage_trends"`
 	TokenTypeBreakdown    UsageTokenTypeBreakdown     `json:"token_type_breakdown"`

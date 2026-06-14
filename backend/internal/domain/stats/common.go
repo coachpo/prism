@@ -14,11 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-const (
-	rollingWindowMinutes      = 30
-	serviceHealthBucketCount  = 12 * 56
-	serviceHealthIntervalMins = 15
-)
+const rollingWindowMinutes = 30
 
 type HTTPError struct {
 	StatusCode int
@@ -462,36 +458,6 @@ func bucketRange(startAt *time.Time, endAt time.Time, eventTimes []time.Time, gr
 		current = current.Add(step)
 	}
 	return buckets
-}
-
-func serviceHealthBucketFloor(value time.Time) time.Time {
-	normalized := value.UTC()
-	minute := (normalized.Minute() / serviceHealthIntervalMins) * serviceHealthIntervalMins
-	return time.Date(normalized.Year(), normalized.Month(), normalized.Day(), normalized.Hour(), minute, 0, 0, time.UTC)
-}
-
-func latestServiceHealthBucketStart(endAt time.Time) time.Time {
-	return serviceHealthBucketFloor(endAt.Add(-time.Microsecond))
-}
-
-func serviceHealthWindowBounds(endAt time.Time) (time.Time, time.Time) {
-	latest := latestServiceHealthBucketStart(endAt)
-	windowStart := latest.Add(-time.Duration(serviceHealthIntervalMins*(serviceHealthBucketCount-1)) * time.Minute)
-	windowEnd := latest.Add(time.Duration(serviceHealthIntervalMins) * time.Minute)
-	return windowStart, windowEnd
-}
-
-func serviceHealthStatus(requestCount int, successCount int, failedCount int) string {
-	if requestCount <= 0 {
-		return "empty"
-	}
-	if failedCount <= 0 {
-		return "ok"
-	}
-	if successCount <= 0 {
-		return "down"
-	}
-	return "degraded"
 }
 
 func timeSliceFromEvents(events []snapshotEvent) []time.Time {

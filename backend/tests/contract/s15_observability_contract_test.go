@@ -178,6 +178,31 @@ func s15TopSpendingEndpointLabelsByID(t *testing.T, payload map[string]any) map[
 	return labels
 }
 
+func assertUsageSnapshotRESTContract(t *testing.T, payload map[string]any, preset string) {
+	t.Helper()
+	requiredFields := []string{
+		"generated_at",
+		"time_range",
+		"currency",
+		"overview",
+		"request_trends",
+		"token_usage_trends",
+		"token_type_breakdown",
+		"cost_overview",
+		"endpoint_statistics",
+		"model_statistics",
+		"proxy_api_key_statistics",
+	}
+	for _, field := range requiredFields {
+		if _, ok := payload[field]; !ok {
+			t.Fatalf("expected usage snapshot preset %s to include %q, got %+v", preset, field, payload)
+		}
+	}
+	if _, ok := payload["service_health"]; ok {
+		t.Fatalf("expected usage snapshot preset %s to omit top-level service_health, got %+v", preset, payload)
+	}
+}
+
 func TestUsageSnapshot(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -194,6 +219,7 @@ func TestUsageSnapshot(t *testing.T) {
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
+	assertUsageSnapshotRESTContract(t, payload, "1h")
 	overview := asMap(t, payload["overview"])
 	if jsonInt(t, overview["total_requests"]) != 2 || jsonInt(t, overview["success_requests"]) != 1 || jsonInt(t, overview["failed_requests"]) != 1 || jsonInt(t, overview["total_tokens"]) != 78 {
 		t.Fatalf("expected usage snapshot overview totals, got %+v", overview)
@@ -233,6 +259,12 @@ func TestUsageSnapshot(t *testing.T) {
 	if jsonInt(t, costOverview["priced_request_count"]) != 1 || jsonInt(t, costOverview["unpriced_request_count"]) != 0 {
 		t.Fatalf("expected cost overview priced/unpriced counts, got %+v", costOverview)
 	}
+
+	directResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=7d", nil, modelHeader(profileID))
+	assertStatus(t, directResponse, http.StatusOK)
+	var directPayload map[string]any
+	decodeJSONResponse(t, directResponse, &directPayload)
+	assertUsageSnapshotRESTContract(t, directPayload, "7d")
 }
 
 func TestObservabilityUsageEventSeedPersistsMergedPersistenceSemantics(t *testing.T) {
