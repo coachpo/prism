@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
+import type { DashboardRecentActivityItem } from "../../src/lib/types";
+import {
+  createDashboardRecentActivityResponse,
+  createDashboardSnapshot,
+} from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
 const canonicalCurrency = {
@@ -270,6 +274,40 @@ function createRequestLogItems() {
   ];
 }
 
+type RequestLogFixtureItem = ReturnType<typeof createRequestLogItem>;
+
+function createDashboardRecentActivityItemFromRequest(
+  item: RequestLogFixtureItem,
+): DashboardRecentActivityItem {
+  return {
+    request_log_id: item.id,
+    created_at: item.created_at,
+    model_id: item.model_id,
+    model_label: item.model_label,
+    resolved_target_model_id: item.resolved_target_model_id,
+    resolved_target_model_label: item.resolved_target_model_label,
+    endpoint_id: item.endpoint_id,
+    endpoint_label: item.endpoint_label,
+    status_code: item.status_code,
+    response_time_ms: item.response_time_ms,
+    ttft_ms: item.ttft_ms,
+    completion_duration_ms: item.completion_duration_ms,
+    is_stream: item.is_stream,
+    stream_outcome: item.stream_outcome,
+    total_tokens: item.total_tokens,
+    total_cost_user_currency_micros: item.total_cost_user_currency_micros,
+    priced_flag: item.priced_flag,
+    unpriced_reason: item.unpriced_reason,
+    report_currency_symbol: item.report_currency_symbol,
+  };
+}
+
+function createDashboardRecentActivityItems(
+  requestLogItems: RequestLogFixtureItem[],
+): DashboardRecentActivityItem[] {
+  return requestLogItems.map(createDashboardRecentActivityItemFromRequest);
+}
+
 function createRequestLogsResponse(
   requestLogItems: ReturnType<typeof createRequestLogItems>,
   searchParams: URLSearchParams,
@@ -431,7 +469,6 @@ async function mockCurrencyRoutes(
           total_cost: 1250000,
           total_requests: 12,
         },
-        recentRequests: requestLogItems,
         topSpendingModels: [
           {
             model_id: model.model_id,
@@ -440,6 +477,14 @@ async function mockCurrencyRoutes(
           },
         ],
       }));
+    }
+
+    if (pathname === "/api/stats/dashboard/recent-activity") {
+      return fulfillJson(
+        createDashboardRecentActivityResponse(
+          createDashboardRecentActivityItems(requestLogItems),
+        ),
+      );
     }
 
     if (pathname.startsWith("/api/stats/requests/")) {

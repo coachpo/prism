@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
+import {
+  createDashboardRecentActivityResponse,
+  createDashboardSnapshot,
+} from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
 const routeReadyTimeout = 15_000;
@@ -256,6 +259,10 @@ async function mockReportingCurrencyProtectedRoutes(
       const profileKey = resolveProfileKey(route.request().headers());
       incrementRequestCount(requestCounts.dashboardByProfile, profileKey);
       return fulfillJson(createDashboardSnapshot());
+    }
+
+    if (pathname === "/api/stats/dashboard/recent-activity") {
+      return fulfillJson(createDashboardRecentActivityResponse([]));
     }
 
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });

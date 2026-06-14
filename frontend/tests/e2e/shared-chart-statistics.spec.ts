@@ -2,7 +2,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
+import {
+  createDashboardRecentActivityResponse,
+  createDashboardSnapshot,
+} from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-12T00:00:00Z";
 const usageStatisticsStorageKey = "prism.statistics.usage-state";
@@ -591,6 +594,10 @@ async function mockUsageRoutes(page: Page, options?: { empty?: boolean; largeTok
 
     if (pathname === "/api/stats/dashboard") {
       return fulfillJson(createDashboardSnapshot());
+    }
+
+    if (pathname === "/api/stats/dashboard/recent-activity") {
+      return fulfillJson(createDashboardRecentActivityResponse([]));
     }
 
     if (pathname === "/api/models") {
