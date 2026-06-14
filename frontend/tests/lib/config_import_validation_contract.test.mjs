@@ -119,6 +119,34 @@ function buildValidConfigImport() {
   };
 }
 
+function buildPromotionChainConfigImport(modelIds = ["source-small", "target-same-size", "target-hop", "target-large"]) {
+  const payload = buildValidConfigImport();
+  payload.endpoints = [];
+  payload.connections = [];
+  payload.profile_settings.endpoint_fx_mappings = [];
+  payload.models = modelIds.map((modelId, index) => ({
+    api_family: "openai",
+    model_id: modelId,
+    display_name: modelId,
+    loadbalance_strategy_name: "Default single",
+    context_window_tokens: [32_000, 32_000, 24_000, 128_000, 256_000][index] ?? 512_000,
+    default_output_token_reserve: 4096,
+    max_context_utilization: 0.9,
+    context_overflow_promotion_target_id: modelIds[index + 1] ?? null,
+    is_enabled: true,
+    access_targets: [],
+  }));
+  return payload;
+}
+
+function getPromotionTargetIssue(payload, modelIndex = 0) {
+  const result = ConfigImportSchema.safeParse(payload);
+  assert.equal(result.success, false);
+  return result.error.issues.find((issue) => (
+    issue.path.join(".") === `models.${modelIndex}.context_overflow_promotion_target_id`
+  ));
+}
+
 test("config import schema accepts current profile bundle v3 Ban Policy payloads", () => {
   const parsed = ConfigImportSchema.parse(buildValidConfigImport());
 
@@ -213,16 +241,7 @@ test("config import schema accepts backend-exported overflow promotion target fi
       ...liveAuthoringCapabilityDefaults,
       context_overflow_promotion_target_id: "gpt-4o-terminal",
       is_enabled: true,
-      access_targets: [
-        {
-          position: 0,
-          is_enabled: true,
-          target_type: "model",
-          target_model_id: "gpt-4o-terminal",
-          weight: 3,
-          target_priority: 0,
-        },
-      ],
+      access_targets: [],
     },
     {
       api_family: "openai",
@@ -238,6 +257,145 @@ test("config import schema accepts backend-exported overflow promotion target fi
   const parsed = ConfigImportSchema.parse(payload);
 
   assert.equal(parsed.models[0].context_overflow_promotion_target_id, "gpt-4o-terminal");
+});
+
+test("config import schema accepts recursive promotion chains without immediate larger-window targets", () => {
+  const payload = buildPromotionChainConfigImport();
+
+  const parsed = ConfigImportSchema.parse(payload);
+
+  assert.deepEqual(
+    parsed.models.map((model) => [model.model_id, model.context_window_tokens, model.context_overflow_promotion_target_id]),
+    [
+      ["source-small", 32_000, "target-same-size"],
+      ["target-same-size", 32_000, "target-hop"],
+      ["target-hop", 24_000, "target-large"],
+      ["target-large", 128_000, null],
+    ],
+  );
+});
+
+test("config import schema rejects invalid explicit promotion target links with stable paths", () => {
+  const cases = [
+    {
+      name: "missing target",
+      mutate: (payload) => {
+        payload.models[0].context_overflow_promotion_target_id = "missing-model";
+      },
+      message: "context_overflow_promotion_target_id must reference an imported model",
+    },
+    {
+      name: "wrong api_family",
+      mutate: (payload) => {
+        payload.models[1].api_family = "anthropic";
+      },
+      message: "context_overflow_promotion_target_id must reference a model with the same api_family",
+    },
+    {
+      name: "self target",
+      mutate: (payload) => {
+        payload.models[0].context_overflow_promotion_target_id = "source-small";
+      },
+      message: "context_overflow_promotion_target_id cannot reference the source model",
+    },
+    {
+      name: "disabled target",
+      mutate: (payload) => {
+        payload.models[1].is_enabled = false;
+      },
+      message: "context_overflow_promotion_target_id must reference an enabled model",
+    },
+    {
+      name: "facade target",
+      mutate: (payload) => {
+        payload.models[1].facade_enabled = true;
+        payload.models[1].facade_selection_policy = "weighted_eligible_context";
+        payload.models[1].facade_fallback_policy = "redistribute_ineligible_weight";
+      },
+      message: "context_overflow_promotion_target_id must reference a non-facade model",
+    },
+  ];
+
+  for (const { name, mutate, message } of cases) {
+    const payload = buildPromotionChainConfigImport();
+    mutate(payload);
+
+    const issue = getPromotionTargetIssue(payload);
+
+    assert.ok(issue, `expected promotion target issue for ${name}`);
+    assert.deepEqual(issue.path, ["models", 0, "context_overflow_promotion_target_id"]);
+    assert.equal(issue.message, message);
+  }
+});
+
+test("config import schema rejects promotion cycles and max-depth violations with readable messages", () => {
+  const cyclePayload = buildPromotionChainConfigImport();
+  cyclePayload.models[2].context_overflow_promotion_target_id = "source-small";
+  const cycleIssue = getPromotionTargetIssue(cyclePayload);
+
+  assert.ok(cycleIssue);
+  assert.deepEqual(cycleIssue.path, ["models", 0, "context_overflow_promotion_target_id"]);
+  assert.equal(cycleIssue.message, "context_overflow_promotion_target_id must not introduce a promotion target cycle");
+
+  const maxDepthPayload = buildPromotionChainConfigImport([
+    "source-small",
+    "target-hop-1",
+    "target-hop-2",
+    "target-hop-3",
+    "target-hop-4",
+  ]);
+  const maxDepthIssue = getPromotionTargetIssue(maxDepthPayload);
+
+  assert.ok(maxDepthIssue);
+  assert.deepEqual(maxDepthIssue.path, ["models", 0, "context_overflow_promotion_target_id"]);
+  assert.equal(maxDepthIssue.message, "context_overflow_promotion_target_id promotion chain cannot exceed depth 3");
+});
+
+test("config import schema mirrors same-terminal promotion rejection when bundle targets expose connection refs", () => {
+  const payload = buildValidConfigImport();
+  payload.connections = [];
+  payload.profile_settings.endpoint_fx_mappings = [];
+  payload.models = [
+    {
+      api_family: "openai",
+      model_id: "source-small",
+      display_name: "Source small",
+      loadbalance_strategy_name: "Default single",
+      ...liveAuthoringCapabilityDefaults,
+      context_overflow_promotion_target_id: "target-large",
+      is_enabled: true,
+      access_targets: [
+        {
+          position: 0,
+          is_enabled: true,
+          target_type: "model",
+          target_model_id: "target-large",
+          weight: 1,
+        },
+      ],
+    },
+    {
+      api_family: "openai",
+      model_id: "target-large",
+      display_name: "Target large",
+      loadbalance_strategy_name: "Default single",
+      ...liveAuthoringCapabilityDefaults,
+      is_enabled: true,
+      access_targets: [
+        {
+          position: 0,
+          is_enabled: true,
+          target_type: "connection",
+          connection_ref: "shared-terminal",
+        },
+      ],
+    },
+  ];
+
+  const issue = getPromotionTargetIssue(payload);
+
+  assert.ok(issue);
+  assert.equal(issue.message, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model");
 });
 
 test("config bundle TypeScript DTOs expose overflow promotion target and OpenAI capability fields", () => {

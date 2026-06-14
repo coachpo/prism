@@ -171,6 +171,30 @@ function addPreferredThresholdIssue(
   }
 }
 
+const maxPromotionChainTransitions = 3;
+const promotionTargetField = "context_overflow_promotion_target_id";
+
+function normalizePromotionTargetID(value: string | null | undefined) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function addPromotionTargetIssue(
+  context: z.RefinementCtx,
+  modelIndex: number,
+  message: string,
+) {
+  context.addIssue({
+    code: "custom",
+    path: ["models", modelIndex, promotionTargetField],
+    message,
+  });
+}
+
 const ConnectionImportSchema = z.strictObject({
   ref: z.string(),
   api_family: z.enum(["openai", "anthropic", "gemini"]),
@@ -365,6 +389,190 @@ const ModelImportSchema = z.strictObject({
   }
 });
 
+type ModelImport = z.infer<typeof ModelImportSchema>;
+
+type ImportedModelEntry = {
+  model: ModelImport;
+  modelIndex: number;
+};
+
+function hasPromotionTargetValue(model: ModelImport) {
+  return typeof model.context_overflow_promotion_target_id === "string";
+}
+
+function collectPromotionTerminalRefs(
+  model: ModelImport,
+  modelsByID: ReadonlyMap<string, ImportedModelEntry>,
+  statsByModelID: Map<string, Set<string>>,
+  visiting = new Set<string>(),
+): Set<string> {
+  const cachedStats = statsByModelID.get(model.model_id);
+  if (cachedStats) {
+    return cachedStats;
+  }
+
+  if (visiting.has(model.model_id)) {
+    return new Set<string>();
+  }
+  visiting.add(model.model_id);
+
+  const terminalRefs = new Set<string>();
+  for (const target of model.access_targets) {
+    if (!target.is_enabled) {
+      continue;
+    }
+
+    if (target.target_type === "connection") {
+      const connectionRef = normalizePromotionTargetID(target.connection_ref);
+      if (connectionRef) {
+        terminalRefs.add(connectionRef);
+      }
+      continue;
+    }
+
+    const targetModelID = normalizePromotionTargetID(target.target_model_id);
+    if (!targetModelID) {
+      continue;
+    }
+
+    const targetModelEntry = modelsByID.get(targetModelID);
+    if (!targetModelEntry || targetModelEntry.model.is_enabled === false || targetModelEntry.model.facade_enabled === true) {
+      continue;
+    }
+
+    const nestedRefs = collectPromotionTerminalRefs(
+      targetModelEntry.model,
+      modelsByID,
+      statsByModelID,
+      visiting,
+    );
+    nestedRefs.forEach((connectionRef) => terminalRefs.add(connectionRef));
+  }
+
+  visiting.delete(model.model_id);
+  statsByModelID.set(model.model_id, terminalRefs);
+  return terminalRefs;
+}
+
+function hasOverlappingTerminalRef(sourceRefs: ReadonlySet<string>, targetRefs: ReadonlySet<string>) {
+  for (const connectionRef of sourceRefs) {
+    if (targetRefs.has(connectionRef)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function resolvePromotionTargetLink(
+  context: z.RefinementCtx,
+  sourceModelIndex: number,
+  source: ModelImport,
+  targetModelID: string,
+  modelsByID: ReadonlyMap<string, ImportedModelEntry>,
+): ImportedModelEntry | null {
+  const targetEntry = modelsByID.get(targetModelID.trim());
+  if (!targetEntry) {
+    addPromotionTargetIssue(context, sourceModelIndex, "context_overflow_promotion_target_id must reference an imported model");
+    return null;
+  }
+
+  if (targetEntry.model.model_id === source.model_id) {
+    addPromotionTargetIssue(context, sourceModelIndex, "context_overflow_promotion_target_id cannot reference the source model");
+    return null;
+  }
+
+  if (targetEntry.model.is_enabled === false) {
+    addPromotionTargetIssue(context, sourceModelIndex, "context_overflow_promotion_target_id must reference an enabled model");
+    return null;
+  }
+
+  if (targetEntry.model.facade_enabled === true) {
+    addPromotionTargetIssue(context, sourceModelIndex, "context_overflow_promotion_target_id must reference a non-facade model");
+    return null;
+  }
+
+  if (targetEntry.model.api_family !== source.api_family) {
+    addPromotionTargetIssue(context, sourceModelIndex, "context_overflow_promotion_target_id must reference a model with the same api_family");
+    return null;
+  }
+
+  return targetEntry;
+}
+
+function validatePromotionTargetChain(
+  context: z.RefinementCtx,
+  sourceEntry: ImportedModelEntry,
+  modelsByID: ReadonlyMap<string, ImportedModelEntry>,
+  statsByModelID: Map<string, Set<string>>,
+) {
+  const sourceTargetID = normalizePromotionTargetID(sourceEntry.model.context_overflow_promotion_target_id);
+  if (!sourceTargetID) {
+    addPromotionTargetIssue(context, sourceEntry.modelIndex, "context_overflow_promotion_target_id must reference an imported model");
+    return;
+  }
+
+  const sourceStats = collectPromotionTerminalRefs(sourceEntry.model, modelsByID, statsByModelID);
+  const visitedModelIDs = new Set<string>([sourceEntry.model.model_id]);
+  let current = sourceEntry;
+  let targetID = sourceTargetID;
+
+  for (let depth = 1; ; depth += 1) {
+    const targetEntry = resolvePromotionTargetLink(
+      context,
+      sourceEntry.modelIndex,
+      current.model,
+      targetID,
+      modelsByID,
+    );
+    if (!targetEntry) {
+      return;
+    }
+
+    if (visitedModelIDs.has(targetEntry.model.model_id)) {
+      addPromotionTargetIssue(context, sourceEntry.modelIndex, "context_overflow_promotion_target_id must not introduce a promotion target cycle");
+      return;
+    }
+    visitedModelIDs.add(targetEntry.model.model_id);
+
+    const targetStats = collectPromotionTerminalRefs(targetEntry.model, modelsByID, statsByModelID);
+    if (hasOverlappingTerminalRef(sourceStats, targetStats)) {
+      addPromotionTargetIssue(context, sourceEntry.modelIndex, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model");
+      return;
+    }
+
+    const nextTargetID = normalizePromotionTargetID(targetEntry.model.context_overflow_promotion_target_id);
+    if (!nextTargetID) {
+      return;
+    }
+
+    if (depth === maxPromotionChainTransitions) {
+      addPromotionTargetIssue(context, sourceEntry.modelIndex, "context_overflow_promotion_target_id promotion chain cannot exceed depth 3");
+      return;
+    }
+
+    current = targetEntry;
+    targetID = nextTargetID;
+  }
+}
+
+function validatePromotionTargets(
+  bundle: { models: ModelImport[] },
+  context: z.RefinementCtx,
+) {
+  const modelsByID = new Map<string, ImportedModelEntry>();
+  bundle.models.forEach((model, modelIndex) => {
+    modelsByID.set(model.model_id, { model, modelIndex });
+  });
+
+  const statsByModelID = new Map<string, Set<string>>();
+  bundle.models.forEach((model, modelIndex) => {
+    if (hasPromotionTargetValue(model)) {
+      validatePromotionTargetChain(context, { model, modelIndex }, modelsByID, statsByModelID);
+    }
+  });
+}
+
 const HeaderBlocklistRuleExportSchema = z.strictObject({
   name: z.string(),
   match_type: z.enum(["exact", "prefix"]),
@@ -451,6 +659,8 @@ export const ConfigImportSchema = z.strictObject({
       message: `Connection ref '${connection.ref}' must be owned by exactly one model access target`,
     });
   }
+
+  validatePromotionTargets(bundle, context);
 });
 
 export type ConfigImportSchemaType = z.infer<typeof ConfigImportSchema>;
