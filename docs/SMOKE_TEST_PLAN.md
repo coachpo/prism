@@ -282,7 +282,8 @@ Prepare seed state through API (not manual DB edits):
 | E11 | P1 | Streaming without usage fields | Token fields null |
 | E12 | P0 | Model health fields in `/api/models` | Weighted health and request totals correct |
 | E13 | P0 | Model metrics batch API | Returns metrics for multiple models |
-| E14 | P0 | Dashboard aggregate stats API | `GET /api/stats/dashboard` returns the canonical overview snapshot with `metric_snapshot`, `api_family_rows`, `recent_requests`, top spending models, strategy-family counts, and backend-computed `routing_health_map` |
+| E14 | P0 | Dashboard aggregate stats API | `GET /api/stats/dashboard` returns the canonical stats-only overview snapshot with `snapshot_revision`, diagnostic `source_watermark`, `metric_snapshot`, `api_family_rows`, top spending models, strategy-family counts, and backend-computed `routing_health_map`; recent activity is absent from this payload |
+| E14A | P0 | Dashboard recent activity API | `GET /api/stats/dashboard/recent-activity?limit=N` returns `{ generated_at, activity_watermark, items }`, defaults to 12 items, caps at 50, and orders by newest request history first |
 | E15 | P1 | Throughput API | Returns aggregate RPM metrics plus time buckets for the selected scope |
 | E16 | P0 | Endpoint model statistics API | Returns per-model counts, success rates, TTFT percentiles, token totals, and cost for the selected endpoint scope |
 
@@ -386,7 +387,7 @@ Prepare seed state through API (not manual DB edits):
 | I28 | P0 | Loadbalance events tab REST refresh | Refresh or page revisit loads the latest failover and Ban Policy events for the model |
 | I29 | P0 | Requests audit drawer lazy fetch and retry | Opening the audit tab triggers linked-audit lookup, skips fetches when audit was disabled for that request, and retries empty/transient failures up to five times |
 | I30 | P0 | Dashboard reconnect reconciliation | Dashboard refetches ground truth after websocket reconnect and resumes push updates |
-| I31 | P1 | Dashboard websocket payload completeness | `dashboard.update` refreshes summary, api_family, spending, throughput, and routing data without a second signal |
+| I31 | P1 | Dashboard websocket payload split | `dashboard.snapshot` refreshes summary, api_family, spending, throughput, and routing data; `dashboard.activity` inserts one recent activity row without forcing a snapshot rebuild |
 | I32 | P1 | Recent activity insertion animations | New dashboard websocket-driven rows animate on insert, with reduced-motion fallback showing static highlight only |
 | I33 | P1 | Request-log scroll preservation | Virtualized browsing preserves scroll position while filters, page changes, or detail selection update the view |
 | I34 | P1 | Request-log retained-filter state | Changing one retained filter preserves unrelated URL-backed filter state, resets pagination, and refreshes the server-backed slice without client-side refinement gating |

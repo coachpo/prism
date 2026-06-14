@@ -157,14 +157,16 @@ The gateway computes the cost of each request based on the extracted token usage
 - Statistics dashboard in the Web UI with:
   - Overview cards: total requests, average response time, success rate, total tokens used
   - Aggregate endpoint, model, and proxy-key usage views sourced from the unified usage snapshot with endpoint labels read from stored `endpoint_label_snapshot` values
+  - Separate recent activity feed that links into request-log investigation without being embedded in the dashboard snapshot
   - Filters: date range, model, connection, time range presets (last 1h, 24h, 7d, all)
   - Summary statistics grouped by model and api family
 - Dedicated request investigation UI at `/request-logs` with server-backed coarse filters, caller-only `client_rule_id` filtering, final-target `resolved_target_model_id` filtering, grouped `ingress_request_id` tracking, and lazy audit lookup in a detail drawer
 - REST API for querying statistics remains available for API callers and debugging:
   - List request logs with pagination and filters
+  - Get the stats-only dashboard snapshot and separate dashboard recent activity feed
   - Get aggregated statistics (counts, averages, totals) with grouping
   - Get the usage snapshot and endpoint model statistics directly when needed
-- Dashboard realtime streams overview `dashboard.update` payloads over WebSocket with recent request, 24h summary/api family, 30d spending, 24h throughput, and routing snapshot data
+- Dashboard realtime streams split overview messages over WebSocket: `dashboard.snapshot` for aggregate stats and topology, and `dashboard.activity` for one recent activity item
 - Dashboard Analytics uses websocket-native `analytics.snapshot` payloads scoped by `{profile_id,preset}`. Each snapshot is a full replacement that includes the usage snapshot plus endpoint model statistics keyed by endpoint ID string.
 
 ### 4.10 Request Audit Logging

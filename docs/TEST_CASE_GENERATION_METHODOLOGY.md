@@ -27,11 +27,11 @@ The agent should always inventory Prism as these surfaces:
 - Protected management routes for observe, request logs, models, model detail, endpoints, Ban Policies, settings, proxy keys, and pricing templates
 - Management APIs on `/api/*`, split between global and selected-profile route classes
 - Runtime proxy APIs on `/v1/*` and `/v1beta/*`
-- Realtime dashboard updates on `/api/realtime/ws`
+- Dashboard realtime messages on `/api/realtime/ws`
 - The selected-profile versus active-profile split
 - Dense frontend management surfaces with forms, tables, dialogs, drawers, charts, and toasts
 
-High-value frontend surfaces include the dashboard analytics tab, models list, model detail, endpoints, loadbalance strategies, settings, proxy API keys, pricing templates, and request-log investigation flow. High-value backend surfaces include auth, profile lifecycle, config import or export, runtime proxy routing, failover, realtime dashboard updates, costing, audit logging, and observability queries.
+High-value frontend surfaces include the dashboard analytics tab, models list, model detail, endpoints, loadbalance strategies, settings, proxy API keys, pricing templates, and request-log investigation flow. High-value backend surfaces include auth, profile lifecycle, config import or export, runtime proxy routing, failover, dashboard realtime messages, costing, audit logging, and observability queries.
 
 ## 4. Coverage Classes
 

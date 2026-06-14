@@ -89,16 +89,18 @@ Validated again against current repo surfaces on 2026-06-05:
 
 **Frontend flow**
 
-1. Dashboard overview bootstrap loads KPI cards, spending summaries, throughput, recent activity, and routing data from the canonical aggregate snapshot.
-2. The dashboard subscribes to realtime `dashboard.update` messages for live reconciliation against that same overview snapshot shape.
-3. Quick actions send operators into the analytics tab or `/request-logs` for deeper analysis.
-4. The analytics tab stays aggregate-focused and uses its own snapshot presets rather than request-level drill-down.
+1. Dashboard overview bootstrap loads KPI cards, spending summaries, throughput, and routing data from the stats-only aggregate snapshot.
+2. Dashboard overview bootstrap loads recent activity from the separate recent-activity feed.
+3. The dashboard subscribes to realtime `dashboard.snapshot` messages for aggregate reconciliation and `dashboard.activity` messages for feed reconciliation.
+4. Quick actions send operators into the analytics tab or `/request-logs` for deeper analysis.
+5. The analytics tab stays aggregate-focused and uses its own snapshot presets rather than request-level drill-down.
 
 **Backend touchpoints**
 
 - `GET /api/stats/dashboard` for the overview aggregate snapshot, including backend-computed Routing Health Map data
+- `GET /api/stats/dashboard/recent-activity` for bounded request-history-backed dashboard activity
 - `GET /api/stats/usage-snapshot` for the analytics tab snapshot presets
-- `WS /api/realtime/ws` for overview `dashboard.update` reconciliation
+- `WS /api/realtime/ws` for overview `dashboard.snapshot` and `dashboard.activity` reconciliation
 
 ## 4. Model Management And Model Detail
 
