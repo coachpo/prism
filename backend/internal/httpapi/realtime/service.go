@@ -22,7 +22,8 @@ import (
 
 const (
 	dashboardChannel                  = "dashboard"
-	dashboardUpdateMessageType        = "dashboard.update"
+	dashboardSnapshotMessageType      = "dashboard.snapshot"
+	dashboardActivityMessageType      = "dashboard.activity"
 	analyticsSnapshotMessageType      = "analytics.snapshot"
 	analyticsErrorMessageType         = "analytics.error"
 	defaultAsyncDashboardQueueSize    = 64
@@ -54,8 +55,8 @@ type Options struct {
 	DashboardSnapshots *statsdomain.DashboardAggregateStore
 }
 
-type pendingDashboardUpdatePublisher interface {
-	PublishPendingDashboardUpdate(context.Context, int) (bool, error)
+type pendingDashboardSnapshotPublisher interface {
+	PublishPendingDashboardSnapshot(context.Context, int) (bool, error)
 }
 
 type pendingAnalyticsUpdatePublisher interface {
@@ -67,11 +68,9 @@ type Service struct {
 	authService                *managementauth.Service
 	corsOriginProvider         platformcors.OriginProvider
 	manager                    *ConnectionManager
-	latestMu                   sync.Mutex
-	latestRequestLogIDs        map[int]int
 	latestAnalyticsSequenceMu  sync.Mutex
 	latestAnalyticsSequenceIDs map[string]int64
-	pendingDashboardUpdates    pendingDashboardUpdatePublisher
+	pendingDashboardSnapshots  pendingDashboardSnapshotPublisher
 	pendingAnalyticsUpdates    pendingAnalyticsUpdatePublisher
 	now                        func() time.Time
 	dashboardSnapshots         *statsdomain.DashboardAggregateStore
@@ -111,7 +110,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		authService:                options.AuthService,
 		corsOriginProvider:         corsOriginProvider,
 		manager:                    NewConnectionManager(defaultRealtimeWriteTimeout),
-		latestRequestLogIDs:        map[int]int{},
 		latestAnalyticsSequenceIDs: map[string]int64{},
 		now:                        now,
 		dashboardSnapshots:         dashboardSnapshots,
@@ -134,7 +132,7 @@ func (s *Service) SetAsyncDashboardPublisher(publisher *AsyncDashboardPublisher)
 	if s == nil {
 		return
 	}
-	s.pendingDashboardUpdates = publisher
+	s.pendingDashboardSnapshots = publisher
 }
 
 func (s *Service) SetAsyncAnalyticsPublisher(publisher *AsyncAnalyticsPublisher) {
@@ -325,7 +323,6 @@ func (s *Service) handleDashboardSubscribe(ctx context.Context, connectionID str
 	if !connection.SendJSON(map[string]any{"type": "subscribed", "profile_id": message.ProfileID, "channel": channel}) {
 		return false
 	}
-	_, _ = s.publishPendingDashboardUpdate(ctx, message.ProfileID)
 	return true
 }
 
@@ -473,11 +470,11 @@ func stringPtr(value string) *string {
 	return &resolved
 }
 
-func (s *Service) publishPendingDashboardUpdate(ctx context.Context, profileID int) (bool, error) {
-	if s.pendingDashboardUpdates != nil {
-		return s.pendingDashboardUpdates.PublishPendingDashboardUpdate(ctx, profileID)
+func (s *Service) publishPendingDashboardSnapshot(ctx context.Context, profileID int) (bool, error) {
+	if s.pendingDashboardSnapshots != nil {
+		return s.pendingDashboardSnapshots.PublishPendingDashboardSnapshot(ctx, profileID)
 	}
-	return s.PublishPendingDashboardUpdate(ctx, profileID)
+	return s.PublishPendingDashboardSnapshot(ctx, profileID)
 }
 
 func (s *Service) PublishAnalyticsUpdates(ctx context.Context, profileID int) (bool, error) {
@@ -518,10 +515,4 @@ func (s *Service) profileExists(ctx context.Context, profileID int) (bool, error
 		return false, fmt.Errorf("load profile %d: %w", profileID, err)
 	}
 	return found, nil
-}
-
-func (s *Service) clearLatestDashboardRequestLog(profileID int) {
-	s.latestMu.Lock()
-	defer s.latestMu.Unlock()
-	delete(s.latestRequestLogIDs, profileID)
 }
