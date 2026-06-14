@@ -611,13 +611,237 @@ func TestChatStreamingPreDispatchPromotionSkipsSourceUpstream(t *testing.T) {
 	runChatStreamingPreDispatchPromotionSkipsSourceUpstream(t, "focused")
 }
 
+func TestChatNonStreamPreDispatchPromotionSkipsSourceUpstream(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "source upstream should not receive pre-dispatch promoted chat"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "gpt-5-chat-nonstream-predispatch-" + suffix,
+		TargetModelID:   "overflow-chat-nonstream-predispatch-source-" + suffix,
+		EndpointBaseURL: sourceUpstream.baseURL("/overflow/chat-nonstream-predispatch/source"),
+		EndpointAPIKey:  "overflow-chat-nonstream-predispatch-source-key",
+	})
+	promotedModelID := "overflow-chat-nonstream-predispatch-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl-nonstream-predispatch-" + suffix,
+		"object": "chat.completion",
+		"usage":  map[string]any{"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13},
+	})
+	_, promotedConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/chat-nonstream-predispatch/promoted"), "overflow-chat-nonstream-predispatch-promoted-key", nil, 4_096)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"max_completion_tokens": 600,
+		"messages":              []map[string]any{{"role": "user", "content": "non-stream chat overflow should promote before source dispatch"}},
+		"model":                 route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	payload := runtimeResponsePayload(t, response)
+	if payload["id"] != "chatcmpl-nonstream-predispatch-"+suffix {
+		t.Fatalf("expected promoted Chat response body, got %+v", payload)
+	}
+	assertNoScriptedUpstreamRequests(t, sourceUpstream, "chat non-stream pre-dispatch source")
+	promotedRequests := promotedUpstream.requestsSnapshot()
+	assertProxySelectorRequestSequence(t, promotedRequests, []proxySelectorExpectedRequest{{
+		Path:    "/overflow/chat-nonstream-predispatch/promoted/v1/chat/completions",
+		ModelID: promotedModelID,
+	}})
+	assertChatNonStreamPreDispatchPromotedRequestBody(t, promotedRequests[0], promotedModelID)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  promotedConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
+	assertLatestPreDispatchPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID, 256, 4096, "openai_chat_tokenizer_v1")
+}
+
+func TestResponsesNonStreamPreDispatchPromotionSkipsSourceUpstream(t *testing.T) {
+	t.Run("cross-format target", func(t *testing.T) {
+		harness := newEnforcedRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		suffix := randomSuffix()
+		sourceVariant := "responses_reasoning_none"
+		chatOnlyVariant := "chat_completions_reasoning_none"
+		sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "source upstream should not receive pre-dispatch promoted responses"})
+		route := harness.seedProxyRoute(t, runtimeRouteSeed{
+			ProfileID:                  profileID,
+			APIFamily:                  "openai",
+			PublicModelID:              "gpt-5-responses-nonstream-predispatch-" + suffix,
+			TargetModelID:              "overflow-responses-nonstream-predispatch-source-" + suffix,
+			EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-nonstream-predispatch/source"),
+			EndpointAPIKey:             "overflow-responses-nonstream-predispatch-source-key",
+			OpenAIProbeEndpointVariant: &sourceVariant,
+			OpenAITextCapability:       runtimeStringPtr("responses_only"),
+		})
+		promotedModelID := "overflow-responses-nonstream-predispatch-promoted-" + suffix
+		promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+			"id":      "chatcmpl-responses-nonstream-predispatch-" + suffix,
+			"object":  "chat.completion",
+			"created": 1710000000,
+			"model":   promotedModelID,
+			"choices": []map[string]any{{
+				"index":         0,
+				"message":       map[string]any{"role": "assistant", "content": "promoted responses predispatch"},
+				"finish_reason": "stop",
+			}},
+			"usage": map[string]any{"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13},
+		})
+		_, promotedConnectionID := seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-nonstream-predispatch/promoted"), "overflow-responses-nonstream-predispatch-promoted-key", &chatOnlyVariant, runtimeStringPtr("chat_completions_only"), 4_096)
+		setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+		setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+			"input":             "non-stream responses overflow should promote before source dispatch",
+			"model":             route.PublicModelID,
+			"max_output_tokens": 600,
+		}, nil)
+		assertStatus(t, response, http.StatusOK)
+		payload := runtimeResponsePayload(t, response)
+		if payload["id"] != "chatcmpl-responses-nonstream-predispatch-"+suffix || payload["object"] != "response" {
+			t.Fatalf("expected translated promoted Responses body, got %+v", payload)
+		}
+		assertNoScriptedUpstreamRequests(t, sourceUpstream, "responses non-stream pre-dispatch source")
+		promotedRequests := promotedUpstream.requestsSnapshot()
+		assertProxySelectorRequestSequence(t, promotedRequests, []proxySelectorExpectedRequest{{
+			Path:    "/overflow/responses-nonstream-predispatch/promoted/v1/chat/completions",
+			ModelID: promotedModelID,
+		}})
+		assertResponsesNonStreamPreDispatchPromotedRequestBody(t, promotedRequests[0], promotedModelID)
+		waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+		assertLatestRuntimeRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+		assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+		assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+		assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+		assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+			AttemptNumber: 1,
+			ConnectionID:  promotedConnectionID,
+			EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID),
+			StatusCode:    http.StatusOK,
+			SuccessFlag:   true,
+		}})
+		assertLatestPreDispatchPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID, 256, 4096, "openai_responses_tokenizer_v1")
+	})
+
+	t.Run("unsupported translation uses source", func(t *testing.T) {
+		harness := newEnforcedRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		suffix := randomSuffix()
+		sourceVariant := "responses_reasoning_none"
+		chatOnlyVariant := "chat_completions_reasoning_none"
+		sourceUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "resp-unsupported-translation-source-" + suffix, "object": "response"})
+		route := harness.seedProxyRoute(t, runtimeRouteSeed{
+			ProfileID:                  profileID,
+			APIFamily:                  "openai",
+			PublicModelID:              "gpt-5-responses-nonstream-predispatch-unsupported-" + suffix,
+			TargetModelID:              "overflow-responses-nonstream-predispatch-unsupported-source-" + suffix,
+			EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-nonstream-predispatch-unsupported/source"),
+			EndpointAPIKey:             "overflow-responses-nonstream-predispatch-unsupported-source-key",
+			OpenAIProbeEndpointVariant: &sourceVariant,
+			OpenAITextCapability:       runtimeStringPtr("responses_only"),
+		})
+		promotedModelID := "overflow-responses-nonstream-predispatch-unsupported-promoted-" + suffix
+		promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-unsupported-translation-should-not-run"})
+		seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-nonstream-predispatch-unsupported/promoted"), "overflow-responses-nonstream-predispatch-unsupported-promoted-key", &chatOnlyVariant, runtimeStringPtr("chat_completions_only"), 4_096)
+		setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+		setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+			"input":             "unsupported translated responses predispatch should use source",
+			"model":             route.PublicModelID,
+			"max_output_tokens": 600,
+			"text":              map[string]any{"format": map[string]any{"type": "json_object"}},
+		}, nil)
+		assertStatus(t, response, http.StatusOK)
+		assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+			Path:    "/overflow/responses-nonstream-predispatch-unsupported/source/v1/responses",
+			ModelID: route.TargetModelID,
+		}})
+		assertNoScriptedUpstreamRequests(t, promotedUpstream, "unsupported translation pre-dispatch promotion target")
+	})
+}
+
+func TestResponsesStreamingPreDispatchPromotionSkipsSourceUpstream(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "source upstream should not receive pre-dispatch promoted responses stream"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "gpt-5-responses-stream-predispatch-" + suffix,
+		TargetModelID:              "overflow-responses-stream-predispatch-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-stream-predispatch/source"),
+		EndpointAPIKey:             "overflow-responses-stream-predispatch-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &responsesOnlyCapability,
+	})
+	promotedModelID := "overflow-responses-stream-predispatch-promoted-" + suffix
+	promotedStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-stream-predispatch-" + suffix + "\"}}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"promoted responses predispatch stream bytes\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-stream-predispatch-" + suffix + "\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3,\"total_tokens\":8}}}\n\n"
+	promotedUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", promotedStream)
+	_, promotedConnectionID := seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-stream-predispatch/promoted"), "overflow-responses-stream-predispatch-promoted-key", &sourceVariant, &responsesOnlyCapability, 4_096)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":             "streaming responses overflow should promote before source dispatch",
+		"model":             route.PublicModelID,
+		"max_output_tokens": 600,
+		"stream":            true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if !strings.HasPrefix(body, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-stream-predispatch-") || !strings.Contains(body, "promoted responses predispatch stream bytes") {
+		t.Fatalf("expected client-visible bytes to begin with promoted Responses SSE, got %q", body)
+	}
+	assertNoScriptedUpstreamRequests(t, sourceUpstream, "responses streaming pre-dispatch source")
+	promotedRequests := promotedUpstream.requestsSnapshot()
+	assertProxySelectorRequestSequence(t, promotedRequests, []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-stream-predispatch/promoted/v1/responses",
+		ModelID: promotedModelID,
+	}})
+	assertResponsesStreamingPreDispatchPromotedRequestBody(t, promotedRequests[0], promotedModelID)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  promotedConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
+	assertLatestPreDispatchPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID, 256, 4096, "openai_responses_tokenizer_v1")
+}
+
 func TestChatStreamingPreDispatchPromotionRequestLogAndTraceMetadata(t *testing.T) {
 	recorder := installRuntimePromotionTraceRecorder(t)
 	runChatStreamingPreDispatchPromotionSkipsSourceUpstream(t, "observability")
 	attrs := waitForRuntimePromotionTraceAttributes(t, recorder, "pre_dispatch_estimate")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.trigger_phase", "pre_dispatch_estimate")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_mode", "preflight_estimated")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_status", "present")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_method", "openai_chat_tokenizer_v1")
+	assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.estimation_unavailable_reason")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.result", "promoted_success")
 	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.source_attempt_count", 0)
 	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.final_attempt_count", 1)
@@ -636,7 +860,9 @@ func TestChatStreamingPreDispatchPromotionGPT5DottedRequestLogAndTraceMetadata(t
 	attrs := waitForRuntimePromotionTraceAttributes(t, recorder, "pre_dispatch_estimate")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.trigger_phase", "pre_dispatch_estimate")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_mode", "preflight_estimated")
+	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_status", "present")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_method", "openai_chat_tokenizer_v1")
+	assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.estimation_unavailable_reason")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.result", "promoted_success")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.from_model_id", "gpt-5.5")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.to_model_id", "gpt-5.4")
@@ -682,7 +908,107 @@ func TestProviderOverflowPromotionRequestLogAndUsageMetadata(t *testing.T) {
 		assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
 		assertLatestProviderOverflowPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
 		attrs := waitForRuntimePromotionTraceAttributes(t, recorder, "provider_overflow")
-		assertProviderOverflowTraceMetadata(t, attrs)
+		assertProviderOverflowTraceMetadata(t, attrs, "")
+	})
+
+	t.Run("non_stream_chat_provider_miss", func(t *testing.T) {
+		recorder := installRuntimePromotionTraceRecorder(t)
+		harness := newRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		suffix := randomSuffix()
+		sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("source provider-confirmed miss should promote"))
+		route := harness.seedProxyRoute(t, runtimeRouteSeed{
+			ProfileID:       profileID,
+			APIFamily:       "openai",
+			PublicModelID:   "gpt-5-provider-miss-public-" + suffix,
+			TargetModelID:   "overflow-provider-miss-source-" + suffix,
+			EndpointBaseURL: sourceUpstream.baseURL("/overflow/provider-miss/source"),
+			EndpointAPIKey:  "overflow-provider-miss-source-key",
+		})
+		promotedModelID := "overflow-provider-miss-promoted-" + suffix
+		promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+			"id":     "chatcmpl-provider-miss-promoted-" + suffix,
+			"object": "chat.completion",
+			"usage":  map[string]any{"prompt_tokens": 9, "completion_tokens": 3, "total_tokens": 12},
+		})
+		_, promotedConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/provider-miss/promoted"), "overflow-provider-miss-promoted-key", nil, 32_768)
+		setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
+		setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+		response := performProxySelectorChatRequest(t, harness, route.PublicModelID, "provider miss should not pre-dispatch")
+		assertStatus(t, response, http.StatusOK)
+		assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+			Path:    "/overflow/provider-miss/source/v1/chat/completions",
+			ModelID: route.TargetModelID,
+		}})
+		assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+			Path:    "/overflow/provider-miss/promoted/v1/chat/completions",
+			ModelID: promotedModelID,
+		}})
+		waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+		assertLatestRuntimeRouteReason(t, harness.conn, profileID, "context_overflow_provider_fallback")
+		assertLatestProviderOverflowPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
+		assertLatestProviderOverflowPromotionEstimationMetadata(t, harness, profileID, "preflight_estimated", "present", nil, runtimeStringPtr("openai_chat_tokenizer_v1"), true)
+		attrs := waitForRuntimePromotionTraceAttributes(t, recorder, "provider_overflow")
+		assertProviderOverflowTraceMetadata(t, attrs, "openai_chat_tokenizer_v1")
+	})
+
+	t.Run("non_stream_chat_unavailable_estimation", func(t *testing.T) {
+		recorder := installRuntimePromotionTraceRecorder(t)
+		harness := newRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		suffix := randomSuffix()
+		sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("source unavailable-estimation overflow should promote"))
+		route := harness.seedProxyRoute(t, runtimeRouteSeed{
+			ProfileID:       profileID,
+			APIFamily:       "openai",
+			PublicModelID:   "gpt-5-unavailable-provider-fallback-public-" + suffix,
+			TargetModelID:   "overflow-unavailable-provider-fallback-source-" + suffix,
+			EndpointBaseURL: sourceUpstream.baseURL("/overflow/unavailable-provider-fallback/source"),
+			EndpointAPIKey:  "overflow-unavailable-provider-fallback-source-key",
+		})
+		promotedModelID := "overflow-unavailable-provider-fallback-promoted-" + suffix
+		promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+			"id":     "chatcmpl-unavailable-provider-fallback-promoted-" + suffix,
+			"object": "chat.completion",
+			"usage":  map[string]any{"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+		})
+		_, promotedConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/unavailable-provider-fallback/promoted"), "overflow-unavailable-provider-fallback-promoted-key", nil, 32_768)
+		setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+		setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+			"max_completion_tokens": 600,
+			"messages": []map[string]any{{
+				"role": "user",
+				"content": []map[string]any{{
+					"type":      "image_url",
+					"image_url": map[string]any{"url": "https://example.invalid/context.png"},
+				}},
+			}},
+			"model": route.PublicModelID,
+		}, nil)
+		assertStatus(t, response, http.StatusOK)
+		assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+			Path:    "/overflow/unavailable-provider-fallback/source/v1/chat/completions",
+			ModelID: route.TargetModelID,
+		}})
+		assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+			Path:    "/overflow/unavailable-provider-fallback/promoted/v1/chat/completions",
+			ModelID: promotedModelID,
+		}})
+		waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+		assertLatestRuntimeRouteReason(t, harness.conn, profileID, "context_overflow_provider_fallback")
+		assertLatestProviderOverflowPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
+		assertLatestProviderOverflowPromotionEstimationMetadata(t, harness, profileID, "estimation_unavailable_pass_through", "unavailable", runtimeStringPtr("chat_non_text_content"), nil, false)
+		attrs := waitForRuntimePromotionTraceAttributes(t, recorder, "provider_overflow")
+		assertProviderOverflowTraceMetadata(t, attrs, "")
+		assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_status", "unavailable")
+		assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_unavailable_reason", "chat_non_text_content")
+		assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.estimation_method")
+		assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.estimated_input_tokens")
+		assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.reserved_output_tokens")
+		assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.estimated_total_context_tokens")
 	})
 
 	t.Run("responses_streaming", func(t *testing.T) {
@@ -730,7 +1056,7 @@ func TestProviderOverflowPromotionRequestLogAndUsageMetadata(t *testing.T) {
 		assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
 		assertLatestProviderOverflowPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
 		attrs := waitForRuntimePromotionTraceAttributes(t, recorder, "provider_overflow")
-		assertProviderOverflowTraceMetadata(t, attrs)
+		assertProviderOverflowTraceMetadata(t, attrs, "")
 	})
 }
 
@@ -1219,6 +1545,88 @@ func TestResponsesStreamingSSECreatedThenOverflowErrorReplaysBeforeVisibleBytes(
 		Path:    "/overflow/responses-sse-error/promoted/v1/responses",
 		ModelID: promotedModelID,
 	}})
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 2, 2)
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  route.ConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, route.ConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}, {
+		AttemptNumber: 2,
+		ConnectionID:  promotedConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
+	assertLatestProviderOverflowPromotionMetadataWithCode(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID, http.StatusOK, "context_too_large")
+}
+
+func TestResponsesStreamingProviderOverflowStillReplaysBeforeVisibleBytesWhenEstimateUnavailable(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-unavailable-source-" + suffix + "\"}}\n\n" +
+		"event: error\n" +
+		"data: {\"type\":\"error\",\"code\":\"context_too_large\",\"message\":\"source unavailable-estimate SSE overflow should promote\"}\n\n"
+	sourceUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", sourceStream)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "overflow-responses-unavailable-sse-public-" + suffix,
+		TargetModelID:              "overflow-responses-unavailable-sse-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/responses-unavailable-sse/source"),
+		EndpointAPIKey:             "overflow-responses-unavailable-sse-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &responsesOnlyCapability,
+	})
+	promotedModelID := "overflow-responses-unavailable-sse-promoted-" + suffix
+	promotedStream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-unavailable-promoted-" + suffix + "\"}}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"promoted unavailable-estimate provider overflow stream\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-unavailable-promoted-" + suffix + "\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3,\"total_tokens\":8}}}\n\n"
+	promotedUpstream := newRawRuntimeUpstream(t, http.StatusOK, "text/event-stream", promotedStream)
+	_, promotedConnectionID := seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/responses-unavailable-sse/promoted"), "overflow-responses-unavailable-sse-promoted-key", &sourceVariant, &responsesOnlyCapability, 4_096)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	previousResponseID := "resp_previous_unavailable_" + suffix
+	metadataTraceID := "trace-unavailable-sse-" + suffix
+	input := "responses streaming unavailable estimation keeps provider overflow replay fallback"
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"input":                input,
+		"metadata":             map[string]any{"trace_id": metadataTraceID},
+		"model":                route.PublicModelID,
+		"max_output_tokens":    600,
+		"previous_response_id": previousResponseID,
+		"store":                false,
+		"stream":               true,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	body := readResponseBody(t, response)
+	if !strings.HasPrefix(body, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-unavailable-promoted-") {
+		t.Fatalf("expected client-visible bytes to begin with promoted SSE, got %q", body)
+	}
+	if strings.Contains(body, "resp-unavailable-source-") || strings.Contains(body, "source unavailable-estimate SSE overflow") || !strings.Contains(body, "promoted unavailable-estimate provider overflow stream") {
+		t.Fatalf("expected promoted SSE body without staged source prelude/error, got %q", body)
+	}
+	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-unavailable-sse/source/v1/responses",
+		ModelID: route.TargetModelID,
+	}})
+	promotedRequests := promotedUpstream.requestsSnapshot()
+	assertProxySelectorRequestSequence(t, promotedRequests, []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-unavailable-sse/promoted/v1/responses",
+		ModelID: promotedModelID,
+	}})
+	assertResponsesStreamingReplayBodyFields(t, promotedRequests[0], previousResponseID, false, input, metadataTraceID)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 2, 2)
@@ -1812,13 +2220,8 @@ func (u *rawRuntimeUpstream) requestsSnapshot() []upstreamRequestSnapshot {
 
 func assertChatStreamingPreDispatchPromotedRequestBody(t *testing.T, request upstreamRequestSnapshot, wantModelID string) {
 	t.Helper()
-	var payload map[string]any
-	if err := json.Unmarshal(request.Body, &payload); err != nil {
-		t.Fatalf("decode chat streaming promoted request body %q: %v", string(request.Body), err)
-	}
-	if got, _ := payload["model"].(string); got != wantModelID {
-		t.Fatalf("expected promoted chat model %q, got %+v", wantModelID, payload)
-	}
+	payload := decodePreDispatchRequestBody(t, request, "chat streaming")
+	assertPromotedRequestModel(t, payload, wantModelID, "chat streaming")
 	if got, ok := payload["stream"].(bool); !ok || !got {
 		t.Fatalf("expected promoted chat stream=true, got %+v", payload)
 	}
@@ -1835,20 +2238,96 @@ func assertChatStreamingPreDispatchPromotedRequestBody(t *testing.T, request ups
 	}
 }
 
-func assertLatestChatPreDispatchPromotionMetadata(t *testing.T, harness *runtimeHarness, profileID int, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int, wantSourceWindow int, wantPromotedWindow int) {
+func assertChatNonStreamPreDispatchPromotedRequestBody(t *testing.T, request upstreamRequestSnapshot, wantModelID string) {
 	t.Helper()
-	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
-	assertChatPreDispatchPromotionMetadataRow(t, harness, profileID, ingressRequestID, "request_logs", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantSourceWindow, wantPromotedWindow)
-	assertChatPreDispatchPromotionMetadataRow(t, harness, profileID, ingressRequestID, "usage_request_events", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantSourceWindow, wantPromotedWindow)
+	payload := decodePreDispatchRequestBody(t, request, "chat non-stream")
+	assertPromotedRequestModel(t, payload, wantModelID, "chat non-stream")
+	if got, ok := payload["stream"].(bool); ok && got {
+		t.Fatalf("expected promoted chat non-stream request to preserve non-stream mode, got %+v", payload)
+	}
+	if got, ok := payload["max_completion_tokens"].(float64); !ok || int(got) != 600 {
+		t.Fatalf("expected promoted chat max_completion_tokens=600, got %+v", payload)
+	}
+	messages, ok := payload["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected promoted chat messages to be preserved, got %+v", payload)
+	}
+	message, ok := messages[0].(map[string]any)
+	if !ok || message["content"] != "non-stream chat overflow should promote before source dispatch" {
+		t.Fatalf("expected promoted chat message content to be preserved, got %+v", payload)
+	}
 }
 
-func assertChatPreDispatchPromotionMetadataRow(t *testing.T, harness *runtimeHarness, profileID int, ingressRequestID string, table string, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int, wantSourceWindow int, wantPromotedWindow int) {
+func assertResponsesNonStreamPreDispatchPromotedRequestBody(t *testing.T, request upstreamRequestSnapshot, wantModelID string) {
+	t.Helper()
+	payload := decodePreDispatchRequestBody(t, request, "responses non-stream")
+	assertPromotedRequestModel(t, payload, wantModelID, "responses non-stream")
+	if got, ok := payload["stream"].(bool); ok && got {
+		t.Fatalf("expected translated promoted responses request to preserve non-stream mode, got %+v", payload)
+	}
+	if got, ok := payload["max_completion_tokens"].(float64); !ok || int(got) != 600 {
+		t.Fatalf("expected translated promoted responses max_completion_tokens=600, got %+v", payload)
+	}
+	messages, ok := payload["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected translated promoted responses messages, got %+v", payload)
+	}
+	message, ok := messages[0].(map[string]any)
+	if !ok || message["content"] != "non-stream responses overflow should promote before source dispatch" {
+		t.Fatalf("expected translated promoted responses input to be preserved, got %+v", payload)
+	}
+}
+
+func assertResponsesStreamingPreDispatchPromotedRequestBody(t *testing.T, request upstreamRequestSnapshot, wantModelID string) {
+	t.Helper()
+	payload := decodePreDispatchRequestBody(t, request, "responses streaming")
+	assertPromotedRequestModel(t, payload, wantModelID, "responses streaming")
+	if got, ok := payload["stream"].(bool); !ok || !got {
+		t.Fatalf("expected promoted responses stream=true, got %+v", payload)
+	}
+	if got, ok := payload["max_output_tokens"].(float64); !ok || int(got) != 600 {
+		t.Fatalf("expected promoted responses max_output_tokens=600, got %+v", payload)
+	}
+	if got, _ := payload["input"].(string); got != "streaming responses overflow should promote before source dispatch" {
+		t.Fatalf("expected promoted responses input to be preserved, got %+v", payload)
+	}
+}
+
+func decodePreDispatchRequestBody(t *testing.T, request upstreamRequestSnapshot, label string) map[string]any {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(request.Body, &payload); err != nil {
+		t.Fatalf("decode %s promoted request body %q: %v", label, string(request.Body), err)
+	}
+	return payload
+}
+
+func assertPromotedRequestModel(t *testing.T, payload map[string]any, wantModelID string, label string) {
+	t.Helper()
+	if got, _ := payload["model"].(string); got != wantModelID {
+		t.Fatalf("expected promoted %s model %q, got %+v", label, wantModelID, payload)
+	}
+}
+
+func assertLatestChatPreDispatchPromotionMetadata(t *testing.T, harness *runtimeHarness, profileID int, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int, wantSourceWindow int, wantPromotedWindow int) {
+	t.Helper()
+	assertLatestPreDispatchPromotionMetadata(t, harness, profileID, wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantSourceWindow, wantPromotedWindow, "openai_chat_tokenizer_v1")
+}
+
+func assertLatestPreDispatchPromotionMetadata(t *testing.T, harness *runtimeHarness, profileID int, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int, wantSourceWindow int, wantPromotedWindow int, wantEstimationMethod string) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+	assertPreDispatchPromotionMetadataRow(t, harness, profileID, ingressRequestID, "request_logs", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantSourceWindow, wantPromotedWindow, wantEstimationMethod)
+	assertPreDispatchPromotionMetadataRow(t, harness, profileID, ingressRequestID, "usage_request_events", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantSourceWindow, wantPromotedWindow, wantEstimationMethod)
+}
+
+func assertPreDispatchPromotionMetadataRow(t *testing.T, harness *runtimeHarness, profileID int, ingressRequestID string, table string, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int, wantSourceWindow int, wantPromotedWindow int, wantEstimationMethod string) {
 	t.Helper()
 	contextRouting := loadLatestRuntimeContextRoutingForIngress(t, harness, profileID, ingressRequestID, table)
 	promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
-	label := "chat pre-dispatch " + table
-	if promotion["trigger_phase"] != "pre_dispatch_estimate" || promotion["trigger_classifier"] != "estimated_context_exceeds_usable_window" || promotion["estimation_mode"] != "preflight_estimated" || promotion["estimation_method"] != "openai_chat_tokenizer_v1" || promotion["result"] != "promoted_success" {
-		t.Fatalf("expected %s promotion metadata strings, got %+v", label, promotion)
+	label := "pre-dispatch " + table
+	if promotion["trigger_phase"] != "pre_dispatch_estimate" || promotion["trigger_classifier"] != "estimated_context_exceeds_usable_window" || promotion["estimation_mode"] != "preflight_estimated" || promotion["estimation_method"] != wantEstimationMethod || promotion["result"] != "promoted_success" {
+		t.Fatalf("expected %s promotion metadata strings with estimation_method=%q, got %+v", label, wantEstimationMethod, promotion)
 	}
 	assertTranslatedPromotionNumber(t, label, promotion, "source_attempt_count", 0)
 	assertTranslatedPromotionNumber(t, label, promotion, "final_attempt_count", 1)
@@ -1881,6 +2360,52 @@ func assertLatestProviderOverflowPromotionMetadataWithCode(t *testing.T, harness
 	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
 	assertProviderOverflowPromotionMetadataRow(t, harness, profileID, ingressRequestID, "request_logs", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantTriggerStatus, wantTriggerCode)
 	assertProviderOverflowPromotionMetadataRow(t, harness, profileID, ingressRequestID, "usage_request_events", wantSourceModelID, wantPromotedModelID, wantSourceConnectionID, wantPromotedConnectionID, wantTriggerStatus, wantTriggerCode)
+}
+
+func assertLatestProviderOverflowPromotionEstimationMetadata(t *testing.T, harness *runtimeHarness, profileID int, wantMode string, wantStatus string, wantReason *string, wantMethod *string, wantTokenMetadata bool) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+	assertProviderOverflowPromotionEstimationMetadataRow(t, harness, profileID, ingressRequestID, "request_logs", wantMode, wantStatus, wantReason, wantMethod, wantTokenMetadata)
+	assertProviderOverflowPromotionEstimationMetadataRow(t, harness, profileID, ingressRequestID, "usage_request_events", wantMode, wantStatus, wantReason, wantMethod, wantTokenMetadata)
+}
+
+func assertProviderOverflowPromotionEstimationMetadataRow(t *testing.T, harness *runtimeHarness, profileID int, ingressRequestID string, table string, wantMode string, wantStatus string, wantReason *string, wantMethod *string, wantTokenMetadata bool) {
+	t.Helper()
+	contextRouting := loadLatestRuntimeContextRoutingForIngress(t, harness, profileID, ingressRequestID, table)
+	promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
+	label := "provider overflow estimation " + table
+	if promotion["estimation_mode"] != wantMode {
+		t.Fatalf("expected %s estimation_mode=%q, got %+v", label, wantMode, promotion)
+	}
+	if promotion["estimation_status"] != wantStatus {
+		t.Fatalf("expected %s estimation_status=%q, got %+v", label, wantStatus, promotion)
+	}
+	if wantReason == nil {
+		if reason, ok := promotion["estimation_unavailable_reason"]; ok && reason != nil {
+			t.Fatalf("expected %s to omit estimation_unavailable_reason, got %+v", label, promotion)
+		}
+	} else if promotion["estimation_unavailable_reason"] != *wantReason {
+		t.Fatalf("expected %s estimation_unavailable_reason=%q, got %+v", label, *wantReason, promotion)
+	}
+	if wantMethod == nil {
+		if method, ok := promotion["estimation_method"]; ok && method != nil {
+			t.Fatalf("expected %s to omit estimation_method, got %+v", label, promotion)
+		}
+	} else if promotion["estimation_method"] != *wantMethod {
+		t.Fatalf("expected %s estimation_method=%q, got %+v", label, *wantMethod, promotion)
+	}
+	for _, key := range []string{"estimated_input_tokens", "reserved_output_tokens", "estimated_total_context_tokens"} {
+		value, ok := promotion[key].(float64)
+		if wantTokenMetadata {
+			if !ok || value <= 0 {
+				t.Fatalf("expected %s positive %s metadata, got %+v", label, key, promotion)
+			}
+			continue
+		}
+		if ok || promotion[key] != nil {
+			t.Fatalf("expected %s to omit %s metadata, got %+v", label, key, promotion)
+		}
+	}
 }
 
 func assertProviderOverflowPromotionMetadataRow(t *testing.T, harness *runtimeHarness, profileID int, ingressRequestID string, table string, wantSourceModelID string, wantPromotedModelID string, wantSourceConnectionID int, wantPromotedConnectionID int, wantTriggerStatus int, wantTriggerCode string) {
@@ -1970,12 +2495,18 @@ func runtimePromotionTraceSpanSummary(spans []sdktrace.ReadOnlySpan) map[string]
 	return summary
 }
 
-func assertProviderOverflowTraceMetadata(t *testing.T, attrs map[string]attribute.Value) {
+func assertProviderOverflowTraceMetadata(t *testing.T, attrs map[string]attribute.Value, wantEstimationMethod string) {
 	t.Helper()
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.trigger_phase", "provider_overflow")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.trigger_code", "context_length_exceeded")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.trigger_classifier", "error_code")
 	assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.result", "promoted_success")
+	if wantEstimationMethod != "" {
+		assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_mode", "preflight_estimated")
+		assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_status", "present")
+		assertRuntimePromotionTraceString(t, attrs, "prism.context_overflow_promotion.estimation_method", wantEstimationMethod)
+		assertRuntimePromotionTraceAbsent(t, attrs, "prism.context_overflow_promotion.estimation_unavailable_reason")
+	}
 	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.trigger_status", http.StatusBadRequest)
 	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.source_attempt_count", 1)
 	assertRuntimePromotionTraceInt(t, attrs, "prism.context_overflow_promotion.final_attempt_count", 2)
@@ -1986,6 +2517,13 @@ func assertRuntimePromotionTraceString(t *testing.T, attrs map[string]attribute.
 	value, ok := attrs[key]
 	if !ok || value.AsString() != want {
 		t.Fatalf("expected trace attr %s=%q, got %+v", key, want, attrs)
+	}
+}
+
+func assertRuntimePromotionTraceAbsent(t *testing.T, attrs map[string]attribute.Value, key string) {
+	t.Helper()
+	if value, ok := attrs[key]; ok {
+		t.Fatalf("expected trace attr %s to be absent, got %v in %+v", key, value, attrs)
 	}
 }
 

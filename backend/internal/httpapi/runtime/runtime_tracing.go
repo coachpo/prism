@@ -29,6 +29,8 @@ const (
 	runtimeTraceAttrContextOverflowPromotionTriggerCode                   = "prism.context_overflow_promotion.trigger_code"
 	runtimeTraceAttrContextOverflowPromotionTriggerClassifier             = "prism.context_overflow_promotion.trigger_classifier"
 	runtimeTraceAttrContextOverflowPromotionEstimationMode                = "prism.context_overflow_promotion.estimation_mode"
+	runtimeTraceAttrContextOverflowPromotionEstimationStatus              = "prism.context_overflow_promotion.estimation_status"
+	runtimeTraceAttrContextOverflowPromotionEstimationUnavailableReason   = "prism.context_overflow_promotion.estimation_unavailable_reason"
 	runtimeTraceAttrContextOverflowPromotionEstimationMethod              = "prism.context_overflow_promotion.estimation_method"
 	runtimeTraceAttrContextOverflowPromotionEstimatedInputTokens          = "prism.context_overflow_promotion.estimated_input_tokens"
 	runtimeTraceAttrContextOverflowPromotionReservedOutputTokens          = "prism.context_overflow_promotion.reserved_output_tokens"
@@ -214,6 +216,12 @@ func runtimeTraceContextOverflowPromotionAttributes(contextRouting *runtimeConte
 	}
 	if strings.TrimSpace(promotion.EstimationMode) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationMode, runtimeTracePolicy.contextOverflowPromotionEstimationMode(promotion.EstimationMode)))
+	}
+	if strings.TrimSpace(promotion.EstimationStatus) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationStatus, runtimeTracePolicy.contextEstimationStatus(promotion.EstimationStatus)))
+	}
+	if promotion.EstimationUnavailableReason != nil && strings.TrimSpace(*promotion.EstimationUnavailableReason) != "" {
+		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationUnavailableReason, runtimeTracePolicy.contextEstimationUnavailableReason(*promotion.EstimationUnavailableReason)))
 	}
 	if promotion.EstimationMethod != nil && strings.TrimSpace(*promotion.EstimationMethod) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationMethod, strings.TrimSpace(*promotion.EstimationMethod)))
@@ -562,6 +570,30 @@ func (policy runtimeTraceAttributePolicy) contextOverflowPromotionTriggerPhase(v
 func (policy runtimeTraceAttributePolicy) contextOverflowPromotionEstimationMode(value string) string {
 	switch strings.TrimSpace(value) {
 	case runtimeContextOverflowPromotionEstimationModeEstimated, runtimeContextOverflowPromotionEstimationModePassThrough:
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) contextEstimationStatus(value string) string {
+	switch strings.TrimSpace(value) {
+	case runtimeContextEstimationStatusPresent, runtimeContextEstimationStatusUnavailable:
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) contextEstimationUnavailableReason(value string) string {
+	switch requestContextEstimationUnavailableReason(strings.TrimSpace(value)) {
+	case requestContextEstimationUnavailableReasonUnknownTokenizerModel,
+		requestContextEstimationUnavailableReasonMalformedRequestJSON,
+		requestContextEstimationUnavailableReasonChatNonTextContent,
+		requestContextEstimationUnavailableReasonChatUnsafeToolShape,
+		requestContextEstimationUnavailableReasonResponsesStatefulRef,
+		requestContextEstimationUnavailableReasonResponsesNonTextInput,
+		requestContextEstimationUnavailableReasonResponsesUnsafeToolShape:
 		return strings.TrimSpace(value)
 	default:
 		return runtimeTraceValueUnknown

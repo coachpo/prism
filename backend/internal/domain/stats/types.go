@@ -153,6 +153,8 @@ type RequestLogContextOverflowPromotion struct {
 	TriggerErrorCode              *string `json:"trigger_error_code,omitempty"`
 	TriggerClassifier             string  `json:"trigger_classifier"`
 	EstimationMode                string  `json:"estimation_mode,omitempty"`
+	EstimationStatus              string  `json:"estimation_status,omitempty"`
+	EstimationUnavailableReason   *string `json:"estimation_unavailable_reason,omitempty"`
 	FromResolvedTargetModelID     *string `json:"from_resolved_target_model_id,omitempty"`
 	FromSelectedTerminalTargetID  *int    `json:"from_selected_terminal_target_id,omitempty"`
 	ToResolvedTargetModelID       *string `json:"to_resolved_target_model_id,omitempty"`
@@ -194,6 +196,8 @@ type RequestLogContextRouting struct {
 	SelectedEndpointID                 *int                                            `json:"selected_endpoint_id,omitempty"`
 	SelectedContextBand                *string                                         `json:"selected_context_band,omitempty"`
 	SelectedUsableContextWindowTokens  *int                                            `json:"selected_usable_context_window_tokens,omitempty"`
+	EstimationStatus                   string                                          `json:"estimation_status,omitempty"`
+	EstimationUnavailableReason        *string                                         `json:"estimation_unavailable_reason,omitempty"`
 	EstimationMethod                   *string                                         `json:"estimation_method,omitempty"`
 	EstimatedInputTokens               *int                                            `json:"estimated_input_tokens,omitempty"`
 	ReservedOutputTokens               *int                                            `json:"reserved_output_tokens,omitempty"`
