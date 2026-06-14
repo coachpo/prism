@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRealtimeData } from "@/hooks/useRealtimeData";
-import type { DashboardRealtimeUpdatePayload } from "@/lib/types";
-import type { DashboardSnapshotReconciler } from "./useDashboardBootstrapData";
+import type { DashboardRealtimePayload } from "@/lib/types";
+import type {
+  DashboardActivityReconciler,
+  DashboardBootstrapFetchResult,
+  DashboardSnapshotReconciler,
+} from "./useDashboardBootstrapData";
 
 type Params = {
-  fetchDashboardData: (args?: { silent?: boolean }) => Promise<void>;
+  applyDashboardActivity: DashboardActivityReconciler;
+  fetchDashboardData: (args?: { silent?: boolean }) => Promise<DashboardBootstrapFetchResult>;
   reconcileDashboardSnapshot: DashboardSnapshotReconciler;
   selectedProfileId: number | null;
   setRoutingDiagramError: React.Dispatch<React.SetStateAction<string | null>>;
 };
 
 export function useDashboardRealtime({
+  applyDashboardActivity,
   fetchDashboardData,
   reconcileDashboardSnapshot,
   selectedProfileId,
@@ -34,22 +40,30 @@ export function useDashboardRealtime({
   }, []);
 
   const applyDashboardUpdate = useCallback(
-    (update: DashboardRealtimeUpdatePayload) => {
-      const entry = update.request_log;
+    (update: DashboardRealtimePayload) => {
+      if (update.type === "dashboard.activity") {
+        const didApply = applyDashboardActivity(update.activity, update.activity_watermark);
+        if (didApply) {
+          setRecentNewIds((prev) => new Set(prev).add(update.activity.request_log_id));
+        }
+        return;
+      }
 
-      const didApply = reconcileDashboardSnapshot(update.snapshot, {
-        requestId: entry.id,
-      });
+      const didApply = reconcileDashboardSnapshot(update.snapshot);
 
       if (!didApply) {
         return;
       }
 
-      setRecentNewIds((prev) => new Set(prev).add(entry.id));
       setRoutingDiagramError(null);
       triggerMetricHighlight();
     },
-    [reconcileDashboardSnapshot, setRoutingDiagramError, triggerMetricHighlight]
+    [
+      applyDashboardActivity,
+      reconcileDashboardSnapshot,
+      setRoutingDiagramError,
+      triggerMetricHighlight,
+    ],
   );
 
   const handleReconnect = useCallback(() => {
@@ -62,8 +76,10 @@ export function useDashboardRealtime({
     setIsRefreshing(true);
 
     try {
-      await fetchDashboardData({ silent: true });
-      triggerMetricHighlight();
+      const result = await fetchDashboardData({ silent: true });
+      if (result.snapshotApplied) {
+        triggerMetricHighlight();
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -87,7 +103,6 @@ export function useDashboardRealtime({
       }
     };
   }, []);
-
   const clearRecentRequestHighlight = useCallback((requestId: number) => {
     setRecentNewIds((prev) => {
       if (!prev.has(requestId)) {

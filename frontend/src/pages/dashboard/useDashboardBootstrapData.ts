@@ -1,27 +1,39 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { DashboardSnapshot } from "@/lib/types";
+import type {
+  DashboardRecentActivityItem,
+  DashboardRecentActivityResponse,
+  DashboardRecentActivityWatermark,
+  DashboardSnapshot,
+} from "@/lib/types";
+
+export const DASHBOARD_RECENT_ACTIVITY_LIMIT = 12;
 
 type Params = {
-  latestDashboardRequestIdRef: React.RefObject<number>;
   revision: number;
   selectedProfileId: number | null;
 };
 
-export type DashboardSnapshotReconcileOptions = {
-  allowEqualRequestId?: boolean;
-  requestId?: number;
-};
+export type DashboardSnapshotReconciler = (snapshot: DashboardSnapshot) => boolean;
 
-export type DashboardSnapshotReconciler = (
-  snapshot: DashboardSnapshot,
-  options?: DashboardSnapshotReconcileOptions,
+export type DashboardActivityReconciler = (
+  activity: DashboardRecentActivityItem,
+  activityWatermark: DashboardRecentActivityWatermark,
 ) => boolean;
+
+export type DashboardBootstrapFetchResult = {
+  recentActivityApplied: boolean;
+  snapshotApplied: boolean;
+};
+type DashboardBootstrapData = {
+  recentActivity: DashboardRecentActivityResponse;
+  snapshot: DashboardSnapshot;
+};
 
 let dashboardBootstrapPromise:
   | {
       key: string;
-      promise: Promise<DashboardSnapshot>;
+      promise: Promise<DashboardBootstrapData>;
     }
   | null = null;
 
@@ -29,11 +41,31 @@ function buildDashboardBootstrapKey(revision: number, selectedProfileId: number 
   return `${selectedProfileId ?? "none"}:${revision}`;
 }
 
-function getLatestDashboardSnapshotRequestId(snapshot: DashboardSnapshot) {
-  return snapshot.recent_requests.reduce(
-    (maxId, request) => Math.max(maxId, request.id),
-    0,
-  );
+export function shouldApplyDashboardSnapshotRevision(
+  currentRevision: string | null,
+  incomingRevision: string,
+) {
+  if (currentRevision && incomingRevision <= currentRevision) {
+    return false;
+  }
+
+  return true;
+}
+export function mergeDashboardRecentActivityItem(
+  current: DashboardRecentActivityResponse | null,
+  activity: DashboardRecentActivityItem,
+  activityWatermark: DashboardRecentActivityWatermark,
+  limit = DASHBOARD_RECENT_ACTIVITY_LIMIT,
+): DashboardRecentActivityResponse {
+  if (current?.items.some((item) => item.request_log_id === activity.request_log_id)) {
+    return current;
+  }
+
+  return {
+    generated_at: current?.generated_at ?? activity.created_at,
+    activity_watermark: activityWatermark,
+    items: [activity, ...(current?.items ?? [])].slice(0, limit),
+  };
 }
 
 async function loadDashboardBootstrapData(
@@ -42,14 +74,17 @@ async function loadDashboardBootstrapData(
   options: {
     reuseInFlight?: boolean;
   } = {},
-): Promise<DashboardSnapshot> {
+): Promise<DashboardBootstrapData> {
   const { reuseInFlight = false } = options;
   const key = buildDashboardBootstrapKey(revision, selectedProfileId);
   if (reuseInFlight && dashboardBootstrapPromise?.key === key) {
     return dashboardBootstrapPromise.promise;
   }
 
-  const loadPromise = api.stats.dashboard();
+  const loadPromise = Promise.all([
+    api.stats.dashboard(),
+    api.stats.dashboardRecentActivity({ limit: DASHBOARD_RECENT_ACTIVITY_LIMIT }),
+  ]).then(([snapshot, recentActivity]) => ({ snapshot, recentActivity }));
 
   if (reuseInFlight) {
     dashboardBootstrapPromise = {
@@ -65,35 +100,60 @@ async function loadDashboardBootstrapData(
 
   return loadPromise;
 }
-
 export function useDashboardBootstrapData({
-  latestDashboardRequestIdRef,
   revision,
   selectedProfileId,
 }: Params) {
   const [loading, setLoading] = useState(true);
   const [dashboardSnapshot, setDashboardSnapshot] = useState<DashboardSnapshot | null>(null);
+  const [dashboardRecentActivity, setDashboardRecentActivity] =
+    useState<DashboardRecentActivityResponse | null>(null);
   const [routingDiagramError, setRoutingDiagramError] = useState<string | null>(null);
+  const latestDashboardSnapshotRevisionRef = useRef<string | null>(null);
+  const recentActivityRequestIdsRef = useRef<Set<number>>(new Set());
   const requestVersionRef = useRef(0);
 
+  const replaceDashboardRecentActivity = useCallback((recentActivity: DashboardRecentActivityResponse) => {
+    recentActivityRequestIdsRef.current = new Set(
+      recentActivity.items.map((item) => item.request_log_id),
+    );
+    setDashboardRecentActivity(recentActivity);
+  }, []);
   const reconcileDashboardSnapshot = useCallback<DashboardSnapshotReconciler>(
-    (snapshot, { allowEqualRequestId = false, requestId } = {}) => {
-      const nextRequestId = requestId ?? getLatestDashboardSnapshotRequestId(snapshot);
-      const currentRequestId = latestDashboardRequestIdRef.current;
-      const isStale = allowEqualRequestId
-        ? nextRequestId < currentRequestId
-        : nextRequestId <= currentRequestId;
-
-      if (isStale) {
+    (snapshot) => {
+      const incomingRevision = snapshot.snapshot_revision;
+      const currentRevision = latestDashboardSnapshotRevisionRef.current;
+      if (!shouldApplyDashboardSnapshotRevision(currentRevision, incomingRevision)) {
         return false;
       }
 
-      latestDashboardRequestIdRef.current = nextRequestId;
+      latestDashboardSnapshotRevisionRef.current = incomingRevision;
       setDashboardSnapshot(snapshot);
       return true;
     },
-    [latestDashboardRequestIdRef],
+    [],
   );
+
+  const applyDashboardActivity = useCallback<DashboardActivityReconciler>(
+    (activity, activityWatermark) => {
+      if (recentActivityRequestIdsRef.current.has(activity.request_log_id)) {
+        return false;
+      }
+
+      recentActivityRequestIdsRef.current.add(activity.request_log_id);
+      setDashboardRecentActivity((current) =>
+        mergeDashboardRecentActivityItem(current, activity, activityWatermark),
+      );
+      return true;
+    },
+    [],
+  );
+  useEffect(() => {
+    latestDashboardSnapshotRevisionRef.current = null;
+    recentActivityRequestIdsRef.current = new Set();
+    setDashboardSnapshot(null);
+    setDashboardRecentActivity(null);
+  }, [selectedProfileId]);
 
   const fetchDashboardData = useCallback(
     async ({
@@ -102,7 +162,7 @@ export function useDashboardBootstrapData({
     }: {
       silent?: boolean;
       reuseInFlight?: boolean;
-    } = {}) => {
+    } = {}): Promise<DashboardBootstrapFetchResult> => {
       const requestVersion = ++requestVersionRef.current;
 
       if (!silent) {
@@ -111,32 +171,34 @@ export function useDashboardBootstrapData({
 
       setRoutingDiagramError(null);
       try {
-        const snapshot = await loadDashboardBootstrapData(
+        const { snapshot, recentActivity } = await loadDashboardBootstrapData(
           revision,
           selectedProfileId,
           { reuseInFlight },
         );
 
         if (requestVersion !== requestVersionRef.current) {
-          return;
+          return { recentActivityApplied: false, snapshotApplied: false };
         }
 
-        reconcileDashboardSnapshot(snapshot, {
-          allowEqualRequestId: true,
-          requestId: getLatestDashboardSnapshotRequestId(snapshot),
-        });
+        const snapshotApplied = reconcileDashboardSnapshot(snapshot);
+        replaceDashboardRecentActivity(recentActivity);
+        return { recentActivityApplied: true, snapshotApplied };
       } catch (error) {
         console.error("Failed to fetch dashboard data", error);
+        return { recentActivityApplied: false, snapshotApplied: false };
       } finally {
         if (requestVersion === requestVersionRef.current) {
           setLoading(false);
         }
       }
     },
-    [reconcileDashboardSnapshot, revision, selectedProfileId]
+    [reconcileDashboardSnapshot, replaceDashboardRecentActivity, revision, selectedProfileId],
   );
-
   return {
+    applyDashboardActivity,
+    dashboardRecentActivity,
+    dashboardRecentActivityItems: dashboardRecentActivity?.items ?? [],
     dashboardSnapshot,
     fetchDashboardData,
     loading,

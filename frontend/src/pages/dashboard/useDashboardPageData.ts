@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import type {
+  DashboardRecentActivityItem,
+  DashboardRecentActivityResponse,
   DashboardSnapshot,
-  RequestLogListItem,
   SpendingTopModel,
   StatGroup,
 } from "@/lib/types";
@@ -34,13 +35,13 @@ export interface DashboardOverviewData {
   apiFamilyRows: StatGroup[];
   metricSnapshot: DashboardMetricSnapshot;
   modelDisplayNames: Map<string, string>;
-  recentRequests: RequestLogListItem[];
+  recentActivity: DashboardRecentActivityResponse | null;
+  recentActivityItems: DashboardRecentActivityItem[];
   routingDiagramData: RoutingDiagramData | null;
   routingDiagramError: string | null;
   routingDiagramLoading: boolean;
   topSpendingModels: SpendingTopModel[];
 }
-
 const EMPTY_METRIC_SNAPSHOT: DashboardMetricSnapshot = {
   activeModels: 0,
   averageRpm: 0,
@@ -80,21 +81,24 @@ function toDashboardMetricSnapshot(snapshot: DashboardSnapshot | null): Dashboar
   };
 }
 
-function buildModelDisplayNames(snapshot: DashboardSnapshot | null) {
+function buildModelDisplayNames(
+  snapshot: DashboardSnapshot | null,
+  recentActivityItems: DashboardRecentActivityItem[],
+) {
   const displayNames = new Map<string, string>();
+
+  for (const activity of recentActivityItems) {
+    displayNames.set(activity.model_id, activity.model_label || activity.model_id);
+    if (activity.resolved_target_model_id) {
+      displayNames.set(
+        activity.resolved_target_model_id,
+        activity.resolved_target_model_label || activity.resolved_target_model_id,
+      );
+    }
+  }
 
   if (!snapshot) {
     return displayNames;
-  }
-
-  for (const request of snapshot.recent_requests) {
-    displayNames.set(request.model_id, request.model_label || request.model_id);
-    if (request.resolved_target_model_id) {
-      displayNames.set(
-        request.resolved_target_model_id,
-        request.resolved_target_model_label || request.resolved_target_model_id,
-      );
-    }
   }
 
   for (const model of snapshot.top_spending_models) {
@@ -108,6 +112,8 @@ function buildModelDisplayNames(snapshot: DashboardSnapshot | null) {
 
 function toDashboardOverviewData(
   snapshot: DashboardSnapshot | null,
+  recentActivity: DashboardRecentActivityResponse | null,
+  recentActivityItems: DashboardRecentActivityItem[],
   routingDiagramError: string | null,
   routingDiagramLoading: boolean,
 ): DashboardOverviewData {
@@ -116,8 +122,9 @@ function toDashboardOverviewData(
       (left, right) => right.total_requests - left.total_requests,
     ),
     metricSnapshot: toDashboardMetricSnapshot(snapshot),
-    modelDisplayNames: buildModelDisplayNames(snapshot),
-    recentRequests: snapshot?.recent_requests ?? [],
+    modelDisplayNames: buildModelDisplayNames(snapshot, recentActivityItems),
+    recentActivity,
+    recentActivityItems,
     routingDiagramData: snapshot?.topology_graph ?? null,
     routingDiagramError,
     routingDiagramLoading,
@@ -129,8 +136,10 @@ export function useDashboardPageData({
   revision,
   selectedProfileId,
 }: UseDashboardPageDataInput) {
-  const latestDashboardRequestIdRef = useRef(0);
   const {
+    applyDashboardActivity,
+    dashboardRecentActivity,
+    dashboardRecentActivityItems,
     dashboardSnapshot,
     fetchDashboardData,
     loading,
@@ -139,7 +148,6 @@ export function useDashboardPageData({
     routingDiagramLoading,
     setRoutingDiagramError,
   } = useDashboardBootstrapData({
-    latestDashboardRequestIdRef,
     revision,
     selectedProfileId,
   });
@@ -152,15 +160,12 @@ export function useDashboardPageData({
     recentNewIds,
     refreshDashboard,
   } = useDashboardRealtime({
+    applyDashboardActivity,
     fetchDashboardData,
     reconcileDashboardSnapshot,
     selectedProfileId,
     setRoutingDiagramError,
   });
-
-  useEffect(() => {
-    latestDashboardRequestIdRef.current = 0;
-  }, [latestDashboardRequestIdRef, selectedProfileId]);
 
   useEffect(() => {
     void fetchDashboardData({ reuseInFlight: true });
@@ -169,10 +174,18 @@ export function useDashboardPageData({
   const overviewData = useMemo<DashboardOverviewData>(() => {
     return toDashboardOverviewData(
       dashboardSnapshot,
+      dashboardRecentActivity,
+      dashboardRecentActivityItems,
       routingDiagramError,
       routingDiagramLoading,
     );
-  }, [dashboardSnapshot, routingDiagramError, routingDiagramLoading]);
+  }, [
+    dashboardRecentActivity,
+    dashboardRecentActivityItems,
+    dashboardSnapshot,
+    routingDiagramError,
+    routingDiagramLoading,
+  ]);
 
   return {
     clearRecentRequestHighlight,
