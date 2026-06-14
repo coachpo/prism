@@ -88,28 +88,28 @@ func TestRealtimeSubscriptions(t *testing.T) {
 	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "heartbeat"})
 	writeWebSocketJSON(t, replacementConn, map[string]any{"type": "subscribe", "profile_id": profileOneID, "channel": "dashboard"})
 	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "subscribed", "profile_id": float64(profileOneID), "channel": "dashboard"})
-	delivered, err := harness.realtimeService.PublishDashboardUpdate(context.Background(), requestLogOne, profileOneID)
+	delivered, err := harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogOne, profileOneID)
 	if err != nil {
-		t.Fatalf("publish profile-one dashboard update: %v", err)
+		t.Fatalf("publish profile-one dashboard activity: %v", err)
 	}
 	if !delivered {
-		t.Fatal("expected profile-one dashboard update delivery while subscribed")
+		t.Fatal("expected profile-one dashboard activity delivery while subscribed")
 	}
-	assertNestedRequestLogProfileID(t, readWebSocketJSON(t, replacementConn), profileOneID)
+	assertDashboardActivityProfileID(t, readWebSocketJSON(t, replacementConn), profileOneID)
 	writeWebSocketJSON(t, replacementConn, map[string]any{"type": "subscribe", "profile_id": profileTwoID, "channel": "dashboard"})
 	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "subscribed", "profile_id": float64(profileTwoID), "channel": "dashboard"})
-	delivered, err = harness.realtimeService.PublishDashboardUpdate(context.Background(), requestLogOne, profileOneID)
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogOne, profileOneID)
 	if err != nil {
-		t.Fatalf("publish replaced profile-one dashboard update: %v", err)
+		t.Fatalf("publish replaced profile-one dashboard activity: %v", err)
 	}
 	if delivered {
 		t.Fatal("expected no delivery after profile replacement removed profile-one membership")
 	}
 	_ = replacementConn.Close()
 
-	delivered, err = harness.realtimeService.PublishDashboardUpdate(context.Background(), requestLogTwo, profileTwoID)
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
 	if err != nil {
-		t.Fatalf("prime profile-two pending dashboard update: %v", err)
+		t.Fatalf("publish profile-two activity without subscribers: %v", err)
 	}
 	if delivered {
 		t.Fatal("expected no immediate profile-two delivery without subscribers")
@@ -120,10 +120,14 @@ func TestRealtimeSubscriptions(t *testing.T) {
 	assertRealtimeMessage(t, channelConn, map[string]any{"type": "heartbeat"})
 	writeWebSocketJSON(t, channelConn, map[string]any{"type": "subscribe", "profile_id": profileTwoID, "channel": "dashboard"})
 	assertRealtimeMessage(t, channelConn, map[string]any{"type": "subscribed", "profile_id": float64(profileTwoID), "channel": "dashboard"})
-	assertNestedRequestLogProfileID(t, readWebSocketJSON(t, channelConn), profileTwoID)
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
+	if err != nil || !delivered {
+		t.Fatalf("publish profile-two dashboard activity: delivered=%v err=%v", delivered, err)
+	}
+	assertDashboardActivityProfileID(t, readWebSocketJSON(t, channelConn), profileTwoID)
 	writeWebSocketJSON(t, channelConn, map[string]any{"type": "unsubscribe_channel", "channel": "dashboard"})
 	assertRealtimeMessage(t, channelConn, map[string]any{"type": "unsubscribed", "channel": "dashboard"})
-	delivered, err = harness.realtimeService.PublishDashboardUpdate(context.Background(), requestLogTwo, profileTwoID)
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
 	if err != nil {
 		t.Fatalf("publish after unsubscribe_channel: %v", err)
 	}
@@ -137,10 +141,14 @@ func TestRealtimeSubscriptions(t *testing.T) {
 	assertRealtimeMessage(t, unsubscribeConn, map[string]any{"type": "heartbeat"})
 	writeWebSocketJSON(t, unsubscribeConn, map[string]any{"type": "subscribe", "profile_id": profileTwoID, "channel": "dashboard"})
 	assertRealtimeMessage(t, unsubscribeConn, map[string]any{"type": "subscribed", "profile_id": float64(profileTwoID), "channel": "dashboard"})
-	assertNestedRequestLogProfileID(t, readWebSocketJSON(t, unsubscribeConn), profileTwoID)
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
+	if err != nil || !delivered {
+		t.Fatalf("publish subscribed profile-two dashboard activity: delivered=%v err=%v", delivered, err)
+	}
+	assertDashboardActivityProfileID(t, readWebSocketJSON(t, unsubscribeConn), profileTwoID)
 	writeWebSocketJSON(t, unsubscribeConn, map[string]any{"type": "unsubscribe"})
 	assertRealtimeMessage(t, unsubscribeConn, map[string]any{"type": "unsubscribed"})
-	delivered, err = harness.realtimeService.PublishDashboardUpdate(context.Background(), requestLogTwo, profileTwoID)
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
 	if err != nil {
 		t.Fatalf("publish after unsubscribe: %v", err)
 	}
@@ -296,103 +304,115 @@ func TestRealtimeSubjectLimiterRejectsExcessAuthenticatedSockets(t *testing.T) {
 	connections = append(connections, replacementConn)
 }
 
-func TestDashboardUpdatePayload(t *testing.T) {
+func TestDashboardSnapshotRealtimeContract(t *testing.T) {
 	harness := newRealtimeHarness(t)
 	profileID := harness.activeProfileID(t)
-	route := harness.seedRealtimeDashboardRoute(t, profileID, "payload")
-	requestLogID := harness.insertDashboardActivity(t, route, profileID, 8201, 9201, harness.fixedNow.Add(-30*time.Second))
+	route := harness.seedRealtimeDashboardRoute(t, profileID, "snapshot-contract")
+	harness.insertDashboardActivity(t, route, profileID, 8201, 9201, harness.fixedNow.Add(-30*time.Second))
 
-	message, err := harness.realtimeService.BuildDashboardUpdate(context.Background(), requestLogID, profileID)
+	message, err := harness.realtimeService.BuildDashboardSnapshot(context.Background(), profileID)
 	if err != nil {
-		t.Fatalf("build dashboard update payload: %v", err)
+		t.Fatalf("build dashboard snapshot payload: %v", err)
 	}
-	fixture := loadRealtimeFixture(t, "dashboard-update.json")
+	fixture := loadRealtimeFixture(t, "dashboard-snapshot.json")
 	assertJSONShapeMatchesFixture(t, message, fixture)
-	if message.Type != "dashboard.update" {
-		t.Fatalf("expected dashboard.update message type, got %+v", message)
+	if message.Type != "dashboard.snapshot" || message.ProfileID != profileID {
+		t.Fatalf("expected dashboard.snapshot profile envelope, got %+v", message)
 	}
-	if message.RequestLog.ID != requestLogID || message.RequestLog.ProfileID != profileID || len(message.Snapshot.RoutingHealthMap.Links) == 0 {
-		t.Fatalf("expected built payload to include request log and nested routing snapshot, got %+v", message)
+	assertDashboardSnapshotEnvelopeShape(t, message)
+	if len(message.Snapshot.RoutingHealthMap.Links) == 0 || message.Snapshot.SnapshotRevision == "" {
+		t.Fatalf("expected built snapshot to include routing and revision, got %+v", message.Snapshot)
 	}
-	if message.RequestLog.ModelLabel != route.PublicModelLabel {
-		t.Fatalf("expected realtime request_log.model_label=%q, got %+v", route.PublicModelLabel, message.RequestLog)
-	}
-	if message.RequestLog.ResolvedTargetModelLabel == nil || *message.RequestLog.ResolvedTargetModelLabel != route.TargetModelLabel {
-		t.Fatalf("expected realtime request_log.resolved_target_model_label=%q, got %+v", route.TargetModelLabel, message.RequestLog)
-	}
-	var snapshotPayload map[string]any
-	rawSnapshotPayload, err := json.Marshal(message.Snapshot)
+}
+
+func TestDashboardActivityRealtimeContract(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := harness.seedRealtimeDashboardRoute(t, profileID, "activity-contract")
+	requestLogID := harness.insertDashboardActivity(t, route, profileID, 8202, 9202, harness.fixedNow.Add(-30*time.Second))
+
+	message, err := harness.realtimeService.BuildDashboardActivity(context.Background(), requestLogID, profileID)
 	if err != nil {
-		t.Fatalf("marshal realtime dashboard snapshot payload: %v", err)
+		t.Fatalf("build dashboard activity payload: %v", err)
 	}
-	if err := json.Unmarshal(rawSnapshotPayload, &snapshotPayload); err != nil {
-		t.Fatalf("decode realtime dashboard snapshot payload: %v", err)
+	fixture := loadRealtimeFixture(t, "dashboard-activity.json")
+	assertJSONShapeMatchesFixture(t, message, fixture)
+	if message.Type != "dashboard.activity" || message.ProfileID != profileID {
+		t.Fatalf("expected dashboard.activity profile envelope, got %+v", message)
 	}
-	if _, ok := snapshotPayload["strategy_family_summary"]; ok {
-		t.Fatalf("did not expect realtime snapshot to expose removed strategy_family_summary, got %+v", snapshotPayload)
+	assertDashboardActivityEnvelopeShape(t, message)
+	if message.Activity.RequestLogID != requestLogID {
+		t.Fatalf("expected single activity item for request log %d, got %+v", requestLogID, message.Activity)
 	}
-	assertRealtimeRequestLogTokenPointers(t, message.RequestLog, 11, 7, 25, 4, 2, 1)
-	var requestLogPayload map[string]any
-	rawRequestLogPayload, err := json.Marshal(message.RequestLog)
-	if err != nil {
-		t.Fatalf("marshal realtime request_log payload: %v", err)
+	if message.Activity.ModelLabel != route.PublicModelLabel || message.Activity.ResolvedTargetModelLabel == nil || *message.Activity.ResolvedTargetModelLabel != route.TargetModelLabel {
+		t.Fatalf("expected activity labels to reuse recent-activity DTO semantics, got %+v", message.Activity)
 	}
-	if err := json.Unmarshal(rawRequestLogPayload, &requestLogPayload); err != nil {
-		t.Fatalf("decode realtime request_log payload: %v", err)
+	if message.ActivityWatermark.LatestRequestLogID == nil || *message.ActivityWatermark.LatestRequestLogID != requestLogID {
+		t.Fatalf("expected activity watermark to track the activity item, got %+v", message.ActivityWatermark)
 	}
-	if _, ok := requestLogPayload["is_proxy_origin"]; ok {
-		t.Fatalf("did not expect realtime request_log to expose removed is_proxy_origin, got %+v", requestLogPayload)
+}
+
+func TestRequestLogFailoverAttemptDetailUnaffectedByDashboardSplit(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "dashboard-split-public-" + suffix
+	targetModelID := "dashboard-split-target-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "primary unavailable"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-dashboard-split-secondary"})
+	strategyID := harness.seedLegacyStrategy(t, profileID, "dashboard-split-fill-first-"+suffix, "fill-first")
+	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "dashboard-split-primary-"+suffix, primaryUpstream.baseURL("/dashboard-split/primary"), "dashboard-split-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, profileID, "dashboard-split-secondary-"+suffix, secondaryUpstream.baseURL("/dashboard-split/secondary"), "dashboard-split-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, primaryEndpointID, "dashboard-split-primary-connection-"+suffix, nil, nil, 0)
+	secondaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, secondaryEndpointID, "dashboard-split-secondary-connection-"+suffix, nil, nil, 1)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "preserve failover attempts while splitting dashboard metrics"}},
+		"model":    publicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  primaryConnectionID,
+		EndpointID:    primaryEndpointID,
+		StatusCode:    http.StatusServiceUnavailable,
+		SuccessFlag:   false,
+	}, {
+		AttemptNumber: 2,
+		ConnectionID:  secondaryConnectionID,
+		EndpointID:    secondaryEndpointID,
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
+
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
+	var primaryRequestLogID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 AND attempt_number = 1`, profileID, ingressRequestID).Scan(&primaryRequestLogID); err != nil {
+		t.Fatalf("load primary failover request-log id: %v", err)
 	}
-	if _, ok := requestLogPayload["stream_error_detail"]; ok {
-		t.Fatalf("did not expect realtime request_log to expose stream_error_detail, got %+v", requestLogPayload)
-	}
-	detailResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
+	detailResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", primaryRequestLogID), nil, runtimeModelHeader(profileID))
 	assertStatus(t, detailResponse, http.StatusOK)
 	var detailPayload map[string]any
 	decodeJSONResponse(t, detailResponse, &detailPayload)
-	assertRealtimeRequestLogMatchesRESTDetail(t, requestLogPayload, detailPayload)
-
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET priced_flag = TRUE, unpriced_reason = NULL, total_cost_user_currency_micros = NULL WHERE id = $1 AND profile_id = $2`, requestLogID, profileID); err != nil {
-		t.Fatalf("mark realtime request log with missing cost: %v", err)
-	}
-	message, err = harness.realtimeService.BuildDashboardUpdate(context.Background(), requestLogID, profileID)
-	if err != nil {
-		t.Fatalf("build dashboard update payload with normalized missing cost: %v", err)
-	}
-	rawRequestLogPayload, err = json.Marshal(message.RequestLog)
-	if err != nil {
-		t.Fatalf("marshal realtime missing-cost request_log payload: %v", err)
-	}
-	if err := json.Unmarshal(rawRequestLogPayload, &requestLogPayload); err != nil {
-		t.Fatalf("decode realtime missing-cost request_log payload: %v", err)
-	}
-	detailResponse = harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
-	assertStatus(t, detailResponse, http.StatusOK)
-	decodeJSONResponse(t, detailResponse, &detailPayload)
-	assertRealtimeRequestLogMatchesRESTDetail(t, requestLogPayload, detailPayload)
-	if requestLogPayload["priced_flag"] != false || requestLogPayload["unpriced_reason"] != "MISSING_PRICE_DATA" {
-		t.Fatalf("expected realtime missing-cost request_log to use REST spend normalization, got %+v", requestLogPayload)
+	requestDetail := detailPayload["request"].(map[string]any)
+	routingDetail := detailPayload["routing"].(map[string]any)
+	summaryDetail := detailPayload["summary"].(map[string]any)
+	if requestDetail["attempt_number"] != float64(1) || summaryDetail["status_code"] != float64(http.StatusServiceUnavailable) || routingDetail["terminal_target_id"] != float64(primaryConnectionID) {
+		t.Fatalf("expected request-log detail to preserve failed primary attempt, got %+v", detailPayload)
 	}
 
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET is_stream = FALSE, stream_outcome = 'upstream_read_error', stream_error_kind = 'upstream_read_failed', stream_error_detail = 'upstream socket closed' WHERE id = $1 AND profile_id = $2`, requestLogID, profileID); err != nil {
-		t.Fatalf("mark realtime request log with actual stream outcome: %v", err)
+	snapshot := harness.loadDashboardSnapshot(t, profileID)
+	primaryLink := realtimeDashboardRoutingLinkForEndpoint(t, snapshot.RoutingHealthMap, primaryEndpointID)
+	secondaryLink := realtimeDashboardRoutingLinkForEndpoint(t, snapshot.RoutingHealthMap, secondaryEndpointID)
+	if primaryLink.RequestCount24H != 0 || primaryLink.SuccessCount24H != 0 || primaryLink.ErrorCount24H != 0 {
+		t.Fatalf("expected dashboard routing health to ignore failed request-log-only attempt, got %+v", primaryLink)
 	}
-	message, err = harness.realtimeService.BuildDashboardUpdate(context.Background(), requestLogID, profileID)
-	if err != nil {
-		t.Fatalf("build dashboard update payload with actual stream outcome: %v", err)
-	}
-	if message.RequestLog.IsStream || message.RequestLog.StreamOutcome != "upstream_read_error" || message.RequestLog.StreamErrorKind == nil || *message.RequestLog.StreamErrorKind != "upstream_read_failed" {
-		t.Fatalf("expected realtime request_log to preserve non-not_streaming stream outcome even when is_stream is false, got %+v", message.RequestLog)
-	}
-	rawRequestLogPayload, err = json.Marshal(message.RequestLog)
-	if err != nil {
-		t.Fatalf("marshal realtime actual-stream request_log payload: %v", err)
-	}
-	if err := json.Unmarshal(rawRequestLogPayload, &requestLogPayload); err != nil {
-		t.Fatalf("decode realtime actual-stream request_log payload: %v", err)
-	}
-	if _, ok := requestLogPayload["stream_error_detail"]; ok {
-		t.Fatalf("did not expect realtime actual-stream request_log to expose stream_error_detail, got %+v", requestLogPayload)
+	if secondaryLink.RequestCount24H != 1 || secondaryLink.SuccessCount24H != 1 || secondaryLink.ErrorCount24H != 0 {
+		t.Fatalf("expected dashboard routing health to use final usage event only, got %+v", secondaryLink)
 	}
 }
 
@@ -600,7 +620,7 @@ func TestRealtimeAnalyticsSubscribeValidationErrors(t *testing.T) {
 	_ = conn.Close()
 }
 
-func TestDashboardUpdateDelivery(t *testing.T) {
+func TestDashboardRealtimeDelivery(t *testing.T) {
 	harness := newRealtimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "delivery")
@@ -614,39 +634,34 @@ func TestDashboardUpdateDelivery(t *testing.T) {
 		t,
 		http.MethodPost,
 		"/v1/chat/completions",
-		map[string]any{"messages": []map[string]any{{"role": "user", "content": "deliver dashboard update"}}, "model": route.PublicModelID},
+		map[string]any{"messages": []map[string]any{{"role": "user", "content": "deliver dashboard activity"}}, "model": route.PublicModelID},
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	message := readWebSocketJSON(t, conn)
-	if message["type"] != "dashboard.update" {
-		t.Fatalf("expected dashboard.update websocket message, got %+v", message)
+	activity := readDashboardMessageByType(t, conn, "dashboard.activity")
+	assertNoMixedDashboardUpdateEnvelope(t, activity)
+	item, ok := activity["activity"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected single activity object, got %+v", activity)
 	}
-	requestLog := message["request_log"].(map[string]any)
-	if requestLog["profile_id"] != float64(profileID) || requestLog["model_id"] != route.PublicModelID || requestLog["request_path"] != "/v1/chat/completions" {
-		t.Fatalf("unexpected delivered request_log payload: %+v", requestLog)
+	if item["model_id"] != route.PublicModelID || item["model_label"] != route.PublicModelLabel || item["resolved_target_model_label"] != route.TargetModelLabel {
+		t.Fatalf("unexpected delivered activity payload: %+v", item)
 	}
-	if requestLog["model_label"] != route.PublicModelLabel {
-		t.Fatalf("expected delivered request_log.model_label=%q, got %+v", route.PublicModelLabel, requestLog)
+	if _, ok := activity["snapshot"]; ok {
+		t.Fatalf("did not expect dashboard.activity to include snapshot, got %+v", activity)
 	}
-	if requestLog["resolved_target_model_label"] != route.TargetModelLabel {
-		t.Fatalf("expected delivered request_log.resolved_target_model_label=%q, got %+v", route.TargetModelLabel, requestLog)
+	delivered, err := harness.realtimeService.PublishDashboardSnapshot(context.Background(), profileID)
+	if err != nil {
+		t.Fatalf("publish explicit dashboard snapshot after activity: %v", err)
 	}
-	if _, ok := requestLog["is_proxy_origin"]; ok {
-		t.Fatalf("did not expect delivered request_log.is_proxy_origin field, got %+v", requestLog)
+	if !delivered {
+		t.Fatal("expected explicit dashboard snapshot publish to deliver while subscribed")
 	}
-	if _, ok := message["stats_summary_24h"]; ok {
-		t.Fatalf("did not expect legacy stats_summary_24h field in dashboard.update, got %+v", message)
-	}
-	snapshot := message["snapshot"].(map[string]any)
-	metricSnapshot := snapshot["metric_snapshot"].(map[string]any)
+	snapshot := readDashboardMessageByType(t, conn, "dashboard.snapshot")
+	assertNoMixedDashboardUpdateEnvelope(t, snapshot)
+	metricSnapshot := snapshot["snapshot"].(map[string]any)["metric_snapshot"].(map[string]any)
 	if metricSnapshot["total_requests"] != float64(1) || metricSnapshot["success_rate"] != float64(100) {
 		t.Fatalf("unexpected delivered metric_snapshot payload: %+v", metricSnapshot)
-	}
-	routingHealthMap := snapshot["routing_health_map"].(map[string]any)
-	links := routingHealthMap["links"].([]any)
-	if len(links) == 0 {
-		t.Fatalf("expected delivered nested routing_health_map links, got %+v", routingHealthMap)
 	}
 	_ = conn.Close()
 }
@@ -711,7 +726,7 @@ func TestRealtimeDashboardTopologyParity(t *testing.T) {
 	harness := newRealtimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "consistency")
-	requestLogID := harness.insertDashboardActivity(t, route, profileID, 8301, 9301, harness.fixedNow)
+	harness.insertDashboardActivity(t, route, profileID, 8301, 9301, harness.fixedNow)
 	from24h := url.QueryEscape(harness.fixedNow.Add(-24 * time.Hour).Format(time.RFC3339))
 	to24h := url.QueryEscape(harness.fixedNow.Format(time.RFC3339))
 
@@ -740,9 +755,9 @@ func TestRealtimeDashboardTopologyParity(t *testing.T) {
 	var usage statsdomain.UsageSnapshotResponse
 	decodeJSONResponse(t, usageResponse, &usage)
 
-	message, err := harness.realtimeService.BuildDashboardUpdate(context.Background(), requestLogID, profileID)
+	message, err := harness.realtimeService.BuildDashboardSnapshot(context.Background(), profileID)
 	if err != nil {
-		t.Fatalf("build dashboard update after rest snapshot warmup: %v", err)
+		t.Fatalf("build dashboard snapshot after rest snapshot warmup: %v", err)
 	}
 	if !reflect.DeepEqual(dashboardSnapshot, message.Snapshot) {
 		t.Fatalf("expected /api/stats/dashboard to match realtime snapshot, got rest=%+v realtime=%+v", dashboardSnapshot, message.Snapshot)
@@ -768,9 +783,9 @@ func TestRealtimeDashboardTopologyParity(t *testing.T) {
 	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
 	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "dashboard"})
 	assertRealtimeMessage(t, conn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "dashboard"})
-	delivered, err := harness.realtimeService.PublishDashboardUpdate(context.Background(), requestLogID, profileID)
+	delivered, err := harness.realtimeService.PublishDashboardSnapshot(context.Background(), profileID)
 	if err != nil {
-		t.Fatalf("publish dashboard update after rest snapshot warmup: %v", err)
+		t.Fatalf("publish dashboard snapshot after rest snapshot warmup: %v", err)
 	}
 	if !delivered {
 		t.Fatal("expected warmed dashboard aggregate publish to deliver while subscribed")
@@ -782,11 +797,11 @@ func TestRealtimeDashboardTopologyParity(t *testing.T) {
 	_ = conn.Close()
 }
 
-func TestRuntimeDashboardTopologyRepublishAfterModelMutation(t *testing.T) {
+func TestDashboardSnapshotReplayWithoutRequestLog(t *testing.T) {
 	harness := newRealtimeHarnessWithConfig(t, realtimeHarnessConfig{UseAsyncDashboardPublisher: true})
 	profileID := harness.activeProfileID(t)
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "invalidation")
-	requestLogID := harness.insertDashboardActivity(t, route, profileID, 8351, 9351, harness.fixedNow)
+	harness.insertDashboardActivity(t, route, profileID, 8351, 9351, harness.fixedNow)
 
 	baselineResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/dashboard", nil, runtimeModelHeader(profileID))
 	assertStatus(t, baselineResponse, http.StatusOK)
@@ -806,12 +821,12 @@ func TestRuntimeDashboardTopologyRepublishAfterModelMutation(t *testing.T) {
 	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
 	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "dashboard"})
 	assertRealtimeMessage(t, conn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "dashboard"})
-	delivered, err := harness.realtimeService.PublishDashboardUpdate(context.Background(), requestLogID, profileID)
+	delivered, err := harness.realtimeService.PublishDashboardSnapshot(context.Background(), profileID)
 	if err != nil {
-		t.Fatalf("publish warmed dashboard update before model mutation: %v", err)
+		t.Fatalf("publish warmed dashboard snapshot before model mutation: %v", err)
 	}
 	if !delivered {
-		t.Fatal("expected initial dashboard update delivery while subscribed")
+		t.Fatal("expected initial dashboard delivery while subscribed")
 	}
 	initialRealtimeSnapshot := decodeRealtimeDashboardSnapshot(t, readWebSocketJSON(t, conn))
 	if !reflect.DeepEqual(baseline.TopologyGraph, initialRealtimeSnapshot.TopologyGraph) {
@@ -845,7 +860,7 @@ func TestRuntimeDashboardTopologyRepublishAfterModelMutation(t *testing.T) {
 	_ = conn.Close()
 }
 
-func TestAsyncDashboardPublisherRefreshesWarmedSnapshotWithoutSubscribers(t *testing.T) {
+func TestAsyncDashboardPublisherRefreshesWarmedSnapshotOnlyFromExplicitSnapshotPublishWithoutSubscribers(t *testing.T) {
 	harness := newRealtimeHarnessWithConfig(t, realtimeHarnessConfig{UseAsyncDashboardPublisher: true})
 	profileID := harness.activeProfileID(t)
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "async-no-subscriber")
@@ -867,11 +882,187 @@ func TestAsyncDashboardPublisherRefreshesWarmedSnapshotWithoutSubscribers(t *tes
 	)
 	assertStatus(t, response, http.StatusOK)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	waitForRealtimeAsyncDashboardDrain(t, harness.asyncDashboardPublisher, 5*time.Second)
 
-	fresh := harness.waitForDashboardTotalRequests(t, profileID, 1, 5*time.Second)
-	if fresh.MetricSnapshot.TotalRequests != 1 || len(fresh.RecentRequests) != 1 {
-		t.Fatalf("expected async no-subscriber refresh to rebuild dashboard aggregate, got %+v", fresh)
+	activityOnlySnapshot := harness.loadDashboardSnapshot(t, profileID)
+	if activityOnlySnapshot.MetricSnapshot.TotalRequests != 0 {
+		t.Fatalf("expected runtime activity materialization not to rebuild dashboard aggregate, got %+v", activityOnlySnapshot.MetricSnapshot)
 	}
+
+	queued, err := harness.asyncDashboardPublisher.PublishDashboardSnapshot(context.Background(), profileID)
+	if err != nil {
+		t.Fatalf("publish explicit dashboard snapshot refresh without subscribers: %v", err)
+	}
+	if !queued {
+		t.Fatal("expected explicit snapshot refresh to queue without subscribers")
+	}
+	fresh := harness.waitForDashboardTotalRequests(t, profileID, 1, 5*time.Second)
+	if fresh.MetricSnapshot.TotalRequests != 1 || fresh.SnapshotRevision == "" {
+		t.Fatalf("expected explicit async refresh to rebuild dashboard aggregate, got %+v", fresh)
+	}
+}
+
+func TestAsyncDashboardPublisherProfileScopedCoalescing(t *testing.T) {
+	target := newRuntimeAsyncDashboardTarget()
+	publisher := realtimeapi.NewAsyncDashboardPublisher(target, realtimeapi.AsyncDashboardPublisherOptions{QueueCapacity: 1, WorkerCount: 1, PublishTimeout: 5 * time.Second, ShutdownTimeout: time.Second})
+	defer publisher.Close()
+
+	accepted, err := publisher.PublishDashboardSnapshot(context.Background(), 7)
+	if err != nil || !accepted {
+		t.Fatalf("expected first dashboard snapshot to queue, accepted=%v err=%v", accepted, err)
+	}
+	target.waitUntilFirstStarted(t, 2*time.Second)
+	accepted, err = publisher.PublishDashboardSnapshot(context.Background(), 7)
+	if err != nil || !accepted {
+		t.Fatalf("expected second profile-scoped snapshot to coalesce, accepted=%v err=%v", accepted, err)
+	}
+	snapshot := publisher.Snapshot()
+	if snapshot.TrackedProfiles != 1 || snapshot.InflightProfiles != 1 || snapshot.CoalescedCount != 1 {
+		t.Fatalf("expected profile-scoped coalescing without request-log identity, got %+v", snapshot)
+	}
+	target.releaseBlockedPublish()
+	first := target.waitForSnapshot(t, 2*time.Second)
+	second := target.waitForSnapshot(t, 2*time.Second)
+	if first != 7 || second != 7 {
+		t.Fatalf("expected both snapshot publishes to be keyed only by profile 7, got %d and %d", first, second)
+	}
+}
+
+func TestTelemetryOutboxPublishesSplitDashboardMessages(t *testing.T) {
+	publisher := newRuntimeSplitDashboardPublisher()
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{RuntimeOptions: runtimeapi.Options{DashboardUpdates: publisher}})
+	profileID := harness.activeProfileID(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "split-dashboard-public-" + randomSuffix(), TargetModelID: "split-dashboard-target-" + randomSuffix(), EndpointBaseURL: harness.upstream.baseURL("/split-dashboard"), EndpointAPIKey: "split-dashboard-key"})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "split dashboard realtime messages"}}, "model": route.PublicModelID}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	publisher.waitForActivity(t, profileID, 5*time.Second)
+	publisher.assertNoSnapshot(t, 100*time.Millisecond)
+	if publisher.activityCount() != 1 || publisher.snapshotCount() != 0 {
+		t.Fatalf("expected runtime telemetry to publish one dashboard activity and no snapshot, got activity=%d snapshot=%d", publisher.activityCount(), publisher.snapshotCount())
+	}
+}
+
+type runtimeAsyncDashboardTarget struct {
+	mu           sync.Mutex
+	snapshotCh   chan int
+	firstStarted chan struct{}
+	releaseFirst chan struct{}
+	calls        int
+}
+
+func newRuntimeAsyncDashboardTarget() *runtimeAsyncDashboardTarget {
+	return &runtimeAsyncDashboardTarget{snapshotCh: make(chan int, 4), firstStarted: make(chan struct{}), releaseFirst: make(chan struct{})}
+}
+
+func (t *runtimeAsyncDashboardTarget) PublishLatestDashboardSnapshot(ctx context.Context, profileID int) (bool, error) {
+	t.mu.Lock()
+	t.calls++
+	callIndex := t.calls
+	t.mu.Unlock()
+	if callIndex == 1 {
+		close(t.firstStarted)
+		select {
+		case <-t.releaseFirst:
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+	t.snapshotCh <- profileID
+	return true, nil
+}
+
+func (t *runtimeAsyncDashboardTarget) PublishDashboardActivity(context.Context, int, int) (bool, error) {
+	return false, nil
+}
+
+func (t *runtimeAsyncDashboardTarget) InvalidateDashboardSnapshot(int) {}
+
+func (t *runtimeAsyncDashboardTarget) HasDashboardSubscribers(int) bool { return true }
+
+func (t *runtimeAsyncDashboardTarget) waitUntilFirstStarted(testingT *testing.T, timeout time.Duration) {
+	testingT.Helper()
+	select {
+	case <-t.firstStarted:
+	case <-time.After(timeout):
+		testingT.Fatal("timed out waiting for first dashboard snapshot publish")
+	}
+}
+
+func (t *runtimeAsyncDashboardTarget) releaseBlockedPublish() { close(t.releaseFirst) }
+
+func (t *runtimeAsyncDashboardTarget) waitForSnapshot(testingT *testing.T, timeout time.Duration) int {
+	testingT.Helper()
+	select {
+	case profileID := <-t.snapshotCh:
+		return profileID
+	case <-time.After(timeout):
+		testingT.Fatal("timed out waiting for dashboard snapshot publish")
+		return 0
+	}
+}
+
+type runtimeSplitDashboardPublisher struct {
+	mu         sync.Mutex
+	snapshots  []int
+	activity   []int
+	snapshotCh chan int
+	activityCh chan int
+}
+
+func newRuntimeSplitDashboardPublisher() *runtimeSplitDashboardPublisher {
+	return &runtimeSplitDashboardPublisher{snapshotCh: make(chan int, 4), activityCh: make(chan int, 4)}
+}
+
+func (p *runtimeSplitDashboardPublisher) PublishDashboardSnapshot(_ context.Context, profileID int) (bool, error) {
+	p.mu.Lock()
+	p.snapshots = append(p.snapshots, profileID)
+	p.mu.Unlock()
+	p.snapshotCh <- profileID
+	return true, nil
+}
+
+func (p *runtimeSplitDashboardPublisher) PublishDashboardActivity(_ context.Context, requestLogID int, profileID int) (bool, error) {
+	p.mu.Lock()
+	p.activity = append(p.activity, requestLogID)
+	p.mu.Unlock()
+	p.activityCh <- profileID
+	return true, nil
+}
+
+func (p *runtimeSplitDashboardPublisher) assertNoSnapshot(testingT *testing.T, timeout time.Duration) {
+	testingT.Helper()
+	select {
+	case got := <-p.snapshotCh:
+		testingT.Fatalf("expected no dashboard snapshot publish, got profile %d", got)
+	case <-time.After(timeout):
+	}
+}
+
+func (p *runtimeSplitDashboardPublisher) waitForActivity(testingT *testing.T, profileID int, timeout time.Duration) {
+	testingT.Helper()
+	select {
+	case got := <-p.activityCh:
+		if got != profileID {
+			testingT.Fatalf("expected dashboard activity profile %d, got %d", profileID, got)
+		}
+	case <-time.After(timeout):
+		testingT.Fatal("timed out waiting for dashboard activity publish")
+	}
+}
+
+func (p *runtimeSplitDashboardPublisher) snapshotCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.snapshots)
+}
+
+func (p *runtimeSplitDashboardPublisher) activityCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.activity)
 }
 
 func newRealtimeHarness(t *testing.T) *realtimeHarness {
@@ -958,7 +1149,7 @@ func newRealtimeHarnessWithConfig(t *testing.T, harnessConfig realtimeHarnessCon
 		t.Fatalf("build S16 realtime service: %v", err)
 	}
 	t.Cleanup(realtimeService.Close)
-	dashboardUpdates := runtimeapi.DashboardUpdatePublisher(realtimeService)
+	dashboardUpdates := runtimeapi.DashboardPublisher(realtimeService)
 	var asyncDashboardPublisher *realtimeapi.AsyncDashboardPublisher
 	if harnessConfig.UseAsyncDashboardPublisher {
 		asyncDashboardPublisher = realtimeapi.NewAsyncDashboardPublisher(realtimeService, realtimeapi.AsyncDashboardPublisherOptions{PublishTimeout: 5 * time.Second, ShutdownTimeout: time.Second})
@@ -1009,6 +1200,21 @@ func (h *realtimeHarness) waitForDashboardTotalRequests(t *testing.T, profileID 
 	}
 	t.Fatalf("timed out waiting for dashboard total_requests=%d, last snapshot %+v", want, last)
 	return statsdomain.DashboardSnapshot{}
+}
+
+func waitForRealtimeAsyncDashboardDrain(t *testing.T, publisher *realtimeapi.AsyncDashboardPublisher, timeout time.Duration) realtimeapi.AsyncDashboardPublisherSnapshot {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		snapshot := publisher.Snapshot()
+		if snapshot.Drained {
+			return snapshot
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	snapshot := publisher.Snapshot()
+	t.Fatalf("timed out waiting for async dashboard publisher to drain, last snapshot %+v", snapshot)
+	return snapshot
 }
 
 func (h *realtimeHarness) dialWebSocket(t *testing.T, includeCookies bool) *websocket.Conn {
@@ -1174,6 +1380,17 @@ type seededDashboardRoute struct {
 	ConnectionID     int
 }
 
+func realtimeDashboardRoutingLinkForEndpoint(t *testing.T, routing statsdomain.DashboardRoutingHealthMap, endpointID int) statsdomain.DashboardRoutingLink {
+	t.Helper()
+	for _, link := range routing.Links {
+		if link.EndpointID == endpointID {
+			return link
+		}
+	}
+	t.Fatalf("expected dashboard routing link for endpoint %d, got %+v", endpointID, routing.Links)
+	return statsdomain.DashboardRoutingLink{}
+}
+
 func assertRealtimeMessageType(t *testing.T, conn *websocket.Conn, wantType string) {
 	t.Helper()
 	message := readWebSocketJSON(t, conn)
@@ -1192,15 +1409,97 @@ func assertRealtimeMessage(t *testing.T, conn *websocket.Conn, expected map[stri
 	}
 }
 
-func assertNestedRequestLogProfileID(t *testing.T, message map[string]any, profileID int) {
+func assertDashboardActivityProfileID(t *testing.T, message map[string]any, profileID int) {
 	t.Helper()
-	requestLog, ok := message["request_log"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected realtime request_log payload, got %+v", message)
+	if message["type"] != "dashboard.activity" || message["profile_id"] != float64(profileID) {
+		t.Fatalf("expected dashboard.activity for profile %d, got %+v", profileID, message)
 	}
-	if requestLog["profile_id"] != float64(profileID) {
-		t.Fatalf("expected realtime request_log.profile_id=%d, got %+v", profileID, requestLog)
+	if _, ok := message["activity"].(map[string]any); !ok {
+		t.Fatalf("expected dashboard activity object, got %+v", message)
 	}
+}
+
+func legacyDashboardMessageType() string {
+	return "dashboard" + "." + "update"
+}
+
+func legacyDashboardActivityRowsKey() string {
+	return "recent" + "_" + "requests"
+}
+
+func assertNoMixedDashboardUpdateEnvelope(t *testing.T, message map[string]any) {
+	t.Helper()
+	if message["type"] == legacyDashboardMessageType() {
+		t.Fatalf("did not expect mixed dashboard envelope, got %+v", message)
+	}
+	if _, ok := message["request_log"]; ok {
+		t.Fatalf("did not expect mixed request_log envelope, got %+v", message)
+	}
+}
+
+func assertDashboardSnapshotEnvelopeShape(t *testing.T, message realtimeapi.DashboardSnapshotMessage) {
+	t.Helper()
+	raw, err := json.Marshal(message)
+	if err != nil {
+		t.Fatalf("marshal dashboard snapshot message: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode dashboard snapshot message: %v", err)
+	}
+	assertMapKeys(t, payload, []string{"profile_id", "snapshot", "type"})
+	snapshotPayload := payload["snapshot"].(map[string]any)
+	for _, forbidden := range []string{legacyDashboardActivityRowsKey(), "request_log_id", "request_cursor", "activity_watermark"} {
+		if _, ok := snapshotPayload[forbidden]; ok {
+			t.Fatalf("did not expect dashboard snapshot to expose request-history field %q, got %+v", forbidden, snapshotPayload)
+		}
+	}
+	if snapshotPayload["snapshot_revision"] == "" || snapshotPayload["source_watermark"] == nil {
+		t.Fatalf("expected dashboard snapshot revision and source watermark, got %+v", snapshotPayload)
+	}
+}
+
+func assertDashboardActivityEnvelopeShape(t *testing.T, message realtimeapi.DashboardActivityMessage) {
+	t.Helper()
+	raw, err := json.Marshal(message)
+	if err != nil {
+		t.Fatalf("marshal dashboard activity message: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode dashboard activity message: %v", err)
+	}
+	assertMapKeys(t, payload, []string{"activity", "activity_watermark", "profile_id", "type"})
+	if _, ok := payload["snapshot"]; ok {
+		t.Fatalf("did not expect dashboard activity to expose snapshot, got %+v", payload)
+	}
+	if _, ok := payload["activity"].(map[string]any); !ok {
+		t.Fatalf("expected dashboard activity to serialize as object, got %+v", payload)
+	}
+}
+
+func assertMapKeys(t *testing.T, payload map[string]any, expected []string) {
+	t.Helper()
+	if len(payload) != len(expected) {
+		t.Fatalf("expected keys %v, got %+v", expected, payload)
+	}
+	for _, key := range expected {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("expected key %q, got %+v", key, payload)
+		}
+	}
+}
+
+func readDashboardMessageByType(t *testing.T, conn *websocket.Conn, messageType string) map[string]any {
+	t.Helper()
+	for range 3 {
+		message := readWebSocketJSON(t, conn)
+		if message["type"] == messageType {
+			return message
+		}
+	}
+	t.Fatalf("timed out waiting for dashboard message type %q", messageType)
+	return nil
 }
 
 func decodeRealtimeDashboardSnapshot(t *testing.T, message map[string]any) statsdomain.DashboardSnapshot {
@@ -1223,13 +1522,6 @@ func dashboardTopologyNodeForModelID(graph statsdomain.DashboardTopologyGraph, m
 		}
 	}
 	return nil
-}
-
-func assertRealtimeRequestLogTokenPointers(t *testing.T, entry realtimeapi.RequestLogEntry, wantInput int, wantOutput int, wantTotal int, wantCacheRead int, wantCacheCreation int, wantReasoning int) {
-	t.Helper()
-	if entry.InputTokens == nil || *entry.InputTokens != wantInput || entry.OutputTokens == nil || *entry.OutputTokens != wantOutput || entry.TotalTokens == nil || *entry.TotalTokens != wantTotal || entry.CacheReadInputTokens == nil || *entry.CacheReadInputTokens != wantCacheRead || entry.CacheCreationInputTokens == nil || *entry.CacheCreationInputTokens != wantCacheCreation || entry.ReasoningTokens == nil || *entry.ReasoningTokens != wantReasoning {
-		t.Fatalf("expected realtime request_log input/output/total/cache-read/cache-creation/reasoning=%d/%d/%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantTotal, wantCacheRead, wantCacheCreation, wantReasoning, entry)
-	}
 }
 
 func assertUsageSnapshotMergedTokenSemantics(t *testing.T, snapshot statsdomain.UsageSnapshotResponse, wantInput int, wantOutput int, wantTotal int, wantCached int, wantReasoning int) {
@@ -1306,83 +1598,6 @@ func sumUsageModelStatisticTokens(items []statsdomain.UsageModelStatistic) usage
 		totals.totalTokens += item.TotalTokens
 	}
 	return totals
-}
-
-func assertRealtimeRequestLogMatchesRESTDetail(t *testing.T, requestLog map[string]any, detail map[string]any) {
-	t.Helper()
-	summary := asMapRuntime(t, detail["summary"])
-	request := asMapRuntime(t, detail["request"])
-	routing := asMapRuntime(t, detail["routing"])
-	usage := asMapRuntime(t, detail["usage"])
-	if _, ok := requestLog["connection_id"]; !ok {
-		t.Fatalf("expected realtime request_log to preserve internal connection_id, got %+v", requestLog)
-	}
-	costing := asMapRuntime(t, detail["costing"])
-	pricing := asMapRuntime(t, detail["pricing"])
-	fields := []struct {
-		realtimeKey string
-		restPayload map[string]any
-		restKey     string
-	}{
-		{"id", summary, "id"},
-		{"model_id", summary, "model_id"},
-		{"model_label", summary, "model_label"},
-		{"resolved_target_model_id", summary, "resolved_target_model_id"},
-		{"resolved_target_model_label", summary, "resolved_target_model_label"},
-		{"api_family", summary, "api_family"},
-		{"status_code", summary, "status_code"},
-		{"response_time_ms", summary, "response_time_ms"},
-		{"ttft_ms", summary, "ttft_ms"},
-		{"completion_duration_ms", summary, "completion_duration_ms"},
-		{"is_stream", summary, "is_stream"},
-		{"stream_outcome", summary, "stream_outcome"},
-		{"stream_error_kind", summary, "stream_error_kind"},
-		{"request_path", request, "request_path"},
-		{"ingress_request_id", request, "ingress_request_id"},
-		{"attempt_number", request, "attempt_number"},
-		{"provider_correlation_id", request, "provider_correlation_id"},
-		{"proxy_api_key_id", request, "proxy_api_key_id"},
-		{"proxy_api_key_name_snapshot", request, "proxy_api_key_name_snapshot"},
-		{"error_detail", request, "error_detail"},
-		{"profile_id", routing, "profile_id"},
-		{"endpoint_id", routing, "endpoint_id"},
-		{"endpoint_base_url", routing, "endpoint_base_url"},
-		{"endpoint_description", routing, "endpoint_description"},
-		{"input_tokens", usage, "input_tokens"},
-		{"output_tokens", usage, "output_tokens"},
-		{"total_tokens", usage, "total_tokens"},
-		{"success_flag", usage, "success_flag"},
-		{"billable_flag", usage, "billable_flag"},
-		{"priced_flag", usage, "priced_flag"},
-		{"unpriced_reason", usage, "unpriced_reason"},
-		{"cache_read_input_tokens", usage, "cache_read_input_tokens"},
-		{"cache_creation_input_tokens", usage, "cache_creation_input_tokens"},
-		{"reasoning_tokens", usage, "reasoning_tokens"},
-		{"input_cost_micros", costing, "input_cost_micros"},
-		{"output_cost_micros", costing, "output_cost_micros"},
-		{"cache_read_input_cost_micros", costing, "cache_read_input_cost_micros"},
-		{"cache_creation_input_cost_micros", costing, "cache_creation_input_cost_micros"},
-		{"reasoning_cost_micros", costing, "reasoning_cost_micros"},
-		{"total_cost_original_micros", costing, "total_cost_original_micros"},
-		{"total_cost_user_currency_micros", costing, "total_cost_user_currency_micros"},
-		{"currency_code_original", costing, "currency_code_original"},
-		{"report_currency_code", costing, "report_currency_code"},
-		{"report_currency_symbol", costing, "report_currency_symbol"},
-		{"fx_rate_used", costing, "fx_rate_used"},
-		{"fx_rate_source", costing, "fx_rate_source"},
-		{"pricing_snapshot_unit", pricing, "pricing_snapshot_unit"},
-		{"pricing_snapshot_input", pricing, "pricing_snapshot_input"},
-		{"pricing_snapshot_output", pricing, "pricing_snapshot_output"},
-		{"pricing_snapshot_cache_read_input", pricing, "pricing_snapshot_cache_read_input"},
-		{"pricing_snapshot_cache_creation_input", pricing, "pricing_snapshot_cache_creation_input"},
-		{"pricing_snapshot_reasoning", pricing, "pricing_snapshot_reasoning"},
-		{"pricing_config_version_used", pricing, "pricing_config_version_used"},
-	}
-	for _, field := range fields {
-		if !reflect.DeepEqual(requestLog[field.realtimeKey], field.restPayload[field.restKey]) {
-			t.Fatalf("expected realtime request_log.%s to match REST %s=%v, got %v", field.realtimeKey, field.restKey, field.restPayload[field.restKey], requestLog[field.realtimeKey])
-		}
-	}
 }
 
 func readWebSocketJSON(t *testing.T, conn *websocket.Conn) map[string]any {

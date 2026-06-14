@@ -1,0 +1,29 @@
+{
+  "type": "dashboard.activity",
+  "profile_id": 2,
+  "activity_watermark": {
+    "latest_request_log_created_at": "2026-04-18T12:34:56Z",
+    "latest_request_log_id": 101
+  },
+  "activity": {
+    "request_log_id": 101,
+    "created_at": "2026-04-18T12:34:56Z",
+    "model_id": "gpt-4o",
+    "model_label": "GPT-4o Public",
+    "resolved_target_model_id": "gpt-4o-native",
+    "resolved_target_model_label": "GPT-4o Target",
+    "endpoint_id": 12,
+    "endpoint_label": "Primary production key",
+    "status_code": 200,
+    "response_time_ms": 1234,
+    "ttft_ms": 320,
+    "completion_duration_ms": 914,
+    "is_stream": false,
+    "stream_outcome": "not_streaming",
+    "total_tokens": 57,
+    "total_cost_user_currency_micros": 1250,
+    "priced_flag": true,
+    "unpriced_reason": null,
+    "report_currency_symbol": "$"
+  }
+}
