@@ -1328,7 +1328,9 @@ Sibling OpenAI text translation is native-first and always on for adapter-approv
 
 Translated non-stream and stream responses are rewritten back to the ingress operation shape for the client. Runtime usage remains canonical from the raw upstream payload or terminal stream event, translated responses strip unsafe entity headers before writing to the client, and audit body capture stays upstream-native rather than translated.
 
-Ingress observability remains stable: `operation_name` is always the client-visible operation. Additive upstream fields use `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` for request logs, usage events, and request-log detail. `upstream_request_path` is the sanitized operation path Prism sent upstream, not an unbounded raw URL.
+For Chat Completions ingress promoted to a Responses-only target, the client contract remains Chat Completions. Non-stream responses return `object: "chat.completion"`, `choices`, the requested public model ID, and Chat-shaped usage fields. Prism does not expose the raw Responses envelope to the client. Streaming responses return Chat Completions SSE chunks and terminal `data: [DONE]` while accepting text lifecycle events from the Responses upstream: `response.output_item.added`, `response.content_part.added`, `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `response.output_item.done`, and terminal `response.completed`. Unsupported semantic Responses stream shapes, including tools, function calls, and non-text content, still reject deterministically with `openai_stream_translation_unsupported`.
+
+Ingress observability remains stable: `operation_name` is always the client-visible operation. Additive upstream fields use `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` for request logs, usage events, and request-log detail. `upstream_request_path` is the sanitized operation path Prism sent upstream, not an unbounded raw URL. For Chat ingress translated to Responses upstream, public request logs preserve `operation_name = "openai.chat_completions"`, may record `upstream_operation_name = "openai.responses"`, and preserve `operation_translation_mode = "openai_chat_completions_to_responses"`.
 
 #### 2.2B.1 Application capability matrix
 
@@ -2836,7 +2838,6 @@ Example `analytics.snapshot` payload:
     },
     "currency": { "code": "USD", "symbol": "$" },
     "overview": { "total_requests": 42, "success_rate": 97.62 },
-    "service_health": { "request_count": 42, "success_count": 41, "failed_count": 1, "cells": [] },
     "request_trends": { "hourly": [], "daily": [] },
     "token_usage_trends": { "hourly": [], "daily": [] },
     "token_type_breakdown": { "hourly": [], "daily": [] },
