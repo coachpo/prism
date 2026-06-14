@@ -10,8 +10,7 @@ import (
 )
 
 type asyncPublishCall struct {
-	ProfileID    int
-	RequestLogID int
+	ProfileID int
 }
 
 type asyncAnalyticsPublishCall struct {
@@ -21,7 +20,6 @@ type asyncAnalyticsPublishCall struct {
 
 type fakeAsyncDashboardTarget struct {
 	mu            sync.Mutex
-	latest        map[int]int
 	subscribers   map[int]bool
 	calls         []asyncPublishCall
 	invalidations []int
@@ -31,7 +29,7 @@ type fakeAsyncDashboardTarget struct {
 	blockFirst    bool
 }
 
-func TestAsyncDashboardPublisher_CoalescesProfileWhileWorkerIsInflight(t *testing.T) {
+func TestAsyncDashboardPublisherProfileScopedCoalescing(t *testing.T) {
 	target := newFakeAsyncDashboardTarget(true)
 	publisher := NewAsyncDashboardPublisher(target, AsyncDashboardPublisherOptions{
 		QueueCapacity:   1,
@@ -41,18 +39,18 @@ func TestAsyncDashboardPublisher_CoalescesProfileWhileWorkerIsInflight(t *testin
 	})
 	defer publisher.Close()
 
-	accepted, err := publisher.PublishDashboardUpdate(context.Background(), 101, 7)
+	accepted, err := publisher.PublishDashboardSnapshot(context.Background(), 7)
 	if err != nil || !accepted {
 		t.Fatalf("expected first async dashboard publish to queue successfully, got accepted=%v err=%v", accepted, err)
 	}
 	target.waitUntilFirstStarted(t, 2*time.Second)
-	accepted, err = publisher.PublishDashboardUpdate(context.Background(), 202, 7)
+	accepted, err = publisher.PublishDashboardSnapshot(context.Background(), 7)
 	if err != nil || !accepted {
 		t.Fatalf("expected second async dashboard publish to coalesce successfully, got accepted=%v err=%v", accepted, err)
 	}
 	snapshot := publisher.Snapshot()
-	if snapshot.QueueDepth != 0 || snapshot.InflightProfiles != 1 || snapshot.TrackedProfiles != 1 {
-		t.Fatalf("expected inflight coalesced snapshot to track one inflight profile without queued backlog, got %+v", snapshot)
+	if snapshot.QueueDepth != 1 || snapshot.InflightProfiles != 1 || snapshot.TrackedProfiles != 1 {
+		t.Fatalf("expected inflight coalesced snapshot to track one queued profile-scoped replay, got %+v", snapshot)
 	}
 	if snapshot.AcceptedCount != 1 || snapshot.CoalescedCount != 1 || snapshot.DroppedCount != 0 {
 		t.Fatalf("expected coalesced counters accepted=1 coalesced=1 dropped=0, got %+v", snapshot)
@@ -67,11 +65,11 @@ func TestAsyncDashboardPublisher_CoalescesProfileWhileWorkerIsInflight(t *testin
 
 	firstCall := target.waitForCall(t, 2*time.Second)
 	secondCall := target.waitForCall(t, 2*time.Second)
-	if firstCall.ProfileID != 7 || firstCall.RequestLogID != 101 {
-		t.Fatalf("expected first publish call to use original request log, got %+v", firstCall)
+	if firstCall.ProfileID != 7 {
+		t.Fatalf("expected first publish call to use profile 7, got %+v", firstCall)
 	}
-	if secondCall.ProfileID != 7 || secondCall.RequestLogID != 202 {
-		t.Fatalf("expected second publish call to use coalesced latest request log, got %+v", secondCall)
+	if secondCall.ProfileID != 7 {
+		t.Fatalf("expected second publish call to use coalesced profile 7, got %+v", secondCall)
 	}
 	finalSnapshot := waitForAsyncDashboardDrain(t, publisher, 2*time.Second)
 	if finalSnapshot.AcceptedCount != 1 || finalSnapshot.CoalescedCount != 1 || finalSnapshot.DroppedCount != 0 {
@@ -95,16 +93,16 @@ func TestAsyncDashboardPublisher_DropsOnlyQueuedBestEffortProfileWhenCapacityIsE
 	})
 	defer publisher.Close()
 
-	accepted, err := publisher.PublishDashboardUpdate(context.Background(), 101, 1)
+	accepted, err := publisher.PublishDashboardSnapshot(context.Background(), 1)
 	if err != nil || !accepted {
 		t.Fatalf("expected first async dashboard publish to queue successfully, got accepted=%v err=%v", accepted, err)
 	}
 	target.waitUntilFirstStarted(t, 2*time.Second)
-	accepted, err = publisher.PublishDashboardUpdate(context.Background(), 201, 2)
+	accepted, err = publisher.PublishDashboardSnapshot(context.Background(), 2)
 	if err != nil || !accepted {
 		t.Fatalf("expected second profile to queue while one worker is inflight, got accepted=%v err=%v", accepted, err)
 	}
-	accepted, err = publisher.PublishDashboardUpdate(context.Background(), 301, 3)
+	accepted, err = publisher.PublishDashboardSnapshot(context.Background(), 3)
 	if err != nil {
 		t.Fatalf("expected saturated async publisher to drop without returning error, got %v", err)
 	}
@@ -125,7 +123,7 @@ func TestAsyncDashboardPublisher_DropsOnlyQueuedBestEffortProfileWhenCapacityIsE
 		t.Fatalf("expected no drain metadata before pressure is released, got %+v", snapshot)
 	}
 
-	delivered, err := publisher.PublishPendingDashboardUpdate(context.Background(), 2)
+	delivered, err := publisher.PublishPendingDashboardSnapshot(context.Background(), 2)
 	if err != nil {
 		t.Fatalf("skip duplicate pending publish for queued profile: %v", err)
 	}
@@ -133,15 +131,15 @@ func TestAsyncDashboardPublisher_DropsOnlyQueuedBestEffortProfileWhenCapacityIsE
 		t.Fatal("expected queued profile pending replay to skip immediate duplicate delivery")
 	}
 
-	delivered, err = publisher.PublishPendingDashboardUpdate(context.Background(), 3)
+	delivered, err = publisher.PublishPendingDashboardSnapshot(context.Background(), 3)
 	if err != nil {
-		t.Fatalf("replay dropped profile latest dashboard update: %v", err)
+		t.Fatalf("replay dropped profile dashboard snapshot: %v", err)
 	}
 	if !delivered {
-		t.Fatal("expected dropped live publish to remain replayable from the latest durable request log")
+		t.Fatal("expected dropped snapshot work to remain replayable by profile")
 	}
-	if replayCall := target.waitForCall(t, 2*time.Second); replayCall.ProfileID != 3 || replayCall.RequestLogID != 301 {
-		t.Fatalf("expected replay call for dropped profile to use latest request log, got %+v", replayCall)
+	if replayCall := target.waitForCall(t, 2*time.Second); replayCall.ProfileID != 3 {
+		t.Fatalf("expected replay call for dropped profile to use profile 3, got %+v", replayCall)
 	}
 	target.releaseBlockedPublish()
 	finalSnapshot := waitForAsyncDashboardDrain(t, publisher, 2*time.Second)
@@ -169,9 +167,9 @@ func TestAsyncDashboardPublisher_QueuesRefreshWhenNoSubscribers(t *testing.T) {
 	})
 	defer publisher.Close()
 
-	accepted, err := publisher.PublishDashboardUpdate(context.Background(), 303, 7)
+	accepted, err := publisher.PublishDashboardSnapshot(context.Background(), 7)
 	if err != nil {
-		t.Fatalf("publish dashboard update without subscribers: %v", err)
+		t.Fatalf("publish dashboard snapshot without subscribers: %v", err)
 	}
 	if !accepted {
 		t.Fatal("expected no-subscriber dashboard traffic to queue aggregate refresh work")
@@ -183,8 +181,8 @@ func TestAsyncDashboardPublisher_QueuesRefreshWhenNoSubscribers(t *testing.T) {
 		t.Fatalf("expected no-subscriber dashboard traffic to invalidate cached profile 7, got %+v", invalidations)
 	}
 	call := target.waitForCall(t, 2*time.Second)
-	if call.ProfileID != 7 || call.RequestLogID != 303 {
-		t.Fatalf("expected no-subscriber publish call to use latest request log, got %+v", call)
+	if call.ProfileID != 7 {
+		t.Fatalf("expected no-subscriber publish call to use profile 7, got %+v", call)
 	}
 	finalSnapshot := waitForAsyncDashboardDrain(t, publisher, 2*time.Second)
 	if finalSnapshot.AcceptedCount != 1 || finalSnapshot.DroppedCount != 0 || !finalSnapshot.Drained {
@@ -285,7 +283,6 @@ func TestAsyncAnalyticsPublisher_DropsTrackedStateWhenSchedulerRejectsSubmit(t *
 
 func newFakeAsyncDashboardTarget(blockFirst bool) *fakeAsyncDashboardTarget {
 	return &fakeAsyncDashboardTarget{
-		latest:       map[int]int{},
 		subscribers:  map[int]bool{},
 		publishCh:    make(chan asyncPublishCall, 8),
 		firstStarted: make(chan struct{}),
@@ -294,10 +291,9 @@ func newFakeAsyncDashboardTarget(blockFirst bool) *fakeAsyncDashboardTarget {
 	}
 }
 
-func (t *fakeAsyncDashboardTarget) PublishLatestDashboardUpdate(ctx context.Context, profileID int) (int, bool, error) {
+func (t *fakeAsyncDashboardTarget) PublishLatestDashboardSnapshot(ctx context.Context, profileID int) (bool, error) {
+	call := asyncPublishCall{ProfileID: profileID}
 	t.mu.Lock()
-	requestLogID := t.latest[profileID]
-	call := asyncPublishCall{ProfileID: profileID, RequestLogID: requestLogID}
 	t.calls = append(t.calls, call)
 	callIndex := len(t.calls)
 	t.mu.Unlock()
@@ -311,20 +307,18 @@ func (t *fakeAsyncDashboardTarget) PublishLatestDashboardUpdate(ctx context.Cont
 		select {
 		case <-t.releaseFirst:
 		case <-ctx.Done():
-			return requestLogID, false, ctx.Err()
+			return false, ctx.Err()
 		}
 	}
 	select {
 	case t.publishCh <- call:
 	default:
 	}
-	return requestLogID, true, nil
+	return true, nil
 }
 
-func (t *fakeAsyncDashboardTarget) RecordLatestDashboardRequestLog(profileID int, requestLogID int) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.latest[profileID] = requestLogID
+func (t *fakeAsyncDashboardTarget) PublishDashboardActivity(context.Context, int, int) (bool, error) {
+	return false, nil
 }
 
 func (t *fakeAsyncDashboardTarget) InvalidateDashboardSnapshot(profileID int) {
