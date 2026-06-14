@@ -227,7 +227,78 @@ test("analytics extractor preserves snapshot shape and ignores non-analytics mes
     endpoint_model_statistics_by_endpoint_id: { "1": [] },
   });
   assert.equal(
-    hookModule.CHANNEL_PAYLOAD_EXTRACTORS.analytics({ type: "dashboard.update" }),
+    hookModule.CHANNEL_PAYLOAD_EXTRACTORS.analytics({ type: "dashboard.snapshot" }),
+    null,
+  );
+});
+
+test("dashboard extractor accepts split snapshot and single activity payloads only", () => {
+  const hookModule = loadHookModuleWithClient({});
+  const snapshot = {
+    generated_at: "2026-05-04T00:00:00Z",
+    snapshot_revision: "01HVVYV9XG0000000000000000",
+    source_watermark: {
+      latest_usage_event_created_at: null,
+      latest_usage_event_id: null,
+    },
+  };
+  const activity = {
+    request_log_id: 101,
+    created_at: "2026-05-04T00:00:01Z",
+    model_id: "gpt-4o",
+    model_label: "GPT-4o",
+    resolved_target_model_id: null,
+    resolved_target_model_label: null,
+    endpoint_id: null,
+    endpoint_label: "Unknown Endpoint",
+    status_code: 200,
+    response_time_ms: 123,
+    ttft_ms: null,
+    completion_duration_ms: null,
+    is_stream: false,
+    stream_outcome: "not_streaming",
+    total_tokens: null,
+    total_cost_user_currency_micros: null,
+    priced_flag: null,
+    unpriced_reason: null,
+    report_currency_symbol: null,
+  };
+
+  assert.deepEqual(
+    hookModule.CHANNEL_PAYLOAD_EXTRACTORS.dashboard({
+      type: "dashboard.snapshot",
+      profile_id: 7,
+      snapshot,
+    }),
+    {
+      type: "dashboard.snapshot",
+      profile_id: 7,
+      snapshot,
+    },
+  );
+  assert.deepEqual(
+    hookModule.CHANNEL_PAYLOAD_EXTRACTORS.dashboard({
+      type: "dashboard.activity",
+      profile_id: 7,
+      activity_watermark: {
+        latest_request_log_created_at: "2026-05-04T00:00:01Z",
+        latest_request_log_id: 101,
+      },
+      activity,
+    }),
+    {
+      type: "dashboard.activity",
+      profile_id: 7,
+      activity_watermark: {
+        latest_request_log_created_at: "2026-05-04T00:00:01Z",
+        latest_request_log_id: 101,
+      },
+      activity,
+    },
+  );
+  assert.equal(Array.isArray(activity), false);
+  assert.equal(
+    hookModule.CHANNEL_PAYLOAD_EXTRACTORS.dashboard({ type: "dashboard.legacy" }),
     null,
   );
 });
@@ -275,10 +346,26 @@ test("hook analytics scope filter requires matching profile and preset", () => {
   assert.equal(
     hookModule.matchesRealtimeDataScope({
       channel: "dashboard",
-      message: { type: "dashboard.update" },
+      message: { type: "dashboard.snapshot", profile_id: 7, snapshot: {} },
       profileId: 7,
     }),
     true,
+  );
+  assert.equal(
+    hookModule.matchesRealtimeDataScope({
+      channel: "dashboard",
+      message: { type: "dashboard.snapshot", profile_id: 8, snapshot: {} },
+      profileId: 7,
+    }),
+    false,
+  );
+  assert.equal(
+    hookModule.matchesRealtimeDataScope({
+      channel: "dashboard",
+      message: { type: "dashboard.legacy" },
+      profileId: 7,
+    }),
+    false,
   );
 });
 
