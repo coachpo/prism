@@ -95,14 +95,6 @@ function createUsageSnapshot(profileId: number) {
       average_tpm: 68.8,
       total_cost_micros: 250000,
     },
-    service_health: {
-      availability_percentage: 90.9,
-      request_count: totalRequests,
-      success_count: totalRequests - 1,
-      failed_count: 1,
-      interval_minutes: 60,
-      cells: [],
-    },
     request_trends: {
       hourly: [
         {
