@@ -12,6 +12,8 @@ import type {
   ConnectionSuccessRateParams,
   CostingSettingsResponse,
   CostingSettingsUpdate,
+  DashboardRecentActivityParams,
+  DashboardRecentActivityResponse,
   DashboardSnapshot,
   HeaderBlocklistRule,
   HeaderBlocklistRuleCreate,
@@ -56,6 +58,10 @@ function buildStatsQuery(params?: StatsRequestParams) {
 
 export const stats = {
   dashboard: () => request<DashboardSnapshot>("/api/stats/dashboard"),
+  dashboardRecentActivity: (params?: DashboardRecentActivityParams) => {
+    const query = buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
+    return request<DashboardRecentActivityResponse>(`/api/stats/dashboard/recent-activity${query ? `?${query}` : ""}`);
+  },
   requests: (params?: StatsRequestParams) => {
     const query = buildStatsQuery(params);
     return request<RequestLogListResponse>(`/api/stats/requests${query ? `?${query}` : ""}`);

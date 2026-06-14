@@ -1,5 +1,7 @@
 import type {
-  DashboardRealtimeUpdatePayload,
+  DashboardRealtimeActivityPayload,
+  DashboardRealtimePayload,
+  DashboardRealtimeSnapshotPayload,
   UsageModelStatistic,
   UsageSnapshotPreset,
   UsageSnapshotResponse,
@@ -49,7 +51,7 @@ export interface AnalyticsRealtimeErrorPayload {
 }
 
 export interface RealtimeChannelPayloadMap {
-  dashboard: DashboardRealtimeUpdatePayload;
+  dashboard: DashboardRealtimePayload;
   analytics: AnalyticsRealtimeSnapshotPayload;
 }
 
@@ -59,7 +61,8 @@ export type RealtimeMessage =
   | { type: "heartbeat" }
   | { type: "subscribed"; profile_id: number; channel: RealtimeChannel; preset?: UsageSnapshotPreset }
   | { type: "unsubscribed"; channel?: RealtimeChannel; preset?: UsageSnapshotPreset }
-  | ({ type: "dashboard.update" } & DashboardRealtimeUpdatePayload)
+  | DashboardRealtimeSnapshotPayload
+  | DashboardRealtimeActivityPayload
   | ({ type: "analytics.snapshot" } & AnalyticsRealtimeSnapshotPayload)
   | ({ type: "analytics.error" } & AnalyticsRealtimeErrorPayload)
   | { type: "reconnected" }

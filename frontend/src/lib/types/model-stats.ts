@@ -726,23 +726,78 @@ export interface DashboardRoutingHealthMap {
   trafficRequestTotal24h: number;
 }
 
+export interface DashboardSnapshotSourceWatermark {
+  latest_usage_event_created_at: string | null;
+  latest_usage_event_id: number | null;
+}
+
+export interface DashboardRecentActivityWatermark {
+  latest_request_log_created_at: string | null;
+  latest_request_log_id: number | null;
+}
+
 export interface DashboardSnapshot {
   generated_at: string;
+  snapshot_revision: string;
+  source_watermark: DashboardSnapshotSourceWatermark;
   coverage_24h: DashboardSnapshotCoverage;
   coverage_30d: DashboardSnapshotCoverage;
   health: DashboardSnapshotHealth;
   metric_snapshot: DashboardMetricSnapshot;
   api_family_rows: StatGroup[];
-  recent_requests: RequestLogListItem[];
   top_spending_models: SpendingTopModel[];
   routing_health_map: DashboardRoutingHealthMap;
   topology_graph?: DashboardTopologyGraph;
 }
 
-export interface DashboardRealtimeUpdatePayload {
-  request_log: RequestLogEntry;
+export interface DashboardRecentActivityItem {
+  request_log_id: number;
+  created_at: string;
+  model_id: string;
+  model_label: string;
+  resolved_target_model_id: string | null;
+  resolved_target_model_label: string | null;
+  endpoint_id: number | null;
+  endpoint_label: string;
+  status_code: number;
+  response_time_ms: number;
+  ttft_ms: number | null;
+  completion_duration_ms: number | null;
+  is_stream: boolean;
+  stream_outcome: StreamOutcome;
+  total_tokens: number | null;
+  total_cost_user_currency_micros: number | null;
+  priced_flag: boolean | null;
+  unpriced_reason: string | null;
+  report_currency_symbol: string | null;
+}
+
+export interface DashboardRecentActivityResponse {
+  generated_at: string;
+  activity_watermark: DashboardRecentActivityWatermark;
+  items: DashboardRecentActivityItem[];
+}
+
+export interface DashboardRecentActivityParams {
+  limit?: number;
+}
+
+export interface DashboardRealtimeSnapshotPayload {
+  type: "dashboard.snapshot";
+  profile_id: number;
   snapshot: DashboardSnapshot;
 }
+
+export interface DashboardRealtimeActivityPayload {
+  type: "dashboard.activity";
+  profile_id: number;
+  activity_watermark: DashboardRecentActivityWatermark;
+  activity: DashboardRecentActivityItem;
+}
+
+export type DashboardRealtimePayload =
+  | DashboardRealtimeSnapshotPayload
+  | DashboardRealtimeActivityPayload;
 
 export interface EndpointModelsBatchParams {
   endpoint_ids: number[];
