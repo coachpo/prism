@@ -13,9 +13,9 @@ const openAITranslatedNonStreamResponseBodyLimit int64 = 8 * 1024 * 1024
 func translateOpenAIResponse(rawBody []byte, mode TranslationMode, requestedModelID string) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
 	switch mode {
 	case TranslationModeOpenAIResponsesToChatCompletions:
-		return translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody, requestedModelID)
+		return translateOpenAIChatUpstreamToResponsesClientResponseWithRequestedModel(rawBody, requestedModelID)
 	case TranslationModeOpenAIChatCompletionsToResponses:
-		return translateOpenAIResponsesToChatResponseWithRequestedModel(rawBody, requestedModelID)
+		return translateOpenAIResponsesUpstreamToChatClientResponseWithRequestedModel(rawBody, requestedModelID)
 	case "", TranslationModeNone:
 		return append([]byte(nil), rawBody...), responseUsage{}, runtimeUsageNormalizationRule{}, nil
 	default:
@@ -23,11 +23,7 @@ func translateOpenAIResponse(rawBody []byte, mode TranslationMode, requestedMode
 	}
 }
 
-func translateOpenAIResponsesToChatResponse(rawBody []byte) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
-	return translateOpenAIResponsesToChatResponseWithRequestedModel(rawBody, "")
-}
-
-func translateOpenAIResponsesToChatResponseWithRequestedModel(rawBody []byte, requestedModelID string) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
+func translateOpenAIResponsesUpstreamToChatClientResponseWithRequestedModel(rawBody []byte, requestedModelID string) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
 	payload, err := decodeOpenAIResponseTranslationPayload(rawBody)
 	if err != nil {
 		return nil, responseUsage{}, runtimeUsageRuleOpenAIResponses, err
@@ -64,7 +60,7 @@ func translateOpenAIResponsesToChatResponseWithRequestedModel(rawBody []byte, re
 	return body, usage, runtimeUsageRuleOpenAIResponses, err
 }
 
-func translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody []byte, requestedModelID string) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
+func translateOpenAIChatUpstreamToResponsesClientResponseWithRequestedModel(rawBody []byte, requestedModelID string) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
 	payload, err := decodeOpenAIResponseTranslationPayload(rawBody)
 	if err != nil {
 		return nil, responseUsage{}, runtimeUsageRuleOpenAIChatCompletions, err

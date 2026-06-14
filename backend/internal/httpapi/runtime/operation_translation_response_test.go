@@ -12,7 +12,7 @@ import (
 func TestTranslateOpenAIResponsesToChatResponse(t *testing.T) {
 	rawBody := []byte(`{"id":"resp_123","created_at":1700000000,"model":"responses-target","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":3}}}`)
 
-	translated, usage, usageRule, err := translateOpenAIResponsesToChatResponse(rawBody)
+	translated, usage, usageRule, err := translateOpenAIResponsesUpstreamToChatClientResponseWithRequestedModel(rawBody, "")
 	if err != nil {
 		t.Fatalf("translate responses to chat response: %v", err)
 	}
@@ -61,15 +61,25 @@ func TestTranslateOpenAIResponsesToChatResponse(t *testing.T) {
 }
 
 func TestTranslateOpenAIResponsesToChatResponseWithRequestedModel(t *testing.T) {
-	rawBody := []byte(`{"id":"resp_123","created_at":1700000000,"model":"responses-target","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}]}`)
+	rawBody := []byte(`{"id":"resp_123","object":"response","created_at":1700000000,"model":"responses-target","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}]}`)
 
-	translated, _, _, err := translateOpenAIResponse(rawBody, TranslationModeOpenAIChatCompletionsToResponses, "chat-public")
+	translated, _, _, err := translateOpenAIResponsesUpstreamToChatClientResponseWithRequestedModel(rawBody, "chat-public")
 	if err != nil {
 		t.Fatalf("translate responses to chat response with requested model: %v", err)
 	}
 	payload := decodeTranslationTestPayload(t, translated)
 	if got := stringValue(payload["object"]); got != "chat.completion" {
 		t.Fatalf("expected chat completion object, got %q", got)
+	}
+	choices, ok := payload["choices"].([]any)
+	if !ok || len(choices) != 1 {
+		t.Fatalf("expected translated Chat choices envelope, got %+v", payload["choices"])
+	}
+	if _, ok := payload["output"]; ok {
+		t.Fatalf("expected translated Chat payload to omit raw Responses output, got %+v", payload)
+	}
+	if strings.Contains(string(translated), `"object":"response"`) {
+		t.Fatalf("expected translated Chat payload to avoid raw Responses object leak, got %s", string(translated))
 	}
 	if got := stringValue(payload["model"]); got != "chat-public" {
 		t.Fatalf("expected translated chat model to normalize to requested public model, got %q", got)
@@ -82,7 +92,7 @@ func TestTranslateOpenAIResponsesToChatResponseWithRequestedModel(t *testing.T) 
 func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 	rawBody := []byte(`{"id":"chatcmpl_123","created":1700000001,"model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":"thinking"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":3}}}`)
 
-	translated, usage, usageRule, err := translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody, "responses-public")
+	translated, usage, usageRule, err := translateOpenAIChatUpstreamToResponsesClientResponseWithRequestedModel(rawBody, "responses-public")
 	if err != nil {
 		t.Fatalf("translate chat to responses response: %v", err)
 	}
@@ -138,7 +148,7 @@ func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 
 func TestTranslateOpenAIResponseRefusal(t *testing.T) {
 	responsesRaw := []byte(`{"id":"resp_refusal","model":"responses-target","output":[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"I cannot help with that."}]}]}`)
-	chatBody, _, _, err := translateOpenAIResponsesToChatResponse(responsesRaw)
+	chatBody, _, _, err := translateOpenAIResponsesUpstreamToChatClientResponseWithRequestedModel(responsesRaw, "")
 	if err != nil {
 		t.Fatalf("translate responses refusal to chat: %v", err)
 	}
@@ -149,7 +159,7 @@ func TestTranslateOpenAIResponseRefusal(t *testing.T) {
 	}
 
 	chatRaw := []byte(`{"id":"chatcmpl_refusal","created":1700000001,"model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","refusal":"I cannot help with that."},"finish_reason":"stop"}]}`)
-	responsesBody, _, _, err := translateOpenAIChatToResponsesResponseWithRequestedModel(chatRaw, "responses-public")
+	responsesBody, _, _, err := translateOpenAIChatUpstreamToResponsesClientResponseWithRequestedModel(chatRaw, "responses-public")
 	if err != nil {
 		t.Fatalf("translate chat refusal to responses: %v", err)
 	}
@@ -190,7 +200,7 @@ func TestTranslateOpenAIResponseRejectsUnsupportedShape(t *testing.T) {
 func TestTranslateOpenAIChatToResponsesResponseRequestedEqualsResolved(t *testing.T) {
 	rawBody := []byte(`{"id":"chatcmpl_123","created":1700000001,"model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":"thinking"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16}}`)
 
-	translated, _, _, err := translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody, "chat-target")
+	translated, _, _, err := translateOpenAIChatUpstreamToResponsesClientResponseWithRequestedModel(rawBody, "chat-target")
 	if err != nil {
 		t.Fatalf("translate chat to responses response: %v", err)
 	}
@@ -206,7 +216,7 @@ func TestTranslateOpenAIChatToResponsesResponseRequestedEqualsResolved(t *testin
 func TestTranslateOpenAIChatToResponsesResponsePreservesErrorPayload(t *testing.T) {
 	rawBody := []byte(`{"id":"chatcmpl_123","created":1700000001,"model":"chat-target","error":{"message":"upstream failed","type":"server_error","code":"bad_gateway"},"choices":[{"index":0,"message":{"role":"assistant","content":"thinking"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16}}`)
 
-	translated, _, _, err := translateOpenAIChatToResponsesResponseWithRequestedModel(rawBody, "responses-public")
+	translated, _, _, err := translateOpenAIChatUpstreamToResponsesClientResponseWithRequestedModel(rawBody, "responses-public")
 	if err != nil {
 		t.Fatalf("translate chat to responses response with error payload: %v", err)
 	}
@@ -247,7 +257,7 @@ func TestOperationResponseHooks_TranslatedOpenAINonStreamPreservesCanonicalUsage
 			name:         "chat ingress from translated responses upstream",
 			ingressPath:  "/v1/chat/completions",
 			mode:         TranslationModeOpenAIChatCompletionsToResponses,
-			payload:      `{"id":"resp-hook","model":"chat-target","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":3}}}`,
+			payload:      `{"id":"resp-hook","object":"response","model":"chat-target","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":3}}}`,
 			wantContains: `"choices"`,
 			wantUsage:    generationResponseHookTestUsageWithCacheAndReasoning(6, 3, 16, 4, 3),
 		},
@@ -273,6 +283,12 @@ func TestOperationResponseHooks_TranslatedOpenAINonStreamPreservesCanonicalUsage
 				}
 			}
 			if test.ingressPath == "/v1/chat/completions" {
+				if !strings.Contains(forwarded.String(), `"object":"chat.completion"`) {
+					t.Fatalf("expected translated Chat payload object, got %q", forwarded.String())
+				}
+				if strings.Contains(forwarded.String(), `"object":"response"`) {
+					t.Fatalf("expected translated Chat payload to avoid raw Responses object leak, got %q", forwarded.String())
+				}
 				if !strings.Contains(forwarded.String(), `"model":"chat-target"`) {
 					t.Fatalf("expected equal requested/resolved chat payload to keep model chat-target, got %q", forwarded.String())
 				}
