@@ -3,7 +3,6 @@ import { UsageControlsBar } from "./sections/UsageControlsBar";
 import { UsageErrorBanner } from "./sections/UsageErrorBanner";
 import { UsageOverviewSection } from "./sections/UsageOverviewSection";
 import { UsageModelLineSelectorSection } from "./sections/UsageModelLineSelectorSection";
-import { UsageServiceHealthSection } from "./sections/UsageServiceHealthSection";
 import { UsageTablesSection } from "./sections/UsageTablesSection";
 import { UsageTrendsSection } from "./sections/UsageTrendsSection";
 import { UsageBreakdownSection } from "./sections/UsageBreakdownSection";
@@ -68,8 +67,6 @@ export function UsageStatisticsContent({ data, state }: UsageStatisticsContentPr
             onSetSelectedModelLines={state.setSelectedModelLines}
             selectedModelLineIds={data.selectedModelLineIds}
           />
-
-          <UsageServiceHealthSection serviceHealth={snapshot.service_health} />
 
           <UsageTrendsSection
             chartGranularity={{

@@ -53,26 +53,6 @@ export interface UsageSnapshotOverview {
   rolling_tpm?: number;
 }
 
-export type UsageServiceHealthCellStatus = "ok" | "degraded" | "down" | "empty";
-
-export interface UsageServiceHealthCell {
-  bucket_start: string;
-  request_count: number;
-  success_count: number;
-  failed_count: number;
-  availability_percentage: number | null;
-  status: UsageServiceHealthCellStatus;
-}
-
-export interface UsageServiceHealth {
-  availability_percentage: number | null;
-  request_count: number;
-  success_count: number;
-  failed_count: number;
-  interval_minutes: number;
-  cells: UsageServiceHealthCell[];
-}
-
 export interface UsageRequestTrendPoint {
   bucket_start: string;
   request_count: number;
@@ -190,7 +170,6 @@ export interface UsageSnapshotResponse {
   time_range: UsageSnapshotTimeRange;
   currency: UsageSnapshotCurrency;
   overview: UsageSnapshotOverview;
-  service_health: UsageServiceHealth;
   request_trends: UsageRequestTrends;
   token_usage_trends: UsageTokenUsageTrends;
   token_type_breakdown: UsageTokenTypeBreakdown;
