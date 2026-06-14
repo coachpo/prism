@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
+import {
+  createDashboardRecentActivityResponse,
+  createDashboardSnapshot,
+} from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
 const reportingCurrencyExpectationTimeout = 15_000;
@@ -103,6 +106,10 @@ async function mockDashboardRoutes(page: Page) {
           },
         ],
       }));
+    }
+
+    if (pathname === "/api/stats/dashboard/recent-activity") {
+      return fulfillJson(createDashboardRecentActivityResponse([]));
     }
 
     if (pathname === "/api/models") {

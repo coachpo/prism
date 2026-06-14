@@ -1,9 +1,10 @@
 import type {
   DashboardMetricSnapshot,
+  DashboardRecentActivityItem,
+  DashboardRecentActivityResponse,
   DashboardRoutingHealthMap,
   DashboardSnapshot,
   DashboardTopologyGraph,
-  RequestLogListItem,
   SpendingTopModel,
   StatGroup,
 } from "../../src/lib/types";
@@ -22,7 +23,6 @@ export const legacyOverviewFanOutPaths = [
 type DashboardSnapshotOptions = {
   apiFamilyRows?: StatGroup[];
   metricSnapshot?: Partial<DashboardMetricSnapshot>;
-  recentRequests?: RequestLogListItem[];
   routingHealthMap?: DashboardRoutingHealthMap;
   topologyGraph?: DashboardTopologyGraph;
   topSpendingModels?: SpendingTopModel[];
@@ -248,11 +248,57 @@ export function createEmptyTopologyGraph(): DashboardTopologyGraph {
     },
   };
 }
+
+export function createDashboardRecentActivityItem(
+  overrides: Partial<DashboardRecentActivityItem> = {},
+): DashboardRecentActivityItem {
+  return {
+    request_log_id: 301,
+    created_at: dashboardAggregateTimestamp,
+    model_id: "model-a",
+    model_label: "Model A",
+    resolved_target_model_id: null,
+    resolved_target_model_label: null,
+    endpoint_id: 201,
+    endpoint_label: "Endpoint A",
+    status_code: 200,
+    response_time_ms: 640,
+    ttft_ms: 80,
+    completion_duration_ms: 240,
+    is_stream: false,
+    stream_outcome: "not_streaming",
+    total_tokens: 120,
+    total_cost_user_currency_micros: 250000,
+    priced_flag: true,
+    unpriced_reason: null,
+    report_currency_symbol: "$",
+    ...overrides,
+  };
+}
+
+export function createDashboardRecentActivityResponse(
+  items: DashboardRecentActivityItem[] = [createDashboardRecentActivityItem()],
+): DashboardRecentActivityResponse {
+  return {
+    generated_at: dashboardAggregateTimestamp,
+    activity_watermark: {
+      latest_request_log_created_at: items[0]?.created_at ?? null,
+      latest_request_log_id: items[0]?.request_log_id ?? null,
+    },
+    items,
+  };
+}
+
 export function createDashboardSnapshot(
   options: DashboardSnapshotOptions = {},
 ): DashboardSnapshot {
   return {
     generated_at: dashboardAggregateTimestamp,
+    snapshot_revision: "01J2DASHBOARD000000000000",
+    source_watermark: {
+      latest_usage_event_created_at: dashboardAggregateTimestamp,
+      latest_usage_event_id: 42,
+    },
     coverage_24h: {
       from: "2026-04-10T00:00:00Z",
       to: dashboardAggregateTimestamp,
@@ -283,7 +329,6 @@ export function createDashboardSnapshot(
       ...options.metricSnapshot,
     },
     api_family_rows: options.apiFamilyRows ?? [],
-    recent_requests: options.recentRequests ?? [],
     top_spending_models: options.topSpendingModels ?? [
       {
         model_id: "model-a",
@@ -312,7 +357,6 @@ export function createEmptyDashboardSnapshot(): DashboardSnapshot {
       total_requests: 0,
       unpriced_request_count: 0,
     },
-    recentRequests: [],
     routingHealthMap: createEmptyRoutingHealthMap(),
     topologyGraph: createEmptyTopologyGraph(),
     topSpendingModels: [],

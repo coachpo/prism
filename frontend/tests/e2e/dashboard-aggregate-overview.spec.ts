@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import {
+  createDashboardRecentActivityResponse,
   createDashboardSnapshot,
   createEmptyDashboardSnapshot,
   dashboardAggregateTimestamp,
@@ -20,6 +21,8 @@ const evidenceDirectory = resolve(
 const networkEvidencePath = resolve(evidenceDirectory, "task-8-overview-network.json");
 const emptyConsoleEvidencePath = resolve(evidenceDirectory, "task-8-overview-empty-console.json");
 const emptyScreenshotPath = resolve(evidenceDirectory, "task-8-overview-empty.png");
+const task9OverviewScreenshotPath = resolve(evidenceDirectory, "task-9-overview.png");
+const task9EmptyActivityScreenshotPath = resolve(evidenceDirectory, "task-9-empty-activity.png");
 const routeReadyTimeout = 15_000;
 
 type ApiRequestRecord = {
@@ -139,6 +142,14 @@ async function mockAggregateOverviewRoutes(
       );
     }
 
+    if (pathname === "/api/stats/dashboard/recent-activity") {
+      return fulfillJson(
+        emptyProfile && !emptyProfileDeleted
+          ? createDashboardRecentActivityResponse([])
+          : createDashboardRecentActivityResponse(),
+      );
+    }
+
     if (isLegacyOverviewFanOut(pathname)) {
       return fulfillJson({ error: "legacy overview fan-out is forbidden" }, 500);
     }
@@ -188,15 +199,24 @@ test.describe("dashboard aggregate overview regression", () => {
     await expect(page.getByText("Routing Target Health")).toHaveCount(0);
     await expect(page.getByText("Top Models by Spend")).toBeVisible();
     await expect(page.getByText("Model A Spend Label")).toBeVisible();
+    await expect(page.locator('[data-slot="card"]').filter({ hasText: "Recent Activity" }).first()).toContainText("Model A");
+
+    await mkdir(dirname(task9OverviewScreenshotPath), { recursive: true });
+    await page.screenshot({ path: task9OverviewScreenshotPath, fullPage: true });
 
     await expect
       .poll(() => requests.filter((request) => request.pathname === "/api/stats/dashboard").length)
       .toBe(1);
+    await expect
+      .poll(() => requests.filter((request) => request.pathname === "/api/stats/dashboard/recent-activity").length)
+      .toBe(1);
 
     const aggregateRequests = requests.filter((request) => request.pathname === "/api/stats/dashboard");
+    const activityRequests = requests.filter((request) => request.pathname === "/api/stats/dashboard/recent-activity");
     const legacyRequests = requests.filter((request) => isLegacyOverviewFanOut(request.pathname));
 
     expect(aggregateRequests).toHaveLength(1);
+    expect(activityRequests).toHaveLength(1);
     expect(legacyRequests).toEqual([]);
 
     await writeJsonEvidence(networkEvidencePath, {
@@ -204,6 +224,9 @@ test.describe("dashboard aggregate overview regression", () => {
       route: "/observe?tab=overview",
       aggregateRequestCount: aggregateRequests.length,
       aggregateRequests,
+      activityRequestCount: activityRequests.length,
+      activityRequests,
+      task9OverviewScreenshotPath,
       legacyOverviewFanOutPaths,
       legacyRequestCount: legacyRequests.length,
       legacyRequests,
@@ -246,6 +269,7 @@ test.describe("dashboard aggregate overview regression", () => {
 
     await mkdir(dirname(emptyScreenshotPath), { recursive: true });
     await page.screenshot({ path: emptyScreenshotPath, fullPage: true });
+    await page.screenshot({ path: task9EmptyActivityScreenshotPath, fullPage: true });
     const cleanupCompleted = routeState.cleanupEmptyProfile();
 
     await writeJsonEvidence(emptyConsoleEvidencePath, {
@@ -261,6 +285,7 @@ test.describe("dashboard aggregate overview regression", () => {
       consoleErrors,
       consoleWarnings,
       screenshotPath: emptyScreenshotPath,
+      task9EmptyActivityScreenshotPath,
       visibleEmptyStates: [
         "No recent activity",
         "No spending data",
