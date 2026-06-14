@@ -1766,7 +1766,6 @@ export interface Messages {
     allModels: string;
     allRows: string;
     anyError: string;
-    availability: string;
     byDay: string;
     byHour: string;
     billableOnlyRequests?: string;
@@ -1867,7 +1866,6 @@ export interface Messages {
     requestsPerMinuteOverTime: string;
     rows: string;
     selectModelLinePlaceholder: string;
-    serviceHealthTitle: string;
     slow: string;
     slowestRequests: string;
     rowsPerPage?: string;
@@ -1889,24 +1887,11 @@ export interface Messages {
     noDataAvailable: string;
     reasoningCaptured: string;
     anySpecialCaptured: string;
-    failedCount: (count: string) => string;
     failedToLoadEndpointModelStatistics: string;
     failedToLoadUsageStatistics: string;
-    healthStatusDegraded: string;
-    healthStatusDown: string;
-    healthStatusIdle: string;
-    healthStatusOk: string;
-    heatmapLegendLessAvailability: string;
-    heatmapLegendMoreAvailability: string;
-    latest: string;
     loadingEndpointModelStatistics: string;
     noTokenUsage: string;
-    oldest: string;
-    serviceHealthIntervalHours: (count: number) => string;
-    serviceHealthIntervalMinutes: (count: number) => string;
     successful: (count: string) => string;
-    successfulCount: (count: string) => string;
-    serviceHealthWindowDays: (count: number) => string;
     successOnly: string;
     successRate: string;
     specialTokens: string;
@@ -3768,7 +3753,6 @@ export const enMessages: Messages = {
     allModels: "All Models",
     allRows: "All rows",
     anyError: "Any error",
-    availability: "Availability",
     byDay: "By Day",
     byHour: "By Hour",
     cacheHitRate: "Cache Hit Rate",
@@ -3867,7 +3851,6 @@ export const enMessages: Messages = {
     requestsPerMinuteOverTime: "Request Count Over Time",
     rows: "Rows",
     selectModelLinePlaceholder: "Choose a model line",
-    serviceHealthTitle: "Service Health",
     slow: "Slow",
     slowestRequests: "Slowest requests by latency in current filtered slice.",
     spend: "Spend",
@@ -3886,24 +3869,11 @@ export const enMessages: Messages = {
     noDataAvailable: "No data available",
     reasoningCaptured: "Reasoning captured",
     anySpecialCaptured: "Any special captured",
-    failedCount: (count) => `${count} failed`,
     failedToLoadEndpointModelStatistics: "Failed to load endpoint model statistics",
     failedToLoadUsageStatistics: "Failed to load usage statistics",
-    healthStatusDegraded: "Degraded",
-    healthStatusDown: "Down",
-    healthStatusIdle: "Idle",
-    healthStatusOk: "OK",
-    heatmapLegendLessAvailability: "Lower availability",
-    heatmapLegendMoreAvailability: "Higher availability",
-    latest: "Latest",
     loadingEndpointModelStatistics: "Loading model usage…",
     noTokenUsage: "No token usage",
-    oldest: "Oldest",
-    serviceHealthIntervalHours: (count) => (count === 1 ? "1 hour" : `${count} hours`),
-    serviceHealthIntervalMinutes: (count) => (count === 1 ? "1 minute" : `${count} minutes`),
     successful: (count) => `${count} successful`,
-    successfulCount: (count) => `${count} successful`,
-    serviceHealthWindowDays: (count: number) => (count === 1 ? "Last day" : `Last ${count} days`),
     successOnly: "Successful only",
     successRate: "Success Rate",
     specialTokens: "Special Tokens",
