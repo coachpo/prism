@@ -75,23 +75,6 @@ function createSnapshot({
       rolling_rpm: 0.13,
       rolling_tpm: 30,
     },
-    service_health: {
-      availability_percentage: 99.1,
-      request_count: totalRequests,
-      success_count: totalRequests - 1,
-      failed_count: 1,
-      interval_minutes: 60,
-      cells: [
-        {
-          bucket_start: "2026-05-03T00:00:00Z",
-          request_count: totalRequests,
-          success_count: totalRequests - 1,
-          failed_count: 1,
-          availability_percentage: 99.1,
-          status: "ok",
-        },
-      ],
-    },
     request_trends: {
       hourly: [
         {
