@@ -1592,14 +1592,19 @@ Stats APIs are profile-scoped and require `X-Profile-Id`.
 ```
 GET /api/stats/dashboard
 ```
-This is the canonical overview dashboard read path. It returns one backend-computed aggregate snapshot for the effective profile, including overview metrics, API-family rows, recent requests, top-spending models, strategy-family counts, the legacy Routing Health Map, and the backend-owned topology graph. The same `DashboardSnapshot` shape is nested under realtime `dashboard.update.snapshot`, so REST bootstrap and websocket updates share one schema.
+This is the canonical overview dashboard read path. It returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, strategy-family counts, the legacy Routing Health Map, and the backend-owned topology graph. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`.
 
-Query parameters: none. Legacy `window` query values are ignored. The endpoint always returns the canonical aggregate snapshot and does not expose the old top-level `window`, `covers`, `freshness`, or `metrics` shape.
+Query parameters: none. Legacy `window` query values are ignored. The endpoint always returns the canonical aggregate snapshot and does not expose the old top-level `window`, `covers`, `freshness`, or `metrics` shape. Snapshot freshness is ordered by lexicographic `snapshot_revision`; `source_watermark` is diagnostic only.
 
 Response `200`:
 ```json
 {
   "generated_at": "2026-04-19T12:00:00Z",
+  "snapshot_revision": "01JZ8Y3K2N4P6R8T0V1W2X3Y4Z",
+  "source_watermark": {
+    "latest_usage_event_created_at": "2026-04-19T11:59:58Z",
+    "latest_usage_event_id": 345
+  },
   "coverage_24h": {
     "from": "2026-04-18T12:00:00Z",
     "to": "2026-04-19T12:00:00Z"
@@ -1635,7 +1640,6 @@ Response `200`:
     "legacy_count": 8,
     "unassigned_count": 2
   },
-  "recent_requests": [],
   "top_spending_models": [],
   "routing_health_map": {
     "nodes": [],
@@ -1690,7 +1694,49 @@ Response `200`:
 }
 ```
 
-`routing_health_map` and `topology_graph` are assembled by the backend from selected-profile model, access-target, endpoint, connection, request-log, and usage-event data. API clients must not rebuild route edges from separate management reads. Disabled models remain as muted `status="disabled"` model nodes, inactive terminal targets remain as muted `status="inactive"` nodes with `active=false`, and terminal-target nodes retain `connection_id` as the persisted compatibility identifier. During the additive compatibility wave, the backend keeps topology compatibility kinds (`kind="connection"`, `kind="model_to_connection"`, and `kind="connection_to_endpoint"`) while exposing product-facing terminal-target meaning through `product_kind`.
+`routing_health_map` and `topology_graph` are assembled by the backend from selected-profile model, access-target, endpoint, connection, and final-attributed usage-event data. API clients must not rebuild route edges from separate management reads. Disabled models remain as muted `status="disabled"` model nodes, inactive terminal targets remain as muted `status="inactive"` nodes with `active=false`, and terminal-target nodes retain `connection_id` as the persisted compatibility identifier. During the additive compatibility wave, the backend keeps topology compatibility kinds (`kind="connection"`, `kind="model_to_connection"`, and `kind="connection_to_endpoint"`) while exposing product-facing terminal-target meaning through `product_kind`.
+
+### 4.0A Dashboard Recent Activity
+```
+GET /api/stats/dashboard/recent-activity?limit=N
+```
+This endpoint is the separate request-history-backed activity feed for dashboard bootstrap and repair. It is not embedded in the dashboard snapshot. The default limit is `12`; the maximum limit is `50`. Rows are ordered by `(created_at DESC, request_log_id DESC)`.
+
+Response `200`:
+```json
+{
+  "generated_at": "2026-04-19T12:00:00Z",
+  "activity_watermark": {
+    "latest_request_log_created_at": "2026-04-19T11:59:59Z",
+    "latest_request_log_id": 101
+  },
+  "items": [
+    {
+      "request_log_id": 101,
+      "created_at": "2026-04-19T11:59:59Z",
+      "model_id": "gpt-4o",
+      "model_label": "GPT-4o",
+      "resolved_target_model_id": "gpt-4o-mini",
+      "resolved_target_model_label": "GPT-4o mini",
+      "endpoint_id": 12,
+      "endpoint_label": "Primary OpenAI",
+      "status_code": 200,
+      "response_time_ms": 523,
+      "ttft_ms": 120,
+      "completion_duration_ms": 403,
+      "is_stream": true,
+      "stream_outcome": "completed",
+      "total_tokens": 1234,
+      "total_cost_user_currency_micros": 1250000,
+      "priced_flag": true,
+      "unpriced_reason": null,
+      "report_currency_symbol": "$"
+    }
+  ]
+}
+```
+
+Recent activity links into request-log investigation by `request_log_id`. It does not define snapshot freshness, and activity publication does not force a dashboard snapshot rebuild.
 
 ### 4.1 Usage Snapshot
 ```
@@ -2683,7 +2729,7 @@ Common server -> client messages include:
 
 ### 8.2 Dashboard WebSocket Channel
 
-The dashboard channel is the overview channel for the main dashboard page. It is profile-scoped by the message payload and broadcasts incremental `dashboard.update` payloads after request activity. It is separate from the scoped Analytics channel.
+The dashboard channel is the overview channel for the main dashboard page. It is profile-scoped by the message payload and broadcasts two message families. Snapshot messages carry stats-only aggregate state. Activity messages carry one request-history item. It is separate from the scoped Analytics channel.
 
 Client -> server messages:
 ```text
@@ -2691,21 +2737,20 @@ Client -> server messages:
 { "type": "unsubscribe_channel", "channel": "dashboard" }
 ```
 
-Dashboard server -> client messages include `dashboard.update`.
+Dashboard server -> client messages include `dashboard.snapshot` and `dashboard.activity`.
 
-Example `dashboard.update` payload:
+Example `dashboard.snapshot` payload:
 ```json
 {
-  "type": "dashboard.update",
-  "request_log": {
-    "id": 101,
-    "profile_id": 2,
-    "model_id": "gpt-4o",
-    "model_label": "GPT-4o",
-    "request_path": "/v1/chat/completions"
-  },
+  "type": "dashboard.snapshot",
+  "profile_id": 2,
   "snapshot": {
     "generated_at": "2026-04-19T12:00:00Z",
+    "snapshot_revision": "01JZ8Y3K2N4P6R8T0V1W2X3Y4Z",
+    "source_watermark": {
+      "latest_usage_event_created_at": "2026-04-19T11:59:58Z",
+      "latest_usage_event_id": 345
+    },
     "coverage_24h": {
       "from": "2026-04-18T12:00:00Z",
       "to": "2026-04-19T12:00:00Z"
@@ -2718,14 +2763,41 @@ Example `dashboard.update` payload:
     "metric_snapshot": { "total_requests": 42, "success_rate": 97.62 },
     "api_family_rows": [],
     "strategy_summary": { "legacy_count": 8, "unassigned_count": 2 },
-    "recent_requests": [],
     "top_spending_models": [],
     "routing_health_map": { "nodes": [], "links": [], "endpointCount": 0, "modelCount": 0 }
   }
 }
 ```
 
-`dashboard.update` is a thin envelope over `request_log` plus `snapshot`. It no longer carries the old top-level per-section compatibility fields. The embedded `snapshot.top_spending_models` rows reuse the same `{model_id, model_label, total_cost_micros}` shape as `GET /api/stats/spending`.
+Example `dashboard.activity` payload:
+```json
+{
+  "type": "dashboard.activity",
+  "profile_id": 2,
+  "activity_watermark": {
+    "latest_request_log_created_at": "2026-04-19T11:59:59Z",
+    "latest_request_log_id": 101
+  },
+  "activity": {
+    "request_log_id": 101,
+    "created_at": "2026-04-19T11:59:59Z",
+    "model_id": "gpt-4o",
+    "model_label": "GPT-4o",
+    "endpoint_id": 12,
+    "endpoint_label": "Primary OpenAI",
+    "status_code": 200,
+    "response_time_ms": 523,
+    "is_stream": true,
+    "stream_outcome": "completed",
+    "total_tokens": 1234,
+    "total_cost_user_currency_micros": 1250000,
+    "priced_flag": true,
+    "report_currency_symbol": "$"
+  }
+}
+```
+
+The frontend orders dashboard snapshots by lexicographic `snapshot.snapshot_revision`. The `source_watermark` field is diagnostic. Activity rows are merged by `request_log_id` for feed dedupe and request-log drilldown only.
 
 ### 8.3 Analytics WebSocket Channel
 

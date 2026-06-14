@@ -265,12 +265,12 @@ Dashboard overview page -> WebSocket connect /api/realtime/ws
   -> Realtime manager stores dashboard room membership keyed by profile and channel
 
 Proxy request completes
-  -> Runtime telemetry persists the `request_logs` row
-  -> Realtime refreshes or reads the shared dashboard aggregate snapshot for the profile
-  -> Dashboard publisher gathers request_log plus the canonical DashboardSnapshot
-  -> Broadcast {type: "dashboard.update", request_log, snapshot} to dashboard subscribers for that profile
-  -> REST bootstrap reads the same shape from GET /api/stats/dashboard
-  -> Overview and backend-owned topology graph state reconcile against that shared snapshot shape
+  -> Runtime telemetry persists request history and usage-event data
+  -> Dashboard activity publisher sends {type: "dashboard.activity", profile_id, activity_watermark, activity} with one request-history item
+  -> Dashboard snapshot publisher sends {type: "dashboard.snapshot", profile_id, snapshot} only after aggregate snapshot rebuilds
+  -> REST bootstrap reads the stats-only snapshot from GET /api/stats/dashboard
+  -> REST bootstrap reads recent activity from GET /api/stats/dashboard/recent-activity
+  -> Overview and backend-owned topology graph state reconcile against the snapshot revision, while activity rows reconcile separately
 
 Dashboard analytics tab -> WebSocket connect /api/realtime/ws
   -> Client sends {type: "subscribe", profile_id, channel: "analytics", preset}
@@ -282,7 +282,7 @@ Dashboard analytics tab -> WebSocket connect /api/realtime/ws
   -> The frontend treats each `analytics.snapshot` as a full replacement for that scoped analytics view
 ```
 
-The realtime API has two supported channels. `dashboard.update` is the overview dashboard signal and carries `request_log` plus the same `DashboardSnapshot` returned by `GET /api/stats/dashboard`; it does not carry analytics page replacement data. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and powers the Analytics tab without requiring UI calls to `/api/stats/*`. The REST stats endpoints, including `GET /api/stats/dashboard`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs; OTLP/Prometheus operations telemetry does not replace them.
+The realtime API has two supported channels. The dashboard channel emits `dashboard.snapshot` for stats-only aggregate snapshots and `dashboard.activity` for single request-history feed entries. Snapshot ordering uses lexicographic `snapshot_revision`; `source_watermark` is diagnostic. Activity uses `activity_watermark` and `request_log_id` for feed reconciliation and request-log drilldown only. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and powers the Analytics tab without requiring UI calls to `/api/stats/*`. The REST stats endpoints, including `GET /api/stats/dashboard`, `GET /api/stats/dashboard/recent-activity`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs; OTLP/Prometheus operations telemetry does not replace them.
 
 ## 4. Routing Strategies and Runtime Health Signals
 
@@ -360,7 +360,7 @@ Selected-profile management APIs use `X-Profile-Id` to read and edit profile-sco
 
 ### 5.5 Dashboard topology graph
 
-`GET /api/stats/dashboard` and realtime `dashboard.update.snapshot` include a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from selected-profile configuration and recent telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
+`GET /api/stats/dashboard` and the snapshot inside realtime `dashboard.snapshot` include a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from selected-profile configuration and final-attributed telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
 
 ## 6. Terminal Target Health Detection
 
