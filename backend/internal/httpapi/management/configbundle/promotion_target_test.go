@@ -75,19 +75,19 @@ func TestBundlePreviewAcceptsValidPromotionTarget(t *testing.T) {
 }
 
 func TestBundlePreviewRejectsSelfPromotionTarget(t *testing.T) {
-	assertPreviewPromotionTargetFailure(t, "configbundle_preview_rejects_self_promotion_target", func(request *profileImportRequest) {
+	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_preview_rejects_self_promotion_target", func(request *profileImportRequest) {
 		request.Models[0].ContextOverflowPromotionTargetID = stringPtr("source-small")
 	}, promotionTargetValidationCodeSelf, "context_overflow_promotion_target_id cannot reference the source model")
 }
 
 func TestBundlePreviewRejectsDisabledPromotionTarget(t *testing.T) {
-	assertPreviewPromotionTargetFailure(t, "configbundle_preview_rejects_disabled_promotion_target", func(request *profileImportRequest) {
+	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_preview_rejects_disabled_promotion_target", func(request *profileImportRequest) {
 		request.Models[1].IsEnabled = false
 	}, promotionTargetValidationCodeDisabled, "context_overflow_promotion_target_id must reference an enabled model")
 }
 
 func TestBundlePreviewRejectsFacadePromotionTarget(t *testing.T) {
-	assertPreviewPromotionTargetFailure(t, "configbundle_preview_rejects_facade_promotion_target", func(request *profileImportRequest) {
+	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_preview_rejects_facade_promotion_target", func(request *profileImportRequest) {
 		request.Models[1].FacadeEnabled = true
 		request.Models[1].FacadeSelectionPolicy = stringPtr(facadeSelectionPolicyWeightedEligibleContext)
 		request.Models[1].FacadeFallbackPolicy = stringPtr(facadeFallbackPolicyRedistributeIneligibleWeight)
@@ -95,13 +95,13 @@ func TestBundlePreviewRejectsFacadePromotionTarget(t *testing.T) {
 }
 
 func TestBundleImportRejectsUnknownPromotionTarget(t *testing.T) {
-	assertImportPromotionTargetFailure(t, "configbundle_import_rejects_unknown_promotion_target", func(request *profileImportRequest) {
+	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_import_rejects_unknown_promotion_target", func(request *profileImportRequest) {
 		request.Models[0].ContextOverflowPromotionTargetID = stringPtr("missing-model")
 	}, promotionTargetValidationCodeUnknown, importedPromotionTargetDetail)
 }
 
 func TestBundleImportRejectsApiFamilyMismatchPromotionTarget(t *testing.T) {
-	assertImportPromotionTargetFailure(t, "configbundle_import_rejects_api_family_mismatch_promotion_target", func(request *profileImportRequest) {
+	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_import_rejects_api_family_mismatch_promotion_target", func(request *profileImportRequest) {
 		request.Connections[1].APIFamily = "anthropic"
 		request.Connections[1].OpenAITextCapability = nil
 		request.Connections[1].OpenAITextCapabilitySet = false
@@ -109,21 +109,61 @@ func TestBundleImportRejectsApiFamilyMismatchPromotionTarget(t *testing.T) {
 	}, promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
 }
 
-func TestBundleImportRejectsSmallerPromotionTarget(t *testing.T) {
-	assertImportPromotionTargetFailure(t, "configbundle_import_rejects_smaller_promotion_target", func(request *profileImportRequest) {
-		request.Models[0].ContextWindowTokens = intPtr(16_000)
-		request.Models[0].MaxContextUtilization = float64Ptr(1.0)
-		request.Connections[0].ContextWindowTokens = intPtr(16_000)
-		request.Connections[0].MaxContextUtilization = float64Ptr(1.0)
-		request.Models[1].ContextWindowTokens = intPtr(8_000)
-		request.Models[1].MaxContextUtilization = float64Ptr(1.0)
-		request.Connections[1].ContextWindowTokens = intPtr(8_000)
-		request.Connections[1].MaxContextUtilization = float64Ptr(1.0)
-	}, promotionTargetValidationCodeContextWindowNotLarger, "context_overflow_promotion_target_id must reference a model with a strictly larger usable context window")
+func TestBundlePreviewAcceptsRecursivePromotionChainWithoutImmediateLargerWindow(t *testing.T) {
+	ctx, conn := configBundleMigratedConn(t, "configbundle_preview_accepts_recursive_promotion_chain")
+	now := time.Date(2026, time.June, 5, 21, 20, 0, 0, time.UTC)
+	profileID := insertConfigBundleProfile(t, ctx, conn, "preview-valid-recursive-profile", now)
+	service := &Service{bundleSecretKeyID: "kid", now: func() time.Time { return now }}
+	request := validRecursivePromotionTargetBundleRequest()
+
+	preview, err := service.previewProfileImport(ctx, conn, profileID, request)
+	if err != nil {
+		t.Fatalf("preview recursive promotion target bundle: %v", err)
+	}
+	if !preview.Ready || len(preview.BlockingErrors) != 0 {
+		t.Fatalf("expected ready preview with no blocking errors, got %+v", preview)
+	}
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin recursive import transaction: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := service.executeProfileImport(ctx, tx, profileID, request); err != nil {
+		t.Fatalf("execute recursive promotion target bundle: %v", err)
+	}
+}
+
+func TestBundleImportRejectsPromotionCycle(t *testing.T) {
+	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_import_rejects_promotion_cycle", func(request *profileImportRequest) {
+		request.Models[1].ContextOverflowPromotionTargetID = stringPtr("source-small")
+	}, promotionTargetValidationCodeCycle, "context_overflow_promotion_target_id must not introduce a promotion target cycle")
+}
+
+func TestBundleImportRejectsPromotionMaxDepth(t *testing.T) {
+	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_import_rejects_promotion_max_depth", func(request *profileImportRequest) {
+		request.Models[1].ContextOverflowPromotionTargetID = stringPtr("target-hop-2")
+		request.Connections = append(request.Connections,
+			promotionTargetConnection("target-hop-2-conn", 24_000, 2),
+			promotionTargetConnection("target-hop-3-conn", 32_000, 3),
+			promotionTargetConnection("target-hop-4-conn", 40_000, 4),
+		)
+		request.Models = append(request.Models,
+			promotionTargetModel("target-hop-2", "target-hop-2-conn", stringPtr("target-hop-3"), 24_000),
+			promotionTargetModel("target-hop-3", "target-hop-3-conn", stringPtr("target-hop-4"), 32_000),
+			promotionTargetModel("target-hop-4", "target-hop-4-conn", nil, 40_000),
+		)
+	}, promotionTargetValidationCodeMaxDepth, "context_overflow_promotion_target_id promotion chain cannot exceed depth 3")
+}
+
+func TestBundleImportRejectsSameTerminalPromotionTarget(t *testing.T) {
+	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_import_rejects_same_terminal_promotion_target", func(request *profileImportRequest) {
+		request.Connections = request.Connections[1:]
+		request.Models[0].AccessTargets = []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "model", TargetModelID: stringPtr("target-large"), Weight: intPtr(1)}}
+	}, promotionTargetValidationCodeSameTerminal, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model")
 }
 
 func TestBundleImportRejectsMissingPromotionTarget(t *testing.T) {
-	assertImportPromotionTargetFailure(t, "configbundle_import_rejects_missing_promotion_target", func(request *profileImportRequest) {
+	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_import_rejects_missing_promotion_target", func(request *profileImportRequest) {
 		request.Models[0].ContextOverflowPromotionTargetID = stringPtr("   ")
 	}, promotionTargetValidationCodeUnknown, importedPromotionTargetDetail)
 }
@@ -165,6 +205,12 @@ func assertImportPromotionTargetFailure(t *testing.T, name string, mutate func(*
 	if got := countConfigBundleModelByID(t, ctx, tx, profileID, "existing-model"); got != 1 {
 		t.Fatalf("expected existing model to remain after failed import, got count=%d", got)
 	}
+}
+
+func assertPreviewAndImportPromotionTargetFailure(t *testing.T, name string, mutate func(*profileImportRequest), code string, detail string) {
+	t.Helper()
+	assertPreviewPromotionTargetFailure(t, name+"_preview", mutate, code, detail)
+	assertImportPromotionTargetFailure(t, name+"_execute", mutate, code, detail)
 }
 
 func requireConfigBundleRoutingIssue(t *testing.T, err error, detail string, code string, path string) {
@@ -230,6 +276,26 @@ func validPromotionTargetBundleRequest() profileImportRequest {
 		UserAgentClientRules: []userAgentClientRuleExport{},
 		SecretPayload:        secretPayloadExport{Kind: "encrypted", Cipher: bundleSecretCipher, KeyID: "kid", Entries: []secretPayloadEntry{}},
 	}
+}
+
+func validRecursivePromotionTargetBundleRequest() profileImportRequest {
+	request := validPromotionTargetBundleRequest()
+	request.Models[0].ContextWindowTokens = intPtr(16_000)
+	request.Connections[0].ContextWindowTokens = intPtr(16_000)
+	request.Models[1].ContextWindowTokens = intPtr(8_000)
+	request.Connections[1].ContextWindowTokens = intPtr(8_000)
+	request.Models[1].ContextOverflowPromotionTargetID = stringPtr("target-terminal")
+	request.Connections = append(request.Connections, promotionTargetConnection("target-terminal-conn", 32_000, 2))
+	request.Models = append(request.Models, promotionTargetModel("target-terminal", "target-terminal-conn", nil, 32_000))
+	return request
+}
+
+func promotionTargetConnection(ref string, contextWindowTokens int, priority int) connectionExport {
+	return connectionExport{Ref: ref, APIFamily: "openai", EndpointName: "OpenAI", ContextWindowTokens: intPtr(contextWindowTokens), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), IsActive: true, Priority: priority, OpenAITextCapability: stringPtr("responses_only"), OpenAITextCapabilitySet: true}
+}
+
+func promotionTargetModel(modelID string, connectionRef string, promotionTargetID *string, contextWindowTokens int) modelExport {
+	return modelExport{APIFamily: "openai", ModelID: modelID, DisplayName: stringPtr(modelID), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(contextWindowTokens), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), ContextOverflowPromotionTargetID: promotionTargetID, IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr(connectionRef)}}}
 }
 
 func configBundleMigratedConn(t *testing.T, name string) (context.Context, *pgx.Conn) {

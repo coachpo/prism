@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"regexp"
 	"sort"
@@ -21,19 +20,22 @@ import (
 )
 
 const (
-	canonicalProfileBundleVersion                       = 3
-	canonicalProfileBundleKind                          = "profile_config"
-	facadeSelectionPolicyWeightedEligibleContext        = "weighted_eligible_context"
-	facadeFallbackPolicyRedistributeIneligibleWeight    = "redistribute_ineligible_weight"
-	facadeEnabledRequiresOpenAIDetail                   = "facade_enabled requires api_family 'openai'"
-	nestedFacadesNotSupportedDetail                     = "nested facades are not supported"
-	importPromotionTargetField                          = "context_overflow_promotion_target_id"
-	promotionTargetValidationCodeUnknown                = "unknown_target"
-	promotionTargetValidationCodeSelf                   = "self_target"
-	promotionTargetValidationCodeDisabled               = "disabled_target"
-	promotionTargetValidationCodeFacade                 = "facade_target"
-	promotionTargetValidationCodeAPIFamilyMismatch      = "api_family_mismatch"
-	promotionTargetValidationCodeContextWindowNotLarger = "context_window_not_larger"
+	canonicalProfileBundleVersion                    = 3
+	canonicalProfileBundleKind                       = "profile_config"
+	facadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
+	facadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
+	facadeEnabledRequiresOpenAIDetail                = "facade_enabled requires api_family 'openai'"
+	nestedFacadesNotSupportedDetail                  = "nested facades are not supported"
+	importPromotionTargetField                       = "context_overflow_promotion_target_id"
+	promotionTargetValidationCodeUnknown             = "unknown_target"
+	promotionTargetValidationCodeSelf                = "self_target"
+	promotionTargetValidationCodeDisabled            = "disabled_target"
+	promotionTargetValidationCodeFacade              = "facade_target"
+	promotionTargetValidationCodeSameTerminal        = "same_terminal_target"
+	promotionTargetValidationCodeAPIFamilyMismatch   = "api_family_mismatch"
+	promotionTargetValidationCodeCycle               = "promotion_cycle_detected"
+	promotionTargetValidationCodeMaxDepth            = "promotion_max_depth_exceeded"
+	maxContextOverflowPromotionChainTransitions      = 3
 )
 
 var importedPricingTemplateDecimalPattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
@@ -484,11 +486,19 @@ func normalizeImportedOptionalString(value *string, lower bool) *string {
 }
 
 type importedPromotionTargetTerminalStats struct {
-	LargestUsableContextWindowTokens int
+	TerminalConnectionRefs map[string]struct{}
 }
 
-type importedPromotionConnectionStats struct {
-	UsableContextWindowTokens int
+func (stats importedPromotionTargetTerminalStats) overlaps(other importedPromotionTargetTerminalStats) bool {
+	if len(stats.TerminalConnectionRefs) == 0 || len(other.TerminalConnectionRefs) == 0 {
+		return false
+	}
+	for connectionRef := range stats.TerminalConnectionRefs {
+		if _, ok := other.TerminalConnectionRefs[connectionRef]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func importedPromotionTargetIssuePath(modelIndex int) string {
@@ -499,14 +509,10 @@ func importedPromotionTargetValidationIssueError(modelIndex int, code string, de
 	return routingPlanValidationIssueError(code, importedPromotionTargetIssuePath(modelIndex), detail)
 }
 
-func validateImportedPromotionTargets(models []modelExport, connections []connectionExport) error {
+func validateImportedPromotionTargets(models []modelExport, _ []connectionExport) error {
 	importedModels := normalizeImportedModels(models)
 	if len(importedModels) == 0 {
 		return nil
-	}
-	connectionStatsByRef, err := buildImportedPromotionConnectionStats(importedModels, connections)
-	if err != nil {
-		return err
 	}
 	modelsByID := make(map[string]importedModelPayload, len(importedModels))
 	for _, model := range importedModels {
@@ -520,70 +526,86 @@ func validateImportedPromotionTargets(models []modelExport, connections []connec
 		if model.ContextOverflowPromotionTargetID == nil {
 			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an imported model")
 		}
-		target, ok := modelsByID[*model.ContextOverflowPromotionTargetID]
-		if !ok {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an imported model")
+		target, err := validateImportedPromotionTargetLink(modelIndex, model, *model.ContextOverflowPromotionTargetID, modelsByID)
+		if err != nil {
+			return err
 		}
-		if target.ModelID == model.ModelID {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeSelf, "context_overflow_promotion_target_id cannot reference the source model")
-		}
-		if !target.IsEnabled {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeDisabled, "context_overflow_promotion_target_id must reference an enabled model")
-		}
-		if target.FacadeEnabled {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeFacade, "context_overflow_promotion_target_id must reference a non-facade model")
-		}
-		if !modelrouting.SameAPIFamily(target.APIFamily, model.APIFamily) {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
-		}
-		sourceStats := collectImportedPromotionTargetTerminalStats(model, modelsByID, connectionStatsByRef, statsByModelID)
-		targetStats := collectImportedPromotionTargetTerminalStats(target, modelsByID, connectionStatsByRef, statsByModelID)
-		if targetStats.LargestUsableContextWindowTokens <= sourceStats.LargestUsableContextWindowTokens {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeContextWindowNotLarger, "context_overflow_promotion_target_id must reference a model with a strictly larger usable context window")
+		sourceStats := collectImportedPromotionTargetTerminalStats(model, modelsByID, statsByModelID)
+		if err := validateImportedPromotionTargetChain(modelIndex, model, target, sourceStats, modelsByID, statsByModelID); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func buildImportedPromotionConnectionStats(models []importedModelPayload, connections []connectionExport) (map[string]importedPromotionConnectionStats, error) {
-	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(models)
-	if err != nil {
-		return nil, err
+func validateImportedPromotionTargetLink(modelIndex int, source importedModelPayload, targetModelID string, modelsByID map[string]importedModelPayload) (importedModelPayload, error) {
+	target, ok := modelsByID[strings.TrimSpace(targetModelID)]
+	if !ok {
+		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an imported model")
 	}
-	connectionOwnerSettings := buildImportedConnectionOwnerSettings(models, modelSettingsByModelID)
-	statsByRef := make(map[string]importedPromotionConnectionStats, len(connections))
-	for _, connection := range connections {
-		connectionRef := strings.TrimSpace(connection.Ref)
-		settings, hasOwnerSettings := connectionOwnerSettings[connectionRef]
-		if !hasOwnerSettings {
-			settings = contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
-		}
-		resolvedSettings, err := contextcapability.NormalizeConnectionSettings(settings, connection.ContextWindowTokens, connection.DefaultOutputTokenReserve, connection.MaxContextUtilization, connection.PreferredContextUtilizationThreshold)
-		if err != nil {
-			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' preferred_context_utilization_threshold %s", connectionRef, err.Error())}
-		}
-		statsByRef[connectionRef] = importedPromotionConnectionStats{UsableContextWindowTokens: importedPromotionUsableContextWindowTokens(resolvedSettings)}
+	if target.ModelID == source.ModelID {
+		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeSelf, "context_overflow_promotion_target_id cannot reference the source model")
 	}
-	return statsByRef, nil
+	if !target.IsEnabled {
+		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeDisabled, "context_overflow_promotion_target_id must reference an enabled model")
+	}
+	if target.FacadeEnabled {
+		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeFacade, "context_overflow_promotion_target_id must reference a non-facade model")
+	}
+	if !modelrouting.SameAPIFamily(target.APIFamily, source.APIFamily) {
+		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
+	}
+	return target, nil
 }
 
-func collectImportedPromotionTargetTerminalStats(model importedModelPayload, modelsByID map[string]importedModelPayload, connectionStatsByRef map[string]importedPromotionConnectionStats, statsByModelID map[string]importedPromotionTargetTerminalStats) importedPromotionTargetTerminalStats {
+func validateImportedPromotionTargetChain(modelIndex int, source importedModelPayload, target importedModelPayload, sourceStats importedPromotionTargetTerminalStats, modelsByID map[string]importedModelPayload, statsByModelID map[string]importedPromotionTargetTerminalStats) error {
+	visited := map[string]struct{}{source.ModelID: {}}
+	current := source
+	for depth := 1; ; depth++ {
+		if _, ok := visited[target.ModelID]; ok {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeCycle, "context_overflow_promotion_target_id must not introduce a promotion target cycle")
+		}
+		visited[target.ModelID] = struct{}{}
+		targetStats := collectImportedPromotionTargetTerminalStats(target, modelsByID, statsByModelID)
+		if sourceStats.overlaps(targetStats) {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeSameTerminal, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model")
+		}
+		nextTargetModelID := nullablePromotionTargetID(target.ContextOverflowPromotionTargetID)
+		if strings.TrimSpace(nextTargetModelID) == "" {
+			return nil
+		}
+		if depth == maxContextOverflowPromotionChainTransitions {
+			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeMaxDepth, "context_overflow_promotion_target_id promotion chain cannot exceed depth 3")
+		}
+		current = target
+		nextTarget, err := validateImportedPromotionTargetLink(modelIndex, current, nextTargetModelID, modelsByID)
+		if err != nil {
+			return err
+		}
+		target = nextTarget
+	}
+}
+
+func nullablePromotionTargetID(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func collectImportedPromotionTargetTerminalStats(model importedModelPayload, modelsByID map[string]importedModelPayload, statsByModelID map[string]importedPromotionTargetTerminalStats) importedPromotionTargetTerminalStats {
 	if stats, ok := statsByModelID[model.ModelID]; ok {
 		return stats
 	}
-	stats := importedPromotionTargetTerminalStats{}
+	stats := importedPromotionTargetTerminalStats{TerminalConnectionRefs: map[string]struct{}{}}
 	for _, target := range model.AccessTargets {
 		if !target.IsEnabled {
 			continue
 		}
 		switch {
 		case modelrouting.IsTerminalTargetType(target.TargetType):
-			if target.ConnectionRef == nil {
-				continue
-			}
-			connectionStats, ok := connectionStatsByRef[*target.ConnectionRef]
-			if ok && connectionStats.UsableContextWindowTokens > stats.LargestUsableContextWindowTokens {
-				stats.LargestUsableContextWindowTokens = connectionStats.UsableContextWindowTokens
+			if target.ConnectionRef != nil {
+				stats.TerminalConnectionRefs[*target.ConnectionRef] = struct{}{}
 			}
 		case modelrouting.IsModelTargetType(target.TargetType):
 			if target.TargetModelID == nil {
@@ -593,24 +615,14 @@ func collectImportedPromotionTargetTerminalStats(model importedModelPayload, mod
 			if !ok || !targetModel.IsEnabled || targetModel.FacadeEnabled {
 				continue
 			}
-			targetStats := collectImportedPromotionTargetTerminalStats(targetModel, modelsByID, connectionStatsByRef, statsByModelID)
-			if targetStats.LargestUsableContextWindowTokens > stats.LargestUsableContextWindowTokens {
-				stats.LargestUsableContextWindowTokens = targetStats.LargestUsableContextWindowTokens
+			targetStats := collectImportedPromotionTargetTerminalStats(targetModel, modelsByID, statsByModelID)
+			for connectionRef := range targetStats.TerminalConnectionRefs {
+				stats.TerminalConnectionRefs[connectionRef] = struct{}{}
 			}
 		}
 	}
 	statsByModelID[model.ModelID] = stats
 	return stats
-}
-
-func importedPromotionUsableContextWindowTokens(settings contextcapability.Settings) int {
-	if settings.ContextWindowTokens == nil || *settings.ContextWindowTokens <= 0 {
-		return 0
-	}
-	if settings.MaxContextUtilization <= 0 || settings.MaxContextUtilization > 1 {
-		return 0
-	}
-	return int(math.Floor(float64(*settings.ContextWindowTokens) * settings.MaxContextUtilization))
 }
 
 func validateImportedModelStrategy(model importedModelPayload, strategyNames map[string]struct{}) error {
