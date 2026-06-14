@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-10T00:00:00Z";
 
@@ -24,14 +24,6 @@ function createUsageSnapshot() {
       average_rpm: 0.5,
       average_tpm: 68.8,
       total_cost_micros: 250000,
-    },
-    service_health: {
-      availability_percentage: 90.9,
-      request_count: 11,
-      success_count: 10,
-      failed_count: 1,
-      interval_minutes: 60,
-      cells: [],
     },
     request_trends: {
       hourly: [
@@ -127,7 +119,7 @@ function createUsageSnapshot() {
   };
 }
 
-async function mockStatisticsRoutes(page: Parameters<typeof test>[0]["page"]) {
+async function mockStatisticsRoutes(page: Page) {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;

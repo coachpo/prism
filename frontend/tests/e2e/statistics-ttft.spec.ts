@@ -26,14 +26,6 @@ function createUsageSnapshot(endpointStatistics: Array<Record<string, unknown>>)
       average_tpm: 68.8,
       total_cost_micros: 250000,
     },
-    service_health: {
-      availability_percentage: 90.9,
-      request_count: 11,
-      success_count: 10,
-      failed_count: 1,
-      interval_minutes: 60,
-      cells: [],
-    },
     request_trends: {
       hourly: [{ key: "all", label: "All requests", total_requests: 11, points: [] }],
       daily: [{ key: "all", label: "All requests", total_requests: 11, points: [] }],
