@@ -112,7 +112,7 @@ function createModelListItem() {
   };
 }
 
-function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
+function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recursive-routing") {
   if (variant === "alpha") {
     return {
       version: 3 as const,
@@ -271,6 +271,41 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
     };
   }
 
+  if (variant === "recursive-routing") {
+    const bundle = buildProfileImportBundle("routing");
+    bundle.models = [
+      {
+        ...bundle.models[0],
+        model_id: "source-small",
+        display_name: "Source small",
+        context_window_tokens: 32_000,
+        context_overflow_promotion_target_id: "target-same-size",
+        access_targets: [],
+      },
+      {
+        ...bundle.models[1],
+        model_id: "target-same-size",
+        display_name: "Target same size",
+        context_window_tokens: 32_000,
+        context_overflow_promotion_target_id: "target-hop",
+      },
+      {
+        ...bundle.models[1],
+        model_id: "target-hop",
+        display_name: "Target hop",
+        context_window_tokens: 24_000,
+        context_overflow_promotion_target_id: "target-large",
+      },
+      {
+        ...bundle.models[1],
+        model_id: "target-large",
+        display_name: "Target large",
+        context_window_tokens: 128_000,
+      },
+    ];
+    return bundle;
+  }
+
   return {
     version: 3 as const,
     bundle_kind: "profile_config" as const,
@@ -414,7 +449,7 @@ function buildPreviewResponse(bundle: ProfileImportBundle, previewToken: string)
       request_logs: true,
     },
     secret_summary: {
-      endpoint_secret_refs: bundle.endpoints.filter((endpoint) => endpoint.api_key_secret_ref).length,
+      endpoint_secret_refs: bundle.endpoints.filter((endpoint: { api_key_secret_ref?: string | null }) => endpoint.api_key_secret_ref).length,
       secret_payload_entries: bundle.secret_payload.entries.length,
       decryptable_secret_refs: bundle.secret_payload.entries.length,
     },
@@ -705,27 +740,18 @@ test("context-capability-authoring: config import accepts backend-valid sparse r
   expect(routes.getImportedPayloads()).toEqual([importBundle]);
 });
 
-test("context-capability-authoring: promotion target config import accepts backend-exported field", async ({ page }) => {
+test("context-capability-authoring: promotion target config import accepts recursive explicit chains", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
-  const importBundle = {
-    ...buildProfileImportBundle("routing"),
-    models: [
-      {
-        ...buildProfileImportBundle("routing").models[0],
-        context_overflow_promotion_target_id: "leaf-model",
-      },
-      buildProfileImportBundle("routing").models[1],
-    ],
-  };
+  const importBundle = buildProfileImportBundle("recursive-routing");
 
   const backupSection = await gotoBackupSection(page);
   const applyButton = backupSection.getByTestId("profile-import-apply");
   await backupSection.getByTestId("profile-import-file").setInputFiles({
-    name: "profile-import-promotion-target.json",
+    name: "profile-import-recursive-promotion-target.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(importBundle)),
   });
-  await expect(backupSection.getByText("Loaded profile-import-promotion-target.json: 0 endpoints, 1 strategies, 2 models, 0 top-level connections.")).toBeVisible();
+  await expect(backupSection.getByText("Loaded profile-import-recursive-promotion-target.json: 0 endpoints, 1 strategies, 4 models, 0 top-level connections.")).toBeVisible();
 
   await backupSection.getByTestId("profile-import-preview").click();
 
@@ -742,7 +768,7 @@ test("context-capability-authoring: promotion target config import accepts backe
 
   await applyButton.click();
 
-  await expect(page.getByText("Imported 0 endpoints, 1 strategies, 2 models, 0 top-level connections")).toBeVisible();
+  await expect(page.getByText("Imported 0 endpoints, 1 strategies, 4 models, 0 top-level connections")).toBeVisible();
   expect(routes.getImportedPayloads()).toEqual([importBundle]);
 });
 
@@ -793,6 +819,40 @@ test("context-capability-authoring: config import surfaces structured routing pr
   await backupSection.getByTestId("profile-import-preview").click();
 
   await expect(page.getByText("models[0].access_targets[0].target_model_id: Model 'router-model' references unknown model access target 'missing-model'")).toBeVisible();
+  await expect(applyButton).toBeDisabled();
+  expect(routes.getPreviewRequests()).toHaveLength(1);
+  expect(routes.getImportedPayloads()).toEqual([]);
+});
+
+test("context-capability-authoring: config import surfaces structured promotion preview issues from backend", async ({ page }) => {
+  const routes = await mockSettingsRoutes(page, {
+    previewErrorResponseFactory: () => ({
+      status: 400,
+      body: {
+        detail: "context_overflow_promotion_target_id must not introduce a promotion target cycle",
+        routing_plan_issues: [
+          {
+            code: "promotion_cycle_detected",
+            path: "models[0].context_overflow_promotion_target_id",
+            message: "context_overflow_promotion_target_id must not introduce a promotion target cycle",
+          },
+        ],
+      },
+    }),
+  });
+  const importBundle = buildProfileImportBundle("routing");
+
+  const backupSection = await gotoBackupSection(page);
+  const applyButton = backupSection.getByTestId("profile-import-apply");
+  await backupSection.getByTestId("profile-import-file").setInputFiles({
+    name: "profile-import-routing-plan-issue.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(importBundle)),
+  });
+
+  await backupSection.getByTestId("profile-import-preview").click();
+
+  await expect(page.getByText("models[0].context_overflow_promotion_target_id: context_overflow_promotion_target_id must not introduce a promotion target cycle")).toBeVisible();
   await expect(applyButton).toBeDisabled();
   expect(routes.getPreviewRequests()).toHaveLength(1);
   expect(routes.getImportedPayloads()).toEqual([]);

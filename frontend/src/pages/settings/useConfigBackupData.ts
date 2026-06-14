@@ -33,7 +33,11 @@ function getConfigImportErrorMessage(error: unknown, fallback: string) {
     }
   }
 
-  return error instanceof Error ? error.message : fallback;
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConfigBackupDataInput) {
