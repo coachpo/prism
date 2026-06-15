@@ -60,9 +60,9 @@ export function EndpointStatisticsTable({
   );
 
   return (
-    <Card className="border-border/70 bg-card/95 shadow-none" data-testid="statistics-endpoint-table">
-      <CardHeader className="border-b border-border/60 pb-4">
-        <div className="space-y-1">
+    <Card className="operator-section-surface" data-testid="statistics-endpoint-table">
+      <CardHeader className="border-b border-outline-variant pb-4">
+        <div className="flex flex-col gap-1">
           <h2 className="text-lg font-semibold tracking-tight">
             {messages.statistics.endpointStatisticsTitle}
           </h2>
@@ -73,38 +73,38 @@ export function EndpointStatisticsTable({
       <CardContent className="pt-6">
         {rows.length === 0 ? (
           <OperatorEmptyState
-            className="rounded-xl border border-border/60 py-10"
+            className="rounded-xl border border-outline-variant py-10"
             description={messages.statistics.noEndpointStatisticsDescription}
             title={messages.statistics.noEndpointStatisticsTitle}
           />
         ) : (
-          <div className="overflow-hidden rounded-xl border border-border/60 bg-background/80">
+          <div className="operator-table-shell overflow-hidden rounded-xl border border-outline-variant bg-surface">
             <div
               className={cn(
-                "grid border-b border-border/60 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground",
+                "grid border-b border-outline-variant bg-surface-container-high text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground",
                 ENDPOINT_STATISTICS_GRID_CLASS,
               )}
             >
               <div className="px-3 py-3">{messages.statistics.endpointGroup}</div>
-              <div className="border-l border-border/50 px-3 py-3 text-right">
+              <div className="border-l border-outline-variant px-3 py-3 text-right">
                 {messages.statistics.p50Ttft}
               </div>
-              <div className="border-l border-border/50 px-3 py-3 text-right">
+              <div className="border-l border-outline-variant px-3 py-3 text-right">
                 {messages.statistics.p95Ttft}
               </div>
-              <div className="border-l border-border/50 px-3 py-3 text-right">
+              <div className="border-l border-outline-variant px-3 py-3 text-right">
                 {messages.statistics.avgTokenRate}
               </div>
-              <div className="border-l border-border/50 px-3 py-3 text-right">
+              <div className="border-l border-outline-variant px-3 py-3 text-right">
                 {messages.statistics.requests}
               </div>
-              <div className="border-l border-border/50 px-3 py-3 text-right">
+              <div className="border-l border-outline-variant px-3 py-3 text-right">
                 {messages.statistics.successRate}
               </div>
-              <div className="border-l border-border/50 px-3 py-3 text-right">
+              <div className="border-l border-outline-variant px-3 py-3 text-right">
                 {messages.statistics.totalTokens}
               </div>
-              <div className="border-l border-border/50 px-3 py-3 text-right">
+              <div className="border-l border-outline-variant px-3 py-3 text-right">
                 {messages.statistics.totalSpend}
               </div>
             </div>
@@ -115,7 +115,7 @@ export function EndpointStatisticsTable({
 
                 if (endpointId === null) {
                   return (
-                    <div className="border-b border-border/60 last:border-b-0" key={item.endpoint_label}>
+                    <div className="border-b border-outline-variant last:border-b-0" key={item.endpoint_label}>
                       <div className={cn("grid text-sm", ENDPOINT_STATISTICS_GRID_CLASS)}>
                         <div className="min-w-0 px-3 py-3 font-medium text-foreground">
                           <span className="block truncate">{item.endpoint_label}</span>
@@ -162,12 +162,12 @@ export function EndpointStatisticsTable({
                     }}
                     open={isOpen}
                   >
-                    <div className="border-b border-border/60 last:border-b-0">
+                    <div className="border-b border-outline-variant last:border-b-0">
                       <CollapsibleTrigger asChild>
                         <button
                           aria-label={`#${endpointId} ${item.endpoint_label}`}
                           className={cn(
-                            "grid w-full text-sm transition-colors hover:bg-muted/30",
+                            "grid w-full text-sm transition-colors hover:bg-surface-container-low",
                             ENDPOINT_STATISTICS_GRID_CLASS,
                           )}
                           type="button"
@@ -198,7 +198,7 @@ export function EndpointStatisticsTable({
                       </CollapsibleTrigger>
 
                       <CollapsibleContent>
-                        <div className="border-t border-border/50 bg-muted/20 px-3 py-3">
+                        <div className="border-t border-outline-variant bg-surface-container-low px-3 py-3">
                           {isLoading ? (
                             <p className="text-sm text-muted-foreground">
                               {messages.statistics.loadingEndpointModelStatistics}
@@ -211,7 +211,7 @@ export function EndpointStatisticsTable({
                             </p>
                           ) : (
                             <div
-                              className="overflow-hidden rounded-lg border border-border/60 bg-background"
+                              className="overflow-hidden rounded-lg border border-outline-variant bg-background"
                               data-testid={`statistics-endpoint-model-table-${endpointId}`}
                             >
                               <Table>
@@ -301,7 +301,7 @@ function MetricCell({
   className?: string;
 }) {
   return (
-    <div className={cn("border-l border-border/50 px-3 py-3 text-right tabular-nums", className)}>
+    <div className={cn("border-l border-outline-variant px-3 py-3 text-right tabular-nums", className)}>
       {children}
     </div>
   );

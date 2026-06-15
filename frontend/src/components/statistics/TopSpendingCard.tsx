@@ -26,7 +26,7 @@ export function TopSpendingCard({
   const { locale, messages } = useLocale();
 
   return (
-    <Card className="border-border/70 bg-card/95 shadow-none">
+    <Card className="operator-section-surface">
       <CardHeader className="gap-1 border-b">
         <CardTitle className="text-sm font-medium">
           <h4>{title}</h4>

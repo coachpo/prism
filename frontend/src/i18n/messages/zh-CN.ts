@@ -1752,6 +1752,7 @@ export const zhCNMessages: Messages = {
     logoutFailed: "退出登录失败",
     primaryNavigation: "主导航",
     profile: "配置档案：",
+    skipToMainContent: "跳到主要内容",
     signedOut: "已退出登录",
     signOut: "退出登录",
   },

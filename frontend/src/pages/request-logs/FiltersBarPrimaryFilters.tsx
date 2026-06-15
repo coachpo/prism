@@ -73,7 +73,7 @@ export function FiltersBarPrimaryFilters({
         <Input
           name="request_id_lookup"
           autoComplete="off"
-          className="h-9 rounded-lg border-border/70 bg-background/80 text-sm"
+          className="h-9 rounded-lg border-outline-variant bg-surface text-sm"
           placeholder={messages.requestLogs.requestId}
           value={requestLookupValue}
           onChange={(event) => setRequestLookupValue(event.target.value)}
@@ -91,7 +91,7 @@ export function FiltersBarPrimaryFilters({
         <Input
           name="ingress_request_id"
           autoComplete="off"
-          className="h-9 rounded-lg border-border/70 bg-background/80 text-sm font-mono"
+          className="h-9 rounded-lg border-outline-variant bg-surface text-sm font-mono"
           placeholder={messages.requestLogs.ingressRequestId}
           value={state.ingress_request_id}
           onChange={(event) => actions.setIngressRequestId(event.target.value)}
@@ -106,7 +106,7 @@ export function FiltersBarPrimaryFilters({
         >
           <SelectTrigger
             aria-label={messages.requestLogs.model}
-            className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs"
+            className="h-9 w-full min-w-0 max-w-full rounded-lg border-outline-variant bg-surface text-xs"
           >
             <SelectValue className="min-w-0" placeholder={messages.requestLogs.allModels} />
           </SelectTrigger>
@@ -130,7 +130,7 @@ export function FiltersBarPrimaryFilters({
         >
           <SelectTrigger
             aria-label={messages.requestLogs.client}
-            className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs"
+            className="h-9 w-full min-w-0 max-w-full rounded-lg border-outline-variant bg-surface text-xs"
           >
             <SelectValue className="min-w-0" placeholder={messages.requestLogs.allClients} />
           </SelectTrigger>
@@ -154,7 +154,7 @@ export function FiltersBarPrimaryFilters({
         >
           <SelectTrigger
             aria-label={messages.requestLogs.finalTargetModel}
-            className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs"
+            className="h-9 w-full min-w-0 max-w-full rounded-lg border-outline-variant bg-surface text-xs"
           >
             <SelectValue className="min-w-0" placeholder={messages.requestLogs.allFinalTargetModels} />
           </SelectTrigger>
@@ -176,7 +176,7 @@ export function FiltersBarPrimaryFilters({
           value={state.endpoint_id || "__all__"}
           onValueChange={(value) => actions.setEndpointId(value === "__all__" ? "" : value)}
         >
-          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs">
+          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-outline-variant bg-surface text-xs">
             <SelectValue className="min-w-0" placeholder={messages.requestLogs.allEndpoints} />
           </SelectTrigger>
           <SelectContent>
@@ -197,7 +197,7 @@ export function FiltersBarPrimaryFilters({
           value={state.status_family}
           onValueChange={(value) => actions.setStatusFamily(value as typeof state.status_family)}
         >
-          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs">
+          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-outline-variant bg-surface text-xs">
             <SelectValue className="min-w-0" />
           </SelectTrigger>
           <SelectContent>
@@ -220,7 +220,7 @@ export function FiltersBarPrimaryFilters({
           value={state.time_range}
           onValueChange={(value) => actions.setTimeRange(value as typeof state.time_range)}
         >
-          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-border/70 bg-background/80 text-xs">
+          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-outline-variant bg-surface text-xs">
             <SelectValue className="min-w-0" />
           </SelectTrigger>
           <SelectContent>

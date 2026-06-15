@@ -1746,6 +1746,7 @@ export interface Messages {
     logoutFailed: string;
     primaryNavigation: string;
     profile: string;
+    skipToMainContent: string;
     signedOut: string;
     signOut: string;
   },
@@ -3732,6 +3733,7 @@ export const enMessages: Messages = {
     logoutFailed: "Failed to sign out",
     primaryNavigation: "Primary navigation",
     profile: "Profile:",
+    skipToMainContent: "Skip to main content",
     signedOut: "Signed out",
     signOut: "Sign out",
   },

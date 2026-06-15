@@ -40,7 +40,7 @@ export function LanguageMenuItems({
       {option.label}
       <Check
         className={cn(
-          "h-4 w-4 text-primary transition-opacity",
+          "size-4 text-primary transition-opacity",
           locale === option.value ? "opacity-100" : "opacity-0",
         )}
       />
@@ -69,11 +69,11 @@ export function LanguageSwitcher({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-8 gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-accent/60",
+            "h-[var(--density-control-h-sm)] gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-surface-container-low hover:text-foreground dark:hover:bg-accent/60",
             buttonClassName,
           )}
         >
-          <Languages className="h-4 w-4" />
+          <Languages />
           <span className="max-w-[5.5rem] truncate">{activeLanguage.label}</span>
           <span className="sr-only">{messages.locale.changeLanguage}</span>
         </Button>

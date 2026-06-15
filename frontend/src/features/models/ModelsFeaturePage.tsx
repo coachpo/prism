@@ -60,7 +60,7 @@ export function ModelsFeaturePage() {
         </Button>
       </OperatorPageHeader>
 
-      <Card className="operator-table-shell gap-0 overflow-hidden rounded-3xl">
+      <Card className="operator-table-shell gap-0 overflow-hidden rounded-xl">
         <CardHeader className="border-b">
           <FieldGroup className="gap-4 md:flex-row md:items-end">
             <Field className="md:max-w-sm">

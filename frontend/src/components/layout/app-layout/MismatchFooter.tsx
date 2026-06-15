@@ -24,7 +24,7 @@ export function MismatchFooter({
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-warning/35 bg-warning/10 p-2 text-warning-foreground shadow-sm group-data-[collapsible=icon]:hidden">
+    <div className="flex items-center gap-2 rounded-lg border border-warning/35 bg-warning/10 p-2 text-warning-foreground group-data-[collapsible=icon]:hidden">
       <AlertTriangle className="text-warning-foreground/80" />
       <p className="min-w-0 flex-1 truncate text-xs font-medium">
         {selectedProfileName} · {messages.shell.runningShort(activeProfileName)}

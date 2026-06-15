@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import { Input } from "@/components/ui/input";
+import { OperatorInsetPanel, OperatorSectionCard } from "@/shared/design-system";
 import { AuthenticationFieldShell } from "./AuthenticationFieldShell";
 import type { AuthenticationSectionProps } from "./types";
 
@@ -38,14 +38,11 @@ export function OperatorEmailCard({
   const { messages } = useLocale();
   const copy = messages.settingsAuthentication;
   return (
-    <Card className="shadow-none">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">{copy.operatorAccount}</CardTitle>
-        <CardDescription>
-          {copy.operatorAccountDescription}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <OperatorSectionCard
+      title={copy.operatorAccount}
+      description={copy.operatorAccountDescription}
+      contentClassName="flex flex-col gap-4"
+    >
         <AuthenticationFieldShell
           label={copy.username}
           helper={copy.usernameHelper}
@@ -103,11 +100,11 @@ export function OperatorEmailCard({
           />
         </AuthenticationFieldShell>
 
-        <div className="rounded-lg border bg-muted/30 px-4 py-3">
+        <OperatorInsetPanel className="px-4 py-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-muted-foreground">
-                {copy.authenticationToggleDescription}
-              </p>
+            <p className="text-xs text-muted-foreground">
+              {copy.authenticationToggleDescription}
+            </p>
             <Button
               type="button"
               variant="outline"
@@ -117,8 +114,7 @@ export function OperatorEmailCard({
               {authSaving ? messages.pricingTemplateDialog.saving : copy.saveAccountChanges}
             </Button>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        </OperatorInsetPanel>
+    </OperatorSectionCard>
   );
 }

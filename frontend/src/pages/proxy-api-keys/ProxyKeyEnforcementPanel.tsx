@@ -1,16 +1,9 @@
 import { ShieldAlert, ShieldCheck } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useLocale } from "@/i18n/useLocale";
 import type { AuthSettings } from "@/lib/types";
+import { OperatorCallout, OperatorInsetPanel, OperatorSectionCard } from "@/shared/design-system";
 import { getProxyKeyUsagePercent } from "./proxyKeyFormatting";
 
 interface ProxyKeyEnforcementPanelProps {
@@ -43,42 +36,40 @@ export function ProxyKeyEnforcementPanel({
     : messages.proxyApiKeysData.settingsUnavailable;
 
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          {authEnabled ? <ShieldCheck className="text-success" /> : <ShieldAlert className="text-warning" />}
-          {statusLabel}
-        </CardTitle>
-        <CardDescription>{statusDescription}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <Alert className="bg-muted/20">
-          {authEnabled ? <ShieldCheck /> : <ShieldAlert />}
-          <AlertTitle>{statusLabel}</AlertTitle>
-          <AlertDescription>
-            {authSettings
-              ? authEnabled
-                ? messages.settingsAuthentication.proxyKeyTrafficRequirement
-                : messages.settingsAuthentication.enableAuthenticationToEnforceKeys
-              : statusDescription}
-          </AlertDescription>
-        </Alert>
+    <OperatorSectionCard
+      className="h-full"
+      icon={authEnabled ? <ShieldCheck className="text-success" /> : <ShieldAlert className="text-warning" />}
+      title={statusLabel}
+      description={statusDescription}
+      contentClassName="flex flex-col gap-4"
+    >
+      <OperatorCallout
+        intent={authEnabled ? "success" : "warning"}
+        title={statusLabel}
+        icon={authEnabled ? <ShieldCheck /> : <ShieldAlert />}
+        description={
+          authSettings
+            ? authEnabled
+              ? messages.settingsAuthentication.proxyKeyTrafficRequirement
+              : messages.settingsAuthentication.enableAuthenticationToEnforceKeys
+            : statusDescription
+        }
+      />
 
-        <div className="flex flex-col gap-3 rounded-lg border p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <p className="text-sm font-medium">{copy.issuedKeys}</p>
-              <p className="text-sm text-muted-foreground">
-                {copy.keysUsed(formatNumber(proxyKeysUsed), formatNumber(proxyKeyLimit))}
-              </p>
-            </div>
-            <Badge variant={remainingKeys === 0 ? "destructive" : "outline"}>
-              {remainingKeys === 0 ? copy.keyLimitReached : copy.slotsRemaining(formatNumber(remainingKeys))}
-            </Badge>
+      <OperatorInsetPanel className="bg-surface">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium">{copy.issuedKeys}</p>
+            <p className="text-sm text-muted-foreground">
+              {copy.keysUsed(formatNumber(proxyKeysUsed), formatNumber(proxyKeyLimit))}
+            </p>
           </div>
-          <Progress value={quotaPercent} />
+          <Badge variant={remainingKeys === 0 ? "destructive" : "outline"}>
+            {remainingKeys === 0 ? copy.keyLimitReached : copy.slotsRemaining(formatNumber(remainingKeys))}
+          </Badge>
         </div>
-      </CardContent>
-    </Card>
+        <Progress value={quotaPercent} />
+      </OperatorInsetPanel>
+    </OperatorSectionCard>
   );
 }

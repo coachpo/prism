@@ -1,8 +1,8 @@
 import { Database } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldGroup, FieldSet } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import type { BootstrapConfigResponse, BootstrapConfigSecretKey, BootstrapConfigValues } from "@/lib/types";
+import { OperatorSectionCard } from "@/shared/design-system";
 import {
   DATABASE_ADMISSION_FIELD_PATHS,
   DATABASE_CORE_FIELD_PATHS,
@@ -47,16 +47,17 @@ export function StartupDatabaseSection({
   values,
 }: StartupDatabaseSectionProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-          <Database />
+    <OperatorSectionCard
+      icon={<Database />}
+      title={(
+        <span className="flex flex-wrap items-center gap-2">
           {copy.databaseAndCapacityTitle}
           {sectionEffect(DATABASE_FIELD_PATHS)}
-        </CardTitle>
-        <CardDescription>{copy.databaseAndCapacityDescription}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+        </span>
+      )}
+      description={copy.databaseAndCapacityDescription}
+      contentClassName="flex flex-col gap-6"
+    >
         <FieldSet disabled={controlsDisabled}>
           <FieldLegendWithEffect label={copy.database} effect={sectionEffect(DATABASE_CORE_FIELD_PATHS)} />
           <FieldGroup>
@@ -136,7 +137,6 @@ export function StartupDatabaseSection({
             </div>
           </FieldGroup>
         </FieldSet>
-      </CardContent>
-    </Card>
+    </OperatorSectionCard>
   );
 }

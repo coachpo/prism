@@ -45,14 +45,14 @@ export function RoutingDiagramFlowNode({
     >
       <div
         className={cn(
-          "grid gap-2.5 border border-border/70 p-3 shadow-none transition-opacity",
+          "grid gap-2.5 border border-outline-variant p-3 transition-opacity",
           nodeVisual.shapeClassName,
           muted && "border-dashed opacity-70",
         )}
         style={getRoutingDiagramNodeCardStyle(nodeVisual, muted)}
       >
         <div className="flex items-start">
-          <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate text-sm font-semibold text-foreground">
                 {truncateLabel(data.label, data.kind === "terminal_target" ? 20 : 24)}
@@ -82,7 +82,7 @@ export function RoutingDiagramFlowNode({
             type="button"
             variant="outline"
             size="xs"
-            className="nodrag nopan h-auto min-h-[var(--density-control-h-xs)] w-full justify-start overflow-hidden rounded-lg border-border/70 px-3 py-1.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="nodrag nopan h-auto min-h-[var(--density-control-h-xs)] w-full justify-start overflow-hidden rounded-lg border-outline-variant px-3 py-1.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label={actionLabel ?? undefined}
             onClick={() => onActivateNode?.(data)}
           >

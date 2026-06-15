@@ -64,10 +64,9 @@ function ChartGranularityToggle({
   onChange,
 }: ChartGranularityToggleProps) {
   return (
-    <div className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
+    <div className="inline-flex items-center gap-1 rounded-lg border border-outline-variant bg-surface-container p-1">
       <Button
         aria-pressed={activeGranularity === "hourly"}
-        className="shadow-none"
         onClick={() => onChange("hourly")}
         size="sm"
         type="button"
@@ -77,7 +76,6 @@ function ChartGranularityToggle({
       </Button>
       <Button
         aria-pressed={activeGranularity === "daily"}
-        className="shadow-none"
         onClick={() => onChange("daily")}
         size="sm"
         type="button"
@@ -150,7 +148,7 @@ function RequestBreakdownPieCard({
   const totalRequests = items.reduce((sum, item) => sum + item.requestCount, 0);
 
   return (
-    <Card className="border-border/70 bg-card/95 shadow-none">
+    <Card className="operator-section-surface">
       <CardHeader className="gap-1 border-b">
         <CardTitle className="text-base">
           <h3>{title}</h3>
@@ -348,7 +346,7 @@ export function UsageBreakdownSection({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <Card className="border-border/70 bg-card/95 shadow-none">
+        <Card className="operator-section-surface">
           <CardHeader className="gap-3 border-b">
             <div className="grid flex-1 gap-1">
               <CardTitle className="text-base">
@@ -441,7 +439,7 @@ export function UsageBreakdownSection({
           )}
         </Card>
 
-        <Card className="border-border/70 bg-card/95 shadow-none">
+        <Card className="operator-section-surface">
           <CardHeader className="gap-3 border-b">
             <div className="grid flex-1 gap-1">
               <CardTitle className="text-base">{messages.statistics.costOverviewTitle}</CardTitle>
@@ -481,7 +479,7 @@ export function UsageBreakdownSection({
           ) : (
             <CardContent className="flex flex-col gap-6 pt-4 sm:pt-6">
               <div
-                className="rounded-xl border border-border/60 bg-muted/20 p-4"
+                className="rounded-xl border border-outline-variant bg-surface-container-low p-4"
                 data-testid="usage-cost-summary-card"
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">

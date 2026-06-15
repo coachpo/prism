@@ -14,6 +14,7 @@ import type {
 } from "@/lib/types";
 import { formatApiFamily } from "@/lib/utils";
 import { useLocale } from "@/i18n/useLocale";
+import { OperatorCallout, OperatorEmptyState, OperatorInsetPanel } from "@/shared/design-system";
 import {
   accessTargetKey,
   appendAccessTarget,
@@ -246,9 +247,9 @@ export function AccessTargetsEditor({
   };
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border bg-muted/15 p-4" data-testid="access-targets-editor">
+    <OperatorInsetPanel data-testid="access-targets-editor">
       <div className="flex items-start gap-2">
-        <GitBranch className="mt-0.5 h-4 w-4 text-muted-foreground" />
+        <GitBranch className="mt-0.5 size-4 text-muted-foreground" />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="text-sm font-medium text-foreground">{copy.accessTargets}</p>
           <p className="text-sm text-muted-foreground">{copy.accessTargetsDescription}</p>
@@ -257,9 +258,7 @@ export function AccessTargetsEditor({
       </div>
 
       {error ? (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive" data-testid="access-targets-error">
-          {error}
-        </div>
+        <OperatorCallout intent="danger" description={error} data-testid="access-targets-error" />
       ) : null}
 
       <section className="flex flex-col gap-3">
@@ -269,13 +268,11 @@ export function AccessTargetsEditor({
         </div>
 
         {modelTierGroups.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">
-            {copy.noAccessTargetsSelected}
-          </div>
+          <OperatorEmptyState title={copy.noAccessTargetsSelected} className="py-6" />
         ) : null}
 
         {modelTierGroups.map((group) => (
-          <div key={`tier:${group.target_priority}`} className="flex flex-col gap-3 rounded-xl border bg-background p-3">
+          <div key={`tier:${group.target_priority}`} className="flex flex-col gap-3 rounded-lg border border-outline-variant bg-surface p-3">
             <div className="flex items-center gap-2">
               <Badge variant="outline">{copy.fallbackTier(formatNumber(getModelAccessTargetTierNumber(group.target_priority)))}</Badge>
               <p className="text-xs text-muted-foreground">{copy.modelTierDescription}</p>
@@ -297,12 +294,12 @@ export function AccessTargetsEditor({
                   <div
                     key={targetKey}
                     data-testid={`access-target-${targetKey}`}
-                    className="flex flex-col gap-3 rounded-md border bg-muted/10 p-3"
+                    className="flex flex-col gap-3 rounded-md border border-outline-variant bg-surface p-3"
                   >
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="flex min-w-0 flex-1 items-start gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-muted/30 text-muted-foreground">
-                          <GitBranch className="h-4 w-4" />
+                        <div className="flex size-[var(--density-control-h-sm)] shrink-0 items-center justify-center rounded-md border border-outline-variant bg-surface-container-low text-muted-foreground">
+                          <GitBranch />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{resolveModelTargetLabel(target.target_model_id ?? "", modelOptions)}</p>
@@ -516,9 +513,7 @@ export function AccessTargetsEditor({
             </div>
 
             {connectionTargets.length === 0 ? (
-              <div className="rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">
-                {copy.noTerminalTargetsSelected}
-              </div>
+              <OperatorEmptyState title={copy.noTerminalTargetsSelected} className="py-6" />
             ) : null}
 
             <div className="flex flex-col gap-2">
@@ -540,8 +535,8 @@ export function AccessTargetsEditor({
                     className="flex flex-col gap-3 rounded-md border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="flex min-w-0 flex-1 items-start gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-muted/30 text-muted-foreground">
-                        <Cable className="h-4 w-4" />
+                      <div className="flex size-[var(--density-control-h-sm)] shrink-0 items-center justify-center rounded-md border border-outline-variant bg-surface-container-low text-muted-foreground">
+                        <Cable />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
@@ -656,6 +651,6 @@ export function AccessTargetsEditor({
           </section>
         </>
       ) : null}
-    </div>
+    </OperatorInsetPanel>
   );
 }

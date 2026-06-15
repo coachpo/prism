@@ -50,7 +50,7 @@ export function SettingsPage() {
         onValueChange={(value) => setActiveTab(value as typeof activeTab)}
         className="flex flex-col gap-4"
       >
-        <TabsList className="w-full justify-start overflow-x-auto rounded-xl bg-muted/70 p-1 sm:w-fit">
+        <TabsList className="w-full justify-start overflow-x-auto rounded-lg border border-outline-variant bg-surface-container-low p-1 sm:w-fit">
           <TabsTrigger className="h-8" value={SETTINGS_TABS.profile}>{messages.settingsPage.profileTab}</TabsTrigger>
           <TabsTrigger className="h-8" value={SETTINGS_TABS.global}>{messages.settingsPage.globalTab}</TabsTrigger>
           <TabsTrigger className="h-8" value={SETTINGS_TABS.startup}>{messages.settingsPage.startupTab}</TabsTrigger>

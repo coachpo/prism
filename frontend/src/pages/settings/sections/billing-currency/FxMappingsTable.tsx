@@ -2,6 +2,7 @@ import { Check, Pencil, Trash2, X } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { EndpointFxMapping } from "@/lib/types";
+import { OperatorEmptyState } from "@/shared/design-system";
 import { formatFxRateDisplay, getMappingKey } from "../../settingsPageHelpers";
 
 interface FxMappingsTableProps {
@@ -44,14 +46,15 @@ export function FxMappingsTable({
   const copy = messages.settingsBilling;
   if (mappings.length === 0) {
     return (
-      <div className="mt-3 rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-        {copy.endpointFxMappingsEmpty}
-      </div>
+      <OperatorEmptyState
+        className="mt-3 border-dashed py-8"
+        title={copy.endpointFxMappingsEmpty}
+      />
     );
   }
 
   return (
-    <div className="mt-3 rounded-md border">
+    <div className="operator-table-shell mt-3 overflow-hidden rounded-lg border border-outline-variant">
       <Table>
         <TableHeader>
           <TableRow>
@@ -75,7 +78,7 @@ export function FxMappingsTable({
                 <TableCell>#{mapping.endpoint_id}</TableCell>
                 <TableCell>
                   {isEditing ? (
-                    <div className="space-y-1">
+                    <Field data-invalid={Boolean(editMappingFxError)}>
                       <Input
                         name="editing_mapping_fx_rate"
                         autoComplete="off"
@@ -85,10 +88,8 @@ export function FxMappingsTable({
                         inputMode="decimal"
                         aria-invalid={Boolean(editMappingFxError)}
                       />
-                      {editMappingFxError ? (
-                        <p className="text-xs text-destructive">{editMappingFxError}</p>
-                      ) : null}
-                    </div>
+                      {editMappingFxError ? <FieldDescription className="text-destructive">{editMappingFxError}</FieldDescription> : null}
+                    </Field>
                   ) : (
                     formatFxRateDisplay(mapping.fx_rate)
                   )}
@@ -103,23 +104,21 @@ export function FxMappingsTable({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
+                          size="icon-sm"
                           onClick={handleSaveEditFxMapping}
                           disabled={Boolean(editMappingFxError)}
                           aria-label={copy.saveFxMapping}
                         >
-                          <Check className="h-4 w-4" />
+                          <Check />
                         </Button>
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
+                          size="icon-sm"
                           onClick={handleCancelEditFxMapping}
                           aria-label={copy.cancelFxMappingEdit}
                         >
-                          <X className="h-4 w-4" />
+                          <X />
                         </Button>
                       </>
                     ) : (
@@ -127,22 +126,21 @@ export function FxMappingsTable({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
+                          size="icon-sm"
                           onClick={() => handleStartEditFxMapping(mapping)}
                           aria-label={copy.editFxMapping}
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Pencil />
                         </Button>
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          size="icon-sm"
+                          className="text-destructive hover:text-destructive"
                           onClick={() => handleDeleteFxMapping(mapping)}
                           aria-label={copy.deleteFxMapping}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 />
                         </Button>
                       </>
                     )}

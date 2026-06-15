@@ -216,7 +216,7 @@ export function RoutingDiagramCard({
             ) : (
               <div
                 data-testid="routing-diagram-desktop-pending"
-                className="w-full rounded-xl border border-border/70 bg-background/60"
+                className="w-full rounded-xl border border-outline-variant bg-surface"
                 style={{ height: chartHeight }}
                 aria-hidden="true"
               />

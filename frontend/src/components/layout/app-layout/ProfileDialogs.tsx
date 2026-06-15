@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useLocale } from "@/i18n/useLocale";
+import { OperatorCallout, OperatorInsetPanel } from "@/shared/design-system";
 
 interface ProfileDialogsProps {
   activateOpen: boolean;
@@ -91,7 +92,7 @@ export function ProfileDialogs({
             <DialogDescription>{messages.profiles.activateDescription}</DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4">
+            <OperatorInsetPanel>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 flex-col gap-1">
                   <p className="text-sm text-muted-foreground">{messages.profiles.currentActive}</p>
@@ -103,11 +104,9 @@ export function ProfileDialogs({
                 <p className="text-sm text-muted-foreground">{messages.profiles.newActive}</p>
                 <p className="font-medium text-foreground">{selectedProfileName}</p>
               </div>
-            </div>
+            </OperatorInsetPanel>
             {activationError ? (
-              <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {activationError}
-              </p>
+              <OperatorCallout intent="danger" description={activationError} />
             ) : null}
           </DialogBody>
           <DialogFooter className="sm:justify-between">
@@ -146,7 +145,7 @@ export function ProfileDialogs({
                   placeholder={messages.profiles.profileNamePlaceholder}
                 />
               </div>
-              <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-4">
+              <OperatorInsetPanel>
                 <Label htmlFor="profile-create-description">{messages.profiles.descriptionOptional}</Label>
                 <Input
                   id="profile-create-description"
@@ -156,7 +155,7 @@ export function ProfileDialogs({
                   onChange={(event) => setDescriptionInput(event.target.value)}
                   placeholder={messages.profiles.optionalPlaceholder}
                 />
-              </div>
+              </OperatorInsetPanel>
             </DialogBody>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
@@ -195,7 +194,7 @@ export function ProfileDialogs({
                   placeholder={messages.profiles.profileNamePlaceholder}
                 />
               </div>
-              <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-4">
+              <OperatorInsetPanel>
                 <Label htmlFor="profile-edit-description">{messages.profiles.descriptionOptional}</Label>
                 <Input
                   id="profile-edit-description"
@@ -205,7 +204,7 @@ export function ProfileDialogs({
                   onChange={(event) => setDescriptionInput(event.target.value)}
                   placeholder={messages.profiles.optionalPlaceholder}
                 />
-              </div>
+              </OperatorInsetPanel>
             </DialogBody>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
@@ -237,9 +236,7 @@ export function ProfileDialogs({
               </code>
             </div>
             {deleteError ? (
-              <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {deleteError}
-              </p>
+              <OperatorCallout intent="danger" description={deleteError} />
             ) : null}
             <div className="flex flex-col gap-2">
               <Label htmlFor="profile-delete-confirm">

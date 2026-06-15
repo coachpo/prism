@@ -73,7 +73,7 @@ function renderClientDetailValue(display: string | null, rawUserAgent: string | 
   const showRawValue = rawUserAgent !== null && rawUserAgent !== primaryValue;
 
   return (
-    <div className="space-y-1">
+    <div className="flex flex-col gap-1">
       <p>{primaryValue}</p>
       {showRawValue ? (
         <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
@@ -191,11 +191,11 @@ export function RequestLogOverviewTab({
   };
 
   return (
-    <div className="space-y-3">
-      <Card className={cn("overflow-hidden border shadow-sm", tone.card)}>
-        <CardContent className="space-y-4 p-4">
+    <div className="flex flex-col gap-3">
+      <Card className={cn("overflow-hidden border shadow-operator-panel", tone.card)}>
+        <CardContent className="flex flex-col gap-4 p-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0 space-y-3">
+            <div className="flex min-w-0 flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <OperatorValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
                 {hasStreamTelemetry ? (
@@ -209,7 +209,7 @@ export function RequestLogOverviewTab({
                 <ApiFamilyPill apiFamily={apiFamily} />
               </div>
 
-              <div className="min-w-0 space-y-1.5">
+              <div className="flex min-w-0 flex-col gap-1.5">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                   <h3 className="truncate text-lg font-semibold tracking-tight sm:text-xl">{requestedModelLabel}</h3>
                 </div>
@@ -269,7 +269,7 @@ export function RequestLogOverviewTab({
       </Card>
 
       {formattedErrorDetail ? (
-        <OperatorCallout intent="danger" icon={<AlertTriangle />} className="shadow-sm">
+        <OperatorCallout intent="danger" icon={<AlertTriangle />} className="shadow-operator-panel">
           <div className="flex min-w-0 flex-col gap-3">
             <OperatorValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -303,8 +303,8 @@ export function RequestLogOverviewTab({
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]" data-testid="request-log-overview-grid">
         <SectionCard icon={FileText} title={messages.requestLogs.requestDetails}>
-          <div className="space-y-3">
-            <div className="space-y-1">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
               <DetailRow label={messages.requestLogs.requestId}><span className="font-mono">#{summary.id}</span></DetailRow>
               <DetailRow label={messages.requestLogs.time}><span className="font-mono text-xs">{formatTimestamp(summary.created_at)}</span></DetailRow>
               {requestInfo.ingress_request_id ? (
@@ -332,7 +332,7 @@ export function RequestLogOverviewTab({
                 </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.requestedModel}>
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   <p>{requestedModelLabel}</p>
                   {requestedModelLabel !== summary.model_id ? (
                     <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
@@ -342,7 +342,7 @@ export function RequestLogOverviewTab({
                 </div>
               </DetailRow>
               <DetailRow label={messages.requestLogs.finalTargetModel}>
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   <p>{finalTargetLabel}</p>
                   {finalTargetLabel !== finalTargetModelId ? (
                     <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
@@ -407,10 +407,10 @@ export function RequestLogOverviewTab({
               ) : null}
             </div>
 
-            <div className="space-y-1 border-t border-border/60 pt-3">
+            <div className="flex flex-col gap-1 border-t border-outline-variant pt-3">
               <SectionSubheading>{messages.requestLogs.routingContext}</SectionSubheading>
               <DetailRow label={messages.requestLogs.endpoint}>
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   <p>{routing.endpoint_label}</p>
                   {routing.endpoint_id !== null ? (
                     <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
@@ -465,21 +465,21 @@ export function RequestLogOverviewTab({
                     </DetailRow>
                   ) : null}
                   <DetailRow label={messages.requestLogs.contextRoutingDecision}>
-                    <div className="space-y-2">
-                      <div className="space-y-1 text-sm">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-1 text-sm">
                         <p><span className="text-muted-foreground">{messages.requestLogs.routingPolicy}:</span> <span className="font-mono">{contextRouting.policy}</span></p>
                         <p><span className="text-muted-foreground">{messages.requestLogs.estimatedInputTokens}:</span> <span className="font-mono">{formatRoutingTokenValue(contextRouting.estimated_input_tokens)}</span></p>
                         <p><span className="text-muted-foreground">{messages.requestLogs.reservedOutputTokens}:</span> <span className="font-mono">{formatRoutingTokenValue(contextRouting.reserved_output_tokens)}</span></p>
                         <p><span className="text-muted-foreground">{messages.requestLogs.estimatedTotalContextTokens}:</span> <span className="font-mono">{formatRoutingTokenValue(contextRouting.estimated_total_context_tokens)}</span></p>
                       </div>
                       {contextRouting.skipped_terminal_targets?.length ? (
-                        <div className="space-y-1">
+                        <div className="flex flex-col gap-1">
                           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
                             {messages.requestLogs.skippedTerminalTargets}
                           </p>
-                          <ul className="space-y-1 text-sm text-foreground">
+                          <ul className="flex flex-col gap-1 text-sm text-foreground">
                             {contextRouting.skipped_terminal_targets.map((target, index) => (
-                              <li key={`${target.terminal_target_id ?? "none"}-${index}`} className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
+                              <li key={`${target.terminal_target_id ?? "none"}-${index}`} className="rounded-lg border border-outline-variant bg-surface-container-low px-2.5 py-2">
                                 <p className="font-mono text-[12px]">
                                   #{target.terminal_target_id ?? "—"}
                                   {target.endpoint_id != null ? ` · endpoint #${target.endpoint_id}` : ""}
@@ -506,8 +506,8 @@ export function RequestLogOverviewTab({
         </SectionCard>
 
         <SectionCard icon={Coins} title={`${messages.requestLogs.tokenUsage} / ${messages.requestLogs.costBreakdown}`}>
-          <div className="space-y-3">
-            <div className="space-y-1">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
               <SectionSubheading>{messages.requestLogs.tokenUsage}</SectionSubheading>
               <DetailRow label={messages.requestLogs.input}>
                 <span className="font-mono">
@@ -531,12 +531,12 @@ export function RequestLogOverviewTab({
               </DetailRow>
             </div>
 
-            <div className="space-y-1 border-t border-border/60 pt-3">
+            <div className="flex flex-col gap-1 border-t border-outline-variant pt-3">
               <SectionSubheading>{messages.requestLogs.costBreakdown}</SectionSubheading>
               <DetailRow label={messages.requestLogs.input}><span className="font-mono">{formatCost(costing.input_cost_micros, costing.report_currency_symbol)}</span></DetailRow>
               <DetailRow label={messages.requestLogs.output}><span className="font-mono">{formatCost(costing.output_cost_micros, costing.report_currency_symbol)}</span></DetailRow>
               <DetailRow label={messages.requestLogs.total}>
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono">
                       {totalCostValue}

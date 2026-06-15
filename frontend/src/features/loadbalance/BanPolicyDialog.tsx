@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldSet, FieldLegend } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useLocale } from "@/i18n/useLocale"
 import { getLegacyLoadbalanceStrategyLabel, getLegacyLoadbalanceStrategySummary } from "@/lib/loadbalanceRoutingPolicy"
@@ -68,14 +68,14 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else onClose() }}>
       <DialogContent className="flex h-[min(94vh,56rem)] max-h-[94vh] max-w-3xl flex-col overflow-hidden p-0 sm:max-w-3xl">
-        <DialogHeader className="shrink-0 border-b bg-background px-6 py-5 sm:px-7">
+        <DialogHeader className="shrink-0 border-b border-outline-variant bg-surface px-6 py-5 sm:px-7">
           <DialogTitle>{editingStrategy ? "Edit Ban Policy Strategy" : "Create Ban Policy Strategy"}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit((values) => onSave(values))} className="flex min-h-0 flex-1 flex-col">
           <DialogBody className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7">
             <FieldGroup className="gap-6">
-              <FieldSet className="rounded-2xl border bg-muted/20 p-4 sm:p-5">
+              <FieldSet className="rounded-lg border border-outline-variant bg-surface-container-low p-4 sm:p-5">
                 <FieldLegend>{copy.basicsSectionTitle}</FieldLegend>
                 <Field data-invalid={Boolean(form.formState.errors.name)}>
                   <FieldLabel htmlFor="ban-policy-name">{copy.nameLabel}</FieldLabel>
@@ -84,19 +84,21 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                 </Field>
               </FieldSet>
 
-              <FieldSet className="rounded-2xl border bg-muted/20 p-4 sm:p-5">
+              <FieldSet className="rounded-lg border border-outline-variant bg-surface-container-low p-4 sm:p-5">
                 <FieldLegend>{copy.strategyBehaviorSectionTitle}</FieldLegend>
                 <Field>
                   <FieldLabel htmlFor="ban-policy-routing">Routing family</FieldLabel>
                   <Select value={strategyType} onValueChange={(value) => form.setValue("legacy_strategy_type", value as BanPolicyFormValues["legacy_strategy_type"], { shouldDirty: true, shouldValidate: true })}>
                     <SelectTrigger id="ban-policy-routing"><SelectValue /></SelectTrigger>
-                    <SelectContent>{banPolicyRoutingTypes.map((type) => <SelectItem key={type} value={type}>{getLegacyLoadbalanceStrategyLabel(type, strategyCopy)}</SelectItem>)}</SelectContent>
+                    <SelectContent>
+                      <SelectGroup>{banPolicyRoutingTypes.map((type) => <SelectItem key={type} value={type}>{getLegacyLoadbalanceStrategyLabel(type, strategyCopy)}</SelectItem>)}</SelectGroup>
+                    </SelectContent>
                   </Select>
                   <FieldDescription>{getLegacyLoadbalanceStrategySummary(strategyType, strategyCopy)}</FieldDescription>
                 </Field>
               </FieldSet>
 
-              <FieldSet className="rounded-2xl border bg-muted/20 p-4 sm:p-5">
+              <FieldSet className="rounded-lg border border-outline-variant bg-surface-container-low p-4 sm:p-5">
                 <FieldLegend>{copy.reliabilityControlsSectionTitle}</FieldLegend>
                 <div className="grid gap-4 md:grid-cols-2">
                   <NumberField id="retry-base" label={copy.retryBaseDelayLabel} description={copy.retryBaseDelayDescription} error={form.formState.errors.retry_base_delay_ms?.message} inputProps={form.register("retry_base_delay_ms", { valueAsNumber: true })} min={0} max={86400000} />
@@ -123,7 +125,9 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                     <FieldDescription>{copy.banModeDescription}</FieldDescription>
                     <Select value={banMode} onValueChange={(value) => updateBanMode(value as BanPolicyFormValues["ban_mode"])}>
                       <SelectTrigger id="ban-mode"><SelectValue /></SelectTrigger>
-                      <SelectContent>{banPolicyModes.map((mode) => <SelectItem key={mode} value={mode}>{mode === "off" ? copy.banModeOffOption : mode === "temporary" ? copy.banModeTemporaryOption : copy.banModeUntilResetOption}</SelectItem>)}</SelectContent>
+                      <SelectContent>
+                        <SelectGroup>{banPolicyModes.map((mode) => <SelectItem key={mode} value={mode}>{mode === "off" ? copy.banModeOffOption : mode === "temporary" ? copy.banModeTemporaryOption : copy.banModeUntilResetOption}</SelectItem>)}</SelectGroup>
+                      </SelectContent>
                     </Select>
                     <FieldError>{form.formState.errors.ban_mode?.message}</FieldError>
                   </Field>
@@ -132,7 +136,7 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
               </FieldSet>
             </FieldGroup>
           </DialogBody>
-          <DialogFooter className="shrink-0 border-t bg-background px-6 py-4 sm:px-7">
+          <DialogFooter className="shrink-0 border-t border-outline-variant bg-surface px-6 py-4 sm:px-7">
             <Button type="button" variant="outline" onClick={onClose}>{copy.cancel}</Button>
             <Button type="submit" disabled={saving}>{saving ? copy.saving : copy.save}</Button>
           </DialogFooter>

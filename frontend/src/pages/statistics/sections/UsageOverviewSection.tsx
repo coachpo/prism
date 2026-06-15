@@ -85,7 +85,7 @@ export function UsageOverviewSection({
             <UsageKpiCard
               accentClassName="bg-primary/10 text-primary"
               detail={`${messages.statistics.successRate} ${formattedSuccessRate}% · ${messages.statistics.totalRequests(formatNumber(overview.total_requests))}`}
-              icon={<Activity className="h-4 w-4" />}
+              icon={<Activity />}
               label={messages.statistics.requests}
               sparkline={requestSparkline}
               sparklineColor="var(--color-chart-1)"
@@ -99,7 +99,7 @@ export function UsageOverviewSection({
             <UsageKpiCard
               accentClassName="bg-success/10 text-success"
               detail={`${messages.requestLogs.input} ${formatNumber(overview.input_tokens)} · ${messages.requestLogs.output} ${formatNumber(overview.output_tokens)} · ${messages.statistics.cachedPrefix} ${formatNumber(overview.cached_tokens)} · ${messages.requestLogs.reasoning} ${formatNumber(overview.reasoning_tokens)}`}
-              icon={<Coins className="h-4 w-4" />}
+              icon={<Coins />}
               label={messages.statistics.totalTokens}
               sparkline={tokenSparkline}
               sparklineColor="var(--color-chart-2)"
@@ -117,7 +117,7 @@ export function UsageOverviewSection({
                   ? `${messages.statistics.currentRpm}: ${formattedRollingRpm} · ${rollingWindowLabel}`
                   : messages.statistics.averageRpm
               }
-              icon={<Gauge className="h-4 w-4" />}
+              icon={<Gauge />}
               label="RPM"
               sparkline={requestSparkline}
               sparklineColor="var(--color-info)"
@@ -135,7 +135,7 @@ export function UsageOverviewSection({
                   ? `${messages.statistics.tokenThroughput}: ${formattedRollingTpm} · ${rollingWindowLabel}`
                   : messages.statistics.tokenThroughput
               }
-              icon={<TrendingUp className="h-4 w-4" />}
+              icon={<TrendingUp />}
               label="TPM"
               sparkline={tokenSparkline}
               sparklineColor="var(--color-warning)"
@@ -149,7 +149,7 @@ export function UsageOverviewSection({
             <UsageKpiCard
               accentClassName="bg-chart-3/10 text-foreground"
               detail={formatSpendCoverageDetail(costSummary, messages)}
-              icon={<DollarSign className="h-4 w-4" />}
+              icon={<DollarSign />}
               label={messages.statistics.totalSpend}
               sparkline={tokenSparkline}
               sparklineColor="var(--color-chart-3)"

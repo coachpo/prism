@@ -23,10 +23,10 @@ export function UsageKpiCard({
   value,
 }: UsageKpiCardProps) {
   return (
-    <Card className="overflow-hidden border-border/70 bg-card/95">
-      <CardContent className="space-y-4 p-[var(--density-metric-pad)]">
+    <Card className="operator-section-surface overflow-hidden">
+      <CardContent className="flex flex-col gap-4 p-[var(--density-metric-pad)]">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1 space-y-2">
+          <div className="min-w-0 flex-1 flex flex-col gap-2">
             <p data-slot="metric-label" className="text-sm font-medium text-muted-foreground">
               {label}
             </p>
@@ -47,7 +47,7 @@ export function UsageKpiCard({
           {icon ? (
             <div
               className={cn(
-                "flex h-[var(--density-control-h)] w-[var(--density-control-h)] shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary",
+                "flex h-[var(--density-control-h)] w-[var(--density-control-h)] shrink-0 items-center justify-center rounded-lg bg-primary-container text-on-primary-container",
                 accentClassName,
               )}
               data-slot="icon"

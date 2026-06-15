@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useLocale } from "@/i18n/useLocale"
+import { OperatorInsetPanel } from "@/shared/design-system"
 
 interface ProxyKeySecretDialogProps {
   secret: string | null
@@ -41,9 +42,9 @@ export function ProxyKeySecretDialog({ secret, onClear }: ProxyKeySecretDialogPr
         </DialogHeader>
         <DialogBody>
           {secret ? (
-            <div
+            <OperatorInsetPanel
               data-testid="proxy-key-secret"
-              className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
+              className="flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <p className="min-w-0 break-all font-mono text-sm text-foreground">{secret}</p>
               <CopyButton
@@ -53,7 +54,7 @@ export function ProxyKeySecretDialog({ secret, onClear }: ProxyKeySecretDialogPr
                 variant="outline"
                 className="shrink-0"
               />
-            </div>
+            </OperatorInsetPanel>
           ) : null}
         </DialogBody>
         <DialogFooter>

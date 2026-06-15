@@ -22,7 +22,7 @@ export function SettingsSectionsNav({
   };
 
   return (
-    <Card className="border-border/70 bg-card/80">
+    <Card className="operator-section-surface sticky top-20">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm">{messages.settingsPage.sectionsTitle}</CardTitle>
       </CardHeader>

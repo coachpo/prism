@@ -55,7 +55,7 @@ export function DashboardMetricsGrid({
         label={messages.dashboard.activeModels}
         value={snapshot.activeModels}
         detail={messages.dashboard.totalConfigured(formatNumber(snapshot.totalModels))}
-        icon={<Server className="h-4 w-4" />}
+        icon={<Server />}
       />
       <OperatorMetricCard
         label={messages.dashboard.requests24h}
@@ -63,7 +63,7 @@ export function DashboardMetricsGrid({
         detail={messages.dashboard.successRate(
           formatNumber(snapshot.successRate, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
         )}
-        icon={<Activity className="h-4 w-4" />}
+        icon={<Activity />}
         className={cn(
           "[&_[data-slot=icon]]:bg-info/10 [&_[data-slot=icon]]:text-info",
           snapshot.successRate < 95 && "[&_[data-slot=metric-value]]:text-warning",
@@ -74,7 +74,7 @@ export function DashboardMetricsGrid({
         label={messages.dashboard.spending30d}
         value={spendMetricValue}
         detail={(
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             <p>
               {formatSpendCoverageDetail(
                 snapshot.pricedRequestCount,
@@ -90,7 +90,7 @@ export function DashboardMetricsGrid({
             ) : null}
           </div>
         )}
-        icon={<DollarSign className="h-4 w-4" />}
+        icon={<DollarSign />}
         className={cn(
           "[&_[data-slot=icon]]:bg-success/10 [&_[data-slot=icon]]:text-success",
           highlighted && "ws-value-updated"
@@ -100,7 +100,7 @@ export function DashboardMetricsGrid({
         label={messages.dashboard.averageRpm}
         value={formatNumber(snapshot.averageRpm, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
         detail={messages.dashboard.totalRequests(formatNumber(snapshot.averageRpmRequestTotal))}
-        icon={<Activity className="h-4 w-4" />}
+        icon={<Activity />}
         className={cn(
           highlighted && "ws-value-updated"
         )}

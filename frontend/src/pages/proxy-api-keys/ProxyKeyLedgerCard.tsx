@@ -2,14 +2,6 @@ import { KeyRound, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup";
 import { Badge } from "@/components/ui/badge";
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -27,6 +19,7 @@ import {
 import { useLocale } from "@/i18n/useLocale";
 import type { ProxyApiKey } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { OperatorSectionCard } from "@/shared/design-system";
 import {
   formatDateTime,
   formatLastUsed,
@@ -222,17 +215,16 @@ export function ProxyKeyLedgerCard({
   const copy = messages.proxyApiKeys;
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="border-b bg-muted/20">
-        <CardTitle className="text-base">{copy.issuedKeys}</CardTitle>
-        <CardDescription>{copy.listDescription}</CardDescription>
-        <CardAction>
+    <OperatorSectionCard
+      className="overflow-hidden"
+      title={copy.issuedKeys}
+      description={copy.listDescription}
+      actions={(
           <Badge variant="outline">{copy.keyCount(formatNumber(displayedProxyKeys.length))}</Badge>
-        </CardAction>
-      </CardHeader>
-      <CardContent>
+      )}
+    >
         {displayedProxyKeys.length === 0 ? (
-          <Empty className="border bg-muted/10">
+          <Empty className="border border-outline-variant bg-surface-container-low">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <KeyRound />
@@ -275,7 +267,6 @@ export function ProxyKeyLedgerCard({
             </Table>
           </div>
         )}
-      </CardContent>
-    </Card>
+    </OperatorSectionCard>
   );
 }

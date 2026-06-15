@@ -133,7 +133,7 @@ function SidebarProvider({
             } as React.CSSProperties
           }
           className={cn(
-            "group/sidebar-wrapper flex min-h-svh w-full bg-background has-data-[variant=inset]:bg-sidebar",
+            "group/sidebar-wrapper flex min-h-svh w-full bg-background has-data-[variant=inset]:bg-surface-container-low",
             className
           )}
           {...props}
@@ -238,7 +238,7 @@ function Sidebar({
           data-slot="sidebar-inner"
           className={cn(
             "flex h-full w-full flex-col overflow-hidden bg-sidebar",
-            variant === "inset" && "rounded-xl border border-sidebar-border/70 shadow-sm"
+            variant === "inset" && "rounded-xl border border-sidebar-border shadow-operator-panel"
           )}
         >
           {children}
@@ -262,7 +262,7 @@ function SidebarTrigger({
       variant="ghost"
       size="icon-sm"
       className={cn(
-        "rounded-lg border border-border/60 bg-background/80 text-muted-foreground shadow-sm backdrop-blur-sm transition-[color,background-color,border-color,box-shadow] hover:bg-accent hover:text-foreground",
+        "rounded-lg border border-outline-variant bg-surface text-muted-foreground shadow-operator-panel transition-[color,background-color,border-color,box-shadow] hover:bg-surface-container-low hover:text-foreground",
         className
       )}
       onClick={(event) => {
@@ -309,7 +309,7 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
       data-slot="sidebar-inset"
       className={cn(
         "relative flex min-w-0 flex-1 flex-col bg-background transition-[margin,border-radius,box-shadow] duration-200 ease-linear",
-        "lg:peer-data-[variant=inset]:m-2 lg:peer-data-[variant=inset]:ml-0 lg:peer-data-[variant=inset]:rounded-xl lg:peer-data-[variant=inset]:border lg:peer-data-[variant=inset]:border-border/70 lg:peer-data-[variant=inset]:shadow-sm lg:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
+        "lg:peer-data-[variant=inset]:m-2 lg:peer-data-[variant=inset]:ml-0 lg:peer-data-[variant=inset]:rounded-xl lg:peer-data-[variant=inset]:border lg:peer-data-[variant=inset]:border-outline-variant lg:peer-data-[variant=inset]:shadow-operator-panel lg:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
         className
       )}
       {...props}

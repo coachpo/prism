@@ -66,9 +66,9 @@ export function EndpointCardView({
   return (
     <Card
       className={cn(
-        "relative overflow-hidden border-border/70 bg-card transition-[border-color,box-shadow,opacity,transform] hover:border-primary/20 hover:shadow-md",
-        isDragging && "border-dashed border-primary/40 bg-muted/30 opacity-30 shadow-none",
-        isOverlay && "scale-[1.01] cursor-grabbing border-primary/50 shadow-xl ring-2 ring-primary/30"
+        "operator-section-surface relative overflow-hidden transition-[border-color,background-color,opacity,transform] hover:border-primary/30 hover:bg-surface-container-low",
+        isDragging && "border-dashed border-primary/40 bg-surface-container opacity-30",
+        isOverlay && "scale-[1.01] cursor-grabbing border-primary/50 shadow-operator-panel ring-2 ring-primary/30"
       )}
     >
       <div className="relative flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:gap-4">
@@ -78,7 +78,7 @@ export function EndpointCardView({
             ref={dragHandleRef ?? undefined}
             disabled={reorderDisabled || isOverlay}
             className={cn(
-              "flex h-8 w-8 shrink-0 touch-none items-center justify-center rounded-lg border border-transparent bg-background/60 text-muted-foreground/60 transition-colors",
+              "flex size-[var(--density-control-h-sm)] shrink-0 touch-none items-center justify-center rounded-md border border-transparent bg-surface-container-low text-muted-foreground transition-colors",
               !reorderDisabled && !isOverlay && "cursor-grab hover:text-foreground active:cursor-grabbing",
               (reorderDisabled || isOverlay) && "cursor-default opacity-60",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -87,7 +87,7 @@ export function EndpointCardView({
             {...(dragHandleAttributes ?? {})}
             {...(dragHandleListeners ?? {})}
           >
-            <GripVertical className="h-4 w-4" />
+            <GripVertical />
           </button>
 
           <div className="min-w-0 flex-1">
@@ -103,13 +103,13 @@ export function EndpointCardView({
         <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:gap-4 lg:gap-6">
           <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:min-w-64">
             <div className="flex items-center gap-2 text-xs">
-              <Globe2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <Globe2 className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="block min-w-0 flex-1 truncate font-mono text-foreground/90" title={endpoint.base_url}>
                 {endpoint.base_url}
               </span>
             </div>
             <div className="flex items-center gap-2 text-xs">
-              <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="block min-w-0 flex-1 truncate font-mono text-foreground/90" title={maskedKey}>
                 {maskedKey}
               </span>
@@ -123,7 +123,7 @@ export function EndpointCardView({
               </span>
               <Badge
                 variant="outline"
-                className="h-4 bg-muted/30 px-1.5 text-[10px] text-muted-foreground"
+                className="h-4 bg-surface-container px-1.5 text-[10px] text-muted-foreground"
               >
                 {models.length}
               </Badge>
@@ -166,9 +166,9 @@ export function EndpointCardView({
                 }}
               >
                 {isDuplicating ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="animate-spin" />
                 ) : (
-                  <Copy className="h-3.5 w-3.5" />
+                  <Copy />
                 )}
               </IconActionButton>
                 <IconActionButton
@@ -179,7 +179,7 @@ export function EndpointCardView({
                   void onEdit?.(endpoint);
                 }}
               >
-                <Pencil className="h-3.5 w-3.5" />
+                <Pencil />
               </IconActionButton>
                 <IconActionButton
                   type="button"
@@ -190,7 +190,7 @@ export function EndpointCardView({
                   void onDelete?.(endpoint);
                 }}
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 />
               </IconActionButton>
             </IconActionGroup>
           </div>

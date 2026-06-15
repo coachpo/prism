@@ -11,6 +11,7 @@ import {
 import { api, setApiProfileId } from "@/lib/api";
 import { useLocale } from "@/i18n/useLocale";
 import type { Profile, ProfileCreate, ProfileUpdate } from "@/lib/types";
+import { OperatorLoadingState } from "@/shared/design-system";
 import { createProfileBootstrapLoader } from "./profile/bootstrap";
 import { createProfileActions } from "./profile/actions";
 import { parseStoredProfileId, PROFILE_STORAGE_KEY, writeStoredProfileId } from "./profile/persistence";
@@ -193,10 +194,10 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background text-muted-foreground">
-        <div className="flex flex-col items-center gap-2">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-sm font-medium">{messages.profiles.loadingProfiles}</p>
-        </div>
+        <OperatorLoadingState
+          className="w-full max-w-sm"
+          title={messages.profiles.loadingProfiles}
+        />
       </div>
     );
   }

@@ -81,7 +81,7 @@ export function ModelDetailFeaturePage({
     return (
       <div className="flex flex-col gap-[var(--density-page-gap)]" data-testid="model-detail-feature-loading">
         <div className="flex items-center gap-3">
-          <Skeleton className="h-8 w-8 rounded" />
+          <Skeleton className="size-[var(--density-control-h-sm)] rounded" />
           <Skeleton className="h-7 w-48" />
         </div>
         <Skeleton className="h-[120px] rounded-xl" />

@@ -26,7 +26,7 @@ export function TopSpendingModelsCard({
     <Card className="md:col-span-2 lg:col-span-3">
       <CardHeader>
         <CardTitle>{messages.dashboard.topSpendingModels}</CardTitle>
-        <div className="space-y-1">
+        <div className="flex flex-col gap-1">
           <CardDescription>{messages.dashboard.topSpendingModelsDescription}</CardDescription>
           {currencyState.trust !== "verified" ? (
             <SpendTrustNote spendTrust={currencyState.trust} />
@@ -36,26 +36,26 @@ export function TopSpendingModelsCard({
       <CardContent>
         {topSpendingModels.length === 0 ? (
           <OperatorEmptyState
-            icon={<DollarSign className="h-6 w-6" />}
+            icon={<DollarSign className="size-6" />}
             title={messages.dashboard.noSpendingData}
             description={messages.dashboard.noSpendingDataDescription}
           />
         ) : (
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4">
             {topSpendingModels.map((model, index) => (
               <div key={model.model_id} className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted font-mono text-xs font-medium">
+                  <div className="flex size-[var(--density-control-h-sm)] items-center justify-center rounded-lg bg-surface-container font-mono text-xs font-medium">
                     {index + 1}
                   </div>
-                  <div className="space-y-1">
-                    <div className="space-y-1">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1">
                       <p className="text-sm font-medium leading-none">
                         {model.model_label || modelDisplayNames.get(model.model_id) || model.model_id}
                       </p>
                       <p className="text-xs text-muted-foreground">{model.model_id}</p>
                     </div>
-                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-container">
                       <div
                         className="h-full bg-primary"
                         style={{
@@ -74,7 +74,7 @@ export function TopSpendingModelsCard({
             ))}
             <Button variant="outline" className="mt-4 w-full" onClick={onViewFullReport}>
               {messages.dashboard.viewFullReport}
-              <ArrowUpRight className="ml-2 h-4 w-4" />
+              <ArrowUpRight data-icon="inline-end" />
             </Button>
           </div>
         )}

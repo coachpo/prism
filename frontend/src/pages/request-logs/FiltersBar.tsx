@@ -19,8 +19,8 @@ export function FiltersBar({ actions, filterOptions, filterOptionsLoaded, onRefr
   const { state, hasActiveFilters } = actions;
 
   return (
-    <Card className="border-border/70 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/85">
-      <CardContent className="space-y-3 p-4">
+    <Card className="operator-section-surface shadow-operator-panel">
+      <CardContent className="flex flex-col gap-3 p-4">
         <FiltersBarPrimaryFilters
           actions={actions}
           filterOptions={filterOptions}

@@ -1,19 +1,19 @@
 import type { ReactNode } from "react";
 import { Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { useLocale } from "@/i18n/useLocale";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import type { CostingSettingsUpdate } from "@/lib/types";
-import { OperatorCallout } from "@/shared/design-system";
+import { OperatorCallout, OperatorInsetPanel, OperatorSectionCard } from "@/shared/design-system";
 
 interface TimezoneSectionProps {
   timezoneDirty: boolean;
@@ -44,37 +44,34 @@ export function TimezoneSection({
   const copy = messages.settingsBilling;
   return (
     <section id="timezone" tabIndex={-1} className="scroll-mt-24">
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Globe className="h-4 w-4" />
-                {copy.timezone}
-              </CardTitle>
-              <CardDescription className="text-xs">
-                {copy.timezoneAffectsTimestamps}
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              {renderSectionSaveState("timezone", timezoneDirty)}
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void handleSaveCostingSettings("timezone")}
-                disabled={
-                  costingUnavailable ||
-                  costingLoading ||
-                  costingSaving ||
-                  !timezoneDirty
-                }
-              >
-                {costingSaving ? messages.pricingTemplateDialog.saving : copy.saveTimezone}
-              </Button>
-            </div>
+      <OperatorSectionCard
+        title={(
+          <span className="flex items-center gap-2">
+            <Globe data-icon="inline-start" />
+            {copy.timezone}
+          </span>
+        )}
+        description={copy.timezoneAffectsTimestamps}
+        actions={(
+          <div className="flex items-center gap-2">
+            {renderSectionSaveState("timezone", timezoneDirty)}
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSaveCostingSettings("timezone")}
+              disabled={
+                costingUnavailable ||
+                costingLoading ||
+                costingSaving ||
+                !timezoneDirty
+              }
+            >
+              {costingSaving ? messages.pricingTemplateDialog.saving : copy.saveTimezone}
+            </Button>
           </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        )}
+        contentClassName="flex flex-col gap-4"
+      >
           {costingUnavailable ? (
             <OperatorCallout description={copy.settingsApiUnavailable} intent="warning" />
           ) : costingLoading ? (
@@ -82,10 +79,10 @@ export function TimezoneSection({
               <Skeleton className="h-9 rounded" />
             </div>
           ) : (
-            <div className="min-w-0 space-y-3">
+            <OperatorInsetPanel>
               <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                <div className="min-w-0 space-y-2">
-                  <Label>{copy.timezonePreference}</Label>
+                <Field className="min-w-0">
+                  <FieldLabel>{copy.timezonePreference}</FieldLabel>
                   <Select
                     value={costingForm.timezone_preference || "auto"}
                     onValueChange={(value) =>
@@ -102,26 +99,27 @@ export function TimezoneSection({
                       position="popper"
                       className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]"
                     >
-                      <SelectItem value="auto">
-                        {copy.timezoneAuto(Intl.DateTimeFormat().resolvedOptions().timeZone)}
-                      </SelectItem>
-                      {Intl.supportedValuesOf("timeZone").map((timezone) => (
-                        <SelectItem key={timezone} value={timezone}>
-                          {timezone}
+                      <SelectGroup>
+                        <SelectItem value="auto">
+                          {copy.timezoneAuto(Intl.DateTimeFormat().resolvedOptions().timeZone)}
                         </SelectItem>
-                      ))}
+                        {Intl.supportedValuesOf("timeZone").map((timezone) => (
+                          <SelectItem key={timezone} value={timezone}>
+                            {timezone}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
-                </div>
+                </Field>
               </div>
 
               <p className="text-sm text-muted-foreground">
                 {copy.exampleTimestamp(timezonePreviewText, timezonePreviewZone)}
               </p>
-            </div>
+            </OperatorInsetPanel>
           )}
-        </CardContent>
-      </Card>
+      </OperatorSectionCard>
     </section>
   );
 }

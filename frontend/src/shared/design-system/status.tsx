@@ -6,8 +6,8 @@ import type { OperatorStatusIntent } from "./foundation"
 
 const OPERATOR_BADGE_TONES: Record<OperatorStatusIntent, string> = {
   default: "",
-  neutral: "border-border/70 bg-background text-foreground",
-  muted: "border-border/70 bg-muted text-muted-foreground",
+  neutral: "border-outline-variant bg-surface text-foreground",
+  muted: "border-outline-variant bg-surface-container-low text-muted-foreground",
   accent: "border-primary/25 bg-primary/10 text-primary",
   info: "border-info/25 bg-info/10 text-info",
   success: "border-success/25 bg-success/10 text-success",

@@ -94,7 +94,7 @@ function MobileNodeCard({
   return (
     <article
       className={cn(
-        "border border-border/70 p-3 shadow-none",
+        "border border-outline-variant p-3",
         nodeVisual.shapeClassName,
         muted && "border-dashed opacity-70",
       )}
@@ -183,7 +183,7 @@ function RelationGroup({
   const { messages } = useLocale();
 
   return (
-    <div className="grid gap-1.5 rounded-lg bg-muted/25 p-2.5">
+    <div className="grid gap-1.5 rounded-lg bg-surface-container-low p-2.5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         {arrow} {getNodeKindLabel(kind, messages)}
       </p>
@@ -222,7 +222,7 @@ function RelationGroup({
 
 function MetricPill({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-muted/40 px-2.5 py-1 leading-tight text-foreground">
+    <span className="inline-flex max-w-full items-center rounded-full border border-outline-variant bg-surface px-2.5 py-1 leading-tight text-foreground">
       {children}
     </span>
   );

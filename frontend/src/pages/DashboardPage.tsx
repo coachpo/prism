@@ -157,7 +157,7 @@ function DashboardTabs({ pageState }: { pageState: ReturnType<typeof useDashboar
       }}
       className="flex flex-col gap-4"
     >
-      <TabsList className="grid h-10 w-full max-w-md grid-cols-3 rounded-xl bg-muted/70 p-0.5">
+      <TabsList className="grid h-10 w-full max-w-md grid-cols-3 rounded-lg border border-outline-variant bg-surface-container-low p-0.5">
         <TabsTrigger value="overview" className="rounded-lg text-sm font-medium">
           {messages.dashboard.overviewTab}
         </TabsTrigger>

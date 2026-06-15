@@ -1,6 +1,5 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
-import { OperatorSwitchField } from "@/shared/design-system";
+import { OperatorSectionCard, OperatorSwitchField } from "@/shared/design-system";
 
 interface AuthenticationStatusCardProps {
   authEnabled: boolean;
@@ -20,23 +19,17 @@ export function AuthenticationStatusCard({
   const { messages } = useLocale();
   const copy = messages.settingsAuthentication;
   return (
-    <Card className="shadow-none">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">{copy.authentication}</CardTitle>
-        <CardDescription>{statusDescription}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <OperatorSwitchField
-          label={copy.authentication}
-          description={copy.authenticationToggleDescription}
-          checked={authEnabled}
-          disabled={authSaving || (!setupReady && !authEnabled)}
-          onCheckedChange={(checked) => {
-            void onSaveAuthSettings(checked);
-          }}
-          className="border-border bg-muted/20"
-        />
-      </CardContent>
-    </Card>
+    <OperatorSectionCard title={copy.authentication} description={statusDescription}>
+      <OperatorSwitchField
+        label={copy.authentication}
+        description={copy.authenticationToggleDescription}
+        checked={authEnabled}
+        disabled={authSaving || (!setupReady && !authEnabled)}
+        onCheckedChange={(checked) => {
+          void onSaveAuthSettings(checked);
+        }}
+        className="border-outline-variant bg-surface-container-low"
+      />
+    </OperatorSectionCard>
   );
 }

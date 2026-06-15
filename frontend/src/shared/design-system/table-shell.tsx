@@ -33,7 +33,7 @@ export function OperatorTableShell({
   return (
     <Card
       data-density={density}
-      className={cn("operator-table-shell overflow-hidden", className)}
+      className={cn("operator-table-shell overflow-hidden rounded-xl", className)}
     >
       <CardHeader className="border-b">
         <CardTitle>{title}</CardTitle>
@@ -46,4 +46,3 @@ export function OperatorTableShell({
     </Card>
   )
 }
-

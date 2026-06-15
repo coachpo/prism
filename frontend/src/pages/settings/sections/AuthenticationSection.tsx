@@ -1,12 +1,7 @@
 import { Shield } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { OperatorSectionCard } from "@/shared/design-system";
 import { AuthenticationSetupGrid } from "./authentication/AuthenticationSetupGrid";
 import { AuthenticationStatusCard } from "./authentication/AuthenticationStatusCard";
 import type { AuthenticationSectionProps } from "./authentication/types";
@@ -37,21 +32,20 @@ export function AuthenticationSection({
 
   return (
     <section id="authentication" tabIndex={-1} className="scroll-mt-24">
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Shield className="h-4 w-4" />
-                {copy.authentication}
-              </CardTitle>
-            </div>
-            <Badge variant={authEnabled ? "default" : "outline"} className="w-fit">
-              {authEnabled ? messages.loadbalanceStrategiesTable.enabled : messages.loadbalanceStrategiesTable.disabled}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <OperatorSectionCard
+        title={(
+          <span className="flex items-center gap-2">
+            <Shield data-icon="inline-start" />
+            {copy.authentication}
+          </span>
+        )}
+        actions={(
+          <Badge variant={authEnabled ? "default" : "outline"} className="w-fit">
+            {authEnabled ? messages.loadbalanceStrategiesTable.enabled : messages.loadbalanceStrategiesTable.disabled}
+          </Badge>
+        )}
+        contentClassName="flex flex-col gap-4"
+      >
           <AuthenticationStatusCard
             authEnabled={authEnabled}
             authSaving={authSaving}
@@ -60,18 +54,17 @@ export function AuthenticationSection({
             onSaveAuthSettings={props.onSaveAuthSettings}
           />
 
-	        <AuthenticationSetupGrid
-	          authEnabled={authEnabled}
-	          authSaving={authSaving}
-	          authSettings={authSettings}
-	          password={password}
+          <AuthenticationSetupGrid
+            authEnabled={authEnabled}
+            authSaving={authSaving}
+            authSettings={authSettings}
+            password={password}
             passwordError={passwordError}
             passwordMismatch={passwordMismatch}
-	          username={username}
-	          {...props}
-	        />
-	      </CardContent>
-	    </Card>
-	  </section>
+            username={username}
+            {...props}
+          />
+      </OperatorSectionCard>
+    </section>
   );
 }

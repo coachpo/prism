@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
 import { Coins } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import type { Connection, CostingSettingsUpdate, EndpointFxMapping, ModelConfigListItem } from "@/lib/types";
-import { OperatorCallout } from "@/shared/design-system";
+import { OperatorCallout, OperatorInsetPanel, OperatorSectionCard } from "@/shared/design-system";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FxMappingForm } from "./billing-currency/FxMappingForm";
 import { FxMappingsSummary } from "./billing-currency/FxMappingsSummary";
@@ -81,37 +80,34 @@ export function BillingCurrencySection({
   const copy = messages.settingsBilling;
   return (
     <section id="billing-currency" tabIndex={-1} className="scroll-mt-24">
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Coins className="h-4 w-4" />
-                {copy.billingAndCurrency}
-              </CardTitle>
-              <CardDescription className="text-xs">
-                {messages.dashboard.inspectSpendingBreakdown}
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              {renderSectionSaveState("billing", billingDirty)}
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void handleSaveCostingSettings("billing")}
-                disabled={
-                  costingUnavailable ||
-                  costingLoading ||
-                  costingSaving ||
-                  !billingDirty
-                }
-              >
-                {costingSaving ? messages.pricingTemplateDialog.saving : messages.modelsUi.save}
-              </Button>
-            </div>
+      <OperatorSectionCard
+        title={(
+          <span className="flex items-center gap-2">
+            <Coins data-icon="inline-start" />
+            {copy.billingAndCurrency}
+          </span>
+        )}
+        description={messages.dashboard.inspectSpendingBreakdown}
+        actions={(
+          <div className="flex items-center gap-2">
+            {renderSectionSaveState("billing", billingDirty)}
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSaveCostingSettings("billing")}
+              disabled={
+                costingUnavailable ||
+                costingLoading ||
+                costingSaving ||
+                !billingDirty
+              }
+            >
+              {costingSaving ? messages.pricingTemplateDialog.saving : messages.modelsUi.save}
+            </Button>
           </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        )}
+        contentClassName="flex flex-col gap-4"
+      >
           {costingUnavailable ? (
             <OperatorCallout description={copy.costApiUnavailable} intent="warning" />
           ) : costingLoading ? (
@@ -128,7 +124,7 @@ export function BillingCurrencySection({
                 normalizedCurrentCosting={normalizedCurrentCosting}
               />
 
-              <div className="rounded-lg border p-4">
+              <OperatorInsetPanel>
                 <FxMappingsSummary />
                 <FxMappingsTable
                   mappings={normalizedCurrentCosting.endpoint_fx_mappings}
@@ -156,11 +152,10 @@ export function BillingCurrencySection({
                   addMappingFxError={addMappingFxError}
                   handleAddFxMapping={handleAddFxMapping}
                 />
-              </div>
+              </OperatorInsetPanel>
             </>
           )}
-        </CardContent>
-      </Card>
+      </OperatorSectionCard>
     </section>
   );
 }

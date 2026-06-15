@@ -39,12 +39,12 @@ export function ThemeMenuItems({ theme, themeOptions, setTheme }: ThemeMenuItems
         className="justify-between"
       >
         <span className="inline-flex items-center gap-2">
-          <OptionIcon className="h-4 w-4 text-muted-foreground" />
+          <OptionIcon className="size-4 text-muted-foreground" />
           {option.label}
         </span>
         <Check
           className={cn(
-            "h-4 w-4 text-primary transition-opacity",
+            "size-4 text-primary transition-opacity",
             theme === option.value ? "opacity-100" : "opacity-0",
           )}
         />
@@ -73,13 +73,13 @@ export function ThemeToggle({
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           className={cn(
-            "h-8 w-8 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-accent/60",
+            "rounded-md text-muted-foreground transition-colors hover:bg-surface-container-low hover:text-foreground dark:hover:bg-accent/60",
             buttonClassName,
           )}
         >
-          <ActiveIcon className="h-4 w-4" />
+          <ActiveIcon />
           <span className="sr-only">{messages.theme.changeTheme}</span>
         </Button>
       </DropdownMenuTrigger>

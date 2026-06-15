@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Label } from "@/components/ui/label";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface AuthenticationFieldShellProps {
   label: string;
@@ -17,14 +17,14 @@ export function AuthenticationFieldShell({
   children,
 }: AuthenticationFieldShellProps) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor={htmlFor}>{label}</Label>
+    <Field>
+      <FieldLabel htmlFor={htmlFor}>{label}</FieldLabel>
       {children}
       {helper ? (
-        <p className={`text-xs ${helperClassName ?? "text-muted-foreground"}`}>
+        <FieldDescription className={helperClassName}>
           {helper}
-        </p>
+        </FieldDescription>
       ) : null}
-    </div>
+    </Field>
   );
 }

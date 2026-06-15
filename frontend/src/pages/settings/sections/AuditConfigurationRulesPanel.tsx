@@ -2,6 +2,7 @@ import { Lock, Pencil, Plus } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
 import type { HeaderBlocklistRule } from "@/lib/types";
+import { OperatorLoadingState } from "@/shared/design-system";
 import { AuditConfigurationRuleSection } from "./AuditConfigurationRuleSection";
 
 interface AuditConfigurationRulesPanelProps {
@@ -40,15 +41,13 @@ export function AuditConfigurationRulesPanel({
           {copy.description}
         </p>
         <Button size="sm" variant="outline" onClick={onOpenAddRuleDialog}>
-          <Plus className="mr-2 h-3.5 w-3.5" />
+          <Plus data-icon="inline-start" />
           {copy.addRule}
         </Button>
       </div>
 
       {loadingRules ? (
-        <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-          {copy.loadingRules}
-        </div>
+        <OperatorLoadingState title={copy.loadingRules} />
       ) : (
         <>
           <AuditConfigurationRuleSection

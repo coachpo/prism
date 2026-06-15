@@ -73,9 +73,9 @@ export function ModelStatisticsTable({ currency, items }: ModelStatisticsTablePr
   ];
 
   return (
-    <Card className="border-border/70 bg-card/95 shadow-none">
-      <CardHeader className="border-b border-border/60 pb-4">
-        <div className="space-y-1">
+    <Card className="operator-section-surface">
+      <CardHeader className="border-b border-outline-variant pb-4">
+        <div className="flex flex-col gap-1">
           <h2 className="text-lg font-semibold tracking-tight">
             {messages.statistics.modelStatisticsTitle}
           </h2>

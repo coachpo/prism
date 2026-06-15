@@ -169,7 +169,7 @@ export function OperationalTablePagination({
   const pageStart = totalRows > 0 ? startIndex + 1 : 0
 
   return (
-    <div className={cn("flex flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between", className)}>
+    <div className={cn("flex flex-col gap-3 border-t border-outline-variant bg-surface-container-low px-4 py-3 sm:flex-row sm:items-center sm:justify-between", className)}>
       <span className="text-xs text-muted-foreground">
         {totalRows > 0
           ? resultsLabel(formatNumber(pageStart), formatNumber(endIndex), formatNumber(totalRows))

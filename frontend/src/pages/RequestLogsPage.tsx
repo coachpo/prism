@@ -11,7 +11,7 @@ import { RequestLogsTable } from "./request-logs/RequestLogsTable";
 import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
 import { SearchX } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { OperatorCallout, OperatorEmptyState, OperatorPageHeader } from "@/shared/design-system";
+import { OperatorCallout, OperatorEmptyState, OperatorPageHeader, OperatorPageShell } from "@/shared/design-system";
 
 export function RequestLogsPage() {
   const { revision } = useProfileContext();
@@ -66,7 +66,7 @@ export function RequestLogsPage() {
   };
 
   return (
-    <div className="space-y-6 pb-8">
+    <OperatorPageShell className="pb-8">
       <OperatorPageHeader
         title={messages.requestLogs.requestLogsTitle}
         description={messages.requestLogs.requestLogsDescription}
@@ -95,7 +95,7 @@ export function RequestLogsPage() {
 
       {showExactNotFound ? (
         <OperatorEmptyState
-          className="rounded-xl border border-border/70 bg-card py-24 shadow-sm"
+          className="rounded-xl border border-outline-variant bg-surface py-24 shadow-operator-panel"
           testId="request-log-not-found"
           icon={<SearchX className="h-6 w-6" />}
           title={messages.requestLogs.requestNotFound}
@@ -128,6 +128,6 @@ export function RequestLogsPage() {
         onClose={handleCloseRequest}
         formatTimestamp={format}
       />
-    </div>
+    </OperatorPageShell>
   );
 }

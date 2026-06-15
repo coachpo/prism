@@ -10,6 +10,7 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Input } from "@/components/ui/input"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { ENDPOINT_FORM_DEFAULT_VALUES, endpointFormSchema, type EndpointFormValues } from "./endpointSchemas"
+import { OperatorInsetPanel } from "@/shared/design-system"
 
 interface EndpointDialogProps {
   open: boolean
@@ -72,7 +73,7 @@ export function EndpointDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="flex min-h-0 flex-col gap-5">
             <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
+              <OperatorInsetPanel>
                 <FormField control={form.control} name="name" render={({ field }) => (
                   <FormItem>
                     <FormLabel>{copy.name}</FormLabel>
@@ -87,8 +88,8 @@ export function EndpointDialog({
                     <FormMessage />
                   </FormItem>
                 )} />
-              </div>
-              <div className="flex flex-col gap-4 rounded-lg border p-4">
+              </OperatorInsetPanel>
+              <OperatorInsetPanel className="bg-surface">
                 <FormField control={form.control} name="api_key" render={({ field }) => (
                   <FormItem>
                     <FormLabel>{messages.proxyApiKeys.apiKey}</FormLabel>
@@ -99,7 +100,7 @@ export function EndpointDialog({
                     <FormMessage />
                   </FormItem>
                 )} />
-              </div>
+              </OperatorInsetPanel>
             </DialogBody>
             <DialogFooter className="sm:justify-between">
               <Button type="button" variant="outline" disabled={form.formState.isSubmitting} onClick={() => onOpenChange(false)}>

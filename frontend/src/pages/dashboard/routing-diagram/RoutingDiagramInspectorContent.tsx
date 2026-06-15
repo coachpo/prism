@@ -24,7 +24,7 @@ export function RoutingDiagramInspectorContent({
       <div className="min-w-[14rem] rounded-xl border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-xl">
         <p className="text-sm font-semibold">{node.label}</p>
         {node.sublabel ? <p className="mt-1 text-muted-foreground">{node.sublabel}</p> : null}
-        <div className="mt-3 space-y-1.5">
+        <div className="mt-3 flex flex-col gap-1.5">
           <TooltipRow label={messages.dashboard.routingNodeType} value={getNodeTypeLabel(node.kind, messages)} />
           <TooltipRow label={messages.dashboard.routingActiveTerminalTargets} value={formatNumber(node.activeTerminalTargetCount)} />
           <TooltipRow
@@ -72,7 +72,7 @@ export function RoutingDiagramInspectorContent({
     return (
       <div className="min-w-[16rem] rounded-xl border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-xl">
         <p className="text-sm font-semibold">{edge.sourceLabel} → {edge.targetLabel}</p>
-        <div className="mt-3 space-y-1.5">
+        <div className="mt-3 flex flex-col gap-1.5">
           <TooltipRow label={messages.dashboard.routing24hHealth} value={routeHealthLabel} />
           <TooltipRow label={messages.dashboard.routing24hSuccessRate} value={formattedSuccessRate} />
           <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(edge.requestCount24h)} />

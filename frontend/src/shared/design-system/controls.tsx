@@ -20,7 +20,7 @@ export function OperatorToolbar({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-[var(--density-card-pad-x)] sm:flex-row sm:items-center",
+        "operator-section-surface flex min-w-0 flex-col gap-3 rounded-xl border p-[var(--density-card-pad-x)] sm:flex-row sm:items-center",
         align === "between" ? "sm:justify-between" : "sm:justify-start",
         className,
       )}
@@ -80,7 +80,6 @@ export function OperatorSwitchField({
         onCheckedChange={onCheckedChange}
         disabled={disabled}
         aria-label={label}
-        className="data-[state=checked]:bg-success"
       />
     </Field>
   )

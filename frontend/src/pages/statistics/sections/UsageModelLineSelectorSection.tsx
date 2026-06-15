@@ -48,15 +48,15 @@ export function UsageModelLineSelectorSection({
   };
 
   return (
-    <section className="space-y-4" data-testid="usage-model-line-section">
-      <div className="space-y-1">
+    <section className="flex flex-col gap-4" data-testid="usage-model-line-section">
+      <div className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold tracking-tight">{messages.statistics.linesToDisplay}</h2>
       </div>
 
-      <Card className="overflow-hidden border-border/70 bg-card/95 shadow-none">
-        <CardContent className="space-y-5 p-[var(--density-card-pad-x)]">
+      <Card className="operator-section-surface overflow-hidden">
+        <CardContent className="flex flex-col gap-5 p-[var(--density-card-pad-x)]">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="rounded-full px-3" variant="outline">
                   {messages.statistics.linesSelected(String(selectedModelLineIds.length), String(MAX_VISIBLE_LINES))}
@@ -106,7 +106,7 @@ export function UsageModelLineSelectorSection({
                 onClick={handleAddLine}
                 size="sm"
               >
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus data-icon="inline-start" />
                 {messages.statistics.addLine}
               </Button>
             </div>

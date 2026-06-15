@@ -1,6 +1,5 @@
 import { ChevronRight, Fingerprint, Lock, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,6 +17,7 @@ import {
 import { useLocale } from "@/i18n/useLocale";
 import type { UserAgentClientRule } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { OperatorEmptyState, OperatorLoadingState, OperatorSectionCard } from "@/shared/design-system";
 
 interface UserAgentClientRuleSectionProps {
   emptyState: string;
@@ -62,7 +62,7 @@ function UserAgentClientRuleSection({
 
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
-      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors hover:bg-muted/50">
+      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors hover:bg-surface-container-low">
         <ChevronRight className={cn("h-4 w-4 transition-transform", open && "rotate-90")} />
         {locked ? <Lock className="h-3.5 w-3.5 text-muted-foreground" /> : <Pencil className="h-3.5 w-3.5 text-muted-foreground" />}
         {title}
@@ -70,11 +70,9 @@ function UserAgentClientRuleSection({
       </CollapsibleTrigger>
       <CollapsibleContent>
         {rules.length === 0 ? (
-          <div className="mt-1.5 rounded-md border px-3 py-3 text-sm text-muted-foreground">
-            {emptyState}
-          </div>
+          <OperatorEmptyState className="mt-1.5 py-8" title={emptyState} />
         ) : (
-          <div className="mt-1.5 rounded-md border">
+          <div className="operator-table-shell mt-1.5 overflow-hidden rounded-md border border-outline-variant">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -98,7 +96,6 @@ function UserAgentClientRuleSection({
                             ? undefined
                             : (checked) => void onToggleRule(rule, checked)
                         }
-                        className={toggleLocked ? undefined : "data-[state=checked]:bg-success"}
                       />
                     </TableCell>
                     <TableCell className="font-medium">
@@ -108,7 +105,7 @@ function UserAgentClientRuleSection({
                       </div>
                     </TableCell>
                     <TableCell>
-                      <code className="rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">
+                      <code className="rounded bg-surface-container-low px-[0.3rem] py-[0.2rem] font-mono text-sm">
                         {rule.pattern}
                       </code>
                     </TableCell>
@@ -116,21 +113,22 @@ function UserAgentClientRuleSection({
                       <div className="flex justify-end gap-2">
                         <Button
                           variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
+                          size="icon-sm"
                           disabled={locked}
+                          aria-label={messages.common.edit}
                           onClick={locked || !onEditRule ? undefined : () => onEditRule(rule)}
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Pencil />
                         </Button>
                         <Button
                           variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          size="icon-sm"
+                          className="text-destructive hover:text-destructive"
                           disabled={locked}
+                          aria-label={messages.settingsDialogs.delete}
                           onClick={locked || !onDeleteRule ? undefined : () => onDeleteRule(rule)}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 />
                         </Button>
                       </div>
                     </TableCell>
@@ -163,30 +161,26 @@ export function AuditConfigurationUserAgentClientRulesCard({
   const rulesCopy = messages.settingsAuditUserAgentRules;
 
   return (
-    <Card data-testid="audit-user-agent-client-rules-card">
-      <CardHeader className="pb-3">
-        <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Fingerprint className="h-4 w-4" />
+    <OperatorSectionCard
+      data-testid="audit-user-agent-client-rules-card"
+      title={(
+        <span className="flex items-center gap-2">
+            <Fingerprint data-icon="inline-start" />
             {copy.userAgentClientRules}
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {copy.classifyClientsFromUserAgent}
-          </CardDescription>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+        </span>
+      )}
+      description={copy.classifyClientsFromUserAgent}
+      contentClassName="flex flex-col gap-3"
+    >
         <div className="flex justify-end">
           <Button size="sm" variant="outline" onClick={openAddRuleDialog}>
-            <Plus className="mr-2 h-3.5 w-3.5" />
+            <Plus data-icon="inline-start" />
             {rulesCopy.addRule}
           </Button>
         </div>
 
         {loadingRules ? (
-          <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-            {rulesCopy.loadingRules}
-          </div>
+          <OperatorLoadingState title={rulesCopy.loadingRules} />
         ) : (
           <>
             <UserAgentClientRuleSection
@@ -212,7 +206,6 @@ export function AuditConfigurationUserAgentClientRulesCard({
             />
           </>
         )}
-      </CardContent>
-    </Card>
+    </OperatorSectionCard>
   );
 }

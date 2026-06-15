@@ -25,7 +25,7 @@ export function OperatorMetricCard({
   return (
     <Card
       data-slot="metric-card"
-      className={cn("overflow-hidden transition-colors duration-150", onClick && "cursor-pointer hover:border-primary/30", className)}
+      className={cn("operator-section-surface overflow-hidden transition-colors duration-150", onClick && "cursor-pointer hover:border-primary/30 hover:bg-surface-container-low", className)}
       onClick={onClick}
     >
       <CardContent className="overflow-hidden p-[var(--density-metric-pad)]">
@@ -64,7 +64,7 @@ export function OperatorMetricCard({
           {icon ? (
             <div
               data-slot="icon"
-              className="flex size-[var(--density-control-h)] shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
+              className="flex size-[var(--density-control-h)] shrink-0 items-center justify-center rounded-lg bg-primary-container text-on-primary-container"
             >
               {icon}
             </div>
@@ -93,7 +93,7 @@ export function OperatorMetricTile({
   return (
     <div
       data-slot="compact-metric-tile"
-      className={cn("rounded-md border border-border/70 bg-muted/30 p-3 transition-colors duration-300", className)}
+      className={cn("rounded-md border border-outline-variant bg-surface-container-low p-3 transition-colors duration-300", className)}
     >
       <p data-slot="metric-label" className="text-xs text-muted-foreground">
         {label}

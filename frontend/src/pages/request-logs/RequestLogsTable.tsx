@@ -71,7 +71,7 @@ function getRowTone(row: RequestLogListItem, isSelected: boolean) {
   }
 
   return {
-    row: "border-border/50 bg-card hover:bg-muted/40",
+    row: "border-outline-variant bg-surface hover:bg-surface-container-low",
   };
 }
 
@@ -152,7 +152,7 @@ export function RequestLogsTable({
   const hasNext = offset + limit < total;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm" data-testid="request-logs-table">
+    <div className="operator-table-shell overflow-hidden rounded-xl border border-outline-variant bg-surface shadow-operator-panel" data-testid="request-logs-table">
       <div
         ref={containerRef}
         className="overflow-auto scrollbar-thin"
@@ -160,7 +160,7 @@ export function RequestLogsTable({
         onScroll={handleScroll}
       >
         <div className="w-full" style={{ minWidth: totalWidth }}>
-          <div className="sticky top-0 z-10 flex border-b border-border/70 bg-background/92 backdrop-blur-md">
+          <div className="sticky top-0 z-10 flex border-b border-outline-variant bg-surface-container-high">
             {resolvedColumns.map((col) => (
               <div
                 key={col.key}
@@ -178,9 +178,9 @@ export function RequestLogsTable({
           </div>
 
           {loading && items.length === 0 ? (
-            <div className="space-y-0">
+            <div className="flex flex-col gap-0">
               {SKELETON_ROW_KEYS.map((key) => (
-                <div key={key} className="flex border-b border-border/40 bg-card/70" style={{ height: ROW_HEIGHT }}>
+                <div key={key} className="flex border-b border-outline-variant bg-surface" style={{ height: ROW_HEIGHT }}>
                   {resolvedColumns.map((col) => (
                     <div key={col.key} className="shrink-0 px-3 py-3" style={{ width: col.resolvedWidth }}>
                       <Skeleton className="h-4 w-full" />
@@ -190,12 +190,17 @@ export function RequestLogsTable({
               ))}
             </div>
           ) : items.length === 0 ? (
-            <OperatorEmptyState
-              className="py-20"
-              icon={<FileSearch className="h-6 w-6" />}
-              title={messages.requestLogs.noRequestLogsMatchSlice}
-              description={messages.statistics.adjustFiltersOrTimeRange}
-            />
+            <div
+              className="sticky left-0"
+              style={{ width: containerWidth || "100%" }}
+            >
+              <OperatorEmptyState
+                className="py-20"
+                icon={<FileSearch className="h-6 w-6" />}
+                title={messages.requestLogs.noRequestLogsMatchSlice}
+                description={messages.statistics.adjustFiltersOrTimeRange}
+              />
+            </div>
           ) : (
             <div style={{ height: totalHeight, position: "relative" }}>
               {items.slice(startIndex, endIndex).map((row, i) => {
@@ -240,7 +245,7 @@ export function RequestLogsTable({
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 border-t border-outline-variant bg-surface-container-low px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>
             {total > 0
@@ -253,7 +258,7 @@ export function RequestLogsTable({
           </span>
           <Select value={String(limit)} onValueChange={(v) => onSetLimit(Number(v))}>
             <SelectTrigger
-              className="h-8 w-[92px] rounded-full border-border/70 bg-background text-xs"
+              className="h-8 w-[92px] rounded-md border-outline-variant bg-surface text-xs"
               data-testid="request-log-page-size-select"
             >
               <SelectValue />

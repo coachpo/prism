@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { OperatorEmptyState, OperatorLoadingState } from "@/shared/design-system";
 import { EventTypeBadge, FailureKindBadge } from "./LoadbalanceBadges";
 
 interface LoadbalanceEventsTableProps {
@@ -46,7 +47,7 @@ export function LoadbalanceEventsTable({
         );
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
+    <div className="overflow-hidden rounded-xl border border-outline-variant bg-surface">
       <Table>
         <TableHeader>
           <TableRow>
@@ -62,16 +63,22 @@ export function LoadbalanceEventsTable({
         <TableBody>
           {loading ? (
             <TableRow>
-              <TableCell colSpan={7} className="h-28 text-center text-muted-foreground">
-                {copy.loadingEvents}
+              <TableCell colSpan={7} className="p-4">
+                <OperatorLoadingState
+                  title={copy.loadingEvents}
+                  description="Fetching the latest retry, ban, and recovery events."
+                />
               </TableCell>
             </TableRow>
           ) : null}
 
           {!loading && events.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="h-28 text-center text-muted-foreground">
-                {copy.noEventsRecorded}
+              <TableCell colSpan={7} className="p-4">
+                <OperatorEmptyState
+                  title={copy.noEventsRecorded}
+                  description="Try a different model ID or refresh after new traffic is recorded."
+                />
               </TableCell>
             </TableRow>
           ) : null}
@@ -80,7 +87,7 @@ export function LoadbalanceEventsTable({
             ? events.map((event) => (
                 <TableRow
                   key={event.id}
-                  className="cursor-pointer hover:bg-muted/50"
+                  className="cursor-pointer hover:bg-surface-container-low"
                   onClick={() => onSelectEvent(event.id)}
                 >
                   <TableCell className="font-mono text-xs">{event.id}</TableCell>
@@ -118,7 +125,7 @@ export function LoadbalanceEventsTable({
         </TableBody>
       </Table>
 
-      <div className="flex items-center justify-between border-t px-4 py-3">
+      <div className="flex items-center justify-between border-t border-outline-variant bg-surface-container-low px-4 py-3">
         <p className="text-xs text-muted-foreground">
           {rangeLabel}
         </p>

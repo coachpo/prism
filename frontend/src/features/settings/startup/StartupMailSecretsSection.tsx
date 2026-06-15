@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Field,
@@ -28,6 +27,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { OperatorSectionCard } from "@/shared/design-system";
 import type {
   BootstrapConfigConfirmationToken,
   BootstrapConfigMailSMTPValues,
@@ -151,16 +151,16 @@ export function StartupMailSecretsSection({
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-            <KeyRound />
+      <OperatorSectionCard
+        icon={<KeyRound />}
+        title={(
+          <span className="flex flex-wrap items-center gap-2">
             {copy.authAndCookiesTitle}
             {sectionEffect(AUTH_FIELD_PATHS)}
-          </CardTitle>
-          <CardDescription>{copy.authAndCookiesDescription}</CardDescription>
-        </CardHeader>
-        <CardContent>
+          </span>
+        )}
+        description={copy.authAndCookiesDescription}
+      >
           <FieldSet disabled={controlsDisabled}>
             <FieldLegend>{copy.auth}</FieldLegend>
             <FieldGroup>
@@ -236,19 +236,19 @@ export function StartupMailSecretsSection({
               </Field>
             </FieldGroup>
           </FieldSet>
-        </CardContent>
-      </Card>
+      </OperatorSectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-            <Mail />
+      <OperatorSectionCard
+        icon={<Mail />}
+        title={(
+          <span className="flex flex-wrap items-center gap-2">
             {copy.mailAndSmtpTitle}
             {sectionEffect(MAIL_FIELD_PATHS)}
-          </CardTitle>
-          <CardDescription>{copy.mailAndSmtpDescription}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+          </span>
+        )}
+        description={copy.mailAndSmtpDescription}
+        contentClassName="flex flex-col gap-6"
+      >
           <FieldSet disabled={controlsDisabled}>
             <FieldLegend>{copy.mail}</FieldLegend>
             <FieldGroup>
@@ -331,7 +331,7 @@ export function StartupMailSecretsSection({
             openLabel={copy.hideAdvancedSmtp}
             description={copy.advancedSmtpDescription}
           >
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <StartupInputField
                   id="startup-smtp-ehlo"
@@ -408,19 +408,18 @@ export function StartupMailSecretsSection({
               />
             </div>
           </StartupDisclosure>
-        </CardContent>
-      </Card>
+      </OperatorSectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-            <ShieldAlert />
+      <OperatorSectionCard
+        icon={<ShieldAlert />}
+        title={(
+          <span className="flex flex-wrap items-center gap-2">
             {copy.stateTransferTitle}
             {sectionEffect(STATE_TRANSFER_FIELD_PATHS)}
-          </CardTitle>
-          <CardDescription>{copy.stateTransferDescription}</CardDescription>
-        </CardHeader>
-        <CardContent>
+          </span>
+        )}
+        description={copy.stateTransferDescription}
+      >
           <FieldSet disabled={controlsDisabled}>
             <FieldLegend>{copy.secrets}</FieldLegend>
             <FieldGroup>
@@ -450,19 +449,27 @@ export function StartupMailSecretsSection({
               />
             </FieldGroup>
           </FieldSet>
-        </CardContent>
-      </Card>
+      </OperatorSectionCard>
 
       {showReviewPanel ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <CheckCircle2 />
-              {copy.reviewAndSaveTitle}
-            </CardTitle>
-            <CardDescription>{copy.reviewAndSaveDescription}</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+        <OperatorSectionCard
+          icon={<CheckCircle2 />}
+          title={copy.reviewAndSaveTitle}
+          description={copy.reviewAndSaveDescription}
+          contentClassName="flex flex-col gap-4"
+          footer={(
+            <div className="flex w-full justify-end gap-2">
+              <Button type="button" variant="outline" disabled={controlsDisabled} onClick={() => void handleValidate()}>
+                {validating ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
+                {copy.validate}
+              </Button>
+              <Button type="button" disabled={controlsDisabled || saving || !bootstrapConfig.writable} onClick={handleSave}>
+                {saving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Save data-icon="inline-start" />}
+                {copy.saveStartupConfig}
+              </Button>
+            </div>
+          )}
+        >
             <div className="flex flex-wrap gap-2">
               {dirtySummary.length ? dirtySummary.map((item) => <Badge key={item} variant="secondary">{item}</Badge>) : <Badge variant="outline">{copy.noLocalChangesDetected}</Badge>}
               {activeDangerousConfirmations.length ? <Badge variant="destructive">{copy.dangerousChangesStaged}</Badge> : null}
@@ -507,18 +514,7 @@ export function StartupMailSecretsSection({
                 {!validationRows.length ? <TableRow><TableCell colSpan={3} className="text-muted-foreground">{copy.noValidationRunYet}</TableCell></TableRow> : null}
               </TableBody>
             </Table>
-          </CardContent>
-          <CardFooter className="justify-end gap-2">
-            <Button type="button" variant="outline" disabled={controlsDisabled} onClick={() => void handleValidate()}>
-              {validating ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
-              {copy.validate}
-            </Button>
-            <Button type="button" disabled={controlsDisabled || saving || !bootstrapConfig.writable} onClick={handleSave}>
-              {saving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Save data-icon="inline-start" />}
-              {copy.saveStartupConfig}
-            </Button>
-          </CardFooter>
-        </Card>
+        </OperatorSectionCard>
       ) : null}
 
       <AlertDialog open={dangerDialogOpen} onOpenChange={handleDangerDialogOpenChange}>
@@ -527,7 +523,7 @@ export function StartupMailSecretsSection({
             <AlertDialogTitle>{copy.dangerDialogTitle}</AlertDialogTitle>
             <AlertDialogDescription>{copy.dangerDialogDescription}</AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="rounded-md border bg-muted/20 p-3 text-sm">
+          <div className="rounded-lg border border-outline-variant bg-surface-container-low p-3 text-sm">
             <ul className="flex list-disc flex-col gap-1 pl-5">
               {activeDangerousConfirmations.map((confirmation) => <li key={confirmation.token}>{confirmation.label}</li>)}
             </ul>

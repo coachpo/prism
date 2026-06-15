@@ -38,6 +38,23 @@ export type OperatorStatusIntent = (typeof operatorStatusIntents)[number]
 
 export const operatorTokenContract = {
   color: {
+    material: [
+      "primary",
+      "on-primary",
+      "primary-container",
+      "on-primary-container",
+      "secondary",
+      "tertiary",
+      "surface",
+      "surface-container-low",
+      "surface-container",
+      "surface-container-high",
+      "background",
+      "outline",
+      "outline-variant",
+      "disabled",
+      "focus-ring",
+    ],
     base: ["background", "foreground", "card", "popover", "primary", "secondary", "muted", "accent", "destructive"],
     status: ["success", "healthy", "warning", "downgrade", "info", "unhealthy"],
     charts: ["chart-1", "chart-2", "chart-3", "chart-4", "chart-5"],
@@ -47,6 +64,7 @@ export const operatorTokenContract = {
     families: ["--operator-font-sans", "--operator-font-mono"],
     tracking: "--tracking-operator",
     numeric: "tabular-nums",
+    roles: ["page-title", "section-title", "card-title", "body", "body-small", "label", "helper", "table-header", "table-cell", "button"],
   },
   spacing: {
     page: ["--density-page-gap", "--density-page-pad-x", "--density-page-pad-y"],
@@ -76,7 +94,7 @@ export const operatorPrimitiveInventory: Record<RequiredShadcnPrimitive, "presen
   badge: "present",
 }
 export const operatorDesignFoundation = {
-  tone: "operator-control-room",
+  tone: "google-admin-material",
   typography: {
     display: "var(--font-sans)",
     mono: "var(--font-mono)",
@@ -89,8 +107,9 @@ export const operatorDesignFoundation = {
     commandInput: "var(--density-command-input-h)",
   },
   guardrails: [
-    "management-system-density-first",
+    "material-admin-density-first",
     "semantic-token-colors",
+    "surface-container-roles-before-raw-backgrounds",
     "primitive-composition-before-custom-markup",
     "no-motion-gated-functionality",
     "shared-operator-components-before-page-local-patterns",

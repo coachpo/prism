@@ -1,8 +1,8 @@
 import type { RefObject } from "react";
 import { Ban } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import type { HeaderBlocklistRule } from "@/lib/types";
+import { OperatorSectionCard } from "@/shared/design-system";
 import { AuditConfigurationRulesPanel } from "./AuditConfigurationRulesPanel";
 
 interface AuditConfigurationHeaderBlocklistCardProps {
@@ -40,19 +40,18 @@ export function AuditConfigurationHeaderBlocklistCard({
   const copy = messages.settingsAudit;
 
   return (
-    <Card ref={cardRef} className={className}>
-      <CardHeader className="pb-3">
-        <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Ban className="h-4 w-4" />
+    <OperatorSectionCard
+      ref={cardRef}
+      className={className}
+      title={(
+        <span className="flex items-center gap-2">
+            <Ban data-icon="inline-start" />
             {copy.headerBlocklist}
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {copy.stripsHeadersBeforeSendingUpstream}
-          </CardDescription>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+        </span>
+      )}
+      description={copy.stripsHeadersBeforeSendingUpstream}
+      contentClassName="flex flex-col gap-3"
+    >
         <AuditConfigurationRulesPanel
           customRules={customRules}
           loadingRules={loadingRules}
@@ -66,7 +65,6 @@ export function AuditConfigurationHeaderBlocklistCard({
           systemRulesOpen={systemRulesOpen}
           userRulesOpen={userRulesOpen}
         />
-      </CardContent>
-    </Card>
+    </OperatorSectionCard>
   );
 }

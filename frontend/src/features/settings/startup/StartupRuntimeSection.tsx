@@ -1,8 +1,8 @@
 import { Network } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldDescription, FieldGroup, FieldSet } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import type { BootstrapConfigValues } from "@/lib/types";
+import { OperatorSectionCard } from "@/shared/design-system";
 import {
   RUNTIME_FIELD_PATHS,
   SIDE_EFFECT_FIELD_PATHS,
@@ -38,16 +38,17 @@ export function StartupRuntimeSection({
   values,
 }: StartupRuntimeSectionProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-          <Network />
+    <OperatorSectionCard
+      icon={<Network />}
+      title={(
+        <span className="flex flex-wrap items-center gap-2">
           {copy.transportTitle}
           {sectionEffect(RUNTIME_FIELD_PATHS)}
-        </CardTitle>
-        <CardDescription>{copy.transportDescription}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+        </span>
+      )}
+      description={copy.transportDescription}
+      contentClassName="flex flex-col gap-6"
+    >
         <FieldSet disabled={controlsDisabled}>
           <FieldLegendWithEffect label={copy.transport} effect={sectionEffect(TRANSPORT_FIELD_PATHS)} />
           <FieldGroup>
@@ -138,7 +139,6 @@ export function StartupRuntimeSection({
             />
           </FieldGroup>
         </FieldSet>
-      </CardContent>
-    </Card>
+    </OperatorSectionCard>
   );
 }

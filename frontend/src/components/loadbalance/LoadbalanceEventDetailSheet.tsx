@@ -6,12 +6,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useLocale } from "@/i18n/useLocale";
 import { useTimezone } from "@/hooks/useTimezone";
 import { api } from "@/lib/api";
 import type { LoadbalanceEventDetail } from "@/lib/types";
-import { OperatorCallout } from "@/shared/design-system";
+import { OperatorCallout, OperatorInsetPanel, OperatorLoadingState } from "@/shared/design-system";
 import { EventTypeBadge, FailureKindBadge } from "./LoadbalanceBadges";
 
 interface LoadbalanceEventDetailSheetProps {
@@ -29,7 +28,7 @@ function DetailRow({
   value: ReactNode;
 }) {
   return (
-    <div className="grid gap-1 border-b py-3 last:border-b-0 sm:grid-cols-[128px,1fr] sm:gap-4">
+    <div className="grid gap-1 border-b border-outline-variant py-3 last:border-b-0 sm:grid-cols-[128px,1fr] sm:gap-4">
       <span className="font-medium text-muted-foreground">{label}</span>
       <div className="text-sm text-foreground [overflow-wrap:anywhere] sm:text-right">
         {value ?? fallback}
@@ -90,19 +89,17 @@ export function LoadbalanceEventDetailSheet({
   return (
     <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl">
-        <SheetHeader className="space-y-1 border-b bg-background/95 px-6 py-5 pr-14 backdrop-blur">
+        <SheetHeader className="border-b border-outline-variant bg-surface px-6 py-5 pr-14">
           <SheetTitle>{copy.detailsTitle}</SheetTitle>
           <SheetDescription>{copy.eventId(eventId)}</SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-6 p-6">
+        <div className="flex flex-col gap-6 p-6">
           {loading && (
-            <div className="space-y-3">
-              <p className="sr-only">{copy.loadingEvents}</p>
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
+            <OperatorLoadingState
+              title={copy.loadingEvents}
+              description={copy.tabDescription}
+            />
           )}
 
           {error && (
@@ -111,9 +108,8 @@ export function LoadbalanceEventDetailSheet({
 
           {event && !loading && (
             <>
-              <section className="space-y-3 rounded-2xl border bg-card p-4">
-                <h3 className="text-sm font-semibold">{copy.summary}</h3>
-                <div className="space-y-1">
+              <OperatorInsetPanel title={copy.summary}>
+                <div className="flex flex-col">
                   <DetailRow
                     fallback={messages.common.notApplicable}
                     label={copy.event}
@@ -149,11 +145,10 @@ export function LoadbalanceEventDetailSheet({
                     })}
                   />
                 </div>
-              </section>
+              </OperatorInsetPanel>
 
-              <section className="space-y-3 rounded-2xl border bg-card p-4">
-                <h3 className="text-sm font-semibold">{copy.context}</h3>
-                <div className="space-y-1">
+              <OperatorInsetPanel title={copy.context}>
+                <div className="flex flex-col">
                   <DetailRow fallback={messages.common.notApplicable} label={copy.eventType} value={<EventTypeBadge eventType={event.event_type} />} />
                   <DetailRow
                     fallback={messages.common.notApplicable}
@@ -166,11 +161,10 @@ export function LoadbalanceEventDetailSheet({
                   <DetailRow fallback={messages.common.notApplicable} label={copy.profileId} value={event.profile_id} />
                   <DetailRow fallback={messages.common.notApplicable} label={copy.consecutiveFailures} value={event.cumulative_retry_attempts} />
                 </div>
-              </section>
+              </OperatorInsetPanel>
 
-              <section className="space-y-3 rounded-2xl border bg-card p-4">
-                <h3 className="text-sm font-semibold">{messages.loadbalanceStrategiesTable.banPolicy}</h3>
-                <div className="space-y-1">
+              <OperatorInsetPanel title={messages.loadbalanceStrategiesTable.banPolicy}>
+                <div className="flex flex-col">
                   <DetailRow
                     fallback={messages.common.notApplicable}
                     label={messages.loadbalanceStrategyDialog.cycleRetryAttemptLimitLabel}
@@ -227,7 +221,7 @@ export function LoadbalanceEventDetailSheet({
                     />
                   ) : null}
                 </div>
-              </section>
+              </OperatorInsetPanel>
             </>
           )}
         </div>

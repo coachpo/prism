@@ -77,7 +77,10 @@ function StartupSectionGroup({
   return (
     <section
       data-testid={testId}
-      className={cn("space-y-6 rounded-2xl border border-border/70 bg-muted/10 p-4 md:p-5", className)}
+      className={cn(
+        "flex flex-col gap-6 rounded-lg border border-outline-variant bg-surface-container-low p-4 md:p-5",
+        className,
+      )}
     >
       {children}
     </section>

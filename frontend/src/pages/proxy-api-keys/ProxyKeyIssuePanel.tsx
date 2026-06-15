@@ -2,14 +2,6 @@ import type { ComponentProps } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   Field,
   FieldDescription,
   FieldGroup,
@@ -20,6 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { useLocale } from "@/i18n/useLocale";
+import { OperatorInsetPanel, OperatorSectionCard } from "@/shared/design-system";
 import { getProxyKeyUsagePercent } from "./proxyKeyFormatting";
 
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
@@ -62,17 +55,17 @@ export function ProxyKeyIssuePanel({
 
   return (
     <form onSubmit={handleCreateSubmit}>
-      <Card className="h-full overflow-hidden">
-        <CardHeader className="border-b bg-muted/20">
-          <CardTitle className="text-base">{copy.createProxyKey}</CardTitle>
-          <CardDescription>{copy.createDescription}</CardDescription>
-          <CardAction>
+      <OperatorSectionCard
+        className="h-full overflow-hidden"
+        title={copy.createProxyKey}
+        description={copy.createDescription}
+        actions={(
             <Badge variant={remainingKeys === 0 ? "destructive" : "secondary"}>
               {remainingKeys === 0 ? copy.keyLimitReached : copy.slotsRemaining(formatNumber(remainingKeys))}
             </Badge>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5">
+        )}
+        contentClassName="flex flex-col gap-5"
+      >
           <FieldGroup className="gap-4">
             <Field data-disabled={fieldsDisabled || undefined}>
               <FieldLabel htmlFor="proxy-key-name">{copy.name}</FieldLabel>
@@ -128,7 +121,7 @@ export function ProxyKeyIssuePanel({
             </Field>
           </FieldGroup>
 
-          <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3">
+          <OperatorInsetPanel className="bg-surface">
             <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
               <span>{copy.keysUsed(formatNumber(proxyKeysUsed), formatNumber(proxyKeyLimit))}</span>
               <span>{copy.slotsRemaining(formatNumber(remainingKeys))}</span>
@@ -137,7 +130,7 @@ export function ProxyKeyIssuePanel({
               value={quotaPercent}
               aria-label={copy.keysUsed(formatNumber(proxyKeysUsed), formatNumber(proxyKeyLimit))}
             />
-          </div>
+          </OperatorInsetPanel>
 
           <Button type="submit" disabled={createDisabled} className="self-start">
             {creatingProxyKey ? <Spinner aria-hidden="true" data-icon="inline-start" /> : null}
@@ -145,10 +138,9 @@ export function ProxyKeyIssuePanel({
               ? copy.creating
               : remainingKeys === 0
                 ? copy.keyLimitReached
-                : copy.createKey}
+              : copy.createKey}
           </Button>
-        </CardContent>
-      </Card>
+      </OperatorSectionCard>
     </form>
   );
 }

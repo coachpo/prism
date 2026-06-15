@@ -10,7 +10,7 @@ export function RoutingDiagramVisualizationShell({
   visualization,
 }: RoutingDiagramVisualizationShellProps) {
   return (
-    <section className="flex flex-col gap-4 rounded-xl border border-border/70 bg-card/95 p-4 shadow-none sm:p-5">
+    <section className="operator-section-surface flex flex-col gap-4 rounded-xl border border-outline-variant p-4 sm:p-5">
       <div className="flex flex-col gap-4">
         {children}
         {visualization}

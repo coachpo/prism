@@ -18,6 +18,7 @@ import { useAuth } from "@/context/useAuth"
 import { ProfileProvider } from "@/context/ProfileContext"
 import { Page } from "@/components/layout/page"
 import { useLocale } from "@/i18n/useLocale"
+import { OperatorLoadingState } from "@/shared/design-system"
 import {
   emptySearchSchema,
   getLegacyRedirectPath,
@@ -49,7 +50,14 @@ export const PUBLIC_AUTH_PATHS = new Set(["/auth/login", "/auth/forgot-password"
 export function RouteFallback() {
   const { messages } = useLocale()
 
-  return <div className="py-10 text-center text-sm text-muted-foreground">{messages.common.loadingApplication}</div>
+  return (
+    <main className="flex min-h-64 items-center justify-center p-6">
+      <OperatorLoadingState
+        className="w-full max-w-md"
+        title={messages.common.loadingApplication}
+      />
+    </main>
+  )
 }
 
 function withRouteSuspense(element: ReactElement) {

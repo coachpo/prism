@@ -42,7 +42,7 @@ export function RecentActivityCard({
             description={messages.dashboard.noRecentActivityDescription}
           />
         ) : (
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4">
             {recentActivityItems.map((activity) => {
               const requestLogId = activity.request_log_id;
               const isSuccess = activity.status_code >= 200 && activity.status_code < 300;
@@ -65,7 +65,7 @@ export function RecentActivityCard({
                 >
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left transition-colors hover:bg-surface-container-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                     onClick={() => onSelectRequest(requestLogId)}
                   >
                     <div className="flex items-center gap-4">
@@ -78,13 +78,13 @@ export function RecentActivityCard({
                         )}
                       >
                         {isSuccess ? (
-                          <CheckCircle2 className="h-5 w-5" />
+                          <CheckCircle2 className="size-5" />
                         ) : (
-                          <XCircle className="h-5 w-5" />
+                          <XCircle className="size-5" />
                         )}
                       </div>
-                      <div className="space-y-1">
-                        <div className="space-y-1">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-1">
                           <p className="text-sm font-medium leading-none">
                             {activity.model_label || modelDisplayNames.get(activity.model_id) || activity.model_id}
                           </p>

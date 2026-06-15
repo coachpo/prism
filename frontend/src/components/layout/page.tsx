@@ -18,6 +18,12 @@ export function Page({ children }: { children?: ReactNode }) {
         onOpenChange={state.setDesktopSidebarOpen}
         style={{ "--sidebar-width": "20rem" } as CSSProperties}
       >
+        <a
+          href="#prism-main-content"
+          className="sr-only z-50 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-operator-panel focus:not-sr-only focus:absolute focus:left-4 focus:top-4"
+        >
+          {messages.shell.skipToMainContent}
+        </a>
         <AppSidebar
           activeProfileId={state.activeProfileId}
           activeProfileName={state.activeProfileName}
@@ -48,7 +54,11 @@ export function Page({ children }: { children?: ReactNode }) {
 
         <SidebarInset className="min-h-svh overflow-hidden">
           <SiteHeader breadcrumbs={state.breadcrumbs} scopeBadge={state.shellScopeBadge} />
-          <div className="flex flex-1 flex-col gap-4 p-4">
+          <div
+            id="prism-main-content"
+            tabIndex={-1}
+            className="flex flex-1 flex-col gap-[var(--density-page-gap)] p-[var(--density-page-pad-y)] px-[var(--density-page-pad-x)] outline-none"
+          >
             {children ?? <Outlet />}
           </div>
         </SidebarInset>

@@ -98,7 +98,7 @@ export function PricingTemplatesTable({
     <Card className="operator-table-shell overflow-hidden" data-testid="pricing-templates-table">
       <CardHeader className="border-b pb-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             <CardTitle className="flex items-center gap-2 text-sm"><Coins data-icon="inline-start" />{copy.tableTitle}</CardTitle>
             <CardDescription className="text-xs">{copy.description}</CardDescription>
           </div>

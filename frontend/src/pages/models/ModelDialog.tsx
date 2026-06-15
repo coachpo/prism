@@ -13,11 +13,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
-import { OperatorSwitchField } from "@/shared/design-system";
+import { OperatorCallout, OperatorInsetPanel, OperatorSwitchField } from "@/shared/design-system";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
 import { getEditModelConnectionOptions, setApiFamilyOnForm, setDisplayNameOnForm, setModelIdOnForm } from "./modelFormState";
@@ -166,11 +166,9 @@ export function ModelDialog({
           <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
           <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
             {formError && !hasInlineFieldError ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {formError}
-              </div>
+              <OperatorCallout intent="danger" description={formError} />
             ) : null}
-            <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
+            <OperatorInsetPanel>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="min-w-0 flex flex-col gap-2">
                   <Label>{fieldCopy.apiFamily}</Label>
@@ -210,9 +208,9 @@ export function ModelDialog({
                   placeholder={copy.optionalFriendlyName}
                 />
               </div>
-            </div>
+            </OperatorInsetPanel>
 
-            <div className="flex flex-col gap-4 rounded-lg border bg-muted/15 p-4">
+            <OperatorInsetPanel>
               <div className="flex flex-col gap-1">
                 <p className="text-sm font-medium text-foreground">{copy.contextRoutingDefaults}</p>
                 <p className="text-sm text-muted-foreground">{copy.contextRoutingDefaultsDescription}</p>
@@ -320,27 +318,29 @@ export function ModelDialog({
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
-                        <SelectItem value={NO_PROMOTION_TARGET_VALUE}>
-                          <span className="block whitespace-normal break-words pr-4 leading-5">
-                            {OVERFLOW_PROMOTION_TARGET_NONE_LABEL}
-                          </span>
-                        </SelectItem>
-                        {promotionTargetModelsForApiFamily.map((model) => (
-                          <SelectItem key={model.id} value={model.model_id}>
+                        <SelectGroup>
+                          <SelectItem value={NO_PROMOTION_TARGET_VALUE}>
                             <span className="block whitespace-normal break-words pr-4 leading-5">
-                              {formatPromotionTargetOptionLabel(model)}
+                              {OVERFLOW_PROMOTION_TARGET_NONE_LABEL}
                             </span>
                           </SelectItem>
-                        ))}
+                          {promotionTargetModelsForApiFamily.map((model) => (
+                            <SelectItem key={model.id} value={model.model_id}>
+                              <span className="block whitespace-normal break-words pr-4 leading-5">
+                                {formatPromotionTargetOptionLabel(model)}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
                       </SelectContent>
                     </Select>
                   </CapabilityField>
                 </div>
               </div>
-            </div>
+            </OperatorInsetPanel>
 
-            <div className="flex flex-col gap-4 rounded-lg border p-4">
-              <div className="flex flex-col gap-3 rounded-lg border bg-muted/15 p-4">
+            <OperatorInsetPanel className="bg-surface">
+              <OperatorInsetPanel>
                 <div className="flex flex-col gap-1">
                   <p className="text-sm font-medium text-foreground">{detailCopy.loadbalanceStrategy}</p>
                   <p className="text-sm text-muted-foreground">{copy.routingTypeDescription}</p>
@@ -355,15 +355,17 @@ export function ModelDialog({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
-                      {loadbalanceStrategies.map((strategy) => (
-                        <SelectItem key={strategy.id} value={String(strategy.id)}>
-                          <span className="block whitespace-normal break-words pr-4 leading-5">{getStrategyOptionText(strategy)}</span>
-                        </SelectItem>
-                      ))}
+                      <SelectGroup>
+                        {loadbalanceStrategies.map((strategy) => (
+                          <SelectItem key={strategy.id} value={String(strategy.id)}>
+                            <span className="block whitespace-normal break-words pr-4 leading-5">{getStrategyOptionText(strategy)}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 )}
-              </div>
+              </OperatorInsetPanel>
 
               <AccessTargetsEditor
                 apiFamilyLabel={formData.api_family}
@@ -379,8 +381,9 @@ export function ModelDialog({
                 description={enabledDescription}
                 checked={formData.is_enabled}
                 onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, is_enabled: checked }))}
+                className="border-outline-variant bg-surface-container-low"
               />
-            </div>
+            </OperatorInsetPanel>
           </DialogBody>
 
           <DialogFooter className="sm:justify-between">

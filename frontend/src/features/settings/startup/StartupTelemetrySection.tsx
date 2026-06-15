@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Activity } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field";
+import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import type { BootstrapConfigResponse, BootstrapConfigSecretKey, BootstrapConfigValues } from "@/lib/types";
+import { OperatorSectionCard } from "@/shared/design-system";
 import {
   TELEMETRY_FIELD_PATHS,
   normalizeTelemetryValues,
@@ -78,22 +78,23 @@ export function StartupTelemetrySection({
   const advancedOpen = advancedOpenOverride ?? advancedTelemetryActive;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-          <Activity />
+    <OperatorSectionCard
+      icon={<Activity />}
+      title={(
+        <span className="flex flex-wrap items-center gap-2">
           {copy.telemetrySectionTitle}
           {sectionEffect(TELEMETRY_FIELD_PATHS)}
-        </CardTitle>
-        <CardDescription>{copy.telemetrySectionDescription}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+        </span>
+      )}
+      description={copy.telemetrySectionDescription}
+      contentClassName="flex flex-col gap-6"
+    >
         <FieldSet disabled={controlsDisabled}>
           <FieldLegend>{copy.telemetry}</FieldLegend>
           <FieldGroup>
             <Field orientation="horizontal" data-disabled={controlsDisabled || undefined}>
               <FieldContent>
-                <label htmlFor="startup-telemetry-enabled" className="text-sm font-medium leading-none">{copy.telemetryEnabled}</label>
+                <FieldLabel htmlFor="startup-telemetry-enabled">{copy.telemetryEnabled}</FieldLabel>
                 <FieldDescription>{copy.telemetryEnabledDescription}</FieldDescription>
               </FieldContent>
               <Switch id="startup-telemetry-enabled" checked={telemetryEnabled} disabled={controlsDisabled} onCheckedChange={setTelemetryEnabled} />
@@ -116,7 +117,7 @@ export function StartupTelemetrySection({
                 onChange={(value) => setStringField("telemetry.exporter.endpoint", value)}
               />
               <Field data-invalid={Boolean(fieldErrors["telemetry.exporter.protocol"]) || undefined} data-disabled={telemetryControlsDisabled || undefined}>
-                <label htmlFor="startup-telemetry-protocol" className="text-sm font-medium leading-none">{copy.telemetryExporterProtocol}</label>
+                <FieldLabel htmlFor="startup-telemetry-protocol">{copy.telemetryExporterProtocol}</FieldLabel>
                 <Select value={exporter?.protocol ?? ""} disabled={telemetryControlsDisabled} onValueChange={(value) => setStringField("telemetry.exporter.protocol", value)}>
                   <SelectTrigger id="startup-telemetry-protocol" aria-invalid={Boolean(fieldErrors["telemetry.exporter.protocol"]) || undefined}>
                     <SelectValue placeholder={copy.telemetryExporterProtocolPlaceholder} />
@@ -131,7 +132,7 @@ export function StartupTelemetrySection({
                 <FieldError>{fieldErrors["telemetry.exporter.protocol"]}</FieldError>
               </Field>
               <Field data-invalid={Boolean(fieldErrors["telemetry.exporter.compression"]) || undefined} data-disabled={telemetryControlsDisabled || undefined}>
-                <label htmlFor="startup-telemetry-compression" className="text-sm font-medium leading-none">{copy.telemetryExporterCompression}</label>
+                <FieldLabel htmlFor="startup-telemetry-compression">{copy.telemetryExporterCompression}</FieldLabel>
                 <Select value={exporter?.compression ?? ""} disabled={telemetryControlsDisabled} onValueChange={(value) => setStringField("telemetry.exporter.compression", value)}>
                   <SelectTrigger id="startup-telemetry-compression" aria-invalid={Boolean(fieldErrors["telemetry.exporter.compression"]) || undefined}>
                     <SelectValue placeholder={copy.telemetryExporterCompressionPlaceholder} />
@@ -165,12 +166,12 @@ export function StartupTelemetrySection({
           openLabel={copy.hideAdvancedTelemetry}
           description={copy.advancedTelemetryDescription}
         >
-          <div className="space-y-6">
+          <div className="flex flex-col gap-6">
             <FieldSet disabled={telemetryControlsDisabled}>
               <FieldLegend>{copy.telemetryExporterAuthMode}</FieldLegend>
               <FieldGroup>
                 <Field data-invalid={Boolean(fieldErrors["telemetry.exporter.auth.mode"]) || undefined} data-disabled={telemetryControlsDisabled || undefined}>
-                  <label htmlFor="startup-telemetry-auth-mode" className="text-sm font-medium leading-none">{copy.telemetryExporterAuthMode}</label>
+                  <FieldLabel htmlFor="startup-telemetry-auth-mode">{copy.telemetryExporterAuthMode}</FieldLabel>
                   <Select value={authMode} disabled={telemetryControlsDisabled} onValueChange={setTelemetryAuthMode}>
                     <SelectTrigger id="startup-telemetry-auth-mode" aria-invalid={Boolean(fieldErrors["telemetry.exporter.auth.mode"]) || undefined}>
                       <SelectValue placeholder={copy.telemetryExporterAuthModePlaceholder} />
@@ -206,7 +207,7 @@ export function StartupTelemetrySection({
               <FieldGroup>
                 <Field orientation="horizontal" data-disabled={telemetryControlsDisabled || undefined}>
                   <FieldContent>
-                    <label htmlFor="startup-telemetry-tls-insecure-skip-verify" className="text-sm font-medium leading-none">{copy.telemetryTlsInsecureSkipVerify}</label>
+                    <FieldLabel htmlFor="startup-telemetry-tls-insecure-skip-verify">{copy.telemetryTlsInsecureSkipVerify}</FieldLabel>
                     <FieldDescription>{copy.telemetryTlsInsecureSkipVerifyDescription}</FieldDescription>
                   </FieldContent>
                   <Switch id="startup-telemetry-tls-insecure-skip-verify" checked={Boolean(exporter?.tls?.insecure_skip_verify)} disabled={telemetryControlsDisabled} onCheckedChange={(checked) => setBooleanField("telemetry.exporter.tls.insecure_skip_verify", checked)} />
@@ -255,7 +256,6 @@ export function StartupTelemetrySection({
             </FieldSet>
           </div>
         </StartupDisclosure>
-      </CardContent>
-    </Card>
+    </OperatorSectionCard>
   );
 }

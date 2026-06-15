@@ -122,7 +122,7 @@ export function RoutingDiagramFlow({
       height: node.height,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
-      className: "bg-transparent border-0 shadow-none",
+      className: "bg-transparent border-0",
       draggable: true,
       selectable: false,
       focusable: false,
@@ -220,7 +220,7 @@ export function RoutingDiagramFlow({
       visualization={
         <div
           data-testid="routing-diagram-desktop"
-          className="relative w-full overflow-hidden rounded-xl border border-border/70 bg-background/60"
+          className="relative w-full overflow-hidden rounded-xl border border-outline-variant bg-surface"
           style={{ height: chartHeight }}
           onPointerLeave={clearInspector}
           onFocusCapture={handleFocusCapture}

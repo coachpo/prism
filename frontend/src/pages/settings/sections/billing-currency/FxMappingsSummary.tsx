@@ -10,7 +10,7 @@ export function FxMappingsSummary() {
         <h4 className="text-sm font-medium">{copy.fxMappings}</h4>
         <Badge variant="outline">{copy.defaultFx}</Badge>
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {copy.fxOverridesDefault}
       </p>
     </>

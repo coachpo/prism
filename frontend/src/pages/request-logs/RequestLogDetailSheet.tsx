@@ -31,7 +31,7 @@ export function RequestLogDetailSheet({
   return (
     <Sheet open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
       <SheetContent
-        className="w-full overflow-x-hidden overflow-y-auto border-l border-border/70 bg-background/98 px-0 sm:max-w-3xl xl:max-w-[72rem]"
+        className="w-full overflow-x-hidden overflow-y-auto border-l border-outline-variant bg-surface px-0 sm:max-w-3xl xl:max-w-[72rem]"
         data-clipboard-fallback-root=""
         data-testid="request-log-detail-sheet"
       >

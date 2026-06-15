@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import { Input } from "@/components/ui/input";
-import { OperatorCallout, OperatorStatusBadge } from "@/shared/design-system";
+import { OperatorCallout, OperatorSectionCard, OperatorStatusBadge } from "@/shared/design-system";
 import { AuthenticationFieldShell } from "./AuthenticationFieldShell";
 import type { AuthenticationSectionProps } from "./types";
 
@@ -44,14 +43,11 @@ export function RecoveryEmailCard({
   const showEmailEditor = emailEditorOpen || verificationPending || emailChanged || !emailVerified;
 
   return (
-    <Card className="shadow-none">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">{copy.recoveryEmail}</CardTitle>
-        <CardDescription>
-          {copy.recoveryEmailDescription}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <OperatorSectionCard
+      title={copy.recoveryEmail}
+      description={copy.recoveryEmailDescription}
+      contentClassName="flex flex-col gap-4"
+    >
         {emailVerified && !showEmailEditor ? (
           <OperatorCallout
             action={(
@@ -74,7 +70,7 @@ export function RecoveryEmailCard({
             title={copy.verifiedEmail}
           />
         ) : (
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               <AuthenticationFieldShell
                 label={copy.emailAddress}
                 helper={copy.recoveryEmailChangedRequiresVerification}
@@ -97,7 +93,7 @@ export function RecoveryEmailCard({
                 onClick={() => void onRequestEmailVerification()}
                 disabled={sendingEmailVerification || !email.trim()}
                 >
-                  <MailCheck className="mr-2 h-3.5 w-3.5" />
+                  <MailCheck data-icon="inline-start" />
                   {sendingEmailVerification
                     ? copy.sendingCode
                     : verificationPending
@@ -131,7 +127,7 @@ export function RecoveryEmailCard({
                       onClick={() => void onConfirmEmailVerification()}
                       disabled={confirmingEmailVerification || !emailVerificationOtp.trim()}
                       >
-                        <MailCheck className="mr-2 h-3.5 w-3.5" />
+                        <MailCheck data-icon="inline-start" />
                         {confirmingEmailVerification ? copy.verifying : copy.verify}
                       </Button>
                     </div>
@@ -141,7 +137,6 @@ export function RecoveryEmailCard({
             ) : null}
           </div>
         )}
-      </CardContent>
-    </Card>
+    </OperatorSectionCard>
   );
 }

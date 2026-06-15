@@ -8,18 +8,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { HeaderBlocklistRule, HeaderBlocklistRuleCreate } from "@/lib/types";
 import type { Dispatch, FormEvent, SetStateAction } from "react";
-import { OperatorSwitchField } from "@/shared/design-system";
+import type { HeaderBlocklistRule, HeaderBlocklistRuleCreate } from "@/lib/types";
+import { OperatorInsetPanel, OperatorSwitchField } from "@/shared/design-system";
 
 interface RuleDialogProps {
   ruleDialogOpen: boolean;
@@ -56,10 +61,10 @@ export function RuleDialog({
           <input type="hidden" name="match_type" value={ruleForm.match_type} />
           <input type="hidden" name="enabled" value={String(ruleForm.enabled)} />
           <DialogBody>
-            <div className="flex flex-col gap-4 rounded-lg border p-4">
+            <OperatorInsetPanel>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="rule-name">{copy.name}</Label>
+                <Field>
+                  <FieldLabel htmlFor="rule-name">{copy.name}</FieldLabel>
                   <Input
                     id="rule-name"
                     name="name"
@@ -70,10 +75,10 @@ export function RuleDialog({
                     }
                     placeholder={copy.namePlaceholder}
                   />
-                </div>
+                </Field>
 
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="rule-type">{copy.type}</Label>
+                <Field>
+                  <FieldLabel htmlFor="rule-type">{copy.type}</FieldLabel>
                   <Select
                     value={ruleForm.match_type}
                     onValueChange={(value) =>
@@ -87,15 +92,17 @@ export function RuleDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="exact">{copy.exactMatch}</SelectItem>
-                      <SelectItem value="prefix">{copy.prefixMatch}</SelectItem>
+                      <SelectGroup>
+                        <SelectItem value="exact">{copy.exactMatch}</SelectItem>
+                        <SelectItem value="prefix">{copy.prefixMatch}</SelectItem>
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
-                </div>
+                </Field>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="rule-pattern">{copy.pattern}</Label>
+              <Field>
+                <FieldLabel htmlFor="rule-pattern">{copy.pattern}</FieldLabel>
                 <Input
                   id="rule-pattern"
                   name="pattern"
@@ -112,12 +119,12 @@ export function RuleDialog({
                   }
                 />
                 {ruleForm.match_type === "prefix" && (
-                  <p className="text-xs leading-5 text-muted-foreground">
+                  <FieldDescription className="text-xs">
                     {copy.prefixMatchMustEndHyphen}
-                  </p>
+                  </FieldDescription>
                 )}
-              </div>
-            </div>
+              </Field>
+            </OperatorInsetPanel>
 
             <OperatorSwitchField
               label={copy.enabled}
@@ -126,7 +133,7 @@ export function RuleDialog({
               onCheckedChange={(checked) =>
                 setRuleForm((prev) => ({ ...prev, enabled: checked }))
               }
-              className="bg-muted/20"
+              className="border-outline-variant bg-surface-container-low"
             />
           </DialogBody>
 

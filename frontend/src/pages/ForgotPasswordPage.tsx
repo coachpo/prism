@@ -3,12 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AuthPageShell } from "@/pages/AuthPageShell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 import { useLocale } from "@/i18n/useLocale";
 
 export function ForgotPasswordPage() {
@@ -32,47 +31,33 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen px-4 py-4 sm:px-6 sm:py-6">
-      <div className="mx-auto flex max-w-6xl justify-end pb-6">
-        <div className="flex items-center gap-2">
-          <LanguageSwitcher
-            buttonClassName="border-border/70 bg-background/70 shadow-sm backdrop-blur-xl"
-            menuClassName="border-border/70 bg-popover/95 backdrop-blur-xl"
-          />
-          <ThemeToggle
-            buttonClassName="h-9 w-9 rounded-full border border-border/70 bg-background/70 text-foreground shadow-sm backdrop-blur-xl hover:bg-background/90"
-            menuClassName="border-border/70 bg-popover/95 backdrop-blur-xl"
-          />
-        </div>
-      </div>
-      <div className="mx-auto flex max-w-md items-center justify-center">
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>{messages.auth.resetPasswordTitle}</CardTitle>
-            <CardDescription>{messages.auth.forgotPasswordDescription}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <Label htmlFor="username-or-email">{messages.auth.usernameOrEmail}</Label>
-                <Input
-                  id="username-or-email"
-                  name="username_or_email"
-                  autoComplete="off"
-                  value={usernameOrEmail}
-                  onChange={(event) => setUsernameOrEmail(event.target.value)}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <Button type="button" variant="link" className="px-0" onClick={() => navigate("/login")}>{messages.auth.backToLogin}</Button>
-                <Button type="submit" disabled={submitting}>
-                  {submitting ? messages.auth.sending : messages.auth.sendCode}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+    <AuthPageShell
+      title={messages.auth.resetPasswordTitle}
+      description={messages.auth.forgotPasswordDescription}
+    >
+      <form onSubmit={handleSubmit}>
+        <FieldGroup className="gap-5">
+          <Field>
+            <FieldLabel htmlFor="username-or-email">{messages.auth.usernameOrEmail}</FieldLabel>
+            <Input
+              id="username-or-email"
+              name="username_or_email"
+              autoComplete="off"
+              value={usernameOrEmail}
+              onChange={(event) => setUsernameOrEmail(event.target.value)}
+            />
+          </Field>
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Button type="button" variant="link" className="justify-start px-0" onClick={() => navigate("/login")}>
+              {messages.auth.backToLogin}
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? <Spinner data-icon="inline-start" /> : null}
+              {submitting ? messages.auth.sending : messages.auth.sendCode}
+            </Button>
+          </div>
+        </FieldGroup>
+      </form>
+    </AuthPageShell>
   );
 }

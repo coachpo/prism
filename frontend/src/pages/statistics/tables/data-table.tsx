@@ -119,7 +119,7 @@ export function DataTable<TItem>({
 
   return (
     <div
-      className="overflow-hidden rounded-xl border border-border/60 bg-background/80"
+      className="operator-table-shell overflow-hidden rounded-xl border border-outline-variant bg-surface"
       data-testid={testId}
     >
       {items.length === 0 ? (

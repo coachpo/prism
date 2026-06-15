@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
 import type { PricingTemplate, PricingTemplateConnectionUsageItem } from "@/lib/types";
+import { OperatorCallout, OperatorInsetPanel } from "@/shared/design-system";
 
 interface DeletePricingTemplateDialogProps {
   deletePricingTemplateConfirm: PricingTemplate | null;
@@ -75,7 +76,7 @@ export function DeletePricingTemplateDialog({
         <DialogBody className="min-h-0 flex-1 overflow-hidden">
           <div className="flex h-full flex-col gap-4">
             {dialogTemplate ? (
-              <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
+              <OperatorInsetPanel>
                 <div className="flex flex-col gap-2">
                   <p className="text-sm font-medium text-foreground">{messages.settingsDialogs.deletionSummary}</p>
                   <div className="flex flex-wrap items-center gap-2">
@@ -106,7 +107,7 @@ export function DeletePricingTemplateDialog({
                 <Separator />
 
                 <p className="text-sm text-muted-foreground">{messages.common.thisActionCannotBeUndone}</p>
-              </div>
+              </OperatorInsetPanel>
             ) : null}
 
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
@@ -116,16 +117,15 @@ export function DeletePricingTemplateDialog({
                   <Skeleton className="h-32 rounded-md" />
                 </div>
               ) : pricingTemplateUsageError ? (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                  {messages.pricingTemplatesData.loadUsageFailed}
-                </div>
+                <OperatorCallout intent="danger" description={messages.pricingTemplatesData.loadUsageFailed} />
               ) : hasDependencies ? (
                 <div className="flex flex-col gap-4 py-1">
-                  <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                    {copy.deletePricingTemplateInUse(formatNumber(dependencyRows.length))}
-                  </div>
+                  <OperatorCallout
+                    intent="danger"
+                    description={copy.deletePricingTemplateInUse(formatNumber(dependencyRows.length))}
+                  />
 
-                  <div className="overflow-hidden rounded-lg border">
+                  <div className="operator-table-shell overflow-hidden rounded-lg border border-outline-variant">
                     <div className="max-h-[260px] overflow-y-auto">
                       <Table>
                         <TableHeader>

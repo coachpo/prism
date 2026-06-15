@@ -26,7 +26,7 @@ export function RoutingDiagramShell({
   if (loading) {
     return (
       <section data-testid="routing-diagram-card" className="flex flex-col gap-4">
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
             {messages.dashboard.routingTitle}
           </h2>
@@ -34,13 +34,13 @@ export function RoutingDiagramShell({
             {messages.dashboard.routingLoadingDescription}
           </p>
         </div>
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-3">
             <Skeleton className="h-9 w-36 rounded-lg" />
             <Skeleton className="h-6 w-40 rounded-full" />
             <Skeleton className="h-6 w-48 rounded-full" />
           </div>
-          <Skeleton className="h-[320px] rounded-2xl sm:h-[420px]" />
+          <Skeleton className="h-[320px] rounded-xl sm:h-[420px]" />
         </div>
       </section>
     );
@@ -48,8 +48,8 @@ export function RoutingDiagramShell({
 
   return (
     <section data-testid="routing-diagram-card" className="flex flex-col gap-4">
-      <div className="space-y-4">
-        <div className="space-y-2">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
             {messages.dashboard.routingTitle}
           </h2>
@@ -58,7 +58,7 @@ export function RoutingDiagramShell({
         {headerContent}
       </div>
 
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         {error ? (
           <OperatorCallout intent="warning" description={error} />
         ) : null}
@@ -67,7 +67,7 @@ export function RoutingDiagramShell({
           chartContent
         ) : (
           <OperatorEmptyState
-            icon={<Network className="h-6 w-6" />}
+            icon={<Network className="size-6" />}
             title={emptyState?.title ?? messages.dashboard.routingNoData}
             description={
               emptyState?.description ?? messages.dashboard.routingNoDataDescription

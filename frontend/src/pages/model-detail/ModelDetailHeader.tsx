@@ -35,16 +35,16 @@ export function ModelDetailHeader({ model, onBack, onEditModel }: ModelDetailHea
       : `${modelsUiCopy.accessTargets}: ${formatNumber(0)}`;
 
   return (
-    <div className="rounded-2xl border bg-card p-4 sm:p-5">
+    <div className="operator-section-surface rounded-xl border border-outline-variant p-4 shadow-operator-panel sm:p-5">
       <div className="relative flex items-center gap-3">
         <Button
           variant="ghost"
-          size="icon"
-          className="h-9 w-9 shrink-0 rounded-md"
+          size="icon-sm"
+          className="shrink-0"
           aria-label={copy.backToModels}
           onClick={onBack}
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft />
         </Button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
@@ -90,12 +90,12 @@ export function ModelDetailHeader({ model, onBack, onEditModel }: ModelDetailHea
 
         <Button
           variant="outline"
-          size="icon"
-          className="h-9 w-9 shrink-0"
+          size="icon-sm"
+          className="shrink-0"
           aria-label={copy.editModel}
           onClick={onEditModel}
         >
-          <Pencil className="h-3.5 w-3.5" />
+          <Pencil />
         </Button>
       </div>
     </div>

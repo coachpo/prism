@@ -132,7 +132,7 @@ export function UsageTrendChart({
   const isEmpty = chartSeries.length === 0 || chartData.length === 0;
 
   return (
-    <Card className="@container/card border-border/70 bg-card/95 shadow-none">
+    <Card className="@container/card operator-section-surface">
       <CardHeader className="gap-3 border-b">
         <div className="grid flex-1 gap-1">
           <CardTitle className="text-base">
@@ -141,10 +141,9 @@ export function UsageTrendChart({
           <CardDescription className="max-w-[48ch]">{description}</CardDescription>
         </div>
         <CardAction className="flex items-center">
-          <div className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
+          <div className="inline-flex items-center gap-1 rounded-lg border border-outline-variant bg-surface-container-low p-1">
             <Button
               aria-pressed={granularity === "hourly"}
-              className="shadow-none"
               onClick={() => onGranularityChange("hourly")}
               size="sm"
               type="button"
@@ -154,7 +153,6 @@ export function UsageTrendChart({
             </Button>
             <Button
               aria-pressed={granularity === "daily"}
-              className="shadow-none"
               onClick={() => onGranularityChange("daily")}
               size="sm"
               type="button"

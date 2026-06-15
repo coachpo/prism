@@ -9,11 +9,11 @@ export function UsageStatisticsPageSkeleton() {
       aria-label={messages.statistics.usageStatisticsPagePlaceholder}
       aria-live="polite"
       role="status"
-      className="space-y-6 rounded-xl border bg-card p-6 shadow-none"
+      className="operator-section-surface flex flex-col gap-6 rounded-xl border border-outline-variant p-6"
     >
       <span className="sr-only">{messages.statistics.usageStatisticsPagePlaceholder}</span>
 
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <Skeleton className="h-5 w-40 rounded-md" />
         <Skeleton className="h-4 w-full max-w-2xl rounded-md" />
       </div>

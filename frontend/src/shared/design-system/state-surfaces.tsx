@@ -60,7 +60,11 @@ export function OperatorLoadingState({
   className,
 }: Omit<OperatorStateProps, "action">) {
   return (
-    <div className={cn("operator-state-surface flex flex-col gap-4 rounded-xl border p-[var(--density-card-pad-x)]", className)}>
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn("operator-state-surface flex flex-col gap-4 rounded-xl border p-[var(--density-card-pad-x)]", className)}
+    >
       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
         <Loader2Icon className="animate-spin" />
         <span>{title}</span>
@@ -81,7 +85,7 @@ export function OperatorErrorState({
   className,
 }: OperatorStateProps) {
   return (
-    <Alert variant="destructive" className={cn("operator-state-surface", className)}>
+    <Alert role="alert" variant="destructive" className={cn("operator-state-surface", className)}>
       <AlertCircleIcon />
       <AlertTitle>{title}</AlertTitle>
       {description || action ? (
@@ -107,7 +111,7 @@ const OPERATOR_CALLOUT_TONES: Record<OperatorCalloutIntent, string> = {
   success: "border-success/25 bg-success/10 text-success [&_[data-slot=alert-description]]:text-success/90",
   warning: "border-warning/30 bg-warning/10 text-warning [&_[data-slot=alert-description]]:text-warning/90",
   danger: "border-destructive/30 bg-destructive/10 text-destructive [&_[data-slot=alert-description]]:text-destructive/90",
-  muted: "border-border/70 bg-muted/35 text-foreground [&_[data-slot=alert-description]]:text-muted-foreground",
+  muted: "border-outline-variant bg-surface-container-low text-foreground [&_[data-slot=alert-description]]:text-muted-foreground",
 }
 
 const OPERATOR_CALLOUT_ICONS = {

@@ -1,11 +1,12 @@
 import { Plus } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -46,8 +47,8 @@ export function FxMappingForm({
   const copy = messages.settingsBilling;
   return (
     <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_auto]">
-      <div className="space-y-2">
-        <Label>{copy.model}</Label>
+      <Field>
+        <FieldLabel>{copy.model}</FieldLabel>
         <Select
           value={mappingModelId}
           onValueChange={(value) => {
@@ -62,17 +63,19 @@ export function FxMappingForm({
             <SelectValue placeholder={copy.selectModel} />
           </SelectTrigger>
           <SelectContent>
-            {nativeModels.map((model) => (
-              <SelectItem key={model.id} value={model.model_id}>
-                {model.display_name || model.model_id}
-              </SelectItem>
-            ))}
+            <SelectGroup>
+              {nativeModels.map((model) => (
+                <SelectItem key={model.id} value={model.model_id}>
+                  {model.display_name || model.model_id}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
-      </div>
+      </Field>
 
-      <div className="space-y-2">
-        <Label>{copy.endpoint}</Label>
+      <Field>
+        <FieldLabel>{copy.endpoint}</FieldLabel>
         <Select
           value={mappingEndpointId}
           onValueChange={setMappingEndpointId}
@@ -82,17 +85,19 @@ export function FxMappingForm({
             <SelectValue placeholder={mappingLoading ? copy.loadingEndpoints : copy.selectEndpoint} />
           </SelectTrigger>
           <SelectContent>
-            {mappingEndpointOptions.map((endpoint) => (
-              <SelectItem key={endpoint.endpointId} value={String(endpoint.endpointId)}>
-                #{endpoint.endpointId} {endpoint.label}
-              </SelectItem>
-            ))}
+            <SelectGroup>
+              {mappingEndpointOptions.map((endpoint) => (
+                <SelectItem key={endpoint.endpointId} value={String(endpoint.endpointId)}>
+                  #{endpoint.endpointId} {endpoint.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
-      </div>
+      </Field>
 
-      <div className="space-y-2">
-        <Label htmlFor="mapping-fx-rate">{copy.fxRate}</Label>
+      <Field data-invalid={Boolean(addMappingFxError)}>
+        <FieldLabel htmlFor="mapping-fx-rate">{copy.fxRate}</FieldLabel>
         <Input
           id="mapping-fx-rate"
           name="mapping_fx_rate"
@@ -104,8 +109,8 @@ export function FxMappingForm({
           aria-invalid={Boolean(addMappingFxError)}
           className={cn(addMappingFxError && "border-destructive")}
         />
-        {addMappingFxError ? <p className="text-xs text-destructive">{addMappingFxError}</p> : null}
-      </div>
+        {addMappingFxError ? <FieldDescription className="text-destructive">{addMappingFxError}</FieldDescription> : null}
+      </Field>
 
       <div className="flex items-end">
         <Button
@@ -120,7 +125,7 @@ export function FxMappingForm({
             Boolean(addMappingFxError)
           }
         >
-          <Plus className="mr-2 h-4 w-4" />
+          <Plus data-icon="inline-start" />
           {copy.addMapping}
         </Button>
       </div>

@@ -20,7 +20,7 @@ type Props = {
 
 export function SiteHeader({ breadcrumbs = [], scopeBadge = null }: Props) {
   return (
-    <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
+    <header className="flex h-16 shrink-0 items-center gap-2 border-b border-outline-variant bg-surface px-[var(--density-shell-header-pad-x)]">
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="h-4 shrink-0" />
       <Breadcrumb data-testid="shell-breadcrumb" className="min-w-0 flex-1">

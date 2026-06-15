@@ -19,6 +19,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocale } from "@/i18n/useLocale";
 import type { PricingTemplate, PricingTemplateConnectionUsageItem } from "@/lib/types";
+import { OperatorEmptyState, OperatorInsetPanel } from "@/shared/design-system";
 
 interface PricingTemplateUsageDialogProps {
   onOpenChange: (open: boolean) => void;
@@ -49,7 +50,7 @@ export function PricingTemplateUsageDialog({
         <DialogBody className="min-h-0 flex-1 overflow-hidden">
           <div className="flex h-full flex-col gap-4">
             {pricingTemplateUsageTemplate ? (
-              <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
+              <OperatorInsetPanel>
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate text-sm font-medium text-foreground">{pricingTemplateUsageTemplate.name}</p>
@@ -64,7 +65,7 @@ export function PricingTemplateUsageDialog({
                     <p className="text-sm text-muted-foreground">{pricingTemplateUsageTemplate.description}</p>
                   ) : null}
                 </div>
-              </div>
+              </OperatorInsetPanel>
             ) : null}
 
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
@@ -74,11 +75,9 @@ export function PricingTemplateUsageDialog({
                   <Skeleton className="h-10 rounded-md" />
                 </div>
               ) : pricingTemplateUsageRows.length === 0 ? (
-                <div className="rounded-md border border-dashed p-8 text-center">
-                  <p className="text-sm text-muted-foreground">{copy.templateUnused}</p>
-                </div>
+                <OperatorEmptyState title={copy.templateUnused} />
               ) : (
-                <div className="overflow-hidden rounded-lg border">
+                <div className="operator-table-shell overflow-hidden rounded-lg border border-outline-variant">
                   <div className="max-h-[320px] overflow-y-auto">
                     <Table>
                       <TableHeader>

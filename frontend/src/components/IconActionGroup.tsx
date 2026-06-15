@@ -11,14 +11,14 @@ interface IconActionButtonProps extends Omit<ButtonProps, "variant"> {
 }
 
 export const iconActionButtonClassName =
-  "h-8 w-8 shrink-0 rounded-full border border-transparent bg-background/70 text-muted-foreground transition-colors hover:border-border hover:bg-background hover:text-foreground";
+  "shrink-0 rounded-md border border-transparent bg-surface text-muted-foreground transition-colors hover:border-outline-variant hover:bg-surface-container-low hover:text-foreground";
 
 export function IconActionGroup({ className, ...props }: IconActionGroupProps) {
   return (
     <div
       data-slot="icon-action-group"
       className={cn(
-        "inline-flex w-fit shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-muted/35 p-0.5",
+        "inline-flex w-fit shrink-0 items-center gap-0.5 rounded-md border border-outline-variant bg-surface-container-low p-0.5",
         className
       )}
       {...props}

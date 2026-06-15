@@ -93,10 +93,10 @@ export function DeleteConfirmDialog({
               </dl>
             </div>
 
-            <div className="flex flex-col gap-3 rounded-lg border p-4">
+            <div className="flex flex-col gap-3 rounded-md border border-outline-variant bg-surface-container-low p-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="delete-confirm-phrase">{copy.typeDeleteToProceed(copy.deleteConfirmKeyword)}</Label>
-                <code className="inline-flex w-fit items-center rounded-md border bg-muted px-2.5 py-1.5 text-sm font-medium text-foreground">
+                <code className="inline-flex w-fit items-center rounded-md border border-outline-variant bg-surface px-2.5 py-1.5 text-sm font-medium text-foreground">
                   {copy.deleteConfirmKeyword}
                 </code>
               </div>

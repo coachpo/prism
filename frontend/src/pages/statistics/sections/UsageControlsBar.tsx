@@ -39,7 +39,7 @@ export function UsageControlsBar({
   const { formatRelativeTimeFromNow, messages } = useLocale();
 
   return (
-    <Card className="overflow-hidden border-border/70 bg-card/95 shadow-none">
+    <Card className="operator-section-surface overflow-hidden">
       <CardContent
         className="flex flex-col gap-2.5 p-2.5 lg:flex-row lg:items-center lg:justify-between"
         data-testid="usage-controls-toolbar"
@@ -49,7 +49,7 @@ export function UsageControlsBar({
             {messages.statistics.timeWindow}
           </span>
 
-          <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border/70 bg-muted/35 p-1">
+          <div className="flex flex-wrap items-center gap-1 rounded-xl border border-outline-variant bg-surface-container-low p-1">
             {(["1h", "6h", "24h", "7d", "30d", "all"] as const).map((preset) => (
               <Button
                 key={preset}
@@ -65,7 +65,7 @@ export function UsageControlsBar({
 
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           <Button onClick={onExportSnapshot} size="sm" variant="outline">
-            <Download className="mr-2 h-4 w-4" />
+            <Download data-icon="inline-start" />
             {messages.statistics.exportSnapshotJson}
           </Button>
           <Button
@@ -76,11 +76,11 @@ export function UsageControlsBar({
             title={messages.statistics.refreshUsageStatistics}
             variant="outline"
           >
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw data-icon="inline-start" className={loading ? "animate-spin" : undefined} />
             {messages.statistics.refreshUsageStatistics}
           </Button>
           <div
-            className="rounded-xl border border-border/70 bg-background/80 px-3 py-1.5 text-sm text-muted-foreground"
+            className="rounded-xl border border-outline-variant bg-surface px-3 py-1.5 text-sm text-muted-foreground"
             data-testid="usage-controls-updated"
           >
             <span className="mr-1 text-[11px] uppercase tracking-[0.18em]">{messages.statistics.updated}</span>

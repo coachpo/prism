@@ -61,7 +61,7 @@ function DialogContent({
         <DialogPrimitive.Content
           data-slot="dialog-content"
           className={cn(
-            "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative pointer-events-auto flex w-full max-w-full flex-col gap-4 rounded-xl border p-[var(--density-dialog-pad)] shadow-lg duration-200 outline-none sm:max-w-lg",
+            "bg-surface data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative pointer-events-auto flex w-full max-w-full flex-col gap-4 rounded-xl border border-outline-variant p-[var(--density-dialog-pad)] shadow-operator-panel duration-200 outline-none sm:max-w-lg",
             className
           )}
           {...props}
@@ -73,7 +73,7 @@ function DialogContent({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="absolute top-3 right-3 rounded-full text-muted-foreground"
+                className="absolute top-3 right-3 rounded-md text-muted-foreground"
               >
                 <XIcon />
                 <span className="sr-only">{getStaticMessages().common.close}</span>

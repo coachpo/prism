@@ -32,7 +32,7 @@ export function AuditConfigurationRuleTable({
 }: AuditConfigurationRuleTableProps) {
   const { messages } = useLocale();
   return (
-    <div className="mt-1.5 rounded-md border">
+    <div className="operator-table-shell mt-1.5 overflow-hidden rounded-md border border-outline-variant">
       <Table>
         <TableHeader>
           <TableRow>
@@ -53,7 +53,6 @@ export function AuditConfigurationRuleTable({
                   onCheckedChange={
                     toggleLocked || !onToggleRule ? undefined : (checked) => void onToggleRule(rule, checked)
                   }
-                  className={toggleLocked ? undefined : "data-[state=checked]:bg-success"}
                 />
               </TableCell>
               <TableCell className="font-medium">
@@ -69,7 +68,7 @@ export function AuditConfigurationRuleTable({
                 />
               </TableCell>
               <TableCell>
-                <code className="rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">
+                <code className="rounded bg-surface-container-low px-[0.3rem] py-[0.2rem] font-mono text-sm">
                   {rule.pattern}
                 </code>
               </TableCell>

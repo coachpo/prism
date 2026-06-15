@@ -46,7 +46,7 @@ export function DashboardHighlightsGrid({
           <CardTitle>{messages.dashboard.performanceSnapshot}</CardTitle>
           <CardDescription>{messages.dashboard.performanceSnapshotDescription}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3">
             {performanceTiles.map((tile) => (
               <OperatorMetricTile
@@ -59,7 +59,7 @@ export function DashboardHighlightsGrid({
           </div>
           <Button variant="outline" className="w-full" onClick={onOpenAnalytics}>
             {messages.dashboard.analyticsTab}
-            <ArrowUpRight className="ml-2 h-4 w-4" />
+            <ArrowUpRight data-icon="inline-end" />
           </Button>
         </CardContent>
       </Card>
@@ -77,7 +77,7 @@ export function DashboardHighlightsGrid({
               description={messages.dashboard.noApiFamilyActivityDescription}
             />
           ) : (
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               {apiFamilyRows.slice(0, 3).map((apiFamily) => {
                 const ratio =
                   snapshot.totalRequests > 0
@@ -85,7 +85,7 @@ export function DashboardHighlightsGrid({
                     : 0;
 
                 return (
-                  <div key={apiFamily.key} className="space-y-1.5">
+                  <div key={apiFamily.key} className="flex flex-col gap-1.5">
                     <div className="flex items-center justify-between">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <ApiFamilyIcon apiFamily={apiFamily.key} size={14} />
@@ -97,7 +97,7 @@ export function DashboardHighlightsGrid({
                         {formatNumber(apiFamily.total_requests)} req
                       </p>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div className="h-2 overflow-hidden rounded-full bg-surface-container">
                       <div
                         className="h-full bg-primary"
                         style={{ width: `${Math.max(4, ratio)}%` }}
@@ -116,13 +116,13 @@ export function DashboardHighlightsGrid({
           <CardTitle>{messages.dashboard.quickActions}</CardTitle>
           <CardDescription>{messages.dashboard.quickActionsDescription}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="flex flex-col gap-2">
           <Button variant="outline" className="w-full justify-start" onClick={onReviewRequests}>
-            <FileText className="mr-2 h-4 w-4" />
+            <FileText data-icon="inline-start" />
             {messages.dashboard.reviewRequests}
           </Button>
           <Button variant="outline" className="w-full justify-start" onClick={onInspectSpending}>
-            <DollarSign className="mr-2 h-4 w-4" />
+            <DollarSign data-icon="inline-start" />
             {messages.dashboard.inspectSpendingBreakdown}
           </Button>
         </CardContent>

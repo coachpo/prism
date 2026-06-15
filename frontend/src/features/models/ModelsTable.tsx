@@ -157,7 +157,7 @@ export function ModelsTable({
 
   return (
     <div data-testid="models-table" data-table-density="compact">
-      <div className="overflow-hidden border-t border-border/70">
+      <div className="overflow-hidden border-t border-outline-variant">
         <Table>
           <TableHeader>
             <TableRow>

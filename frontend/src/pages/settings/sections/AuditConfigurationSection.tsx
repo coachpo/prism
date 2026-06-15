@@ -61,7 +61,7 @@ export function AuditConfigurationSection({
   setDeleteUserAgentClientRuleConfirm,
 }: AuditConfigurationSectionProps) {
   return (
-    <section id="audit-configuration" tabIndex={-1} className="scroll-mt-24 space-y-4">
+    <section id="audit-configuration" tabIndex={-1} className="scroll-mt-24 flex flex-col gap-4">
       <AuditConfigurationHeaderBlocklistCard
         cardRef={auditConfigurationRef}
         className={cn(

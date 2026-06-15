@@ -1,5 +1,6 @@
 import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLocale } from "@/i18n/useLocale";
 import type { HeaderBlocklistRule } from "@/lib/types";
 
 interface AuditConfigurationRuleActionsProps {
@@ -15,25 +16,28 @@ export function AuditConfigurationRuleActions({
   onEditRule,
   onDeleteRule,
 }: AuditConfigurationRuleActionsProps) {
+  const { messages } = useLocale();
+
   return (
     <div className="flex justify-end gap-2">
       <Button
         variant="ghost"
-        size="icon"
-        className="h-8 w-8"
+        size="icon-sm"
         disabled={locked}
+        aria-label={messages.common.edit}
         onClick={locked || !onEditRule ? undefined : () => onEditRule(rule)}
       >
-        <Pencil className="h-4 w-4" />
+        <Pencil />
       </Button>
       <Button
         variant="ghost"
-        size="icon"
-        className="h-8 w-8 text-destructive hover:text-destructive"
+        size="icon-sm"
+        className="text-destructive hover:text-destructive"
         disabled={locked}
+        aria-label={messages.settingsDialogs.delete}
         onClick={locked || !onDeleteRule ? undefined : () => onDeleteRule(rule)}
       >
-        <Trash2 className="h-4 w-4" />
+        <Trash2 />
       </Button>
     </div>
   );

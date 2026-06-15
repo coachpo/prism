@@ -16,7 +16,7 @@ export function ProxyApiKeysPageSkeleton() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <Card className="overflow-hidden">
-          <CardHeader className="border-b bg-muted/20">
+          <CardHeader className="border-b border-outline-variant bg-surface-container-low">
             <Skeleton className="h-5 w-36" />
             <Skeleton className="h-4 w-full max-w-lg" />
           </CardHeader>
@@ -43,7 +43,7 @@ export function ProxyApiKeysPageSkeleton() {
       </div>
 
       <Card className="overflow-hidden">
-        <CardHeader className="border-b bg-muted/20">
+        <CardHeader className="border-b border-outline-variant bg-surface-container-low">
           <Skeleton className="h-5 w-32" />
           <Skeleton className="h-4 w-full max-w-md" />
         </CardHeader>

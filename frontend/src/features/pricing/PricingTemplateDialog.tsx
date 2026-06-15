@@ -9,6 +9,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input"
 import { useLocale } from "@/i18n/useLocale"
 import type { PricingTemplate } from "@/lib/types"
+import { OperatorInsetPanel } from "@/shared/design-system"
 import { DEFAULT_PRICING_TEMPLATE_FORM, pricingTemplateFormSchema, pricingTemplateFormStateFromTemplate, type PriceField, type PricingTemplateFormValues } from "./pricingSchemas"
 
 interface PricingTemplateDialogProps {
@@ -30,7 +31,7 @@ type PricingFieldCardProps = {
 
 function PricingFieldCard({ control, label, name, placeholder }: PricingFieldCardProps) {
   return (
-    <div className="rounded-lg border bg-background p-3">
+    <div className="rounded-lg border border-outline-variant bg-surface p-3">
       <FormField control={control} name={name} render={({ field }) => (
         <FormItem>
           <FormLabel>{label}</FormLabel>
@@ -73,7 +74,7 @@ export function PricingTemplateDialog({ editingPricingTemplate, onClose, onOpenC
           <form onSubmit={form.handleSubmit((values) => void onSave(values))} className="flex min-h-0 flex-col gap-5">
             <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
               <div className="flex flex-col gap-5">
-                <section className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
+                <OperatorInsetPanel>
                   <p className="text-sm font-medium text-foreground">{dialogMessages.detailsSectionTitle}</p>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <FormField control={form.control} name="name" render={({ field }) => (
@@ -86,22 +87,22 @@ export function PricingTemplateDialog({ editingPricingTemplate, onClose, onOpenC
                   <FormField control={form.control} name="description" render={({ field }) => (
                     <FormItem><FormLabel>{dialogMessages.descriptionLabel}</FormLabel><FormControl><Input autoComplete="off" placeholder={dialogMessages.descriptionPlaceholder} {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
-                </section>
-                <section className="flex flex-col gap-4 rounded-lg border p-4">
+                </OperatorInsetPanel>
+                <OperatorInsetPanel className="bg-surface">
                   <p className="text-sm font-medium text-foreground">{dialogMessages.baseRatesSectionTitle}</p>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <PricingFieldCard control={form.control} name="input_price" label={dialogMessages.inputPriceLabel} placeholder={dialogMessages.pricePlaceholder} />
                     <PricingFieldCard control={form.control} name="output_price" label={dialogMessages.outputPriceLabel} placeholder={dialogMessages.pricePlaceholder} />
                   </div>
-                </section>
-                <section className="flex flex-col gap-4 rounded-lg border bg-muted/15 p-4">
+                </OperatorInsetPanel>
+                <OperatorInsetPanel>
                   <div className="flex flex-col gap-1"><p className="text-sm font-medium text-foreground">{dialogMessages.componentRatesSectionTitle}</p><p className="text-sm text-muted-foreground">{dialogMessages.componentRatesSectionDescription}</p></div>
                   <div className="grid gap-3 md:grid-cols-3">
                     <PricingFieldCard control={form.control} name="cached_input_price" label={dialogMessages.cachedInputPriceLabel} placeholder={dialogMessages.pricePlaceholder} />
                     <PricingFieldCard control={form.control} name="cache_creation_price" label={dialogMessages.cacheCreationPriceLabel} placeholder={dialogMessages.pricePlaceholder} />
                     <PricingFieldCard control={form.control} name="reasoning_price" label={dialogMessages.reasoningPriceLabel} placeholder={dialogMessages.pricePlaceholder} />
                   </div>
-                </section>
+                </OperatorInsetPanel>
               </div>
             </DialogBody>
             <DialogFooter className="sm:justify-between"><Button type="button" variant="outline" onClick={onClose}>{dialogMessages.cancel}</Button><Button type="submit" disabled={pricingTemplateSaving}>{pricingTemplateSaving ? dialogMessages.saving : dialogMessages.save}</Button></DialogFooter>

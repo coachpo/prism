@@ -25,7 +25,7 @@ export function SummaryStat({
 }) {
   return (
     <OperatorMetricTile
-      className="border-border/60 bg-background/80 [&_[data-slot=metric-label]]:text-[11px] [&_[data-slot=metric-label]]:uppercase [&_[data-slot=metric-label]]:tracking-[0.18em] [&_[data-slot=metric-value]]:text-sm"
+      className="border-outline-variant bg-surface [&_[data-slot=metric-label]]:text-[11px] [&_[data-slot=metric-label]]:uppercase [&_[data-slot=metric-label]]:tracking-[0.18em] [&_[data-slot=metric-value]]:text-sm"
       label={label}
       value={value}
       valueClassName={valueClassName}
@@ -43,10 +43,10 @@ export function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="border-border/70 shadow-sm">
+    <Card className="border-outline-variant shadow-operator-panel">
       <CardHeader className="px-3 py-2.5">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-          <Icon className="h-4 w-4 text-muted-foreground" />
+          <Icon className="size-4 text-muted-foreground" />
           {title}
         </CardTitle>
       </CardHeader>
@@ -61,7 +61,7 @@ export function ApiFamilyPill({ apiFamily }: { apiFamily: string | null | undefi
   }
 
   return (
-    <Badge variant="outline" className="gap-1.5 border-border/70 bg-background/80 text-[10px] font-medium">
+    <Badge variant="outline" className="gap-1.5 border-outline-variant bg-surface text-[10px] font-medium">
       <ApiFamilyIcon apiFamily={apiFamily} size={12} />
       {formatApiFamily(apiFamily)}
     </Badge>

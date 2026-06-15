@@ -124,7 +124,7 @@ export function ProxyKeyDetailSheet({
             checked={proxyKeyActive}
             onCheckedChange={setProxyKeyActive}
             disabled={saving}
-            className="bg-muted/20"
+            className="border-outline-variant bg-surface-container-low"
           />
 
           <SheetFooter className="px-0">

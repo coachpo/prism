@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { useLocale } from "@/i18n/useLocale";
 import type { RetentionSettingsResponse } from "@/lib/types";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { OperatorCallout } from "@/shared/design-system";
+import { OperatorCallout, OperatorInsetPanel, OperatorSectionCard } from "@/shared/design-system";
 import {
   type CleanupType,
   type RetentionPreset,
@@ -14,6 +13,7 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -73,55 +73,47 @@ export function RetentionDeletionSection({
 
   return (
     <section id="retention-deletion" tabIndex={-1} className="scroll-mt-24">
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Trash2 className="h-4 w-4" />
-                {copy.title}
-              </CardTitle>
-              <CardDescription className="text-xs">
-                {copy.description}
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              {renderSectionSaveState("retention", retentionSettingsDirty)}
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void handleSaveRetentionSettings()}
-                disabled={retentionSettingsLoading || retentionSettingsSaving || !retentionSettingsDirty || retentionSettings === null}
-              >
-                {retentionSettingsSaving ? copy.savingRetention : copy.saveRetention}
-              </Button>
-            </div>
+      <OperatorSectionCard
+        title={(
+          <span className="flex items-center gap-2">
+            <Trash2 data-icon="inline-start" />
+            {copy.title}
+          </span>
+        )}
+        description={copy.description}
+        actions={(
+          <div className="flex items-center gap-2">
+            {renderSectionSaveState("retention", retentionSettingsDirty)}
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSaveRetentionSettings()}
+              disabled={retentionSettingsLoading || retentionSettingsSaving || !retentionSettingsDirty || retentionSettings === null}
+            >
+              {retentionSettingsSaving ? copy.savingRetention : copy.saveRetention}
+            </Button>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-lg border p-4">
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold">{copy.retentionPolicyTitle}</h3>
-              <p className="text-xs text-muted-foreground">{copy.retentionPolicyDescription}</p>
-            </div>
-
+        )}
+        contentClassName="flex flex-col gap-4"
+      >
+          <OperatorInsetPanel title={copy.retentionPolicyTitle} description={copy.retentionPolicyDescription}>
             {retentionSettingsLoading ? (
-              <div className="mt-4 space-y-2">
+              <div className="flex flex-col gap-2" aria-hidden="true">
                 <Skeleton className="h-9 rounded" />
                 <Skeleton className="h-9 rounded" />
                 <Skeleton className="h-9 rounded" />
                 <Skeleton className="h-9 rounded" />
               </div>
             ) : retentionSettings ? (
-              <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-4">
                 {[
                   { key: "request_logs_retention_days", label: copy.requestLogsPolicy, value: retentionSettings.request_logs_retention_days },
                   { key: "statistics_retention_days", label: copy.statisticsPolicy, value: retentionSettings.statistics_retention_days },
                   { key: "audit_logs_retention_days", label: copy.auditLogsPolicy, value: retentionSettings.audit_logs_retention_days },
                   { key: "loadbalance_events_retention_days", label: copy.loadbalanceEventsPolicy, value: retentionSettings.loadbalance_events_retention_days },
                 ].map(({ key, label, value }) => (
-                  <div key={key} className="space-y-2">
-                    <Label>{label}</Label>
+                  <Field key={key}>
+                    <FieldLabel>{label}</FieldLabel>
                     <Select
                       value={toRetentionSelectValue(value)}
                       onValueChange={(nextValue) => setRetentionDays(key as RetentionSettingKey, nextValue === "forever" ? null : Number.parseInt(nextValue, 10))}
@@ -130,51 +122,57 @@ export function RetentionDeletionSection({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="forever">{copy.keepForever}</SelectItem>
-                        {RETENTION_DAY_OPTIONS.map((days) => (
-                          <SelectItem key={days} value={String(days)}>{copy.retentionDays(days)}</SelectItem>
-                        ))}
+                        <SelectGroup>
+                          <SelectItem value="forever">{copy.keepForever}</SelectItem>
+                          {RETENTION_DAY_OPTIONS.map((days) => (
+                            <SelectItem key={days} value={String(days)}>{copy.retentionDays(days)}</SelectItem>
+                          ))}
+                        </SelectGroup>
                       </SelectContent>
                     </Select>
-                  </div>
+                  </Field>
                 ))}
               </div>
             ) : (
-              <OperatorCallout className="mt-4" intent="warning" description={copy.retentionLoadedFailed} />
+              <OperatorCallout intent="warning" description={copy.retentionLoadedFailed} />
             )}
-          </div>
+          </OperatorInsetPanel>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="space-y-2">
-              <Label>{copy.dataType}</Label>
+            <Field>
+              <FieldLabel>{copy.dataType}</FieldLabel>
               <Select value={cleanupType} onValueChange={(value) => setCleanupType(value as CleanupType)}>
                 <SelectTrigger>
                   <SelectValue placeholder={copy.selectDataType} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="requests">{dialogCopy.cleanupTypeRequests}</SelectItem>
-                  <SelectItem value="statistics">{dialogCopy.cleanupTypeStatistics}</SelectItem>
-                  <SelectItem value="audits">{dialogCopy.cleanupTypeAudits}</SelectItem>
-                  <SelectItem value="loadbalance_events">{dialogCopy.cleanupTypeLoadbalanceEvents}</SelectItem>
+                  <SelectGroup>
+                    <SelectItem value="requests">{dialogCopy.cleanupTypeRequests}</SelectItem>
+                    <SelectItem value="statistics">{dialogCopy.cleanupTypeStatistics}</SelectItem>
+                    <SelectItem value="audits">{dialogCopy.cleanupTypeAudits}</SelectItem>
+                    <SelectItem value="loadbalance_events">{dialogCopy.cleanupTypeLoadbalanceEvents}</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
 
-            <div className="space-y-2">
-              <Label>{copy.deleteOlderThan}</Label>
+            <Field>
+              <FieldLabel>{copy.deleteOlderThan}</FieldLabel>
               <Select value={retentionPreset} onValueChange={(value) => setRetentionPreset(value as RetentionPreset)}>
                 <SelectTrigger>
                   <SelectValue placeholder={copy.selectRetention} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">{copy.retentionDays(1)}</SelectItem>
-                  <SelectItem value="7">{copy.retentionDays(7)}</SelectItem>
-                  <SelectItem value="30">{copy.retentionDays(30)}</SelectItem>
-                  <SelectItem value="90">{copy.retentionDays(90)}</SelectItem>
-                  <SelectItem value="all" className="text-destructive">{copy.allData}</SelectItem>
+                  <SelectGroup>
+                    <SelectItem value="1">{copy.retentionDays(1)}</SelectItem>
+                    <SelectItem value="7">{copy.retentionDays(7)}</SelectItem>
+                    <SelectItem value="30">{copy.retentionDays(30)}</SelectItem>
+                    <SelectItem value="90">{copy.retentionDays(90)}</SelectItem>
+                    <SelectItem value="all" className="text-destructive">{copy.allData}</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
 
             <div className="flex items-end">
               <Button type="button" variant="destructive" className="w-full" disabled={deleting || !cleanupType || !retentionPreset} onClick={handleOpenDeleteConfirm}>
@@ -183,8 +181,7 @@ export function RetentionDeletionSection({
             </div>
           </div>
 
-        </CardContent>
-      </Card>
+      </OperatorSectionCard>
     </section>
   );
 }

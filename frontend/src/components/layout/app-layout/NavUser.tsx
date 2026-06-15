@@ -52,7 +52,7 @@ export function NavUser({ authEnabled, handleLogout, username }: Props) {
             <SidebarMenuButton
               size="lg"
               tooltip={`${displayName} · ${VERSION_LABEL}`}
-              className="rounded-xl border border-sidebar-border/70 bg-sidebar-accent/35 px-2.5 py-2 shadow-sm hover:bg-sidebar-accent/60 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              className="rounded-lg border border-sidebar-border/70 bg-sidebar-accent/35 px-2.5 py-2 hover:bg-sidebar-accent/60 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <div className="grid min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
                 <span className="truncate text-sm font-semibold">{displayName}</span>

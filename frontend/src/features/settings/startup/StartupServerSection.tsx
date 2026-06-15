@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { ChevronRight, FileJson, Server } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Field,
@@ -17,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { OperatorInsetPanel, OperatorSectionCard } from "@/shared/design-system";
 import type {
   BootstrapConfigApplyMode,
   BootstrapConfigFieldCapability,
@@ -110,21 +110,21 @@ export function StartupDisclosure({
 }: StartupDisclosureProps) {
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
-      <div className="rounded-lg border bg-muted/20 px-3 py-2.5">
+      <OperatorInsetPanel className="gap-0 px-3 py-2.5">
         <CollapsibleTrigger
           data-testid={testId}
-          className="flex w-full items-start justify-between gap-3 rounded-md text-left text-sm font-medium transition-colors hover:bg-muted/50"
+          className="flex w-full items-start justify-between gap-3 rounded-md text-left text-sm font-medium transition-colors hover:bg-surface-container"
         >
           <span className="flex min-w-0 flex-col gap-1">
             <span>{open ? openLabel : closedLabel}</span>
             {description ? <span className="text-xs font-normal text-muted-foreground">{description}</span> : null}
           </span>
-          <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 transition-transform", open && "rotate-90")} />
+          <ChevronRight className={cn("mt-0.5 size-4 shrink-0 transition-transform", open && "rotate-90")} />
         </CollapsibleTrigger>
         <CollapsibleContent data-testid={`${testId}-content`} className="pt-4">
           {children}
         </CollapsibleContent>
-      </div>
+      </OperatorInsetPanel>
     </Collapsible>
   );
 }
@@ -236,7 +236,7 @@ export function SecretReplacementField({
 
 function MetadataRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+    <div className="flex items-start justify-between gap-3 rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm">
       <span className="text-muted-foreground">{label}</span>
       <span className="max-w-[65%] break-all text-right font-medium">{value}</span>
     </div>
@@ -254,29 +254,25 @@ interface StartupFileStatusCardProps {
 
 export function StartupFileStatusCard({ bootstrapConfig, copy, currentApplySummary }: StartupFileStatusCardProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <FileJson />
-          {copy.fileStatusTitle}
-        </CardTitle>
-        <CardDescription>{copy.fileStatusDescription}</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-3 md:grid-cols-2">
+    <OperatorSectionCard
+      title={copy.fileStatusTitle}
+      description={copy.fileStatusDescription}
+      icon={<FileJson />}
+      contentClassName="grid gap-3 md:grid-cols-2"
+    >
         <MetadataRow label={copy.configPath} value={bootstrapConfig.config_path} />
         <MetadataRow label={copy.schemaVersion} value={String(bootstrapConfig.schema_version)} />
         <MetadataRow label={copy.fileRevision} value={String(bootstrapConfig.file_revision)} />
         <MetadataRow label={copy.loadedRevision} value={String(bootstrapConfig.loaded_revision)} />
         <MetadataRow label={copy.updated} value={formatDateTime(bootstrapConfig.updated_at, copy.notRecorded)} />
-        <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+        <div className="flex items-center justify-between gap-3 rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm">
           <span className="text-muted-foreground">{copy.state}</span>
           <span className="flex items-center gap-2">
             <Badge variant={bootstrapConfig.writable ? "secondary" : "destructive"}>{bootstrapConfig.writable ? copy.writable : copy.readOnly}</Badge>
             <Badge variant={currentApplySummary.variant}>{currentApplySummary.badge}</Badge>
           </span>
         </div>
-      </CardContent>
-    </Card>
+    </OperatorSectionCard>
   );
 }
 
@@ -304,16 +300,16 @@ export function StartupServerSection({
   values,
 }: StartupServerSectionProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-          <Server />
+    <OperatorSectionCard
+      icon={<Server />}
+      title={(
+        <span className="flex flex-wrap items-center gap-2">
           {copy.serverAndBrowserAccessTitle}
           {sectionEffect(SERVER_FIELD_PATHS)}
-        </CardTitle>
-        <CardDescription>{copy.serverAndBrowserAccessDescription}</CardDescription>
-      </CardHeader>
-      <CardContent>
+        </span>
+      )}
+      description={copy.serverAndBrowserAccessDescription}
+    >
         <FieldSet disabled={controlsDisabled}>
           <FieldLegend>{copy.server}</FieldLegend>
           <FieldGroup>
@@ -348,7 +344,6 @@ export function StartupServerSection({
             />
           </FieldGroup>
         </FieldSet>
-      </CardContent>
-    </Card>
+    </OperatorSectionCard>
   );
 }

@@ -1,8 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useLocale } from "@/i18n/useLocale";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { CostingSettingsUpdate } from "@/lib/types";
+import { OperatorInsetPanel } from "@/shared/design-system";
 
 interface ReportingCurrencyCardProps {
   costingForm: CostingSettingsUpdate;
@@ -18,12 +19,11 @@ export function ReportingCurrencyCard({
   const { messages } = useLocale();
   const copy = messages.settingsBilling;
   return (
-    <div className="rounded-lg border p-4">
-      <div className="space-y-3">
-        <Label htmlFor="report-currency-code">{copy.reportingCurrency}</Label>
+    <OperatorInsetPanel title={copy.reportingCurrency}>
+      <FieldGroup className="gap-3">
         <div className="flex flex-wrap items-end gap-3">
-          <div className="space-y-1">
-              <Label htmlFor="report-currency-code" className="text-xs text-muted-foreground">{copy.code}</Label>
+          <Field className="w-28">
+            <FieldLabel htmlFor="report-currency-code">{copy.code}</FieldLabel>
             <Input
               id="report-currency-code"
               name="report_currency_code"
@@ -37,11 +37,10 @@ export function ReportingCurrencyCard({
                 }))
               }
               placeholder={copy.currencyCodePlaceholder}
-              className="w-28"
             />
-          </div>
-          <div className="space-y-1">
-              <Label htmlFor="report-currency-symbol" className="text-xs text-muted-foreground">{copy.symbol}</Label>
+          </Field>
+          <Field className="w-24">
+            <FieldLabel htmlFor="report-currency-symbol">{copy.symbol}</FieldLabel>
             <Input
               id="report-currency-symbol"
               name="report_currency_symbol"
@@ -55,9 +54,8 @@ export function ReportingCurrencyCard({
                 }))
               }
               placeholder={copy.currencySymbolPlaceholder}
-              className="w-24"
             />
-          </div>
+          </Field>
           <p className="pb-2 text-sm font-medium">
             {copy.reportingCurrencySummary(
               normalizedCurrentCosting.report_currency_code || "---",
@@ -65,10 +63,10 @@ export function ReportingCurrencyCard({
             )}
           </p>
         </div>
-        <p className="text-xs text-muted-foreground">
+        <FieldDescription>
           {copy.usedForSpendingReports}
-        </p>
-      </div>
-    </div>
+        </FieldDescription>
+      </FieldGroup>
+    </OperatorInsetPanel>
   );
 }

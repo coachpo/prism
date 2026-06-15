@@ -9,12 +9,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLocale } from "@/i18n/useLocale";
 import type { UserAgentClientRule, UserAgentClientRuleCreate } from "@/lib/types";
-import { OperatorSwitchField } from "@/shared/design-system";
+import { OperatorInsetPanel, OperatorSwitchField } from "@/shared/design-system";
 
 interface UserAgentClientRuleDialogProps {
   ruleDialogOpen: boolean;
@@ -55,14 +59,14 @@ export function UserAgentClientRuleDialog({
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <input type="hidden" name="enabled" value={String(ruleForm.enabled)} />
           <DialogBody>
-            <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+            <OperatorInsetPanel className="text-sm text-muted-foreground">
               <div className="flex items-start gap-3">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
                       type="button"
                       aria-label={copy.whyMatchUserAgentClients}
-                      className="mt-0.5 shrink-0"
+                      className="mt-0.5 shrink-0 rounded-md text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
                       <Info className="size-4" />
                     </button>
@@ -77,11 +81,11 @@ export function UserAgentClientRuleDialog({
                   <p>{copy.userAgentClientRulesExplanation}</p>
                 </div>
               </div>
-            </div>
+            </OperatorInsetPanel>
 
-            <div className="flex flex-col gap-4 rounded-lg border p-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="user-agent-client-rule-name">{copy.name}</Label>
+            <OperatorInsetPanel>
+              <Field>
+                <FieldLabel htmlFor="user-agent-client-rule-name">{copy.name}</FieldLabel>
                 <Input
                   id="user-agent-client-rule-name"
                   name="name"
@@ -92,10 +96,10 @@ export function UserAgentClientRuleDialog({
                   }}
                   placeholder={copy.userAgentClientRuleNamePlaceholder}
                 />
-              </div>
+              </Field>
 
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="user-agent-client-rule-pattern">{copy.regexPattern}</Label>
+              <Field>
+                <FieldLabel htmlFor="user-agent-client-rule-pattern">{copy.regexPattern}</FieldLabel>
                 <Input
                   id="user-agent-client-rule-pattern"
                   name="pattern"
@@ -107,11 +111,11 @@ export function UserAgentClientRuleDialog({
                   className="font-mono"
                   placeholder={copy.regexPatternPlaceholder}
                 />
-                <p className="text-xs leading-5 text-muted-foreground">
+                <FieldDescription className="text-xs">
                   {copy.regexPatternHelp}
-                </p>
-              </div>
-            </div>
+                </FieldDescription>
+              </Field>
+            </OperatorInsetPanel>
 
             <OperatorSwitchField
               label={copy.enabled}
@@ -120,7 +124,7 @@ export function UserAgentClientRuleDialog({
               onCheckedChange={(checked) =>
                 setRuleForm((prev) => ({ ...prev, enabled: checked }))
               }
-              className="bg-muted/20"
+              className="border-outline-variant bg-surface-container-low"
             />
           </DialogBody>
 

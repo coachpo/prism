@@ -73,7 +73,7 @@ function StatusPanel({
     : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" />;
 
   return (
-    <Card className={status === "error" ? "border-destructive/35" : "border-border/70"}>
+    <Card className={status === "error" ? "border-destructive/35" : "border-outline-variant"}>
       <CardContent className="flex flex-col gap-4 pt-0 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           {icon}
@@ -89,7 +89,7 @@ function StatusPanel({
 }
 function LoadingCard() {
   return (
-    <Card className="border-border/70">
+    <Card className="border-outline-variant">
       <CardHeader>
         <Skeleton className="h-5 w-48" />
         <Skeleton className="h-4 w-72" />
@@ -120,7 +120,7 @@ function AuditList({
   const { formatNumber, messages } = useLocale();
   const { format } = useTimezone();
   return (
-    <Card className="border-border/70" data-testid="dedicated-audit-list">
+    <Card className="border-outline-variant" data-testid="dedicated-audit-list">
       <CardHeader>
         <CardTitle>{messages.requestLogs.auditRecordList}</CardTitle>
         <CardDescription>
@@ -219,15 +219,15 @@ function AuditDetailCard({
   const { formatNumber, messages } = useLocale();
 
   return (
-    <Card className="overflow-hidden border-border/70" data-testid="dedicated-audit-detail">
-      <div className="flex flex-col gap-3 border-b border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
+    <Card className="overflow-hidden border-outline-variant" data-testid="dedicated-audit-detail">
+      <div className="flex flex-col gap-3 border-b border-outline-variant bg-surface-container-low px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <OperatorValueBadge label={String(detail.response_status)} intent={getStatusIntent(detail.response_status)} className="px-1.5 py-0" />
             <OperatorTypeBadge label={getCaptureLabel(captureMode, messages)} intent={captureBadgeIntent(captureMode)} />
             <OperatorValueBadge label={`#${detail.id}`} className="text-[11px]" />
           </div>
-          <p className="whitespace-pre-wrap break-words rounded-lg border border-border/60 bg-background/70 p-3 font-mono text-xs leading-5 text-foreground shadow-inner [overflow-wrap:anywhere]">
+          <p className="whitespace-pre-wrap break-words rounded-lg border border-outline-variant bg-surface p-3 font-mono text-xs leading-5 text-foreground shadow-inner [overflow-wrap:anywhere]">
             {`${detail.request_method} ${detail.request_url}`}
           </p>
           <p className="text-xs text-muted-foreground">{formatTimestamp(detail.created_at)}</p>
@@ -344,7 +344,7 @@ export function RequestLogAuditPage() {
       </OperatorPageHeader>
 
       {state.request ? (
-        <Card className="border-border/70">
+        <Card className="border-outline-variant">
           <CardContent className="flex flex-wrap items-center gap-2 pt-0 text-sm text-muted-foreground">
             <Terminal className="size-4" />
             <span>{messages.requestLogs.requestTitle(state.request.summary.id)}</span>
@@ -445,7 +445,7 @@ export function RequestLogAuditPage() {
       ) : null}
 
       {state.status === "ready" && state.auditItems.length === 0 ? (
-        <Card className="border-border/70">
+        <Card className="border-outline-variant">
           <CardContent className="pt-0">
             <FileSearch className="mb-3 size-5 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">{messages.requestLogs.noAuditRecords}</p>

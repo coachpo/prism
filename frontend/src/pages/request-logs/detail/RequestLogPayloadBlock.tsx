@@ -55,9 +55,9 @@ function RequestLogPayloadDocumentView({ document }: { document: RequestLogPaylo
           {section.kind === "transcript" ? (
             <div className="flex flex-col gap-3">
               {section.lines.map((line, index) => (
-                <article key={`${line.label}-${index}`} className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                <article key={`${line.label}-${index}`} className="rounded-lg border border-outline-variant bg-surface-container p-3">
                   <div className="mb-2 flex items-center gap-2">
-                    <Badge variant="outline" className="border-border/70 bg-background font-mono text-xs">
+                    <Badge variant="outline" className="border-outline-variant bg-background font-mono text-xs">
                       {line.label}
                     </Badge>
                   </div>
@@ -68,7 +68,7 @@ function RequestLogPayloadDocumentView({ document }: { document: RequestLogPaylo
               ))}
             </div>
           ) : (
-            <dl className="divide-y divide-border/60 rounded-lg border border-border/60 bg-muted/20">
+            <dl className="divide-y divide-border/60 rounded-lg border border-outline-variant bg-surface-container-low">
               {section.lines.map((line, index) => (
                 <div key={`${line.label}-${index}`} className="grid gap-1 p-3 sm:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)] sm:gap-4">
                   <dt className="min-w-0 break-words font-mono text-xs font-medium uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">
@@ -134,7 +134,7 @@ export function RequestLogPayloadBlock({
   };
 
   const contentNode = displayMode === "raw" ? (
-    <pre className="max-w-full whitespace-pre-wrap break-words rounded-lg border border-border/60 bg-muted/20 p-3 font-mono text-xs leading-5 text-foreground [overflow-wrap:anywhere]">
+    <pre className="max-w-full whitespace-pre-wrap break-words rounded-lg border border-outline-variant bg-surface-container-low p-3 font-mono text-xs leading-5 text-foreground [overflow-wrap:anywhere]">
       {rawContent}
     </pre>
   ) : document ? (
@@ -154,10 +154,9 @@ export function RequestLogPayloadBlock({
           </h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1" aria-label={`${title} view mode`}>
+          <div className="inline-flex items-center gap-1 rounded-lg border border-outline-variant bg-surface-container p-1" aria-label={`${title} view mode`}>
             <Button
               aria-pressed={displayMode === "rendered"}
-              className="shadow-none"
               disabled={!hasContent}
               onClick={() => setViewMode("rendered")}
               size="xs"
@@ -168,7 +167,6 @@ export function RequestLogPayloadBlock({
             </Button>
             <Button
               aria-pressed={displayMode === "raw"}
-              className="shadow-none"
               disabled={!hasContent}
               onClick={() => setViewMode("raw")}
               size="xs"
