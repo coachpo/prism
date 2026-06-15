@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import type { Connection, CostingSettingsUpdate, EndpointFxMapping, ModelConfigListItem } from "@/lib/types";
+import { OperatorCallout } from "@/shared/design-system";
+import { Skeleton } from "@/components/ui/skeleton";
 import { FxMappingForm } from "./billing-currency/FxMappingForm";
 import { FxMappingsSummary } from "./billing-currency/FxMappingsSummary";
 import { FxMappingsTable } from "./billing-currency/FxMappingsTable";
@@ -109,16 +111,14 @@ export function BillingCurrencySection({
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="flex flex-col gap-4">
           {costingUnavailable ? (
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-                {copy.costApiUnavailable}
-              </div>
+            <OperatorCallout description={copy.costApiUnavailable} intent="warning" />
           ) : costingLoading ? (
-            <div className="space-y-2">
-              <div className="h-9 animate-pulse rounded bg-muted" />
-              <div className="h-9 animate-pulse rounded bg-muted" />
-              <div className="h-24 animate-pulse rounded bg-muted" />
+            <div className="flex flex-col gap-2" aria-hidden="true">
+              <Skeleton className="h-9 rounded" />
+              <Skeleton className="h-9 rounded" />
+              <Skeleton className="h-24 rounded" />
             </div>
           ) : (
             <>

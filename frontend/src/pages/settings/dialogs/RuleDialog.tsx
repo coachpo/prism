@@ -17,9 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SwitchController } from "@/components/SwitchController";
 import type { HeaderBlocklistRule, HeaderBlocklistRuleCreate } from "@/lib/types";
 import type { Dispatch, FormEvent, SetStateAction } from "react";
+import { OperatorSwitchField } from "@/shared/design-system";
 
 interface RuleDialogProps {
   ruleDialogOpen: boolean;
@@ -119,7 +119,7 @@ export function RuleDialog({
               </div>
             </div>
 
-            <SwitchController
+            <OperatorSwitchField
               label={copy.enabled}
               description={copy.activateRuleImmediately}
               checked={ruleForm.enabled}

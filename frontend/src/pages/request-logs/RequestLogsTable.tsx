@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FileSearch } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
-import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -13,6 +12,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
+import { OperatorEmptyState } from "@/shared/design-system";
 import {
   getColumns,
   ROW_HEIGHT,
@@ -190,7 +190,7 @@ export function RequestLogsTable({
               ))}
             </div>
           ) : items.length === 0 ? (
-            <EmptyState
+            <OperatorEmptyState
               className="py-20"
               icon={<FileSearch className="h-6 w-6" />}
               title={messages.requestLogs.noRequestLogsMatchSlice}

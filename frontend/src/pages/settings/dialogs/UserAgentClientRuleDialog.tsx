@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLocale } from "@/i18n/useLocale";
 import type { UserAgentClientRule, UserAgentClientRuleCreate } from "@/lib/types";
-import { SwitchController } from "@/components/SwitchController";
+import { OperatorSwitchField } from "@/shared/design-system";
 
 interface UserAgentClientRuleDialogProps {
   ruleDialogOpen: boolean;
@@ -113,7 +113,7 @@ export function UserAgentClientRuleDialog({
               </div>
             </div>
 
-            <SwitchController
+            <OperatorSwitchField
               label={copy.enabled}
               description={copy.activateRuleImmediately}
               checked={ruleForm.enabled ?? true}

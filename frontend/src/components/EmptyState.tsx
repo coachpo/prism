@@ -1,6 +1,7 @@
-import { cn } from "@/lib/utils";
-import { FileX } from "lucide-react";
 import type { ReactNode } from "react";
+import { FileX } from "lucide-react";
+
+import { OperatorEmptyState } from "@/shared/design-system";
 
 interface EmptyStateProps {
   icon?: ReactNode;
@@ -11,24 +12,16 @@ interface EmptyStateProps {
   testId?: string;
 }
 
+/** @deprecated Use OperatorEmptyState from "@/shared/design-system" for new surfaces. */
 export function EmptyState({ icon, title, description, action, className, testId }: EmptyStateProps) {
   return (
-    <div
-      className={cn(
-        "flex flex-col items-center justify-center text-center",
-        "py-[var(--density-empty-pad-y)]",
-        className
-      )}
-      data-testid={testId}
-    >
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        {icon ?? <FileX className="h-6 w-6" />}
-      </div>
-      <h3 className="text-sm font-medium">{title}</h3>
-      {description && (
-        <p className="mt-1 max-w-sm text-sm text-muted-foreground">{description}</p>
-      )}
-      {action && <div className="mt-4">{action}</div>}
-    </div>
+    <OperatorEmptyState
+      action={action}
+      className={className}
+      description={description}
+      icon={icon ?? <FileX />}
+      testId={testId}
+      title={title}
+    />
   );
 }

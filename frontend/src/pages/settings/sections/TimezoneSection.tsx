@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -12,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { CostingSettingsUpdate } from "@/lib/types";
+import { OperatorCallout } from "@/shared/design-system";
 
 interface TimezoneSectionProps {
   timezoneDirty: boolean;
@@ -72,14 +74,12 @@ export function TimezoneSection({
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="flex flex-col gap-4">
           {costingUnavailable ? (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-              {copy.settingsApiUnavailable}
-            </div>
+            <OperatorCallout description={copy.settingsApiUnavailable} intent="warning" />
           ) : costingLoading ? (
-            <div className="space-y-2">
-              <div className="h-9 animate-pulse rounded bg-muted" />
+            <div className="flex flex-col gap-2" aria-hidden="true">
+              <Skeleton className="h-9 rounded" />
             </div>
           ) : (
             <div className="min-w-0 space-y-3">

@@ -1,7 +1,6 @@
 import { useId, useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts";
 import { Link } from "react-router-dom";
-import { EmptyState } from "@/components/EmptyState";
 import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +21,7 @@ import {
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { useLocale } from "@/i18n/useLocale";
 import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
+import { OperatorEmptyState } from "@/shared/design-system";
 import type {
   UsageChartGranularity,
   UsageCostOverviewPoint,
@@ -159,7 +159,7 @@ function RequestBreakdownPieCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-4 pt-4 sm:pt-6">
         {items.length === 0 ? (
-          <EmptyState className="py-10" description={emptyTitle} title={emptyTitle} />
+          <OperatorEmptyState className="py-10" description={emptyTitle} title={emptyTitle} />
         ) : (
           <>
             <ChartContainer
@@ -368,7 +368,7 @@ export function UsageBreakdownSection({
 
           {tokenData.length === 0 ? (
             <CardContent className="pt-2">
-              <EmptyState
+              <OperatorEmptyState
                 className="py-10"
                 description={messages.statistics.adjustFiltersOrTimeRange}
                 title={messages.statistics.noTokenUsage}
@@ -459,7 +459,7 @@ export function UsageBreakdownSection({
 
           {hasMissingPricing ? (
             <CardContent className="pt-2">
-              <EmptyState
+              <OperatorEmptyState
                 action={
                   <Button asChild size="sm">
                     <Link to="/pricing-templates">{messages.statistics.openPricingTemplates}</Link>
@@ -472,7 +472,7 @@ export function UsageBreakdownSection({
             </CardContent>
           ) : !hasPricingCoverage || costOverviewSeries.length === 0 ? (
             <CardContent className="pt-2">
-              <EmptyState
+              <OperatorEmptyState
                 className="py-10"
                 description={messages.statistics.adjustFiltersOrTimeRange}
                 title={messages.statistics.noCostRecordsFound}

@@ -1,5 +1,4 @@
 import type { ComponentProps } from "react";
-import { SwitchController } from "@/components/SwitchController";
 import { Button } from "@/components/ui/button";
 import {
   Field,
@@ -19,6 +18,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { useLocale } from "@/i18n/useLocale";
+import { OperatorSwitchField } from "@/shared/design-system";
 
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
 
@@ -118,7 +118,7 @@ export function ProxyKeyDetailSheet({
             </Field>
           </FieldGroup>
 
-          <SwitchController
+          <OperatorSwitchField
             label={copy.active}
             description={copy.retireDescription}
             checked={proxyKeyActive}

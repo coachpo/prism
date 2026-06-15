@@ -1,7 +1,7 @@
 import { AlertCircle, X } from "lucide-react";
-import { SemanticCallout } from "@/components/SemanticCallout";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
+import { OperatorCallout } from "@/shared/design-system";
 
 interface RequestFocusBannerProps {
   requestId: string;
@@ -12,7 +12,7 @@ export function RequestFocusBanner({ requestId, onExit }: RequestFocusBannerProp
   const { messages } = useLocale();
 
   return (
-    <SemanticCallout
+    <OperatorCallout
       intent="info"
       icon={<AlertCircle />}
       description={messages.requestLogs.viewingRequest(requestId)}

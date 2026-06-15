@@ -2,12 +2,12 @@ import { useState } from "react"
 import { Plus } from "lucide-react"
 import { useProfileContext } from "@/context/ProfileContext"
 import { useLocale } from "@/i18n/useLocale"
-import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { OperatorPageHeader, OperatorPageShell } from "@/shared/design-system"
 import { DeleteModelDialog } from "@/pages/models/DeleteModelDialog"
 import { ModelDialog } from "@/pages/models/ModelDialog"
 import { ModelsTable } from "./ModelsTable"
@@ -52,13 +52,13 @@ export function ModelsFeaturePage() {
   }
 
   return (
-    <main className="operator-page-transition flex flex-col gap-6" data-testid="models-feature-page" data-query-key={JSON.stringify(queryKey)}>
-      <PageHeader title={copy.title} description={copy.countDescription(formatNumber(filtered.length))}>
+    <OperatorPageShell data-testid="models-feature-page" data-query-key={JSON.stringify(queryKey)}>
+      <OperatorPageHeader title={copy.title} description={copy.countDescription(formatNumber(filtered.length))}>
         <Button size="sm" onClick={() => data.handleOpenDialog()}>
           <Plus data-icon="inline-start" />
           {copy.newModel}
         </Button>
-      </PageHeader>
+      </OperatorPageHeader>
 
       <Card className="operator-table-shell gap-0 overflow-hidden rounded-3xl">
         <CardHeader className="border-b">
@@ -123,7 +123,7 @@ export function ModelsFeaturePage() {
         onDelete={data.handleDelete}
         setDeleteTarget={(model) => data.setDeleteTarget(model as typeof data.deleteTarget)}
       />
-    </main>
+    </OperatorPageShell>
   )
 }
 

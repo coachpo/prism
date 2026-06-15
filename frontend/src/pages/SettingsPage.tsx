@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PageHeader } from "@/components/PageHeader";
 import { useLocale } from "@/i18n/useLocale";
+import { OperatorPageHeader } from "@/shared/design-system";
 import { DeleteConfirmDialog } from "./settings/dialogs/DeleteConfirmDialog";
 import { RuleDialog } from "./settings/dialogs/RuleDialog";
 import { DeleteRuleConfirmDialog } from "./settings/dialogs/DeleteRuleConfirmDialog";
@@ -40,7 +40,7 @@ export function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-[var(--density-page-gap)] pb-8">
-      <PageHeader
+      <OperatorPageHeader
         title={messages.settingsPage.settingsTitle}
         description={messages.settingsPage.settingsDescription}
       />

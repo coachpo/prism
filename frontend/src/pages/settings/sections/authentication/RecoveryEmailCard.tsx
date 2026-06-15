@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { MailCheck } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import { Input } from "@/components/ui/input";
+import { OperatorCallout, OperatorStatusBadge } from "@/shared/design-system";
 import { AuthenticationFieldShell } from "./AuthenticationFieldShell";
 import type { AuthenticationSectionProps } from "./types";
 
@@ -53,19 +53,10 @@ export function RecoveryEmailCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {emailVerified && !showEmailEditor ? (
-          <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">{copy.verifiedEmail}</p>
-                  <p className="text-sm text-muted-foreground">{verifiedEmail}</p>
-                </div>
+          <OperatorCallout
+            action={(
               <div className="flex items-center gap-2">
-                <Badge
-                  variant="outline"
-                  className="border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                  >
-                    {copy.verified}
-                  </Badge>
+                <OperatorStatusBadge label={copy.verified} intent="success" />
                 <Button
                   type="button"
                   variant="outline"
@@ -73,12 +64,15 @@ export function RecoveryEmailCard({
                     setEmail(authSettings?.email ?? "");
                     setEmailEditorOpen(true);
                   }}
-                  >
-                    {messages.common.edit}
-                  </Button>
+                >
+                  {messages.common.edit}
+                </Button>
               </div>
-            </div>
-          </div>
+            )}
+            description={verifiedEmail}
+            intent="success"
+            title={copy.verifiedEmail}
+          />
         ) : (
             <div className="space-y-4">
               <AuthenticationFieldShell
@@ -113,14 +107,14 @@ export function RecoveryEmailCard({
               </div>
 
             {showEmailEditor ? (
-              <div className="rounded-lg border border-sky-500/25 bg-sky-500/10 p-4">
-                <p className="text-sm font-medium">{copy.verifyEmail}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {verificationPending
-                    ? copy.verificationCodeSentTo(authSettings?.pending_email ?? "")
-                    : copy.verificationCodePrompt}
-                </p>
-                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+              <OperatorCallout intent="info" title={copy.verifyEmail}>
+                <div className="flex flex-col gap-3">
+                  <p className="text-xs">
+                    {verificationPending
+                      ? copy.verificationCodeSentTo(authSettings?.pending_email ?? "")
+                      : copy.verificationCodePrompt}
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
                   <AuthenticationFieldShell label={copy.verificationCode} htmlFor="auth-email-otp">
                     <Input
                       id="auth-email-otp"
@@ -142,7 +136,8 @@ export function RecoveryEmailCard({
                       </Button>
                     </div>
                   </div>
-              </div>
+                </div>
+              </OperatorCallout>
             ) : null}
           </div>
         )}

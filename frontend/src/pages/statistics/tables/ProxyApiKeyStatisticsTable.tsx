@@ -1,10 +1,10 @@
-import { EmptyState } from "@/components/EmptyState";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import { formatMoneyMicros } from "@/lib/costing";
 import type { UsageProxyApiKeyStatistic, UsageSnapshotCurrency } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DataTable, type DataTableColumn } from "./data-table";
+import { OperatorEmptyState } from "@/shared/design-system";
 
 interface ProxyApiKeyStatisticsTableProps {
   currency?: UsageSnapshotCurrency;
@@ -90,7 +90,7 @@ export function ProxyApiKeyStatisticsTable({
         <DataTable
           columns={columns}
           emptyState={
-            <EmptyState
+            <OperatorEmptyState
               className="py-10"
               description={messages.statistics.noProxyApiKeyUsageDescription}
               title={messages.statistics.noProxyApiKeyUsageTitle}
@@ -108,8 +108,8 @@ export function ProxyApiKeyStatisticsTable({
 
 function getSuccessRateClass(successRate: number) {
   return successRate >= 95
-    ? "text-emerald-600 dark:text-emerald-400"
+    ? "text-success"
     : successRate >= 80
-      ? "text-amber-600 dark:text-amber-400"
-      : "text-red-600 dark:text-red-400";
+      ? "text-warning"
+      : "text-destructive";
 }

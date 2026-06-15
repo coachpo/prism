@@ -1,13 +1,12 @@
 import { Activity, CheckCircle2, XCircle } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { AnimatedListItem } from "@/components/AnimatedListItem";
-import { EmptyState } from "@/components/EmptyState";
-import { ValueBadge } from "@/components/StatusBadge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import { cn } from "@/lib/utils";
 import type { DashboardRecentActivityItem } from "@/lib/types";
+import { OperatorEmptyState, OperatorValueBadge } from "@/shared/design-system";
 
 interface RecentActivityCardProps {
   clearRecentRequestHighlight: (requestId: number) => void;
@@ -37,7 +36,7 @@ export function RecentActivityCard({
       </CardHeader>
       <CardContent>
         {recentActivityItems.length === 0 ? (
-          <EmptyState
+          <OperatorEmptyState
             icon={<ActivityEmptyIcon />}
             title={messages.dashboard.noRecentActivity}
             description={messages.dashboard.noRecentActivityDescription}
@@ -123,7 +122,7 @@ export function RecentActivityCard({
                           </p>
                         )}
                       </div>
-                      <ValueBadge
+                      <OperatorValueBadge
                         label={String(activity.status_code)}
                         intent={isSuccess ? "success" : "danger"}
                       />

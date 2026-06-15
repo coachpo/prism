@@ -1,9 +1,10 @@
 import { Loader2, Pencil, Plus, Scale, Sparkles, Trash2 } from "lucide-react";
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup";
 import { useLocale } from "@/i18n/useLocale";
-import { TypeBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { OperatorEmptyState, OperatorTypeBadge } from "@/shared/design-system";
 import {
   getLegacyLoadbalanceStrategySummary,
   getLoadbalanceStrategyTypeLabel,
@@ -115,13 +116,14 @@ export function LoadbalanceStrategiesTable({
       <CardContent className="space-y-4">
         {loadbalanceStrategiesLoading ? (
           <div className="space-y-2">
-            <div className="h-12 animate-pulse rounded-md bg-muted/50" />
-            <div className="h-12 animate-pulse rounded-md bg-muted/50" />
+            <Skeleton className="h-12 rounded-md" />
+            <Skeleton className="h-12 rounded-md" />
           </div>
         ) : loadbalanceStrategies.length === 0 ? (
-          <div className="rounded-md border border-dashed p-8 text-center">
-            <p className="text-sm text-muted-foreground">{tableCopy.noStrategiesConfigured}</p>
-            <div className="mt-4 flex flex-col items-center justify-center gap-2 sm:flex-row">
+          <OperatorEmptyState
+            title={tableCopy.noStrategiesConfigured}
+            action={(
+              <div className="flex flex-col items-center justify-center gap-2 sm:flex-row">
               <Button
                 type="button"
                 disabled={loadbalanceStrategyDefaultsCreating}
@@ -146,7 +148,8 @@ export function LoadbalanceStrategiesTable({
                 {tableCopy.addStrategy}
               </Button>
             </div>
-          </div>
+            )}
+          />
         ) : (
           <div className="rounded-md border">
             <Table>
@@ -175,7 +178,7 @@ export function LoadbalanceStrategiesTable({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <TypeBadge label={strategyTypeLabel} intent="info" />
+                        <OperatorTypeBadge label={strategyTypeLabel} intent="info" />
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-xs text-muted-foreground">

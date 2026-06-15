@@ -1,7 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
 import { BrowserRouter } from "react-router-dom"
-import { createRewriteQueryClient, createRewriteRouter } from "@/app"
+import { createRewriteQueryClient, createRewriteRouter } from "@/app/index"
 import { RoutedAuthProvider } from "@/app/router/appRouter"
 
 const router = createRewriteRouter()

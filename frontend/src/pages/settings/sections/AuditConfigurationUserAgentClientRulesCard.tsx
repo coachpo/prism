@@ -98,7 +98,7 @@ function UserAgentClientRuleSection({
                             ? undefined
                             : (checked) => void onToggleRule(rule, checked)
                         }
-                        className={toggleLocked ? undefined : "data-[state=checked]:bg-emerald-500"}
+                        className={toggleLocked ? undefined : "data-[state=checked]:bg-success"}
                       />
                     </TableCell>
                     <TableCell className="font-medium">

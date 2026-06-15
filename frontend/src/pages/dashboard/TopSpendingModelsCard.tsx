@@ -1,12 +1,12 @@
 import { ArrowUpRight, DollarSign } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
-import { EmptyState } from "@/components/EmptyState";
 import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { formatMoneyMicros } from "@/lib/costing";
 import type { SpendingTopModel } from "@/lib/types";
+import { OperatorEmptyState } from "@/shared/design-system";
 
 interface TopSpendingModelsCardProps {
   modelDisplayNames: Map<string, string>;
@@ -35,7 +35,7 @@ export function TopSpendingModelsCard({
       </CardHeader>
       <CardContent>
         {topSpendingModels.length === 0 ? (
-          <EmptyState
+          <OperatorEmptyState
             icon={<DollarSign className="h-6 w-6" />}
             title={messages.dashboard.noSpendingData}
             description={messages.dashboard.noSpendingDataDescription}

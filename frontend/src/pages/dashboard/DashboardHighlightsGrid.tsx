@@ -1,13 +1,12 @@
 import { Activity, ArrowUpRight, DollarSign, FileText } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
-import { EmptyState } from "@/components/EmptyState";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
-import { CompactMetricTile } from "@/components/CompactMetricTile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { StatGroup } from "@/lib/types";
 import type { DashboardMetricSnapshot } from "./useDashboardPageData";
+import { OperatorEmptyState, OperatorMetricTile } from "@/shared/design-system";
 
 interface DashboardHighlightsGridProps {
   highlighted: boolean;
@@ -50,7 +49,7 @@ export function DashboardHighlightsGrid({
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             {performanceTiles.map((tile) => (
-              <CompactMetricTile
+              <OperatorMetricTile
                 key={tile.label}
                 className={cn(highlighted && "ws-value-updated")}
                 label={tile.label}
@@ -72,7 +71,7 @@ export function DashboardHighlightsGrid({
         </CardHeader>
         <CardContent>
           {apiFamilyRows.length === 0 ? (
-            <EmptyState
+            <OperatorEmptyState
               icon={<Activity className="h-6 w-6" />}
               title={messages.dashboard.noApiFamilyActivity}
               description={messages.dashboard.noApiFamilyActivityDescription}

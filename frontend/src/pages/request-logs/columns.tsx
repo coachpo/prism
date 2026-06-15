@@ -1,10 +1,10 @@
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
-import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
 import { formatNumber, getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
+import { OperatorTypeBadge, OperatorValueBadge } from "@/shared/design-system";
 import { AlertCircle, Clock } from "lucide-react";
 import {
   getStreamOutcomeIntent,
@@ -160,7 +160,7 @@ export function getColumns(): ColumnDef[] {
       width: 84,
       grow: 0,
       align: "center",
-      render: (row) => <ValueBadge label={String(row.status_code)} intent={statusIntent(row.status_code)} className="px-1.5 py-0 font-mono" />,
+      render: (row) => <OperatorValueBadge label={String(row.status_code)} intent={statusIntent(row.status_code)} className="px-1.5 py-0 font-mono" />,
     },
     {
       key: "response_time_ms",
@@ -299,7 +299,7 @@ export function getColumns(): ColumnDef[] {
       align: "center",
       render: (row) =>
         hasStreamTelemetryOutcome(row.stream_outcome) ? (
-          <TypeBadge
+          <OperatorTypeBadge
             label={getStreamOutcomeLabel(row.stream_outcome, messages)}
             intent={getStreamOutcomeIntent(row.stream_outcome)}
             className="px-2 py-0.5"

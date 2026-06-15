@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { ApiFamilySelect } from "@/components/ApiFamilySelect";
-import { SwitchController } from "@/components/SwitchController";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import {
@@ -18,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
+import { OperatorSwitchField } from "@/shared/design-system";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
 import { getEditModelConnectionOptions, setApiFamilyOnForm, setDisplayNameOnForm, setModelIdOnForm } from "./modelFormState";
@@ -374,7 +374,7 @@ export function ModelDialog({
                 onChange={(accessTargets) => setFormData((prev) => ({ ...prev, access_targets: accessTargets }))}
               />
 
-              <SwitchController
+              <OperatorSwitchField
                 label={detailCopy.enabled}
                 description={enabledDescription}
                 checked={formData.is_enabled}

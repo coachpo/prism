@@ -1,9 +1,9 @@
 import { ArrowLeft, Pencil } from "lucide-react";
 import { CopyButton } from "@/components/CopyButton";
-import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import type { ModelConfig } from "@/lib/types";
+import { OperatorStatusBadge } from "@/shared/design-system";
 import { buildAccessTargetSummary } from "./useModelDetailDataSupport";
 
 interface ModelDetailHeaderProps {
@@ -62,8 +62,8 @@ export function ModelDetailHeader({ model, onBack, onEditModel }: ModelDetailHea
                 className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
               />
             ) : null}
-            <StatusBadge label={accessTargetLabel} intent="info" />
-            <StatusBadge
+            <OperatorStatusBadge label={accessTargetLabel} intent="info" />
+            <OperatorStatusBadge
               label={statusLabel}
               intent={model.is_enabled ? "success" : "muted"}
             />

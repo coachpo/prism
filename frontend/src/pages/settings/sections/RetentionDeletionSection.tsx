@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useLocale } from "@/i18n/useLocale";
 import type { RetentionSettingsResponse } from "@/lib/types";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { OperatorCallout } from "@/shared/design-system";
 import {
   type CleanupType,
   type RetentionPreset,
@@ -105,10 +107,10 @@ export function RetentionDeletionSection({
 
             {retentionSettingsLoading ? (
               <div className="mt-4 space-y-2">
-                <div className="h-9 animate-pulse rounded bg-muted" />
-                <div className="h-9 animate-pulse rounded bg-muted" />
-                <div className="h-9 animate-pulse rounded bg-muted" />
-                <div className="h-9 animate-pulse rounded bg-muted" />
+                <Skeleton className="h-9 rounded" />
+                <Skeleton className="h-9 rounded" />
+                <Skeleton className="h-9 rounded" />
+                <Skeleton className="h-9 rounded" />
               </div>
             ) : retentionSettings ? (
               <div className="mt-4 grid gap-3 md:grid-cols-4">
@@ -138,9 +140,7 @@ export function RetentionDeletionSection({
                 ))}
               </div>
             ) : (
-              <div className="mt-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-                {copy.retentionLoadedFailed}
-              </div>
+              <OperatorCallout className="mt-4" intent="warning" description={copy.retentionLoadedFailed} />
             )}
           </div>
 

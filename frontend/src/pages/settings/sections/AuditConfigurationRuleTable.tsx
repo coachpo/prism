@@ -9,8 +9,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TypeBadge } from "@/components/StatusBadge";
 import type { HeaderBlocklistRule } from "@/lib/types";
+import { OperatorTypeBadge } from "@/shared/design-system";
 import { AuditConfigurationRuleActions } from "./AuditConfigurationRuleActions";
 
 interface AuditConfigurationRuleTableProps {
@@ -53,7 +53,7 @@ export function AuditConfigurationRuleTable({
                   onCheckedChange={
                     toggleLocked || !onToggleRule ? undefined : (checked) => void onToggleRule(rule, checked)
                   }
-                  className={toggleLocked ? undefined : "data-[state=checked]:bg-emerald-500"}
+                  className={toggleLocked ? undefined : "data-[state=checked]:bg-success"}
                 />
               </TableCell>
               <TableCell className="font-medium">
@@ -63,7 +63,7 @@ export function AuditConfigurationRuleTable({
                 </div>
               </TableCell>
               <TableCell>
-                <TypeBadge
+                <OperatorTypeBadge
                   label={rule.match_type === "exact" ? messages.settingsDialogs.exactMatch : messages.settingsDialogs.prefixMatch}
                   intent={rule.match_type === "exact" ? "info" : "accent"}
                 />

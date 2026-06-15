@@ -1,6 +1,6 @@
 import type { Messages } from "@/i18n/messages/en";
-import type { BadgeIntent } from "@/components/StatusBadge";
 import type { StreamOutcome } from "@/lib/types";
+import type { OperatorBadgeIntent } from "@/shared/design-system";
 
 export function isStreamUsageUnavailableReason(reason: string | null | undefined): boolean {
   return reason === "STREAM_USAGE_UNAVAILABLE";
@@ -41,7 +41,7 @@ export function getStreamOutcomeLabel(
   }
 }
 
-export function getStreamOutcomeIntent(outcome: StreamOutcome | null | undefined): BadgeIntent {
+export function getStreamOutcomeIntent(outcome: StreamOutcome | null | undefined): OperatorBadgeIntent {
   switch (outcome) {
     case "completed":
       return "blue";

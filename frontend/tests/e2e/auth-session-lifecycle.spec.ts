@@ -1,5 +1,8 @@
 import { expect, test, type BrowserContext, type Page, type Route } from "@playwright/test";
-import { createEmptyDashboardSnapshot } from "./dashboard-aggregate-fixtures";
+import {
+  createDashboardRecentActivityResponse,
+  createEmptyDashboardSnapshot,
+} from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-28T12:00:00Z";
 
@@ -181,6 +184,11 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
 
     if (pathname === "/api/stats/dashboard") {
       await fulfillJson(route, createEmptyDashboardSnapshot());
+      return;
+    }
+
+    if (pathname === "/api/stats/dashboard/recent-activity") {
+      await fulfillJson(route, createDashboardRecentActivityResponse([]));
       return;
     }
 

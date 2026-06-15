@@ -1,10 +1,10 @@
 import { Activity, DollarSign, Server } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
-import { MetricCard } from "@/components/MetricCard";
 import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import { cn } from "@/lib/utils";
+import { OperatorMetricCard } from "@/shared/design-system";
 import type { DashboardMetricSnapshot } from "./useDashboardPageData";
 
 function formatSpendCoverageDetail(
@@ -51,13 +51,13 @@ export function DashboardMetricsGrid({
 
   return (
     <div className="grid gap-[var(--density-card-gap)] md:grid-cols-2 lg:grid-cols-4">
-      <MetricCard
+      <OperatorMetricCard
         label={messages.dashboard.activeModels}
         value={snapshot.activeModels}
         detail={messages.dashboard.totalConfigured(formatNumber(snapshot.totalModels))}
         icon={<Server className="h-4 w-4" />}
       />
-      <MetricCard
+      <OperatorMetricCard
         label={messages.dashboard.requests24h}
         value={formatNumber(snapshot.totalRequests)}
         detail={messages.dashboard.successRate(
@@ -70,7 +70,7 @@ export function DashboardMetricsGrid({
           highlighted && "ws-value-updated"
         )}
       />
-      <MetricCard
+      <OperatorMetricCard
         label={messages.dashboard.spending30d}
         value={spendMetricValue}
         detail={(
@@ -96,7 +96,7 @@ export function DashboardMetricsGrid({
           highlighted && "ws-value-updated"
         )}
       />
-      <MetricCard
+      <OperatorMetricCard
         label={messages.dashboard.averageRpm}
         value={formatNumber(snapshot.averageRpm, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
         detail={messages.dashboard.totalRequests(formatNumber(snapshot.averageRpmRequestTotal))}

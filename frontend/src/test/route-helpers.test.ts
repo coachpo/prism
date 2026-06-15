@@ -9,7 +9,7 @@ import {
   requestAuditSearchSchema,
   requestLogSearchSchema,
   rewriteRoutePaths,
-} from "@/app"
+} from "@/app/index"
 import { resolveProtectedRedirect, resolvePublicRedirect } from "@/app/router/authGates"
 
 const returnLocation = {

@@ -1,6 +1,6 @@
-import { PageHeader } from "@/components/PageHeader"
 import { Badge } from "@/components/ui/badge"
 import { useLocale } from "@/i18n/useLocale"
+import { OperatorPageHeader } from "@/shared/design-system"
 import { ProxyKeyDeleteAlertDialog } from "@/pages/proxy-api-keys/ProxyKeyDeleteAlertDialog"
 import { ProxyKeyDetailSheet } from "@/pages/proxy-api-keys/ProxyKeyDetailSheet"
 import { ProxyKeyEnforcementPanel } from "@/pages/proxy-api-keys/ProxyKeyEnforcementPanel"
@@ -26,11 +26,11 @@ export default function ProxyKeysFeaturePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={copy.title} description={copy.description}>
+      <OperatorPageHeader title={copy.title} description={copy.description}>
         <Badge variant="outline" className={data.authStatusTone}>
           {authStatusLabel}
         </Badge>
-      </PageHeader>
+      </OperatorPageHeader>
 
       {data.pageLoading ? (
         <ProxyApiKeysPageSkeleton />

@@ -1,9 +1,7 @@
 import { useMemo, useState } from "react"
 import { Coins, Eye, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react"
 
-import { EmptyState } from "@/components/EmptyState"
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -16,6 +14,10 @@ import {
 } from "@/components/ui/table"
 import { useLocale } from "@/i18n/useLocale"
 import type { PricingTemplate } from "@/lib/types"
+import {
+  OperatorEmptyState,
+  OperatorValueBadge,
+} from "@/shared/design-system"
 import {
   OperationalTablePagination,
   OperationalTableSkeletonRows,
@@ -133,10 +135,10 @@ export function PricingTemplatesTable({
           <TableBody>
             {pricingTemplatesLoading ? <OperationalTableSkeletonRows columns={6} rows={4} /> : null}
             {!pricingTemplatesLoading && pricingTemplates.length === 0 ? (
-              <TableRow><TableCell colSpan={6}><EmptyState title={copy.noTemplatesConfigured} description={copy.description} /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={6}><OperatorEmptyState title={copy.noTemplatesConfigured} description={copy.description} /></TableCell></TableRow>
             ) : null}
             {!pricingTemplatesLoading && pricingTemplates.length > 0 && sortedTemplates.length === 0 ? (
-              <TableRow><TableCell colSpan={6}><EmptyState title="No pricing templates match filters" description="Adjust the table filter and try again." /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={6}><OperatorEmptyState title="No pricing templates match filters" description="Adjust the table filter and try again." /></TableCell></TableRow>
             ) : null}
             {!pricingTemplatesLoading ? page.pageRows.map((template) => {
               const isPreparingEdit = pricingTemplatePreparingEditId === template.id
@@ -148,10 +150,10 @@ export function PricingTemplatesTable({
                       {template.description ? <span className="text-xs text-muted-foreground">{template.description}</span> : null}
                     </div>
                   </TableCell>
-                  <TableCell><Badge variant="outline" className="font-mono text-xs">{template.pricing_currency_code}</Badge></TableCell>
+                  <TableCell><OperatorValueBadge label={template.pricing_currency_code} className="text-xs" /></TableCell>
                   <TableCell className="font-mono text-xs"><span className="font-medium text-foreground">{template.input_price}</span><div className="mt-1 flex flex-col gap-0.5 text-muted-foreground"><span>{dialogCopy.cachedInputPriceLabel}: {normalizeTemplatePrice(template.cached_input_price)}</span><span>{dialogCopy.cacheCreationPriceLabel}: {normalizeTemplatePrice(template.cache_creation_price)}</span></div></TableCell>
                   <TableCell className="font-mono text-xs"><span className="font-medium text-foreground">{template.output_price}</span><div className="mt-1 text-muted-foreground"><span>{dialogCopy.reasoningPriceLabel}: {normalizeTemplatePrice(template.reasoning_price)}</span></div></TableCell>
-                  <TableCell className="text-right"><Badge variant="outline" className="font-mono text-xs">v{template.version}</Badge></TableCell>
+                  <TableCell className="text-right"><OperatorValueBadge label={`v${template.version}`} className="text-xs" /></TableCell>
                   <TableCell className="text-right">
                     <IconActionGroup className="justify-end">
                       <IconActionButton aria-label={`${copy.viewUsage} ${template.name}`} onClick={() => { void onViewUsage(template) }}><Eye /></IconActionButton>

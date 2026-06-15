@@ -11,6 +11,7 @@ import { useLocale } from "@/i18n/useLocale";
 import { useTimezone } from "@/hooks/useTimezone";
 import { api } from "@/lib/api";
 import type { LoadbalanceEventDetail } from "@/lib/types";
+import { OperatorCallout } from "@/shared/design-system";
 import { EventTypeBadge, FailureKindBadge } from "./LoadbalanceBadges";
 
 interface LoadbalanceEventDetailSheetProps {
@@ -105,9 +106,7 @@ export function LoadbalanceEventDetailSheet({
           )}
 
           {error && (
-            <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-400">
-              {error}
-            </div>
+            <OperatorCallout intent="danger" description={error} />
           )}
 
           {event && !loading && (

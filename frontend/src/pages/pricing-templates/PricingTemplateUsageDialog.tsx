@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useLocale } from "@/i18n/useLocale";
 import type { PricingTemplate, PricingTemplateConnectionUsageItem } from "@/lib/types";
 
@@ -69,8 +70,8 @@ export function PricingTemplateUsageDialog({
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               {pricingTemplateUsageLoading ? (
                 <div className="flex flex-col gap-3 py-1">
-                  <div className="h-10 animate-pulse rounded-md bg-muted/50" />
-                  <div className="h-10 animate-pulse rounded-md bg-muted/50" />
+                  <Skeleton className="h-10 rounded-md" />
+                  <Skeleton className="h-10 rounded-md" />
                 </div>
               ) : pricingTemplateUsageRows.length === 0 ? (
                 <div className="rounded-md border border-dashed p-8 text-center">

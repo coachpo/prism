@@ -1,9 +1,7 @@
 import { AlertTriangle, Coins, Copy, FileText } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
-import { SemanticCallout } from "@/components/SemanticCallout";
 import { SpendTrustNote } from "@/components/SpendTrustIndicator";
-import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,6 +16,11 @@ import {
   formatTokens,
 } from "../columns";
 import { formatUnpricedReasonLabel, resolveSpendTrustState } from "@/lib/costing";
+import {
+  OperatorCallout,
+  OperatorTypeBadge,
+  OperatorValueBadge,
+} from "@/shared/design-system";
 import {
   ApiFamilyPill,
   DetailRow,
@@ -93,11 +96,11 @@ function renderAuditCaptureState(
 
   switch (captureMode) {
     case "disabled":
-      return <TypeBadge label={messages.requestLogs.auditDisabledAtRequest} intent="muted" />;
+      return <OperatorTypeBadge label={messages.requestLogs.auditDisabledAtRequest} intent="muted" />;
     case "metadata_only":
-      return <TypeBadge label={messages.requestLogs.auditMetadataOnly} intent="info" />;
+      return <OperatorTypeBadge label={messages.requestLogs.auditMetadataOnly} intent="info" />;
     case "full":
-      return <TypeBadge label={messages.requestLogs.auditFullCapture} intent="success" />;
+      return <OperatorTypeBadge label={messages.requestLogs.auditFullCapture} intent="success" />;
   }
 }
 
@@ -194,9 +197,9 @@ export function RequestLogOverviewTab({
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <ValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
+                <OperatorValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
                 {hasStreamTelemetry ? (
-                  <TypeBadge
+                  <OperatorTypeBadge
                     label={streamStatusLabel}
                     intent={getStreamOutcomeIntent(summary.stream_outcome)}
                     className="px-2 py-0.5"
@@ -266,9 +269,9 @@ export function RequestLogOverviewTab({
       </Card>
 
       {formattedErrorDetail ? (
-        <SemanticCallout intent="danger" icon={<AlertTriangle />} className="shadow-sm">
+        <OperatorCallout intent="danger" icon={<AlertTriangle />} className="shadow-sm">
           <div className="flex min-w-0 flex-col gap-3">
-            <ValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
+            <OperatorValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="flex flex-col gap-1">
                 <p className="text-xs font-medium uppercase tracking-[0.16em]">{messages.requestLogs.errorDetail}</p>
@@ -295,7 +298,7 @@ export function RequestLogOverviewTab({
               </pre>
             </ScrollArea>
           </div>
-        </SemanticCallout>
+        </OperatorCallout>
       ) : null}
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]" data-testid="request-log-overview-grid">
@@ -380,7 +383,7 @@ export function RequestLogOverviewTab({
               </DetailRow>
               <DetailRow label={messages.requestLogs.stream}>
                 {hasStreamTelemetry ? (
-                  <TypeBadge
+                  <OperatorTypeBadge
                     label={streamStatusLabel}
                     intent={getStreamOutcomeIntent(summary.stream_outcome)}
                     preserveLabel

@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { EmptyState } from "@/components/EmptyState";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Collapsible,
@@ -25,6 +24,7 @@ import type {
   UsageSnapshotCurrency,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { OperatorEmptyState } from "@/shared/design-system";
 
 interface EndpointStatisticsTableProps {
   currency: UsageSnapshotCurrency;
@@ -72,7 +72,7 @@ export function EndpointStatisticsTable({
 
       <CardContent className="pt-6">
         {rows.length === 0 ? (
-          <EmptyState
+          <OperatorEmptyState
             className="rounded-xl border border-border/60 py-10"
             description={messages.statistics.noEndpointStatisticsDescription}
             title={messages.statistics.noEndpointStatisticsTitle}
@@ -357,8 +357,8 @@ function formatSpend(
 
 function getSuccessRateClass(successRate: number) {
   return successRate >= 95
-    ? "text-emerald-600 dark:text-emerald-400"
+    ? "text-success"
     : successRate >= 80
-      ? "text-amber-600 dark:text-amber-400"
-      : "text-red-600 dark:text-red-400";
+      ? "text-warning"
+      : "text-destructive";
 }

@@ -1,8 +1,5 @@
 import type { FormEvent, ReactNode } from "react";
 import { Loader2, Plus, X } from "lucide-react";
-import { SwitchController } from "@/components/SwitchController";
-import { StatusBadge } from "@/components/StatusBadge";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,6 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
+import { OperatorCallout, OperatorStatusBadge, OperatorSwitchField, OperatorTypeBadge } from "@/shared/design-system";
 import type {
   ApiFamily,
   Connection,
@@ -448,10 +446,8 @@ export function ConnectionDialog({
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline">
-                              {createMode === "select" ? copy.selectExisting : copy.createNew}
-                            </Badge>
-                            {editingConnection ? <StatusBadge label={copy.editable} intent="info" /> : null}
+                            <OperatorTypeBadge label={createMode === "select" ? copy.selectExisting : copy.createNew} preserveLabel />
+                            {editingConnection ? <OperatorStatusBadge label={copy.editable} intent="info" /> : null}
                           </div>
                         </div>
 
@@ -571,7 +567,7 @@ export function ConnectionDialog({
                           />
                         </ConnectionDialogField>
 
-                        <SwitchController
+                        <OperatorSwitchField
                           label={copy.active}
                           description={copy.includeInLoadBalancing}
                           checked={connectionForm.is_active ?? true}
@@ -920,17 +916,15 @@ export function ConnectionDialog({
                       dataTestId="connection-dialog-summary-panel"
                     >
                       <div className="flex flex-wrap gap-2">
-                        <StatusBadge
+                        <OperatorStatusBadge
                           label={(connectionForm.is_active ?? true) ? copy.enabled : copy.disabled}
                           intent={(connectionForm.is_active ?? true) ? "success" : "muted"}
                         />
-                        <StatusBadge
+                        <OperatorStatusBadge
                           label={selectedPricingTemplate ? copy.pricingOn : copy.pricingOff}
                           intent={selectedPricingTemplate ? "blue" : "muted"}
                         />
-                        <Badge variant="outline">
-                          {createMode === "select" ? copy.selectExisting : copy.createNew}
-                        </Badge>
+                        <OperatorTypeBadge label={createMode === "select" ? copy.selectExisting : copy.createNew} preserveLabel />
                       </div>
 
                       <ConnectionSummaryItem label={copy.endpointSummaryLabel}>
@@ -997,22 +991,14 @@ export function ConnectionDialog({
                       </Button>
 
                       {dialogTestResult ? (
-                        <div
-                          className={cn(
-                            "border-l-2 px-3 py-2 text-sm",
-                            dialogTestResult.status === "healthy"
-                              ? "border-emerald-500 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
-                              : "border-red-500 bg-red-50 text-red-900 dark:bg-red-950/30 dark:text-red-200",
-                          )}
+                        <OperatorCallout
                           data-testid="connection-dialog-test-result"
-                        >
-                          <p className="font-medium">
-                            {dialogTestResult.status === "healthy"
+                          description={dialogTestResult.detail}
+                          intent={dialogTestResult.status === "healthy" ? "success" : "danger"}
+                          title={dialogTestResult.status === "healthy"
                               ? copy.connectionHealthy
                               : copy.connectionUnhealthy}
-                          </p>
-                          <p className="mt-1 text-xs opacity-90">{dialogTestResult.detail}</p>
-                        </div>
+                        />
                       ) : null}
                     </ConnectionDialogSection>
                   </div>

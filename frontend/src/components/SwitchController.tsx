@@ -1,6 +1,4 @@
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
+import { OperatorSwitchField } from "@/shared/design-system";
 
 interface SwitchControllerProps {
   label: string;
@@ -11,6 +9,7 @@ interface SwitchControllerProps {
   className?: string;
 }
 
+/** @deprecated Use OperatorSwitchField from "@/shared/design-system" for new surfaces. */
 export function SwitchController({
   label,
   description,
@@ -20,20 +19,13 @@ export function SwitchController({
   className,
 }: SwitchControllerProps) {
   return (
-    <div className={cn("flex items-center justify-between rounded-lg border p-3", className)}>
-      <div>
-        <Label>{label}</Label>
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
-      </div>
-      <Switch
-        checked={checked ?? false}
-        onCheckedChange={onCheckedChange}
-        disabled={disabled}
-        aria-label={label}
-        className="data-[state=checked]:bg-emerald-500"
-      />
-    </div>
+    <OperatorSwitchField
+      checked={checked}
+      className={className}
+      description={description}
+      disabled={disabled}
+      label={label}
+      onCheckedChange={onCheckedChange}
+    />
   );
 }

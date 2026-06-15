@@ -1,6 +1,5 @@
 import { useId, useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,6 +17,7 @@ import {
 } from "@/components/ui/chart";
 import { useLocale } from "@/i18n/useLocale";
 import type { UsageChartGranularity } from "@/lib/types";
+import { OperatorEmptyState } from "@/shared/design-system";
 
 export interface UsageTrendChartSeriesPoint {
   bucket_start: string;
@@ -168,7 +168,7 @@ export function UsageTrendChart({
 
       {isEmpty ? (
         <CardContent className="pt-2">
-          <EmptyState className="py-10" description={emptyDescription} title={emptyTitle} />
+          <OperatorEmptyState className="py-10" description={emptyDescription} title={emptyTitle} />
         </CardContent>
       ) : (
         <CardContent className="pt-4 sm:pt-6">

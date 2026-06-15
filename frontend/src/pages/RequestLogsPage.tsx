@@ -1,7 +1,4 @@
 import { useMemo } from "react";
-import { EmptyState } from "@/components/EmptyState";
-import { PageHeader } from "@/components/PageHeader";
-import { SemanticCallout } from "@/components/SemanticCallout";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
@@ -14,6 +11,7 @@ import { RequestLogsTable } from "./request-logs/RequestLogsTable";
 import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
 import { SearchX } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { OperatorCallout, OperatorEmptyState, OperatorPageHeader } from "@/shared/design-system";
 
 export function RequestLogsPage() {
   const { revision } = useProfileContext();
@@ -69,7 +67,7 @@ export function RequestLogsPage() {
 
   return (
     <div className="space-y-6 pb-8">
-      <PageHeader
+      <OperatorPageHeader
         title={messages.requestLogs.requestLogsTitle}
         description={messages.requestLogs.requestLogsDescription}
       />
@@ -92,11 +90,11 @@ export function RequestLogsPage() {
       )}
 
       {surfaceError && (
-        <SemanticCallout intent="danger" description={surfaceError} />
+        <OperatorCallout intent="danger" description={surfaceError} />
       )}
 
       {showExactNotFound ? (
-        <EmptyState
+        <OperatorEmptyState
           className="rounded-xl border border-border/70 bg-card py-24 shadow-sm"
           testId="request-log-not-found"
           icon={<SearchX className="h-6 w-6" />}

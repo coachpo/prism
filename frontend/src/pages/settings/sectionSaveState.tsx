@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { StatusBadge } from "@/components/StatusBadge";
+import { OperatorStatusBadge } from "@/shared/design-system";
 import type { SettingsSaveSection } from "./settingsSaveTypes";
 
 interface SectionSaveStateProps {
@@ -17,11 +17,11 @@ export function renderSectionSaveState({
   const messages = getStaticMessages();
 
   if (isDirty) {
-    return <StatusBadge label={messages.settingsSaveState.unsavedChanges} intent="warning" />;
+    return <OperatorStatusBadge label={messages.settingsSaveState.unsavedChanges} intent="warning" />;
   }
 
   if (recentlySavedSection === section) {
-    return <StatusBadge label={messages.settingsSaveState.saved} intent="success" />;
+    return <OperatorStatusBadge label={messages.settingsSaveState.saved} intent="success" />;
   }
 
   return null;

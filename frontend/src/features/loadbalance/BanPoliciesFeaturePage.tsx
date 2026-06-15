@@ -1,14 +1,11 @@
 import { useState } from "react"
 import { Activity, RefreshCw, Search } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { PageHeader } from "@/components/PageHeader"
-import { EmptyState } from "@/components/EmptyState"
 import { LoadbalanceEventDetailSheet } from "@/components/loadbalance/LoadbalanceEventDetailSheet"
 import { LoadbalanceEventsTable } from "@/components/loadbalance/LoadbalanceEventsTable"
 import { DeleteLoadbalanceStrategyDialog } from "@/pages/loadbalance-strategies/DeleteLoadbalanceStrategyDialog"
@@ -18,6 +15,7 @@ import { useLocale } from "@/i18n/useLocale"
 import { useTimezone } from "@/hooks/useTimezone"
 import { api } from "@/lib/api"
 import type { LoadbalanceCurrentStateItem, LoadbalanceEvent } from "@/lib/types"
+import { OperatorCallout, OperatorEmptyState, OperatorPageHeader, OperatorPageShell, OperatorTypeBadge } from "@/shared/design-system"
 import { BanPolicyDialog } from "./BanPolicyDialog"
 import { useBanPoliciesFeatureData } from "./useBanPoliciesFeatureData"
 
@@ -30,14 +28,13 @@ export function BanPoliciesFeaturePage() {
   const selectedProfileLabel = selectedProfile ? `${selectedProfile.name} (#${selectedProfile.id})` : messages.loadbalanceStrategiesPage.selectedProfileFallback
 
   return (
-    <main className="operator-page-transition flex flex-col gap-6" data-testid="ban-policies-feature-page">
-      <PageHeader title="Ban Policy Strategies" description={messages.loadbalanceStrategiesPage.description} />
-      <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <Badge variant="outline" className="w-fit border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300">{messages.settingsPage.profileScopedSettings}</Badge>
-          <p className="text-sm text-amber-800 dark:text-amber-300">{messages.loadbalanceStrategiesPage.scopeCallout(selectedProfileLabel)}</p>
-        </div>
-      </div>
+    <OperatorPageShell data-testid="ban-policies-feature-page">
+      <OperatorPageHeader title="Ban Policy Strategies" description={messages.loadbalanceStrategiesPage.description} />
+      <OperatorCallout
+        action={<OperatorTypeBadge intent="warning" label={messages.settingsPage.profileScopedSettings} preserveLabel />}
+        description={messages.loadbalanceStrategiesPage.scopeCallout(selectedProfileLabel)}
+        intent="warning"
+      />
 
       <Tabs defaultValue="strategies" className="gap-5">
         <TabsList>
@@ -54,7 +51,7 @@ export function BanPoliciesFeaturePage() {
 
       <BanPolicyDialog editingStrategy={data.editingStrategy} initialValues={data.formValues} onClose={() => data.setDialogOpen(false)} onOpenChange={data.setDialogOpen} onSave={data.save} open={data.dialogOpen} saving={data.saving} />
       <DeleteLoadbalanceStrategyDialog deleteLoadbalanceStrategyConfirm={data.deleteConfirm} displayedDeleteLoadbalanceStrategyConfirm={data.displayDelete} loadbalanceStrategyDeleting={data.deleting} onClose={data.closeDelete} onDelete={data.deleteStrategy} open={data.deleteConfirm !== null} />
-    </main>
+    </OperatorPageShell>
   )
 }
 
@@ -88,7 +85,7 @@ function BanPolicyCurrentStatePanel({ revision }: { revision: number }) {
     }
   }
 
-  return <Card><CardHeader><CardTitle>Current Ban Policy State</CardTitle><CardDescription>Inspect retry-window and ban state for one model config ID in the selected profile. Refresh after switching profiles; revision {revision}.</CardDescription></CardHeader><CardContent className="flex flex-col gap-4"><FieldGroup><Field><FieldLabel htmlFor="current-state-model-config-id">Model config ID</FieldLabel><FieldDescription>Use the model row ID from the selected profile.</FieldDescription><div className="flex gap-2"><Input id="current-state-model-config-id" inputMode="numeric" value={modelConfigId} onChange={(event) => setModelConfigId(event.target.value)} placeholder="42" /><Button type="button" onClick={() => void loadState()} disabled={loading || !modelConfigId.trim()}><Search data-icon="inline-start" />Load State</Button></div></Field></FieldGroup>{!searched ? <EmptyState icon={<Activity />} title="No model selected" description="Enter a model config ID to view current Ban Policy state." /> : null}{loading ? <p className="text-sm text-muted-foreground">Loading Ban Policy state...</p> : null}{searched && !loading && states.length === 0 ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No current Ban Policy state is recorded for this model.</p> : null}{states.length > 0 ? <div className="rounded-md border"><Table><TableHeader><TableRow><TableHead>Connection</TableHead><TableHead>State</TableHead><TableHead>Cycle attempts</TableHead><TableHead>Cumulative attempts</TableHead><TableHead>Next retry</TableHead><TableHead>Ban mode</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{states.map((state) => <TableRow key={state.connection_id}><TableCell className="font-mono text-xs">#{state.connection_id}</TableCell><TableCell><Badge variant="outline">{state.state}</Badge></TableCell><TableCell>{formatNumber(state.cycle_retry_attempts)}</TableCell><TableCell>{formatNumber(state.cumulative_retry_attempts)}</TableCell><TableCell>{state.next_retry_at ? formatTime(state.next_retry_at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : messages.common.notApplicable}</TableCell><TableCell>{state.ban_mode}</TableCell><TableCell className="text-right"><Button type="button" variant="outline" size="sm" disabled={resettingConnectionId === state.connection_id} onClick={() => void resetState(state.connection_id)}>{messages.modelDetail.resetBanPolicyState}</Button></TableCell></TableRow>)}</TableBody></Table></div> : null}</CardContent></Card>
+  return <Card><CardHeader><CardTitle>Current Ban Policy State</CardTitle><CardDescription>Inspect retry-window and ban state for one model config ID in the selected profile. Refresh after switching profiles; revision {revision}.</CardDescription></CardHeader><CardContent className="flex flex-col gap-4"><FieldGroup><Field><FieldLabel htmlFor="current-state-model-config-id">Model config ID</FieldLabel><FieldDescription>Use the model row ID from the selected profile.</FieldDescription><div className="flex gap-2"><Input id="current-state-model-config-id" inputMode="numeric" value={modelConfigId} onChange={(event) => setModelConfigId(event.target.value)} placeholder="42" /><Button type="button" onClick={() => void loadState()} disabled={loading || !modelConfigId.trim()}><Search data-icon="inline-start" />Load State</Button></div></Field></FieldGroup>{!searched ? <OperatorEmptyState icon={<Activity />} title="No model selected" description="Enter a model config ID to view current Ban Policy state." /> : null}{loading ? <p className="text-sm text-muted-foreground">Loading Ban Policy state...</p> : null}{searched && !loading && states.length === 0 ? <OperatorEmptyState icon={<Activity />} title="No current state" description="No current Ban Policy state is recorded for this model." /> : null}{states.length > 0 ? <div className="rounded-md border"><Table><TableHeader><TableRow><TableHead>Connection</TableHead><TableHead>State</TableHead><TableHead>Cycle attempts</TableHead><TableHead>Cumulative attempts</TableHead><TableHead>Next retry</TableHead><TableHead>Ban mode</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{states.map((state) => <TableRow key={state.connection_id}><TableCell className="font-mono text-xs">#{state.connection_id}</TableCell><TableCell><OperatorTypeBadge label={state.state} /></TableCell><TableCell>{formatNumber(state.cycle_retry_attempts)}</TableCell><TableCell>{formatNumber(state.cumulative_retry_attempts)}</TableCell><TableCell>{state.next_retry_at ? formatTime(state.next_retry_at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : messages.common.notApplicable}</TableCell><TableCell>{state.ban_mode}</TableCell><TableCell className="text-right"><Button type="button" variant="outline" size="sm" disabled={resettingConnectionId === state.connection_id} onClick={() => void resetState(state.connection_id)}>{messages.modelDetail.resetBanPolicyState}</Button></TableCell></TableRow>)}</TableBody></Table></div> : null}</CardContent></Card>
 }
 
 function BanPolicyEventsPanel({ revision }: { revision: number }) {
@@ -112,7 +109,7 @@ function BanPolicyEventsPanel({ revision }: { revision: number }) {
       setLoading(false)
     }
   }
-  return <Card><CardHeader><CardTitle>Ban Policy Events</CardTitle><CardDescription>Review retry scheduled, retry exhausted, banned, unbanned, recovered, and admission rejected events for one model ID. Selected profile revision {revision}.</CardDescription></CardHeader><CardContent className="flex flex-col gap-4"><FieldGroup><Field><FieldLabel htmlFor="events-model-id">Model ID</FieldLabel><FieldDescription>Use the public model ID whose Ban Policy history you want to inspect.</FieldDescription><div className="flex gap-2"><Input id="events-model-id" value={modelId} onChange={(event) => setModelId(event.target.value)} placeholder="gpt-4o" /><Button type="button" onClick={() => void loadEvents(0)} disabled={loading || !modelId.trim()}><RefreshCw data-icon="inline-start" />Load Events</Button></div></Field></FieldGroup>{!searched ? <EmptyState icon={<Activity />} title="No model selected" description="Enter a model ID to view Ban Policy event history." /> : null}{searched ? <LoadbalanceEventsTable events={events} loading={loading} total={total} offset={offset} limit={EVENTS_PAGE_SIZE} onSelectEvent={setSelectedEventId} onPreviousPage={() => void loadEvents(Math.max(0, offset - EVENTS_PAGE_SIZE))} onNextPage={() => void loadEvents(offset + EVENTS_PAGE_SIZE)} /> : null}<LoadbalanceEventDetailSheet eventId={selectedEventId} onClose={() => setSelectedEventId(null)} /></CardContent></Card>
+  return <Card><CardHeader><CardTitle>Ban Policy Events</CardTitle><CardDescription>Review retry scheduled, retry exhausted, banned, unbanned, recovered, and admission rejected events for one model ID. Selected profile revision {revision}.</CardDescription></CardHeader><CardContent className="flex flex-col gap-4"><FieldGroup><Field><FieldLabel htmlFor="events-model-id">Model ID</FieldLabel><FieldDescription>Use the public model ID whose Ban Policy history you want to inspect.</FieldDescription><div className="flex gap-2"><Input id="events-model-id" value={modelId} onChange={(event) => setModelId(event.target.value)} placeholder="gpt-4o" /><Button type="button" onClick={() => void loadEvents(0)} disabled={loading || !modelId.trim()}><RefreshCw data-icon="inline-start" />Load Events</Button></div></Field></FieldGroup>{!searched ? <OperatorEmptyState icon={<Activity />} title="No model selected" description="Enter a model ID to view Ban Policy event history." /> : null}{searched ? <LoadbalanceEventsTable events={events} loading={loading} total={total} offset={offset} limit={EVENTS_PAGE_SIZE} onSelectEvent={setSelectedEventId} onPreviousPage={() => void loadEvents(Math.max(0, offset - EVENTS_PAGE_SIZE))} onNextPage={() => void loadEvents(offset + EVENTS_PAGE_SIZE)} /> : null}<LoadbalanceEventDetailSheet eventId={selectedEventId} onClose={() => setSelectedEventId(null)} /></CardContent></Card>
 }
 
 export default BanPoliciesFeaturePage

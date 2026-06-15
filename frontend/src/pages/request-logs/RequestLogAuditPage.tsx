@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, FileSearch, ShieldOff, Terminal } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
-import { ValueBadge } from "@/components/StatusBadge";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import type { ApiFamily, AuditLogDetail, AuditLogListItem } from "@/lib/types";
+import { OperatorPageHeader, OperatorTypeBadge, OperatorValueBadge } from "@/shared/design-system";
 import { resolveRequestAuditCaptureMode, type RequestAuditCaptureMode } from "./requestLogAuditState";
 import { RequestLogPayloadBlock } from "./detail/RequestLogPayloadBlock";
 import { getStatusIntent } from "./detail/requestLogDetailUtils";
@@ -32,10 +30,10 @@ function parsePositiveInteger(value: string | null | undefined): number | null {
   const parsed = Number(trimmed);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
-function captureBadgeClassName(mode: RequestAuditCaptureMode | null): string {
-  if (mode === "metadata_only") return "border-info/25 bg-info/10 text-info";
-  if (mode === "full") return "border-success/25 bg-success/10 text-success";
-  return "border-border/70 bg-muted text-muted-foreground";
+function captureBadgeIntent(mode: RequestAuditCaptureMode | null) {
+  if (mode === "metadata_only") return "info" as const;
+  if (mode === "full") return "success" as const;
+  return "muted" as const;
 }
 
 function getCaptureLabel(
@@ -138,10 +136,8 @@ function AuditList({
               <Link to={getSelectedAuditPath(requestId, item.id, cursor)}>
                 <span className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left">
                   <span className="flex flex-wrap items-center gap-2">
-                    <ValueBadge label={String(item.response_status)} intent={getStatusIntent(item.response_status)} />
-                    <Badge variant="outline" className={captureBadgeClassName(captureMode)}>
-                      {getCaptureLabel(captureMode, messages)}
-                    </Badge>
+                    <OperatorValueBadge label={String(item.response_status)} intent={getStatusIntent(item.response_status)} />
+                    <OperatorTypeBadge label={getCaptureLabel(captureMode, messages)} intent={captureBadgeIntent(captureMode)} />
                     <span className="font-mono text-xs text-muted-foreground">#{item.id}</span>
                   </span>
                   <span className="max-w-full whitespace-normal break-words font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
@@ -227,22 +223,16 @@ function AuditDetailCard({
       <div className="flex flex-col gap-3 border-b border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <ValueBadge label={String(detail.response_status)} intent={getStatusIntent(detail.response_status)} className="px-1.5 py-0" />
-            <Badge variant="outline" className={captureBadgeClassName(captureMode)}>
-              {getCaptureLabel(captureMode, messages)}
-            </Badge>
-            <Badge variant="outline" className="border-border/70 bg-background/80 font-mono text-[11px]">
-              #{detail.id}
-            </Badge>
+            <OperatorValueBadge label={String(detail.response_status)} intent={getStatusIntent(detail.response_status)} className="px-1.5 py-0" />
+            <OperatorTypeBadge label={getCaptureLabel(captureMode, messages)} intent={captureBadgeIntent(captureMode)} />
+            <OperatorValueBadge label={`#${detail.id}`} className="text-[11px]" />
           </div>
           <p className="whitespace-pre-wrap break-words rounded-lg border border-border/60 bg-background/70 p-3 font-mono text-xs leading-5 text-foreground shadow-inner [overflow-wrap:anywhere]">
             {`${detail.request_method} ${detail.request_url}`}
           </p>
           <p className="text-xs text-muted-foreground">{formatTimestamp(detail.created_at)}</p>
         </div>
-        <Badge variant="outline" className="gap-1 border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium">
-          {formatNumber(detail.duration_ms)}ms
-        </Badge>
+        <OperatorValueBadge label={`${formatNumber(detail.duration_ms)}ms`} className="gap-1 px-2.5 py-1 text-[11px] font-medium" />
       </div>
       <CardContent className="flex flex-col gap-4 p-4">
         <RequestLogPayloadBlock title={messages.requestLogs.requestHeaders} content={detail.request_headers || ""} contentKind="headers" />
@@ -341,7 +331,7 @@ export function RequestLogAuditPage() {
 
   return (
     <div className="flex flex-col gap-6 pb-8" data-clipboard-fallback-root="" data-testid="dedicated-request-log-audit-page">
-      <PageHeader
+      <OperatorPageHeader
         title={messages.requestLogs.auditPageTitle(requestIdLabel || "-")}
         description={messages.requestLogs.auditPageDescription}
       >
@@ -351,7 +341,7 @@ export function RequestLogAuditPage() {
             {messages.requestLogs.viewRequestInLogs}
           </Link>
         </Button>
-      </PageHeader>
+      </OperatorPageHeader>
 
       {state.request ? (
         <Card className="border-border/70">
@@ -360,9 +350,7 @@ export function RequestLogAuditPage() {
             <span>{messages.requestLogs.requestTitle(state.request.summary.id)}</span>
             <Separator orientation="vertical" className="h-4" />
             <span>{format(state.request.summary.created_at)}</span>
-            <Badge variant="outline" className={captureBadgeClassName(state.captureMode)}>
-              {getCaptureLabel(state.captureMode, messages)}
-            </Badge>
+            <OperatorTypeBadge label={getCaptureLabel(state.captureMode, messages)} intent={captureBadgeIntent(state.captureMode)} />
           </CardContent>
         </Card>
       ) : null}

@@ -3,9 +3,7 @@ import { Eye, Pencil, Plus, Server, Trash2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 
 import { CopyButton } from "@/components/CopyButton"
-import { EmptyState } from "@/components/EmptyState"
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup"
-import { StatusBadge, TypeBadge } from "@/components/StatusBadge"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -19,6 +17,11 @@ import { useLocale } from "@/i18n/useLocale"
 import type { ManagedModelConfigListItem } from "@/lib/api/management"
 import { formatMoneyMicros } from "@/lib/costing"
 import { formatApiFamily } from "@/lib/utils"
+import {
+  OperatorEmptyState,
+  OperatorStatusBadge,
+  OperatorTypeBadge,
+} from "@/shared/design-system"
 import {
   OperationalTablePagination,
   SortableTableHead,
@@ -143,7 +146,7 @@ export function ModelsTable({
 
   if (filtered.length === 0) {
     return (
-      <EmptyState
+      <OperatorEmptyState
         icon={<Server className="size-6" />}
         title={search ? messages.modelsUi.noModelsMatchSearch : messages.modelsUi.noModelsConfigured}
         description={search ? messages.modelsUi.tryDifferentModelNameOrId : messages.modelsUi.createFirstModel}
@@ -177,8 +180,8 @@ export function ModelsTable({
               return (
                 <TableRow key={model.id} data-testid={`models-table-row-${model.id}`}>
                   <TableCell><ModelIdentityCell model={model} /></TableCell>
-                  <TableCell><TypeBadge label={formatApiFamily(model.api_family ?? "")} intent="info" preserveLabel /></TableCell>
-                  <TableCell><StatusBadge label={model.is_enabled ? messages.modelDetail.enabled : messages.modelDetail.disabled} intent={model.is_enabled ? "success" : "danger"} /></TableCell>
+                  <TableCell><OperatorTypeBadge label={formatApiFamily(model.api_family ?? "")} intent="info" preserveLabel /></TableCell>
+                  <TableCell><OperatorStatusBadge label={model.is_enabled ? messages.modelDetail.enabled : messages.modelDetail.disabled} intent={model.is_enabled ? "success" : "danger"} /></TableCell>
                   <TableCell>
                     <div className="flex min-w-44 flex-col gap-1 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">{messages.modelDetail.targets(formatNumber(model.access_targets.length))}</span>

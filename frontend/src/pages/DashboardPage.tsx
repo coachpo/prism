@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { PageHeader } from "@/components/PageHeader";
 import { WebSocketStatusIndicator } from "@/components/WebSocketStatusIndicator";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,6 +13,7 @@ import { RoutingDiagramCard } from "@/pages/dashboard/RoutingDiagramCard";
 import { DASHBOARD_TAB_OPTIONS, type DashboardTab } from "@/pages/dashboard/queryParams";
 import { useDashboardPageData } from "@/pages/dashboard/useDashboardPageData";
 import { useDashboardPageState } from "@/pages/dashboard/useDashboardPageState";
+import { OperatorPageHeader } from "@/shared/design-system";
 
 function isDashboardTab(value: string): value is DashboardTab {
   return DASHBOARD_TAB_OPTIONS.some((tab) => tab === value);
@@ -87,7 +87,7 @@ function DashboardAggregateSection({
 
   return (
     <>
-      <PageHeader title={messages.dashboard.dashboardTitle} description={messages.dashboard.dashboardDescription}>
+      <OperatorPageHeader title={messages.dashboard.dashboardTitle} description={messages.dashboard.dashboardDescription}>
         <Button
           variant="outline"
           size="icon"
@@ -102,7 +102,7 @@ function DashboardAggregateSection({
           <RefreshCw className={`h-4 w-4 ${data.isRefreshing ? "animate-spin" : ""}`} />
         </Button>
         <WebSocketStatusIndicator connectionState={data.connectionState} isSyncing={data.isSyncing} />
-      </PageHeader>
+      </OperatorPageHeader>
 
       <DashboardTabs pageState={pageState} />
 
@@ -137,7 +137,7 @@ function DashboardAnalyticsSection({ pageState }: { pageState: ReturnType<typeof
 
   return (
     <>
-      <PageHeader title={messages.dashboard.dashboardTitle} description={messages.dashboard.dashboardDescription} />
+      <OperatorPageHeader title={messages.dashboard.dashboardTitle} description={messages.dashboard.dashboardDescription} />
       <DashboardTabs pageState={pageState} />
       <DashboardAnalyticsContent />
     </>

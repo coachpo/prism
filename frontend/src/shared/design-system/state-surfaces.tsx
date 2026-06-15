@@ -1,5 +1,12 @@
 import type { ComponentProps, ReactNode } from "react"
-import { AlertCircleIcon, Loader2Icon, SearchXIcon } from "lucide-react"
+import {
+  AlertCircleIcon,
+  CheckCircle2Icon,
+  InfoIcon,
+  Loader2Icon,
+  SearchXIcon,
+  TriangleAlertIcon,
+} from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -14,24 +21,30 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
+export type OperatorCalloutIntent = "info" | "success" | "warning" | "danger" | "muted"
+
 type OperatorStateProps = {
   title: string
-  description?: string
+  description?: ReactNode
   action?: ReactNode
   className?: string
+  icon?: ReactNode
+  testId?: string
 }
 
 export function OperatorEmptyState({
-  title,
-  description,
   action,
   className,
+  description,
+  icon,
+  testId,
+  title,
 }: OperatorStateProps) {
   return (
-    <Empty className={cn("operator-state-surface border", className)}>
+    <Empty className={cn("operator-state-surface border", className)} data-testid={testId}>
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <SearchXIcon />
+          {icon ?? <SearchXIcon />}
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
         {description ? <EmptyDescription>{description}</EmptyDescription> : null}
@@ -40,6 +53,7 @@ export function OperatorEmptyState({
     </Empty>
   )
 }
+
 export function OperatorLoadingState({
   title,
   description = "Loading the latest operator state.",
@@ -85,5 +99,61 @@ export function OperatorRetryButton({ children, ...props }: ComponentProps<typeo
     <Button variant="outline" size="sm" {...props}>
       {children}
     </Button>
+  )
+}
+
+const OPERATOR_CALLOUT_TONES: Record<OperatorCalloutIntent, string> = {
+  info: "border-info/25 bg-info/10 text-info [&_[data-slot=alert-description]]:text-info/90",
+  success: "border-success/25 bg-success/10 text-success [&_[data-slot=alert-description]]:text-success/90",
+  warning: "border-warning/30 bg-warning/10 text-warning [&_[data-slot=alert-description]]:text-warning/90",
+  danger: "border-destructive/30 bg-destructive/10 text-destructive [&_[data-slot=alert-description]]:text-destructive/90",
+  muted: "border-border/70 bg-muted/35 text-foreground [&_[data-slot=alert-description]]:text-muted-foreground",
+}
+
+const OPERATOR_CALLOUT_ICONS = {
+  info: InfoIcon,
+  success: CheckCircle2Icon,
+  warning: TriangleAlertIcon,
+  danger: AlertCircleIcon,
+  muted: InfoIcon,
+} as const
+
+export type OperatorCalloutProps = Omit<ComponentProps<typeof Alert>, "title"> & {
+  intent?: OperatorCalloutIntent
+  title?: ReactNode
+  description?: ReactNode
+  action?: ReactNode
+  icon?: ReactNode
+}
+
+export function OperatorCallout({
+  action,
+  children,
+  className,
+  description,
+  icon,
+  intent = "info",
+  role,
+  title,
+  ...props
+}: OperatorCalloutProps) {
+  const Icon = OPERATOR_CALLOUT_ICONS[intent]
+  const content = description ?? children
+
+  return (
+    <Alert
+      role={role ?? (intent === "danger" ? "alert" : "note")}
+      className={cn("items-center", OPERATOR_CALLOUT_TONES[intent], className)}
+      {...props}
+    >
+      {icon ?? <Icon />}
+      <div className="col-start-2 flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="min-w-0">
+          {title ? <AlertTitle>{title}</AlertTitle> : null}
+          {content ? <AlertDescription>{content}</AlertDescription> : null}
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
+    </Alert>
   )
 }

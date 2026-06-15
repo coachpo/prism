@@ -1,7 +1,7 @@
 import { Network } from "lucide-react";
-import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocale } from "@/i18n/useLocale";
+import { OperatorCallout, OperatorEmptyState } from "@/shared/design-system";
 
 interface RoutingDiagramShellProps {
   chartContent: React.ReactNode | null;
@@ -60,15 +60,13 @@ export function RoutingDiagramShell({
 
       <div className="space-y-4">
         {error ? (
-          <div className="rounded-xl border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
-            {error}
-          </div>
+          <OperatorCallout intent="warning" description={error} />
         ) : null}
 
         {chartContent ? (
           chartContent
         ) : (
-          <EmptyState
+          <OperatorEmptyState
             icon={<Network className="h-6 w-6" />}
             title={emptyState?.title ?? messages.dashboard.routingNoData}
             description={

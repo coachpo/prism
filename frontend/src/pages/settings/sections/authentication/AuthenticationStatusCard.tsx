@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
-import { SwitchController } from "@/components/SwitchController";
+import { OperatorSwitchField } from "@/shared/design-system";
 
 interface AuthenticationStatusCardProps {
   authEnabled: boolean;
@@ -26,7 +26,7 @@ export function AuthenticationStatusCard({
         <CardDescription>{statusDescription}</CardDescription>
       </CardHeader>
       <CardContent>
-        <SwitchController
+        <OperatorSwitchField
           label={copy.authentication}
           description={copy.authenticationToggleDescription}
           checked={authEnabled}

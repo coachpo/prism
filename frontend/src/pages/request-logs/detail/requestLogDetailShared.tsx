@@ -1,9 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
-import { CompactMetricTile } from "@/components/CompactMetricTile";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatApiFamily } from "@/lib/utils";
+import { OperatorMetricTile } from "@/shared/design-system";
 
 export function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -24,7 +24,7 @@ export function SummaryStat({
   valueClassName?: string;
 }) {
   return (
-    <CompactMetricTile
+    <OperatorMetricTile
       className="border-border/60 bg-background/80 [&_[data-slot=metric-label]]:text-[11px] [&_[data-slot=metric-label]]:uppercase [&_[data-slot=metric-label]]:tracking-[0.18em] [&_[data-slot=metric-value]]:text-sm"
       label={label}
       value={value}

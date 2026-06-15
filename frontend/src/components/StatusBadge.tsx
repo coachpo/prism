@@ -1,18 +1,11 @@
-import { Badge } from "@/components/ui/badge";
-import { cn, formatLabel } from "@/lib/utils";
+import {
+  OperatorStatusBadge,
+  OperatorTypeBadge,
+  OperatorValueBadge,
+  type OperatorBadgeIntent,
+} from "@/shared/design-system";
 
-const INTENT_CLASSES = {
-  success: "border-success/25 bg-success/10 text-success",
-  warning: "border-warning/30 bg-warning/10 text-warning",
-  danger: "border-destructive/30 bg-destructive/10 text-destructive",
-  info: "border-info/25 bg-info/10 text-info",
-  accent: "border-primary/25 bg-primary/10 text-primary",
-  blue: "border-info/25 bg-info/10 text-info",
-  muted: "border-border/70 bg-muted text-muted-foreground",
-  default: "",
-} as const;
-
-export type BadgeIntent = keyof typeof INTENT_CLASSES;
+export type BadgeIntent = OperatorBadgeIntent;
 interface BaseBadgeProps {
   label: string;
   intent?: BadgeIntent;
@@ -21,37 +14,19 @@ interface BaseBadgeProps {
 }
 
 /** Boolean state indicators: On/Off, Enabled/Disabled, Active/Inactive */
+/** @deprecated Use OperatorStatusBadge from "@/shared/design-system" for new surfaces. */
 export function StatusBadge({ label, intent = "default", className }: BaseBadgeProps) {
-  return (
-    <Badge
-      variant="outline"
-      className={cn("text-[10px] shrink-0", INTENT_CLASSES[intent], className)}
-    >
-      {formatLabel(label)}
-    </Badge>
-  );
+  return <OperatorStatusBadge label={label} intent={intent} className={className} />;
 }
 
 /** Category/classification labels: Model/Connection, Exact/Prefix, Stream */
+/** @deprecated Use OperatorTypeBadge from "@/shared/design-system" for new surfaces. */
 export function TypeBadge({ label, intent = "default", className, preserveLabel = false }: BaseBadgeProps) {
-  return (
-    <Badge
-      variant="outline"
-      className={cn("text-[10px] shrink-0", INTENT_CLASSES[intent], className)}
-    >
-      {preserveLabel ? label : formatLabel(label)}
-    </Badge>
-  );
+  return <OperatorTypeBadge label={label} intent={intent} className={className} preserveLabel={preserveLabel} />;
 }
 
 /** Raw data values displayed as-is: HTTP codes, percentages, priorities, methods */
+/** @deprecated Use OperatorValueBadge from "@/shared/design-system" for new surfaces. */
 export function ValueBadge({ label, intent = "default", className }: BaseBadgeProps) {
-  return (
-    <Badge
-      variant="outline"
-      className={cn("text-[10px] shrink-0 font-mono", INTENT_CLASSES[intent], className)}
-    >
-      {label}
-    </Badge>
-  );
+  return <OperatorValueBadge label={label} intent={intent} className={className} />;
 }
