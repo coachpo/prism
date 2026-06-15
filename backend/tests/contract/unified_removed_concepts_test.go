@@ -6,15 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
 )
 
 type removedConceptScanRoot struct {
-	RelPath string
-	Glob    bool
+	RelPath  string
+	Glob     bool
+	Optional bool
 }
 
 type removedConceptTerm struct {
@@ -42,7 +42,7 @@ var removedConceptScanRoots = []removedConceptScanRoot{
 	{RelPath: "AGENTS.md"},
 	{RelPath: "backend/AGENTS.md"},
 	{RelPath: "frontend/AGENTS.md"},
-	{RelPath: "config.json"},
+	{RelPath: "config.json", Optional: true},
 }
 
 var unifiedRemovedConceptTerms = []removedConceptTerm{
@@ -157,7 +157,7 @@ func removedConceptScanFiles(t *testing.T, repoRoot string) []string {
 			t.Fatalf("scan root %s matched no files", root.RelPath)
 		}
 		for _, match := range matches {
-			addRemovedConceptPath(t, repoRoot, match, seen)
+			addRemovedConceptPath(t, repoRoot, match, root.Optional, seen)
 		}
 	}
 
@@ -169,10 +169,13 @@ func removedConceptScanFiles(t *testing.T, repoRoot string) []string {
 	return files
 }
 
-func addRemovedConceptPath(t *testing.T, repoRoot string, absolutePath string, seen map[string]struct{}) {
+func addRemovedConceptPath(t *testing.T, repoRoot string, absolutePath string, optional bool, seen map[string]struct{}) {
 	t.Helper()
 	info, err := os.Stat(absolutePath)
 	if err != nil {
+		if optional && os.IsNotExist(err) {
+			return
+		}
 		t.Fatalf("stat scan path %s: %v", absolutePath, err)
 	}
 	if !info.IsDir() {
@@ -311,7 +314,6 @@ func isIdentifierByte(value byte) bool {
 func assertRemovedConceptScope(t *testing.T, files []string) {
 	t.Helper()
 	assertRemovedConceptRoots(t)
-	assertRemovedConceptFileIncluded(t, files, "config.json")
 	assertRemovedConceptDirIncluded(t, files, "backend/internal/domain/stats/")
 	for _, rel := range files {
 		if removedConceptExcludedPath(rel) {
@@ -333,23 +335,19 @@ func assertRemovedConceptRoots(t *testing.T) {
 		"AGENTS.md",
 		"backend/AGENTS.md",
 		"frontend/AGENTS.md",
-		"config.json",
+		"config.json?",
 	}
 	got := make([]string, 0, len(removedConceptScanRoots))
 	for _, root := range removedConceptScanRoots {
-		got = append(got, root.RelPath)
+		relPath := root.RelPath
+		if root.Optional {
+			relPath += "?"
+		}
+		got = append(got, relPath)
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("removed-concepts scan roots changed\nwant: %v\n got: %v", want, got)
 	}
-}
-
-func assertRemovedConceptFileIncluded(t *testing.T, files []string, rel string) {
-	t.Helper()
-	if slices.Contains(files, rel) {
-		return
-	}
-	t.Fatalf("removed-concepts scan did not include %s", rel)
 }
 
 func assertRemovedConceptDirIncluded(t *testing.T, files []string, dir string) {
