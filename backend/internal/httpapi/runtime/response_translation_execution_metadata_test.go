@@ -277,6 +277,65 @@ func TestPreDispatchPromotionMergePreservesChatToResponsesFinalTranslationIntent
 	}
 }
 
+func TestFinalResponseTranslationForSerializationFallsBackToFinalAttemptMetadata(t *testing.T) {
+	service := &Service{now: fixedResponseHookTestNow}
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	connection := runtimeConnection{ID: 91, Endpoint: runtimeEndpoint{ID: 911}}
+	plan := requestPlan{
+		RequestedModelID: "chat-public",
+		RuntimeOperation: operation,
+		TerminalAttempts: []runtimeTerminalAttempt{{Connection: connection, TranslationMode: TranslationModeOpenAIChatCompletionsToResponses}},
+	}
+	execution := executionResult{
+		Response:   &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}},
+		Connection: connection,
+		Attempts: []executionAttempt{{
+			Connection:                  connection,
+			OperationTranslationMode:    TranslationModeOpenAIChatCompletionsToResponses,
+			UpstreamOperationName:       openAIUpstreamOperationResponses,
+			UpstreamRequestPath:         "/v1/responses",
+			AuditEnabledAtRequest:       false,
+			AuditCaptureBodiesAtRequest: false,
+		}},
+		FinalResponseTranslation: &runtimeFinalResponseTranslationMetadata{
+			TranslationMode:              TranslationModeNone,
+			RequestedModelID:             "chat-public",
+			ClientOperationName:          openAIUpstreamOperationChatCompletions,
+			SelectedTerminalTargetID:     &connection.ID,
+			UpstreamOperationName:        openAIUpstreamOperationChatCompletions,
+			UpstreamRequestPath:          "/v1/chat/completions",
+			ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionNone,
+		},
+	}
+
+	finalResponseTranslation := finalResponseTranslationForSerialization(plan, execution)
+	responseRecorder := httptest.NewRecorder()
+	proxyWriter := newRuntimeDeferredCommitWriter(responseRecorder)
+	rawBody := []byte(`{"id":"resp_live_like","object":"response","created_at":1700000001,"model":"gpt-5.5","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"translated from final attempt"}]}],"usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16}}`)
+	capture, err := service.writeBufferedNonStreamResponse(proxyWriter, plan, execution, finalResponseTranslation, rawBody)
+	if err != nil {
+		t.Fatalf("write translated response from final attempt metadata: %v", err)
+	}
+	proxyWriter.Commit()
+
+	payload := decodeTranslationTestPayload(t, responseRecorder.Body.Bytes())
+	if got := stringValue(payload["object"]); got != "chat.completion" {
+		t.Fatalf("expected final attempt metadata to translate Responses body to Chat Completions, got object %q body %s", got, responseRecorder.Body.String())
+	}
+	if got := stringValue(payload["model"]); got != "chat-public" {
+		t.Fatalf("expected requested model in translated body, got %q", got)
+	}
+	if _, ok := payload["choices"]; !ok {
+		t.Fatalf("expected translated Chat response to contain choices, got %+v", payload)
+	}
+	if _, ok := payload["output"]; ok {
+		t.Fatalf("expected translated Chat response not to expose raw Responses output, got %s", responseRecorder.Body.String())
+	}
+	if got := capture.extractedUsage().TotalTokens; got == nil || *got != 16 {
+		t.Fatalf("expected translated capture usage from upstream body, got %+v", capture.extractedUsage())
+	}
+}
+
 func TestProviderFallbackPromotionMergePreservesChatToResponsesFinalTranslationIntent(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
 	sourceResolvedTargetModelID := "chat-source-model"

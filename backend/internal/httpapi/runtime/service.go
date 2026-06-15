@@ -765,14 +765,35 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 }
 
 func finalResponseTranslationForSerialization(plan requestPlan, execution executionResult) runtimeFinalResponseTranslationMetadata {
+	attemptMetadata := finalResponseTranslationMetadataFromFinalExecutionAttempt(execution)
 	metadata := cloneRuntimeFinalResponseTranslationMetadata(execution.FinalResponseTranslation)
-	if metadata == nil && len(execution.Attempts) > 0 {
-		metadata = finalResponseTranslationMetadataFromExecutionAttempt(execution.Attempts[len(execution.Attempts)-1])
+	if shouldUseFinalAttemptResponseTranslationMetadata(metadata, attemptMetadata) {
+		metadata = attemptMetadata
 	}
 	if metadata == nil {
 		metadata = &runtimeFinalResponseTranslationMetadata{TranslationMode: TranslationModeNone, ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionNone}
 	}
 	return *completeFinalResponseTranslationMetadata(plan, metadata, false)
+}
+
+func finalResponseTranslationMetadataFromFinalExecutionAttempt(execution executionResult) *runtimeFinalResponseTranslationMetadata {
+	if len(execution.Attempts) == 0 {
+		return nil
+	}
+	return finalResponseTranslationMetadataFromExecutionAttempt(execution.Attempts[len(execution.Attempts)-1])
+}
+
+func shouldUseFinalAttemptResponseTranslationMetadata(metadata *runtimeFinalResponseTranslationMetadata, attemptMetadata *runtimeFinalResponseTranslationMetadata) bool {
+	if metadata == nil {
+		return attemptMetadata != nil
+	}
+	if attemptMetadata == nil || !attemptMetadata.ResponseTranslationDirection.requiresTranslation() {
+		return false
+	}
+	if metadata.ResponseTranslationDirection.requiresTranslation() {
+		return false
+	}
+	return !runtimeFinalResponseTranslationDirectionFromMode(metadata.TranslationMode).requiresTranslation()
 }
 
 func finalResponseTranslationForPromotedMerge(finalPlan requestPlan, promotedExecution executionResult) *runtimeFinalResponseTranslationMetadata {
