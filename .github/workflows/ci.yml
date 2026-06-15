@@ -159,7 +159,7 @@ jobs:
       - name: Install pinned Trivy
         uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
         with:
-          version: v0.68.2
+          version: v0.71.0
           cache: true
 
       - name: Scan local container images with Trivy (non-blocking evidence)
