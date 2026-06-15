@@ -39,7 +39,7 @@ Prism fronts multiple LLM API families through explicit runtime operations, lett
 
 ### Prerequisites
 
-- Go 1.26.2 toolchain
+- Go 1.26.4 toolchain
 - Node.js 24+
 - pnpm
 - Docker with Docker Compose
