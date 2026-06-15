@@ -302,6 +302,75 @@ func TestChatOverflowPromotesToResponsesOnlyTarget(t *testing.T) {
 	assertLatestChatToResponsesPromotionAttribution(t, harness, profileID, route.PublicModelID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
 }
 
+func TestChatNonStreamPreDispatchPromotionToResponsesOnlyTarget(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	sourceVariant := "chat_completions_reasoning_none"
+	sourceCapability := "chat_completions_only"
+	responsesOnlyVariant := "responses_reasoning_none"
+	responsesOnlyCapability := "responses_only"
+	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "source upstream should not receive chat non-stream promoted to responses-only"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:                  profileID,
+		APIFamily:                  "openai",
+		PublicModelID:              "gpt-5-chat-nonstream-to-responses-public-" + suffix,
+		TargetModelID:              "overflow-chat-nonstream-to-responses-source-" + suffix,
+		EndpointBaseURL:            sourceUpstream.baseURL("/overflow/chat-nonstream-to-responses/source"),
+		EndpointAPIKey:             "overflow-chat-nonstream-to-responses-source-key",
+		OpenAIProbeEndpointVariant: &sourceVariant,
+		OpenAITextCapability:       &sourceCapability,
+	})
+	promotedModelID := "overflow-chat-nonstream-to-responses-promoted-" + suffix
+	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":         "resp-chat-nonstream-to-responses-promoted-" + suffix,
+		"object":     "response",
+		"created_at": 1710000000,
+		"model":      promotedModelID,
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "promoted responses-only non-stream response"}},
+		}},
+		"usage": map[string]any{"input_tokens": 7, "output_tokens": 5, "total_tokens": 12},
+	})
+	_, promotedConnectionID := seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/overflow/chat-nonstream-to-responses/promoted"), "overflow-chat-nonstream-to-responses-promoted-key", &responsesOnlyVariant, &responsesOnlyCapability, 4_096)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
+	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"max_completion_tokens": 600,
+		"messages":              []map[string]any{{"role": "user", "content": "non-stream chat overflow should promote to a responses-only target before source dispatch"}},
+		"model":                 route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	payload := runtimeResponsePayload(t, response)
+	assertTranslatedChatCompletionPayload(t, payload, route.PublicModelID, promotedModelID, "promoted responses-only non-stream response", 7, 5, 12)
+	assertNoScriptedUpstreamRequests(t, sourceUpstream, "chat non-stream responses-only pre-dispatch source")
+	promotedRequests := promotedUpstream.requestsSnapshot()
+	assertProxySelectorRequestSequence(t, promotedRequests, []proxySelectorExpectedRequest{{
+		Path:    "/overflow/chat-nonstream-to-responses/promoted/v1/responses",
+		ModelID: promotedModelID,
+	}})
+	if promotedRequests[0].Method != http.MethodPost {
+		t.Fatalf("expected promoted upstream request method POST, got %q", promotedRequests[0].Method)
+	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "context_overflow_preflight")
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  promotedConnectionID,
+		EndpointID:    loadRuntimeEndpointIDForConnection(t, harness, promotedConnectionID),
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
+	assertLatestPreDispatchPromotionMetadata(t, harness, profileID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID, 256, 4096, "openai_chat_tokenizer_v1")
+	assertLatestChatToResponsesPreDispatchPromotionAttribution(t, harness, profileID, route.PublicModelID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
+}
+
 func TestChatStreamingPreDispatchPromotionToResponsesOnlyTarget(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
