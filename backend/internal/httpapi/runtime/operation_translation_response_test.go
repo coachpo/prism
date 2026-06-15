@@ -89,6 +89,31 @@ func TestTranslateOpenAIResponsesToChatResponseWithRequestedModel(t *testing.T) 
 	}
 }
 
+func TestTranslateOpenAIResponsesToChatResponseIgnoresNullErrorField(t *testing.T) {
+	rawBody := []byte(`{"id":"resp_null_error","object":"response","created_at":1700000000,"model":"responses-target","error":null,"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16}}`)
+
+	translated, usage, _, err := translateOpenAIResponsesUpstreamToChatClientResponseWithRequestedModel(rawBody, "chat-public")
+	if err != nil {
+		t.Fatalf("translate responses to chat response with null error: %v", err)
+	}
+	payload := decodeTranslationTestPayload(t, translated)
+	if got := stringValue(payload["object"]); got != "chat.completion" {
+		t.Fatalf("expected null error Responses payload to translate to Chat object, got %q body %s", got, string(translated))
+	}
+	if _, ok := payload["choices"]; !ok {
+		t.Fatalf("expected translated Chat payload to contain choices, got %+v", payload)
+	}
+	if _, ok := payload["output"]; ok {
+		t.Fatalf("expected translated Chat payload to omit raw Responses output, got %s", string(translated))
+	}
+	if got := stringValue(payload["model"]); got != "chat-public" {
+		t.Fatalf("expected translated chat model to normalize to requested public model, got %q", got)
+	}
+	if got := usage.TotalTokens; got == nil || *got != 16 {
+		t.Fatalf("expected usage to be extracted from Responses body, got %+v", usage)
+	}
+}
+
 func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 	rawBody := []byte(`{"id":"chatcmpl_123","created":1700000001,"model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":"thinking"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":3}}}`)
 

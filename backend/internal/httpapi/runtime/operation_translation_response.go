@@ -29,7 +29,7 @@ func translateOpenAIResponsesUpstreamToChatClientResponseWithRequestedModel(rawB
 		return nil, responseUsage{}, runtimeUsageRuleOpenAIResponses, err
 	}
 	usage := extractResponseUsageFromPayload(payload, runtimeUsageRuleOpenAIResponses)
-	if _, ok := payload["error"]; ok {
+	if fieldHasValue(payload, "error") {
 		normalizeTranslatedResponsesPublicModel(payload, requestedModelID)
 		body, err := marshalTranslatedOpenAIResponse(payload, TranslationModeOpenAIResponsesToChatCompletions)
 		return body, usage, runtimeUsageRuleOpenAIResponses, err
@@ -66,7 +66,7 @@ func translateOpenAIChatUpstreamToResponsesClientResponseWithRequestedModel(rawB
 		return nil, responseUsage{}, runtimeUsageRuleOpenAIChatCompletions, err
 	}
 	usage := extractResponseUsageFromPayload(payload, runtimeUsageRuleOpenAIChatCompletions)
-	if _, ok := payload["error"]; ok {
+	if fieldHasValue(payload, "error") {
 		normalizeTranslatedResponsesPublicModel(payload, requestedModelID)
 		body, err := marshalTranslatedOpenAIResponse(payload, TranslationModeOpenAIChatCompletionsToResponses)
 		return body, usage, runtimeUsageRuleOpenAIChatCompletions, err
