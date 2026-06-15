@@ -194,6 +194,89 @@ func TestPreDispatchPromotionMergePreservesFinalTranslationIntent(t *testing.T) 
 	}
 }
 
+func TestPreDispatchPromotionMergePreservesChatToResponsesFinalTranslationIntent(t *testing.T) {
+	service := &Service{now: fixedResponseHookTestNow}
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	sourceResolvedTargetModelID := "chat-source-model"
+	promotedResolvedTargetModelID := "responses-promoted-model"
+	sourceConnection := runtimeConnection{ID: 51, Endpoint: runtimeEndpoint{ID: 511}}
+	promotedConnection := runtimeConnection{ID: 62, Endpoint: runtimeEndpoint{ID: 622}}
+	sourcePlan := requestPlan{
+		RequestedModelID:         "chat-public",
+		ResolvedTargetModelID:    &sourceResolvedTargetModelID,
+		RuntimeOperation:         operation,
+		SelectedTerminalTargetID: &sourceConnection.ID,
+		RequestContextEstimation: &requestContextEstimation{Method: openAIChatContextEstimationMethod, EstimatedInputTokens: 5000, ReservedOutputTokens: 1000, EstimatedTotalContextTokens: 6000},
+		ContextRouting:           &runtimeContextRoutingDecision{Policy: "cheapest_eligible_context", SelectedTerminalTargetID: &sourceConnection.ID},
+	}
+	promotedPlan := requestPlan{
+		RequestedModelID:         "responses-promoted-public",
+		ResolvedTargetModelID:    &promotedResolvedTargetModelID,
+		RuntimeOperation:         operation,
+		SelectedTerminalTargetID: &promotedConnection.ID,
+		TerminalAttempts: []runtimeTerminalAttempt{{
+			TargetModel:          runtimeModelRecord{ModelID: promotedResolvedTargetModelID, APIFamily: "openai"},
+			Connection:           promotedConnection,
+			TranslationMode:      TranslationModeOpenAIChatCompletionsToResponses,
+			EffectiveRequestPath: "/v1/responses",
+		}},
+		ContextRouting: &runtimeContextRoutingDecision{Policy: "cheapest_eligible_context", SelectedTerminalTargetID: &promotedConnection.ID},
+	}
+
+	merged := mergePreDispatchContextOverflowPromotedPlan(sourcePlan, promotedPlan, 4096, 8192)
+	if merged.RequestedModelID != "chat-public" {
+		t.Fatalf("expected client requested model to survive pre-dispatch merge, got %q", merged.RequestedModelID)
+	}
+	if merged.RuntimeOperation.Name != openAIUpstreamOperationChatCompletions {
+		t.Fatalf("expected source client operation to survive pre-dispatch merge, got %q", merged.RuntimeOperation.Name)
+	}
+	if len(merged.TerminalAttempts) != 1 || merged.TerminalAttempts[0].TranslationMode != TranslationModeOpenAIChatCompletionsToResponses {
+		t.Fatalf("expected promoted target attempt to keep Chat-to-Responses translation mode, got %+v", merged.TerminalAttempts)
+	}
+	state := requestExecutionState{launchedAttempts: 1}
+	execution := state.result(merged, executionOutcome{
+		TerminalAttempt: merged.TerminalAttempts[0],
+		Connection:      promotedConnection,
+		Response:        &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}},
+		Launched:        true,
+	})
+
+	metadata := execution.FinalResponseTranslation
+	if metadata == nil {
+		t.Fatal("expected explicit final response translation metadata")
+	}
+	if metadata.TranslationMode != TranslationModeOpenAIChatCompletionsToResponses || metadata.RequestedModelID != "chat-public" || metadata.ClientOperationName != openAIUpstreamOperationChatCompletions || intValue(metadata.SelectedTerminalTargetID) != promotedConnection.ID || metadata.UpstreamOperationName != openAIUpstreamOperationResponses || metadata.UpstreamRequestPath != "/v1/responses" || metadata.ResponseTranslationDirection != runtimeFinalResponseTranslationDirectionResponsesUpstreamToChatClient {
+		t.Fatalf("expected Chat client / Responses upstream final translation metadata after pre-dispatch promotion, got %+v", metadata)
+	}
+
+	finalResponseTranslation := finalResponseTranslationForSerialization(merged, execution)
+	responseRecorder := httptest.NewRecorder()
+	proxyWriter := newRuntimeDeferredCommitWriter(responseRecorder)
+	rawBody := []byte(`{"id":"resp_predispatch","object":"response","created_at":1700000001,"model":"responses-target","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16}}`)
+	capture, err := service.writeBufferedNonStreamResponse(proxyWriter, merged, execution, finalResponseTranslation, rawBody)
+	if err != nil {
+		t.Fatalf("write translated pre-dispatch promoted non-stream response: %v", err)
+	}
+	proxyWriter.Commit()
+
+	payload := decodeTranslationTestPayload(t, responseRecorder.Body.Bytes())
+	if got := stringValue(payload["object"]); got != "chat.completion" {
+		t.Fatalf("expected pre-dispatch promoted Responses upstream body to serialize as Chat Completions object, got %q body %s", got, responseRecorder.Body.String())
+	}
+	if got := stringValue(payload["model"]); got != "chat-public" {
+		t.Fatalf("expected requested public model in serialized Chat response, got %q", got)
+	}
+	if _, ok := payload["choices"]; !ok {
+		t.Fatalf("expected translated Chat response to contain choices, got %+v", payload)
+	}
+	if _, ok := payload["output"]; ok {
+		t.Fatalf("expected translated Chat response not to expose top-level Responses output, got %s", responseRecorder.Body.String())
+	}
+	if got := capture.extractedUsage().TotalTokens; got == nil || *got != 16 {
+		t.Fatalf("expected translated capture usage from upstream body, got %+v", capture.extractedUsage())
+	}
+}
+
 func TestProviderFallbackPromotionMergePreservesChatToResponsesFinalTranslationIntent(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
 	sourceResolvedTargetModelID := "chat-source-model"

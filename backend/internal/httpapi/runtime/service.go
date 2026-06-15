@@ -800,6 +800,9 @@ func finalResponseTranslationMetadataFromExecutionAttempt(finalAttempt execution
 func completeFinalResponseTranslationMetadata(plan requestPlan, metadata *runtimeFinalResponseTranslationMetadata, overrideClientFields bool) *runtimeFinalResponseTranslationMetadata {
 	metadata.TranslationMode = normalizedRuntimeTranslationMode(metadata.TranslationMode)
 	metadata.ResponseTranslationDirection = normalizedRuntimeFinalResponseTranslationDirection(metadata.ResponseTranslationDirection)
+	if metadata.ResponseTranslationDirection == runtimeFinalResponseTranslationDirectionNone {
+		metadata.ResponseTranslationDirection = runtimeFinalResponseTranslationDirectionFromMode(metadata.TranslationMode)
+	}
 	if overrideClientFields || strings.TrimSpace(metadata.RequestedModelID) == "" {
 		metadata.RequestedModelID = strings.TrimSpace(plan.RequestedModelID)
 	}
