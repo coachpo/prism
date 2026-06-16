@@ -14,8 +14,8 @@ httpapi/
 ```
 
 ## WHERE TO LOOK
-- Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, ``management/stats/`, ``management/audit/`
-- Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/connections/AGENTS.md`, `management/configrules/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/stats/AGENTS.md`, ``
+- Management subpackages: `management/auth/`, `management/audit/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/responseutil/`, `management/settings/`, `management/stats/`
+- Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/auth/AGENTS.md`, `management/bootstrapconfig/AGENTS.md`, `management/configbundle/AGENTS.md`, `management/configrules/AGENTS.md`, `management/connections/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/settings/AGENTS.md`, `management/stats/AGENTS.md`
 - Startup bootstrap ownership: `management/bootstrapconfig/AGENTS.md`, `management/bootstrapconfig/service.go`
 - Model CRUD, access-target, exact-facade, and context overflow promotion target authoring: `management/models/AGENTS.md`, `management/models/routes.go`, `management/models/store.go`
 - Management auth status/session/bootstrap, password-reset or verification delivery, proxy-key, realtime auth-state, and runtime-cache seams: `management/auth/AGENTS.md`

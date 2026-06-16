@@ -20,7 +20,7 @@ configbundle/
 ## WHERE TO LOOK
 - Route mounting and bundle service wiring: `service.go`, `routes.go`
 - Profile bundle export, preview, and import flow: `routes.go`, `import.go`, `store.go`
-- - Context overflow promotion target import/export validation: `import.go`, `store.go`, `promotion_target_test.go`
+- Context overflow promotion target import/export validation: `import.go`, `store.go`, `promotion_target_test.go`
 - Preview-token issuance and validation: `preview_tokens.go`
 - Bundle secret encryption/decryption and key derivation: `crypto.go`, `service.go`
 - Frontend consumers: `../../../../../frontend/src/pages/settings/useConfigBackupData.ts`, `../../../../../frontend/src/lib/configImportValidation.ts`
