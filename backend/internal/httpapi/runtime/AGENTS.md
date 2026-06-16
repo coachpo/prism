@@ -33,7 +33,7 @@ runtime/
 - Exact supported operations, hook collection ids, streaming flags, and model-binding sources: `operations.go`
 - Ingress rejection before body reads, wrong-method handling, shared executor wiring, and response branching: `service.go`
 - Request planning, model binding, request path rewrites, unified access-target resolution, final-target attribution, exact `planningSnapshot.ModelsByID` requested-model lookup, context overflow promotion replay decisions, and shared upstream execution: `runtime.go`, `runtime_planner.go`, `generations.go`, `planning_snapshot.go`, `proxy_selector_helpers.go`
-- Exact Release 1 facade planning, eligible-only weight redistribution, and no-sibling retry after child selection: `planning_snapshot.go`, `proxy_selector_helpers.go`
+- Exact Release 1 facade planning, eligible-only flat ordering, and no-sibling retry after child selection: `planning_snapshot.go`, `proxy_selector_helpers.go`
 - Automatic generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
 - Non-stream response parsing for text generation, token count, media operations, and CLIProxyAPI overflow classification: `operation_response_hooks.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
@@ -54,7 +54,7 @@ runtime/
 - Keep requested-model resolution exact. Release 1 facade routing starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly; do not add regex matching or capability-metadata expansion in this package.
 - Keep unsupported or wrong-method requests rejecting before body reads, runtime admission, provider transport, telemetry, audit, feedback, or runtime side effects.
 - Keep the shared execution core in `service.go` and `runtime.go`; provider-native differences belong in request, response, stream, or media hooks instead of forked executors.
-- Keep exact facade routing backend-first: it activates only for canonical `facade_enabled=true` OpenAI models with `weighted_eligible_context` plus `redistribute_ineligible_weight`, redistributes weight across the eligible subset only, and does not add sibling-target failover after child selection.
+- Keep exact facade routing backend-first: it activates only for canonical `facade_enabled=true` OpenAI models with `ordered_eligible_context` plus `skip_ineligible_targets`, filters context-eligible targets, follows flat `position`/ID ordering, and does not add sibling-target failover after child selection.
 - Keep facade observability additive. Requested/resolved model fields stay unchanged; nested `context_routing.facade_selection` and `prism.runtime.facade_*` trace attrs carry the extra planner metadata.
 - Keep context overflow promotion explicit and additive: only configured `context_overflow_promotion_target_id` models can replay, CLIProxyAPI overflow detection belongs in non-stream response hooks, and request-log/trace metadata records the promotion decision without rewriting requested-model fields.
 - Keep token-count operations out of generation-only parsing and usage assumptions.

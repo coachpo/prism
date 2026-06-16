@@ -528,8 +528,8 @@ func TestFacadeSelectionDoesNotReopenSiblings(t *testing.T) {
 	selectedUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("selected facade child overflow"))
 	alternateUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-facade-sibling-should-not-run"})
 	route := seedOpenAIFacadeRoute(t, harness, profileID, "overflow-facade-public-"+suffix, []facadeTargetSeed{
-		{ModelID: "overflow-facade-selected-" + suffix, EndpointBaseURL: selectedUpstream.baseURL("/overflow/facade/selected"), EndpointAPIKey: "overflow-facade-selected-key", Weight: 1},
-		{ModelID: "overflow-facade-alternate-" + suffix, EndpointBaseURL: alternateUpstream.baseURL("/overflow/facade/alternate"), EndpointAPIKey: "overflow-facade-alternate-key", Weight: 1},
+		{ModelID: "overflow-facade-selected-" + suffix, EndpointBaseURL: selectedUpstream.baseURL("/overflow/facade/selected"), EndpointAPIKey: "overflow-facade-selected-key"},
+		{ModelID: "overflow-facade-alternate-" + suffix, EndpointBaseURL: alternateUpstream.baseURL("/overflow/facade/alternate"), EndpointAPIKey: "overflow-facade-alternate-key"},
 	})
 	promotedModelID := "overflow-facade-promoted-" + suffix
 	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
@@ -3263,8 +3263,8 @@ func TestBuildRequestPlanRecursiveContextOverflowPromotionTargetRoutingModel(t *
 	routerModelConfigID := harness.seedModel(t, profileID, "openai", routerModelID, "proxy", &routerStrategyID)
 	smallModelConfigID := harness.seedModel(t, profileID, "openai", smallModelID, "native", &smallStrategyID)
 	finalModelConfigID := harness.seedModel(t, profileID, "openai", finalModelID, "native", &finalStrategyID)
-	harness.seedProxyTargetWithMetadata(t, routerModelConfigID, smallModelConfigID, 0, 1, 0)
-	harness.seedProxyTargetWithMetadata(t, routerModelConfigID, finalModelConfigID, 1, 1, 0)
+	harness.seedProxyTargetAtPosition(t, routerModelConfigID, smallModelConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, routerModelConfigID, finalModelConfigID, 1)
 	smallEndpointID := harness.seedEndpoint(t, profileID, "recursive-routing-small-"+suffix, smallUpstream.baseURL("/overflow/recursive-routing/small"), "recursive-routing-small-key", 0)
 	primaryEndpointID := harness.seedEndpoint(t, profileID, "recursive-routing-primary-"+suffix, primaryUpstream.baseURL("/overflow/recursive-routing/final-primary"), "recursive-routing-primary-key", 1)
 	secondaryEndpointID := harness.seedEndpoint(t, profileID, "recursive-routing-secondary-"+suffix, secondaryUpstream.baseURL("/overflow/recursive-routing/final-secondary"), "recursive-routing-secondary-key", 2)

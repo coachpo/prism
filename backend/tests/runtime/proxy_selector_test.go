@@ -213,7 +213,7 @@ func TestRuntimeCheapestEligibleContextSelectsLargerNestedTerminalBeforeUpstream
 	childStrategyID := harness.seedLegacyStrategy(t, profileID, "gpt-5-cheapest-nested-child-"+suffix, "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &publicStrategyID)
 	childModelConfigID := harness.seedModel(t, profileID, "openai", childModelID, "native", &childStrategyID)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, childModelConfigID, 0, 1, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, childModelConfigID, 0)
 	smallEndpointID := harness.seedEndpoint(t, profileID, "cheapest-nested-small-"+suffix, harness.upstream.baseURL("/cheapest/nested/small"), "cheapest-nested-small-key", 0)
 	largeEndpointID := harness.seedEndpoint(t, profileID, "cheapest-nested-large-"+suffix, harness.upstream.baseURL("/cheapest/nested/large"), "cheapest-nested-large-key", 1)
 	smallConnectionID := harness.seedConnection(t, profileID, childModelConfigID, smallEndpointID, "cheapest-nested-small-connection-"+suffix, nil, nil, 0)
@@ -231,36 +231,34 @@ func TestRuntimeCheapestEligibleContextSelectsLargerNestedTerminalBeforeUpstream
 	}})
 }
 
-func TestFacadeWeightedEligibleContextExcludesIneligibleTargetsFromWeight(t *testing.T) {
+func TestFacadeOrderedEligibleContextSkipsIneligibleTargets(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "facade-weighted-public-" + suffix
-	firstTargetModelID := "facade-weighted-first-" + suffix
-	blockedTargetModelID := "facade-weighted-blocked-" + suffix
-	secondTargetModelID := "facade-weighted-second-" + suffix
+	publicModelID := "facade-ordered-public-" + suffix
+	firstTargetModelID := "facade-ordered-first-" + suffix
+	blockedTargetModelID := "facade-ordered-blocked-" + suffix
 	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: firstTargetModelID, EndpointBaseURL: harness.upstream.baseURL("/facade/weighted/first"), EndpointAPIKey: "facade-weighted-first-key", Weight: 1},
-		{ModelID: blockedTargetModelID, EndpointBaseURL: harness.upstream.baseURL("/facade/weighted/blocked"), EndpointAPIKey: "facade-weighted-blocked-key", Weight: 100},
-		{ModelID: secondTargetModelID, EndpointBaseURL: harness.upstream.baseURL("/facade/weighted/second"), EndpointAPIKey: "facade-weighted-second-key", Weight: 1},
+		{ModelID: blockedTargetModelID, EndpointBaseURL: harness.upstream.baseURL("/facade/ordered/blocked"), EndpointAPIKey: "facade-ordered-blocked-key"},
+		{ModelID: firstTargetModelID, EndpointBaseURL: harness.upstream.baseURL("/facade/ordered/first"), EndpointAPIKey: "facade-ordered-first-key"},
 	})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 	blockedUntilAt := time.Now().UTC().Add(10 * time.Minute)
-	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: route.ConnectionIDs[1], BlockedUntilAt: &blockedUntilAt, CircuitState: "open"})
+	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: route.ConnectionIDs[0], BlockedUntilAt: &blockedUntilAt, CircuitState: "open"})
 
 	for requestIndex := 0; requestIndex < 4; requestIndex++ {
-		response := performProxySelectorChatRequest(t, harness, publicModelID, "facade weighted eligible-only routing")
+		response := performProxySelectorChatRequest(t, harness, publicModelID, "facade ordered eligible-only routing")
 		assertStatus(t, response, http.StatusOK)
 	}
 	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{
-		{Path: "/facade/weighted/first/v1/chat/completions", ModelID: firstTargetModelID},
-		{Path: "/facade/weighted/second/v1/chat/completions", ModelID: secondTargetModelID},
-		{Path: "/facade/weighted/first/v1/chat/completions", ModelID: firstTargetModelID},
-		{Path: "/facade/weighted/second/v1/chat/completions", ModelID: secondTargetModelID},
+		{Path: "/facade/ordered/first/v1/chat/completions", ModelID: firstTargetModelID},
+		{Path: "/facade/ordered/first/v1/chat/completions", ModelID: firstTargetModelID},
+		{Path: "/facade/ordered/first/v1/chat/completions", ModelID: firstTargetModelID},
+		{Path: "/facade/ordered/first/v1/chat/completions", ModelID: firstTargetModelID},
 	})
 }
 
-func TestFacadeWeightedEligibleContextDoesNotRetryAlternateTargetAfterUpstreamFailure(t *testing.T) {
+func TestFacadeOrderedEligibleContextDoesNotRetryAlternateTargetAfterUpstreamFailure(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
@@ -270,8 +268,8 @@ func TestFacadeWeightedEligibleContextDoesNotRetryAlternateTargetAfterUpstreamFa
 	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "selected facade target failed"})
 	alternateUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "facade-no-retry-alternate"})
 	seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: primaryTargetModelID, EndpointBaseURL: primaryUpstream.baseURL("/facade/no-retry/primary"), EndpointAPIKey: "facade-no-retry-primary-key", Weight: 1},
-		{ModelID: alternateTargetModelID, EndpointBaseURL: alternateUpstream.baseURL("/facade/no-retry/alternate"), EndpointAPIKey: "facade-no-retry-alternate-key", Weight: 1},
+		{ModelID: primaryTargetModelID, EndpointBaseURL: primaryUpstream.baseURL("/facade/no-retry/primary"), EndpointAPIKey: "facade-no-retry-primary-key"},
+		{ModelID: alternateTargetModelID, EndpointBaseURL: alternateUpstream.baseURL("/facade/no-retry/alternate"), EndpointAPIKey: "facade-no-retry-alternate-key"},
 	})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 
@@ -289,14 +287,14 @@ func TestFacadeWeightedEligibleContextDoesNotRetryAlternateTargetAfterUpstreamFa
 	}
 }
 
-func TestFacadeWeightedEligibleContextNoContextFitReturns413WithoutUpstreamAttempt(t *testing.T) {
+func TestFacadeOrderedEligibleContextNoContextFitReturns413WithoutUpstreamAttempt(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "gpt-5-facade-no-fit-public-" + suffix
 	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: "facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/small"), EndpointAPIKey: "facade-no-fit-small-key", Weight: 1},
-		{ModelID: "facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/large"), EndpointAPIKey: "facade-no-fit-large-key", Weight: 1},
+		{ModelID: "facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/small"), EndpointAPIKey: "facade-no-fit-small-key"},
+		{ModelID: "facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/large"), EndpointAPIKey: "facade-no-fit-large-key"},
 	})
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[0], 200, 4_096, 1.0)
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[1], 400, 4_096, 1.0)
@@ -320,7 +318,7 @@ func TestFacadeWeightedEligibleContextNoContextFitReturns413WithoutUpstreamAttem
 	}
 }
 
-func TestFacadeWeightedEligibleContextSkipsNonNativeOpenAITarget(t *testing.T) {
+func TestFacadeOrderedEligibleContextSkipsNonNativeOpenAITarget(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
@@ -330,7 +328,6 @@ func TestFacadeWeightedEligibleContextSkipsNonNativeOpenAITarget(t *testing.T) {
 		ModelID:                    "facade-translation-target-" + suffix,
 		EndpointBaseURL:            harness.upstream.baseURL("/facade/translation/chat-only"),
 		EndpointAPIKey:             "facade-translation-key",
-		Weight:                     1,
 		OpenAIProbeEndpointVariant: &chatOnlyVariant,
 		OpenAITextCapability:       runtimeStringPtr("chat_completions_only"),
 	}})
@@ -343,14 +340,14 @@ func TestFacadeWeightedEligibleContextSkipsNonNativeOpenAITarget(t *testing.T) {
 	}
 }
 
-func TestFacadeWeightedEligibleContextNoEligibleTargetsReturns503(t *testing.T) {
+func TestFacadeOrderedEligibleContextNoEligibleTargetsReturns503(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "facade-no-eligible-public-" + suffix
 	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: "facade-no-eligible-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-eligible/first"), EndpointAPIKey: "facade-no-eligible-first-key", Weight: 1},
-		{ModelID: "facade-no-eligible-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-eligible/second"), EndpointAPIKey: "facade-no-eligible-second-key", Weight: 1},
+		{ModelID: "facade-no-eligible-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-eligible/first"), EndpointAPIKey: "facade-no-eligible-first-key"},
+		{ModelID: "facade-no-eligible-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-eligible/second"), EndpointAPIKey: "facade-no-eligible-second-key"},
 	})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 	blockedUntilAt := time.Now().UTC().Add(10 * time.Minute)
@@ -632,8 +629,8 @@ func TestRuntimeProxySelectorOrderedFallbackUsesPositionOrderAndSkipsUnroutableT
 	secondTargetConfigID := harness.seedModel(t, profileID, "openai", secondTargetModelID, "native", &strategyID)
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
 	harness.setProxySelectionStrategy(t, publicModelConfigID, "ordered_fallback")
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, secondTargetConfigID, 1, 1, 0)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, firstTargetConfigID, 0, 1, 9)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, secondTargetConfigID, 1)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, firstTargetConfigID, 0)
 	firstEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-ordered-first-"+suffix, harness.upstream.baseURL("/proxy-selector/ordered/first"), "proxy-selector-ordered-first-key", 0)
 	secondEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-ordered-second-"+suffix, harness.upstream.baseURL("/proxy-selector/ordered/second"), "proxy-selector-ordered-second-key", 1)
 	firstConnectionID := harness.seedConnection(t, profileID, firstTargetConfigID, firstEndpointID, "proxy-selector-ordered-first-connection-"+suffix, nil, nil, 0)
@@ -681,9 +678,9 @@ func TestRuntimeProxySelectorPriorityStaticUsesPriorityThenPosition(t *testing.T
 	positionOneTargetConfigID := harness.seedModel(t, profileID, "openai", positionOneTargetModelID, "native", &strategyID)
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
 	harness.setProxySelectionStrategy(t, publicModelConfigID, "priority_static")
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, lowPositionTargetConfigID, 0, 1, 9)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, positionTwoTargetConfigID, 2, 1, 1)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, positionOneTargetConfigID, 1, 1, 1)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, lowPositionTargetConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, positionTwoTargetConfigID, 2)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, positionOneTargetConfigID, 1)
 	lowPositionEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-priority-low-position-"+suffix, harness.upstream.baseURL("/proxy-selector/priority/low-position"), "proxy-selector-priority-low-position-key", 0)
 	positionTwoEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-priority-position-two-"+suffix, harness.upstream.baseURL("/proxy-selector/priority/position-two"), "proxy-selector-priority-position-two-key", 1)
 	positionOneEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-priority-position-one-"+suffix, harness.upstream.baseURL("/proxy-selector/priority/position-one"), "proxy-selector-priority-position-one-key", 2)
@@ -716,8 +713,8 @@ func TestRuntimeProxySelectorPriorityStaticFallsBackWhenPreferredTargetIsUnrouta
 	fallbackTargetConfigID := harness.seedModel(t, profileID, "openai", fallbackTargetModelID, "native", &strategyID)
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
 	harness.setProxySelectionStrategy(t, publicModelConfigID, "priority_static")
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, fallbackTargetConfigID, 0, 1, 5)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, preferredTargetConfigID, 1, 1, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, fallbackTargetConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, preferredTargetConfigID, 1)
 	fallbackEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-priority-fallback-"+suffix, harness.upstream.baseURL("/proxy-selector/priority/fallback"), "proxy-selector-priority-fallback-key", 0)
 	harness.seedConnection(t, profileID, fallbackTargetConfigID, fallbackEndpointID, "proxy-selector-priority-fallback-connection-"+suffix, nil, nil, 0)
 	releaseRefresh()
@@ -732,108 +729,105 @@ func TestRuntimeProxySelectorPriorityStaticFallsBackWhenPreferredTargetIsUnrouta
 	}})
 }
 
-func TestRuntimeProxySelectorWeightedStaticUsesDeterministicCursorSequence(t *testing.T) {
+func TestRuntimeProxySelectorFlatRoundRobinUsesPositionCursorSequence(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "proxy-selector-weighted-public-" + suffix
-	heavyTargetModelID := "proxy-selector-weighted-heavy-" + suffix
-	lightTargetModelID := "proxy-selector-weighted-light-" + suffix
+	publicModelID := "proxy-selector-flat-public-" + suffix
+	firstTargetModelID := "proxy-selector-flat-first-" + suffix
+	secondTargetModelID := "proxy-selector-flat-second-" + suffix
 
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-weighted-"+suffix, "round-robin")
-	heavyTargetConfigID := harness.seedModel(t, profileID, "openai", heavyTargetModelID, "native", &strategyID)
-	lightTargetConfigID := harness.seedModel(t, profileID, "openai", lightTargetModelID, "native", &strategyID)
-	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
-	harness.setProxySelectionStrategy(t, publicModelConfigID, "weighted_static")
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, heavyTargetConfigID, 0, 3, 0)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, lightTargetConfigID, 1, 1, 0)
-	heavyEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-weighted-heavy-"+suffix, harness.upstream.baseURL("/proxy-selector/weighted/heavy"), "proxy-selector-weighted-heavy-key", 0)
-	lightEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-weighted-light-"+suffix, harness.upstream.baseURL("/proxy-selector/weighted/light"), "proxy-selector-weighted-light-key", 1)
-	harness.seedConnection(t, profileID, heavyTargetConfigID, heavyEndpointID, "proxy-selector-weighted-heavy-connection-"+suffix, nil, nil, 0)
-	harness.seedConnection(t, profileID, lightTargetConfigID, lightEndpointID, "proxy-selector-weighted-light-connection-"+suffix, nil, nil, 0)
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-flat-"+suffix, "round-robin")
+	firstTargetConfigID := harness.seedModel(t, profileID, "openai", firstTargetModelID, "native", &strategyID)
+	secondTargetConfigID := harness.seedModel(t, profileID, "openai", secondTargetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, firstTargetConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, secondTargetConfigID, 1)
+	firstEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-flat-first-"+suffix, harness.upstream.baseURL("/proxy-selector/flat/first"), "proxy-selector-flat-first-key", 0)
+	secondEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-flat-second-"+suffix, harness.upstream.baseURL("/proxy-selector/flat/second"), "proxy-selector-flat-second-key", 1)
+	harness.seedConnection(t, profileID, firstTargetConfigID, firstEndpointID, "proxy-selector-flat-first-connection-"+suffix, nil, nil, 0)
+	harness.seedConnection(t, profileID, secondTargetConfigID, secondEndpointID, "proxy-selector-flat-second-connection-"+suffix, nil, nil, 0)
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 
 	for requestIndex := 0; requestIndex < 4; requestIndex++ {
-		response := performProxySelectorChatRequest(t, harness, publicModelID, "weighted static deterministic cursor")
+		response := performProxySelectorChatRequest(t, harness, publicModelID, "flat round-robin deterministic cursor")
 		assertStatus(t, response, http.StatusOK)
 	}
 	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{
-		{Path: "/proxy-selector/weighted/heavy/v1/chat/completions", ModelID: heavyTargetModelID},
-		{Path: "/proxy-selector/weighted/heavy/v1/chat/completions", ModelID: heavyTargetModelID},
-		{Path: "/proxy-selector/weighted/heavy/v1/chat/completions", ModelID: heavyTargetModelID},
-		{Path: "/proxy-selector/weighted/light/v1/chat/completions", ModelID: lightTargetModelID},
+		{Path: "/proxy-selector/flat/first/v1/chat/completions", ModelID: firstTargetModelID},
+		{Path: "/proxy-selector/flat/second/v1/chat/completions", ModelID: secondTargetModelID},
+		{Path: "/proxy-selector/flat/first/v1/chat/completions", ModelID: firstTargetModelID},
+		{Path: "/proxy-selector/flat/second/v1/chat/completions", ModelID: secondTargetModelID},
 	})
 }
 
-func TestRuntimeProxySelectorWeightedStaticExcludesUnroutableTargetsFromWeight(t *testing.T) {
+func TestRuntimeProxySelectorFlatRoundRobinSkipsUnroutableTargets(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "proxy-selector-weighted-routable-public-" + suffix
-	firstTargetModelID := "proxy-selector-weighted-routable-first-" + suffix
-	unroutableTargetModelID := "proxy-selector-weighted-routable-unroutable-" + suffix
-	secondTargetModelID := "proxy-selector-weighted-routable-second-" + suffix
+	publicModelID := "proxy-selector-flat-routable-public-" + suffix
+	firstTargetModelID := "proxy-selector-flat-routable-first-" + suffix
+	unroutableTargetModelID := "proxy-selector-flat-routable-unroutable-" + suffix
+	secondTargetModelID := "proxy-selector-flat-routable-second-" + suffix
 
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-weighted-routable-"+suffix, "round-robin")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-flat-routable-"+suffix, "round-robin")
 	firstTargetConfigID := harness.seedModel(t, profileID, "openai", firstTargetModelID, "native", &strategyID)
 	unroutableTargetConfigID := harness.seedModel(t, profileID, "openai", unroutableTargetModelID, "native", &strategyID)
 	secondTargetConfigID := harness.seedModel(t, profileID, "openai", secondTargetModelID, "native", &strategyID)
-	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
-	harness.setProxySelectionStrategy(t, publicModelConfigID, "weighted_static")
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, firstTargetConfigID, 0, 1, 0)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, unroutableTargetConfigID, 1, 100, 0)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, secondTargetConfigID, 2, 1, 0)
-	firstEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-weighted-routable-first-"+suffix, harness.upstream.baseURL("/proxy-selector/weighted-routable/first"), "proxy-selector-weighted-routable-first-key", 0)
-	secondEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-weighted-routable-second-"+suffix, harness.upstream.baseURL("/proxy-selector/weighted-routable/second"), "proxy-selector-weighted-routable-second-key", 1)
-	harness.seedConnection(t, profileID, firstTargetConfigID, firstEndpointID, "proxy-selector-weighted-routable-first-connection-"+suffix, nil, nil, 0)
-	harness.seedConnection(t, profileID, secondTargetConfigID, secondEndpointID, "proxy-selector-weighted-routable-second-connection-"+suffix, nil, nil, 0)
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, firstTargetConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, unroutableTargetConfigID, 1)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, secondTargetConfigID, 2)
+	firstEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-flat-routable-first-"+suffix, harness.upstream.baseURL("/proxy-selector/flat-routable/first"), "proxy-selector-flat-routable-first-key", 0)
+	secondEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-flat-routable-second-"+suffix, harness.upstream.baseURL("/proxy-selector/flat-routable/second"), "proxy-selector-flat-routable-second-key", 1)
+	harness.seedConnection(t, profileID, firstTargetConfigID, firstEndpointID, "proxy-selector-flat-routable-first-connection-"+suffix, nil, nil, 0)
+	harness.seedConnection(t, profileID, secondTargetConfigID, secondEndpointID, "proxy-selector-flat-routable-second-connection-"+suffix, nil, nil, 0)
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 
 	for requestIndex := 0; requestIndex < 4; requestIndex++ {
-		response := performProxySelectorChatRequest(t, harness, publicModelID, "weighted static excludes unroutable target")
+		response := performProxySelectorChatRequest(t, harness, publicModelID, "flat round-robin skips unroutable target")
 		assertStatus(t, response, http.StatusOK)
 	}
 	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{
-		{Path: "/proxy-selector/weighted-routable/first/v1/chat/completions", ModelID: firstTargetModelID},
-		{Path: "/proxy-selector/weighted-routable/second/v1/chat/completions", ModelID: secondTargetModelID},
-		{Path: "/proxy-selector/weighted-routable/first/v1/chat/completions", ModelID: firstTargetModelID},
-		{Path: "/proxy-selector/weighted-routable/second/v1/chat/completions", ModelID: secondTargetModelID},
+		{Path: "/proxy-selector/flat-routable/first/v1/chat/completions", ModelID: firstTargetModelID},
+		{Path: "/proxy-selector/flat-routable/second/v1/chat/completions", ModelID: secondTargetModelID},
+		{Path: "/proxy-selector/flat-routable/second/v1/chat/completions", ModelID: secondTargetModelID},
+		{Path: "/proxy-selector/flat-routable/first/v1/chat/completions", ModelID: firstTargetModelID},
 	})
 }
 
-func TestRuntimeProxySelectorWeightedStaticDoesNotRetryAlternateTargetAfterUpstreamFailure(t *testing.T) {
+func TestRuntimeProxySelectorFlatModelTargetDoesNotRetryAlternateTargetAfterUpstreamFailure(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "proxy-selector-weighted-no-retry-public-" + suffix
-	primaryTargetModelID := "proxy-selector-weighted-no-retry-primary-" + suffix
-	alternateTargetModelID := "proxy-selector-weighted-no-retry-alternate-" + suffix
+	publicModelID := "proxy-selector-flat-no-retry-public-" + suffix
+	primaryTargetModelID := "proxy-selector-flat-no-retry-primary-" + suffix
+	alternateTargetModelID := "proxy-selector-flat-no-retry-alternate-" + suffix
 	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "selected target failed"})
 	alternateUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-proxy-selector-alternate"})
 
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-weighted-no-retry-"+suffix, "single")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-flat-no-retry-"+suffix, "single")
 	primaryTargetConfigID := harness.seedModel(t, profileID, "openai", primaryTargetModelID, "native", &strategyID)
 	alternateTargetConfigID := harness.seedModel(t, profileID, "openai", alternateTargetModelID, "native", &strategyID)
-	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
-	harness.setProxySelectionStrategy(t, publicModelConfigID, "weighted_static")
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, primaryTargetConfigID, 0, 1, 0)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, alternateTargetConfigID, 1, 1, 0)
-	primaryEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-weighted-no-retry-primary-"+suffix, primaryUpstream.baseURL("/proxy-selector/weighted-no-retry/primary"), "proxy-selector-weighted-no-retry-primary-key", 0)
-	alternateEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-weighted-no-retry-alternate-"+suffix, alternateUpstream.baseURL("/proxy-selector/weighted-no-retry/alternate"), "proxy-selector-weighted-no-retry-alternate-key", 1)
-	harness.seedConnection(t, profileID, primaryTargetConfigID, primaryEndpointID, "proxy-selector-weighted-no-retry-primary-connection-"+suffix, nil, nil, 0)
-	harness.seedConnection(t, profileID, alternateTargetConfigID, alternateEndpointID, "proxy-selector-weighted-no-retry-alternate-connection-"+suffix, nil, nil, 0)
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, primaryTargetConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, alternateTargetConfigID, 1)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-flat-no-retry-primary-"+suffix, primaryUpstream.baseURL("/proxy-selector/flat-no-retry/primary"), "proxy-selector-flat-no-retry-primary-key", 0)
+	alternateEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-flat-no-retry-alternate-"+suffix, alternateUpstream.baseURL("/proxy-selector/flat-no-retry/alternate"), "proxy-selector-flat-no-retry-alternate-key", 1)
+	harness.seedConnection(t, profileID, primaryTargetConfigID, primaryEndpointID, "proxy-selector-flat-no-retry-primary-connection-"+suffix, nil, nil, 0)
+	harness.seedConnection(t, profileID, alternateTargetConfigID, alternateEndpointID, "proxy-selector-flat-no-retry-alternate-connection-"+suffix, nil, nil, 0)
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 
-	response := performProxySelectorChatRequest(t, harness, publicModelID, "weighted static does not retry another proxy target")
+	response := performProxySelectorChatRequest(t, harness, publicModelID, "flat model target does not retry another proxy target")
 	assertStatus(t, response, http.StatusServiceUnavailable)
 	primaryRequests := primaryUpstream.requestsSnapshot()
 	if len(primaryRequests) != 1 {
@@ -860,7 +854,7 @@ func TestRuntimeModelRedirectReentersLoadBalancingAndPersistsRouteReason(t *test
 	strategyID := harness.seedLegacyStrategy(t, profileID, "redirect-model-target-"+suffix, "round-robin")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
 	redirectedModelConfigID := harness.seedModel(t, profileID, "openai", redirectedModelID, "native", &strategyID)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, redirectedModelConfigID, 0, 1, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, redirectedModelConfigID, 0)
 	firstEndpointID := harness.seedEndpoint(t, profileID, "redirect-model-first-"+suffix, firstUpstream.baseURL("/redirect/model/first"), "redirect-model-first-key", 0)
 	secondEndpointID := harness.seedEndpoint(t, profileID, "redirect-model-second-"+suffix, secondUpstream.baseURL("/redirect/model/second"), "redirect-model-second-key", 1)
 	firstConnectionID := harness.seedConnection(t, profileID, redirectedModelConfigID, firstEndpointID, "redirect-model-first-connection-"+suffix, nil, nil, 0)
@@ -894,7 +888,7 @@ func TestRuntimeUpstreamRedirectPinsCandidateWithoutChangingModel(t *testing.T) 
 	strategyID := harness.seedLegacyStrategy(t, profileID, "redirect-upstream-"+suffix, "fill-first")
 	requestedModelConfigID := harness.seedModel(t, profileID, "openai", requestedModelID, "native", &strategyID)
 	unroutableModelConfigID := harness.seedModel(t, profileID, "openai", unroutableModelID, "native", &strategyID)
-	harness.seedProxyTargetWithMetadata(t, requestedModelConfigID, unroutableModelConfigID, 0, 1, 0)
+	harness.seedProxyTargetAtPosition(t, requestedModelConfigID, unroutableModelConfigID, 0)
 	endpointID := harness.seedEndpoint(t, profileID, "redirect-upstream-pinned-"+suffix, pinnedUpstream.baseURL("/redirect/upstream/pinned"), "redirect-upstream-pinned-key", 0)
 	connectionID := harness.seedConnection(t, profileID, requestedModelConfigID, endpointID, "redirect-upstream-pinned-connection-"+suffix, nil, nil, 1)
 	releaseRefresh()
@@ -936,8 +930,8 @@ func TestRuntimeRequestLogsPreserveProxySelectorResolvedTargetIdentity(t *testin
 	selectedTargetConfigID := harness.seedModel(t, profileID, "openai", selectedTargetModelID, "native", &strategyID)
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
 	harness.setProxySelectionStrategy(t, publicModelConfigID, "priority_static")
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, lowerPositionTargetConfigID, 0, 1, 5)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, selectedTargetConfigID, 1, 1, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, lowerPositionTargetConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, selectedTargetConfigID, 1)
 	lowerPositionEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-request-log-lower-position-"+suffix, lowerPositionUpstream.baseURL("/proxy-selector/request-log/lower-position"), "proxy-selector-request-log-lower-position-key", 0)
 	selectedEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-request-log-selected-"+suffix, selectedUpstream.baseURL("/proxy-selector/request-log/selected"), "proxy-selector-request-log-selected-key", 1)
 	harness.seedConnection(t, profileID, lowerPositionTargetConfigID, lowerPositionEndpointID, "proxy-selector-request-log-lower-position-connection-"+suffix, nil, nil, 0)
@@ -966,7 +960,6 @@ type facadeTargetSeed struct {
 	ModelID                    string
 	EndpointBaseURL            string
 	EndpointAPIKey             string
-	Weight                     int
 	OpenAIProbeEndpointVariant *string
 	OpenAITextCapability       *string
 }
@@ -1000,11 +993,7 @@ func seedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int,
 	for index, target := range targets {
 		targetStrategyID := harness.seedLegacyStrategy(t, profileID, "facade-target-"+randomSuffix(), "fill-first")
 		targetModelConfigID := harness.seedModel(t, profileID, "openai", target.ModelID, "native", &targetStrategyID)
-		weight := target.Weight
-		if weight <= 0 {
-			weight = 1
-		}
-		harness.seedProxyTargetWithMetadata(t, publicModelConfigID, targetModelConfigID, index, weight, 0)
+		harness.seedProxyTargetAtPosition(t, publicModelConfigID, targetModelConfigID, index)
 		endpointID := harness.seedEndpoint(t, profileID, "facade-endpoint-"+target.ModelID, target.EndpointBaseURL, target.EndpointAPIKey, index)
 		connectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, targetModelConfigID, endpointID, "facade-connection-"+target.ModelID, nil, nil, 0, target.OpenAIProbeEndpointVariant, target.OpenAITextCapability)
 		setRuntimeHarnessConnectionContextCapabilities(t, harness, connectionID, 16_384, 1_024, 1.0)
@@ -1028,9 +1017,9 @@ func seedOpenAITopologyCascadeRoute(t *testing.T, harness *runtimeHarness, profi
 	primaryModelConfigID := harness.seedModel(t, profileID, "openai", "gpt-5.5-primary", "native", &primaryStrategyID)
 	gpt54ModelConfigID := harness.seedModel(t, profileID, "openai", "gpt-5.4", "native", &gpt54StrategyID)
 	deepSeekModelConfigID := harness.seedModel(t, profileID, "openai", "deepseek-v4-flash", "native", &deepSeekStrategyID)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, primaryModelConfigID, 0, 1, 0)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, gpt54ModelConfigID, 1, 1, 1)
-	harness.seedProxyTargetWithMetadata(t, publicModelConfigID, deepSeekModelConfigID, 2, 1, 2)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, primaryModelConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, gpt54ModelConfigID, 1)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, deepSeekModelConfigID, 2)
 	responsesVariant := "responses_reasoning_none"
 	chatOnlyVariant := "chat_completions_reasoning_none"
 	primaryPathPrefix := pathPrefix + "/primary"
@@ -1096,7 +1085,7 @@ func seedOpenAITopologyCascadeRoute(t *testing.T, harness *runtimeHarness, profi
 func enableRuntimeHarnessFacadeModel(t *testing.T, harness *runtimeHarness, modelConfigID int) {
 	t.Helper()
 	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET facade_enabled = TRUE, facade_selection_policy = 'weighted_eligible_context', facade_fallback_policy = 'redistribute_ineligible_weight', updated_at = $2 WHERE id = $1`, modelConfigID, now); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET facade_enabled = TRUE, facade_selection_policy = 'ordered_eligible_context', facade_fallback_policy = 'skip_ineligible_targets', updated_at = $2 WHERE id = $1`, modelConfigID, now); err != nil {
 		t.Fatalf("enable runtime facade model %d: %v", modelConfigID, err)
 	}
 }
@@ -1169,37 +1158,12 @@ func assertOpenAIRequestTranslationUnsupported(t *testing.T, response *http.Resp
 	}
 }
 
-func runtimeModelProxySelectionStrategy(modelType string) any {
-	if modelType == "proxy" {
-		return "ordered_fallback"
-	}
-	return nil
-}
-
 func (h *runtimeHarness) setProxySelectionStrategy(tb testing.TB, modelConfigID int, strategy string) {
 	tb.Helper()
 	_ = h
 	_ = modelConfigID
 	_ = strategy
 	tb.Skip("legacy proxy selection strategies were removed; unified access targets use each model's legacy strategy")
-}
-
-func (h *runtimeHarness) seedProxyTargetWithMetadata(tb testing.TB, sourceModelConfigID int, targetModelConfigID int, position int, weight int, targetPriority int) {
-	tb.Helper()
-	now := time.Now().UTC()
-	if _, err := h.conn.Exec(
-		context.Background(),
-		`INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at)
-		 SELECT profile_id, id, 'model', $2, $3, $4, $5, TRUE, $6, $6 FROM model_configs WHERE id = $1`,
-		sourceModelConfigID,
-		targetModelConfigID,
-		position,
-		weight,
-		targetPriority,
-		now,
-	); err != nil {
-		tb.Fatalf("insert runtime model access target: %v", err)
-	}
 }
 
 func TestRuntimeProxySelectorRetriesProvider429AndPersistsRouteReason(t *testing.T) {

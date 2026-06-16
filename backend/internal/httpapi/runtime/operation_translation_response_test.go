@@ -202,8 +202,8 @@ func TestTranslateOpenAIResponseRejectsUnsupportedShape(t *testing.T) {
 		raw    []byte
 		reason string
 	}{
-		{name: "responses function call", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"id":"resp_fn","output":[{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}]}`), reason: "responses_function_call"},
-		{name: "chat tool calls", mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"id":"chatcmpl_fn","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`), reason: "chat_tool_calls"},
+		{name: "responses unsupported output type", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"id":"resp_bad","output":[{"type":"unknown"}]}`), reason: "responses_output_type"},
+		{name: "chat empty choices", mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"id":"chatcmpl_empty","choices":[]}`), reason: "chat_choices"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -212,7 +212,7 @@ func TestTranslateOpenAIResponseRejectsUnsupportedShape(t *testing.T) {
 			if !errors.As(err, &domainErr) {
 				t.Fatalf("expected domain error, got %v", err)
 			}
-			if domainErr.StatusCode != http.StatusBadGateway || domainErr.ErrorCode != openAIResponseTranslationUnsupportedErrorCode || domainErr.Detail != openAIResponseTranslationUnsupportedDetail {
+			if domainErr.StatusCode != http.StatusBadGateway || domainErr.ErrorCode != openAIResponseTranslationUnsupportedErrorCode || domainErr.Detail != "Prism cannot translate this OpenAI response shape for the selected target." {
 				t.Fatalf("expected pinned response translation 502 contract, got %+v", domainErr)
 			}
 			if got := stringValue(domainErr.Fields["unsupported_reason"]); got != test.reason {
@@ -334,7 +334,7 @@ func TestOperationResponseHooks_TranslatedOpenAINonStreamPreservesCanonicalUsage
 func TestOperationResponseHooks_TranslatedOpenAIUnsupportedShapeReturnsDomainError(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	var forwarded bytes.Buffer
-	capture, err := proxyTranslatedOpenAINonEventResponseAndCapture(TranslationModeOpenAIResponsesToChatCompletions, "responses-public", &forwarded, strings.NewReader(`{"id":"chatcmpl_fn","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`), fixedResponseHookTestNow, true)
+	capture, err := proxyTranslatedOpenAINonEventResponseAndCapture(TranslationModeOpenAIResponsesToChatCompletions, "responses-public", &forwarded, strings.NewReader(`{"id":"chatcmpl_empty","choices":[]}`), fixedResponseHookTestNow, true)
 	if !reflect.DeepEqual(capture, runtimeResponseCapture{}) {
 		t.Fatalf("expected no capture on unsupported translated response, got %+v", capture)
 	}
@@ -345,8 +345,8 @@ func TestOperationResponseHooks_TranslatedOpenAIUnsupportedShapeReturnsDomainErr
 	if domainErr.StatusCode != http.StatusBadGateway || domainErr.ErrorCode != openAIResponseTranslationUnsupportedErrorCode {
 		t.Fatalf("expected response translation unsupported error, got %+v", domainErr)
 	}
-	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "chat_tool_calls" {
-		t.Fatalf("expected unsupported reason chat_tool_calls, got %+v", domainErr.Fields)
+	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "chat_choices" {
+		t.Fatalf("expected unsupported reason chat_choices, got %+v", domainErr.Fields)
 	}
 	if forwarded.Len() != 0 || strings.TrimSpace(operation.Name) != openAIUpstreamOperationResponses {
 		t.Fatalf("expected unsupported response hook to avoid forwarding bytes for %s, got %q", operation.Name, forwarded.String())

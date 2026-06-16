@@ -141,6 +141,8 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "profile activate", method: http.MethodPost, pattern: "/profiles/{profile_id}/activate", tier: priority.ManagementTierM1},
 	{name: "profile delete", method: http.MethodDelete, pattern: "/profiles/{profile_id}", tier: priority.ManagementTierM2},
 	{name: "realtime websocket", method: http.MethodGet, pattern: "/realtime/ws", tier: priority.ManagementTierM3, releaseAdmissionFromHandler: true},
+	{name: "settings audit read", method: http.MethodGet, pattern: "/settings/audit", tier: priority.ManagementTierM2},
+	{name: "settings audit write", method: http.MethodPut, pattern: "/settings/audit", tier: priority.ManagementTierM2},
 	{name: "settings costing read", method: http.MethodGet, pattern: "/settings/costing", tier: priority.ManagementTierM2},
 	{name: "settings costing write", method: http.MethodPut, pattern: "/settings/costing", tier: priority.ManagementTierM2},
 	{name: "settings timezone read", method: http.MethodGet, pattern: "/settings/timezone", tier: priority.ManagementTierM2},

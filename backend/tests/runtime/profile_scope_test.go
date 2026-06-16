@@ -30,6 +30,7 @@ import (
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
+	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -826,8 +827,8 @@ func TestRuntimeAdmissionExhaustionDoesNotIncrementRetries(t *testing.T) {
 	publicConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
 	firstConfigID := harness.seedModel(t, profileID, "openai", firstTargetID, "native", &strategyID)
 	secondConfigID := harness.seedModel(t, profileID, "openai", secondTargetID, "native", &strategyID)
-	harness.seedProxyTargetWithMetadata(t, publicConfigID, firstConfigID, 0, 1, 0)
-	harness.seedProxyTargetWithMetadata(t, publicConfigID, secondConfigID, 1, 1, 0)
+	harness.seedProxyTargetAtPosition(t, publicConfigID, firstConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicConfigID, secondConfigID, 1)
 	firstEndpointID := harness.seedEndpoint(t, profileID, "admission-terminal-first-endpoint-"+suffix, harness.upstream.baseURL("/admission/terminal/first"), "admission-terminal-first-key", 0)
 	secondEndpointID := harness.seedEndpoint(t, profileID, "admission-terminal-second-endpoint-"+suffix, harness.upstream.baseURL("/admission/terminal/second"), "admission-terminal-second-key", 1)
 	firstConnectionID := harness.seedConnection(t, profileID, firstConfigID, firstEndpointID, "admission-terminal-first-connection-"+suffix, nil, nil, 0)
@@ -2360,6 +2361,11 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		tb.Fatalf("build stats service: %v", err)
 	}
 	tb.Cleanup(statsService.Close)
+	settingsService, err := managementsettings.NewService(settings, managementsettings.Options{Pool: pool, Now: func() time.Time { return time.Now().UTC() }})
+	if err != nil {
+		tb.Fatalf("build settings service: %v", err)
+	}
+	tb.Cleanup(settingsService.Close)
 	runtimeService, err := runtimeapi.NewService(settings, runtimeOptions)
 	if err != nil {
 		tb.Fatalf("build runtime service: %v", err)
@@ -2374,6 +2380,7 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		ConnectionsService: connectionsService,
 		ModelsService:      modelsService,
 		ProfilesService:    profilesService,
+		SettingsService:    settingsService,
 		StatsService:       statsService,
 		RuntimeService:     runtimeService,
 	})
@@ -2829,7 +2836,18 @@ func (h *runtimeHarness) seedProxyTarget(tb testing.TB, sourceModelConfigID int,
 
 func (h *runtimeHarness) seedProxyTargetAtPosition(tb testing.TB, sourceModelConfigID int, targetModelConfigID int, position int) {
 	tb.Helper()
-	h.seedProxyTargetWithMetadata(tb, sourceModelConfigID, targetModelConfigID, position, 1, position)
+	now := time.Now().UTC()
+	if _, err := h.conn.Exec(
+		context.Background(),
+		`INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at)
+		 SELECT profile_id, id, 'model', $2, $3, TRUE, $4, $4 FROM model_configs WHERE id = $1`,
+		sourceModelConfigID,
+		targetModelConfigID,
+		position,
+		now,
+	); err != nil {
+		tb.Fatalf("insert runtime model access target: %v", err)
+	}
 }
 
 func (h *runtimeHarness) seedEndpoint(tb testing.TB, profileID int, name string, baseURL string, apiKey string, position int) int {

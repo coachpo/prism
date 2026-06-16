@@ -1841,7 +1841,7 @@ func s15InsertModelTarget(t *testing.T, harness *contractHarness, sourceModelCon
 	if err := harness.conn.QueryRow(context.Background(), `SELECT profile_id FROM model_configs WHERE id = $1`, sourceModelConfigID).Scan(&profileID); err != nil {
 		t.Fatalf("load S15 source profile %d: %v", sourceModelConfigID, err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, 1, $4, TRUE, $5, $5)`, profileID, sourceModelConfigID, targetModelConfigID, position, now); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, TRUE, $5, $5)`, profileID, sourceModelConfigID, targetModelConfigID, position, now); err != nil {
 		t.Fatalf("insert S15 model target %d -> %d: %v", sourceModelConfigID, targetModelConfigID, err)
 	}
 }

@@ -185,17 +185,13 @@ func TestOpenAITranslationGoldenRejectedShapes(t *testing.T) {
 
 	_, responseErr := adapter.AdaptNonStreamResponse(context.Background(), provider.UpstreamResponse{
 		StatusCode:       http.StatusOK,
-		Body:             []byte(`{"id":"chatcmpl_fn","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`),
+		Body:             []byte(`{"id":"chatcmpl_empty","choices":[]}`),
 		TranslationMode:  provider.TranslationModeOpenAIResponsesToChatCompletions,
 		RequestedModelID: "responses-public",
 		Operation:        provider.Operation{APIFamily: provider.APIFamilyOpenAI},
 	})
 	assertGoldenAdapterError(t, "rejected_response_chat_tool_calls.json", responseErr)
 
-	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
-	var forwarded bytes.Buffer
-	_, streamErr := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIResponsesToChatCompletions, "responses-public", context.Background(), &forwarded, strings.NewReader("data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{}\"}}]}}]}\n\n"), fixedResponseHookTestNow, true)
-	assertGoldenDomainError(t, "rejected_stream_chat_tool_call.json", streamErr)
 }
 
 func TestOpenAITranslationGoldenAdjunctOperationsRejectAccidentalConversion(t *testing.T) {
@@ -240,20 +236,6 @@ func assertGoldenAdapterError(t *testing.T, name string, err error) {
 	assertGoldenText(t, name, actual)
 }
 
-func assertGoldenDomainError(t *testing.T, name string, err error) {
-	t.Helper()
-	var domainErr *domainError
-	if !errors.As(err, &domainErr) {
-		t.Fatalf("expected domain error for %s, got %v", name, err)
-	}
-	payload := map[string]any{"http_status": domainErr.StatusCode, "code": domainErr.ErrorCode, "detail": domainErr.Detail}
-	maps.Copy(payload, domainErr.Fields)
-	actual, marshalErr := json.Marshal(payload)
-	if marshalErr != nil {
-		t.Fatalf("marshal domain error payload: %v", marshalErr)
-	}
-	assertGoldenText(t, name, actual)
-}
 func assertGoldenText(t *testing.T, name string, actual []byte) {
 	t.Helper()
 	path := openAITranslationGoldenPath(name)

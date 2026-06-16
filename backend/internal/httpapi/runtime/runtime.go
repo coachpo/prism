@@ -28,14 +28,13 @@ import (
 )
 
 const (
-	openAIUpstreamOperationResponses                        = providercompat.OpenAIUpstreamOperationResponses
-	openAIUpstreamOperationChatCompletions                  = providercompat.OpenAIUpstreamOperationChatCompletions
-	runtimeFacadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
-	runtimeFacadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
-	runtimeNestedFacadesNotSupportedDetail                  = "nested facades are not supported"
-	runtimeFacadeTerminalTargetsNotSupportedDetail          = "facade models must use model targets only"
-	runtimeActiveModelTargetDefaultWeight                   = modelrouting.DefaultModelTargetWeight
-	runtimeAdmissionExhaustedErrorCode                      = "admission_exhausted"
+	openAIUpstreamOperationResponses                   = providercompat.OpenAIUpstreamOperationResponses
+	openAIUpstreamOperationChatCompletions             = providercompat.OpenAIUpstreamOperationChatCompletions
+	runtimeFacadeSelectionPolicyOrderedEligibleContext = "ordered_eligible_context"
+	runtimeFacadeFallbackPolicySkipIneligibleTargets   = "skip_ineligible_targets"
+	runtimeNestedFacadesNotSupportedDetail             = "nested facades are not supported"
+	runtimeFacadeTerminalTargetsNotSupportedDetail     = "facade models must use model targets only"
+	runtimeAdmissionExhaustedErrorCode                 = "admission_exhausted"
 )
 
 type runtimeFeedbackStore struct {
@@ -129,11 +128,11 @@ func validateRuntimeModelFacadePolicies(model runtimeModelRecord) error {
 }
 
 func validateRuntimeFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
-	if selectionPolicy != nil && *selectionPolicy != runtimeFacadeSelectionPolicyWeightedEligibleContext {
-		return fmt.Errorf("facade_selection_policy must be '%s'", runtimeFacadeSelectionPolicyWeightedEligibleContext)
+	if selectionPolicy != nil && *selectionPolicy != runtimeFacadeSelectionPolicyOrderedEligibleContext {
+		return fmt.Errorf("facade_selection_policy must be '%s'", runtimeFacadeSelectionPolicyOrderedEligibleContext)
 	}
-	if fallbackPolicy != nil && *fallbackPolicy != runtimeFacadeFallbackPolicyRedistributeIneligibleWeight {
-		return fmt.Errorf("facade_fallback_policy must be '%s'", runtimeFacadeFallbackPolicyRedistributeIneligibleWeight)
+	if fallbackPolicy != nil && *fallbackPolicy != runtimeFacadeFallbackPolicySkipIneligibleTargets {
+		return fmt.Errorf("facade_fallback_policy must be '%s'", runtimeFacadeFallbackPolicySkipIneligibleTargets)
 	}
 	return nil
 }
@@ -143,11 +142,11 @@ func invalidRuntimeFacadePolicyError(modelID string, detail string) error {
 }
 
 func isRuntimeExactOpenAIFacadeModel(model runtimeModelRecord) bool {
-	return model.FacadeEnabled && modelrouting.SameAPIFamily(model.APIFamily, "openai") && model.FacadeSelectionPolicy != nil && *model.FacadeSelectionPolicy == runtimeFacadeSelectionPolicyWeightedEligibleContext
+	return model.FacadeEnabled && modelrouting.SameAPIFamily(model.APIFamily, "openai") && model.FacadeSelectionPolicy != nil && *model.FacadeSelectionPolicy == runtimeFacadeSelectionPolicyOrderedEligibleContext
 }
 
 func runtimeFacadeSelectionStrategy() loadbalance.RuntimeStrategy {
-	return loadbalance.RuntimeStrategy{LegacyStrategyType: stringPtr(runtimeFacadeSelectionPolicyWeightedEligibleContext)}
+	return loadbalance.RuntimeStrategy{LegacyStrategyType: stringPtr(runtimeFacadeSelectionPolicyOrderedEligibleContext)}
 }
 
 func nestedRuntimeFacadeTargetError() error {
@@ -255,8 +254,6 @@ type runtimeFacadeExclusionReason struct {
 type runtimeFacadeSelectionDecision struct {
 	FacadeModelID         string                         `json:"facade_model_id"`
 	SelectedTargetModelID *string                        `json:"selected_target_model_id,omitempty"`
-	SelectedWeight        *int                           `json:"selected_weight,omitempty"`
-	EligibleTotalWeight   *int                           `json:"eligible_total_weight,omitempty"`
 	ExclusionReasons      []runtimeFacadeExclusionReason `json:"exclusion_reasons,omitempty"`
 	ExclusionSummary      *string                        `json:"exclusion_summary,omitempty"`
 }
@@ -346,7 +343,6 @@ type runtimePlannerTraceDecision struct {
 	AccessTargetID           *int    `json:"access_target_id,omitempty"`
 	AccessTargetType         *string `json:"access_target_type,omitempty"`
 	SelectedTargetModelID    *string `json:"selected_target_model_id,omitempty"`
-	SelectedTierPriority     *int    `json:"selected_tier_priority,omitempty"`
 	SelectedTerminalTargetID *int    `json:"selected_terminal_target_id,omitempty"`
 	TranslationMode          *string `json:"translation_mode,omitempty"`
 	SkippedTerminalTargets   int     `json:"skipped_terminal_targets,omitempty"`
@@ -667,8 +663,6 @@ func cloneRuntimeFacadeSelectionDecision(source *runtimeFacadeSelectionDecision)
 	cloned := &runtimeFacadeSelectionDecision{
 		FacadeModelID:         source.FacadeModelID,
 		SelectedTargetModelID: cloneRuntimeStringPointer(source.SelectedTargetModelID),
-		SelectedWeight:        cloneRuntimeIntPointer(source.SelectedWeight),
-		EligibleTotalWeight:   cloneRuntimeIntPointer(source.EligibleTotalWeight),
 		ExclusionReasons:      cloneRuntimeFacadeExclusionReasons(source.ExclusionReasons),
 		ExclusionSummary:      cloneRuntimeStringPointer(source.ExclusionSummary),
 	}
@@ -689,7 +683,6 @@ func cloneRuntimePlannerTraceDecision(source *runtimePlannerTraceDecision) *runt
 		AccessTargetID:           cloneRuntimeIntPointer(source.AccessTargetID),
 		AccessTargetType:         cloneRuntimeStringPointer(source.AccessTargetType),
 		SelectedTargetModelID:    cloneRuntimeStringPointer(source.SelectedTargetModelID),
-		SelectedTierPriority:     cloneRuntimeIntPointer(source.SelectedTierPriority),
 		SelectedTerminalTargetID: cloneRuntimeIntPointer(source.SelectedTerminalTargetID),
 		TranslationMode:          cloneRuntimeStringPointer(source.TranslationMode),
 		SkippedTerminalTargets:   source.SkippedTerminalTargets,

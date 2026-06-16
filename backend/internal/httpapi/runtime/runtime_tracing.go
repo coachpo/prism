@@ -56,13 +56,10 @@ const (
 	runtimeTraceAttrContextOverflowAffinityRejectionReason                = "prism.context_overflow_affinity.rejection_reason"
 	runtimeTraceAttrFacadeModelID                                         = "prism.facade_model_id"
 	runtimeTraceAttrFacadeSelectedTargetModel                             = "prism.facade_selected_target_model_id"
-	runtimeTraceAttrFacadeSelectedWeight                                  = "prism.facade_selected_weight"
-	runtimeTraceAttrFacadeEligibleTotalWeight                             = "prism.facade_eligible_total_weight"
 	runtimeTraceAttrFacadeExclusionSummary                                = "prism.facade_exclusion_summary"
 	runtimeTraceAttrPlannerVersion                                        = "prism.planner_version"
 	runtimeTraceAttrPlannerDecision                                       = "prism.planner_decision"
 	runtimeTraceAttrPlannerPolicy                                         = "prism.planner_policy"
-	runtimeTraceAttrPlannerSelectedTier                                   = "prism.planner_selected_tier_priority"
 	runtimeTraceAttrPlannerSkippedTargets                                 = "prism.planner_skipped_terminal_targets"
 	runtimeTraceAttrAPIFamily                                             = "prism.api_family"
 	runtimeTraceAttrStreaming                                             = "prism.streaming"
@@ -188,12 +185,6 @@ func runtimeTraceFacadeSelectionAttributes(contextRouting *runtimeContextRouting
 	if facadeSelection.SelectedTargetModelID != nil && strings.TrimSpace(*facadeSelection.SelectedTargetModelID) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrFacadeSelectedTargetModel, strings.TrimSpace(*facadeSelection.SelectedTargetModelID)))
 	}
-	if facadeSelection.SelectedWeight != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrFacadeSelectedWeight, *facadeSelection.SelectedWeight))
-	}
-	if facadeSelection.EligibleTotalWeight != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrFacadeEligibleTotalWeight, *facadeSelection.EligibleTotalWeight))
-	}
 	if facadeSelection.ExclusionSummary != nil && strings.TrimSpace(*facadeSelection.ExclusionSummary) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrFacadeExclusionSummary, strings.TrimSpace(*facadeSelection.ExclusionSummary)))
 	}
@@ -313,9 +304,6 @@ func runtimeTracePlannerTraceAttributes(plannerTrace *runtimePlannerTraceDecisio
 	}
 	if strings.TrimSpace(plannerTrace.Policy) != "" {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrPlannerPolicy, runtimeTracePolicy.plannerPolicy(plannerTrace.Policy)))
-	}
-	if plannerTrace.SelectedTierPriority != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrPlannerSelectedTier, *plannerTrace.SelectedTierPriority))
 	}
 	if plannerTrace.SkippedTerminalTargets > 0 {
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrPlannerSkippedTargets, plannerTrace.SkippedTerminalTargets))
@@ -535,7 +523,7 @@ func (policy runtimeTraceAttributePolicy) plannerDecision(value string) string {
 
 func (policy runtimeTraceAttributePolicy) plannerPolicy(value string) string {
 	switch strings.TrimSpace(value) {
-	case "single", "fill-first", "round-robin", "cheapest_eligible_context", runtimeFacadeSelectionPolicyWeightedEligibleContext:
+	case "single", "fill-first", "round-robin", "cheapest_eligible_context", runtimeFacadeSelectionPolicyOrderedEligibleContext:
 		return strings.TrimSpace(value)
 	default:
 		return runtimeTraceValueUnknown

@@ -62,8 +62,6 @@ type runtimeAccessTargetRecord struct {
 	TargetConnectionProfileID int
 	TargetConnectionAPIFamily string
 	Position                  int
-	Weight                    int
-	TargetPriority            int
 	IsEnabled                 bool
 	ConnectionEndpointFX      *runtimeEndpointFXSnapshot
 }
@@ -253,7 +251,6 @@ type runtimeModelPeerSelection struct {
 	eligibleCandidates               []runtimeResolvedAccessCandidate
 	skippedTerminalTargets           []runtimeContextRoutingSkippedTerminalTarget
 	compatibilityError               error
-	eligibleTotalWeight              int
 	largestUsableContextWindowTokens int
 	contextFitEvaluated              bool
 }
@@ -390,7 +387,7 @@ func (s *Service) resolveExactFacadeModelAccessFromRoutingPlan(profileID int, ro
 		if ctx.rejectsMissingContextEstimation() {
 			return runtimeResolvedAccessPlan{}, contextEstimationUnavailableDomainError()
 		}
-		facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, peerSelection.eligibleTotalWeight, peerSelection.skippedTerminalTargets, 0)
+		facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, nil, peerSelection.skippedTerminalTargets, 0)
 		if peerSelection.contextFitEvaluated && ctx.RequestContextEstimation != nil {
 			return runtimeResolvedAccessPlan{}, &noContextEligibleTargetsError{
 				requestedModelID:                 ctx.RequestedModelID,
@@ -408,7 +405,7 @@ func (s *Service) resolveExactFacadeModelAccessFromRoutingPlan(profileID int, ro
 	}
 	selectedCandidate := peerSelection.selectedCandidate
 	resolved := selectedCandidate.resolved
-	facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, selectedCandidate, peerSelection.eligibleTotalWeight, peerSelection.skippedTerminalTargets, 0)
+	facadeSelection := buildRuntimeFacadeSelectionDecision(model.ModelID, selectedCandidate, peerSelection.skippedTerminalTargets, 0)
 	if resolved.ContextRouting == nil {
 		resolved.ContextRouting = buildRuntimeFacadeContextRoutingDecision(ctx.RequestContextEstimation, selectedCandidate, peerSelection.largestUsableContextWindowTokens, peerSelection.skippedTerminalTargets, facadeSelection)
 	} else {
@@ -439,28 +436,18 @@ func (s *Service) selectModelPeerCandidateFromRoutingPlan(profileID int, routing
 		if len(eligibleCandidates) == 0 {
 			return selection, nil
 		}
-		selection.eligibleTotalWeight = runtimeAccessCandidateTotalWeight(eligibleCandidates)
 		selection.eligibleCandidates = append(selection.eligibleCandidates, eligibleCandidates...)
 		return selection, nil
 	}
 
-	peerTiers := routingPlan.orderedPeerTiersForModel(model)
-	for _, tier := range peerTiers {
-		eligibleCandidates, err := s.evaluateModelPeerTargetsFromRoutingPlan(profileID, routingPlan, model, strategy, tier.WeightedPeerSet.Targets, ctx, &selection)
-		if err != nil {
-			return runtimeModelPeerSelection{}, err
-		}
-		if len(eligibleCandidates) == 0 {
-			continue
-		}
-		selection.eligibleTotalWeight = runtimeAccessCandidateTotalWeight(eligibleCandidates)
-		selectedCandidate := selectWeightedRuntimeAccessCandidate(profileID, model.ID, eligibleCandidates, s.runtimeState)
-		if selectedCandidate == nil {
-			return selection, nil
-		}
-		selected := *selectedCandidate
+	targets := routingPlan.orderedModelTargetsForStrategy(profileID, model, strategy, s.runtimeState)
+	eligibleCandidates, err := s.evaluateModelPeerTargetsFromRoutingPlan(profileID, routingPlan, model, strategy, targets, ctx, &selection)
+	if err != nil {
+		return runtimeModelPeerSelection{}, err
+	}
+	if len(eligibleCandidates) > 0 {
+		selected := eligibleCandidates[0]
 		selection.selectedCandidate = &selected
-		return selection, nil
 	}
 	return selection, nil
 }
@@ -782,7 +769,7 @@ func mergeRuntimeRouteReason(current gatewaycore.RouteReason, next gatewaycore.R
 
 func runtimeStrategyUsesContextFiltering(strategy loadbalance.RuntimeStrategy) bool {
 	strategyType := normalizedRuntimeLegacyStrategyType(strategy)
-	return strategy.IsCheapestEligibleContextStrategy() || strategyType == runtimeFacadeSelectionPolicyWeightedEligibleContext
+	return strategy.IsCheapestEligibleContextStrategy() || strategyType == runtimeFacadeSelectionPolicyOrderedEligibleContext
 }
 
 func selectedUsableContextWindowTokensForResolvedAccessPlan(plan runtimeResolvedAccessPlan) int {
@@ -952,26 +939,14 @@ func buildRuntimeContextRoutingSkippedTerminalTarget(connection runtimeConnectio
 
 const runtimeFacadeExclusionReasonTranslationRejection = "translation_rejection"
 
-func runtimeAccessCandidateTotalWeight(candidates []runtimeResolvedAccessCandidate) int {
-	totalWeight := 0
-	for _, candidate := range candidates {
-		totalWeight += effectiveRuntimeAccessTargetWeight(candidate.target)
-	}
-	return totalWeight
-}
-
-func buildRuntimeFacadeSelectionDecision(facadeModelID string, selectedCandidate *runtimeResolvedAccessCandidate, eligibleTotalWeight int, skippedTerminalTargets []runtimeContextRoutingSkippedTerminalTarget, translatedRejectedCount int) *runtimeFacadeSelectionDecision {
+func buildRuntimeFacadeSelectionDecision(facadeModelID string, selectedCandidate *runtimeResolvedAccessCandidate, skippedTerminalTargets []runtimeContextRoutingSkippedTerminalTarget, translatedRejectedCount int) *runtimeFacadeSelectionDecision {
 	trimmedFacadeModelID := strings.TrimSpace(facadeModelID)
 	if trimmedFacadeModelID == "" {
 		return nil
 	}
-	decision := &runtimeFacadeSelectionDecision{
-		FacadeModelID:       trimmedFacadeModelID,
-		EligibleTotalWeight: intPtr(eligibleTotalWeight),
-	}
+	decision := &runtimeFacadeSelectionDecision{FacadeModelID: trimmedFacadeModelID}
 	if selectedCandidate != nil {
 		decision.SelectedTargetModelID = stringPointerIfNotEmpty(selectedCandidate.target.TargetModelID)
-		decision.SelectedWeight = intPtr(effectiveRuntimeAccessTargetWeight(selectedCandidate.target))
 	}
 	decision.ExclusionReasons = buildRuntimeFacadeExclusionReasons(skippedTerminalTargets, translatedRejectedCount)
 	decision.ExclusionSummary = buildRuntimeFacadeExclusionSummary(decision.ExclusionReasons)
@@ -1043,7 +1018,7 @@ func attachRuntimeFacadeSelectionDecision(contextRouting *runtimeContextRoutingD
 func buildRuntimeFacadeContextRoutingDecision(estimation *requestContextEstimation, selectedCandidate *runtimeResolvedAccessCandidate, usableContextWindowTokens int, skippedTerminalTargets []runtimeContextRoutingSkippedTerminalTarget, facadeSelection *runtimeFacadeSelectionDecision) *runtimeContextRoutingDecision {
 	contextRouting := buildRuntimeContextRoutingDecision(runtimeFacadeSelectionStrategy(), estimation, selectedCandidate, "", usableContextWindowTokens, skippedTerminalTargets)
 	if contextRouting == nil {
-		contextRouting = &runtimeContextRoutingDecision{Policy: runtimeFacadeSelectionPolicyWeightedEligibleContext}
+		contextRouting = &runtimeContextRoutingDecision{Policy: runtimeFacadeSelectionPolicyOrderedEligibleContext}
 		if estimation != nil {
 			contextRouting.EstimationMethod = stringPointerIfNotEmpty(estimation.Method)
 			contextRouting.EstimatedInputTokens = intPtr(estimation.EstimatedInputTokens)
@@ -1105,7 +1080,6 @@ func buildRuntimePlannerTraceDecision(policy string, selectedCandidate *runtimeR
 		decision.AccessTargetID = intPtr(selectedCandidate.target.ID)
 		decision.AccessTargetType = stringPointerIfNotEmpty(selectedCandidate.target.TargetType)
 		decision.SelectedTargetModelID = stringPointerIfNotEmpty(selectedCandidate.target.TargetModelID)
-		decision.SelectedTierPriority = intPtr(selectedCandidate.target.TargetPriority)
 		if len(selectedCandidate.resolved.TerminalAttempts) > 0 {
 			attempt := selectedCandidate.resolved.TerminalAttempts[0]
 			decision.SelectedTerminalTargetID = intPtr(attempt.Connection.ID)
@@ -1308,7 +1282,16 @@ func runtimeTerminalTargetIsUpstreamRedirect(routingPlan *runtimeRoutingPlan, so
 	if target.TargetType != runtimeAccessTargetTypeConnection || strings.TrimSpace(sourceModel.ModelID) != strings.TrimSpace(ctx.RequestedModelID) {
 		return false
 	}
-	return len(routingPlan.orderedPeerTiersForModel(sourceModel)) > 0
+	compiled, ok := routingPlan.ModelsByConfigID[sourceModel.ID]
+	if !ok {
+		return false
+	}
+	for _, accessTarget := range compiled.OrderedEnabledTargets {
+		if accessTarget.TargetType == runtimeAccessTargetTypeModel {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) resolveModelAccessTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, sourceModel runtimeModelRecord, target runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
@@ -1389,8 +1372,12 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 			model_configs.loadbalance_strategy_id, model_configs.facade_enabled, model_configs.facade_selection_policy,
 			model_configs.facade_fallback_policy, model_configs.context_window_tokens, model_configs.default_output_token_reserve,
 			model_configs.max_context_utilization, model_configs.preferred_context_utilization_threshold,
-			model_configs.context_overflow_promotion_target_id
+			model_configs.context_overflow_promotion_target_id,
+			COALESCE(audit_settings.audit_enabled, FALSE),
+			COALESCE(audit_settings.audit_enabled, FALSE) AND COALESCE(audit_settings.audit_capture_bodies, FALSE)
 		FROM model_configs
+		LEFT JOIN profile_api_family_audit_settings AS audit_settings ON audit_settings.profile_id = model_configs.profile_id
+			AND audit_settings.api_family = model_configs.api_family
 		WHERE model_configs.profile_id = $1 AND model_configs.is_enabled = TRUE
 		ORDER BY model_configs.model_id ASC, model_configs.id ASC`,
 		profileID,
@@ -1411,7 +1398,7 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		var preferredContextUtilizationThreshold sql.NullFloat64
 		var contextOverflowPromotionTargetID sql.NullString
 		item := runtimeModelRecord{}
-		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &strategyID, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization, &preferredContextUtilizationThreshold, &contextOverflowPromotionTargetID); err != nil {
+		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &strategyID, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization, &preferredContextUtilizationThreshold, &contextOverflowPromotionTargetID, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
 			return nil, fmt.Errorf("scan enabled model for profile %d: %w", profileID, err)
 		}
 		if _, exists := items[item.ModelID]; exists {
@@ -1443,7 +1430,7 @@ func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 			model_access_targets.target_type, model_access_targets.target_model_config_id, target_models.model_id,
 			target_models.profile_id, target_models.api_family, COALESCE(target_models.is_enabled, FALSE),
 			model_access_targets.target_connection_id, connections.profile_id, connections.api_family,
-			model_access_targets.position, model_access_targets.weight, model_access_targets.target_priority, model_access_targets.is_enabled,
+			model_access_targets.position, model_access_targets.is_enabled,
 			source_models.model_id, connections.endpoint_id, endpoint_fx_rate_settings.fx_rate::text
 		FROM model_access_targets
 		JOIN model_configs AS source_models ON source_models.id = model_access_targets.source_model_config_id
@@ -1471,8 +1458,6 @@ func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		var targetConnectionID sql.NullInt32
 		var targetConnectionProfileID sql.NullInt32
 		var targetConnectionAPIFamily sql.NullString
-		var weight sql.NullInt32
-		var targetPriority sql.NullInt32
 		var sourceModelID sql.NullString
 		var connectionEndpointID sql.NullInt32
 		var endpointFXRate sql.NullString
@@ -1491,8 +1476,6 @@ func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 			&targetConnectionProfileID,
 			&targetConnectionAPIFamily,
 			&item.Position,
-			&weight,
-			&targetPriority,
 			&item.IsEnabled,
 			&sourceModelID,
 			&connectionEndpointID,
@@ -1515,14 +1498,6 @@ func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		}
 		if targetConnectionAPIFamily.Valid {
 			item.TargetConnectionAPIFamily = strings.TrimSpace(targetConnectionAPIFamily.String)
-		}
-		item.Weight = runtimeActiveModelTargetDefaultWeight
-		item.TargetPriority = item.Position
-		if weight.Valid {
-			item.Weight = int(weight.Int32)
-		}
-		if targetPriority.Valid {
-			item.TargetPriority = int(targetPriority.Int32)
 		}
 		if endpointFXRate.Valid && connectionEndpointID.Valid && sourceModelID.Valid {
 			item.ConnectionEndpointFX = &runtimeEndpointFXSnapshot{

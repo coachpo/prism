@@ -108,8 +108,8 @@ func TestSharedCachePublishedSnapshotsCloneProfilesAndProxyKeysButSharePlanningS
 func TestSharedCachePublishedCachePlanningSnapshotCarriesFacadeMetadata(t *testing.T) {
 	t.Parallel()
 
-	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	cache := NewSharedCache(0)
 	cache.published.Store(&publishedRuntimeSnapshot{
 		PlanningByProfileID: map[int]*planningSnapshot{
@@ -143,8 +143,6 @@ func TestSharedCachePublishedCachePlanningSnapshotCarriesFacadeMetadata(t *testi
 						TargetModelAPIFamily: "openai",
 						TargetModelEnabled:   true,
 						Position:             0,
-						Weight:               7,
-						TargetPriority:       11,
 						IsEnabled:            true,
 					}},
 				},
@@ -164,8 +162,8 @@ func TestSharedCachePublishedCachePlanningSnapshotCarriesFacadeMetadata(t *testi
 	if len(targets) != 1 {
 		t.Fatalf("expected one published model target, got %+v", targets)
 	}
-	if targets[0].Weight != 7 || targets[0].TargetPriority != 11 {
-		t.Fatalf("expected published model target weight/priority 7/11, got %+v", targets[0])
+	if targets[0].Position != 0 || targets[0].TargetModelID != "child-openai" || !targets[0].IsEnabled {
+		t.Fatalf("expected published flat model target, got %+v", targets[0])
 	}
 }
 
@@ -173,7 +171,7 @@ func TestSharedCachePublishedCacheRejectsInvalidFacadeMetadata(t *testing.T) {
 	t.Parallel()
 
 	invalidSelectionPolicy := "invalid"
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	cache := NewSharedCache(0)
 	cache.published.Store(&publishedRuntimeSnapshot{
 		PlanningByProfileID: map[int]*planningSnapshot{
@@ -194,7 +192,7 @@ func TestSharedCachePublishedCacheRejectsInvalidFacadeMetadata(t *testing.T) {
 	})
 
 	_, err := cache.LoadPublishedPlanningSnapshot(42)
-	assertPlanDomainError(t, err, 503, "facade_selection_policy must be 'weighted_eligible_context'")
+	assertPlanDomainError(t, err, 503, "facade_selection_policy must be 'ordered_eligible_context'")
 }
 
 func TestSharedCachePublishedGenerationTracksStores(t *testing.T) {

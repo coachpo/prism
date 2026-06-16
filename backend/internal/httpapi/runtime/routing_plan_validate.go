@@ -107,7 +107,7 @@ func validateRuntimeRoutingPlanStrategyIssues(issues []runtimeRoutingPlanValidat
 	}
 	strategyType := normalizedRuntimeLegacyStrategyType(compiled.Strategy)
 	switch strategyType {
-	case "single", "fill-first", "round-robin", "cheapest_eligible_context", runtimeFacadeSelectionPolicyWeightedEligibleContext:
+	case "single", "fill-first", "round-robin", "cheapest_eligible_context", runtimeFacadeSelectionPolicyOrderedEligibleContext:
 	default:
 		issues = appendRuntimeRoutingPlanValidationIssue(issues, "strategy_type_invalid", path+".legacy_strategy_type", fmt.Sprintf("model %q strategy has unsupported legacy_strategy_type %q", compiled.Model.ModelID, strategyType))
 	}
@@ -128,7 +128,6 @@ func validateRuntimeRoutingPlanTargets(plan *runtimeRoutingPlan, issues []runtim
 		}
 	}
 	issues = validateRuntimeRoutingPlanFallbackTargets(issues, path, compiled)
-	issues = validateRuntimeRoutingPlanPeerTiers(issues, path, compiled)
 	issues = validateRuntimeRoutingPlanTerminalTargets(issues, path, compiled)
 	return issues
 }
@@ -181,43 +180,6 @@ func validateRuntimeRoutingPlanFallbackTargets(issues []runtimeRoutingPlanValida
 		if compiled.OrderedFallbackTargets[index] != compiled.OrderedEnabledTargets[index] {
 			issues = appendRuntimeRoutingPlanValidationIssue(issues, "fallback_target_mismatch", fmt.Sprintf("%s.ordered_fallback_targets[%d]", path, index), fmt.Sprintf("model %q fallback target %d does not match ordered enabled target", compiled.Model.ModelID, index))
 		}
-	}
-	return issues
-}
-
-func validateRuntimeRoutingPlanPeerTiers(issues []runtimeRoutingPlanValidationIssue, path string, compiled runtimeRoutingPlanModel) []runtimeRoutingPlanValidationIssue {
-	expectedPeerTargets := sortedRuntimeRoutingPlanPeerTargets(compiled.OrderedEnabledTargets)
-	expectedPeerTargetIndex := 0
-	for tierIndex, tier := range compiled.PeerTiers {
-		tierPath := fmt.Sprintf("%s.peer_tiers[%d]", path, tierIndex)
-		if tierIndex > 0 && compiled.PeerTiers[tierIndex-1].TargetPriority >= tier.TargetPriority {
-			issues = appendRuntimeRoutingPlanValidationIssue(issues, "peer_tiers_not_sorted", path+".peer_tiers", fmt.Sprintf("model %q peer tiers are not sorted by ascending target_priority", compiled.Model.ModelID))
-		}
-		if len(tier.WeightedPeerSet.Targets) == 0 {
-			issues = appendRuntimeRoutingPlanValidationIssue(issues, "peer_tier_empty", tierPath+".weighted_peer_set.targets", fmt.Sprintf("model %q peer tier %d has no targets", compiled.Model.ModelID, tier.TargetPriority))
-		}
-		weightedTotal := 0
-		for targetIndex, target := range tier.WeightedPeerSet.Targets {
-			targetPath := fmt.Sprintf("%s.weighted_peer_set.targets[%d]", tierPath, targetIndex)
-			if target.TargetType != runtimeAccessTargetTypeModel {
-				issues = appendRuntimeRoutingPlanValidationIssue(issues, "peer_tier_non_model", targetPath+".target_type", fmt.Sprintf("model %q peer tier contains non-model target %d", compiled.Model.ModelID, target.ID))
-			}
-			if target.TargetPriority != tier.TargetPriority {
-				issues = appendRuntimeRoutingPlanValidationIssue(issues, "peer_tier_target_priority_mismatch", targetPath+".target_priority", fmt.Sprintf("model %q peer tier priority %d contains target %d with priority %d", compiled.Model.ModelID, tier.TargetPriority, target.ID, target.TargetPriority))
-			}
-			if expectedPeerTargetIndex >= len(expectedPeerTargets) || expectedPeerTargets[expectedPeerTargetIndex] != target {
-				issues = appendRuntimeRoutingPlanValidationIssue(issues, "peer_tier_target_mismatch", targetPath, fmt.Sprintf("model %q peer tier target %d does not match ordered model-peer targets", compiled.Model.ModelID, target.ID))
-			} else {
-				expectedPeerTargetIndex++
-			}
-			weightedTotal += effectiveRuntimeAccessTargetWeight(target)
-		}
-		if weightedTotal != tier.WeightedPeerSet.TotalWeight {
-			issues = appendRuntimeRoutingPlanValidationIssue(issues, "peer_tier_total_mismatch", tierPath+".weighted_peer_set.total_weight", fmt.Sprintf("model %q peer tier total %d does not match targets total %d", compiled.Model.ModelID, tier.WeightedPeerSet.TotalWeight, weightedTotal))
-		}
-	}
-	if expectedPeerTargetIndex != len(expectedPeerTargets) {
-		issues = appendRuntimeRoutingPlanValidationIssue(issues, "peer_tier_target_count_mismatch", path+".peer_tiers", fmt.Sprintf("model %q peer tiers include %d of %d model-peer targets", compiled.Model.ModelID, expectedPeerTargetIndex, len(expectedPeerTargets)))
 	}
 	return issues
 }
@@ -307,22 +269,6 @@ func appendRuntimeRoutingPlanValidationIssue(issues []runtimeRoutingPlanValidati
 		Message: strings.TrimSpace(message),
 	})
 	return issues
-}
-
-func sortedRuntimeRoutingPlanPeerTargets(source []runtimeAccessTargetRecord) []runtimeAccessTargetRecord {
-	if len(source) == 0 {
-		return nil
-	}
-	items := make([]runtimeAccessTargetRecord, 0, len(source))
-	for _, target := range source {
-		if target.TargetType == runtimeAccessTargetTypeModel {
-			items = append(items, target)
-		}
-	}
-	sort.Slice(items, func(left int, right int) bool {
-		return compareRuntimePeerTierTargets(items[left], items[right]) < 0
-	})
-	return items
 }
 
 func orderedRuntimeRoutingPlanTerminalTargets(source []runtimeAccessTargetRecord) []runtimeAccessTargetRecord {

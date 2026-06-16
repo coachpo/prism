@@ -1,11 +1,14 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/coachpo/prism/backend/internal/gateway/provider"
+	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
 	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
@@ -21,7 +24,6 @@ const (
 	openAIRequestTranslationUnsupportedErrorCode        = "openai_request_translation_unsupported"
 	openAIRequestTranslationUnsupportedDetail           = "Prism cannot translate this OpenAI request shape for the selected target."
 	openAIResponseTranslationUnsupportedErrorCode       = "openai_response_translation_unsupported"
-	openAIResponseTranslationUnsupportedDetail          = "Prism cannot translate this OpenAI response shape for the selected target."
 	openAIStreamTranslationUnsupportedErrorCode         = "openai_stream_translation_unsupported"
 	openAIStreamTranslationUnsupportedDetail            = "Prism cannot translate this OpenAI stream shape for the selected target."
 	openAITranslatedUpstreamResponseReadFailedErrorCode = "openai_translated_upstream_response_read_failed"
@@ -61,24 +63,21 @@ func classifyOpenAITranslationCapability(operation RuntimeOperation, rawBody []b
 	if mode == TranslationModeNone {
 		return capability
 	}
-	payload, err := decodeOpenAITranslationPayload(rawBody, mode)
+	adapter := openai.New()
+	providerCapability, err := adapter.ConversionCapability(context.Background(), provider.ConversionRequest{Operation: providerOperationFromRuntime(operation), RawBody: rawBody, Mode: providerTranslationMode(mode), TargetModelID: "translation-preview-model"})
 	if err != nil {
-		return capability.withRequestRejection(requestTranslationUnsupportedReason(err, "invalid_translation_payload"))
+		return capability.withRequestRejection("invalid_translation_payload")
 	}
-	if requestWantsStreamForOperation(operation, rawBody, "") {
-		switch mode {
-		case TranslationModeOpenAIResponsesToChatCompletions:
-			if responsesTranslationStreamUsesTools(payload) {
-				return capability.withStreamRejection("responses_stream_tools")
-			}
-		case TranslationModeOpenAIChatCompletionsToResponses:
-			if chatTranslationStreamUsesTools(payload) {
-				return capability.withStreamRejection("chat_stream_tools")
-			}
-		}
+	if !providerCapability.RequestSupported {
+		return capability.withRequestRejection(providerCapability.UnsupportedReason)
 	}
-	if _, _, err := translateOpenAIRequest(rawBody, mode, "translation-preview-model"); err != nil {
-		return capability.withRequestRejection(requestTranslationUnsupportedReason(err, "invalid_translation_payload"))
+	if !providerCapability.StreamSupported {
+		return capability.withStreamRejection(providerCapability.UnsupportedReason)
+	}
+	if !providerCapability.ResponseSupported {
+		capability.ResponseClass = openAITranslationCapabilityReject
+		capability.UnsupportedReason = normalizedTranslationUnsupportedReason(providerCapability.UnsupportedReason)
+		return capability
 	}
 	return capability
 }
@@ -117,59 +116,11 @@ func (capability runtimeOpenAITranslationCapability) withStreamRejection(reason 
 	return capability
 }
 
-func requestTranslationUnsupportedReason(err error, fallback string) string {
-	if rejection, ok := isRequestTranslationUnsupportedError(err); ok && rejection != nil {
-		if reason := stringValue(rejection.Fields["unsupported_reason"]); strings.TrimSpace(reason) != "" {
-			return reason
-		}
-	}
-	return fallback
-}
-
 func normalizedTranslationUnsupportedReason(reason string) string {
 	if trimmed := strings.TrimSpace(reason); trimmed != "" {
 		return trimmed
 	}
 	return "unsupported_request_shape"
-}
-
-func chatTranslationStreamUsesTools(payload map[string]any) bool {
-	if fieldHasValue(payload, "tools") || fieldHasValue(payload, "tool_choice") {
-		return true
-	}
-	messages, _ := payload["messages"].([]any)
-	for _, rawMessage := range messages {
-		message, _ := rawMessage.(map[string]any)
-		if fieldHasValue(message, "tool_calls") || fieldHasValue(message, "function_call") || fieldHasValue(message, "tool_call_id") {
-			return true
-		}
-		if strings.TrimSpace(stringValue(message["role"])) == "tool" {
-			return true
-		}
-	}
-	return false
-}
-
-func responsesTranslationStreamUsesTools(payload map[string]any) bool {
-	if fieldHasValue(payload, "tools") || fieldHasValue(payload, "tool_choice") {
-		return true
-	}
-	return responsesInputContainsFunctionItems(payload["input"])
-}
-
-func responsesInputContainsFunctionItems(value any) bool {
-	items, ok := value.([]any)
-	if !ok {
-		return false
-	}
-	for _, rawItem := range items {
-		item, _ := rawItem.(map[string]any)
-		switch strings.TrimSpace(stringValue(item["type"])) {
-		case "function_call", "function_call_output":
-			return true
-		}
-	}
-	return false
 }
 
 func resolveTranslationMode(operation RuntimeOperation, openAITextCapability *string) (TranslationMode, bool) {
@@ -209,10 +160,6 @@ func translationUnsupportedReasonFromError(err error, errorCode string, fallback
 
 func openAIRequestTranslationUnsupportedDomainError(mode TranslationMode, reason string) *domainError {
 	return openAITranslationUnsupportedDomainError(http.StatusBadRequest, openAIRequestTranslationUnsupportedErrorCode, openAIRequestTranslationUnsupportedDetail, mode, reason)
-}
-
-func openAIResponseTranslationUnsupportedDomainError(mode TranslationMode, reason string) *domainError {
-	return openAITranslationUnsupportedDomainError(http.StatusBadGateway, openAIResponseTranslationUnsupportedErrorCode, openAIResponseTranslationUnsupportedDetail, mode, reason)
 }
 
 func openAITranslatedUpstreamResponseReadFailedDomainError(operation RuntimeOperation, mode TranslationMode) *domainError {

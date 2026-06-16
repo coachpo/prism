@@ -915,11 +915,10 @@ func TestAttachRuntimePlanningFailureTelemetry_NoResolvedTargetLeavesResolvedTar
 		VendorName: stringPtr("OpenAI"),
 	}
 	contextRouting := &runtimeContextRoutingDecision{
-		Policy: runtimeFacadeSelectionPolicyWeightedEligibleContext,
+		Policy: runtimeFacadeSelectionPolicyOrderedEligibleContext,
 		FacadeSelection: &runtimeFacadeSelectionDecision{
-			FacadeModelID:       requestedModel.ModelID,
-			EligibleTotalWeight: intPtr(0),
-			ExclusionSummary:    stringPtr("estimated_context_exceeds_usable_window=2"),
+			FacadeModelID:    requestedModel.ModelID,
+			ExclusionSummary: stringPtr("estimated_context_exceeds_usable_window=2"),
 		},
 	}
 	runtimeErr := &domainError{
@@ -2274,14 +2273,14 @@ func TestConnectionCapabilityPlanningPreservesPreferredThresholdAndOpenAITextCap
 
 func TestRuntimeFacadeRequestedModelLookupCarriesModelsByIDMetadata(t *testing.T) {
 	service := newRequestPlanUnitService()
-	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "router-target-openai"},
 	)
 	targetModel := snapshot.ModelsByID["router-target-openai"]
-	addRequestPlanModelTargetWithMetadata(snapshot, "gpt-4o-router-openai", "router-target-openai", 0, 1, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, "gpt-4o-router-openai", "router-target-openai", 0)
 	snapshot.AccessTargetsBySourceModelID[targetModel.ID] = nil
 	contextWindowTokens := 16_384
 	addRequestPlanConnectionTargetWithOptions(snapshot, targetModel, 2_801, 9_801, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, defaultOutputTokenReserve: 1_024, maxContextUtilization: 1.0})
@@ -2322,7 +2321,7 @@ func TestRuntimeFacadeRequestedModelLookupCarriesModelsByIDMetadata(t *testing.T
 func TestRuntimeFacadeRejectsInvalidRequestedModelPolicies(t *testing.T) {
 	service := newRequestPlanUnitService()
 	invalidSelectionPolicy := "invalid"
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{
 		ID:                    1,
 		APIFamily:             "openai",
@@ -2335,12 +2334,12 @@ func TestRuntimeFacadeRejectsInvalidRequestedModelPolicies(t *testing.T) {
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
 	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o-router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "facade_selection_policy must be 'weighted_eligible_context'")
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "facade_selection_policy must be 'ordered_eligible_context'")
 }
 
 func TestRuntimeFacadeRejectsInvalidRecursiveTargetPolicies(t *testing.T) {
 	service := newRequestPlanUnitService()
-	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
+	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "facade-child-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy},
@@ -2355,8 +2354,8 @@ func TestRuntimeFacadeRejectsInvalidRecursiveTargetPolicies(t *testing.T) {
 
 func TestRuntimeFacadeCandidateEvaluationRejectsUnsupportedTranslatedChild(t *testing.T) {
 	service := newRequestPlanUnitService()
-	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-target-model"},
@@ -2402,8 +2401,8 @@ func TestRuntimeFacadeCandidateEvaluationRejectsUnsupportedTranslatedChild(t *te
 
 func TestRuntimeFacadeCandidateEvaluationReusesHardContextFiltering(t *testing.T) {
 	service := newRequestPlanUnitService()
-	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "gpt-4o-small-context-child"},
@@ -2460,8 +2459,8 @@ func TestRuntimeFacadeCandidateEvaluationReusesHardContextFiltering(t *testing.T
 
 func TestRuntimeFacadeCandidateEvaluationReusesPreferredContextCostAndRuntimeStateFiltering(t *testing.T) {
 	service := newRequestPlanUnitService()
-	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "gpt-4o-preferred-child"},
@@ -2546,10 +2545,10 @@ func TestRuntimeFacadeCandidateEvaluationReusesPreferredContextCostAndRuntimeSta
 	}
 }
 
-func TestBuildRequestPlan_ExactOpenAIFacadeWeightedEligibleContextRedistributesEligibleWeights(t *testing.T) {
+func TestBuildRequestPlan_ExactOpenAIFacadeOrderedEligibleContextSkipsIneligibleTargets(t *testing.T) {
 	service := newRequestPlanUnitService()
-	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "eligible-first-openai"},
@@ -2560,9 +2559,9 @@ func TestBuildRequestPlan_ExactOpenAIFacadeWeightedEligibleContextRedistributesE
 	firstTarget := snapshot.ModelsByID["eligible-first-openai"]
 	blockedTarget := snapshot.ModelsByID["blocked-openai"]
 	secondTarget := snapshot.ModelsByID["eligible-second-openai"]
-	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, firstTarget.ModelID, 0, 1, 0)
-	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, blockedTarget.ModelID, 1, 100, 0)
-	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, secondTarget.ModelID, 2, 1, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, firstTarget.ModelID, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, blockedTarget.ModelID, 1)
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, secondTarget.ModelID, 2)
 	snapshot.AccessTargetsBySourceModelID[firstTarget.ID] = nil
 	snapshot.AccessTargetsBySourceModelID[blockedTarget.ID] = nil
 	snapshot.AccessTargetsBySourceModelID[secondTarget.ID] = nil
@@ -2583,8 +2582,8 @@ func TestBuildRequestPlan_ExactOpenAIFacadeWeightedEligibleContextRedistributesE
 	service.runtimeState.SeedConnectionState(requestPlanTestProfileID, blockedTarget.ID, 2_902, loadbalance.RuntimeConnectionState{ConnectionID: 2_902, BanMode: "temporary", BannedUntilAt: &blockedUntil}, seededAt, seededAt)
 
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
-	rawBody := []byte(`{"model":"gpt-4o-facade-router-openai","messages":[{"role":"user","content":"eligible-only weighted facade selection"}],"max_completion_tokens":128}`)
-	wantModels := []string{"eligible-first-openai", "eligible-second-openai", "eligible-first-openai", "eligible-second-openai"}
+	rawBody := []byte(`{"model":"gpt-4o-facade-router-openai","messages":[{"role":"user","content":"eligible-only ordered facade selection"}],"max_completion_tokens":128}`)
+	wantModels := []string{"eligible-first-openai", "eligible-first-openai", "eligible-first-openai", "eligible-first-openai"}
 	for index, wantModelID := range wantModels {
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
@@ -2599,22 +2598,22 @@ func TestBuildRequestPlan_ExactOpenAIFacadeWeightedEligibleContextRedistributesE
 			t.Fatalf("expected iteration %d selected target model %q, got %q", index, wantModelID, got)
 		}
 		if attempts[0].Connection.ID == 2_902 {
-			t.Fatalf("expected ineligible weighted target 2902 to stay excluded on iteration %d, got %+v", index, attempts[0])
+			t.Fatalf("expected ineligible target 2902 to stay excluded on iteration %d, got %+v", index, attempts[0])
 		}
 	}
 }
 
 func TestRuntimeExactOpenAIFacadeRequiresContextEstimation(t *testing.T) {
 	service := newRequestPlanUnitService()
-	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "target-openai"},
 	)
 	facadeModel := snapshot.ModelsByID["gpt-4o-facade-router-openai"]
 	targetModel := snapshot.ModelsByID["target-openai"]
-	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, targetModel.ModelID, 0, 1, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, facadeModel.ModelID, targetModel.ModelID, 0)
 	contextWindowTokens := 16_384
 	addRequestPlanConnectionTargetWithOptions(snapshot, targetModel, 2_911, 9_911, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, defaultOutputTokenReserve: 1_024, maxContextUtilization: 1.0})
 
@@ -2632,13 +2631,13 @@ func TestRuntimeExactOpenAIFacadeRequiresContextEstimation(t *testing.T) {
 
 func TestBuildRequestPlan_ExactOpenAIFacadeRejectsNestedFacades(t *testing.T) {
 	service := newRequestPlanUnitService()
-	selectionPolicy := runtimeFacadeSelectionPolicyWeightedEligibleContext
-	fallbackPolicy := runtimeFacadeFallbackPolicyRedistributeIneligibleWeight
+	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
+	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-facade-router-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "nested-facade-openai", FacadeEnabled: true, FacadeSelectionPolicy: &selectionPolicy, FacadeFallbackPolicy: &fallbackPolicy},
 	)
-	addRequestPlanModelTargetWithMetadata(snapshot, "gpt-4o-facade-router-openai", "nested-facade-openai", 0, 1, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, "gpt-4o-facade-router-openai", "nested-facade-openai", 0)
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
@@ -2880,8 +2879,6 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 			TargetConnectionProfileID: model.ProfileID,
 			TargetConnectionAPIFamily: model.APIFamily,
 			Position:                  0,
-			Weight:                    runtimeActiveModelTargetDefaultWeight,
-			TargetPriority:            0,
 			IsEnabled:                 true,
 		}}
 	}
@@ -2895,10 +2892,10 @@ func addRequestPlanProxyTarget(snapshot *planningSnapshot, proxyModelID string, 
 }
 
 func addRequestPlanModelTargetAtPosition(snapshot *planningSnapshot, proxyModelID string, targetModelID string, position int) {
-	addRequestPlanModelTargetWithMetadata(snapshot, proxyModelID, targetModelID, position, runtimeActiveModelTargetDefaultWeight, position)
+	addRequestPlanModelTargetWithMetadata(snapshot, proxyModelID, targetModelID, position)
 }
 
-func addRequestPlanModelTargetWithMetadata(snapshot *planningSnapshot, proxyModelID string, targetModelID string, position int, weight int, targetPriority int) {
+func addRequestPlanModelTargetWithMetadata(snapshot *planningSnapshot, proxyModelID string, targetModelID string, position int) {
 	proxyModel := snapshot.ModelsByID[proxyModelID]
 	targetModel := snapshot.ModelsByID[targetModelID]
 	snapshot.AccessTargetsBySourceModelID[proxyModel.ID] = append(snapshot.AccessTargetsBySourceModelID[proxyModel.ID], runtimeAccessTargetRecord{
@@ -2912,8 +2909,6 @@ func addRequestPlanModelTargetWithMetadata(snapshot *planningSnapshot, proxyMode
 		TargetModelAPIFamily: targetModel.APIFamily,
 		TargetModelEnabled:   true,
 		Position:             position,
-		Weight:               weight,
-		TargetPriority:       targetPriority,
 		IsEnabled:            true,
 	})
 }
@@ -2962,8 +2957,6 @@ func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model
 		TargetConnectionProfileID: model.ProfileID,
 		TargetConnectionAPIFamily: model.APIFamily,
 		Position:                  position,
-		Weight:                    runtimeActiveModelTargetDefaultWeight,
-		TargetPriority:            position,
 		IsEnabled:                 true,
 	})
 }

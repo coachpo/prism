@@ -20,6 +20,7 @@ func TestRuntimeCacheInvalidation(t *testing.T) {
 	t.Run("AuthCacheInvalidationAfterAuthDisable", runtimeAuthCacheInvalidationAfterAuthDisable)
 	t.Run("AfterActiveProfileActivation", runtimeCacheInvalidationAfterActiveProfileActivation)
 	t.Run("PlanningCacheInvalidationAfterHeaderBlocklistWrite", runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite)
+	t.Run("PlanningCacheInvalidationAfterAuditSettingsWrite", runtimePlanningCacheInvalidationAfterAuditSettingsWrite)
 	t.Run("PlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations", runtimePlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations)
 	t.Run("DashboardTopologyRepublishAfterModelMutation", TestDashboardSnapshotReplayWithoutRequestLog)
 }
@@ -502,6 +503,46 @@ func runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite(t *testing.T) {
 	if secondRequest.Headers.Get(allowedHeaderName) != "allowed-before-and-after" {
 		t.Fatalf("expected non-blocked header %s to survive after invalidation, got %q", allowedHeaderName, secondRequest.Headers.Get(allowedHeaderName))
 	}
+}
+
+func runtimePlanningCacheInvalidationAfterAuditSettingsWrite(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "cache-audit-public-" + randomSuffix(),
+		TargetModelID:   "cache-audit-target-" + randomSuffix(),
+		EndpointBaseURL: harness.upstream.baseURL("/cache-invalidation/audit-settings"),
+		EndpointAPIKey:  "cache-audit-upstream-key",
+	})
+
+	initialResponse := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "prime audit settings planning snapshot"}},
+		"model":    route.PublicModelID,
+	}, nil)
+	assertStatus(t, initialResponse, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertRuntimeRequestLogAuditSnapshot(t, harness, profileID, route.PublicModelID, false, false)
+
+	generation := harness.runtimeCache.PublishedGeneration()
+	updateResponse := harness.requestJSON(t, http.MethodPut, "/api/settings/audit", map[string]any{
+		"settings": []map[string]any{
+			{"api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false},
+			{"api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false},
+			{"api_family": "gemini", "audit_enabled": false, "audit_capture_bodies": false},
+		},
+	}, runtimeModelHeader(profileID))
+	assertStatus(t, updateResponse, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+
+	secondResponse := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "use audit settings after cache invalidation"}},
+		"model":    route.PublicModelID,
+	}, nil)
+	assertStatus(t, secondResponse, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 2, OutboxRows: 0}, 5*time.Second)
+	assertRuntimeRequestLogAuditSnapshot(t, harness, profileID, route.PublicModelID, true, false)
 }
 
 func runtimePlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations(t *testing.T) {

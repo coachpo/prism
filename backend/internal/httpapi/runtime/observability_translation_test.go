@@ -16,13 +16,11 @@ func TestObservability_FacadeTranslatedRejectionPersistsDecisionMetadataAndTrace
 	facadeSelection := &runtimeFacadeSelectionDecision{
 		FacadeModelID:         "facade-translated-public",
 		SelectedTargetModelID: stringPtr("facade-translated-target"),
-		SelectedWeight:        intPtr(1),
-		EligibleTotalWeight:   intPtr(0),
 		ExclusionReasons:      []runtimeFacadeExclusionReason{{Reason: runtimeFacadeExclusionReasonTranslationRejection, Count: 1}},
 		ExclusionSummary:      stringPtr("translation_rejection=1"),
 	}
 	contextRouting := &runtimeContextRoutingDecision{
-		Policy:                      runtimeFacadeSelectionPolicyWeightedEligibleContext,
+		Policy:                      runtimeFacadeSelectionPolicyOrderedEligibleContext,
 		SelectedTerminalTargetID:    selectedTerminalTargetID,
 		SelectedEndpointID:          intPtr(201),
 		SelectedContextBand:         stringPtr(runtimeContextBandPreferred),
@@ -53,7 +51,7 @@ func TestObservability_FacadeTranslatedRejectionPersistsDecisionMetadataAndTrace
 	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-translated-public", stringPtr("facade-translated-target"), intPtr(1), intPtr(0), stringPtr("translation_rejection=1"))
 
 	planningFailureAttrs := attributesByKey(runtimeTracePlanningFailureAttributes(failure))
-	if planningFailureAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-translated-public" || planningFailureAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != "facade-translated-target" || planningFailureAttrs[runtimeTraceAttrFacadeSelectedWeight].AsInt64() != 1 || planningFailureAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 0 || planningFailureAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "translation_rejection=1" {
+	if planningFailureAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-translated-public" || planningFailureAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != "facade-translated-target" || planningFailureAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "translation_rejection=1" {
 		t.Fatalf("expected facade translated rejection trace attrs, got %+v", planningFailureAttrs)
 	}
 }

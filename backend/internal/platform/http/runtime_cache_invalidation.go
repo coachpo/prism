@@ -121,6 +121,8 @@ func classifyRuntimeCacheInvalidation(method string, rawPath string, header http
 		action.activeProfile = true
 	case normalizedMethod == http.MethodPut && matchesSegments(segments, "settings", "costing"):
 		action.addPlanningProfile(profileIDFromHeader(header))
+	case normalizedMethod == http.MethodPut && matchesSegments(segments, "settings", "audit"):
+		action.addPlanningProfile(profileIDFromHeader(header))
 	case normalizedMethod == http.MethodPost && matchesSegments(segments, "config", "profile", "import"):
 		action.addPlanningProfile(profileIDFromHeader(header))
 	case isHeaderBlocklistMutation(normalizedMethod, segments):

@@ -57,7 +57,7 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	}
 	target := targets[0]
 	assertRuntimeIntPtr(t, target.TargetConnectionID, 901, "target connection")
-	if target.TargetType != runtimeAccessTargetTypeConnection || target.Position != 2 || target.Weight != 4 || target.TargetPriority != 7 || !target.IsEnabled {
+	if target.TargetType != runtimeAccessTargetTypeConnection || target.Position != 2 || !target.IsEnabled {
 		t.Fatalf("unexpected access target contract: %+v", target)
 	}
 
@@ -117,9 +117,9 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 
 	switch {
 	case strings.Contains(query, "FROM model_configs") && strings.Contains(query, "model_configs.loadbalance_strategy_id"):
-		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, false, sql.NullString{}, sql.NullString{}, sql.NullInt32{Int32: 16000, Valid: true}, sql.NullInt32{Int32: 512, Valid: true}, sql.NullFloat64{Float64: 0.90, Valid: true}, sql.NullFloat64{Float64: 0.70, Valid: true}, sql.NullString{String: "overflow-openai", Valid: true}}), nil
+		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, false, sql.NullString{}, sql.NullString{}, sql.NullInt32{Int32: 16000, Valid: true}, sql.NullInt32{Int32: 512, Valid: true}, sql.NullFloat64{Float64: 0.90, Valid: true}, sql.NullFloat64{Float64: 0.70, Valid: true}, sql.NullString{String: "overflow-openai", Valid: true}, true, false}), nil
 	case strings.Contains(query, "FROM model_access_targets"):
-		return newRuntimePlanningRows([]any{501, 42, 11, runtimeAccessTargetTypeConnection, sql.NullInt32{}, sql.NullString{}, sql.NullInt32{}, sql.NullString{}, sql.NullBool{}, sql.NullInt32{Int32: 901, Valid: true}, sql.NullInt32{Int32: 42, Valid: true}, sql.NullString{String: "openai", Valid: true}, 2, sql.NullInt32{Int32: 4, Valid: true}, sql.NullInt32{Int32: 7, Valid: true}, true, sql.NullString{String: "router-openai", Valid: true}, sql.NullInt32{Int32: 801, Valid: true}, sql.NullString{String: "1.25", Valid: true}}), nil
+		return newRuntimePlanningRows([]any{501, 42, 11, runtimeAccessTargetTypeConnection, sql.NullInt32{}, sql.NullString{}, sql.NullInt32{}, sql.NullString{}, sql.NullBool{}, sql.NullInt32{Int32: 901, Valid: true}, sql.NullInt32{Int32: 42, Valid: true}, sql.NullString{String: "openai", Valid: true}, 2, true, sql.NullString{String: "router-openai", Valid: true}, sql.NullInt32{Int32: 801, Valid: true}, sql.NullString{String: "1.25", Valid: true}}), nil
 	case strings.Contains(query, "FROM loadbalance_strategies"):
 		return newRuntimePlanningRows([]any{303, "contract round robin", "round-robin", []int32{429, 500}, "temporary", 25, 2.0, 0.1, 1000, 3, 5, 60}), nil
 	case strings.Contains(query, "FROM connections") && strings.Contains(query, "JOIN endpoints"):

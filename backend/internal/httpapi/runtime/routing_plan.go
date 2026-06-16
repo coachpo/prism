@@ -19,18 +19,7 @@ type runtimeRoutingPlanModel struct {
 	Strategy               loadbalance.RuntimeStrategy
 	OrderedEnabledTargets  []runtimeAccessTargetRecord
 	OrderedFallbackTargets []runtimeAccessTargetRecord
-	PeerTiers              []runtimeRoutingPlanPeerTier
 	OrderedTerminalTargets []runtimeAccessTargetRecord
-}
-
-type runtimeRoutingPlanPeerTier struct {
-	TargetPriority  int
-	WeightedPeerSet runtimeRoutingPlanWeightedPeerSet
-}
-
-type runtimeRoutingPlanWeightedPeerSet struct {
-	Targets     []runtimeAccessTargetRecord
-	TotalWeight int
 }
 
 func (plan *runtimeRoutingPlan) requestedModelByID(modelID string) (runtimeModelRecord, bool) {
@@ -53,17 +42,6 @@ func (plan *runtimeRoutingPlan) strategyForModel(model runtimeModelRecord) (load
 		return loadbalance.RuntimeStrategy{}, false
 	}
 	return compiled.Strategy, true
-}
-
-func (plan *runtimeRoutingPlan) orderedPeerTiersForModel(model runtimeModelRecord) []runtimeRoutingPlanPeerTier {
-	if plan == nil {
-		return nil
-	}
-	compiled, ok := plan.ModelsByConfigID[model.ID]
-	if !ok {
-		return nil
-	}
-	return cloneRuntimeRoutingPlanPeerTiers(compiled.PeerTiers)
 }
 
 func (plan *runtimeRoutingPlan) orderedModelTargetsForStrategy(profileID int, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, cursor runtimeRoundRobinTargetCursor) []runtimeAccessTargetRecord {
@@ -168,22 +146,5 @@ func cloneRuntimeAccessTargetRecords(source []runtimeAccessTargetRecord) []runti
 	}
 	cloned := make([]runtimeAccessTargetRecord, len(source))
 	copy(cloned, source)
-	return cloned
-}
-
-func cloneRuntimeRoutingPlanPeerTiers(source []runtimeRoutingPlanPeerTier) []runtimeRoutingPlanPeerTier {
-	if len(source) == 0 {
-		return nil
-	}
-	cloned := make([]runtimeRoutingPlanPeerTier, 0, len(source))
-	for _, tier := range source {
-		cloned = append(cloned, runtimeRoutingPlanPeerTier{
-			TargetPriority: tier.TargetPriority,
-			WeightedPeerSet: runtimeRoutingPlanWeightedPeerSet{
-				Targets:     cloneRuntimeAccessTargetRecords(tier.WeightedPeerSet.Targets),
-				TotalWeight: tier.WeightedPeerSet.TotalWeight,
-			},
-		})
-	}
 	return cloned
 }

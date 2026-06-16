@@ -17,8 +17,8 @@ func TestCompileRuntimeRoutingPlanBuildsCanonicalLookups(t *testing.T) {
 		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "target-a-openai"},
 	)
 	snapshot.AccessTargetsBySourceModelID[1] = nil
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "target-b-openai", 2, 3, 2)
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "target-a-openai", 1, 5, 1)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "target-b-openai", 2)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "target-a-openai", 1)
 
 	routingPlan, err := compileRuntimeRoutingPlan(snapshot)
 	if err != nil {
@@ -41,17 +41,51 @@ func TestCompileRuntimeRoutingPlanBuildsCanonicalLookups(t *testing.T) {
 	if compiledRouter.OrderedEnabledTargets[0].TargetModelID != "target-a-openai" {
 		t.Fatalf("expected position-sorted first target target-a-openai, got %+v", compiledRouter.OrderedEnabledTargets[0])
 	}
-	if len(compiledRouter.PeerTiers) != 2 {
-		t.Fatalf("expected two priority peer tiers, got %+v", compiledRouter.PeerTiers)
-	}
-	if compiledRouter.PeerTiers[0].TargetPriority != 1 || compiledRouter.PeerTiers[0].WeightedPeerSet.TotalWeight != 5 {
-		t.Fatalf("expected priority 1 peer tier weight 5, got %+v", compiledRouter.PeerTiers[0])
-	}
-	if compiledRouter.PeerTiers[1].TargetPriority != 2 || compiledRouter.PeerTiers[1].WeightedPeerSet.TotalWeight != 3 {
-		t.Fatalf("expected priority 2 peer tier weight 3, got %+v", compiledRouter.PeerTiers[1])
+	if compiledRouter.OrderedEnabledTargets[1].TargetModelID != "target-b-openai" {
+		t.Fatalf("expected position-sorted second target target-b-openai, got %+v", compiledRouter.OrderedEnabledTargets[1])
 	}
 	if connection, ok := routingPlan.TerminalTargetsByID[1_002]; !ok || connection.ModelConfigID != 2 {
 		t.Fatalf("expected target-b terminal connection in compiled lookup, got connection=%+v ok=%v", connection, ok)
+	}
+}
+
+func TestCompileRuntimeRoutingPlanOrdersMixedEnabledTargetsByPositionThenID(t *testing.T) {
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "child-openai"},
+	)
+	snapshot.AccessTargetsBySourceModelID[1] = nil
+	addRequestPlanConnectionTarget(snapshot, snapshot.ModelsByID["router-openai"], 2_001, 9_001, 2)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "child-openai", 1)
+	disabled := runtimeAccessTargetRecord{
+		ID:                  9_000,
+		ProfileID:           requestPlanTestProfileID,
+		SourceModelConfigID: 1,
+		TargetType:          runtimeAccessTargetTypeModel,
+		TargetModelConfigID: intPtr(2),
+		TargetModelID:       "child-openai",
+		TargetModelEnabled:  true,
+		Position:            0,
+		IsEnabled:           false,
+	}
+	snapshot.AccessTargetsBySourceModelID[1] = append(snapshot.AccessTargetsBySourceModelID[1], disabled)
+
+	routingPlan, err := compileRuntimeRoutingPlan(snapshot)
+	if err != nil {
+		t.Fatalf("compile runtime routing plan: %v", err)
+	}
+	if err := validateRuntimeRoutingPlan(routingPlan); err != nil {
+		t.Fatalf("validate runtime routing plan: %v", err)
+	}
+	ordered := routingPlan.ModelsByConfigID[1].OrderedEnabledTargets
+	if len(ordered) != 2 {
+		t.Fatalf("expected disabled target to be skipped from ordered set, got %+v", ordered)
+	}
+	if ordered[0].TargetType != runtimeAccessTargetTypeModel || ordered[0].TargetModelID != "child-openai" {
+		t.Fatalf("expected model target at lower position to sort first, got %+v", ordered[0])
+	}
+	if ordered[1].TargetType != runtimeAccessTargetTypeConnection || ordered[1].TargetConnectionID == nil || *ordered[1].TargetConnectionID != 2_001 {
+		t.Fatalf("expected terminal target at higher position to sort second, got %+v", ordered[1])
 	}
 }
 
@@ -169,8 +203,8 @@ func TestBuildRequestPlanFromSnapshotModelPeersPreserveStrategyOrder(t *testing.
 		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "high-priority-openai"},
 	)
 	snapshot.AccessTargetsBySourceModelID[1] = nil
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "low-priority-openai", 0, 1, 10)
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "high-priority-openai", 1, 1, 1)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "low-priority-openai", 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "high-priority-openai", 1)
 	setRequestPlanConnectionContextWindow(snapshot, 1_002, 16_384)
 	setRequestPlanConnectionContextWindow(snapshot, 1_003, 16_384)
 
@@ -200,9 +234,9 @@ func TestBuildRequestPlanFromSnapshotModelPeersExcludeIneligibleTargets(t *testi
 		runtimeModelRecord{ID: 4, APIFamily: "openai", ModelID: "eligible-second-openai"},
 	)
 	snapshot.AccessTargetsBySourceModelID[1] = nil
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "eligible-first-openai", 0, 1, 0)
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "blocked-openai", 1, 100, 0)
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "eligible-second-openai", 2, 1, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "eligible-first-openai", 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "blocked-openai", 1)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "eligible-second-openai", 2)
 	setRequestPlanConnectionContextWindow(snapshot, 1_002, 16_384)
 	setRequestPlanConnectionContextWindow(snapshot, 1_003, 16_384)
 	setRequestPlanConnectionContextWindow(snapshot, 1_004, 16_384)
@@ -234,7 +268,7 @@ func TestBuildRequestPlanFromSnapshotWeightedPeerFallsBackToTerminalOnlyWhenNoPe
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "empty-peer-openai"},
 	)
 	snapshot.AccessTargetsBySourceModelID[2] = nil
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "empty-peer-openai", 1, 10, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "empty-peer-openai", 1)
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)

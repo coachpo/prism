@@ -193,7 +193,6 @@ func TestRuntimeTracingTranslationAttributes(t *testing.T) {
 			PlannerVersion:         runtimePlannerTraceVersion,
 			Decision:               runtimePlannerTraceDecisionSelected,
 			Policy:                 "cheapest_eligible_context",
-			SelectedTierPriority:   intPtr(4),
 			SkippedTerminalTargets: 2,
 		},
 	}
@@ -209,7 +208,7 @@ func TestRuntimeTracingTranslationAttributes(t *testing.T) {
 		}},
 	}
 	translatedAttrs := attributesByKey(runtimeTracePlanAttributes(translatedPlan))
-	if translatedAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 || translatedAttrs[runtimeTraceAttrPlannerVersion].AsString() != runtimePlannerTraceVersion || translatedAttrs[runtimeTraceAttrPlannerDecision].AsString() != runtimePlannerTraceDecisionSelected || translatedAttrs[runtimeTraceAttrPlannerPolicy].AsString() != "cheapest_eligible_context" || translatedAttrs[runtimeTraceAttrPlannerSelectedTier].AsInt64() != 4 || translatedAttrs[runtimeTraceAttrPlannerSkippedTargets].AsInt64() != 2 {
+	if translatedAttrs[runtimeTraceAttrOperationName].AsString() != "openai.responses" || translatedAttrs[runtimeTraceAttrUpstreamOperationName].AsString() != "openai.chat_completions" || translatedAttrs[runtimeTraceAttrOperationTranslationMode].AsString() != string(TranslationModeOpenAIResponsesToChatCompletions) || translatedAttrs[runtimeTraceAttrUpstreamRequestPath].AsString() != "/v1/chat/completions" || translatedAttrs[runtimeTraceAttrPreferredContextBand].AsString() != runtimeContextBandPreferred || translatedAttrs[runtimeTraceAttrSelectedTerminalTargetID].AsInt64() != 34 || translatedAttrs[runtimeTraceAttrPlannerVersion].AsString() != runtimePlannerTraceVersion || translatedAttrs[runtimeTraceAttrPlannerDecision].AsString() != runtimePlannerTraceDecisionSelected || translatedAttrs[runtimeTraceAttrPlannerPolicy].AsString() != "cheapest_eligible_context" || translatedAttrs[runtimeTraceAttrPlannerSkippedTargets].AsInt64() != 2 {
 		t.Fatalf("expected translated plan trace attributes, got %+v", translatedAttrs)
 	}
 

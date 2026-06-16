@@ -412,13 +412,11 @@ func TestObservability_FacadeSuccessPersistsDecisionMetadataAndTraceAttributes(t
 	facadeSelection := &runtimeFacadeSelectionDecision{
 		FacadeModelID:         "facade-public-model",
 		SelectedTargetModelID: stringPtr("native-target-model"),
-		SelectedWeight:        intPtr(1),
-		EligibleTotalWeight:   intPtr(2),
 		ExclusionReasons:      []runtimeFacadeExclusionReason{{Reason: runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow, Count: 1}},
 		ExclusionSummary:      stringPtr("estimated_context_exceeds_usable_window=1"),
 	}
 	contextRouting := &runtimeContextRoutingDecision{
-		Policy:                   runtimeFacadeSelectionPolicyWeightedEligibleContext,
+		Policy:                   runtimeFacadeSelectionPolicyOrderedEligibleContext,
 		SelectedTerminalTargetID: selectedTerminalTargetID,
 		FacadeSelection:          facadeSelection,
 	}
@@ -459,11 +457,11 @@ func TestObservability_FacadeSuccessPersistsDecisionMetadataAndTraceAttributes(t
 	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-public-model", stringPtr("native-target-model"), intPtr(1), intPtr(2), stringPtr("estimated_context_exceeds_usable_window=1"))
 
 	planAttrs := attributesByKey(runtimeTracePlanAttributes(plan))
-	if planAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || planAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != "native-target-model" || planAttrs[runtimeTraceAttrFacadeSelectedWeight].AsInt64() != 1 || planAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 2 || planAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" {
+	if planAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || planAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != "native-target-model" || planAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" {
 		t.Fatalf("expected facade plan trace attrs, got %+v", planAttrs)
 	}
 	envelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(envelope))
-	if envelopeAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || envelopeAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != "native-target-model" || envelopeAttrs[runtimeTraceAttrFacadeSelectedWeight].AsInt64() != 1 || envelopeAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 2 || envelopeAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" {
+	if envelopeAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || envelopeAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != "native-target-model" || envelopeAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" {
 		t.Fatalf("expected facade envelope trace attrs, got %+v", envelopeAttrs)
 	}
 }
@@ -474,13 +472,12 @@ func TestObservability_FacadeNoFitPlanningFailurePersistsDecisionMetadataAndTrac
 	service := &Service{now: func() time.Time { return completedAt }}
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	facadeSelection := &runtimeFacadeSelectionDecision{
-		FacadeModelID:       "facade-no-fit-model",
-		EligibleTotalWeight: intPtr(0),
-		ExclusionReasons:    []runtimeFacadeExclusionReason{{Reason: runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow, Count: 2}},
-		ExclusionSummary:    stringPtr("estimated_context_exceeds_usable_window=2"),
+		FacadeModelID:    "facade-no-fit-model",
+		ExclusionReasons: []runtimeFacadeExclusionReason{{Reason: runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow, Count: 2}},
+		ExclusionSummary: stringPtr("estimated_context_exceeds_usable_window=2"),
 	}
 	contextRouting := &runtimeContextRoutingDecision{
-		Policy:                      runtimeFacadeSelectionPolicyWeightedEligibleContext,
+		Policy:                      runtimeFacadeSelectionPolicyOrderedEligibleContext,
 		EstimatedInputTokens:        intPtr(14),
 		ReservedOutputTokens:        intPtr(600),
 		EstimatedTotalContextTokens: intPtr(614),
@@ -505,7 +502,7 @@ func TestObservability_FacadeNoFitPlanningFailurePersistsDecisionMetadataAndTrac
 	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-no-fit-model", nil, nil, intPtr(0), stringPtr("estimated_context_exceeds_usable_window=2"))
 
 	planningFailureAttrs := attributesByKey(runtimeTracePlanningFailureAttributes(failure))
-	if planningFailureAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-no-fit-model" || planningFailureAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 0 || planningFailureAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=2" {
+	if planningFailureAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-no-fit-model" || planningFailureAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=2" {
 		t.Fatalf("expected facade no-fit planning failure trace attrs, got %+v", planningFailureAttrs)
 	}
 }
@@ -515,8 +512,8 @@ func TestObservability_FacadeNoEligiblePlanningFailurePersistsDecisionMetadataAn
 	completedAt := startedAt.Add(150 * time.Millisecond)
 	service := &Service{now: func() time.Time { return completedAt }}
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	facadeSelection := &runtimeFacadeSelectionDecision{FacadeModelID: "facade-no-eligible-model", EligibleTotalWeight: intPtr(0)}
-	contextRouting := &runtimeContextRoutingDecision{Policy: runtimeFacadeSelectionPolicyWeightedEligibleContext, FacadeSelection: facadeSelection}
+	facadeSelection := &runtimeFacadeSelectionDecision{FacadeModelID: "facade-no-eligible-model"}
+	contextRouting := &runtimeContextRoutingDecision{Policy: runtimeFacadeSelectionPolicyOrderedEligibleContext, FacadeSelection: facadeSelection}
 	failure := runtimePlanningFailureTelemetry{
 		ProfileID:              9,
 		RequestedModelID:       "facade-no-eligible-model",
@@ -536,7 +533,7 @@ func TestObservability_FacadeNoEligiblePlanningFailurePersistsDecisionMetadataAn
 	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-no-eligible-model", nil, nil, intPtr(0), nil)
 
 	planningFailureAttrs := attributesByKey(runtimeTracePlanningFailureAttributes(failure))
-	if planningFailureAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-no-eligible-model" || planningFailureAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 0 {
+	if planningFailureAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-no-eligible-model" {
 		t.Fatalf("expected facade no-eligible planning failure trace attrs, got %+v", planningFailureAttrs)
 	}
 	if _, ok := planningFailureAttrs[runtimeTraceAttrFacadeExclusionSummary]; ok {
@@ -735,8 +732,6 @@ func TestPromotionObservabilityPreservesFacadeSelection(t *testing.T) {
 	facadeSelection := &runtimeFacadeSelectionDecision{
 		FacadeModelID:         "facade-public-model",
 		SelectedTargetModelID: stringPtr(sourceResolvedTargetModelID),
-		SelectedWeight:        intPtr(1),
-		EligibleTotalWeight:   intPtr(2),
 		ExclusionReasons:      []runtimeFacadeExclusionReason{{Reason: runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow, Count: 1}},
 		ExclusionSummary:      stringPtr("estimated_context_exceeds_usable_window=1"),
 	}
@@ -753,7 +748,7 @@ func TestPromotionObservabilityPreservesFacadeSelection(t *testing.T) {
 		RequestContextEstimation: &requestContextEstimation{Method: openAIChatContextEstimationMethod, EstimatedInputTokens: 900, ReservedOutputTokens: 2048, EstimatedTotalContextTokens: 2948, UsableContextWindowTokens: intPtr(250000)},
 		SelectedTerminalTargetID: sourceSelectedTerminalTargetID,
 		ContextRouting: &runtimeContextRoutingDecision{
-			Policy:                            runtimeFacadeSelectionPolicyWeightedEligibleContext,
+			Policy:                            runtimeFacadeSelectionPolicyOrderedEligibleContext,
 			SelectedTerminalTargetID:          sourceSelectedTerminalTargetID,
 			SelectedUsableContextWindowTokens: intPtr(250000),
 			UsableContextWindowTokens:         intPtr(250000),
@@ -796,7 +791,7 @@ func TestPromotionObservabilityPreservesFacadeSelection(t *testing.T) {
 	assertRuntimeContextOverflowPromotionDecision(t, envelope.UsageEvent.ContextRouting.ContextOverflowPromotion, 400, "context_length_exceeded", cliProxyAPIOverflowClassifierErrorCode, runtimeContextOverflowPromotionTriggerPhaseProviderOverflow, runtimeContextOverflowPromotionEstimationModeEstimated, openAIChatContextEstimationMethod, 900, 2048, 2948, sourceResolvedTargetModelID, 51, promotedResolvedTargetModelID, 61, 250000, 700000, 1, 2, runtimeContextOverflowPromotionResultPromotedSuccess)
 
 	planAttrs := attributesByKey(runtimeTracePlanAttributes(finalPlan))
-	if !planAttrs[runtimeTraceAttrContextOverflowPromotion].AsBool() || planAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || planAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != sourceResolvedTargetModelID || planAttrs[runtimeTraceAttrFacadeSelectedWeight].AsInt64() != 1 || planAttrs[runtimeTraceAttrFacadeEligibleTotalWeight].AsInt64() != 2 || planAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" || planAttrs[runtimeTraceAttrContextOverflowPromotionFromModelID].AsString() != "redacted_model" || planAttrs[runtimeTraceAttrContextOverflowPromotionToModelID].AsString() != "redacted_model" || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerStatus].AsInt64() != 400 || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerCode].AsString() != "context_length_exceeded" || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerClassifier].AsString() != cliProxyAPIOverflowClassifierErrorCode || planAttrs[runtimeTraceAttrContextOverflowPromotionResult].AsString() != runtimeContextOverflowPromotionResultPromotedSuccess {
+	if !planAttrs[runtimeTraceAttrContextOverflowPromotion].AsBool() || planAttrs[runtimeTraceAttrFacadeModelID].AsString() != "facade-public-model" || planAttrs[runtimeTraceAttrFacadeSelectedTargetModel].AsString() != sourceResolvedTargetModelID || planAttrs[runtimeTraceAttrFacadeExclusionSummary].AsString() != "estimated_context_exceeds_usable_window=1" || planAttrs[runtimeTraceAttrContextOverflowPromotionFromModelID].AsString() != "redacted_model" || planAttrs[runtimeTraceAttrContextOverflowPromotionToModelID].AsString() != "redacted_model" || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerStatus].AsInt64() != 400 || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerCode].AsString() != "context_length_exceeded" || planAttrs[runtimeTraceAttrContextOverflowPromotionTriggerClassifier].AsString() != cliProxyAPIOverflowClassifierErrorCode || planAttrs[runtimeTraceAttrContextOverflowPromotionResult].AsString() != runtimeContextOverflowPromotionResultPromotedSuccess {
 		t.Fatalf("expected additive facade + promotion plan trace attrs, got %+v", planAttrs)
 	}
 	envelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(envelope))
@@ -818,7 +813,7 @@ func newRuntimeTelemetryEnvelopeRequest(proxyKeyLastUsedAt time.Time) *http.Requ
 	return request
 }
 
-func assertRuntimeFacadeSelectionDecision(t *testing.T, got *runtimeFacadeSelectionDecision, wantFacadeModelID string, wantSelectedTargetModelID *string, wantSelectedWeight *int, wantEligibleTotalWeight *int, wantExclusionSummary *string) {
+func assertRuntimeFacadeSelectionDecision(t *testing.T, got *runtimeFacadeSelectionDecision, wantFacadeModelID string, wantSelectedTargetModelID *string, _ *int, _ *int, wantExclusionSummary *string) {
 	t.Helper()
 	if got == nil {
 		t.Fatal("expected facade selection decision, got nil")
@@ -828,12 +823,6 @@ func assertRuntimeFacadeSelectionDecision(t *testing.T, got *runtimeFacadeSelect
 	}
 	if dereferenceString(got.SelectedTargetModelID) != dereferenceString(wantSelectedTargetModelID) {
 		t.Fatalf("expected selected_target_model_id=%q, got %+v", dereferenceString(wantSelectedTargetModelID), got)
-	}
-	if intValue(got.SelectedWeight) != intValue(wantSelectedWeight) || (got.SelectedWeight == nil) != (wantSelectedWeight == nil) {
-		t.Fatalf("expected selected_weight=%+v, got %+v", wantSelectedWeight, got)
-	}
-	if intValue(got.EligibleTotalWeight) != intValue(wantEligibleTotalWeight) || (got.EligibleTotalWeight == nil) != (wantEligibleTotalWeight == nil) {
-		t.Fatalf("expected eligible_total_weight=%+v, got %+v", wantEligibleTotalWeight, got)
 	}
 	if dereferenceString(got.ExclusionSummary) != dereferenceString(wantExclusionSummary) {
 		t.Fatalf("expected exclusion_summary=%q, got %+v", dereferenceString(wantExclusionSummary), got)

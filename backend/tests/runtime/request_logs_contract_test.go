@@ -518,9 +518,9 @@ func TestRequestLogsFacadeSuccessDetailIncludesFacadeSelectionMetadata(t *testin
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	route := seedOpenAIFacadeRoute(t, harness, profileID, "gpt-4o-request-logs-facade-success-public-"+suffix, []facadeTargetSeed{
-		{ModelID: "request-logs-facade-success-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/first"), EndpointAPIKey: "request-logs-facade-success-first-key", Weight: 1},
-		{ModelID: "request-logs-facade-success-blocked-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/blocked"), EndpointAPIKey: "request-logs-facade-success-blocked-key", Weight: 100},
-		{ModelID: "request-logs-facade-success-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/second"), EndpointAPIKey: "request-logs-facade-success-second-key", Weight: 1},
+		{ModelID: "request-logs-facade-success-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/first"), EndpointAPIKey: "request-logs-facade-success-first-key"},
+		{ModelID: "request-logs-facade-success-blocked-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/blocked"), EndpointAPIKey: "request-logs-facade-success-blocked-key"},
+		{ModelID: "request-logs-facade-success-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/second"), EndpointAPIKey: "request-logs-facade-success-second-key"},
 	})
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[1], 400, 4096, 1.0)
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
@@ -542,11 +542,13 @@ func TestRequestLogsFacadeSuccessDetailIncludesFacadeSelectionMetadata(t *testin
 	if facadeSelection["selected_target_model_id"] != route.TargetModelIDs[0] {
 		t.Fatalf("expected selected_target_model_id=%q, got %+v", route.TargetModelIDs[0], facadeSelection)
 	}
-	if got, ok := facadeSelection["selected_weight"].(float64); !ok || int(got) != 1 {
-		t.Fatalf("expected selected_weight=1, got %+v", facadeSelection)
+	obsoleteSelectedKey := "selected_" + "weight"
+	obsoleteEligibleKey := "eligible_total_" + "weight"
+	if _, ok := facadeSelection[obsoleteSelectedKey]; ok {
+		t.Fatalf("expected obsolete facade selected metadata to stay omitted, got %+v", facadeSelection)
 	}
-	if got, ok := facadeSelection["eligible_total_weight"].(float64); !ok || int(got) != 2 {
-		t.Fatalf("expected eligible_total_weight=2, got %+v", facadeSelection)
+	if _, ok := facadeSelection[obsoleteEligibleKey]; ok {
+		t.Fatalf("expected obsolete facade eligible metadata to stay omitted, got %+v", facadeSelection)
 	}
 	if facadeSelection["exclusion_summary"] != "estimated_context_exceeds_usable_window=1" {
 		t.Fatalf("expected facade exclusion summary for blocked sibling, got %+v", facadeSelection)
@@ -559,8 +561,8 @@ func TestRequestLogsFacadeNoFitPlanningFailureIncludesFacadeSelectionMetadata(t 
 	suffix := randomSuffix()
 	publicModelID := "gpt-4o-request-logs-facade-no-fit-public-" + suffix
 	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: "request-logs-facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/small"), EndpointAPIKey: "request-logs-facade-no-fit-small-key", Weight: 1},
-		{ModelID: "request-logs-facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/large"), EndpointAPIKey: "request-logs-facade-no-fit-large-key", Weight: 1},
+		{ModelID: "request-logs-facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/small"), EndpointAPIKey: "request-logs-facade-no-fit-small-key"},
+		{ModelID: "request-logs-facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/large"), EndpointAPIKey: "request-logs-facade-no-fit-large-key"},
 	})
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[0], 200, 4096, 1.0)
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[1], 400, 4096, 1.0)
@@ -580,8 +582,9 @@ func TestRequestLogsFacadeNoFitPlanningFailureIncludesFacadeSelectionMetadata(t 
 	if _, ok := facadeSelection["selected_target_model_id"]; ok {
 		t.Fatalf("expected no-fit selected_target_model_id to stay omitted without planner selection, got %+v", facadeSelection)
 	}
-	if got, ok := facadeSelection["eligible_total_weight"].(float64); !ok || int(got) != 0 {
-		t.Fatalf("expected no-fit eligible_total_weight=0, got %+v", facadeSelection)
+	obsoleteEligibleKey := "eligible_total_" + "weight"
+	if _, ok := facadeSelection[obsoleteEligibleKey]; ok {
+		t.Fatalf("expected no-fit obsolete facade eligible metadata to stay omitted, got %+v", facadeSelection)
 	}
 	if facadeSelection["exclusion_summary"] != "estimated_context_exceeds_usable_window=2" {
 		t.Fatalf("expected no-fit exclusion summary, got %+v", facadeSelection)
@@ -594,8 +597,8 @@ func TestRequestLogsFacadeNoEligiblePlanningFailureIncludesFacadeSelectionMetada
 	suffix := randomSuffix()
 	publicModelID := "gpt-4o-request-logs-facade-no-eligible-public-" + suffix
 	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: "request-logs-facade-no-eligible-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/first"), EndpointAPIKey: "request-logs-facade-no-eligible-first-key", Weight: 1},
-		{ModelID: "request-logs-facade-no-eligible-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/second"), EndpointAPIKey: "request-logs-facade-no-eligible-second-key", Weight: 1},
+		{ModelID: "request-logs-facade-no-eligible-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/first"), EndpointAPIKey: "request-logs-facade-no-eligible-first-key"},
+		{ModelID: "request-logs-facade-no-eligible-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/second"), EndpointAPIKey: "request-logs-facade-no-eligible-second-key"},
 	})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 	blockedUntilAt := time.Now().UTC().Add(10 * time.Minute)
@@ -617,8 +620,9 @@ func TestRequestLogsFacadeNoEligiblePlanningFailureIncludesFacadeSelectionMetada
 	if _, ok := facadeSelection["selected_target_model_id"]; ok {
 		t.Fatalf("expected no-eligible selected_target_model_id to stay omitted without planner selection, got %+v", facadeSelection)
 	}
-	if got, ok := facadeSelection["eligible_total_weight"].(float64); !ok || int(got) != 0 {
-		t.Fatalf("expected no-eligible eligible_total_weight=0, got %+v", facadeSelection)
+	obsoleteEligibleKey := "eligible_total_" + "weight"
+	if _, ok := facadeSelection[obsoleteEligibleKey]; ok {
+		t.Fatalf("expected no-eligible obsolete facade eligible metadata to stay omitted, got %+v", facadeSelection)
 	}
 	if _, ok := facadeSelection["exclusion_summary"]; ok {
 		t.Fatalf("expected no-eligible exclusion_summary to stay omitted when planner has no exclusion reasons, got %+v", facadeSelection)
@@ -719,13 +723,72 @@ func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 
 	var auditEnabledAtRequest bool
-	if err := harness.conn.QueryRow(context.Background(), `SELECT audit_enabled_at_request FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&auditEnabledAtRequest); err != nil {
+	var auditCaptureBodiesAtRequest bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT audit_enabled_at_request, audit_capture_bodies_at_request FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&auditEnabledAtRequest, &auditCaptureBodiesAtRequest); err != nil {
 		t.Fatalf("load persisted runtime audit snapshot: %v", err)
 	}
-	if auditEnabledAtRequest {
-		t.Fatalf("expected runtime request log to persist audit_enabled_at_request=false without retired vendor audit settings")
+	if auditEnabledAtRequest || auditCaptureBodiesAtRequest {
+		t.Fatalf("expected runtime request log to persist absent audit family settings as false/false, got enabled=%v capture=%v", auditEnabledAtRequest, auditCaptureBodiesAtRequest)
 	}
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+}
+
+func TestRuntimeRequestLogPersistsAPIFamilyAuditSettingsSnapshot(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	seedRuntimeAuditFamilySetting(t, harness, profileID, "openai", true, false)
+	seedRuntimeAuditFamilySetting(t, harness, profileID, "anthropic", false, false)
+	seedRuntimeAuditFamilySetting(t, harness, profileID, "gemini", true, true)
+
+	openAIRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "audit-openai-public-" + randomSuffix(),
+		TargetModelID:   "audit-openai-target-" + randomSuffix(),
+		EndpointBaseURL: harness.upstream.baseURL("/audit-family/openai"),
+		EndpointAPIKey:  "runtime-audit-openai-key",
+	})
+	anthropicUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "msg-audit-family", "type": "message", "role": "assistant", "content": []map[string]any{}, "usage": map[string]any{"input_tokens": 4, "output_tokens": 2}})
+	anthropicRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "anthropic",
+		PublicModelID:   "audit-anthropic-public-" + randomSuffix(),
+		TargetModelID:   "audit-anthropic-target-" + randomSuffix(),
+		EndpointBaseURL: anthropicUpstream.baseURL("/audit-family/anthropic"),
+		EndpointAPIKey:  "runtime-audit-anthropic-key",
+	})
+	geminiUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"candidates": []map[string]any{{"content": map[string]any{"parts": []map[string]any{{"text": "ok"}}}}}, "usageMetadata": map[string]any{"promptTokenCount": 3, "candidatesTokenCount": 2, "totalTokenCount": 5}})
+	geminiRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "gemini",
+		PublicModelID:   "audit-gemini-public-" + randomSuffix(),
+		TargetModelID:   "audit-gemini-target-" + randomSuffix(),
+		EndpointBaseURL: geminiUpstream.baseURL("/audit-family/gemini"),
+		EndpointAPIKey:  "runtime-audit-gemini-key",
+	})
+
+	openAIResponse := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "persist openai audit policy"}},
+		"model":    openAIRoute.PublicModelID,
+	}, nil)
+	assertStatus(t, openAIResponse, http.StatusOK)
+	anthropicResponse := harness.requestJSON(t, http.MethodPost, "/v1/messages", map[string]any{
+		"model":      anthropicRoute.PublicModelID,
+		"max_tokens": 16,
+		"messages":   []map[string]any{{"role": "user", "content": "persist anthropic audit policy"}},
+	}, nil)
+	assertStatus(t, anthropicResponse, http.StatusOK)
+	geminiResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/v1beta/models/%s:generateContent", geminiRoute.PublicModelID), map[string]any{
+		"contents": []map[string]any{{"role": "user", "parts": []map[string]any{{"text": "persist gemini audit policy"}}}},
+	}, nil)
+	assertStatus(t, geminiResponse, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 3, UsageEvents: 3, OutboxRows: 0}, 5*time.Second)
+
+	assertRuntimeRequestLogAuditSnapshot(t, harness, profileID, openAIRoute.PublicModelID, true, false)
+	assertRuntimeRequestLogAuditSnapshot(t, harness, profileID, anthropicRoute.PublicModelID, false, false)
+	assertRuntimeRequestLogAuditSnapshot(t, harness, profileID, geminiRoute.PublicModelID, true, true)
+	assertRuntimeAuditLogSnapshot(t, harness, profileID, openAIRoute.PublicModelID, true, false)
+	assertRuntimeAuditLogSnapshot(t, harness, profileID, geminiRoute.PublicModelID, true, true)
 }
 
 func TestRuntimeRequestLogsPreserveRequestedAndResolvedModelIdentity(t *testing.T) {
@@ -2850,6 +2913,59 @@ func runtimeModelHeader(profileID int) map[string]string {
 	return map[string]string{"X-Profile-Id": fmt.Sprintf("%d", profileID)}
 }
 
+func seedRuntimeAuditFamilySetting(t *testing.T, harness *runtimeHarness, profileID int, apiFamily string, auditEnabled bool, auditCaptureBodies bool) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := harness.conn.Exec(
+		context.Background(),
+		`INSERT INTO profile_api_family_audit_settings (profile_id, api_family, audit_enabled, audit_capture_bodies, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $5)
+		 ON CONFLICT (profile_id, api_family) DO UPDATE SET audit_enabled = EXCLUDED.audit_enabled, audit_capture_bodies = EXCLUDED.audit_capture_bodies, updated_at = EXCLUDED.updated_at`,
+		profileID,
+		apiFamily,
+		auditEnabled,
+		auditCaptureBodies,
+		now,
+	); err != nil {
+		t.Fatalf("seed runtime audit setting %s: %v", apiFamily, err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+}
+
+func assertRuntimeRequestLogAuditSnapshot(t *testing.T, harness *runtimeHarness, profileID int, modelID string, wantAuditEnabled bool, wantAuditCaptureBodies bool) {
+	t.Helper()
+	var auditEnabledAtRequest bool
+	var auditCaptureBodiesAtRequest bool
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT audit_enabled_at_request, audit_capture_bodies_at_request FROM request_logs WHERE profile_id = $1 AND model_id = $2 ORDER BY id DESC LIMIT 1`,
+		profileID,
+		modelID,
+	).Scan(&auditEnabledAtRequest, &auditCaptureBodiesAtRequest); err != nil {
+		t.Fatalf("load request-log audit snapshot for %s: %v", modelID, err)
+	}
+	if auditEnabledAtRequest != wantAuditEnabled || auditCaptureBodiesAtRequest != wantAuditCaptureBodies {
+		t.Fatalf("expected request-log audit snapshot for %s to be enabled=%v capture=%v, got enabled=%v capture=%v", modelID, wantAuditEnabled, wantAuditCaptureBodies, auditEnabledAtRequest, auditCaptureBodiesAtRequest)
+	}
+}
+
+func assertRuntimeAuditLogSnapshot(t *testing.T, harness *runtimeHarness, profileID int, modelID string, wantAuditEnabled bool, wantAuditCaptureBodies bool) {
+	t.Helper()
+	var auditEnabledAtRequest bool
+	var auditCaptureBodiesAtRequest bool
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT audit_enabled_at_request, audit_capture_bodies_at_request FROM audit_logs WHERE profile_id = $1 AND model_id = $2 ORDER BY id DESC LIMIT 1`,
+		profileID,
+		modelID,
+	).Scan(&auditEnabledAtRequest, &auditCaptureBodiesAtRequest); err != nil {
+		t.Fatalf("load audit-log audit snapshot for %s: %v", modelID, err)
+	}
+	if auditEnabledAtRequest != wantAuditEnabled || auditCaptureBodiesAtRequest != wantAuditCaptureBodies {
+		t.Fatalf("expected audit-log audit snapshot for %s to be enabled=%v capture=%v, got enabled=%v capture=%v", modelID, wantAuditEnabled, wantAuditCaptureBodies, auditEnabledAtRequest, auditCaptureBodiesAtRequest)
+	}
+}
+
 func seedRequestLogEndpoints(t *testing.T, harness *requestLogContractHarness, profileID int) {
 	t.Helper()
 	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
@@ -2954,7 +3070,7 @@ func seedRequestLogModels(t *testing.T, harness *requestLogContractHarness, prof
 	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $3, $4, TRUE, $5, $5) RETURNING id`, profileID, "gpt-4o", "GPT-4o Proxy", strategyID, now).Scan(&proxyModelID); err != nil {
 		t.Fatalf("insert current proxy request-log model: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, 1, 0, TRUE, $4, $4)`, profileID, proxyModelID, nativeModelID, now); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, TRUE, $4, $4)`, profileID, proxyModelID, nativeModelID, now); err != nil {
 		t.Fatalf("insert request-log access target: %v", err)
 	}
 }

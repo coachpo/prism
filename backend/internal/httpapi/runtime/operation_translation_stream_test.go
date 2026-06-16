@@ -214,6 +214,28 @@ func TestTranslateOpenAIResponsesToChatStreamHandlesFailedTerminalEvent(t *testi
 	}
 }
 
+func TestTranslateOpenAIResponsesToChatStreamAcceptsReasoningDeltas(t *testing.T) {
+	stream := "event: response.reasoning_text.delta\n" +
+		"data: {\"type\":\"response.reasoning_text.delta\",\"output_index\":0,\"item_id\":\"rs_1\",\"delta\":\"plan\"}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"output_index\":1,\"item_id\":\"msg_1\",\"delta\":\"answer\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_reasoning\",\"model\":\"responses-target\",\"created_at\":1700000000,\"output\":[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"plan\"}]},{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\"}]}]}}\n\n"
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIChatCompletionsToResponses, "chat-public", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
+	if err != nil {
+		t.Fatalf("translate responses stream reasoning deltas to chat: %v", err)
+	}
+	forwardedBody := forwarded.String()
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted {
+		t.Fatalf("expected completed stream outcome, got %+v", capture)
+	}
+	if !strings.Contains(forwardedBody, `"reasoning_content":"plan"`) || !strings.Contains(forwardedBody, `"content":"answer"`) || strings.Contains(forwardedBody, "response.reasoning_text.delta") {
+		t.Fatalf("expected translated Chat reasoning_content and visible content only, got %q", forwardedBody)
+	}
+}
+
 func TestTranslateOpenAIChatToResponsesStreamRequestedEqualsResolved(t *testing.T) {
 	stream := "data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello \"}}]}\n\n" +
 		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
@@ -274,6 +296,33 @@ func TestTranslateOpenAIChatToResponsesStream(t *testing.T) {
 	}
 }
 
+func TestTranslateOpenAIChatToResponsesStreamAcceptsReasoningAndThinkDeltas(t *testing.T) {
+	stream := "data: {\"id\":\"chatcmpl_reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"plan\"}}]}\n\n" +
+		"data: {\"id\":\"chatcmpl_reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<thi\"}}]}\n\n" +
+		"data: {\"id\":\"chatcmpl_reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"nk>hidden</think>answer\"}}]}\n\n" +
+		"data: {\"id\":\"chatcmpl_reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: [DONE]\n\n"
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIResponsesToChatCompletions, "responses-public", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
+	if err != nil {
+		t.Fatalf("translate chat reasoning and think stream to responses: %v", err)
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted {
+		t.Fatalf("expected completed stream outcome, got %+v", capture)
+	}
+	forwardedBody := forwarded.String()
+	if !strings.Contains(forwardedBody, "response.reasoning_text.delta") || !strings.Contains(forwardedBody, `"delta":"plan"`) || !strings.Contains(forwardedBody, `"delta":"hidden"`) || !strings.Contains(forwardedBody, `"delta":"answer"`) || strings.Contains(forwardedBody, "<think>") {
+		t.Fatalf("expected reasoning deltas plus visible answer without think tag leak, got %q", forwardedBody)
+	}
+	completed := translatedSSEEventPayload(t, parseTranslatedSSEEvents(t, forwardedBody), "response.completed")
+	response := completed["response"].(map[string]any)
+	output := response["output"].([]any)
+	if len(output) < 2 || stringValue(output[0].(map[string]any)["type"]) != "reasoning" || stringValue(output[1].(map[string]any)["type"]) != "message" {
+		t.Fatalf("expected terminal Responses output to keep reasoning before visible message, got %+v", output)
+	}
+}
+
 func TestTranslateOpenAIChatToResponsesStreamPreservesErrorPayload(t *testing.T) {
 	stream := "data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-public\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello \"}}]}\n\n" +
 		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-public\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
@@ -306,6 +355,56 @@ func TestTranslateOpenAIChatToResponsesStreamPreservesErrorPayload(t *testing.T)
 	}
 }
 
+func TestTranslateOpenAIChatToResponsesStreamAcceptsToolDeltas(t *testing.T) {
+	stream := "data: {\"id\":\"chatcmpl_tools\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_b\",\"type\":\"function\",\"function\":{\"name\":\"second\",\"arguments\":\"{\\\"b\\\":2}\"}},{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"first\",\"arguments\":\"{\\\"a\\\":1}\"}}]}}]}\n\n" +
+		"data: {\"id\":\"chatcmpl_tools\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+		"data: [DONE]\n\n"
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIResponsesToChatCompletions, "responses-public", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
+	if err != nil {
+		t.Fatalf("translate chat stream tool deltas to responses: %v", err)
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted {
+		t.Fatalf("expected completed stream outcome, got %+v", capture)
+	}
+	events := parseTranslatedSSEEvents(t, forwarded.String())
+	completed := translatedSSEEventPayload(t, events, "response.completed")
+	response := completed["response"].(map[string]any)
+	output := response["output"].([]any)
+	if len(output) != 2 || stringValue(output[0].(map[string]any)["name"]) != "first" || stringValue(output[1].(map[string]any)["name"]) != "second" {
+		t.Fatalf("expected completed Responses tool calls sorted by tool_call index, got %+v", output)
+	}
+}
+
+func TestTranslateOpenAIResponsesToChatStreamAcceptsFunctionCallDeltas(t *testing.T) {
+	stream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_tools\",\"model\":\"responses-target\",\"created_at\":1700000000}}\n\n" +
+		"event: response.output_item.added\n" +
+		"data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"\"}}\n\n" +
+		"event: response.function_call_arguments.delta\n" +
+		"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"fc_1\",\"delta\":\"{\\\"q\\\":\"}\n\n" +
+		"event: response.function_call_arguments.delta\n" +
+		"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"fc_1\",\"delta\":\"\\\"x\\\"}\"}\n\n" +
+		"event: response.output_item.done\n" +
+		"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"x\\\"}\"}}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_tools\",\"model\":\"responses-target\",\"created_at\":1700000000,\"output\":[{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"x\\\"}\"}]}}\n\n"
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIChatCompletionsToResponses, "chat-public", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
+	if err != nil {
+		t.Fatalf("translate responses stream function call deltas to chat: %v", err)
+	}
+	forwardedBody := forwarded.String()
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted {
+		t.Fatalf("expected completed stream outcome, got %+v", capture)
+	}
+	if !strings.Contains(forwardedBody, "\"tool_calls\"") || !strings.Contains(forwardedBody, "\"name\":\"lookup\"") || !strings.Contains(forwardedBody, "\"finish_reason\":\"tool_calls\"") {
+		t.Fatalf("expected translated Chat tool-call chunks and tool_calls finish, got %q", forwardedBody)
+	}
+}
+
 func TestTranslateOpenAIStreamRejectsUnsupportedShape(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -314,38 +413,6 @@ func TestTranslateOpenAIStreamRejectsUnsupportedShape(t *testing.T) {
 		stream      string
 		reason      string
 	}{
-		{
-			name:        "chat tool delta",
-			ingressPath: "/v1/responses",
-			mode:        TranslationModeOpenAIResponsesToChatCompletions,
-			stream: "data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{}\"}}]}}]}\n\n" +
-				"data: [DONE]\n\n",
-			reason: "chat_tool_call_stream",
-		},
-		{
-			name:        "responses function event",
-			ingressPath: "/v1/chat/completions",
-			mode:        TranslationModeOpenAIChatCompletionsToResponses,
-			stream: "event: response.function_call_arguments.delta\n" +
-				"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"call_1\",\"delta\":\"{}\"}\n\n",
-			reason: "responses_stream_response_function_call_arguments_delta",
-		},
-		{
-			name:        "responses output item added function call",
-			ingressPath: "/v1/chat/completions",
-			mode:        TranslationModeOpenAIChatCompletionsToResponses,
-			stream: "event: response.output_item.added\n" +
-				"data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"call_1\",\"type\":\"function_call\",\"name\":\"lookup\",\"arguments\":\"{}\"}}\n\n",
-			reason: "responses_stream_function_call",
-		},
-		{
-			name:        "responses output item done function call",
-			ingressPath: "/v1/chat/completions",
-			mode:        TranslationModeOpenAIChatCompletionsToResponses,
-			stream: "event: response.output_item.done\n" +
-				"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"call_1\",\"type\":\"function_call\",\"name\":\"lookup\",\"arguments\":\"{}\"}}\n\n",
-			reason: "responses_stream_function_call",
-		},
 		{
 			name:        "responses output item done unsupported type",
 			ingressPath: "/v1/chat/completions",
