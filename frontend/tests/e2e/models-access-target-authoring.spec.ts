@@ -219,6 +219,8 @@ test("main model dialog keeps connection option absent while authoring ordered m
   const dialog = page.getByRole("dialog", { name: "New Model" });
   await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
+  await expect(dialog.getByText("Tier")).toHaveCount(0);
+  await expect(dialog.getByText("Weight")).toHaveCount(0);
   const enabledSwitch = dialog.getByRole("switch", { name: "Enabled" });
   await expect(enabledSwitch).toHaveAttribute("data-state", "unchecked");
   await page.getByRole("textbox", { name: "Model ID" }).fill("routed-openai");
@@ -265,7 +267,7 @@ test("main model dialog keeps connection option absent while authoring ordered m
       api_family: "anthropic",
       model_id: "routed-openai",
       display_name: "routed-openai",
-      access_targets: [{ target_type: "model", target_model_id: "claude-sonnet", position: 0, weight: 1, target_priority: 0, is_enabled: true }],
+      access_targets: [{ target_type: "model", target_model_id: "claude-sonnet", position: 0, is_enabled: true }],
       context_overflow_promotion_target_id: null,
       loadbalance_strategy_id: 11,
       is_enabled: true,
@@ -275,4 +277,7 @@ test("main model dialog keeps connection option absent while authoring ordered m
       preferred_context_utilization_threshold: null,
     },
   ]);
+  const createdTarget = (routes.getCreatedPayloads()[0] as { access_targets: Array<Record<string, unknown>> }).access_targets[0];
+  expect(Object.prototype.hasOwnProperty.call(createdTarget, "weight")).toBe(false);
+  expect(Object.prototype.hasOwnProperty.call(createdTarget, "target_priority")).toBe(false);
 });

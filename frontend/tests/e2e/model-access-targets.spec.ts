@@ -147,9 +147,12 @@ test("stale connection target payload is rejected and surfaced in the model crea
   expect(routes.getStalePayloads()).toHaveLength(1);
   expect(routes.getStalePayloads()[0]).toMatchObject({
     access_targets: [
-      { target_type: "model", target_model_id: "target-alpha", position: 0, weight: 1, target_priority: 0, is_enabled: true },
+      { target_type: "model", target_model_id: "target-alpha", position: 0, is_enabled: true },
       { target_type: "connection", connection_id: 77, position: 1, is_enabled: true },
     ],
   });
+  const firstTarget = (routes.getStalePayloads()[0] as { access_targets: Array<Record<string, unknown>> }).access_targets[0];
+  expect(Object.prototype.hasOwnProperty.call(firstTarget, "weight")).toBe(false);
+  expect(Object.prototype.hasOwnProperty.call(firstTarget, "target_priority")).toBe(false);
   await expect(dialog.getByTestId("access-target-connection:77")).toHaveCount(0);
 });

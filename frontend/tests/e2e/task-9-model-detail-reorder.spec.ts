@@ -80,8 +80,6 @@ function createTarget(id: number, connection: ReturnType<typeof createConnection
     target_model_id: null,
     connection_id: connection.id,
     position,
-    weight: null,
-    target_priority: null,
     is_enabled: true,
     target_model: null,
     connection: { ...connection, priority: position },

@@ -52,8 +52,6 @@ function createAccessTarget(targetModelId: string, position: number, displayName
     target_model_id: targetModelId,
     connection_id: null,
     position,
-    weight: 1,
-    target_priority: 0,
     is_enabled: true,
     target_model: {
       id: 100 + position,
@@ -235,7 +233,7 @@ test("context-capability-authoring: model settings clears blank context window t
       api_family: "openai",
       model_id: "routed-openai",
       display_name: "Routed OpenAI",
-      access_targets: [{ target_type: "model", target_model_id: "target-alpha", position: 0, weight: 1, target_priority: 0, is_enabled: true }],
+      access_targets: [{ target_type: "model", target_model_id: "target-alpha", position: 0, is_enabled: true }],
       context_overflow_promotion_target_id: null,
       loadbalance_strategy_id: 11,
       is_enabled: true,
@@ -245,6 +243,9 @@ test("context-capability-authoring: model settings clears blank context window t
       preferred_context_utilization_threshold: null,
     },
   ]);
+  const savedTarget = (routes.getUpdatePayloads()[0].access_targets as Array<Record<string, unknown>>)[0];
+  expect(Object.prototype.hasOwnProperty.call(savedTarget, "weight")).toBe(false);
+  expect(Object.prototype.hasOwnProperty.call(savedTarget, "target_priority")).toBe(false);
 
   await page.getByRole("button", { name: /edit model/i }).click();
   await expect(dialog.locator("#model-context-window-tokens")).toHaveValue("");

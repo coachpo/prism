@@ -180,6 +180,11 @@ function createSafeExportBundle() {
       report_currency_code: "EUR",
       report_currency_symbol: "€",
       endpoint_fx_mappings: [],
+      audit_api_family_settings: [
+        { api_family: "openai", audit_enabled: true, audit_capture_bodies: false },
+        { api_family: "anthropic", audit_enabled: false, audit_capture_bodies: false },
+        { api_family: "gemini", audit_enabled: false, audit_capture_bodies: false },
+      ],
     },
     header_blocklist_rules: [],
     user_agent_client_rules: [],
@@ -239,6 +244,11 @@ function createDangerousExportBundle() {
       report_currency_code: "EUR",
       report_currency_symbol: "€",
       endpoint_fx_mappings: [],
+      audit_api_family_settings: [
+        { api_family: "openai", audit_enabled: true, audit_capture_bodies: false },
+        { api_family: "anthropic", audit_enabled: false, audit_capture_bodies: false },
+        { api_family: "gemini", audit_enabled: false, audit_capture_bodies: false },
+      ],
     },
     header_blocklist_rules: [],
     user_agent_client_rules: [],
@@ -288,6 +298,16 @@ async function mockSettingsRoutes(page: Page) {
     }
     if (pathname === "/api/settings/log-retention") {
       return fulfillJson(createRetentionSettings());
+    }
+    if (pathname === "/api/settings/audit") {
+      return fulfillJson({
+        profile_id: 1,
+        settings: [
+          { api_family: "openai", audit_enabled: true, audit_capture_bodies: false },
+          { api_family: "anthropic", audit_enabled: false, audit_capture_bodies: false },
+          { api_family: "gemini", audit_enabled: false, audit_capture_bodies: false },
+        ],
+      });
     }
     if (pathname === "/api/models") {
       return fulfillJson([createModelListItem()]);

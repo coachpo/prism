@@ -8,9 +8,14 @@ const liveAuthoringCapabilityDefaults = {
 };
 const facadePolicyDefaults = {
   facade_enabled: true,
-  facade_selection_policy: "weighted_eligible_context" as const,
-  facade_fallback_policy: "redistribute_ineligible_weight" as const,
+  facade_selection_policy: "ordered_eligible_context" as const,
+  facade_fallback_policy: "skip_ineligible_targets" as const,
 };
+const auditFamilySettingsDefaults = [
+  { api_family: "openai" as const, audit_enabled: true, audit_capture_bodies: false },
+  { api_family: "anthropic" as const, audit_enabled: false, audit_capture_bodies: false },
+  { api_family: "gemini" as const, audit_enabled: false, audit_capture_bodies: false },
+];
 
 const appReadyTimeout = 30_000;
 
@@ -178,6 +183,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
         report_currency_symbol: "€",
         timezone_preference: null,
         endpoint_fx_mappings: [],
+        audit_api_family_settings: [...auditFamilySettingsDefaults],
       },
       header_blocklist_rules: [
         {
@@ -239,8 +245,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
               is_enabled: true,
               target_type: "model" as const,
               target_model_id: "leaf-model",
-              weight: 9,
-              target_priority: 3,
             },
           ],
         },
@@ -259,6 +263,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
         report_currency_symbol: "€",
         timezone_preference: null,
         endpoint_fx_mappings: [],
+        audit_api_family_settings: [...auditFamilySettingsDefaults],
       },
       header_blocklist_rules: [],
       user_agent_client_rules: [],
@@ -389,12 +394,13 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
         ],
       },
     ],
-    profile_settings: {
-      report_currency_code: "EUR",
-      report_currency_symbol: "€",
-      timezone_preference: null,
-      endpoint_fx_mappings: [],
-    },
+      profile_settings: {
+        report_currency_code: "EUR",
+        report_currency_symbol: "€",
+        timezone_preference: null,
+        endpoint_fx_mappings: [],
+        audit_api_family_settings: [...auditFamilySettingsDefaults],
+      },
     header_blocklist_rules: [
       {
         name: "Hide trace headers",
@@ -542,6 +548,12 @@ async function mockSettingsRoutes(page: Page, options: MockSettingsRoutesOptions
     }
     if (pathname === "/api/config/user-agent-client-rules") {
       return fulfillJson([]);
+    }
+    if (pathname === "/api/settings/audit") {
+      return fulfillJson({
+        profile_id: activeProfile.id,
+        settings: auditFamilySettingsDefaults,
+      });
     }
     if (pathname === "/api/config/profile/import/preview" && request.method() === "POST") {
       const payload = request.postDataJSON() as ProfileImportBundle;
@@ -799,8 +811,6 @@ test("context-capability-authoring: config import surfaces structured routing pr
             is_enabled: true,
             target_type: "model" as const,
             target_model_id: "missing-model",
-            weight: 9,
-            target_priority: 3,
           },
         ],
       },

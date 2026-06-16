@@ -14,9 +14,9 @@ const configAuthoringDefaults = {
   preferred_context_utilization_threshold: null,
 };
 const facadePolicyDefaults = {
-  facade_enabled: true,
-  facade_selection_policy: "weighted_eligible_context",
-  facade_fallback_policy: "redistribute_ineligible_weight",
+	facade_enabled: true,
+	facade_selection_policy: "ordered_eligible_context",
+	facade_fallback_policy: "skip_ineligible_targets",
 };
 
 test.beforeAll(() => {
@@ -248,7 +248,13 @@ function profileBundleV3() {
       is_enabled: true,
       access_targets: [{ position: 0, is_enabled: true, target_type: "connection", connection_ref: "terminal-connection" }],
     }],
-    profile_settings: null,
+    profile_settings: {
+      audit_api_family_settings: [
+        { api_family: "openai", audit_enabled: true, audit_capture_bodies: false },
+        { api_family: "anthropic", audit_enabled: false, audit_capture_bodies: false },
+        { api_family: "gemini", audit_enabled: false, audit_capture_bodies: false },
+      ],
+    },
     header_blocklist_rules: [],
     user_agent_client_rules: [],
     secret_payload: { kind: "encrypted", cipher: "fernet-v1", key_id: "task-17", entries: [] },
@@ -311,6 +317,14 @@ async function mockRoutes(page: Page) {
     }
     if (pathname === "/api/settings/timezone") return fulfillJson({ timezone_preference: "UTC" });
     if (pathname === "/api/settings/auth") return fulfillJson({ auth_enabled: false, username: null, has_password: false, email: null, pending_email: null, email_bound_at: null, email_verification_required: false });
+    if (pathname === "/api/settings/audit") return fulfillJson({
+      profile_id: activeProfile.id,
+      settings: [
+        { api_family: "openai", audit_enabled: true, audit_capture_bodies: false },
+        { api_family: "anthropic", audit_enabled: false, audit_capture_bodies: false },
+        { api_family: "gemini", audit_enabled: false, audit_capture_bodies: false },
+      ],
+    });
     if (pathname === "/api/settings/log-retention") return fulfillJson({ request_logs_retention_days: 30, statistics_retention_days: 30, audit_logs_retention_days: 30, loadbalance_events_retention_days: 30 });
     if (pathname === "/api/config/header-blocklist-rules") return fulfillJson([]);
     if (pathname === "/api/config/user-agent-client-rules") return fulfillJson([]);
