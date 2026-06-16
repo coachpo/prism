@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,9 +19,66 @@ import (
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
 var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
+
+var auditAPIFamilies = []string{
+	providercompat.APIFamilyOpenAI,
+	providercompat.APIFamilyAnthropic,
+	providercompat.APIFamilyGemini,
+}
+
+func (s *Service) handleGetAuditSettings(w http.ResponseWriter, r *http.Request) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (auditSettingsResponse, error) {
+		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
+		if err != nil {
+			return auditSettingsResponse{}, err
+		}
+		rows, err := listAuditSettings(r.Context(), tx, profile.ID)
+		if err != nil {
+			return auditSettingsResponse{}, err
+		}
+		return buildAuditSettingsResponse(profile.ID, rows), nil
+	})
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Service) handlePutAuditSettings(w http.ResponseWriter, r *http.Request) {
+	var requestBody auditSettingsUpdateRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := normalizeAndValidateAuditSettingsRequest(&requestBody); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (auditSettingsResponse, error) {
+		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
+		if err != nil {
+			return auditSettingsResponse{}, err
+		}
+		if err := replaceAuditSettings(r.Context(), tx, profile.ID, requestBody.Settings, s.nowUTC()); err != nil {
+			return auditSettingsResponse{}, err
+		}
+		rows, err := listAuditSettings(r.Context(), tx, profile.ID)
+		if err != nil {
+			return auditSettingsResponse{}, err
+		}
+		return buildAuditSettingsResponse(profile.ID, rows), nil
+	})
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
 
 func (s *Service) handleGetCostingSettings(w http.ResponseWriter, r *http.Request) {
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (costingSettingsResponse, error) {
@@ -276,6 +334,23 @@ func buildRetentionSettingsResponse(settingsRow logRetentionSettingsRow) retenti
 	}
 }
 
+func buildAuditSettingsResponse(profileID int, rows []auditSettingsRow) auditSettingsResponse {
+	byFamily := make(map[string]auditSetting, len(rows))
+	for _, row := range rows {
+		family := providercompat.NormalizeAPIFamily(row.APIFamily)
+		byFamily[family] = auditSetting{APIFamily: family, AuditEnabled: row.AuditEnabled, AuditCaptureBodies: row.AuditCaptureBodies}
+	}
+	settings := make([]auditSetting, 0, len(auditAPIFamilies))
+	for _, family := range auditAPIFamilies {
+		setting, ok := byFamily[family]
+		if !ok {
+			setting = auditSetting{APIFamily: family}
+		}
+		settings = append(settings, setting)
+	}
+	return auditSettingsResponse{ProfileID: profileID, Settings: settings}
+}
+
 func normalizeAndValidateCostingRequest(requestBody *costingSettingsUpdateRequest) error {
 	requestBody.ReportCurrencyCode = strings.ToUpper(strings.TrimSpace(requestBody.ReportCurrencyCode))
 	requestBody.ReportCurrencySymbol = strings.TrimSpace(requestBody.ReportCurrencySymbol)
@@ -329,6 +404,47 @@ func normalizeAndValidateRetentionRequest(requestBody *retentionSettingsUpdateRe
 		return err
 	}
 	return nil
+}
+
+func normalizeAndValidateAuditSettingsRequest(requestBody *auditSettingsUpdateRequest) error {
+	if len(requestBody.Settings) != len(auditAPIFamilies) {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "settings must include exactly openai, anthropic, and gemini"}
+	}
+
+	seen := make(map[string]auditSetting, len(auditAPIFamilies))
+	for index := range requestBody.Settings {
+		setting := requestBody.Settings[index]
+		family := providercompat.NormalizeAPIFamily(setting.APIFamily)
+		if !isAuditAPIFamily(family) {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("api_family %q is not supported", setting.APIFamily)}
+		}
+		if _, ok := seen[family]; ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate audit setting for api_family=%s", family)}
+		}
+		if !setting.AuditEnabled && setting.AuditCaptureBodies {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "audit_capture_bodies requires audit_enabled"}
+		}
+		setting.APIFamily = family
+		seen[family] = setting
+	}
+
+	normalized := make([]auditSetting, 0, len(auditAPIFamilies))
+	for _, family := range auditAPIFamilies {
+		setting, ok := seen[family]
+		if !ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("settings must include api_family=%s", family)}
+		}
+		normalized = append(normalized, setting)
+	}
+	requestBody.Settings = normalized
+	return nil
+}
+
+func isAuditAPIFamily(value string) bool {
+	if !providercompat.IsSupportedAPIFamily(value) {
+		return false
+	}
+	return slices.Contains(auditAPIFamilies, value)
 }
 
 func normalizeTimezonePreference(value *string) (*string, error) {
@@ -409,13 +525,11 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
-	var settingsErr *domainError
-	if errors.As(err, &settingsErr) {
+	if settingsErr, ok := errors.AsType[*domainError](err); ok {
 		writeError(w, r, corsSnapshot, settingsErr.StatusCode, settingsErr.Detail)
 		return
 	}
-	var profileErr *profiledomain.HTTPError
-	if errors.As(err, &profileErr) {
+	if profileErr, ok := errors.AsType[*profiledomain.HTTPError](err); ok {
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}

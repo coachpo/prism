@@ -82,6 +82,8 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 }
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
+	api.Get("/settings/audit", s.handleGetAuditSettings)
+	api.Put("/settings/audit", s.handlePutAuditSettings)
 	api.Get("/settings/costing", s.handleGetCostingSettings)
 	api.Put("/settings/costing", s.handlePutCostingSettings)
 	api.Get("/settings/timezone", s.handleGetTimezonePreference)

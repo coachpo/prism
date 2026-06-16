@@ -25,7 +25,7 @@ sections/
 ## WHERE TO LOOK
 
 - Auth setup and verified-email prerequisites: `AuthenticationSection.tsx`, `authentication/`
-- Audit and privacy header blocklist, user-agent or client rule management, and rules-panel rendering: `AuditConfigurationSection.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationUserAgentClientRulesCard.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
+- Audit and privacy API-family audit rows, header blocklist, user-agent or client rule management, and rules-panel rendering: `AuditConfigurationSection.tsx`, `AuditConfigurationAPIFamilyCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationUserAgentClientRulesCard.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
 - Billing and currency section shell that renders reporting currency and FX mapping UI, while staying separate from costing state: `BillingCurrencySection.tsx`, `billing-currency/AGENTS.md`
 - Backup and config import or export section: `BackupSection.tsx`
 - Retention and deletion section: `RetentionDeletionSection.tsx`

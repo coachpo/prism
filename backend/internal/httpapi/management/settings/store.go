@@ -158,6 +158,54 @@ func replaceEndpointFXMappings(ctx context.Context, tx pgx.Tx, profileID int, ma
 	return nil
 }
 
+func listAuditSettings(ctx context.Context, exec queryExecutor, profileID int) ([]auditSettingsRow, error) {
+	rows, err := exec.Query(
+		ctx,
+		`SELECT api_family, audit_enabled, audit_capture_bodies, created_at, updated_at
+		 FROM profile_api_family_audit_settings
+		 WHERE profile_id = $1
+		 ORDER BY CASE api_family WHEN 'openai' THEN 1 WHEN 'anthropic' THEN 2 WHEN 'gemini' THEN 3 ELSE 4 END`,
+		profileID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query audit settings for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+
+	items := make([]auditSettingsRow, 0, len(auditAPIFamilies))
+	for rows.Next() {
+		var item auditSettingsRow
+		if err := rows.Scan(&item.APIFamily, &item.AuditEnabled, &item.AuditCaptureBodies, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan audit setting: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate audit settings for profile %d: %w", profileID, err)
+	}
+	return items, nil
+}
+
+func replaceAuditSettings(ctx context.Context, tx pgx.Tx, profileID int, settings []auditSetting, currentTime time.Time) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM profile_api_family_audit_settings WHERE profile_id = $1`, profileID); err != nil {
+		return fmt.Errorf("clear audit settings for profile %d: %w", profileID, err)
+	}
+	for _, setting := range settings {
+		if _, err := tx.Exec(
+			ctx,
+			`INSERT INTO profile_api_family_audit_settings (profile_id, api_family, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)`,
+			profileID,
+			setting.APIFamily,
+			setting.AuditEnabled,
+			setting.AuditCaptureBodies,
+			currentTime,
+		); err != nil {
+			return fmt.Errorf("insert audit setting %s for profile %d: %w", setting.APIFamily, profileID, err)
+		}
+	}
+	return nil
+}
+
 func listValidConnectionPairs(ctx context.Context, exec queryExecutor, profileID int, endpointIDs []int) (map[string]struct{}, error) {
 	valid := map[string]struct{}{}
 	if len(endpointIDs) == 0 {

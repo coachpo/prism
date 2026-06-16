@@ -28,6 +28,17 @@ type retentionSettingsResponse struct {
 	LoadbalanceEventsRetentionDays *int `json:"loadbalance_events_retention_days"`
 }
 
+type auditSettingsResponse struct {
+	ProfileID int            `json:"profile_id"`
+	Settings  []auditSetting `json:"settings"`
+}
+
+type auditSetting struct {
+	APIFamily          string `json:"api_family"`
+	AuditEnabled       bool   `json:"audit_enabled"`
+	AuditCaptureBodies bool   `json:"audit_capture_bodies"`
+}
+
 type costingSettingsUpdateRequest struct {
 	ProfileID            *int                `json:"profile_id"`
 	ReportCurrencyCode   string              `json:"report_currency_code"`
@@ -47,6 +58,10 @@ type retentionSettingsUpdateRequest struct {
 	LoadbalanceEventsRetentionDays *int `json:"loadbalance_events_retention_days"`
 }
 
+type auditSettingsUpdateRequest struct {
+	Settings []auditSetting `json:"settings"`
+}
+
 type logRetentionJobRequest struct {
 	Table     string     `json:"table"`
 	Cutoff    *time.Time `json:"cutoff"`
@@ -61,6 +76,14 @@ type logRetentionSettingsRow struct {
 	LoadbalanceEventsRetentionDays *int
 	CreatedAt                      time.Time
 	UpdatedAt                      time.Time
+}
+
+type auditSettingsRow struct {
+	APIFamily          string
+	AuditEnabled       bool
+	AuditCaptureBodies bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type userSettingsRow struct {

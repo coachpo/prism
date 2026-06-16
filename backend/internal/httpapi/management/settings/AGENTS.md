@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT SETTINGS KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/settings/` owns Prism's management settings routes for profile-scoped costing and timezone preferences, global log-retention settings, and creation of low-priority log-retention maintenance jobs.
+`management/settings/` owns Prism's management settings routes for profile-scoped costing and timezone preferences, selected-profile API-family audit settings, global log-retention settings, and creation of low-priority log-retention maintenance jobs.
 
 ## STRUCTURE
 ```text
@@ -15,7 +15,7 @@ settings/
 
 ## WHERE TO LOOK
 - Mounted routes and ownership split: `service.go` (`MountManagementRoutes`), `routes.go`
-- Profile-scoped costing and timezone reads/writes: `routes.go`, `store.go`, `types.go`
+- Profile-scoped costing, timezone, and `/api/settings/audit` reads/writes: `routes.go`, `store.go`, `types.go`
 - Global log-retention reads/writes and maintenance-job creation: `routes.go`, `../../../platform/managementjobs/`
 - Selected-profile resolution and shared transaction helpers: `../../../profiledomain/`, `../../../pgxutil/tx.go`
 - Frontend settings consumers: `../../../../../frontend/src/pages/settings/`, `../../../../../frontend/src/pages/settings/costing/`
@@ -23,7 +23,8 @@ settings/
 ## CONVENTIONS
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Keep costing and timezone settings profile-scoped through effective-profile resolution and `X-Profile-Id`.
+- Keep costing, timezone, and API-family audit settings profile-scoped through effective-profile resolution and `X-Profile-Id`.
+- Keep `/api/settings/audit` as exactly three rows (`openai`, `anthropic`, `gemini`) with full replacement PUT semantics. Body capture requires audit enabled.
 - Keep costing model choices aligned with unified model access; don't filter choices by retired model families.
 - Keep log-retention settings global and trigger cleanup through low-priority management jobs instead of request-path deletes.
 - Keep startup bootstrap config ownership separate; this package does not own `/api/config/bootstrap`.

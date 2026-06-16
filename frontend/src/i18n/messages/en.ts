@@ -828,12 +828,20 @@ export interface Messages {
     removed: string;
   };
   settingsAudit: {
+    anthropicFamily: string;
+    apiFamily: string;
+    apiFamilyAuditControls: string;
+    apiFamilyAuditDescription: string;
     audit: string;
     auditAndPrivacy: string;
+    auditEnabled: string;
     bodies: string;
     captureAndPrivacyDefaults: string;
+    captureBodies: string;
     classifyClientsFromUserAgent: string;
+    geminiFamily: string;
     headerBlocklist: string;
+    loadingAPIFamilyAuditSettings: string;
     mode: string;
     modeDisabled: string;
     modeFullCapture: string;
@@ -841,13 +849,18 @@ export interface Messages {
     noVendorsAvailable: string;
     off: string;
     on: string;
+    openaiFamily: string;
+    saveAuditSettings: string;
+    savingAuditSettings: string;
     stripsHeadersBeforeSendingUpstream: string;
     userAgentClientRules: string;
   };
   settingsAuditData: {
+    apiFamilySettingsSaved: string;
     deleteRuleFailed: string;
     deleteUserAgentClientRuleFailed: string;
     invalidRegexPattern: string;
+    loadAPIFamilySettingsFailed: string;
     loadHeaderRulesFailed: string;
     loadUserAgentClientRulesFailed: string;
     loadVendorsFailed: string;
@@ -857,6 +870,7 @@ export interface Messages {
     ruleCreated: string;
     ruleDeleted: string;
     ruleUpdated: string;
+    saveAPIFamilySettingsFailed: string;
     saveRuleFailed: string;
     updateRuleFailed: string;
     saveUserAgentClientRuleFailed: string;
@@ -1328,9 +1342,7 @@ export interface Messages {
     editModel: string;
     editModelEnabledDescription: string;
     enableAccessTarget: (value: string) => string;
-    fallbackTier: (value: string) => string;
     maxContextUtilization: string;
-    modelTierDescription: string;
     preferredContextUtilizationThreshold: string;
     preferredContextUtilizationThresholdHelper: string;
     modelId: string;
@@ -1348,6 +1360,7 @@ export interface Messages {
     optionalFriendlyName: string;
     overflowPromotionTarget: string;
     overflowPromotionTargetDescription: string;
+    position: (value: string) => string;
     priority: (value: string) => string;
     routingTypeDescription: string;
     save: string;
@@ -1358,7 +1371,6 @@ export interface Messages {
     targetMoveDown: (id: string) => string;
     targetMoveUp: (id: string) => string;
     targetRemove: (id: string) => string;
-    tier: string;
     viewModelDetails: (name: string) => string;
     tryDifferentModelNameOrId: string;
     createFirstModel: string;
@@ -1368,8 +1380,6 @@ export interface Messages {
     spendShort: string;
     unknownVendor: string;
     targetsFirst: (count: string, first: string) => string;
-    weight: string;
-    weightValue: (value: string) => string;
     modelCount: (count: string) => string;
   };
   modelsData: {
@@ -2786,12 +2796,20 @@ export const enMessages: Messages = {
     removed: "Passkey removed successfully",
   },
   settingsAudit: {
+    anthropicFamily: "Anthropic",
+    apiFamily: "API family",
+    apiFamilyAuditControls: "API-family audit controls",
+    apiFamilyAuditDescription: "Set profile-scoped audit logging and body capture for each supported API family.",
     audit: "Audit",
     auditAndPrivacy: "Audit & Privacy",
+    auditEnabled: "Audit enabled",
     bodies: "Bodies",
     captureAndPrivacyDefaults: "Choose how future requests are captured for each vendor.",
+    captureBodies: "Capture bodies",
     classifyClientsFromUserAgent: "Classify request-log clients from caller and upstream User-Agent values.",
+    geminiFamily: "Gemini",
     headerBlocklist: "Header Blocklist",
+    loadingAPIFamilyAuditSettings: "Loading API-family audit settings...",
     mode: "Mode",
     modeDisabled: "Disabled",
     modeFullCapture: "Full capture",
@@ -2799,13 +2817,18 @@ export const enMessages: Messages = {
     noVendorsAvailable: "No vendors available.",
     off: "Off",
     on: "On",
+    openaiFamily: "OpenAI",
+    saveAuditSettings: "Save audit settings",
+    savingAuditSettings: "Saving...",
     stripsHeadersBeforeSendingUpstream: "Strips headers before sending upstream.",
     userAgentClientRules: "User-Agent Client Rules",
   },
   settingsAuditData: {
+    apiFamilySettingsSaved: "Audit settings saved",
     deleteRuleFailed: "Failed to delete rule",
     deleteUserAgentClientRuleFailed: "Failed to delete user-agent client rule",
     invalidRegexPattern: "Enter a valid regular expression",
+    loadAPIFamilySettingsFailed: "Failed to load API-family audit settings",
     loadHeaderRulesFailed: "Failed to load header blocklist rules",
     loadUserAgentClientRulesFailed: "Failed to load user-agent client rules",
     loadVendorsFailed: "Failed to load vendors",
@@ -2815,6 +2838,7 @@ export const enMessages: Messages = {
     ruleCreated: "Rule created successfully",
     ruleDeleted: "Rule deleted successfully",
     ruleUpdated: "Rule updated successfully",
+    saveAPIFamilySettingsFailed: "Failed to save API-family audit settings",
     saveRuleFailed: "Failed to save rule",
     updateRuleFailed: "Failed to update rule",
     saveUserAgentClientRuleFailed: "Failed to save user-agent client rule",
@@ -3335,9 +3359,7 @@ export const enMessages: Messages = {
     editModel: "Edit Model",
     editModelEnabledDescription: "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments.",
     enableAccessTarget: (value) => `Enable access target ${value}`,
-    fallbackTier: (value) => `Tier ${value}`,
     maxContextUtilization: "Max context utilization",
-    modelTierDescription: "Targets in the same tier are planner peers. Lower tier numbers run before later fallback tiers.",
     preferredContextUtilizationThreshold: "Preferred context utilization threshold",
     preferredContextUtilizationThresholdHelper:
       "Optional soft preference band for cheapest eligible context routing. Leave blank to disable the preferred band.",
@@ -3356,6 +3378,7 @@ export const enMessages: Messages = {
     optionalFriendlyName: "Optional friendly name",
     overflowPromotionTarget: "Overflow promotion target",
     overflowPromotionTargetDescription: "Choose an enabled same-family model for recursive overflow promotion. Prism validates chain depth, cycles, terminal loops, and routing-plan issues on save.",
+    position: (value) => `Position ${value}`,
     priority: (value) => `Priority ${value}`,
     routingTypeDescription: "",
     save: "Save",
@@ -3366,7 +3389,6 @@ export const enMessages: Messages = {
     targetMoveDown: (id) => `Move target ${id} down`,
     targetMoveUp: (id) => `Move target ${id} up`,
     targetRemove: (id) => `Remove target ${id}`,
-    tier: "Tier",
     viewModelDetails: (name) => `View model details for ${name}`,
     tryDifferentModelNameOrId: "Try a different model name or ID",
     createFirstModel: "Create your first model to get started",
@@ -3376,8 +3398,6 @@ export const enMessages: Messages = {
     spendShort: "spend",
     unknownVendor: "Unknown vendor",
     targetsFirst: (count, first) => `${count} targets · ${first} first`,
-    weight: "Weight",
-    weightValue: (value) => `Weight ${value}`,
     modelCount: (count) => `${count} ${count === "1" ? "model" : "models"}`,
   },
   modelsData: {

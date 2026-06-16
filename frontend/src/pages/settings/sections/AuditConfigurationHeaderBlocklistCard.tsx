@@ -6,7 +6,7 @@ import { OperatorSectionCard } from "@/shared/design-system";
 import { AuditConfigurationRulesPanel } from "./AuditConfigurationRulesPanel";
 
 interface AuditConfigurationHeaderBlocklistCardProps {
-  cardRef: RefObject<HTMLDivElement | null>;
+  cardRef?: RefObject<HTMLDivElement | null>;
   className?: string;
   loadingRules: boolean;
   systemRulesOpen: boolean;

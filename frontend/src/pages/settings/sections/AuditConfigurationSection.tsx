@@ -1,12 +1,21 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { cn } from "@/lib/utils";
-import type { HeaderBlocklistRule, UserAgentClientRule } from "@/lib/types";
+import type { ApiFamily, AuditAPIFamilySetting, HeaderBlocklistRule, UserAgentClientRule } from "@/lib/types";
+import { AuditConfigurationAPIFamilyCard } from "./AuditConfigurationAPIFamilyCard";
 import { AuditConfigurationHeaderBlocklistCard } from "./AuditConfigurationHeaderBlocklistCard";
 import { AuditConfigurationUserAgentClientRulesCard } from "./AuditConfigurationUserAgentClientRulesCard";
 
 interface AuditConfigurationSectionProps {
   auditConfigurationRef: RefObject<HTMLDivElement | null>;
   isAuditConfigurationFocused: boolean;
+  apiFamilyAuditSettings: AuditAPIFamilySetting[];
+  apiFamilyAuditSettingsDirty: boolean;
+  loadingAPIFamilyAuditSettings: boolean;
+  savingAPIFamilyAuditSettings: boolean;
+  renderSectionSaveState: (section: "audit", isDirty: boolean) => ReactNode;
+  handleSaveAPIFamilyAuditSettings: () => Promise<void>;
+  setAPIFamilyAuditCaptureBodies: (apiFamily: ApiFamily, checked: boolean) => void;
+  setAPIFamilyAuditEnabled: (apiFamily: ApiFamily, checked: boolean) => void;
   loadingRules: boolean;
   systemRulesOpen: boolean;
   setSystemRulesOpen: (open: boolean) => void;
@@ -37,6 +46,14 @@ interface AuditConfigurationSectionProps {
 export function AuditConfigurationSection({
   auditConfigurationRef,
   isAuditConfigurationFocused,
+  apiFamilyAuditSettings,
+  apiFamilyAuditSettingsDirty,
+  loadingAPIFamilyAuditSettings,
+  savingAPIFamilyAuditSettings,
+  renderSectionSaveState,
+  handleSaveAPIFamilyAuditSettings,
+  setAPIFamilyAuditCaptureBodies,
+  setAPIFamilyAuditEnabled,
   loadingRules,
   systemRulesOpen,
   setSystemRulesOpen,
@@ -62,12 +79,23 @@ export function AuditConfigurationSection({
 }: AuditConfigurationSectionProps) {
   return (
     <section id="audit-configuration" tabIndex={-1} className="scroll-mt-24 flex flex-col gap-4">
-      <AuditConfigurationHeaderBlocklistCard
+      <AuditConfigurationAPIFamilyCard
         cardRef={auditConfigurationRef}
         className={cn(
           "transition-all duration-300",
           isAuditConfigurationFocused && "ring-2 ring-primary/50 bg-primary/5"
         )}
+        apiFamilyAuditSettings={apiFamilyAuditSettings}
+        apiFamilyAuditSettingsDirty={apiFamilyAuditSettingsDirty}
+        handleSaveAPIFamilyAuditSettings={handleSaveAPIFamilyAuditSettings}
+        loadingAPIFamilyAuditSettings={loadingAPIFamilyAuditSettings}
+        renderSectionSaveState={renderSectionSaveState}
+        savingAPIFamilyAuditSettings={savingAPIFamilyAuditSettings}
+        setAPIFamilyAuditCaptureBodies={setAPIFamilyAuditCaptureBodies}
+        setAPIFamilyAuditEnabled={setAPIFamilyAuditEnabled}
+      />
+
+      <AuditConfigurationHeaderBlocklistCard
         customRules={customRules}
         handleToggleRule={handleToggleRule}
         loadingRules={loadingRules}

@@ -44,7 +44,11 @@ export function useSettingsPageData(activeTab: SettingsTab) {
     revision,
     setRecentlySavedSection,
   });
-  const audit = useAuditConfigurationData({ enabled: isProfileTabActive, revision });
+  const audit = useAuditConfigurationData({
+    enabled: isProfileTabActive,
+    revision,
+    setRecentlySavedSection,
+  });
   const retention = useRetentionDeletionData({
     enabled: isGlobalTabActive,
     setRecentlySavedSection,

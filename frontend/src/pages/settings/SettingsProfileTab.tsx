@@ -102,6 +102,14 @@ export function SettingsProfileTab({
           <AuditConfigurationSection
             auditConfigurationRef={auditConfigurationRef}
             isAuditConfigurationFocused={isAuditConfigurationFocused}
+            apiFamilyAuditSettings={data.apiFamilyAuditSettings}
+            apiFamilyAuditSettingsDirty={data.apiFamilyAuditSettingsDirty}
+            loadingAPIFamilyAuditSettings={data.loadingAPIFamilyAuditSettings}
+            savingAPIFamilyAuditSettings={data.savingAPIFamilyAuditSettings}
+            renderSectionSaveState={data.renderSaveStateForSection}
+            handleSaveAPIFamilyAuditSettings={data.handleSaveAPIFamilyAuditSettings}
+            setAPIFamilyAuditCaptureBodies={data.setAPIFamilyAuditCaptureBodies}
+            setAPIFamilyAuditEnabled={data.setAPIFamilyAuditEnabled}
             loadingRules={data.loadingRules}
             systemRulesOpen={data.systemRulesOpen}
             setSystemRulesOpen={data.setSystemRulesOpen}

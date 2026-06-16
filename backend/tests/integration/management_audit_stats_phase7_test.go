@@ -864,7 +864,7 @@ func TestManagementAuditStatsTopologyGraphDistinguishesTerminalRouteAndEndpointB
 		t.Fatalf("insert topology terminal target: %v", err)
 	}
 	var modelToModelEdgeID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, 1, 0, TRUE, $4, $4) RETURNING id`, profileID, entryModelID, terminalModelID, now).Scan(&modelToModelEdgeID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, TRUE, $4, $4) RETURNING id`, profileID, entryModelID, terminalModelID, now).Scan(&modelToModelEdgeID); err != nil {
 		t.Fatalf("insert model-to-model access target: %v", err)
 	}
 	var modelToTerminalEdgeID int
