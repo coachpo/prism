@@ -280,10 +280,10 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 **Runtime flow**
 
 1. The operation registry resolves an exact `POST` route before provider transport, telemetry, audit, feedback, or side effects.
-2. Provider adapters parse provider-specific payloads, build upstream requests, adapt responses, classify streams, and extract usage.
+2. Provider adapters parse provider-specific payloads, build upstream requests, adapt responses, classify streams, extract usage, and own pure OpenAI Chat/Responses conversion.
 3. Models resolve ordered access targets through same-family model links until a terminal private connection is reached.
 4. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
-5. The shared runtime/gateway owns admission, routing, accounting, telemetry, audit persistence, pricing, feedback, and side-effect handoff.
+5. The shared runtime/gateway owns operation registration, admission, routing, SSE lifecycle, accounting, telemetry, audit persistence and raw capture, pricing, request-log metadata, feedback, and side-effect handoff.
 6. After the first downstream byte or event on a stream, no retry, redirect, context-overflow fallback, or hedge replay can start.
 7. Missing pricing stays visibly degraded or unpriced, it never silently looks complete.
 

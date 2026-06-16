@@ -28,8 +28,7 @@ model_access_targets (profile-scoped access metadata)
   target_model_config_id FK -> model_configs.id NULLABLE
   target_connection_id FK -> connections.id NULLABLE
   position
-  weight
-  target_priority
+  is_enabled
   UNIQUE(source_model_config_id, position)
       |
       v
@@ -293,8 +292,8 @@ Maps a model ID to fixed api family and routing behavior within one profile.
 | max_context_utilization | DOUBLE PRECISION | NOT NULL, DEFAULT 0.9 | Hard-fit usable-window multiplier for preflight routing |
 | preferred_context_utilization_threshold | DOUBLE PRECISION | NULLABLE | Optional preferred-band multiplier for cheapest eligible context routing |
 | facade_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Enables Release 1 exact-ID OpenAI facade routing for this requested model |
-| facade_selection_policy | VARCHAR(64) | NULLABLE | Exact facade selection policy; when facade routing is enabled, Release 1 accepts only `weighted_eligible_context` |
-| facade_fallback_policy | VARCHAR(64) | NULLABLE | Exact facade ineligible-weight policy; when facade routing is enabled, Release 1 accepts only `redistribute_ineligible_weight` |
+| facade_selection_policy | VARCHAR(64) | NULLABLE | Exact facade selection policy; when facade routing is enabled, Release 1 accepts only `ordered_eligible_context` |
+| facade_fallback_policy | VARCHAR(64) | NULLABLE | Exact facade ineligible-target policy; when facade routing is enabled, Release 1 accepts only `skip_ineligible_targets` |
 | context_overflow_promotion_target_id | VARCHAR(200) | NULLABLE | Exact model ID for one-shot CLIProxyAPI context overflow promotion target |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
@@ -305,7 +304,7 @@ Constraints:
 - Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to Terminal Targets, Prism's product-facing model-private endpoint bindings.
 - Runtime compatibility is checked against `api_family`.
 - Release 1 exact facade routing is keyed by the requested model's exact `model_id`; there is no regex matcher or capability-metadata expansion in the persisted model contract.
-- `facade_enabled = true` is OpenAI-only and requires canonical `facade_selection_policy = weighted_eligible_context` plus `facade_fallback_policy = redistribute_ineligible_weight`.
+- `facade_enabled = true` is OpenAI-only and requires canonical `facade_selection_policy = ordered_eligible_context` plus `facade_fallback_policy = skip_ineligible_targets`.
 - Management and config-bundle validation reject nested facades: public model targets cannot point at facade-enabled target models, and enabling facade routing on a model with inbound model-target referrers is rejected.
 - `context_overflow_promotion_target_id` is nullable and model-scoped. When set, it must reference an enabled same-profile, same-`api_family`, non-facade model with a strictly larger effective usable context window, and it must not resolve to the same model or same terminal target as the source.
 - Context capability defaults are normalized by management and config-bundle imports. Missing reserves become `4096`, missing utilization becomes `0.90`, and missing `preferred_context_utilization_threshold` becomes `null`. Utilization values must be greater than `0` and less than or equal to `1`; the preferred threshold must be less than or equal to `max_context_utilization` when provided.
@@ -321,16 +320,16 @@ Ordered access targets. Public authoring creates same-family model targets only.
 | target_model_config_id | INTEGER | FK -> model_configs.id, NULLABLE, ON DELETE RESTRICT | Optional model target |
 | target_connection_id | INTEGER | FK -> connections.id, NULLABLE, ON DELETE RESTRICT | Optional Terminal Target ownership and routing edge |
 | position | INTEGER | NOT NULL, CHECK >= 0 | Zero-based contiguous authoring order |
-| weight | INTEGER | NULLABLE, CHECK >= 1 when present | Optional public model-target weighting metadata on input; backend defaults omitted public model-target values to `1`, while internal connection targets omit it |
-| target_priority | INTEGER | NULLABLE, CHECK >= 0 when present | Optional public model-target priority metadata on input; backend defaults omitted public model-target values to `position`, while internal connection targets omit it |
+| is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether this ordered peer participates in routing |
 
 Constraints:
 - `UNIQUE(source_model_config_id, position)`.
 - Each row references exactly one target model or target connection.
 - Source and target rows must stay in the same profile and same `api_family`.
 - Positions are normalized and validated as contiguous `0..N-1` in management contracts.
-- Public model targets may omit `weight` and `target_priority` on input; the backend defaults omitted values to `1` and `position`. Internal Terminal Target entries must leave both fields null.
-- Release 1 exact facade routing consumes model-target `weight` values only for exact-ID OpenAI facades and redistributes weight across the eligible subset only. Connection-owner targets remain terminal routing edges, not public facade candidates.
+- Position is an ordering key only, not priority, tier, or weight. Duplicate positions reject before write.
+- Obsolete public payload keys `weight` and `target_priority` reject in management model APIs and config-bundle import or preview. The fresh schema has no columns for those values.
+- Release 1 exact facade routing evaluates enabled same-family model targets by context eligibility, then flat `position` and stable IDs. Connection-owner targets remain terminal routing edges, not public facade candidates.
 - Go management and config-bundle import validation rejects self-reference, cross-profile targets, cross-api-family targets, cycles, and nested facades; these relationship semantics are not enforced by database triggers.
 
 ### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
@@ -638,6 +637,26 @@ Audit-link semantics:
 - Request detail linkage can be absent after request-log retention expires before audit-log retention.
 - Audit retention and request-log retention are independent global jobs.
 - Translated OpenAI attempts store upstream-native request and response bodies when body capture is enabled. Audit rows do not store the translated client-facing body shape.
+
+### 2.12A `profile_api_family_audit_settings` (profile-scoped audit policy)
+
+One row per profile and API family controls whether runtime attempts create audit metadata and whether bodies may be stored.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL, ON DELETE CASCADE | Owning profile |
+| api_family | VARCHAR(50) | NOT NULL, CHECK IN (`openai`, `anthropic`, `gemini`) | Runtime compatibility family |
+| audit_enabled | BOOLEAN | NOT NULL | Whether attempts for this profile/family create audit rows |
+| audit_capture_bodies | BOOLEAN | NOT NULL | Whether request and response bodies may be stored |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Constraints:
+- `UNIQUE(profile_id, api_family)`.
+- `audit_capture_bodies` requires `audit_enabled`.
+- Management `PUT /api/settings/audit` full-replaces the three supported family rows for the selected profile.
+- Config bundles store this policy under `profile_settings.audit_api_family_settings` in stable `openai`, `anthropic`, `gemini` order and import it as a full replacement.
+- Runtime snapshots load policy by profile and model `api_family`; request-time booleans are copied into existing request-log and audit-log provenance fields.
 
 ### 2.13 `loadbalance_events` (partitioned immutable profile attribution)
 

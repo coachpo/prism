@@ -87,7 +87,7 @@ Prepare seed state through API (not manual DB edits):
    - in profile B: one Anthropic-family model
    - in profile C: one Gemini-family model
 5. Unified access targets:
-   - same-`api_family` model-target chains plus private connection targets using ordered `access_targets` (`target_type`, `target_model_id`, `connection_ref`, `position`, `is_enabled`) in the same profile, even when vendor metadata differs
+   - same-`api_family` model-target chains plus private connection targets using ordered `access_targets` (`target_type`, `target_model_id`, `connection_ref`, `position`, `is_enabled`) in the same profile. `position` is ordering only, not priority, tier, or weight
 6. Private connection diversity per profile:
    - active + inactive
    - different model target positions
@@ -520,7 +520,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export current format | Safe GET export returns `version: 3`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level `connections` for Terminal Targets, ordered model access targets, pricing templates, and profile-scoped `profile_settings` |
+| L14 | P0 | Config export current format | Safe GET export returns `version: 3`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level `connections` for Terminal Targets, ordered model access targets, pricing templates, and profile-scoped `profile_settings.audit_api_family_settings` in `openai`, `anthropic`, `gemini` order |
 | L15 | P0 | Config export with secrets | Dangerous POST export returns the full secret-bearing bundle and requires the dangerous-confirm header |
 | L17 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | L18 | P1 | FX conversion with custom rate | Correct converted cost |
