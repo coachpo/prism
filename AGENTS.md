@@ -1,4 +1,4 @@
-<!-- Generated: 2026-06-12 | branch: main | commit: 64bc649 -->
+<!-- Generated: 2026-06-16 | branch: main | commit: 8ae630e -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -47,6 +47,7 @@ prism/
 ## HIERARCHY
 - `backend/AGENTS.md`: backend root for Go runtime, HTTP API, platform, gateway, migrations, Docker image, and tests.
 - `backend/internal/platform/AGENTS.md`: process infrastructure, lifecycle assembly, hot bootstrap runtime, DB lanes, scheduler, migrations, log retention, and side effects.
+- `backend/internal/domain/AGENTS.md`: audit, loadbalance runtime state, model routing, stats snapshots, and terminal-target domain helpers shared by management/runtime surfaces.
 - `backend/internal/gateway/AGENTS.md`: preserved gateway contracts, hook phases, operation records, provider adapters, route planning, reservations, and accounting.
 - `backend/internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, proxy-key usage, retention-job, and request-context HTTP seams.
 - `backend/internal/httpapi/runtime/AGENTS.md`: operation registry, request planning, hook collections, telemetry outbox, feedback pipeline, partition ensuring, facades, and context overflow promotion.
@@ -99,7 +100,8 @@ prism/
 - Frontend toolchain, shadcn registry config, and React Flow routing-diagram dependency: `frontend/package.json`, `frontend/components.json`, `frontend/src/index.css`, `frontend/src/main.tsx`, `frontend/src/pages/dashboard/routing-diagram/`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
-- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/gateway/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/realtime/AGENTS.md`, `backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `backend/internal/httpapi/management/configbundle/AGENTS.md`, `backend/internal/httpapi/management/settings/AGENTS.md`, `backend/internal/httpapi/management/auth/AGENTS.md`, `backend/internal/httpapi/`backend/internal/httpapi/management/connections/AGENTS.md`, `backend/internal/httpapi/management/configrules/AGENTS.md`, `backend/internal/httpapi/management/endpoints/AGENTS.md`, `backend/internal/httpapi/management/loadbalance/AGENTS.md`, `backend/internal/httpapi/management/models/AGENTS.md`, `backend/internal/httpapi/management/profiles/AGENTS.md`, `backend/internal/httpapi/management/stats/AGENTS.md`, `backend/internal/httpapi/`backend/internal/httpapi/management/audit/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/app/AGENTS.md`, `frontend/src/features/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/shared/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
+- Backend ownership tree: `backend/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/domain/AGENTS.md`, `backend/internal/gateway/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/realtime/AGENTS.md`, `backend/internal/httpapi/management/*/AGENTS.md`, `backend/tests/AGENTS.md`
+- Frontend ownership tree: `frontend/AGENTS.md`, `frontend/src/app/AGENTS.md`, `frontend/src/features/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/shared/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
 - Docs provenance, active-plan handoff, and live evidence routing: `docs/AGENTS.md`, `.omo/plans/`, `.omo/evidence/`
 
 ## COMMANDS

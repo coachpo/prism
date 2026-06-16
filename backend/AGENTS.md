@@ -8,7 +8,8 @@
 backend/
 ├── cmd/prism-backend/          # Go process entrypoint
 ├── internal/{platform,gateway,httpapi}/AGENTS.md
-├── internal/{domain,endpointdomain,profiledomain,pgxutil}/
+├── internal/domain/AGENTS.md
+├── internal/{endpointdomain,profiledomain,pgxutil}/
 ├── migrations/                 # Fresh-install SQL baseline
 ├── testdata/                   # Regression fixtures
 ├── tests/AGENTS.md             # Go regression ownership
@@ -18,6 +19,7 @@ backend/
 
 ## CHILD DOCS
 - `internal/platform/AGENTS.md`: lifecycle, hot bootstrap runtime, DB lanes, scheduler, migrations, log retention, and side effects.
+- `internal/domain/AGENTS.md`: audit, loadbalance runtime state, model routing, stats snapshots, and terminal-target helpers.
 - `internal/gateway/AGENTS.md`: preserved gateway contracts, hooks, records, adapters, routing, reservations, and accounting.
 - `internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, proxy-key usage, retention jobs, and request context.
 - `internal/httpapi/{runtime,realtime}/AGENTS.md`: operation registry, hook residency, telemetry/feedback, partitions, websocket delivery, and publishers.
