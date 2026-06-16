@@ -243,30 +243,6 @@ export function useModelDetailConnectionMutations({
     [applyTargets, model, modelConfigId],
   );
 
-  const handleUpdateModelTarget = useCallback(
-    async (
-      index: number,
-      updates: {
-        weight: number;
-        target_priority: number;
-      },
-    ) => {
-      if (!Number.isFinite(modelConfigId)) return;
-      const target = model?.access_targets[index] ?? null;
-      if (!target || target.target_type !== "model") {
-        return;
-      }
-      try {
-        const targets = await api.models.targets.update(modelConfigId, target.id, updates);
-        applyTargets(targets);
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to update model target");
-        throw error;
-      }
-    },
-    [applyTargets, model, modelConfigId],
-  );
-
   const handleDeleteAccessTarget = useCallback(
     async (index: number) => {
       if (!Number.isFinite(modelConfigId)) return;
@@ -337,7 +313,6 @@ export function useModelDetailConnectionMutations({
     handleAddAccessTarget,
     handleMoveAccessTarget,
     handleToggleAccessTarget,
-    handleUpdateModelTarget,
     handleDeleteAccessTarget,
   };
 }

@@ -16,9 +16,7 @@ const {
   createNewModelFormData,
   getAccessTargetModelsForApiFamily,
   getEditModelConnectionOptions,
-  getModelAccessTargetTierNumber,
   getPromotionTargetModelsForApiFamily,
-  parseModelAccessTargetTierNumberInput,
   setApiFamilyOnForm,
   toModelCreatePayload,
   toModelUpdatePayload,
@@ -129,7 +127,7 @@ test("edit model connection options preserve terminal target display names", () 
   );
 });
 
-test("edit hydration preserves explicit model tiers and defaults legacy model targets to a single tier", () => {
+test("edit hydration normalizes flat ordered model access targets", () => {
   const formData = createEditModelFormData({
     ...baseEditModel,
     access_targets: [
@@ -140,8 +138,6 @@ test("edit hydration preserves explicit model tiers and defaults legacy model ta
         connection_id: null,
         terminal_target_id: null,
         position: 8,
-        weight: 7,
-        target_priority: 3,
         is_enabled: true,
         target_model: { id: 91, profile_id: 7, api_family: "openai", model_id: "peer-model-a", display_name: "Peer A", loadbalance_strategy_id: 21, is_enabled: true },
         connection: null,
@@ -156,8 +152,6 @@ test("edit hydration preserves explicit model tiers and defaults legacy model ta
         connection_id: null,
         terminal_target_id: null,
         position: 11,
-        weight: null,
-        target_priority: null,
         is_enabled: false,
         target_model: { id: 92, profile_id: 7, api_family: "openai", model_id: "peer-model-b", display_name: "Peer B", loadbalance_strategy_id: 21, is_enabled: true },
         connection: null,
@@ -173,16 +167,12 @@ test("edit hydration preserves explicit model tiers and defaults legacy model ta
       target_type: "model",
       target_model_id: "peer-model-a",
       position: 0,
-      weight: 7,
-      target_priority: 3,
       is_enabled: true,
     },
     {
       target_type: "model",
       target_model_id: "peer-model-b",
       position: 1,
-      weight: 1,
-      target_priority: 0,
       is_enabled: false,
     },
   ]);
@@ -312,16 +302,6 @@ test("validation rejects invalid preferred threshold values and bands above max"
   );
 });
 
-test("model target tier number helpers keep UI one-based and payload zero-based", () => {
-  assert.equal(getModelAccessTargetTierNumber(0), 1);
-  assert.equal(getModelAccessTargetTierNumber(4), 5);
-  assert.equal(getModelAccessTargetTierNumber(null), 1);
-  assert.equal(parseModelAccessTargetTierNumberInput("1"), 0);
-  assert.equal(parseModelAccessTargetTierNumberInput("5"), 4);
-  assert.equal(parseModelAccessTargetTierNumberInput("0"), null);
-  assert.equal(parseModelAccessTargetTierNumberInput(""), null);
-});
-
 test("enabled models require at least one enabled valid access target", () => {
   const enabledDraft = {
     api_family: "openai",
@@ -428,8 +408,6 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     target_type: "model",
     target_model_id: "target-model",
     position: 0,
-    weight: 1,
-    target_priority: 0,
     is_enabled: true,
   }];
 
@@ -475,7 +453,7 @@ test("payload shaping keeps promotion target separate from access target normali
     context_overflow_promotion_target_id: " promoted-model ",
     access_targets: [
       { target_type: "connection", connection_id: 77, position: 0, is_enabled: true },
-      { target_type: "model", target_model_id: "fallback-model", position: 1, weight: 3, target_priority: 2, is_enabled: true },
+      { target_type: "model", target_model_id: "fallback-model", position: 1, is_enabled: true },
     ],
     is_enabled: true,
     last_auto_display_name: "Live Model",
@@ -497,8 +475,6 @@ test("payload shaping keeps promotion target separate from access target normali
         target_type: "model",
         target_model_id: "fallback-model",
         position: 0,
-        weight: 3,
-        target_priority: 2,
         is_enabled: true,
       },
     ],

@@ -149,8 +149,9 @@ const ContextWindowTokensImportSchema = z.number().int().min(1).nullable().optio
 const DefaultOutputTokenReserveImportSchema = z.number().int().min(1).nullable().optional();
 const MaxContextUtilizationImportSchema = z.number().gt(0).max(1).nullable().optional();
 const PreferredContextUtilizationThresholdImportSchema = z.number().gt(0).max(1).nullable().optional();
-const FacadeSelectionPolicyImportSchema = z.literal("weighted_eligible_context").nullable().optional();
-const FacadeFallbackPolicyImportSchema = z.literal("redistribute_ineligible_weight").nullable().optional();
+const FacadeSelectionPolicyImportSchema = z.literal("ordered_eligible_context").nullable().optional();
+const FacadeFallbackPolicyImportSchema = z.literal("skip_ineligible_targets").nullable().optional();
+const auditApiFamilies = ["openai", "anthropic", "gemini"] as const;
 
 function addPreferredThresholdIssue(
   context: z.RefinementCtx,
@@ -255,8 +256,6 @@ const AccessTargetImportSchema = z.strictObject({
   target_type: z.enum(["model", "connection"]),
   connection_ref: z.string().nullable().optional(),
   target_model_id: z.string().nullable().optional(),
-  weight: z.number().int().nullable().optional(),
-  target_priority: z.number().int().nullable().optional(),
 });
 
 const ModelImportSchema = z.strictObject({
@@ -308,20 +307,6 @@ const ModelImportSchema = z.strictObject({
           message: `Model '${model.model_id}' connection access target must not include target_model_id`,
         });
       }
-      if (target.weight !== null && target.weight !== undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["access_targets", index, "weight"],
-          message: "weight must be omitted for terminal targets",
-        });
-      }
-      if (target.target_priority !== null && target.target_priority !== undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["access_targets", index, "target_priority"],
-          message: "target_priority must be omitted for terminal targets",
-        });
-      }
       if (target.connection_ref) {
         const targetKey = `connection:${target.connection_ref}`;
         if (seenTargets.has(targetKey)) {
@@ -348,24 +333,6 @@ const ModelImportSchema = z.strictObject({
         code: "custom",
         path: ["access_targets", index, "connection_ref"],
         message: `Model '${model.model_id}' model access target must not include connection_ref`,
-      });
-    }
-    if (target.weight !== null && target.weight !== undefined && target.weight <= 0) {
-      context.addIssue({
-        code: "custom",
-        path: ["access_targets", index, "weight"],
-        message: "weight must be greater than 0",
-      });
-    }
-    if (
-      target.target_priority !== null
-      && target.target_priority !== undefined
-      && target.target_priority < 0
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["access_targets", index, "target_priority"],
-        message: "target_priority must be greater than or equal to 0",
       });
     }
     if (target.target_model_id === model.model_id) {
@@ -446,7 +413,9 @@ function collectPromotionTerminalRefs(
       statsByModelID,
       visiting,
     );
-    nestedRefs.forEach((connectionRef) => terminalRefs.add(connectionRef));
+    nestedRefs.forEach((connectionRef) => {
+      terminalRefs.add(connectionRef);
+    });
   }
 
   visiting.delete(model.model_id);
@@ -592,11 +561,71 @@ const EndpointFxRateImportSchema = z.strictObject({
   fx_rate: z.string(),
 });
 
+const AuditAPIFamilySettingImportSchema = z.strictObject({
+  api_family: z.enum(auditApiFamilies),
+  audit_enabled: z.boolean(),
+  audit_capture_bodies: z.boolean(),
+});
+
+const AuditAPIFamilySettingsImportSchema = z.array(AuditAPIFamilySettingImportSchema).superRefine((settings, context) => {
+  if (settings.length !== auditApiFamilies.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["audit_api_family_settings"],
+      message: "profile_settings.audit_api_family_settings must include exactly openai, anthropic, and gemini",
+    });
+    return;
+  }
+
+  const seen = new Map<string, number>();
+  for (const [index, setting] of settings.entries()) {
+    const family = setting.api_family;
+    if (!auditApiFamilies.includes(family)) {
+      context.addIssue({
+        code: "custom",
+        path: [index, "api_family"],
+        message: `profile_settings.audit_api_family_settings api_family "${family}" is not supported`,
+      });
+      continue;
+    }
+
+    if (seen.has(family)) {
+      context.addIssue({
+        code: "custom",
+        path: [index, "api_family"],
+        message: `Duplicate profile_settings.audit_api_family_settings entry for api_family=${family}`,
+      });
+      continue;
+    }
+
+    if (!setting.audit_enabled && setting.audit_capture_bodies) {
+      context.addIssue({
+        code: "custom",
+        path: [index, "audit_capture_bodies"],
+        message: "profile_settings.audit_api_family_settings audit_capture_bodies requires audit_enabled",
+      });
+    }
+
+    seen.set(family, index);
+  }
+
+  for (const family of auditApiFamilies) {
+    if (!seen.has(family)) {
+      context.addIssue({
+        code: "custom",
+        path: ["audit_api_family_settings"],
+        message: `profile_settings.audit_api_family_settings must include api_family=${family}`,
+      });
+    }
+  }
+});
+
 const ProfileSettingsImportSchema = z.strictObject({
   report_currency_code: z.string().optional(),
   report_currency_symbol: z.string().optional(),
   timezone_preference: z.string().nullable().optional(),
   endpoint_fx_mappings: z.array(EndpointFxRateImportSchema).optional(),
+  audit_api_family_settings: AuditAPIFamilySettingsImportSchema,
 });
 
 const SecretPayloadEntrySchema = z.strictObject({
@@ -620,7 +649,7 @@ export const ConfigImportSchema = z.strictObject({
   connections: z.array(ConnectionImportSchema),
   loadbalance_strategies: z.array(LoadbalanceStrategyImportSchema),
   models: z.array(ModelImportSchema),
-  profile_settings: ProfileSettingsImportSchema.nullable().optional(),
+  profile_settings: ProfileSettingsImportSchema,
   header_blocklist_rules: z.array(HeaderBlocklistRuleExportSchema).optional(),
   user_agent_client_rules: z.array(UserAgentRuleTransportSchema).optional(),
   secret_payload: SecretPayloadSchema,

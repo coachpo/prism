@@ -8,6 +8,8 @@ import type {
   ConfigImportPreviewResponse,
   ConfigImportRequest,
   ConfigImportResponse,
+  AuditAPIFamilySettingsResponse,
+  AuditAPIFamilySettingsUpdate,
   ConnectionSuccessRate,
   ConnectionSuccessRateParams,
   CostingSettingsResponse,
@@ -114,6 +116,15 @@ export const settingsTimezone = {
   get: () => request<TimezonePreferenceResponse>("/api/settings/timezone"),
   update: (data: TimezonePreferenceUpdate) =>
     request<TimezonePreferenceResponse>("/api/settings/timezone", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+};
+
+export const settingsAudit = {
+  get: () => request<AuditAPIFamilySettingsResponse>("/api/settings/audit"),
+  update: (data: AuditAPIFamilySettingsUpdate) =>
+    request<AuditAPIFamilySettingsResponse>("/api/settings/audit", {
       method: "PUT",
       body: JSON.stringify(data),
     }),

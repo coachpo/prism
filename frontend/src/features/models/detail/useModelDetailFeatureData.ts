@@ -158,7 +158,6 @@ export function useModelDetailFeatureData({
     handleAddAccessTarget,
     handleMoveAccessTarget,
     handleToggleAccessTarget,
-    handleUpdateModelTarget,
     handleDeleteAccessTarget,
   } = useModelDetailConnectionMutations({
     id: modelId,
@@ -284,7 +283,6 @@ export function useModelDetailFeatureData({
     handleAddAccessTarget,
     handleMoveAccessTarget,
     handleToggleAccessTarget,
-    handleUpdateModelTarget,
     handleDeleteAccessTarget,
     handleEditModelSubmit,
     pricingTemplates,

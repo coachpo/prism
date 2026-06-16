@@ -19,7 +19,7 @@ api/
 - Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`; drift tests assert it against `../../../backend/internal/platform/http/management_route_contract.json`
 - Cookie-auth bootstrap/session flows, settings auth endpoints, and proxy-key endpoints: `authSettings.ts`
 - Global profile management plus profile-scoped model, context overflow promotion target, access-target, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
-- Observability, usage snapshot, throughput, bootstrap-config get/validate/update, config import/export, header-blocklist and user-agent/client rules, audit, loadbalance current state/events, and settings costing/timezone/retention clients: `observability.ts`
+- Observability, usage snapshot, throughput, bootstrap-config get/validate/update, config import/export, header-blocklist and user-agent/client rules, audit logs, loadbalance current state/events, and settings costing/timezone/API-family audit/retention clients: `observability.ts`
 - Runtime operation paths `/v1` and `/v1beta` stay outside this client split; launcher/Vite proxying passes them through and backend runtime owns allowlist enforcement.
 
 ## CONVENTIONS

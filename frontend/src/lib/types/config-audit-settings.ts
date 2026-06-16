@@ -1,8 +1,8 @@
 import type { ApiFamily } from "./vendor";
 import type { OpenAIProbeEndpointVariant, OpenAITextCapability, PricingComponentPrice } from "./routing";
 
-export type ConfigModelFacadeSelectionPolicy = "weighted_eligible_context";
-export type ConfigModelFacadeFallbackPolicy = "redistribute_ineligible_weight";
+export type ConfigModelFacadeSelectionPolicy = "ordered_eligible_context";
+export type ConfigModelFacadeFallbackPolicy = "skip_ineligible_targets";
 
 export interface ConfigEndpointExport {
   name: string;
@@ -113,8 +113,6 @@ export interface ConfigAccessTargetExport {
   target_type: "model" | "connection";
   connection_ref: string | null;
   target_model_id: string | null;
-  weight?: number | null;
-  target_priority?: number | null;
 }
 
 export interface ConfigAccessTargetImport {
@@ -123,8 +121,21 @@ export interface ConfigAccessTargetImport {
   target_type: "model" | "connection";
   connection_ref?: string | null;
   target_model_id?: string | null;
-  weight?: number | null;
-  target_priority?: number | null;
+}
+
+export interface AuditAPIFamilySetting {
+  api_family: ApiFamily;
+  audit_enabled: boolean;
+  audit_capture_bodies: boolean;
+}
+
+export interface AuditAPIFamilySettingsResponse {
+  profile_id: number;
+  settings: AuditAPIFamilySetting[];
+}
+
+export interface AuditAPIFamilySettingsUpdate {
+  settings: AuditAPIFamilySetting[];
 }
 
 export interface ConfigModelExport {

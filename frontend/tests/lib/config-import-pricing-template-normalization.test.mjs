@@ -11,6 +11,12 @@ const frontendDir = path.resolve(__dirname, "../..");
 const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const { ConfigImportSchema } = load(path.join(frontendDir, "src/lib/configImportValidation.ts"));
 
+const auditFamilySettingsDefaults = [
+  { api_family: "openai", audit_enabled: true, audit_capture_bodies: false },
+  { api_family: "anthropic", audit_enabled: false, audit_capture_bodies: false },
+  { api_family: "gemini", audit_enabled: false, audit_capture_bodies: false },
+];
+
 function buildValidConfigImport() {
   return {
     version: 3,
@@ -71,6 +77,9 @@ function buildValidConfigImport() {
         ],
       },
     ],
+    profile_settings: {
+      audit_api_family_settings: [...auditFamilySettingsDefaults],
+    },
     secret_payload: {
       kind: "encrypted",
       cipher: "fernet-v1",

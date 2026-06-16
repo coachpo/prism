@@ -1,7 +1,7 @@
 # FRONTEND LIB KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, frontend-side import validation including context overflow promotion targets, explicit Ban Policy loadbalance mirror, selected-profile keyed reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
+`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, frontend-side import validation including obsolete access-target rejection and context overflow promotion targets, explicit Ban Policy loadbalance mirror, selected-profile keyed reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
 
 ## STRUCTURE
 ```
@@ -61,7 +61,7 @@ lib/
 - `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
 - Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
 - `referenceData.ts` and `referenceDataRegistry.ts` own shared cache reuse, request dedupe, and revision-keyed lookup invalidation.
-- `configImportValidation.ts` owns frontend-side mirrored validation of config import contracts, including config-bundle v3 top-level connections, ordered model access targets, `context_overflow_promotion_target_id`, and explicit Ban Policy strategy data, instead of leaving that logic in page components.
+- `configImportValidation.ts` owns frontend-side mirrored validation of config import contracts, including config-bundle v3 top-level connections, flat ordered model access targets, obsolete `weight` / `target_priority` rejection, `profile_settings.audit_api_family_settings`, `context_overflow_promotion_target_id`, and explicit Ban Policy strategy data, instead of leaving that logic in page components.
 - `loadbalanceRoutingPolicy.ts` owns explicit Ban Policy defaults, retry-window labels, and normalized failure-status or ban-policy handling.
 - `appVersion.ts` owns the browser-facing frontend version contract so shell chrome reads the synced `frontend/package.json` version through Vite instead of hard-coded literals.
 - `reportingCurrency.ts` owns selected-profile keyed cache reuse, active-currency sync, `prime()` or `refresh()` support, fail-open defaults, and normalization of `report_currency_code` or `report_currency_symbol` used by `ReportingCurrencyContext.tsx`, settings, and costing.

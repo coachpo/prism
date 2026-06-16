@@ -86,10 +86,7 @@ type RawLoadbalanceStrategyDefaultsResponse = {
   existing_names: string[];
 };
 
-type RawModelAccessTarget = Omit<ModelAccessTarget, "weight" | "target_priority"> & {
-  weight?: unknown;
-  target_priority?: unknown;
-};
+type RawModelAccessTarget = ModelAccessTarget;
 
 type RawModelConfigListItem = Omit<ManagedModelConfigListItem, "loadbalance_strategy" | "access_targets"> & {
   loadbalance_strategy: RawLoadbalanceStrategySummary | null;
@@ -142,45 +139,31 @@ function normalizeOptionalString(value: unknown, field: string): string | null {
   return value;
 }
 
-function normalizeOptionalPositiveInteger(value: unknown, field: string): number | null {
-  if (value == null) {
-    return null;
-  }
-  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
-    unsupportedManagementModel(field);
-  }
-  return value;
-}
-
-function normalizeOptionalNonNegativeInteger(value: unknown, field: string): number | null {
-  if (value == null) {
-    return null;
-  }
-  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
-    unsupportedManagementModel(field);
-  }
-  return value;
-}
-
 function normalizeModelAccessTarget(target: RawModelAccessTarget): ModelAccessTarget {
-  const weight = normalizeOptionalPositiveInteger(target.weight, "access_targets.weight");
-  const targetPriority = normalizeOptionalNonNegativeInteger(
-    target.target_priority,
-    "access_targets.target_priority",
-  );
+  const obsoleteTarget = target as unknown as Record<string, unknown>;
+  const obsoleteTargetPriority = "target_priority";
 
-  if (target.target_type === "model") {
-    return {
-      ...target,
-      weight: weight ?? 1,
-      target_priority: targetPriority ?? 0,
-    };
+  if (Object.hasOwn(obsoleteTarget, "weight")) {
+    unsupportedManagementModel("access_targets.weight");
+  }
+
+  if (Object.hasOwn(obsoleteTarget, obsoleteTargetPriority)) {
+    unsupportedManagementModel(`access_targets.${obsoleteTargetPriority}`);
   }
 
   return {
-    ...target,
-    weight: null,
-    target_priority: null,
+    id: target.id,
+    target_type: target.target_type,
+    target_model_id: target.target_model_id,
+    connection_id: target.connection_id,
+    terminal_target_id: target.terminal_target_id,
+    position: target.position,
+    is_enabled: target.is_enabled,
+    target_model: target.target_model,
+    connection: target.connection,
+    terminal_target: target.terminal_target,
+    created_at: target.created_at,
+    updated_at: target.updated_at,
   };
 }
 

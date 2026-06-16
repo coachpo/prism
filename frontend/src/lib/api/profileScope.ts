@@ -15,6 +15,7 @@ const PROFILE_SCOPED_API_ROUTE_MATCHERS: readonly ScopedApiRouteMatcher[] = [
   { segments: ["loadbalance", "events"] },
   { exact: true, segments: ["settings", "costing"] },
   { exact: true, segments: ["settings", "timezone"] },
+  { exact: true, segments: ["settings", "audit"] },
   { exact: true, segments: ["config", "profile", "export"] },
   { exact: true, segments: ["config", "profile", "export", "with-secrets"] },
   { exact: true, segments: ["config", "profile", "import"] },

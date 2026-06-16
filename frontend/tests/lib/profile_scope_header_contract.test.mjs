@@ -36,7 +36,7 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   const scopedRows = routeContract.filter((row) => row.profile_scoped);
   const scopedNonInvalidatingRows = scopedRows.filter(isNonInvalidating);
 
-  assert.equal(routeContract.length, 58, "manifest row count should stay locked");
+  assert.equal(routeContract.length, 59, "manifest row count should stay locked");
   assert.ok(scopedRows.length > 0, "manifest should include profile-scoped rows");
   assert.ok(
     scopedNonInvalidatingRows.length > 0,
@@ -56,6 +56,8 @@ test("profile scope helper matches profile-scoped rows in the route contract man
       `${route} should remain profile-scoped even when it does not invalidate runtime caches`,
     );
   }
+
+  assert.equal(isProfileScopedManagementRoute("/api/settings/audit"), true);
 });
 
 test("profile scope helper keeps non-profile-scoped manifest rows and runtime routes global", () => {

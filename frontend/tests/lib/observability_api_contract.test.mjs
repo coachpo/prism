@@ -81,3 +81,49 @@ test("observability API fetches dashboard snapshot and recent activity separatel
     },
   ]);
 });
+
+test("settings audit API stays profile-scoped and uses the exact family payload", async () => {
+  const requests = [];
+  const response = {
+    profile_id: 17,
+    settings: [
+      { api_family: "openai", audit_enabled: true, audit_capture_bodies: false },
+      { api_family: "anthropic", audit_enabled: false, audit_capture_bodies: false },
+      { api_family: "gemini", audit_enabled: true, audit_capture_bodies: true },
+    ],
+  };
+  const restoreFetch = installFetchRecorder(requests, [response, response]);
+  const { api, setApiProfileId } = loadApi();
+
+  try {
+    setApiProfileId(17);
+
+    assert.deepEqual(await api.settings.audit.get(), response);
+    assert.deepEqual(
+      await api.settings.audit.update({ settings: response.settings }),
+      response,
+    );
+  } finally {
+    setApiProfileId(null);
+    restoreFetch();
+  }
+
+  assert.deepEqual(requests, [
+    {
+      url: "/api/settings/audit",
+      init: {
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Profile-Id": "17" },
+      },
+    },
+    {
+      url: "/api/settings/audit",
+      init: {
+        body: JSON.stringify({ settings: response.settings }),
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Profile-Id": "17" },
+        method: "PUT",
+      },
+    },
+  ]);
+});

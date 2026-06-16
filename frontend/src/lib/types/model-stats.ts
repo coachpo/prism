@@ -2,7 +2,6 @@ import type { ApiFamily } from "./vendor";
 import type {
   Connection,
   ContextCapabilityFields,
-  ModelTargetTierSemanticsInput,
 } from "./routing";
 import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
@@ -46,8 +45,6 @@ export interface ModelAccessTarget {
   connection_id: number | null;
   terminal_target_id?: number | null;
   position: number;
-  weight: number | null;
-  target_priority: number | null;
   is_enabled: boolean;
   target_model: ModelAccessTargetModelSummary | null;
   connection: Connection | null;
@@ -62,7 +59,7 @@ export type ModelAccessTargetModelMutation = {
   connection_id?: null;
   position: number;
   is_enabled?: boolean;
-} & ModelTargetTierSemanticsInput;
+};
 
 export type ModelAccessTargetConnectionMutation = {
   target_type: PersistedTerminalTargetType;
@@ -80,8 +77,6 @@ export type ModelAccessTargetCreate = ModelAccessTargetModelMutation;
 
 export interface ModelAccessTargetUpdate {
   position?: number;
-  weight?: number | null;
-  target_priority?: number | null;
   is_enabled?: boolean;
 }
 

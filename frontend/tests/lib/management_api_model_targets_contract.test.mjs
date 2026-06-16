@@ -50,3 +50,63 @@ test("model target reorder client uses the explicit position route contract", as
     globalThis.fetch = originalFetch;
   }
 });
+
+test("model target client rejects obsolete routing metadata from API responses", async () => {
+  const originalFetch = globalThis.fetch;
+  let apiModule;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify([
+      {
+        id: 1,
+        profile_id: 42,
+        api_family: "openai",
+        model_id: "gpt-4o-mini",
+        display_name: "GPT-4o mini",
+        loadbalance_strategy_id: null,
+        loadbalance_strategy: null,
+        context_window_tokens: null,
+        default_output_token_reserve: 4096,
+        max_context_utilization: 0.9,
+        preferred_context_utilization_threshold: null,
+        access_targets: [
+          {
+            id: 7,
+            target_type: "model",
+            target_model_id: "gpt-4o-terminal",
+            connection_id: null,
+            terminal_target_id: null,
+            position: 0,
+            is_enabled: true,
+            target_model: null,
+            connection: null,
+            terminal_target: null,
+            created_at: "2026-06-16T00:00:00Z",
+            updated_at: "2026-06-16T00:00:00Z",
+            weight: 1,
+            target_priority: 0,
+          },
+        ],
+        is_enabled: true,
+        connection_count: 0,
+        active_connection_count: 0,
+        health_success_rate: null,
+        health_total_requests: 0,
+        created_at: "2026-06-16T00:00:00Z",
+        updated_at: "2026-06-16T00:00:00Z",
+      },
+    ]),
+  });
+
+  try {
+    apiModule = loadApi();
+    const { api, setApiProfileId } = apiModule;
+    setApiProfileId(42);
+
+    await assert.rejects(api.models.list(), /access_targets\.weight/);
+  } finally {
+    apiModule?.setApiProfileId(null);
+    globalThis.fetch = originalFetch;
+  }
+});

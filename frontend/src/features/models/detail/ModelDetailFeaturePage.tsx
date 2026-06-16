@@ -134,7 +134,6 @@ export function ModelDetailFeaturePage({
         onHealthCheck={data.handleHealthCheck}
         onMoveTarget={data.handleMoveAccessTarget}
         onToggleTarget={data.handleToggleAccessTarget}
-        onUpdateModelTarget={data.handleUpdateModelTarget}
         onChange={() => undefined}
       />
 

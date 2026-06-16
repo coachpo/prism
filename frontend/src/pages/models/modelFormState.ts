@@ -47,8 +47,6 @@ const DEFAULT_OUTPUT_TOKEN_RESERVE = "4096";
 const DEFAULT_MAX_CONTEXT_UTILIZATION = "0.90";
 const DEFAULT_PREFERRED_CONTEXT_UTILIZATION_THRESHOLD = "";
 const DEFAULT_CONTEXT_OVERFLOW_PROMOTION_TARGET_ID = "";
-const DEFAULT_MODEL_TARGET_WEIGHT = 1;
-const DEFAULT_MODEL_TARGET_PRIORITY = 0;
 
 export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   api_family: DEFAULT_API_FAMILY,
@@ -110,20 +108,6 @@ function parseRequiredUtilizationField(value: string): number | null {
   return parseOptionalUtilizationField(value);
 }
 
-function normalizeModelTargetWeight(value: number | null | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
-    return DEFAULT_MODEL_TARGET_WEIGHT;
-  }
-  return value;
-}
-
-function normalizeModelTargetPriority(value: number | null | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
-    return DEFAULT_MODEL_TARGET_PRIORITY;
-  }
-  return value;
-}
-
 export interface IndexedModelAccessTargetMutation {
   sourceIndex: number;
   target: ModelAccessTargetModelMutation;
@@ -134,84 +118,19 @@ export interface IndexedConnectionAccessTargetMutation {
   target: Extract<ModelAccessTargetMutation, { target_type: "connection" }>;
 }
 
-export interface ModelAccessTargetTierGroup {
-  target_priority: number;
-  targets: IndexedModelAccessTargetMutation[];
-}
-
-export function parseModelTargetWeightInput(value: string): number | null {
-  const trimmedValue = value.trim();
-  if (trimmedValue === "") {
-    return null;
-  }
-  const parsedValue = Number(trimmedValue);
-  return Number.isInteger(parsedValue) && parsedValue > 0
-    ? normalizeModelTargetWeight(parsedValue)
-    : null;
-}
-
-export function parseModelTargetPriorityInput(value: string): number | null {
-  const trimmedValue = value.trim();
-  if (trimmedValue === "") {
-    return null;
-  }
-  const parsedValue = Number(trimmedValue);
-  return Number.isInteger(parsedValue) && parsedValue >= 0
-    ? normalizeModelTargetPriority(parsedValue)
-    : null;
-}
-
-export function getModelAccessTargetTierNumber(priority: number | null | undefined): number {
-  return normalizeModelTargetPriority(priority) + 1;
-}
-
-export function parseModelAccessTargetTierNumberInput(value: string): number | null {
-  const trimmedValue = value.trim();
-  if (trimmedValue === "") {
-    return null;
-  }
-  const parsedValue = Number(trimmedValue);
-  return Number.isInteger(parsedValue) && parsedValue >= 1
-    ? normalizeModelTargetPriority(parsedValue - 1)
-    : null;
-}
-
-export function getDefaultModelTargetTierSemantics() {
-  return {
-    weight: DEFAULT_MODEL_TARGET_WEIGHT,
-    target_priority: DEFAULT_MODEL_TARGET_PRIORITY,
-  };
-}
-
 export function isModelAccessTargetMutation(target: ModelAccessTargetMutation): target is ModelAccessTargetModelMutation {
   return target.target_type === "model";
 }
 
-export function getModelAccessTargetTierGroups(
+export function getIndexedModelAccessTargets(
   targets: readonly ModelAccessTargetMutation[] | null | undefined,
-): ModelAccessTargetTierGroup[] {
-  const groups = new Map<number, IndexedModelAccessTargetMutation[]>();
-
-  normalizeAccessTargetMutations(targets).forEach((target, sourceIndex) => {
+): IndexedModelAccessTargetMutation[] {
+  return normalizeAccessTargetMutations(targets).flatMap((target, sourceIndex) => {
     if (!isModelAccessTargetMutation(target)) {
-      return;
+      return [];
     }
-    const targetPriority = normalizeModelTargetPriority(target.target_priority);
-    const bucket = groups.get(targetPriority) ?? [];
-    bucket.push({
-      sourceIndex,
-      target: {
-        ...target,
-        weight: normalizeModelTargetWeight(target.weight),
-        target_priority: targetPriority,
-      },
-    });
-    groups.set(targetPriority, bucket);
+    return [{ sourceIndex, target }];
   });
-
-  return [...groups.entries()]
-    .sort(([leftPriority], [rightPriority]) => leftPriority - rightPriority)
-    .map(([target_priority, groupedTargets]) => ({ target_priority, targets: groupedTargets }));
 }
 
 export function getIndexedConnectionAccessTargets(
@@ -241,8 +160,6 @@ export function accessTargetToMutation(target: ModelAccessTarget): ModelAccessTa
       target_type: "model",
       target_model_id: target.target_model_id,
       position: target.position,
-      weight: normalizeModelTargetWeight(target.weight),
-      target_priority: normalizeModelTargetPriority(target.target_priority),
       is_enabled: target.is_enabled,
     };
   }
@@ -273,8 +190,6 @@ export function normalizeAccessTargetMutations(
         target_type: "model",
         target_model_id: target.target_model_id.trim(),
         position: normalized.length,
-        weight: normalizeModelTargetWeight(target.weight),
-        target_priority: normalizeModelTargetPriority(target.target_priority),
         is_enabled: target.is_enabled ?? true,
       });
     } else {
@@ -336,25 +251,6 @@ export function setAccessTargetEnabled(
     normalizeAccessTargetMutations(targets).map((target, currentIndex) =>
       currentIndex === index ? { ...target, is_enabled: isEnabled } : target,
     ),
-  );
-}
-
-export function updateModelAccessTargetTierSemantics(
-  targets: ModelAccessTargetMutation[],
-  index: number,
-  updates: Partial<Pick<ModelAccessTargetModelMutation, "weight" | "target_priority">>,
-): ModelAccessTargetMutation[] {
-  return normalizeAccessTargetMutations(
-    normalizeAccessTargetMutations(targets).map((target, currentIndex) => {
-      if (currentIndex !== index || !isModelAccessTargetMutation(target)) {
-        return target;
-      }
-      return {
-        ...target,
-        weight: normalizeModelTargetWeight(updates.weight ?? target.weight),
-        target_priority: normalizeModelTargetPriority(updates.target_priority ?? target.target_priority),
-      };
-    }),
   );
 }
 

@@ -4,6 +4,7 @@ import {
   audit,
   config,
   loadbalance,
+  settingsAudit,
   settingsCosting,
   settingsRetention,
   settingsTimezone,
@@ -34,6 +35,7 @@ export const api = {
   profiles,
   settings: {
     ...settings,
+    audit: settingsAudit,
     costing: settingsCosting,
     retention: settingsRetention,
     timezone: settingsTimezone,

@@ -22,10 +22,27 @@ const liveAuthoringCapabilityDefaults = {
   max_context_utilization: 0.9,
   preferred_context_utilization_threshold: null,
 };
+const auditFamilySettingsDefaults = [
+  {
+    api_family: "openai",
+    audit_enabled: true,
+    audit_capture_bodies: false,
+  },
+  {
+    api_family: "anthropic",
+    audit_enabled: false,
+    audit_capture_bodies: false,
+  },
+  {
+    api_family: "gemini",
+    audit_enabled: false,
+    audit_capture_bodies: false,
+  },
+];
 const facadePolicyDefaults = {
   facade_enabled: true,
-  facade_selection_policy: "weighted_eligible_context",
-  facade_fallback_policy: "redistribute_ineligible_weight",
+  facade_selection_policy: "ordered_eligible_context",
+  facade_fallback_policy: "skip_ineligible_targets",
 };
 
 function buildValidConfigImport() {
@@ -107,6 +124,7 @@ function buildValidConfigImport() {
           fx_rate: "1",
         },
       ],
+      audit_api_family_settings: [...auditFamilySettingsDefaults],
     },
     header_blocklist_rules: [],
     user_agent_client_rules: [],
@@ -309,8 +327,8 @@ test("config import schema rejects invalid explicit promotion target links with 
       name: "facade target",
       mutate: (payload) => {
         payload.models[1].facade_enabled = true;
-        payload.models[1].facade_selection_policy = "weighted_eligible_context";
-        payload.models[1].facade_fallback_policy = "redistribute_ineligible_weight";
+        payload.models[1].facade_selection_policy = "ordered_eligible_context";
+        payload.models[1].facade_fallback_policy = "skip_ineligible_targets";
       },
       message: "context_overflow_promotion_target_id must reference a non-facade model",
     },
@@ -370,7 +388,6 @@ test("config import schema mirrors same-terminal promotion rejection when bundle
           is_enabled: true,
           target_type: "model",
           target_model_id: "target-large",
-          weight: 1,
         },
       ],
     },
@@ -398,7 +415,7 @@ test("config import schema mirrors same-terminal promotion rejection when bundle
   assert.equal(issue.message, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model");
 });
 
-test("config bundle TypeScript DTOs expose overflow promotion target and OpenAI capability fields", () => {
+test("config bundle TypeScript DTOs expose flat access targets and audit settings payloads", () => {
   const source = readFileSync(path.join(frontendDir, "src/lib/types/config-audit-settings.ts"), "utf8");
 
   assert.match(
@@ -417,6 +434,18 @@ test("config bundle TypeScript DTOs expose overflow promotion target and OpenAI 
     source,
     /interface ConfigModelImport \{[\s\S]*?context_overflow_promotion_target_id\?: string \| null;[\s\S]*?\n\}/,
   );
+  assert.match(
+    source,
+    /interface ConfigAccessTargetExport \{[\s\S]*?position: number;[\s\S]*?is_enabled: boolean;[\s\S]*?target_type: "model" \| "connection";[\s\S]*?connection_ref: string \| null;[\s\S]*?target_model_id: string \| null;[\s\S]*?\n\}/,
+  );
+  assert.doesNotMatch(source, /weight\?: number \| null;/);
+  assert.doesNotMatch(source, /target_priority\?: number \| null;/);
+  assert.match(
+    source,
+    /interface AuditAPIFamilySetting \{[\s\S]*?api_family: ApiFamily;[\s\S]*?audit_enabled: boolean;[\s\S]*?audit_capture_bodies: boolean;[\s\S]*?\n\}/,
+  );
+  assert.match(source, /export type ConfigModelFacadeSelectionPolicy = "ordered_eligible_context";/);
+  assert.match(source, /export type ConfigModelFacadeFallbackPolicy = "skip_ineligible_targets";/);
 });
 
 test("config import schema rejects profile bundles before v3", () => {
@@ -484,7 +513,7 @@ test("config import schema accepts model access targets with sparse positions", 
   assert.equal(parsed.models[0].access_targets[0].position, 4);
 });
 
-test("config import schema accepts model target weight and target_priority metadata", () => {
+test("config import schema rejects obsolete model access target metadata keys", () => {
   const payload = buildValidConfigImport();
   payload.connections = [];
   payload.profile_settings.endpoint_fx_mappings = [];
@@ -503,7 +532,6 @@ test("config import schema accepts model target weight and target_priority metad
           target_type: "model",
           target_model_id: "gpt-4o-mini-terminal",
           weight: 9,
-          target_priority: 3,
         },
       ],
     },
@@ -511,63 +539,60 @@ test("config import schema accepts model target weight and target_priority metad
       api_family: "openai",
       model_id: "gpt-4o-mini-terminal",
       display_name: "GPT 4o Mini Terminal",
-      loadbalance_strategy_name: "Default single",
-      ...liveAuthoringCapabilityDefaults,
-      is_enabled: true,
-      access_targets: [],
-    },
-  ];
-
-  const parsed = ConfigImportSchema.parse(payload);
-
-  assert.equal(parsed.models[0].access_targets[0].position, 4);
-  assert.equal(parsed.models[0].access_targets[0].weight, 9);
-  assert.equal(parsed.models[0].access_targets[0].target_priority, 3);
-});
-
-test("config import schema rejects terminal target routing metadata", () => {
-  const payload = buildValidConfigImport();
-  payload.models[0].access_targets[0].weight = 2;
-  payload.models[0].access_targets[0].target_priority = 1;
-
-  assert.throws(() => ConfigImportSchema.parse(payload), /weight must be omitted for terminal targets/);
-});
-
-test("config import schema rejects invalid model target routing metadata", () => {
-  const payload = buildValidConfigImport();
-  payload.connections = [];
-  payload.profile_settings.endpoint_fx_mappings = [];
-  payload.models = [
-    {
-      api_family: "openai",
-      model_id: "gpt-4o-router",
-      display_name: "GPT 4o Router",
       loadbalance_strategy_name: "Default single",
       ...liveAuthoringCapabilityDefaults,
       is_enabled: true,
       access_targets: [
         {
-          position: 2,
+          position: 0,
           is_enabled: true,
           target_type: "model",
-          target_model_id: "gpt-4o-mini-terminal",
-          weight: 0,
-          target_priority: -1,
+          target_model_id: "gpt-4o-router",
+          target_priority: 3,
         },
       ],
     },
+  ];
+
+  assert.throws(() => ConfigImportSchema.parse(payload));
+});
+
+test("config import schema accepts backend-exported audit family settings", () => {
+  const payload = buildValidConfigImport();
+  const parsed = ConfigImportSchema.parse(payload);
+
+  assert.deepEqual(parsed.profile_settings.audit_api_family_settings, auditFamilySettingsDefaults);
+});
+
+test("config import schema rejects invalid audit family settings payloads", () => {
+  const cases = [
     {
-      api_family: "openai",
-      model_id: "gpt-4o-mini-terminal",
-      display_name: "GPT 4o Mini Terminal",
-      loadbalance_strategy_name: "Default single",
-      ...liveAuthoringCapabilityDefaults,
-      is_enabled: true,
-      access_targets: [],
+      name: "unknown family",
+      mutate: (payload) => {
+        payload.profile_settings.audit_api_family_settings[1].api_family = "mistral";
+      },
+    },
+    {
+      name: "duplicate family",
+      mutate: (payload) => {
+        payload.profile_settings.audit_api_family_settings[1].api_family = "openai";
+      },
+    },
+    {
+      name: "capture requires enabled",
+      mutate: (payload) => {
+        payload.profile_settings.audit_api_family_settings[0].audit_enabled = false;
+        payload.profile_settings.audit_api_family_settings[0].audit_capture_bodies = true;
+      },
     },
   ];
 
-  assert.throws(() => ConfigImportSchema.parse(payload), /weight must be greater than 0/);
+  for (const { name, mutate } of cases) {
+    const payload = buildValidConfigImport();
+    mutate(payload);
+
+    assert.throws(() => ConfigImportSchema.parse(payload), `${name} should fail`);
+  }
 });
 
 test("config import schema rejects model access targets with duplicate references", () => {

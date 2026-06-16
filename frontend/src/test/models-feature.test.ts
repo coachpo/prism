@@ -31,7 +31,7 @@ describe("models feature contracts", () => {
       max_context_utilization: "0.75",
       preferred_context_utilization_threshold: "0.7",
       context_overflow_promotion_target_id: "gpt-large",
-      access_targets: [{ target_type: "model", target_model_id: "gpt-large", position: 0, weight: 2, target_priority: 1, is_enabled: true }],
+      access_targets: [{ target_type: "model", target_model_id: "gpt-large", position: 0, is_enabled: true }],
       is_enabled: true,
     })
 
@@ -40,7 +40,7 @@ describe("models feature contracts", () => {
       model_id: "gpt-entry",
       display_name: "GPT Entry",
       loadbalance_strategy_id: 11,
-      access_targets: [{ target_type: "model", target_model_id: "gpt-large", position: 0, weight: 2, target_priority: 1, is_enabled: true }],
+      access_targets: [{ target_type: "model", target_model_id: "gpt-large", position: 0, is_enabled: true }],
       context_window_tokens: 131072,
       default_output_token_reserve: 8192,
       max_context_utilization: 0.75,
@@ -48,6 +48,8 @@ describe("models feature contracts", () => {
       context_overflow_promotion_target_id: "gpt-large",
       is_enabled: true,
     })
+    expect(Object.prototype.hasOwnProperty.call(payload.access_targets[0], "weight")).toBe(false)
+    expect(Object.prototype.hasOwnProperty.call(payload.access_targets[0], "target_priority")).toBe(false)
   })
 
   it("rejects preferred threshold above max utilization", () => {
