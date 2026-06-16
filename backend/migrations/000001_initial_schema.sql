@@ -657,7 +657,7 @@ CREATE TABLE public.model_configs (
     updated_at timestamp with time zone NOT NULL,
     CONSTRAINT ck_model_configs_context_window_tokens CHECK (((context_window_tokens IS NULL) OR (context_window_tokens >= 1))),
     CONSTRAINT ck_model_configs_default_output_token_reserve CHECK ((default_output_token_reserve >= 1)),
-    CONSTRAINT ck_model_configs_facade_policy_contract CHECK (((NOT facade_enabled) AND ((facade_selection_policy IS NULL) OR ((facade_selection_policy)::text = 'weighted_eligible_context'::text)) AND ((facade_fallback_policy IS NULL) OR ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))) OR (facade_enabled AND ((facade_selection_policy)::text = 'weighted_eligible_context'::text) AND ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))),
+    CONSTRAINT ck_model_configs_facade_policy_contract CHECK (((NOT facade_enabled) AND ((facade_selection_policy IS NULL) OR ((facade_selection_policy)::text = 'ordered_eligible_context'::text)) AND ((facade_fallback_policy IS NULL) OR ((facade_fallback_policy)::text = 'skip_ineligible_targets'::text))) OR (facade_enabled AND ((facade_selection_policy)::text = 'ordered_eligible_context'::text) AND ((facade_fallback_policy)::text = 'skip_ineligible_targets'::text))),
     CONSTRAINT ck_model_configs_max_context_utilization CHECK (((max_context_utilization > (0)::double precision) AND (max_context_utilization <= (1)::double precision))),
     CONSTRAINT ck_model_configs_preferred_context_utilization_threshold CHECK (((preferred_context_utilization_threshold IS NULL) OR (((preferred_context_utilization_threshold > (0)::double precision) AND (preferred_context_utilization_threshold <= (1)::double precision)) AND (preferred_context_utilization_threshold <= max_context_utilization))))
 );
@@ -695,16 +695,50 @@ CREATE TABLE public.model_access_targets (
     target_model_config_id integer,
     target_connection_id integer,
     "position" integer NOT NULL,
-    weight integer,
-    target_priority integer,
     is_enabled boolean NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     CONSTRAINT chk_model_access_targets_position_nonnegative CHECK (("position" >= 0)),
-    CONSTRAINT chk_model_access_targets_target_metadata CHECK (((((target_type)::text = 'model'::text) AND (weight IS NOT NULL) AND (weight >= 1) AND (target_priority IS NOT NULL) AND (target_priority >= 0)) OR (((target_type)::text = 'connection'::text) AND (weight IS NULL) AND (target_priority IS NULL)))),
     CONSTRAINT chk_model_access_targets_target_type CHECK (((target_type)::text = ANY ((ARRAY['model'::character varying, 'connection'::character varying])::text[]))),
     CONSTRAINT chk_model_access_targets_one_target CHECK (((((target_type)::text = 'model'::text) AND (target_model_config_id IS NOT NULL) AND (target_connection_id IS NULL)) OR (((target_type)::text = 'connection'::text) AND (target_model_config_id IS NULL) AND (target_connection_id IS NOT NULL))))
 );
+
+
+--
+-- Name: profile_api_family_audit_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.profile_api_family_audit_settings (
+    id integer NOT NULL,
+    profile_id integer NOT NULL,
+    api_family character varying(50) NOT NULL,
+    audit_enabled boolean NOT NULL,
+    audit_capture_bodies boolean NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT chk_profile_api_family_audit_settings_api_family CHECK (((api_family)::text = ANY ((ARRAY['openai'::character varying, 'anthropic'::character varying, 'gemini'::character varying])::text[]))),
+    CONSTRAINT chk_profile_api_family_audit_settings_capture_requires_enabled CHECK ((audit_enabled OR (NOT audit_capture_bodies)))
+);
+
+
+--
+-- Name: profile_api_family_audit_settings_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.profile_api_family_audit_settings_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: profile_api_family_audit_settings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.profile_api_family_audit_settings_id_seq OWNED BY public.profile_api_family_audit_settings.id;
 
 
 --
@@ -1466,6 +1500,13 @@ ALTER TABLE ONLY public.model_access_targets ALTER COLUMN id SET DEFAULT nextval
 
 
 --
+-- Name: profile_api_family_audit_settings id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.profile_api_family_audit_settings ALTER COLUMN id SET DEFAULT nextval('public.profile_api_family_audit_settings_id_seq'::regclass);
+
+
+--
 -- Name: password_reset_challenges id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1717,6 +1758,14 @@ ALTER TABLE ONLY public.model_access_targets
 
 
 --
+-- Name: profile_api_family_audit_settings profile_api_family_audit_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.profile_api_family_audit_settings
+    ADD CONSTRAINT profile_api_family_audit_settings_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: password_reset_challenges password_reset_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1898,6 +1947,14 @@ ALTER TABLE ONLY public.model_configs
 
 ALTER TABLE ONLY public.model_access_targets
     ADD CONSTRAINT uq_model_access_targets_source_position UNIQUE (source_model_config_id, "position") DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: profile_api_family_audit_settings uq_profile_api_family_audit_settings_profile_family; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.profile_api_family_audit_settings
+    ADD CONSTRAINT uq_profile_api_family_audit_settings_profile_family UNIQUE (profile_id, api_family);
 
 
 --
@@ -2278,6 +2335,13 @@ CREATE INDEX idx_model_access_targets_profile_source_position ON public.model_ac
 --
 
 CREATE INDEX idx_model_access_targets_target_model ON public.model_access_targets USING btree (target_model_config_id) WHERE (target_model_config_id IS NOT NULL);
+
+
+--
+-- Name: idx_profile_api_family_audit_settings_profile_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_profile_api_family_audit_settings_profile_id ON public.profile_api_family_audit_settings USING btree (profile_id);
 
 
 --
@@ -2933,6 +2997,14 @@ ALTER TABLE ONLY public.model_access_targets
 
 ALTER TABLE ONLY public.model_access_targets
     ADD CONSTRAINT model_access_targets_target_model_profile_fkey FOREIGN KEY (target_model_config_id, profile_id) REFERENCES public.model_configs(id, profile_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: profile_api_family_audit_settings profile_api_family_audit_settings_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.profile_api_family_audit_settings
+    ADD CONSTRAINT profile_api_family_audit_settings_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
 
 --

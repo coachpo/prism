@@ -798,7 +798,7 @@ func task9InsertRuntimeProxyTarget(t *testing.T, ctx context.Context, exec task9
 	if err := exec.QueryRow(ctx, `SELECT profile_id FROM model_configs WHERE id = $1`, publicModelConfigID).Scan(&profileID); err != nil {
 		t.Fatalf("load task9 runtime source model profile: %v", err)
 	}
-	if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, 1, 0, TRUE, now(), now())`, profileID, publicModelConfigID, targetModelConfigID); err != nil {
+	if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, TRUE, now(), now())`, profileID, publicModelConfigID, targetModelConfigID); err != nil {
 		t.Fatalf("insert task9 runtime model target: %v", err)
 	}
 }

@@ -24,6 +24,7 @@ var expectedPrismMigrationVersions = []string{
 	"000002_context_overflow_promotion_target",
 	"000003_openai_text_capability",
 	"000004_endpoint_label_snapshot",
+	"000005_remove_access_target_weight_priority_add_audit_family_settings",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -53,9 +54,58 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
 	assertPartitionedLogSchemaContract(t, testContext, conn)
 	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
+	assertModelAccessTargetsRankingColumnsAbsent(t, testContext, conn)
+	assertFacadePolicyConstraintContract(t, testContext, conn)
+	assertProfileAPIFamilyAuditSettingsContract(t, testContext, conn)
 	assertContextCapabilityColumnContracts(t, testContext, conn)
 	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
+}
+
+func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "access_target_ranking_drop_audit_family")
+	defer func() { _ = conn.Close(testContext) }()
+
+	seedPreAuditFamilyMigrationSchema(t, testContext, conn)
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply access-target ranking removal migration: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected access-target ranking removal migration to apply, got %q", result.Outcome)
+	}
+	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings"})
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+	assertModelAccessTargetsRankingColumnsAbsent(t, testContext, conn)
+	assertFacadePolicyConstraintContract(t, testContext, conn)
+	assertProfileAPIFamilyAuditSettingsContract(t, testContext, conn)
+}
+
+func TestProfileAPIFamilyAuditSettingsFreshConstraints(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "audit_family_settings_constraints")
+	defer func() { _ = conn.Close(testContext) }()
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run audit family settings fresh baseline: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected audit family settings fresh baseline to apply, got %q", result.Outcome)
+	}
+
+	assertProfileAPIFamilyAuditSettingsContract(t, testContext, conn)
+	assertProfileAPIFamilyAuditSettingsDataConstraints(t, testContext, conn)
 }
 
 func TestPartitionedLogSchemaContract(t *testing.T) {
@@ -132,7 +182,7 @@ func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected endpoint label snapshot migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot"})
+	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
 	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
@@ -579,6 +629,147 @@ func assertHistoryVersionMissing(t *testing.T, ctx context.Context, conn *pgx.Co
 	}
 	if exists {
 		t.Fatalf("expected prism migration history version %s to remain absent", version)
+	}
+}
+
+func seedPreAuditFamilyMigrationSchema(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	statements := []string{
+		`CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE profiles (id integer PRIMARY KEY, name character varying(200) NOT NULL, description text, is_active boolean NOT NULL, is_default boolean NOT NULL, is_editable boolean NOT NULL, version integer NOT NULL, deleted_at timestamp with time zone, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL)`,
+		`CREATE TABLE model_configs (id integer PRIMARY KEY, profile_id integer NOT NULL, api_family character varying(50) NOT NULL, model_id character varying(200) NOT NULL, facade_enabled boolean DEFAULT false NOT NULL, facade_selection_policy character varying(100), facade_fallback_policy character varying(100), is_enabled boolean NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, CONSTRAINT ck_model_configs_facade_policy_contract CHECK (((NOT facade_enabled) AND ((facade_selection_policy IS NULL) OR ((facade_selection_policy)::text = 'weighted_eligible_context'::text)) AND ((facade_fallback_policy IS NULL) OR ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))) OR (facade_enabled AND ((facade_selection_policy)::text = 'weighted_eligible_context'::text) AND ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))))`,
+		`CREATE TABLE model_access_targets (id integer PRIMARY KEY, profile_id integer NOT NULL, source_model_config_id integer NOT NULL, target_type character varying(20) NOT NULL, target_model_config_id integer, target_connection_id integer, position integer NOT NULL, weight integer, target_priority integer, is_enabled boolean NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, CONSTRAINT chk_model_access_targets_target_metadata CHECK (((((target_type)::text = 'model'::text) AND (weight IS NOT NULL) AND (weight >= 1) AND (target_priority IS NOT NULL) AND (target_priority >= 0)) OR (((target_type)::text = 'connection'::text) AND (weight IS NULL) AND (target_priority IS NULL)))), CONSTRAINT chk_model_access_targets_one_target CHECK (((((target_type)::text = 'model'::text) AND (target_model_config_id IS NOT NULL) AND (target_connection_id IS NULL)) OR (((target_type)::text = 'connection'::text) AND (target_model_config_id IS NULL) AND (target_connection_id IS NOT NULL)))))`,
+		`INSERT INTO profiles (id, name, is_active, is_default, is_editable, version, created_at, updated_at) VALUES (1, 'pre-audit-family', FALSE, FALSE, TRUE, 1, NOW(), NOW())`,
+		`INSERT INTO model_configs (id, profile_id, api_family, model_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES (1, 1, 'openai', 'pre-router', FALSE, NULL, NULL, TRUE, NOW(), NOW()), (2, 1, 'openai', 'pre-target', FALSE, NULL, NULL, TRUE, NOW(), NOW())`,
+		`INSERT INTO model_access_targets (id, profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES (1, 1, 1, 'model', 2, 0, 7, 3, TRUE, NOW(), NOW())`,
+	}
+	for _, statement := range statements {
+		if _, err := conn.Exec(ctx, statement); err != nil {
+			t.Fatalf("seed pre-audit-family migration schema with %q: %v", statement, err)
+		}
+	}
+	for _, version := range expectedMigrationVersionsThrough(t, "000004_endpoint_label_snapshot") {
+		if _, err := conn.Exec(ctx, `INSERT INTO prism_schema_migrations (version) VALUES ($1)`, version); err != nil {
+			t.Fatalf("seed migration history version %s: %v", version, err)
+		}
+	}
+}
+
+func assertModelAccessTargetsRankingColumnsAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	var columnCount int
+	if err := conn.QueryRow(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'model_access_targets'
+		  AND column_name = ANY($1::text[])`, []string{"weight", "target_priority"}).Scan(&columnCount); err != nil {
+		t.Fatalf("check model_access_targets ranking column absence: %v", err)
+	}
+	if columnCount != 0 {
+		t.Fatalf("expected model_access_targets weight/target_priority columns to be absent, got %d", columnCount)
+	}
+	assertConstraintPresence(t, ctx, conn, "model_access_targets", "chk_model_access_targets_target_metadata", false)
+	assertConstraintDefinitionContains(t, ctx, conn, "chk_model_access_targets_one_target", "target_model_config_id", "target_connection_id")
+}
+
+func assertFacadePolicyConstraintContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_model_configs_facade_policy_contract", "ordered_eligible_context", "skip_ineligible_targets")
+	var definition string
+	if err := conn.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_model_configs_facade_policy_contract'`).Scan(&definition); err != nil {
+		t.Fatalf("load facade policy constraint: %v", err)
+	}
+	for _, retired := range []string{"weighted_eligible_context", "redistribute_ineligible_weight"} {
+		if strings.Contains(definition, retired) {
+			t.Fatalf("expected facade policy constraint to reject retired policy %q, got %q", retired, definition)
+		}
+	}
+}
+
+func assertProfileAPIFamilyAuditSettingsContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `
+		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'profile_api_family_audit_settings'`)
+	if err != nil {
+		t.Fatalf("load profile_api_family_audit_settings columns: %v", err)
+	}
+	defer rows.Close()
+	columns := map[string]partitionedLogColumnContract{}
+	for rows.Next() {
+		var name string
+		var contract partitionedLogColumnContract
+		if err := rows.Scan(&name, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
+			t.Fatalf("scan profile_api_family_audit_settings column: %v", err)
+		}
+		columns[name] = contract
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate profile_api_family_audit_settings columns: %v", err)
+	}
+	assertColumnContract(t, columns, "id", "integer", 0, "NO")
+	assertColumnContract(t, columns, "profile_id", "integer", 0, "NO")
+	assertColumnContract(t, columns, "api_family", "character varying", 50, "NO")
+	assertColumnContract(t, columns, "audit_enabled", "boolean", 0, "NO")
+	assertColumnContract(t, columns, "audit_capture_bodies", "boolean", 0, "NO")
+	assertColumnContract(t, columns, "created_at", "timestamp with time zone", 0, "NO")
+	assertColumnContract(t, columns, "updated_at", "timestamp with time zone", 0, "NO")
+	assertConstraintPresence(t, ctx, conn, "profile_api_family_audit_settings", "profile_api_family_audit_settings_pkey", true)
+	assertConstraintDefinitionContains(t, ctx, conn, "uq_profile_api_family_audit_settings_profile_family", "UNIQUE", "profile_id", "api_family")
+	assertConstraintDefinitionContains(t, ctx, conn, "chk_profile_api_family_audit_settings_api_family", "openai", "anthropic", "gemini")
+	assertConstraintDefinitionContains(t, ctx, conn, "chk_profile_api_family_audit_settings_capture_requires_enabled", "audit_enabled", "audit_capture_bodies")
+	assertConstraintDefinitionContains(t, ctx, conn, "profile_api_family_audit_settings_profile_id_fkey", "FOREIGN KEY", "profiles", "ON DELETE CASCADE")
+}
+
+func assertProfileAPIFamilyAuditSettingsDataConstraints(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	now := time.Now().UTC()
+	var profileID int
+	if err := conn.QueryRow(ctx, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ('audit-family-constraints', NULL, FALSE, FALSE, TRUE, 1, NULL, $1, $1) RETURNING id`, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed audit family profile: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO profile_api_family_audit_settings (profile_id, api_family, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, 'openai', TRUE, TRUE, $2, $2)`, profileID, now); err != nil {
+		t.Fatalf("insert valid audit family setting: %v", err)
+	}
+	_, err := conn.Exec(ctx, `INSERT INTO profile_api_family_audit_settings (profile_id, api_family, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, 'openai', FALSE, FALSE, $2, $2)`, profileID, now)
+	assertSQLConstraintError(t, err, "uq_profile_api_family_audit_settings_profile_family")
+	_, err = conn.Exec(ctx, `INSERT INTO profile_api_family_audit_settings (profile_id, api_family, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, 'mistral', TRUE, FALSE, $2, $2)`, profileID, now)
+	assertSQLConstraintError(t, err, "chk_profile_api_family_audit_settings_api_family")
+	_, err = conn.Exec(ctx, `INSERT INTO profile_api_family_audit_settings (profile_id, api_family, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, 'anthropic', FALSE, TRUE, $2, $2)`, profileID, now)
+	assertSQLConstraintError(t, err, "chk_profile_api_family_audit_settings_capture_requires_enabled")
+	if _, err := conn.Exec(ctx, `DELETE FROM profiles WHERE id = $1`, profileID); err != nil {
+		t.Fatalf("delete audit family profile for cascade check: %v", err)
+	}
+	var remaining int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM profile_api_family_audit_settings WHERE profile_id = $1`, profileID).Scan(&remaining); err != nil {
+		t.Fatalf("count audit family rows after profile delete: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected profile delete to cascade audit family settings, got %d rows", remaining)
+	}
+}
+
+func assertSQLConstraintError(t *testing.T, err error, constraintName string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected constraint %s to reject insert", constraintName)
+	}
+	if !strings.Contains(err.Error(), constraintName) {
+		t.Fatalf("expected constraint error %s, got %v", constraintName, err)
+	}
+}
+
+func assertConstraintPresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, constraintName string, wantExists bool) {
+	t.Helper()
+	var exists bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = $1::regclass AND conname = $2)`, "public."+tableName, constraintName).Scan(&exists); err != nil {
+		t.Fatalf("check constraint %s on %s: %v", constraintName, tableName, err)
+	}
+	if exists != wantExists {
+		t.Fatalf("expected constraint %s on %s exists=%v, got %v", constraintName, tableName, wantExists, exists)
 	}
 }
 
