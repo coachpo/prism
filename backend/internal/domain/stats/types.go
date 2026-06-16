@@ -175,8 +175,6 @@ type RequestLogFacadeExclusionReason struct {
 type RequestLogFacadeSelection struct {
 	FacadeModelID         string                            `json:"facade_model_id"`
 	SelectedTargetModelID *string                           `json:"selected_target_model_id,omitempty"`
-	SelectedWeight        *int                              `json:"selected_weight,omitempty"`
-	EligibleTotalWeight   *int                              `json:"eligible_total_weight,omitempty"`
 	ExclusionReasons      []RequestLogFacadeExclusionReason `json:"exclusion_reasons,omitempty"`
 	ExclusionSummary      *string                           `json:"exclusion_summary,omitempty"`
 }
@@ -206,7 +204,6 @@ type RequestLogPlannerTrace struct {
 	AccessTargetID           *int    `json:"access_target_id,omitempty"`
 	AccessTargetType         *string `json:"access_target_type,omitempty"`
 	SelectedTargetModelID    *string `json:"selected_target_model_id,omitempty"`
-	SelectedTierPriority     *int    `json:"selected_tier_priority,omitempty"`
 	SelectedTerminalTargetID *int    `json:"selected_terminal_target_id,omitempty"`
 	TranslationMode          *string `json:"translation_mode,omitempty"`
 	SkippedTerminalTargets   int     `json:"skipped_terminal_targets,omitempty"`

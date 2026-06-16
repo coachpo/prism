@@ -5,13 +5,11 @@ import "testing"
 func TestValidateAuthoredAccessTargetsContracts(t *testing.T) {
 	terminalRef := "primary"
 	modelID := "router-child"
-	weight := 2
-	priority := 3
 	isEnabled := false
 
 	targets := []AuthoredAccessTarget{
 		{TargetType: TargetTypeTerminal, Position: 0, TerminalTargetRef: &terminalRef},
-		{TargetType: TargetTypeModel, Position: 1, TargetModelID: &modelID, Weight: &weight, TargetPriority: &priority, IsEnabled: &isEnabled},
+		{TargetType: TargetTypeModel, Position: 1, TargetModelID: &modelID, IsEnabled: &isEnabled},
 	}
 	if issues := ValidateAuthoredAccessTargets(targets, ValidationOptions{TerminalTargetField: "connection_ref"}); len(issues) != 0 {
 		t.Fatalf("expected valid targets, got %#v", issues)
@@ -25,13 +23,14 @@ func TestValidateAuthoredAccessTargetsContracts(t *testing.T) {
 	assertSingleIssue(t, issues, "target_duplicate", "access_targets[1].connection_ref")
 }
 
-func TestValidateAuthoredAccessTargetsReportsMetadataContract(t *testing.T) {
+func TestValidateAuthoredAccessTargetsReportsDuplicatePosition(t *testing.T) {
 	terminalRef := "primary"
-	weight := 1
+	modelID := "router-child"
 	issues := ValidateAuthoredAccessTargets([]AuthoredAccessTarget{
-		{TargetType: TargetTypeTerminal, Position: 0, TerminalTargetRef: &terminalRef, Weight: &weight},
+		{TargetType: TargetTypeTerminal, Position: 0, TerminalTargetRef: &terminalRef},
+		{TargetType: TargetTypeModel, Position: 0, TargetModelID: &modelID},
 	}, ValidationOptions{TerminalTargetField: "connection_ref"})
-	assertSingleIssue(t, issues, "terminal_target_metadata_invalid", "access_targets[0].weight")
+	assertSingleIssue(t, issues, "target_position_duplicate", "access_targets[1].position")
 }
 
 func TestValidateSourceModelTargetsReportsSelfTarget(t *testing.T) {
@@ -47,11 +46,9 @@ func TestValidateSourceModelTargetsReportsSelfTarget(t *testing.T) {
 func TestResolveAuthoredAccessTargetsOrdersAndDefaultsTargets(t *testing.T) {
 	childID := "child"
 	terminalRef := "primary"
-	weight := 5
-	priority := 7
 	resolved, issues := ResolveAuthoredAccessTargets(
 		[]AuthoredAccessTarget{
-			{TargetType: TargetTypeModel, Position: 2, TargetModelID: &childID, Weight: &weight, TargetPriority: &priority},
+			{TargetType: TargetTypeModel, Position: 2, TargetModelID: &childID},
 			{TargetType: TargetTypeTerminal, Position: 1, TerminalTargetRef: &terminalRef},
 		},
 		ResolveOptions{
@@ -74,8 +71,8 @@ func TestResolveAuthoredAccessTargetsOrdersAndDefaultsTargets(t *testing.T) {
 	if resolved[0].TargetType != TargetTypeTerminal || resolved[0].TerminalTargetRef == nil || *resolved[0].TerminalTargetRef != terminalRef {
 		t.Fatalf("expected terminal target first, got %#v", resolved[0])
 	}
-	if resolved[1].TargetType != TargetTypeModel || resolved[1].Weight != weight || resolved[1].TargetPriority != priority {
-		t.Fatalf("expected weighted model target second, got %#v", resolved[1])
+	if resolved[1].TargetType != TargetTypeModel || resolved[1].TargetModelID == nil || *resolved[1].TargetModelID != childID || resolved[1].Position != 2 || !resolved[1].IsEnabled {
+		t.Fatalf("expected flat model target second, got %#v", resolved[1])
 	}
 }
 

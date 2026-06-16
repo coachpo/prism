@@ -10,9 +10,8 @@ import (
 )
 
 const (
-	DefaultModelTargetWeight = 1
-	TargetTypeModel          = targetcompat.AccessTargetTypeModel
-	TargetTypeTerminal       = targetcompat.PersistedTerminalTargetType
+	TargetTypeModel    = targetcompat.AccessTargetTypeModel
+	TargetTypeTerminal = targetcompat.PersistedTerminalTargetType
 )
 
 type ModelNode struct {
@@ -38,15 +37,11 @@ type AuthoredAccessTarget struct {
 	TargetModelID     *string
 	TerminalTargetID  *int
 	TerminalTargetRef *string
-	Weight            *int
-	TargetPriority    *int
 }
 
 type ResolvedAccessTarget struct {
 	TargetType          string
 	Position            int
-	Weight              int
-	TargetPriority      int
 	IsEnabled           bool
 	TargetModelConfigID *int
 	TargetModelID       *string
@@ -104,27 +99,6 @@ func IsSupportedTargetType(value string) bool {
 
 func SameAPIFamily(left string, right string) bool {
 	return providercompat.SameAPIFamily(left, right)
-}
-
-func EffectiveModelTargetWeight(weight *int) int {
-	if weight != nil && *weight > 0 {
-		return *weight
-	}
-	return DefaultModelTargetWeight
-}
-
-func EffectiveModelTargetWeightValue(weight int) int {
-	if weight > 0 {
-		return weight
-	}
-	return DefaultModelTargetWeight
-}
-
-func EffectiveModelTargetPriority(position int, targetPriority *int) int {
-	if targetPriority != nil {
-		return *targetPriority
-	}
-	return position
 }
 
 func TargetEnabled(value *bool) bool {
@@ -210,10 +184,6 @@ func ValidateAuthoredAccessTargets(targets []AuthoredAccessTarget, options Valid
 		if len(pointerIssues) > 0 {
 			return append(issues, pointerIssues...)
 		}
-		if metadataIssues := validateMetadataContract(target, options, index); len(metadataIssues) > 0 {
-			return append(issues, metadataIssues...)
-		}
-
 		if _, exists := seenTargets[targetKey]; exists {
 			field := ""
 			if IsModelTargetType(target.TargetType) {
@@ -274,8 +244,6 @@ func ResolveAuthoredAccessTargets(targets []AuthoredAccessTarget, options Resolv
 			resolved = append(resolved, ResolvedAccessTarget{
 				TargetType:          targetcompat.AccessTargetTypeModel,
 				Position:            target.Position,
-				Weight:              EffectiveModelTargetWeight(target.Weight),
-				TargetPriority:      EffectiveModelTargetPriority(target.Position, target.TargetPriority),
 				IsEnabled:           TargetEnabled(target.IsEnabled),
 				TargetModelConfigID: &configID,
 				TargetModelID:       &modelID,
@@ -429,25 +397,6 @@ func validatePointerContract(target AuthoredAccessTarget, options ValidationOpti
 	return AuthoredAccessTargetKey(target), nil
 }
 
-func validateMetadataContract(target AuthoredAccessTarget, options ValidationOptions, index int) []ValidationIssue {
-	if IsTerminalTargetType(target.TargetType) {
-		if target.Weight != nil {
-			return appendValidationIssue(nil, options, "terminal_target_metadata_invalid", "weight", index, target)
-		}
-		if target.TargetPriority != nil {
-			return appendValidationIssue(nil, options, "terminal_target_metadata_invalid", "target_priority", index, target)
-		}
-		return nil
-	}
-	if target.Weight != nil && *target.Weight <= 0 {
-		return appendValidationIssue(nil, options, "model_target_weight_invalid", "weight", index, target)
-	}
-	if target.TargetPriority != nil && *target.TargetPriority < 0 {
-		return appendValidationIssue(nil, options, "model_target_priority_invalid", "target_priority", index, target)
-	}
-	return nil
-}
-
 func resolveTerminalTargetNode(target AuthoredAccessTarget, options ResolveOptions) (TerminalTargetNode, bool) {
 	if target.TerminalTargetRef != nil {
 		terminal, ok := options.TerminalTargetsByRef[strings.TrimSpace(*target.TerminalTargetRef)]
@@ -514,12 +463,6 @@ func defaultIssueDetail(code string, field string, target AuthoredAccessTarget) 
 		return fmt.Sprintf("%s is required for terminal targets", field)
 	case "connection_target_has_model":
 		return "target_model_id must be omitted for terminal targets"
-	case "terminal_target_metadata_invalid":
-		return fmt.Sprintf("%s must be omitted for terminal targets", field)
-	case "model_target_weight_invalid":
-		return "weight must be greater than 0"
-	case "model_target_priority_invalid":
-		return "target_priority must be greater than or equal to 0"
 	case "target_duplicate":
 		return "access_targets must contain unique target references"
 	case "model_graph_cycle":

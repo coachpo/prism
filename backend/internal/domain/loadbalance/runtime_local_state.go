@@ -62,7 +62,6 @@ type localRuntimeProfileState struct {
 	modelConnections map[int]map[int]struct{}
 	roundRobin       map[int]*localRoundRobinCursor
 	targetRoundRobin map[localTargetRoundRobinCursorKey]*localRoundRobinCursor
-	proxyWeighted    map[localProxyWeightedCursorKey]*localProxyWeightedCursor
 }
 
 type localRoundRobinCursor struct {
@@ -73,16 +72,6 @@ type localTargetRoundRobinCursorKey struct {
 	sourceModelConfigID int
 	strategyID          int
 	targetSetHash       string
-}
-
-type localProxyWeightedCursorKey struct {
-	facadeModelConfigID int
-	targetSetHash       string
-	totalWeight         int
-}
-
-type localProxyWeightedCursor struct {
-	next atomic.Uint64
 }
 
 type localRuntimeConnectionState struct {
@@ -319,26 +308,6 @@ func (s *LocalRuntimeStateStore) ClaimRoundRobinTargetCursor(profileID int, sour
 	return int((cursor.next.Add(1) - 1) % uint64(targetCount))
 }
 
-func (s *LocalRuntimeStateStore) ClaimProxyWeightedCursor(profileID int, facadeModelConfigID int, targetSetHash string, totalWeight int) int {
-	if s == nil || profileID <= 0 || facadeModelConfigID <= 0 || totalWeight <= 0 {
-		return 0
-	}
-	trimmedTargetSetHash := strings.TrimSpace(targetSetHash)
-	if trimmedTargetSetHash == "" {
-		return 0
-	}
-	profile := s.profileState(profileID)
-	key := localProxyWeightedCursorKey{facadeModelConfigID: facadeModelConfigID, targetSetHash: trimmedTargetSetHash, totalWeight: totalWeight}
-	profile.mu.Lock()
-	cursor := profile.proxyWeighted[key]
-	if cursor == nil {
-		cursor = &localProxyWeightedCursor{}
-		profile.proxyWeighted[key] = cursor
-	}
-	profile.mu.Unlock()
-	return int((cursor.next.Add(1) - 1) % uint64(totalWeight))
-}
-
 func (s *LocalRuntimeStateStore) PeekRoundRobinCursor(profileID int, modelConfigID int, connectionCount int) int {
 	if s == nil || profileID <= 0 || modelConfigID <= 0 || connectionCount <= 0 {
 		return 0
@@ -439,7 +408,6 @@ func (s *LocalRuntimeStateStore) profileState(profileID int) *localRuntimeProfil
 		modelConnections: map[int]map[int]struct{}{},
 		roundRobin:       map[int]*localRoundRobinCursor{},
 		targetRoundRobin: map[localTargetRoundRobinCursorKey]*localRoundRobinCursor{},
-		proxyWeighted:    map[localProxyWeightedCursorKey]*localProxyWeightedCursor{},
 	}
 	s.profiles[profileID] = profile
 	return profile

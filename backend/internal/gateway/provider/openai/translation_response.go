@@ -31,7 +31,7 @@ func translateResponse(rawBody []byte, mode provider.TranslationMode, requestedM
 	case provider.TranslationModeOpenAIResponsesToChatCompletions:
 		return translateChatToResponsesResponseWithRequestedModel(rawBody, requestedModelID)
 	case provider.TranslationModeOpenAIChatCompletionsToResponses:
-		return translateResponsesToChatResponse(rawBody)
+		return translateResponsesToChatResponseWithRequestedModel(rawBody, requestedModelID)
 	case "", provider.TranslationModeNone:
 		return append([]byte(nil), rawBody...), provider.UsageEnvelope{}, "", nil
 	default:
@@ -39,13 +39,13 @@ func translateResponse(rawBody []byte, mode provider.TranslationMode, requestedM
 	}
 }
 
-func translateResponsesToChatResponse(rawBody []byte) ([]byte, provider.UsageEnvelope, string, error) {
+func translateResponsesToChatResponseWithRequestedModel(rawBody []byte, requestedModelID string) ([]byte, provider.UsageEnvelope, string, error) {
 	payload, err := decodeOpenAIResponseTranslationPayload(rawBody)
 	if err != nil {
 		return nil, provider.UsageEnvelope{}, OperationResponses, err
 	}
 	usage := extractResponseUsageFromPayload(payload, OperationResponses)
-	if _, ok := payload["error"]; ok {
+	if fieldHasValue(payload, "error") {
 		body, err := marshalTranslatedOpenAIResponse(payload, provider.TranslationModeOpenAIResponsesToChatCompletions)
 		return body, usage, OperationResponses, err
 	}
@@ -62,6 +62,7 @@ func translateResponsesToChatResponse(rawBody []byte) ([]byte, provider.UsageEnv
 		"choices": []any{choice},
 	}
 	copyOpenAIResponseTranslationFields(payload, translated, "id", "model", "service_tier", "system_fingerprint")
+	normalizeTranslatedResponsesPublicModel(translated, requestedModelID)
 	if createdAt := intPointerFromAny(firstOpenAIResponseTranslationValue(payload, "created_at")); createdAt != nil {
 		translated["created"] = *createdAt
 	} else if created := intPointerFromAny(firstOpenAIResponseTranslationValue(payload, "created")); created != nil {
@@ -80,7 +81,7 @@ func translateChatToResponsesResponseWithRequestedModel(rawBody []byte, requeste
 		return nil, provider.UsageEnvelope{}, OperationChatCompletions, err
 	}
 	usage := extractResponseUsageFromPayload(payload, OperationChatCompletions)
-	if _, ok := payload["error"]; ok {
+	if fieldHasValue(payload, "error") {
 		normalizeTranslatedResponsesPublicModel(payload, requestedModelID)
 		body, err := marshalTranslatedOpenAIResponse(payload, provider.TranslationModeOpenAIChatCompletionsToResponses)
 		return body, usage, OperationChatCompletions, err
@@ -102,8 +103,11 @@ func translateChatToResponsesResponseWithRequestedModel(rawBody []byte, requeste
 	}
 	translated := map[string]any{
 		"object": "response",
-		"status": "completed",
+		"status": responseStatusFromChatFinishReason(stringValue(choice["finish_reason"])),
 		"output": output,
+	}
+	if stringValue(choice["finish_reason"]) == "length" {
+		translated["incomplete_details"] = map[string]any{"reason": "max_output_tokens"}
 	}
 	copyOpenAIResponseTranslationFields(payload, translated, "id", "model", "service_tier")
 	normalizeTranslatedResponsesPublicModel(translated, requestedModelID)
@@ -131,12 +135,18 @@ func normalizeTranslatedResponsesPublicModel(payload map[string]any, requestedMo
 func translateResponsesOutputToChatChoice(output []any) (map[string]any, error) {
 	message := map[string]any{"role": "assistant", "content": ""}
 	seenMessage := false
+	toolCalls := make([]any, 0)
+	finishReason := "stop"
 	for _, rawItem := range output {
 		item, ok := rawItem.(map[string]any)
 		if !ok {
 			return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_output_item")
 		}
 		switch strings.TrimSpace(stringValue(item["type"])) {
+		case "reasoning":
+			if reasoning := ExtractReasoningSummaryText(item); reasoning != nil {
+				AppendReasoningContent(message, reasoning.Text)
+			}
 		case "message":
 			if seenMessage {
 				return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_output_multiple_messages")
@@ -157,15 +167,40 @@ func translateResponsesOutputToChatChoice(output []any) (map[string]any, error) 
 			}
 			seenMessage = true
 		case "function_call":
-			return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_function_call")
+			toolCalls = append(toolCalls, responsesFunctionCallOutputItemToChatToolCall(item))
+			finishReason = "tool_calls"
+		case "custom_tool_call":
+			toolCalls = append(toolCalls, responsesCustomToolCallOutputItemToChatToolCall(item))
+			finishReason = "tool_calls"
+		case "tool_search_call":
+			toolCalls = append(toolCalls, responsesToolSearchOutputItemToChatToolCall(item))
+			finishReason = "tool_calls"
 		default:
 			return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_output_type")
 		}
 	}
-	if !seenMessage {
+	if len(toolCalls) > 0 {
+		message["tool_calls"] = toolCalls
+		if !seenMessage {
+			message["content"] = nil
+		}
+	}
+	if !seenMessage && len(toolCalls) == 0 {
 		return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_output_message")
 	}
-	return map[string]any{"index": 0, "message": message, "finish_reason": "stop"}, nil
+	return map[string]any{"index": 0, "message": message, "finish_reason": finishReason}, nil
+}
+
+func responsesFunctionCallOutputItemToChatToolCall(item map[string]any) map[string]any {
+	return map[string]any{"id": firstNonEmptyString(item["call_id"], item["id"]), "type": "function", "function": map[string]any{"name": stringValue(item["name"]), "arguments": canonicalToolArguments(item["arguments"])}}
+}
+
+func responsesCustomToolCallOutputItemToChatToolCall(item map[string]any) map[string]any {
+	return map[string]any{"id": firstNonEmptyString(item["call_id"], item["id"]), "type": "function", "function": map[string]any{"name": stringValue(item["name"]), "arguments": canonicalJSONString(map[string]any{customToolInputField: item["input"]})}}
+}
+
+func responsesToolSearchOutputItemToChatToolCall(item map[string]any) map[string]any {
+	return map[string]any{"id": firstNonEmptyString(item["call_id"], item["id"]), "type": "function", "function": map[string]any{"name": toolSearchProxyName, "arguments": canonicalToolArguments(item["arguments"])}}
 }
 
 func translateResponsesMessageContentToChatResponse(value any, role string) (any, *string, error) {
@@ -210,11 +245,19 @@ func translateChatChoiceToResponsesOutput(choice map[string]any) ([]any, error) 
 	if !ok {
 		return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_message")
 	}
-	if fieldHasValue(message, "tool_calls") {
-		return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_calls")
-	}
 	role := firstNonEmptyString(message["role"], "assistant")
 	output := make([]any, 0, 1)
+	reasoning := ExtractReasoningFieldText(message)
+	if reasoning == nil {
+		if content := stringValue(message["content"]); content != "" {
+			if think, _, ok := splitLeadingThinkBlock(content); ok && think != "" {
+				reasoning = &ReasoningText{Text: think}
+			}
+		}
+	}
+	if reasoning != nil {
+		output = append(output, map[string]any{"id": responseReasoningID(payloadStringID(choice)), "type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": reasoning.Text}}})
+	}
 	content, err := translateChatResponseContentToResponsesOutput(message["content"])
 	if err != nil {
 		return nil, err
@@ -224,6 +267,16 @@ func translateChatChoiceToResponsesOutput(choice map[string]any) ([]any, error) 
 	}
 	if valueHasMeaning(content) {
 		output = append(output, map[string]any{"type": "message", "role": role, "content": content})
+	}
+	if fieldHasValue(message, "tool_calls") {
+		toolItems, err := translateChatResponseToolCallsToResponsesOutput(message["tool_calls"], reasoning)
+		if err != nil {
+			return nil, err
+		}
+		output = append(output, toolItems...)
+	}
+	if fieldHasValue(message, "function_call") {
+		output = append(output, translateChatResponseLegacyFunctionCallToResponsesOutput(message["function_call"], reasoning))
 	}
 	if len(output) == 0 {
 		output = append(output, map[string]any{"type": "message", "role": role, "content": []any{}})
@@ -236,6 +289,9 @@ func translateChatResponseContentToResponsesOutput(value any) ([]any, error) {
 	case nil:
 		return nil, nil
 	case string:
+		if _, answer, ok := splitLeadingThinkBlock(typed); ok {
+			typed = answer
+		}
 		if strings.TrimSpace(typed) == "" {
 			return nil, nil
 		}
@@ -261,6 +317,59 @@ func translateChatResponseContentToResponsesOutput(value any) ([]any, error) {
 	default:
 		return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_content")
 	}
+}
+
+func translateChatResponseToolCallsToResponsesOutput(value any, reasoning *ReasoningText) ([]any, error) {
+	toolCalls, ok := value.([]any)
+	if !ok {
+		return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_calls")
+	}
+	items := make([]any, 0, len(toolCalls))
+	for index, rawToolCall := range toolCalls {
+		toolCall, ok := rawToolCall.(map[string]any)
+		if !ok {
+			return nil, unsupportedResponseTranslationShapeError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_call")
+		}
+		function, _ := toolCall["function"].(map[string]any)
+		callID := firstNonEmptyString(toolCall["id"], toolCall["call_id"], fmt.Sprintf("call_%d", index))
+		item := ResponseToolCallItemFromChatName(responseToolItemID(callID, stringValue(function["name"]), nil), "completed", callID, stringValue(function["name"]), canonicalToolArguments(function["arguments"]), reasoningTextValue(reasoning), nil)
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func translateChatResponseLegacyFunctionCallToResponsesOutput(value any, reasoning *ReasoningText) map[string]any {
+	function, _ := value.(map[string]any)
+	callID := firstNonEmptyString(function["id"], "call_0")
+	return ResponseToolCallItemFromChatName(responseToolItemID(callID, stringValue(function["name"]), nil), "completed", callID, stringValue(function["name"]), canonicalToolArguments(function["arguments"]), reasoningTextValue(reasoning), nil)
+}
+
+func reasoningTextValue(reasoning *ReasoningText) string {
+	if reasoning == nil {
+		return ""
+	}
+	return reasoning.Text
+}
+
+func responseToolItemID(callID string, chatName string, context *ToolContext) string {
+	if context != nil && context.IsCustomToolChatName(chatName) {
+		return "ctc_" + callID
+	}
+	return "fc_" + callID
+}
+
+func payloadStringID(choice map[string]any) string {
+	if id := strings.TrimSpace(stringValue(choice["id"])); id != "" {
+		return id
+	}
+	return "resp_chat"
+}
+
+func responseReasoningID(responseID string) string {
+	if strings.HasPrefix(responseID, "rs_") {
+		return responseID
+	}
+	return "rs_" + responseID
 }
 
 func buildOpenAIChatCompletionsUsagePayload(usage provider.UsageEnvelope) map[string]any {
@@ -352,7 +461,14 @@ func marshalTranslatedOpenAIResponse(payload map[string]any, mode provider.Trans
 }
 
 func unsupportedResponseTranslationShapeError(mode provider.TranslationMode, reason string) error {
-	return responseTranslationUnsupportedError(mode, normalizedUnsupportedReason(reason))
+	return responseTranslationUnsupportedError(mode, normalizeUnsupportedReason(reason))
+}
+
+func responseStatusFromChatFinishReason(finishReason string) string {
+	if strings.TrimSpace(finishReason) == "length" {
+		return "incomplete"
+	}
+	return "completed"
 }
 
 func extractResponseUsageByOperation(operation provider.Operation, body []byte) (provider.UsageEnvelope, string) {
@@ -514,11 +630,4 @@ func containsOverflowFragment(message string, fragments ...string) bool {
 		}
 	}
 	return false
-}
-
-func normalizedUnsupportedReason(reason string) string {
-	if trimmed := strings.TrimSpace(reason); trimmed != "" {
-		return trimmed
-	}
-	return "unsupported_request_shape"
 }

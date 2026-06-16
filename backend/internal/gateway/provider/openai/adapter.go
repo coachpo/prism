@@ -212,27 +212,11 @@ func (adapter Adapter) ConversionCapability(_ context.Context, request provider.
 	if mode == provider.TranslationModeNone {
 		return capability, nil
 	}
-	payload, err := decodeOpenAITranslationPayload(request.RawBody, mode)
+	_, err := decodeOpenAITranslationPayload(request.RawBody, mode)
 	if err != nil {
 		capability.RequestSupported = false
 		capability.UnsupportedReason = requestTranslationUnsupportedReason(err, "invalid_translation_payload")
 		return capability, nil
-	}
-	if RequestWantsStream(request.Operation, request.RawBody, "") {
-		switch mode {
-		case provider.TranslationModeOpenAIResponsesToChatCompletions:
-			if responsesTranslationStreamUsesTools(payload) {
-				capability.StreamSupported = false
-				capability.UnsupportedReason = "responses_stream_tools"
-				return capability, nil
-			}
-		case provider.TranslationModeOpenAIChatCompletionsToResponses:
-			if chatTranslationStreamUsesTools(payload) {
-				capability.StreamSupported = false
-				capability.UnsupportedReason = "chat_stream_tools"
-				return capability, nil
-			}
-		}
 	}
 	if _, _, err := translateRequest(request.RawBody, mode, "translation-preview-model"); err != nil {
 		capability.RequestSupported = false

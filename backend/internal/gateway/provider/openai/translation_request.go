@@ -55,14 +55,22 @@ func translateResponsesToChatRequest(rawBody []byte, targetModelID string) ([]by
 	}
 	translated := map[string]any{"model": targetModelID}
 	copyTranslationField(payload, translated, "temperature", "top_p", "seed", "store", "metadata", "user", "service_tier", "stream")
+	toolContext := BuildToolContextFromResponsesPayload(payload)
 	if instructions := trimmedStringFromAny(payload["instructions"]); instructions != nil {
 		translated["messages"] = appendChatTranslationMessage(nil, "system", *instructions)
 	}
-	messages, err := translateResponsesInputToChatMessages(payload["input"])
+	messages, err := translateResponsesInputToChatMessages(payload["input"], toolContext)
 	if err != nil {
 		return nil, err
 	}
 	translated["messages"] = appendChatTranslationMessages(translated["messages"], messages)
+	if tools := toolContext.ChatTools(); len(tools) > 0 {
+		translated["tools"] = mapsFromAnyMaps(tools)
+		if toolChoice, ok := translateResponsesToolChoiceToChat(payload["tool_choice"], toolContext); ok {
+			translated["tool_choice"] = toolChoice
+		}
+		copyTranslationField(payload, translated, "parallel_tool_calls")
+	}
 	if maxOutputTokens := intPointerFromAny(payload["max_output_tokens"]); maxOutputTokens != nil {
 		translated["max_completion_tokens"] = *maxOutputTokens
 	}
@@ -107,6 +115,7 @@ func translateChatToResponsesRequest(rawBody []byte, targetModelID string) ([]by
 	if effort := trimmedStringFromAny(payload["reasoning_effort"]); effort != nil {
 		translated["reasoning"] = map[string]any{"effort": *effort}
 	}
+	copyChatToolsToResponses(payload, translated)
 	return marshalTranslatedOpenAIRequest(translated, provider.TranslationModeOpenAIChatCompletionsToResponses)
 }
 
@@ -133,11 +142,6 @@ func rejectResponsesTranslationUnsupportedFields(payload map[string]any) error {
 	if fieldHasValue(payload, "text") {
 		return requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_text")
 	}
-	for _, key := range []string{"tools", "tool_choice", "parallel_tool_calls"} {
-		if fieldHasValue(payload, key) {
-			return requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_"+key)
-		}
-	}
 	return rejectUnsupportedResponsesReasoning(payload["reasoning"])
 }
 
@@ -161,7 +165,7 @@ func rejectChatTranslationUnsupportedFields(payload map[string]any) error {
 	if n := intPointerFromAny(payload["n"]); n != nil && *n > 1 {
 		return requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_multi_choice")
 	}
-	for _, key := range []string{"response_format", "audio", "logprobs", "top_logprobs", "stream_options", "modalities", "prediction", "tools", "tool_choice", "parallel_tool_calls"} {
+	for _, key := range []string{"audio", "logprobs", "top_logprobs", "stream_options", "modalities", "prediction"} {
 		if fieldHasValue(payload, key) {
 			return requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_"+key)
 		}
@@ -169,49 +173,218 @@ func rejectChatTranslationUnsupportedFields(payload map[string]any) error {
 	return nil
 }
 
-func translateResponsesInputToChatMessages(value any) ([]any, error) {
+func translateResponsesInputToChatMessages(value any, toolContext *ToolContext) ([]any, error) {
+	messages := make([]any, 0)
+	pendingToolCalls := make([]any, 0)
+	var pendingReasoning *string
+	flushPendingToolCalls := func() {
+		if len(pendingToolCalls) == 0 {
+			return
+		}
+		message := map[string]any{"role": "assistant", "content": nil, "tool_calls": pendingToolCalls}
+		if pendingReasoning != nil {
+			AppendReasoningContent(message, *pendingReasoning)
+			pendingReasoning = nil
+		} else {
+			AppendReasoningContent(message, "tool call")
+		}
+		messages = append(messages, message)
+		pendingToolCalls = nil
+	}
 	switch typed := value.(type) {
 	case nil:
 		return nil, nil
 	case string:
 		return []any{map[string]any{"role": "user", "content": typed}}, nil
+	case map[string]any:
+		translated, err := translateResponsesInputItemToChatMessages(typed, toolContext, &pendingToolCalls, &pendingReasoning, flushPendingToolCalls)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, translated...)
 	case []any:
-		messages := make([]any, 0, len(typed))
 		for _, item := range typed {
-			translated, err := translateResponsesInputItemToChatMessages(item)
+			itemMap, ok := item.(map[string]any)
+			if !ok {
+				return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_input_item")
+			}
+			translated, err := translateResponsesInputItemToChatMessages(itemMap, toolContext, &pendingToolCalls, &pendingReasoning, flushPendingToolCalls)
 			if err != nil {
 				return nil, err
 			}
 			messages = append(messages, translated...)
 		}
-		return messages, nil
 	default:
 		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_input")
 	}
+	flushPendingToolCalls()
+	return collapseSystemMessagesToHead(messages), nil
 }
 
-func translateResponsesInputItemToChatMessages(value any) ([]any, error) {
-	item, ok := value.(map[string]any)
-	if !ok {
-		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_input_item")
-	}
-	switch strings.ToLower(strings.TrimSpace(stringValue(item["type"]))) {
-	case "message":
+func translateResponsesInputItemToChatMessages(item map[string]any, toolContext *ToolContext, pendingToolCalls *[]any, pendingReasoning **string, flushPendingToolCalls func()) ([]any, error) {
+	itemType := strings.ToLower(strings.TrimSpace(stringValue(item["type"])))
+	switch itemType {
+	case "function_call":
+		appendPendingReasoning(pendingReasoning, ExtractReasoningFieldText(item))
+		*pendingToolCalls = append(*pendingToolCalls, responsesFunctionCallToChatToolCall(item, toolContext))
+		return nil, nil
+	case "custom_tool_call":
+		appendPendingReasoning(pendingReasoning, ExtractReasoningFieldText(item))
+		*pendingToolCalls = append(*pendingToolCalls, responsesCustomToolCallToChatToolCall(item))
+		return nil, nil
+	case "tool_search_call":
+		appendPendingReasoning(pendingReasoning, ExtractReasoningFieldText(item))
+		*pendingToolCalls = append(*pendingToolCalls, responsesToolSearchCallToChatToolCall(item))
+		return nil, nil
+	case "function_call_output", "custom_tool_call_output", "tool_search_output":
+		flushPendingToolCalls()
+		return []any{responsesToolOutputToChatMessage(item)}, nil
+	case "reasoning":
+		appendPendingReasoning(pendingReasoning, ExtractReasoningSummaryText(item))
+		return nil, nil
+	case "input_text", "input_image", "input_file", "input_audio":
+		flushPendingToolCalls()
+		role := responsesRoleToChatRole(stringValue(item["role"]))
+		return []any{map[string]any{"role": role, "content": translateResponsesMessageContentPartsToChat([]any{item}, role)}}, nil
+	case "message", "":
+		flushPendingToolCalls()
 		message, err := translateResponsesMessageToChatMessage(item)
 		if err != nil {
 			return nil, err
 		}
+		if strings.TrimSpace(stringValue(message["role"])) == "assistant" {
+			appendPendingReasoning(pendingReasoning, ExtractReasoningFieldText(item))
+			if *pendingReasoning != nil {
+				AppendReasoningContent(message, **pendingReasoning)
+				*pendingReasoning = nil
+			}
+		}
 		return []any{message}, nil
-	case "input_text":
-		return []any{map[string]any{"role": "user", "content": stringValue(item["text"])}}, nil
-	case "input_image":
-		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_input_image")
-	case "function_call":
-		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_function_call")
-	case "function_call_output":
-		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_function_call_output")
 	default:
+		flushPendingToolCalls()
+		if fieldHasValue(item, "role") || fieldHasValue(item, "content") {
+			message, err := translateResponsesMessageToChatMessage(item)
+			if err != nil {
+				return nil, err
+			}
+			return []any{message}, nil
+		}
 		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_input_type")
+	}
+}
+
+func appendPendingReasoning(target **string, reasoning *ReasoningText) {
+	if reasoning == nil || strings.TrimSpace(reasoning.Text) == "" {
+		return
+	}
+	text := strings.TrimSpace(reasoning.Text)
+	if *target == nil {
+		*target = &text
+		return
+	}
+	combined := strings.TrimSpace(**target) + "\n\n" + text
+	*target = &combined
+}
+
+func responsesFunctionCallToChatToolCall(item map[string]any, toolContext *ToolContext) map[string]any {
+	callID := firstNonEmptyString(item["call_id"], item["id"])
+	name := stringValue(item["name"])
+	chatName := name
+	if toolContext != nil {
+		chatName = toolContext.ChatNameForResponseFunction(name, stringValue(item["namespace"]))
+	}
+	return map[string]any{"id": callID, "type": "function", "function": map[string]any{"name": chatName, "arguments": canonicalToolArguments(item["arguments"])}}
+}
+
+func responsesCustomToolCallToChatToolCall(item map[string]any) map[string]any {
+	callID := firstNonEmptyString(item["call_id"], item["id"])
+	return map[string]any{"id": callID, "type": "function", "function": map[string]any{"name": stringValue(item["name"]), "arguments": canonicalJSONString(map[string]any{customToolInputField: item["input"]})}}
+}
+
+func responsesToolSearchCallToChatToolCall(item map[string]any) map[string]any {
+	callID := firstNonEmptyString(item["call_id"], item["id"])
+	return map[string]any{"id": callID, "type": "function", "function": map[string]any{"name": toolSearchProxyName, "arguments": canonicalToolArguments(item["arguments"])}}
+}
+
+func responsesToolOutputToChatMessage(item map[string]any) map[string]any {
+	content := ""
+	if strings.TrimSpace(stringValue(item["type"])) == "function_call_output" {
+		content = canonicalToolArguments(item["output"])
+	} else {
+		content = canonicalJSONString(item)
+	}
+	return map[string]any{"role": "tool", "tool_call_id": stringValue(item["call_id"]), "content": content}
+}
+
+func translateResponsesToolChoiceToChat(value any, toolContext *ToolContext) (any, bool) {
+	switch typed := value.(type) {
+	case nil:
+		return nil, false
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil, false
+		}
+		return typed, true
+	case map[string]any:
+		switch strings.TrimSpace(stringValue(typed["type"])) {
+		case "function":
+			name := stringValue(typed["name"])
+			if function, _ := typed["function"].(map[string]any); function != nil && name == "" {
+				name = stringValue(function["name"])
+			}
+			chatName := name
+			if toolContext != nil {
+				chatName = toolContext.ChatNameForResponseFunction(name, stringValue(typed["namespace"]))
+			}
+			return map[string]any{"type": "function", "function": map[string]any{"name": chatName}}, true
+		case "custom":
+			return map[string]any{"type": "function", "function": map[string]any{"name": stringValue(typed["name"])}}, true
+		case "tool_search":
+			return map[string]any{"type": "function", "function": map[string]any{"name": toolSearchProxyName}}, true
+		default:
+			return cloneAnyMap(typed), true
+		}
+	default:
+		return typed, true
+	}
+}
+
+func mapsFromAnyMaps(values []map[string]any) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, value)
+	}
+	return out
+}
+
+func collapseSystemMessagesToHead(messages []any) []any {
+	systemParts := make([]string, 0)
+	rest := make([]any, 0, len(messages))
+	for _, raw := range messages {
+		message, _ := raw.(map[string]any)
+		if strings.TrimSpace(stringValue(message["role"])) == "system" {
+			if text := strings.TrimSpace(stringValue(message["content"])); text != "" {
+				systemParts = append(systemParts, text)
+				continue
+			}
+		}
+		rest = append(rest, raw)
+	}
+	if len(systemParts) == 0 {
+		return rest
+	}
+	out := []any{map[string]any{"role": "system", "content": strings.Join(systemParts, "\n\n")}}
+	return append(out, rest...)
+}
+
+func responsesRoleToChatRole(role string) string {
+	switch strings.TrimSpace(role) {
+	case "system", "developer":
+		return "system"
+	case "assistant", "tool":
+		return strings.TrimSpace(role)
+	default:
+		return "user"
 	}
 }
 
@@ -239,23 +412,70 @@ func translateResponsesMessageContentToChat(value any, role string) (any, error)
 				return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_message_part")
 			}
 			switch strings.ToLower(strings.TrimSpace(stringValue(part["type"]))) {
-			case "input_text", "output_text", "text":
-				parts = append(parts, map[string]any{"type": "text", "text": stringValue(part["text"])})
-			case "input_image":
-				return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_input_image")
+			case "input_text", "output_text", "text", "refusal", "input_image", "input_file", "input_audio":
+				parts = append(parts, part)
 			default:
 				return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_message_part_type")
 			}
 		}
-		if len(parts) == 1 {
-			if textPart, ok := parts[0].(map[string]any); ok && len(textPart) == 2 && textPart["type"] == "text" && role != "user" {
-				return stringValue(textPart["text"]), nil
-			}
-		}
-		return parts, nil
+		return translateResponsesMessageContentPartsToChat(parts, role), nil
 	default:
 		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_message_content")
 	}
+}
+
+func translateResponsesMessageContentPartsToChat(parts []any, role string) any {
+	contentParts := make([]ResponsesContentPart, 0, len(parts))
+	for _, rawPart := range parts {
+		part, _ := rawPart.(map[string]any)
+		switch strings.ToLower(strings.TrimSpace(stringValue(part["type"]))) {
+		case "input_text", "output_text", "text":
+			contentParts = append(contentParts, ResponsesContentPart{Kind: ResponsesContentPartKind(strings.TrimSpace(stringValue(part["type"]))), Text: stringValue(part["text"])})
+		case "refusal":
+			contentParts = append(contentParts, ResponsesContentPart{Kind: ResponsesContentPartRefusal, Refusal: stringValue(part["refusal"])})
+		case "input_image":
+			contentParts = append(contentParts, ResponsesContentPart{Kind: ResponsesContentPartInputImage, ImageURL: responseImagePartToChatImageURL(part)})
+		case "input_file":
+			if file := responseFilePartToChatFile(part); len(file) > 0 {
+				contentParts = append(contentParts, ResponsesContentPart{Kind: ResponsesContentPartInputFile, File: file})
+			}
+		case "input_audio":
+			if audio, _ := part["input_audio"].(map[string]any); len(audio) > 0 {
+				contentParts = append(contentParts, ResponsesContentPart{Kind: ResponsesContentPartInputAudio, InputAudio: audio})
+			}
+		}
+	}
+	content := ResponsesContentPartsToChatContent(contentParts)
+	if role != "user" {
+		if text := strings.TrimSpace(stringValue(content)); text != "" {
+			return text
+		}
+	}
+	return content
+}
+
+func responseImagePartToChatImageURL(part map[string]any) map[string]any {
+	switch image := part["image_url"].(type) {
+	case map[string]any:
+		return cloneAnyMap(image)
+	case string:
+		return map[string]any{"url": image}
+	default:
+		if url := stringValue(part["url"]); url != "" {
+			return map[string]any{"url": url}
+		}
+	}
+	return nil
+}
+
+func responseFilePartToChatFile(part map[string]any) map[string]any {
+	file := map[string]any{}
+	for _, key := range []string{"file_id", "file_data", "filename"} {
+		if value, ok := part[key]; ok && value != nil {
+			file[key] = value
+		}
+	}
+	return file
 }
 
 func translateResponsesReasoningEffort(value any) (*string, error) {
@@ -341,26 +561,56 @@ func translateChatMessageToResponsesInput(message map[string]any) ([]any, error)
 	role := strings.TrimSpace(stringValue(message["role"]))
 	switch role {
 	case "user", "assistant", "system", "developer":
-		if fieldHasValue(message, "function_call") {
-			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_legacy_function_call")
-		}
 		content, err := translateChatContentToResponses(message["content"])
 		if err != nil {
 			return nil, err
 		}
 		items := make([]any, 0, 1)
+		if reasoning := ExtractReasoningFieldText(message); reasoning != nil && role == "assistant" {
+			items = append(items, map[string]any{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": reasoning.Text}}})
+		}
 		if content != nil && valueHasMeaning(content) {
-			items = append(items, map[string]any{"type": "message", "role": role, "content": content})
+			messageItem := map[string]any{"type": "message", "role": role, "content": content}
+			items = append(items, messageItem)
 		}
 		if role == "assistant" && fieldHasValue(message, "tool_calls") {
-			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_calls")
+			toolItems, err := translateChatToolCallsToResponses(message["tool_calls"])
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, toolItems...)
+		}
+		if role == "assistant" && fieldHasValue(message, "function_call") {
+			items = append(items, translateChatLegacyFunctionCallToResponses(message["function_call"]))
 		}
 		return items, nil
 	case "tool":
-		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_message")
+		return []any{map[string]any{"type": "function_call_output", "call_id": stringValue(message["tool_call_id"]), "output": message["content"]}}, nil
 	default:
 		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_message_role")
 	}
+}
+
+func translateChatToolCallsToResponses(value any) ([]any, error) {
+	toolCalls, ok := value.([]any)
+	if !ok {
+		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_calls")
+	}
+	items := make([]any, 0, len(toolCalls))
+	for _, rawToolCall := range toolCalls {
+		toolCall, ok := rawToolCall.(map[string]any)
+		if !ok {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_call")
+		}
+		function, _ := toolCall["function"].(map[string]any)
+		items = append(items, map[string]any{"type": "function_call", "status": "completed", "call_id": firstNonEmptyString(toolCall["id"], toolCall["call_id"]), "name": stringValue(function["name"]), "arguments": canonicalToolArguments(function["arguments"])})
+	}
+	return items, nil
+}
+
+func translateChatLegacyFunctionCallToResponses(value any) map[string]any {
+	function, _ := value.(map[string]any)
+	return map[string]any{"type": "function_call", "status": "completed", "call_id": firstNonEmptyString(function["id"], "call_0"), "name": stringValue(function["name"]), "arguments": canonicalToolArguments(function["arguments"])}
 }
 
 func translateChatContentToResponses(value any) (any, error) {
@@ -378,7 +628,15 @@ func translateChatContentToResponses(value any) (any, error) {
 			case isChatTextPart(part):
 				parts = append(parts, map[string]any{"type": "input_text", "text": stringValue(part["text"])})
 			case isChatImagePart(part):
-				return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_image_part")
+				imageURL, _ := part["image_url"].(map[string]any)
+				parts = append(parts, map[string]any{"type": "input_image", "image_url": imageURL})
+			case isChatFilePart(part):
+				file, _ := part["file"].(map[string]any)
+				filePart := map[string]any{"type": "input_file"}
+				copyTranslationField(file, filePart, "file_id", "file_data", "filename")
+				parts = append(parts, filePart)
+			case isChatAudioPart(part):
+				parts = append(parts, map[string]any{"type": "input_audio", "input_audio": part["input_audio"]})
 			default:
 				return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_content_part_type")
 			}
@@ -395,6 +653,62 @@ func isChatTextPart(part map[string]any) bool {
 
 func isChatImagePart(part map[string]any) bool {
 	return strings.TrimSpace(stringValue(part["type"])) == "image_url"
+}
+
+func isChatFilePart(part map[string]any) bool {
+	return strings.TrimSpace(stringValue(part["type"])) == "file"
+}
+
+func isChatAudioPart(part map[string]any) bool {
+	return strings.TrimSpace(stringValue(part["type"])) == "input_audio"
+}
+
+func copyChatToolsToResponses(source map[string]any, target map[string]any) {
+	if tools, ok := translateChatToolsToResponses(source["tools"]); ok {
+		target["tools"] = tools
+	}
+	if choice, ok := translateChatToolChoiceToResponses(source["tool_choice"]); ok {
+		target["tool_choice"] = choice
+	}
+	copyTranslationField(source, target, "parallel_tool_calls", "response_format")
+}
+
+func translateChatToolsToResponses(value any) ([]any, bool) {
+	tools, ok := value.([]any)
+	if !ok || len(tools) == 0 {
+		return nil, false
+	}
+	out := make([]any, 0, len(tools))
+	for _, rawTool := range tools {
+		tool, _ := rawTool.(map[string]any)
+		if strings.TrimSpace(stringValue(tool["type"])) == "function" {
+			function, _ := tool["function"].(map[string]any)
+			responseTool := cloneAnyMap(function)
+			responseTool["type"] = "function"
+			out = append(out, responseTool)
+		}
+	}
+	return out, len(out) > 0
+}
+
+func translateChatToolChoiceToResponses(value any) (any, bool) {
+	switch typed := value.(type) {
+	case nil:
+		return nil, false
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil, false
+		}
+		return typed, true
+	case map[string]any:
+		if strings.TrimSpace(stringValue(typed["type"])) == "function" {
+			function, _ := typed["function"].(map[string]any)
+			return map[string]any{"type": "function", "name": stringValue(function["name"])}, true
+		}
+		return cloneAnyMap(typed), true
+	default:
+		return typed, true
+	}
 }
 
 func firstNonEmptyString(values ...any) string {
