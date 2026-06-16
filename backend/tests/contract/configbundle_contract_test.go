@@ -118,8 +118,8 @@ func TestProfileBundleImportRejectsNonOpenAIFacadeModel(t *testing.T) {
 		"display_name":              "Claude Router",
 		"loadbalance_strategy_name": "Default round robin",
 		"facade_enabled":            true,
-		"facade_selection_policy":   "weighted_eligible_context",
-		"facade_fallback_policy":    "redistribute_ineligible_weight",
+		"facade_selection_policy":   "ordered_eligible_context",
+		"facade_fallback_policy":    "skip_ineligible_targets",
 		"is_enabled":                false,
 		"access_targets":            []any{},
 	})
@@ -158,6 +158,103 @@ func TestProfileBundleImportAllowsSparseAccessTargetPositions(t *testing.T) {
 	reExportedTargets := asMap(t, reExportedModels[0])["access_targets"].([]any)
 	if got := jsonInt(t, asMap(t, reExportedTargets[0])["position"]); got != 4 {
 		t.Fatalf("expected sparse target position 4 to round-trip, got %+v", reExportedTargets)
+	}
+}
+
+func TestProfileBundleImportRejectsObsoleteAccessTargetKeys(t *testing.T) {
+	harness := newConfigBundleV3ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleV3Graph(t, harness, profileID)
+
+	for _, field := range []string{"weight", "target_priority"} {
+		t.Run(field, func(t *testing.T) {
+			payload := exportProfileBundlePayload(t, harness, profileID)
+			models := payload["models"].([]any)
+			firstModel := asMap(t, models[0])
+			accessTargets := firstModel["access_targets"].([]any)
+			asMap(t, accessTargets[0])[field] = float64(1)
+			before := captureProfileImportState(t, harness, profileID)
+			detail := "obsolete access target field at models[0].access_targets[0]." + field
+
+			previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", payload, modelHeader(profileID))
+			assertErrorResponse(t, previewResponse, http.StatusBadRequest, detail)
+
+			importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", payload, modelHeader(profileID))
+			assertErrorResponse(t, importResponse, http.StatusBadRequest, detail)
+			assertProfileImportStateUnchanged(t, harness, profileID, before)
+		})
+	}
+}
+
+func TestProfileBundleAuditAPIFamilySettingsRoundTripAndValidation(t *testing.T) {
+	harness := newConfigBundleV3ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleV3Graph(t, harness, profileID)
+
+	exported := exportProfileBundlePayload(t, harness, profileID)
+	profileSettings := asMap(t, exported["profile_settings"])
+	auditSettings := profileSettings["audit_api_family_settings"].([]any)
+	if len(auditSettings) != 3 || asMap(t, auditSettings[0])["api_family"] != "openai" || asMap(t, auditSettings[1])["api_family"] != "anthropic" || asMap(t, auditSettings[2])["api_family"] != "gemini" {
+		t.Fatalf("expected stable audit api family export order, got %+v", auditSettings)
+	}
+
+	asMap(t, auditSettings[0])["audit_enabled"] = false
+	asMap(t, auditSettings[0])["audit_capture_bodies"] = false
+	asMap(t, auditSettings[1])["audit_enabled"] = true
+	asMap(t, auditSettings[1])["audit_capture_bodies"] = false
+	asMap(t, auditSettings[2])["audit_enabled"] = true
+	asMap(t, auditSettings[2])["audit_capture_bodies"] = true
+	previewPayload := previewProfileImportPayload(t, harness, profileID, exported)
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", exported, configBundleHeadersWithPreviewToken(modelHeader(profileID), previewPayload["preview_token"].(string)))
+	assertStatus(t, importResponse, http.StatusOK)
+	assertConfigBundleStoredAuditAPIFamilySettings(t, harness, profileID, []storedAuditAPIFamilySetting{
+		{family: "openai", enabled: false, captureBodies: false},
+		{family: "anthropic", enabled: true, captureBodies: false},
+		{family: "gemini", enabled: true, captureBodies: true},
+	})
+
+	invalidCases := []struct {
+		name   string
+		mutate func(map[string]any)
+		detail string
+	}{
+		{
+			name: "unknown family",
+			mutate: func(payload map[string]any) {
+				settings := asMap(t, payload["profile_settings"])["audit_api_family_settings"].([]any)
+				asMap(t, settings[1])["api_family"] = "mistral"
+			},
+			detail: `profile_settings.audit_api_family_settings api_family "mistral" is not supported`,
+		},
+		{
+			name: "duplicate family",
+			mutate: func(payload map[string]any) {
+				settings := asMap(t, payload["profile_settings"])["audit_api_family_settings"].([]any)
+				asMap(t, settings[1])["api_family"] = "openai"
+			},
+			detail: "Duplicate profile_settings.audit_api_family_settings entry for api_family=openai",
+		},
+		{
+			name: "capture requires enabled",
+			mutate: func(payload map[string]any) {
+				settings := asMap(t, payload["profile_settings"])["audit_api_family_settings"].([]any)
+				asMap(t, settings[0])["audit_enabled"] = false
+				asMap(t, settings[0])["audit_capture_bodies"] = true
+			},
+			detail: "profile_settings.audit_api_family_settings audit_capture_bodies requires audit_enabled",
+		},
+	}
+	for _, test := range invalidCases {
+		t.Run(test.name, func(t *testing.T) {
+			payload := exportProfileBundlePayload(t, harness, profileID)
+			test.mutate(payload)
+			before := captureProfileImportState(t, harness, profileID)
+			previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", payload, modelHeader(profileID))
+			assertErrorResponse(t, previewResponse, http.StatusBadRequest, test.detail)
+			importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", payload, modelHeader(profileID))
+			assertErrorResponse(t, importResponse, http.StatusBadRequest, test.detail)
+			assertProfileImportStateUnchanged(t, harness, profileID, before)
+		})
 	}
 }
 
@@ -449,6 +546,7 @@ func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID i
 		`DELETE FROM pricing_templates WHERE profile_id = $1`,
 		`DELETE FROM loadbalance_strategies WHERE profile_id = $1`,
 		`DELETE FROM endpoints WHERE profile_id = $1`,
+		`DELETE FROM profile_api_family_audit_settings WHERE profile_id = $1`,
 		`DELETE FROM header_blocklist_rules WHERE profile_id = $1 AND is_system = FALSE`,
 		`DELETE FROM user_agent_client_rules WHERE profile_id = $1 AND is_system = FALSE`,
 	} {
@@ -490,6 +588,19 @@ func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID i
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO endpoint_fx_rate_settings (profile_id, model_id, endpoint_id, fx_rate, created_at, updated_at) VALUES ($1, 'gpt-4o-mini', $2, '1.000000', $3, $3)`, profileID, endpointID, now); err != nil {
 		t.Fatalf("insert fx mapping: %v", err)
+	}
+	for _, setting := range []struct {
+		family        string
+		enabled       bool
+		captureBodies bool
+	}{
+		{family: "openai", enabled: true, captureBodies: true},
+		{family: "anthropic", enabled: false, captureBodies: false},
+		{family: "gemini", enabled: true, captureBodies: false},
+	} {
+		if _, err := harness.conn.Exec(context.Background(), `INSERT INTO profile_api_family_audit_settings (profile_id, api_family, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)`, profileID, setting.family, setting.enabled, setting.captureBodies, now); err != nil {
+			t.Fatalf("insert audit api family setting %s: %v", setting.family, err)
+		}
 	}
 
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO header_blocklist_rules (profile_id, name, match_type, pattern, enabled, is_system, created_at, updated_at) VALUES ($1, 'Authorization', 'exact', 'authorization', TRUE, FALSE, $2, $2)`, profileID, now); err != nil {
@@ -536,10 +647,10 @@ func seedConfigBundleFacadeRoutingModel(t *testing.T, harness *contractHarness, 
 		t.Fatalf("load facade routing fixture references: %v", err)
 	}
 	var routerModelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-router', 'GPT 4o Router', $2, TRUE, 'weighted_eligible_context', 'redistribute_ineligible_weight', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&routerModelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-router', 'GPT 4o Router', $2, TRUE, 'ordered_eligible_context', 'skip_ineligible_targets', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&routerModelConfigID); err != nil {
 		t.Fatalf("insert facade routing model: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, 9, 4, TRUE, $4, $4)`, profileID, routerModelConfigID, targetModelConfigID, now); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, TRUE, $4, $4)`, profileID, routerModelConfigID, targetModelConfigID, now); err != nil {
 		t.Fatalf("insert facade routing model target: %v", err)
 	}
 }
@@ -608,6 +719,25 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	if len(fxMappings) != 1 || asMap(t, fxMappings[0])["connection_ref"] != connectionRef {
 		t.Fatalf("expected v3 FX mapping keyed by connection_ref, got %+v", settings)
 	}
+	auditSettings := settings["audit_api_family_settings"].([]any)
+	if len(auditSettings) != 3 {
+		t.Fatalf("expected three audit api family settings, got %+v", settings)
+	}
+	wantAuditSettings := []struct {
+		family        string
+		enabled       bool
+		captureBodies bool
+	}{
+		{family: "openai", enabled: true, captureBodies: true},
+		{family: "anthropic", enabled: false, captureBodies: false},
+		{family: "gemini", enabled: true, captureBodies: false},
+	}
+	for index, want := range wantAuditSettings {
+		setting := asMap(t, auditSettings[index])
+		if setting["api_family"] != want.family || setting["audit_enabled"] != want.enabled || setting["audit_capture_bodies"] != want.captureBodies {
+			t.Fatalf("expected audit setting %d to be %+v, got %+v", index, want, setting)
+		}
+	}
 }
 
 func findProfileBundleModelByID(t *testing.T, payload map[string]any, modelID string) map[string]any {
@@ -662,12 +792,19 @@ type profileImportStateSnapshot struct {
 	ModelCount           int
 	ConnectionCount      int
 	AccessTargetCount    int
+	AuditSettingCount    int
 	HeaderRuleCount      int
 	UserAgentRuleCount   int
 	FXMappingCount       int
 	EndpointBaseURL      string
 	HeaderRulePattern    string
 	UserAgentPattern     string
+}
+
+type storedAuditAPIFamilySetting struct {
+	family        string
+	enabled       bool
+	captureBodies bool
 }
 
 func exportProfileBundlePayload(t *testing.T, harness *contractHarness, profileID int) map[string]any {
@@ -785,6 +922,9 @@ func captureProfileImportState(t *testing.T, harness *contractHarness, profileID
 	if err := harness.conn.QueryRow(ctx, `SELECT COUNT(*) FROM model_access_targets WHERE profile_id = $1`, profileID).Scan(&state.AccessTargetCount); err != nil {
 		t.Fatalf("count access targets for profile import snapshot: %v", err)
 	}
+	if err := harness.conn.QueryRow(ctx, `SELECT COUNT(*) FROM profile_api_family_audit_settings WHERE profile_id = $1`, profileID).Scan(&state.AuditSettingCount); err != nil {
+		t.Fatalf("count audit api family settings for profile import snapshot: %v", err)
+	}
 	if err := harness.conn.QueryRow(ctx, `SELECT COUNT(*) FROM header_blocklist_rules WHERE profile_id = $1 AND is_system = FALSE`, profileID).Scan(&state.HeaderRuleCount); err != nil {
 		t.Fatalf("count header rules for profile import snapshot: %v", err)
 	}
@@ -811,6 +951,34 @@ func assertProfileImportStateUnchanged(t *testing.T, harness *contractHarness, p
 	after := captureProfileImportState(t, harness, profileID)
 	if after != before {
 		t.Fatalf("expected rejected profile import to preserve state, before=%+v after=%+v", before, after)
+	}
+}
+
+func assertConfigBundleStoredAuditAPIFamilySettings(t *testing.T, harness *contractHarness, profileID int, want []storedAuditAPIFamilySetting) {
+	t.Helper()
+	rows, err := harness.conn.Query(context.Background(), `SELECT api_family, audit_enabled, audit_capture_bodies FROM profile_api_family_audit_settings WHERE profile_id = $1 ORDER BY CASE api_family WHEN 'openai' THEN 1 WHEN 'anthropic' THEN 2 WHEN 'gemini' THEN 3 ELSE 4 END`, profileID)
+	if err != nil {
+		t.Fatalf("query stored audit api family settings: %v", err)
+	}
+	defer rows.Close()
+	got := make([]storedAuditAPIFamilySetting, 0, len(want))
+	for rows.Next() {
+		var setting storedAuditAPIFamilySetting
+		if err := rows.Scan(&setting.family, &setting.enabled, &setting.captureBodies); err != nil {
+			t.Fatalf("scan stored audit api family setting: %v", err)
+		}
+		got = append(got, setting)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate stored audit api family settings: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d stored audit api family settings, got %+v", len(want), got)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("expected stored audit api family setting %d to be %+v, got %+v", index, want[index], got[index])
+		}
 	}
 }
 
@@ -928,7 +1096,7 @@ func TestConfigBundleFacadeAndTargetMetadataRoundTrip(t *testing.T) {
 
 	exported := exportProfileBundlePayload(t, harness, profileID)
 	facadeModel := findProfileBundleModelByID(t, exported, "gpt-4o-router")
-	if facadeModel["facade_enabled"] != true || facadeModel["facade_selection_policy"] != "weighted_eligible_context" || facadeModel["facade_fallback_policy"] != "redistribute_ineligible_weight" {
+	if facadeModel["facade_enabled"] != true || facadeModel["facade_selection_policy"] != "ordered_eligible_context" || facadeModel["facade_fallback_policy"] != "skip_ineligible_targets" {
 		t.Fatalf("expected facade export fields on router model, got %+v", facadeModel)
 	}
 	targets := facadeModel["access_targets"].([]any)
@@ -936,8 +1104,14 @@ func TestConfigBundleFacadeAndTargetMetadataRoundTrip(t *testing.T) {
 		t.Fatalf("expected one facade router access target, got %+v", facadeModel)
 	}
 	target := asMap(t, targets[0])
-	if target["target_type"] != "model" || target["target_model_id"] != "gpt-4o-mini" || jsonInt(t, target["weight"]) != 9 || jsonInt(t, target["target_priority"]) != 4 {
-		t.Fatalf("expected explicit model target weight/priority in export, got %+v", target)
+	if target["target_type"] != "model" || target["target_model_id"] != "gpt-4o-mini" || jsonInt(t, target["position"]) != 0 || target["is_enabled"] != true {
+		t.Fatalf("expected flat ordered model target in export, got %+v", target)
+	}
+	if _, ok := target["weight"]; ok {
+		t.Fatalf("model target export must not include obsolete weight: %+v", target)
+	}
+	if _, ok := target["target_priority"]; ok {
+		t.Fatalf("model target export must not include obsolete target_priority: %+v", target)
 	}
 
 	previewPayload := previewProfileImportPayload(t, harness, profileID, exported)
@@ -947,15 +1121,14 @@ func TestConfigBundleFacadeAndTargetMetadataRoundTrip(t *testing.T) {
 
 	reExported := exportProfileBundlePayload(t, harness, profileID)
 	reExportedFacadeModel := findProfileBundleModelByID(t, reExported, "gpt-4o-router")
-	if reExportedFacadeModel["facade_enabled"] != true || reExportedFacadeModel["facade_selection_policy"] != "weighted_eligible_context" || reExportedFacadeModel["facade_fallback_policy"] != "redistribute_ineligible_weight" {
+	if reExportedFacadeModel["facade_enabled"] != true || reExportedFacadeModel["facade_selection_policy"] != "ordered_eligible_context" || reExportedFacadeModel["facade_fallback_policy"] != "skip_ineligible_targets" {
 		t.Fatalf("expected facade fields to round-trip, got %+v", reExportedFacadeModel)
 	}
 	reExportedTarget := asMap(t, reExportedFacadeModel["access_targets"].([]any)[0])
-	if jsonInt(t, reExportedTarget["weight"]) != 9 || jsonInt(t, reExportedTarget["target_priority"]) != 4 {
-		t.Fatalf("expected model target metadata to round-trip, got %+v", reExportedTarget)
+	if reExportedTarget["target_type"] != "model" || reExportedTarget["target_model_id"] != "gpt-4o-mini" || jsonInt(t, reExportedTarget["position"]) != 0 || reExportedTarget["is_enabled"] != true {
+		t.Fatalf("expected flat ordered model target to round-trip, got %+v", reExportedTarget)
 	}
-	assertConfigBundleStoredFacadeModel(t, harness, profileID, "gpt-4o-router", true, "weighted_eligible_context", "redistribute_ineligible_weight")
-	assertConfigBundleStoredModelTargetMetadata(t, harness, profileID, "gpt-4o-router", "gpt-4o-mini", 9, 4)
+	assertConfigBundleStoredFacadeModel(t, harness, profileID, "gpt-4o-router", true, "ordered_eligible_context", "skip_ineligible_targets")
 }
 
 func TestConfigBundleLegacyFacadeAndTargetMetadataDefaults(t *testing.T) {
@@ -991,11 +1164,13 @@ func TestConfigBundleLegacyFacadeAndTargetMetadataDefaults(t *testing.T) {
 		t.Fatalf("expected legacy missing facade fields to re-export as explicit disabled/null values, got %+v", routerModel)
 	}
 	routerTarget := asMap(t, routerModel["access_targets"].([]any)[0])
-	if jsonInt(t, routerTarget["weight"]) != 1 || jsonInt(t, routerTarget["target_priority"]) != 0 {
-		t.Fatalf("expected legacy missing model target metadata to re-export with defaults, got %+v", routerTarget)
+	if _, ok := routerTarget["weight"]; ok {
+		t.Fatalf("legacy model target export must not include obsolete weight: %+v", routerTarget)
+	}
+	if _, ok := routerTarget["target_priority"]; ok {
+		t.Fatalf("legacy model target export must not include obsolete target_priority: %+v", routerTarget)
 	}
 	assertConfigBundleStoredFacadeModel(t, harness, profileID, "gpt-4o-router", false, "", "")
-	assertConfigBundleStoredModelTargetMetadata(t, harness, profileID, "gpt-4o-router", "gpt-4o-mini", 1, 0)
 }
 
 func assertConfigBundlePreferredContextStored(t *testing.T, harness *contractHarness, profileID int, wantModel float64, wantConnection float64) {
@@ -1040,18 +1215,6 @@ func assertConfigBundleStoredFacadeModel(t *testing.T, harness *contractHarness,
 		}
 	} else if !facadeFallbackPolicy.Valid || facadeFallbackPolicy.String != wantFallbackPolicy {
 		t.Fatalf("expected stored facade_fallback_policy=%q for model %q, got %+v", wantFallbackPolicy, modelID, facadeFallbackPolicy)
-	}
-}
-
-func assertConfigBundleStoredModelTargetMetadata(t *testing.T, harness *contractHarness, profileID int, sourceModelID string, targetModelID string, wantWeight int, wantTargetPriority int) {
-	t.Helper()
-	var weight int
-	var targetPriority int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT model_access_targets.weight, model_access_targets.target_priority FROM model_access_targets JOIN model_configs AS source_models ON source_models.id = model_access_targets.source_model_config_id JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND source_models.model_id = $2 AND target_models.model_id = $3 LIMIT 1`, profileID, sourceModelID, targetModelID).Scan(&weight, &targetPriority); err != nil {
-		t.Fatalf("load stored model target metadata %q -> %q: %v", sourceModelID, targetModelID, err)
-	}
-	if weight != wantWeight || targetPriority != wantTargetPriority {
-		t.Fatalf("expected stored model target metadata weight=%d target_priority=%d for %q -> %q, got weight=%d target_priority=%d", wantWeight, wantTargetPriority, sourceModelID, targetModelID, weight, targetPriority)
 	}
 }
 

@@ -49,8 +49,6 @@ type accessTargetRecord struct {
 	TargetModelConfigID *int
 	TargetConnectionID  *int
 	Position            int
-	Weight              *int
-	TargetPriority      *int
 	IsEnabled           bool
 	TargetModel         *modelRecord
 	Connection          *connectionTargetSummary
@@ -59,13 +57,11 @@ type accessTargetRecord struct {
 }
 
 type resolvedAccessTarget struct {
-	TargetType     string
-	Position       int
-	Weight         int
-	TargetPriority int
-	IsEnabled      bool
-	Model          *modelRecord
-	Connection     *connectionTargetSummary
+	TargetType string
+	Position   int
+	IsEnabled  bool
+	Model      *modelRecord
+	Connection *connectionTargetSummary
 }
 
 type preservedConnectionAccessTarget struct {
@@ -391,7 +387,7 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 	for _, modelID := range modelIDs {
 		args = append(args, modelID)
 	}
-	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.weight, model_access_targets.target_priority, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.context_window_tokens, target_models.default_output_token_reserve, target_models.max_context_utilization, target_models.preferred_context_utilization_threshold, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.context_overflow_promotion_target_id, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.context_window_tokens, target_models.default_output_token_reserve, target_models.max_context_utilization, target_models.preferred_context_utilization_threshold, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.context_overflow_promotion_target_id, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query model access targets for profile %d: %w", profileID, err)
@@ -403,8 +399,6 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 		var targetModelID int
 		record := accessTargetRecord{TargetType: "model"}
 		target := modelRecord{}
-		var weight sql.NullInt32
-		var targetPriority sql.NullInt32
 		var displayName sql.NullString
 		var loadbalanceStrategyID sql.NullInt32
 		var contextWindowTokens sql.NullInt32
@@ -412,11 +406,9 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
 		var contextOverflowPromotionTargetID sql.NullString
-		if err := rows.Scan(&record.ID, &record.ProfileID, &record.SourceModelConfigID, &targetModelID, &record.Position, &weight, &targetPriority, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt, &target.ID, &target.ProfileID, &target.APIFamily, &target.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &target.DefaultOutputTokenReserve, &target.MaxContextUtilization, &preferredContextUtilizationThreshold, &target.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &target.IsEnabled, &target.CreatedAt, &target.UpdatedAt); err != nil {
+		if err := rows.Scan(&record.ID, &record.ProfileID, &record.SourceModelConfigID, &targetModelID, &record.Position, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt, &target.ID, &target.ProfileID, &target.APIFamily, &target.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &target.DefaultOutputTokenReserve, &target.MaxContextUtilization, &preferredContextUtilizationThreshold, &target.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &target.IsEnabled, &target.CreatedAt, &target.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan model access target: %w", err)
 		}
-		record.Weight = nullableInt32(weight)
-		record.TargetPriority = nullableInt32(targetPriority)
 		target.DisplayName = nullableStringValue(displayName)
 		target.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
 		target.ContextWindowTokens = nullableInt32(contextWindowTokens)
@@ -439,7 +431,7 @@ func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecuto
 	for _, modelID := range modelIDs {
 		args = append(args, modelID)
 	}
-	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.weight, model_access_targets.target_priority, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.context_window_tokens_overridden, connections.default_output_token_reserve, connections.default_output_token_reserve_overridden, connections.max_context_utilization, connections.max_context_utilization_overridden, connections.preferred_context_utilization_threshold, connections.preferred_context_utilization_threshold_overridden, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.context_window_tokens_overridden, connections.default_output_token_reserve, connections.default_output_token_reserve_overridden, connections.max_context_utilization, connections.max_context_utilization_overridden, connections.preferred_context_utilization_threshold, connections.preferred_context_utilization_threshold_overridden, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query connection access targets for profile %d: %w", profileID, err)
@@ -547,7 +539,7 @@ func resolvedAccessTargetsFromModelRouting(targets []modelrouting.ResolvedAccess
 				continue
 			}
 			modelCopy := model
-			items = append(items, resolvedAccessTarget{TargetType: "model", Position: target.Position, Weight: target.Weight, TargetPriority: target.TargetPriority, IsEnabled: target.IsEnabled, Model: &modelCopy})
+			items = append(items, resolvedAccessTarget{TargetType: "model", Position: target.Position, IsEnabled: target.IsEnabled, Model: &modelCopy})
 		case modelrouting.IsTerminalTargetType(target.TargetType) && target.TerminalTargetID != nil:
 			connection, ok := connectionsByID[*target.TerminalTargetID]
 			if !ok {
@@ -637,7 +629,7 @@ func replaceAccessTargetsPreservingConnections(ctx context.Context, tx pgx.Tx, s
 			if target.Model == nil {
 				return fmt.Errorf("replace access targets for model %d: missing model target", sourceModelConfigID)
 			}
-			if _, err := tx.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, $5, $6, $7, $8, $8)`, sourceProfileID, sourceModelConfigID, target.Model.ID, target.Position, target.Weight, target.TargetPriority, target.IsEnabled, currentTime); err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, $5, $6, $6)`, sourceProfileID, sourceModelConfigID, target.Model.ID, target.Position, target.IsEnabled, currentTime); err != nil {
 				return mapAccessTargetWriteError(err, sourceModelConfigID)
 			}
 			continue
@@ -785,7 +777,7 @@ func updateAccessTargetMetadata(ctx context.Context, exec queryExecutor, profile
 		if item.Request.IsEnabled != nil {
 			enabled = *item.Request.IsEnabled
 		}
-		commandTag, err := exec.Exec(ctx, `UPDATE model_access_targets SET position = $4, weight = $5, target_priority = $6, is_enabled = $7, updated_at = $8 WHERE profile_id = $1 AND source_model_config_id = $2 AND id = $3`, profileID, modelConfigID, item.ID, item.Request.Position, nullableInt(item.Request.Weight), nullableInt(item.Request.TargetPriority), enabled, currentTime)
+		commandTag, err := exec.Exec(ctx, `UPDATE model_access_targets SET position = $4, is_enabled = $5, updated_at = $6 WHERE profile_id = $1 AND source_model_config_id = $2 AND id = $3`, profileID, modelConfigID, item.ID, item.Request.Position, enabled, currentTime)
 		if err != nil {
 			return fmt.Errorf("update model access target %d metadata: %w", item.ID, err)
 		}
@@ -905,16 +897,12 @@ func scanStrategyRecord(scanner interface{ Scan(...any) error }) (strategyRecord
 
 func scanConnectionAccessTargetRecord(scanner interface{ Scan(...any) error }) (accessTargetRecord, error) {
 	var connectionID int
-	var weight sql.NullInt32
-	var targetPriority sql.NullInt32
 	record := accessTargetRecord{TargetType: "connection"}
-	connection, err := scanConnectionTargetSummaryWithPrefix(scanner, []any{&record.ID, &record.ProfileID, &record.SourceModelConfigID, &connectionID, &record.Position, &weight, &targetPriority, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt})
+	connection, err := scanConnectionTargetSummaryWithPrefix(scanner, []any{&record.ID, &record.ProfileID, &record.SourceModelConfigID, &connectionID, &record.Position, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt})
 	if err != nil {
 		return accessTargetRecord{}, fmt.Errorf("scan connection access target: %w", err)
 	}
 	record.TargetConnectionID = intPtr(connectionID)
-	record.Weight = nullableInt32(weight)
-	record.TargetPriority = nullableInt32(targetPriority)
 	record.Connection = &connection
 	return record, nil
 }
@@ -1058,7 +1046,7 @@ func accessTargetResponsesFromRecords(records []accessTargetRecord) []modelAcces
 	sortAccessTargetRecords(ordered)
 	items := make([]modelAccessTargetResponse, 0, len(ordered))
 	for _, record := range ordered {
-		response := modelAccessTargetResponse{ID: record.ID, TargetType: record.TargetType, TargetModelID: stringPtrFromModelRecord(record.TargetModel), ConnectionID: copyIntPtr(record.TargetConnectionID), TerminalTargetID: copyIntPtr(record.TargetConnectionID), Position: record.Position, Weight: copyIntPtr(record.Weight), TargetPriority: copyIntPtr(record.TargetPriority), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+		response := modelAccessTargetResponse{ID: record.ID, TargetType: record.TargetType, TargetModelID: stringPtrFromModelRecord(record.TargetModel), ConnectionID: copyIntPtr(record.TargetConnectionID), TerminalTargetID: copyIntPtr(record.TargetConnectionID), Position: record.Position, IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 		if record.TargetModel != nil {
 			response.TargetModel = modelTargetSummaryFromRecord(*record.TargetModel)
 		}
@@ -1085,7 +1073,7 @@ func accessTargetRequestsFromRecords(records []accessTargetRecord) []modelAccess
 	items := make([]modelAccessTargetRequest, 0, len(ordered))
 	for _, record := range ordered {
 		enabled := record.IsEnabled
-		request := modelAccessTargetRequest{TargetType: record.TargetType, Position: record.Position, Weight: copyIntPtr(record.Weight), TargetPriority: copyIntPtr(record.TargetPriority), IsEnabled: &enabled}
+		request := modelAccessTargetRequest{TargetType: record.TargetType, Position: record.Position, IsEnabled: &enabled}
 		if record.TargetType == "model" && record.TargetModel != nil {
 			modelID := record.TargetModel.ModelID
 			request.TargetModelID = &modelID

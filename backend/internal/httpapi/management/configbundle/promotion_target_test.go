@@ -89,8 +89,8 @@ func TestBundlePreviewRejectsDisabledPromotionTarget(t *testing.T) {
 func TestBundlePreviewRejectsFacadePromotionTarget(t *testing.T) {
 	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_preview_rejects_facade_promotion_target", func(request *profileImportRequest) {
 		request.Models[1].FacadeEnabled = true
-		request.Models[1].FacadeSelectionPolicy = stringPtr(facadeSelectionPolicyWeightedEligibleContext)
-		request.Models[1].FacadeFallbackPolicy = stringPtr(facadeFallbackPolicyRedistributeIneligibleWeight)
+		request.Models[1].FacadeSelectionPolicy = stringPtr(facadeSelectionPolicyOrderedEligibleContext)
+		request.Models[1].FacadeFallbackPolicy = stringPtr(facadeFallbackPolicySkipIneligibleTargets)
 	}, promotionTargetValidationCodeFacade, "context_overflow_promotion_target_id must reference a non-facade model")
 }
 
@@ -158,7 +158,7 @@ func TestBundleImportRejectsPromotionMaxDepth(t *testing.T) {
 func TestBundleImportRejectsSameTerminalPromotionTarget(t *testing.T) {
 	assertPreviewAndImportPromotionTargetFailure(t, "configbundle_import_rejects_same_terminal_promotion_target", func(request *profileImportRequest) {
 		request.Connections = request.Connections[1:]
-		request.Models[0].AccessTargets = []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "model", TargetModelID: stringPtr("target-large"), Weight: intPtr(1)}}
+		request.Models[0].AccessTargets = []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "model", TargetModelID: stringPtr("target-large")}}
 	}, promotionTargetValidationCodeSameTerminal, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model")
 }
 
@@ -271,6 +271,16 @@ func validPromotionTargetBundleRequest() profileImportRequest {
 		Models: []modelExport{
 			{APIFamily: "openai", ModelID: "source-small", DisplayName: stringPtr("Source Small"), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(8_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), ContextOverflowPromotionTargetID: stringPtr("target-large"), IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr("source-conn")}}},
 			{APIFamily: "openai", ModelID: "target-large", DisplayName: stringPtr("Target Large"), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(16_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr("target-conn")}}},
+		},
+		ProfileSettings: &profileSettingsExport{
+			ReportCurrencyCode:   "USD",
+			ReportCurrencySymbol: "$",
+			AuditAPIFamilySettings: []auditAPIFamilySettingExport{
+				{APIFamily: "openai", AuditEnabled: true, AuditCaptureBodies: false},
+				{APIFamily: "anthropic", AuditEnabled: false, AuditCaptureBodies: false},
+				{APIFamily: "gemini", AuditEnabled: false, AuditCaptureBodies: false},
+			},
+			AuditAPIFamilySettingsIsSet: true,
 		},
 		HeaderBlocklistRules: []headerBlocklistRuleExport{},
 		UserAgentClientRules: []userAgentClientRuleExport{},

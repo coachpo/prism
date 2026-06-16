@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -34,8 +35,8 @@ type routingPlanValidationIssue struct {
 }
 
 const (
-	facadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
-	facadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
+	facadeSelectionPolicyOrderedEligibleContext = "ordered_eligible_context"
+	facadeFallbackPolicySkipIneligibleTargets   = "skip_ineligible_targets"
 	facadeEnabledRequiresOpenAIDetail                = "facade_enabled requires api_family 'openai'"
 	nestedFacadesNotSupportedDetail                  = "nested facades are not supported"
 )
@@ -103,9 +104,9 @@ func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
-	var requestBody modelCreateRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+	requestBody, err := decodeModelCreateRequest(r)
+	if err != nil {
+		writeDecodeError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	normalizeCreateRequest(&requestBody)
@@ -175,9 +176,9 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	var requestBody modelUpdateRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+	requestBody, err := decodeModelUpdateRequest(r)
+	if err != nil {
+		writeDecodeError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	normalizeUpdateRequest(&requestBody)
@@ -431,9 +432,9 @@ func (s *Service) handleCreateModelTarget(w http.ResponseWriter, r *http.Request
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	var requestBody modelAccessTargetCreateRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+	requestBody, err := decodeAccessTargetCreateRequest(r)
+	if err != nil {
+		writeDecodeError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelAccessTargetResponse, error) {
@@ -469,9 +470,9 @@ func (s *Service) handleUpdateModelTarget(w http.ResponseWriter, r *http.Request
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	var requestBody modelAccessTargetUpdateRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+	requestBody, err := decodeAccessTargetUpdateRequest(r)
+	if err != nil {
+		writeDecodeError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelAccessTargetResponse, error) {
@@ -708,7 +709,7 @@ func accessTargetRequestFromCreate(input modelAccessTargetCreateRequest, existin
 	if position < 0 || position > existingCount {
 		return modelAccessTargetRequest{}, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("position must be between 0 and %d", existingCount)}
 	}
-	request := modelAccessTargetRequest{TargetType: targetcompat.NormalizeAccessTargetType(input.TargetType), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, Weight: copyIntPtr(input.Weight), TargetPriority: copyIntPtr(input.TargetPriority), IsEnabled: input.IsEnabled}
+	request := modelAccessTargetRequest{TargetType: targetcompat.NormalizeAccessTargetType(input.TargetType), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, IsEnabled: input.IsEnabled}
 	if err := validatePublicAccessTarget(request); err != nil {
 		return modelAccessTargetRequest{}, err
 	}
@@ -717,7 +718,7 @@ func accessTargetRequestFromCreate(input modelAccessTargetCreateRequest, existin
 
 func accessTargetRequestFromRecord(record accessTargetRecord) modelAccessTargetRequest {
 	enabled := record.IsEnabled
-	request := modelAccessTargetRequest{TargetType: record.TargetType, Position: record.Position, Weight: copyIntPtr(record.Weight), TargetPriority: copyIntPtr(record.TargetPriority), IsEnabled: &enabled}
+	request := modelAccessTargetRequest{TargetType: record.TargetType, Position: record.Position, IsEnabled: &enabled}
 	if targetcompat.IsModelAccessTargetType(record.TargetType) && record.TargetModel != nil {
 		request.TargetModelID = stringPtr(record.TargetModel.ModelID)
 	}
@@ -779,18 +780,6 @@ func updateAccessTargetMutationItem(items []accessTargetMutationItem, targetID i
 	if input.ConnectionID.Set || input.TargetConnectionID.Set {
 		return nil, connectionAccessTargetsManagedError()
 	}
-	if input.Weight.Set {
-		if input.Weight.Value == nil {
-			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "weight is required"}
-		}
-		updated.Weight = copyIntPtr(input.Weight.Value)
-	}
-	if input.TargetPriority.Set {
-		if input.TargetPriority.Value == nil {
-			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority is required"}
-		}
-		updated.TargetPriority = copyIntPtr(input.TargetPriority.Value)
-	}
 	if input.IsEnabled.Set {
 		updated.IsEnabled = &input.IsEnabled.Value
 	}
@@ -850,12 +839,6 @@ func accessTargetRequestsFromMutationItems(items []accessTargetMutationItem) []m
 func updateConnectionAccessTargetMutationItem(items []accessTargetMutationItem, targetID int, index int, input modelAccessTargetUpdateRequest) ([]accessTargetMutationItem, error) {
 	if input.TargetType.Set || input.TargetModelID.Set || input.ConnectionID.Set || input.TargetConnectionID.Set {
 		return nil, connectionAccessTargetsManagedError()
-	}
-	if input.Weight.Set && input.Weight.Value != nil {
-		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be omitted for terminal targets"}
-	}
-	if input.TargetPriority.Set && input.TargetPriority.Value != nil {
-		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be omitted for terminal targets"}
 	}
 	if input.IsEnabled.Set {
 		items[index].Request.IsEnabled = &input.IsEnabled.Value
@@ -1370,11 +1353,11 @@ func requiredContextCapabilityFieldError(fieldName string) error {
 }
 
 func validateFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
-	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyWeightedEligibleContext {
-		return routingPlanValidationIssueError("facade_selection_policy_invalid", "facade_selection_policy", "facade_selection_policy must be 'weighted_eligible_context'")
+	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyOrderedEligibleContext {
+		return routingPlanValidationIssueError("facade_selection_policy_invalid", "facade_selection_policy", "facade_selection_policy must be 'ordered_eligible_context'")
 	}
-	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicyRedistributeIneligibleWeight {
-		return routingPlanValidationIssueError("facade_fallback_policy_invalid", "facade_fallback_policy", "facade_fallback_policy must be 'redistribute_ineligible_weight'")
+	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicySkipIneligibleTargets {
+		return routingPlanValidationIssueError("facade_fallback_policy_invalid", "facade_fallback_policy", "facade_fallback_policy must be 'skip_ineligible_targets'")
 	}
 	return nil
 }
@@ -1714,7 +1697,7 @@ func modelRoutingTargetsFromRequests(accessTargets []modelAccessTargetRequest) [
 }
 
 func modelRoutingTargetFromRequest(target modelAccessTargetRequest) modelrouting.AuthoredAccessTarget {
-	return modelrouting.AuthoredAccessTarget{TargetType: target.TargetType, Position: target.Position, IsEnabled: target.IsEnabled, TargetModelID: target.TargetModelID, TerminalTargetID: target.ConnectionID, Weight: target.Weight, TargetPriority: target.TargetPriority}
+	return modelrouting.AuthoredAccessTarget{TargetType: target.TargetType, Position: target.Position, IsEnabled: target.IsEnabled, TargetModelID: target.TargetModelID, TerminalTargetID: target.ConnectionID}
 }
 
 func modelRoutingValidationOptions() modelrouting.ValidationOptions {
@@ -1775,8 +1758,80 @@ func joinModelIDs(records []modelRecord) string {
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
+	body, err := readJSONBody(request)
+	if err != nil {
+		return err
+	}
+	return decodeJSONBytes(body, target)
+}
+
+func decodeModelCreateRequest(request *http.Request) (modelCreateRequest, error) {
+	body, err := readJSONBody(request)
+	if err != nil {
+		return modelCreateRequest{}, err
+	}
+	if err := rejectObsoleteModelAccessTargetFields(body); err != nil {
+		return modelCreateRequest{}, err
+	}
+	var target modelCreateRequest
+	if err := decodeJSONBytes(body, &target); err != nil {
+		return modelCreateRequest{}, err
+	}
+	return target, nil
+}
+
+func decodeModelUpdateRequest(request *http.Request) (modelUpdateRequest, error) {
+	body, err := readJSONBody(request)
+	if err != nil {
+		return modelUpdateRequest{}, err
+	}
+	if err := rejectObsoleteModelAccessTargetFields(body); err != nil {
+		return modelUpdateRequest{}, err
+	}
+	var target modelUpdateRequest
+	if err := decodeJSONBytes(body, &target); err != nil {
+		return modelUpdateRequest{}, err
+	}
+	return target, nil
+}
+
+func decodeAccessTargetCreateRequest(request *http.Request) (modelAccessTargetCreateRequest, error) {
+	body, err := readJSONBody(request)
+	if err != nil {
+		return modelAccessTargetCreateRequest{}, err
+	}
+	if err := rejectObsoleteAccessTargetFields(body, ""); err != nil {
+		return modelAccessTargetCreateRequest{}, err
+	}
+	var target modelAccessTargetCreateRequest
+	if err := decodeJSONBytes(body, &target); err != nil {
+		return modelAccessTargetCreateRequest{}, err
+	}
+	return target, nil
+}
+
+func decodeAccessTargetUpdateRequest(request *http.Request) (modelAccessTargetUpdateRequest, error) {
+	body, err := readJSONBody(request)
+	if err != nil {
+		return modelAccessTargetUpdateRequest{}, err
+	}
+	if err := rejectObsoleteAccessTargetFields(body, ""); err != nil {
+		return modelAccessTargetUpdateRequest{}, err
+	}
+	var target modelAccessTargetUpdateRequest
+	if err := decodeJSONBytes(body, &target); err != nil {
+		return modelAccessTargetUpdateRequest{}, err
+	}
+	return target, nil
+}
+
+func readJSONBody(request *http.Request) ([]byte, error) {
 	defer func() { _ = request.Body.Close() }()
-	decoder := json.NewDecoder(request.Body)
+	return io.ReadAll(request.Body)
+}
+
+func decodeJSONBytes(body []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
@@ -1785,6 +1840,45 @@ func decodeJSONBody(request *http.Request, target any) error {
 		return err
 	}
 	return nil
+}
+
+func rejectObsoleteModelAccessTargetFields(body []byte) error {
+	var payload struct {
+		AccessTargets []json.RawMessage `json:"access_targets"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	for index, rawTarget := range payload.AccessTargets {
+		if err := rejectObsoleteAccessTargetFields(rawTarget, fmt.Sprintf("access_targets[%d].", index)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rejectObsoleteAccessTargetFields(body []byte, pathPrefix string) error {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
+	for _, obsoleteField := range []string{"weight", "target_priority"} {
+		if _, ok := payload[obsoleteField]; ok {
+			path := pathPrefix + obsoleteField
+			detail := fmt.Sprintf("%s is obsolete and must be omitted", path)
+			return routingPlanValidationIssueError("obsolete_access_target_field", path, detail)
+		}
+	}
+	return nil
+}
+
+func writeDecodeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
+	var modelErr *domainError
+	if errors.As(err, &modelErr) {
+		writeDomainError(w, r, corsSnapshot, err)
+		return
+	}
+	writeError(w, r, corsSnapshot, http.StatusBadRequest, "Invalid request body")
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {

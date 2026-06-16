@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT MODELS KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/models/` owns selected-profile model configuration routes under `/api/models*`. It manages model CRUD, Release 1 exact-facade model fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), explicit context overflow promotion targets (`context_overflow_promotion_target_id`), public same-family model-target authoring with exact `target_model_id` plus optional `weight` / `target_priority` that default to `1` / `position` when omitted, private connection target preservation/mutation, and model lookups by endpoint for endpoint detail surfaces.
+`management/models/` owns selected-profile model configuration routes under `/api/models*`. It manages model CRUD, Release 1 exact-facade model fields (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), explicit context overflow promotion targets (`context_overflow_promotion_target_id`), public same-family model-target authoring with exact `target_model_id`, `position`, and `is_enabled`, private connection target preservation/mutation, obsolete access-target field rejection, and model lookups by endpoint for endpoint detail surfaces.
 
 ## STRUCTURE
 ```text
@@ -18,7 +18,7 @@ models/
 - Model list/get/create/update/delete and Release 1 exact-facade validation: `routes.go`.
 - Context overflow promotion target validation and persistence: `service.go`, `routes.go`, `store.go`, `promotion_target_test.go`, `store_test.go`.
 - `/models/by-endpoint/{endpoint_id}` and `/models/by-endpoints`: `routes.go`.
-- Access-target validation, exact `target_model_id` model-target metadata (`weight`, `target_priority`), nested-facade rejection, private connection target preservation, vendor links, and strategy links: `routes.go`, `store.go`.
+- Access-target validation, exact `target_model_id` model-target metadata (`position`, `is_enabled`), obsolete `weight` / `target_priority` rejection, nested-facade rejection, private connection target preservation, vendor links, and strategy links: `routes.go`, `store.go`.
 - Model request/response fields for exact-facade authoring, context overflow promotion target IDs, and model-target metadata: `types.go`.
 
 ## CONVENTIONS
@@ -29,7 +29,7 @@ models/
 - Keep model load-balance strategy checks in this package, but strategy CRUD in `loadbalance/`.
 - Keep owner-scoped private connection routes in `connections/`, even when model detail responses include owned private connections.
 - Keep access targets ordered, same-profile, same-family, acyclic, and nested-facade-safe.
-- Keep public model targets requiring exact `target_model_id`; authored `weight` and `target_priority` stay optional and default to `1` / `position` when omitted, while internal connection-owner targets continue to omit weight/priority metadata.
+- Keep public model targets requiring exact `target_model_id`, `position`, and `is_enabled`; obsolete `weight` and `target_priority` payload keys must reject, while internal connection-owner targets keep the same flat ordered shape.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

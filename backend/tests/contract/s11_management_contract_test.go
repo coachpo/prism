@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -142,6 +143,144 @@ func TestTimezoneSettings(t *testing.T) {
 	if payload["timezone_preference"] != nil {
 		t.Fatalf("expected blank timezone preference to clear to null, got %+v", payload)
 	}
+}
+
+func TestAuditSettings(t *testing.T) {
+	harness := newS11ContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+
+	initial := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/audit", nil, modelHeader(defaultProfileID))
+	assertStatus(t, initial, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, initial, &payload)
+	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
+		{"audit_enabled": false, "audit_capture_bodies": false},
+		{"audit_enabled": false, "audit_capture_bodies": false},
+		{"audit_enabled": false, "audit_capture_bodies": false},
+	})
+
+	updated := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		"/api/settings/audit",
+		map[string]any{"settings": []map[string]any{
+			{"api_family": " Gemini ", "audit_enabled": true, "audit_capture_bodies": true},
+			{"api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false},
+			{"api_family": "ANTHROPIC", "audit_enabled": false, "audit_capture_bodies": false},
+		}},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, updated, http.StatusOK)
+	decodeJSONResponse(t, updated, &payload)
+	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
+		{"audit_enabled": true, "audit_capture_bodies": false},
+		{"audit_enabled": false, "audit_capture_bodies": false},
+		{"audit_enabled": true, "audit_capture_bodies": true},
+	})
+	assertAuditSettingsRows(t, harness, defaultProfileID, map[string][2]bool{
+		"openai":    {true, false},
+		"anthropic": {false, false},
+		"gemini":    {true, true},
+	})
+
+	loaded := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/audit", nil, modelHeader(defaultProfileID))
+	assertStatus(t, loaded, http.StatusOK)
+	decodeJSONResponse(t, loaded, &payload)
+	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
+		{"audit_enabled": true, "audit_capture_bodies": false},
+		{"audit_enabled": false, "audit_capture_bodies": false},
+		{"audit_enabled": true, "audit_capture_bodies": true},
+	})
+
+	otherProfileID := s11InsertAuditSettingsProfile(t, harness, "S11 Audit Settings Other")
+	other := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/audit", nil, modelHeader(otherProfileID))
+	assertStatus(t, other, http.StatusOK)
+	decodeJSONResponse(t, other, &payload)
+	assertAuditSettingsPayload(t, payload, otherProfileID, []map[string]bool{
+		{"audit_enabled": false, "audit_capture_bodies": false},
+		{"audit_enabled": false, "audit_capture_bodies": false},
+		{"audit_enabled": false, "audit_capture_bodies": false},
+	})
+
+	invalidRequests := []struct {
+		name   string
+		body   map[string]any
+		detail string
+	}{
+		{
+			name: "unknown family",
+			body: map[string]any{"settings": []map[string]any{
+				{"api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false},
+				{"api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false},
+				{"api_family": "mistral", "audit_enabled": false, "audit_capture_bodies": false},
+			}},
+			detail: `api_family "mistral" is not supported`,
+		},
+		{
+			name: "duplicate family",
+			body: map[string]any{"settings": []map[string]any{
+				{"api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false},
+				{"api_family": "openai", "audit_enabled": false, "audit_capture_bodies": false},
+				{"api_family": "gemini", "audit_enabled": false, "audit_capture_bodies": false},
+			}},
+			detail: "Duplicate audit setting for api_family=openai",
+		},
+		{
+			name: "missing family",
+			body: map[string]any{"settings": []map[string]any{
+				{"api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false},
+				{"api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false},
+			}},
+			detail: "settings must include exactly openai, anthropic, and gemini",
+		},
+		{
+			name: "capture requires enabled",
+			body: map[string]any{"settings": []map[string]any{
+				{"api_family": "openai", "audit_enabled": false, "audit_capture_bodies": true},
+				{"api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false},
+				{"api_family": "gemini", "audit_enabled": false, "audit_capture_bodies": false},
+			}},
+			detail: "audit_capture_bodies requires audit_enabled",
+		},
+	}
+	for _, testCase := range invalidRequests {
+		t.Run(testCase.name, func(t *testing.T) {
+			response := harness.requestJSON(t, harness.client, http.MethodPut, "/api/settings/audit", testCase.body, modelHeader(defaultProfileID))
+			assertErrorResponse(t, response, http.StatusBadRequest, testCase.detail)
+			assertAuditSettingsRows(t, harness, defaultProfileID, map[string][2]bool{
+				"openai":    {true, false},
+				"anthropic": {false, false},
+				"gemini":    {true, true},
+			})
+		})
+	}
+}
+
+func TestAuditSettingsRouteContractProfileScope(t *testing.T) {
+	raw, err := os.ReadFile("../../internal/platform/http/management_route_contract.json")
+	if err != nil {
+		t.Fatalf("read management route contract: %v", err)
+	}
+	var rows []struct {
+		RoutePattern        string   `json:"route_pattern"`
+		Methods             []string `json:"methods"`
+		ProfileScoped       bool     `json:"profile_scoped"`
+		InvalidatesPlanning bool     `json:"invalidates_planning"`
+	}
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatalf("parse management route contract: %v", err)
+	}
+	for _, row := range rows {
+		if row.RoutePattern != "/api/settings/audit" {
+			continue
+		}
+		if !row.ProfileScoped || !row.InvalidatesPlanning || !stringSetEqual(row.Methods, []string{http.MethodGet, http.MethodPut}) {
+			t.Fatalf("unexpected audit settings route contract: %+v", row)
+		}
+		return
+	}
+	t.Fatal("/api/settings/audit route contract entry not found")
 }
 
 func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
@@ -929,6 +1068,89 @@ func s11InsertStrategy(t *testing.T, harness *contractHarness, profileID int, na
 		t.Fatalf("insert loadbalance strategy %q: %v", name, err)
 	}
 	return strategyID
+}
+
+func s11InsertAuditSettingsProfile(t *testing.T, harness *contractHarness, name string) int {
+	t.Helper()
+	now := time.Now().UTC()
+	var profileID int
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, created_at, updated_at) VALUES ($1, NULL, FALSE, FALSE, TRUE, 1, $2, $2) RETURNING id`,
+		name,
+		now,
+	).Scan(&profileID); err != nil {
+		t.Fatalf("insert audit settings profile: %v", err)
+	}
+	return profileID
+}
+
+func assertAuditSettingsPayload(t *testing.T, payload map[string]any, profileID int, want []map[string]bool) {
+	t.Helper()
+	if payload["profile_id"] != float64(profileID) {
+		t.Fatalf("expected profile_id %d, got %+v", profileID, payload)
+	}
+	items := asSliceOfMaps(t, payload["settings"])
+	wantFamilies := []string{"openai", "anthropic", "gemini"}
+	if len(items) != len(wantFamilies) {
+		t.Fatalf("expected three audit settings, got %+v", payload)
+	}
+	for index, family := range wantFamilies {
+		item := items[index]
+		if item["api_family"] != family {
+			t.Fatalf("expected audit families %v, got %+v", wantFamilies, items)
+		}
+		if item["audit_enabled"] != want[index]["audit_enabled"] || item["audit_capture_bodies"] != want[index]["audit_capture_bodies"] {
+			t.Fatalf("unexpected audit setting at %s: got %+v want %+v", family, item, want[index])
+		}
+	}
+}
+
+func assertAuditSettingsRows(t *testing.T, harness *contractHarness, profileID int, want map[string][2]bool) {
+	t.Helper()
+	rows, err := harness.conn.Query(context.Background(), `SELECT api_family, audit_enabled, audit_capture_bodies FROM profile_api_family_audit_settings WHERE profile_id = $1 ORDER BY api_family`, profileID)
+	if err != nil {
+		t.Fatalf("query audit settings rows: %v", err)
+	}
+	defer rows.Close()
+	got := map[string][2]bool{}
+	for rows.Next() {
+		var family string
+		var enabled bool
+		var capture bool
+		if err := rows.Scan(&family, &enabled, &capture); err != nil {
+			t.Fatalf("scan audit settings row: %v", err)
+		}
+		got[family] = [2]bool{enabled, capture}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate audit settings rows: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected audit settings rows %+v, got %+v", want, got)
+	}
+	for family, wantValues := range want {
+		if gotValues, ok := got[family]; !ok || gotValues != wantValues {
+			t.Fatalf("expected audit settings rows %+v, got %+v", want, got)
+		}
+	}
+}
+
+func stringSetEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, value := range left {
+		seen[value]++
+	}
+	for _, value := range right {
+		seen[value]--
+		if seen[value] < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func assertStringList(t *testing.T, raw any, want []string) {

@@ -175,6 +175,49 @@ func TestModelRoutesReturnStablePromotionTargetValidationErrors(t *testing.T) {
 	}
 }
 
+func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
+	ctx, conn, dsn := createPromotionTargetTestDatabase(t, "model_routes_reject_obsolete_access_target_fields")
+	now := time.Date(2026, time.June, 5, 21, 0, 0, 0, time.UTC)
+	source, targetModelID, profileID := seedPromotionTargetScenario(t, ctx, conn, now, promotionTargetScenarioValid)
+	router := newPromotionTargetRouter(t, ctx, dsn, now)
+
+	createResponse := performPromotionTargetModelRequest(t, router, http.MethodPost, "/models", profileID, map[string]any{
+		"api_family":              "openai",
+		"model_id":                "obsolete-create",
+		"loadbalance_strategy_id": source.LoadbalanceStrategyID,
+		"access_targets": []map[string]any{{
+			"target_type":     "model",
+			"target_model_id": targetModelID,
+			"position":        0,
+			"weight":          1,
+		}},
+	})
+	assertObsoleteAccessTargetRouteError(t, createResponse, "access_targets[0].weight")
+
+	updateResponse := performPromotionTargetModelRequest(t, router, http.MethodPut, fmt.Sprintf("/models/%d", source.ID), profileID, map[string]any{
+		"access_targets": []map[string]any{{
+			"target_type":     "model",
+			"target_model_id": targetModelID,
+			"position":        0,
+			"target_priority": 0,
+		}},
+	})
+	assertObsoleteAccessTargetRouteError(t, updateResponse, "access_targets[0].target_priority")
+
+	targetCreateResponse := performPromotionTargetModelRequest(t, router, http.MethodPost, fmt.Sprintf("/models/%d/targets", source.ID), profileID, map[string]any{
+		"target_type":     "model",
+		"target_model_id": targetModelID,
+		"position":        1,
+		"weight":          1,
+	})
+	assertObsoleteAccessTargetRouteError(t, targetCreateResponse, "weight")
+
+	targetPatchResponse := performPromotionTargetModelRequest(t, router, http.MethodPatch, fmt.Sprintf("/models/%d/targets/1", source.ID), profileID, map[string]any{
+		"target_priority": 0,
+	})
+	assertObsoleteAccessTargetRouteError(t, targetPatchResponse, "target_priority")
+}
+
 func assertServicePromotionTargetValidationFailure(t *testing.T, expectedCode string) {
 	t.Helper()
 	ctx, conn, _ := createPromotionTargetTestDatabase(t, "model_service_validation_failure_"+expectedCode)
@@ -216,6 +259,23 @@ func assertPromotionTargetRouteError(t *testing.T, payload modelRouteErrorRespon
 	issue := payload.RoutingPlanIssues[0]
 	if issue.Code != expectedCode || issue.Path != contextOverflowPromotionTargetField || issue.Message != detail {
 		t.Fatalf("unexpected route routing_plan_issue: %+v", issue)
+	}
+}
+
+func assertObsoleteAccessTargetRouteError(t *testing.T, response *httptest.ResponseRecorder, path string) {
+	t.Helper()
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected obsolete field request to fail with 400, got %d: %s", response.Code, response.Body.String())
+	}
+	detail := fmt.Sprintf("%s is obsolete and must be omitted", path)
+	var payload modelRouteErrorResponse
+	decodePromotionTargetJSON(t, response, &payload)
+	if payload.Detail != detail || len(payload.RoutingPlanIssues) != 1 {
+		t.Fatalf("unexpected obsolete field payload: %+v", payload)
+	}
+	issue := payload.RoutingPlanIssues[0]
+	if issue.Code != "obsolete_access_target_field" || issue.Path != path || issue.Message != detail {
+		t.Fatalf("unexpected obsolete field issue: %+v", issue)
 	}
 }
 
@@ -473,8 +533,8 @@ func insertPromotionModel(t *testing.T, ctx context.Context, tx pgx.Tx, profileI
 	selectionPolicy := (*string)(nil)
 	fallbackPolicy := (*string)(nil)
 	if seed.FacadeEnabled {
-		selectionPolicy = stringPtr(facadeSelectionPolicyWeightedEligibleContext)
-		fallbackPolicy = stringPtr(facadeFallbackPolicyRedistributeIneligibleWeight)
+		selectionPolicy = stringPtr(facadeSelectionPolicyOrderedEligibleContext)
+		fallbackPolicy = stringPtr(facadeFallbackPolicySkipIneligibleTargets)
 	}
 	record := modelRecord{
 		ProfileID:                 profileID,
@@ -525,7 +585,7 @@ func insertPromotionConnection(t *testing.T, ctx context.Context, tx pgx.Tx, pro
 
 func insertPromotionModelTarget(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, sourceModelConfigID int, targetModelConfigID int, position int, isEnabled bool, now time.Time) {
 	t.Helper()
-	if _, err := tx.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, 1, $4, $5, $6, $6)`, profileID, sourceModelConfigID, targetModelConfigID, position, isEnabled, now); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, $5, $6, $6)`, profileID, sourceModelConfigID, targetModelConfigID, position, isEnabled, now); err != nil {
 		t.Fatalf("insert model target source=%d target=%d: %v", sourceModelConfigID, targetModelConfigID, err)
 	}
 }

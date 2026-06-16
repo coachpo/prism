@@ -179,6 +179,36 @@ func TestModelsStoreRejectsPromotionTargetOnConnections(t *testing.T) {
 	assertPromotionTargetColumnAbsent(t, ctx, conn, "connections")
 }
 
+func TestModelsStoreUsesFlatAccessTargetsWithoutObsoleteColumns(t *testing.T) {
+	ctx, conn := modelsMigratedConn(t, "models_flat_access_targets")
+	now := time.Date(2026, time.June, 5, 19, 0, 0, 0, time.UTC)
+	profileID := seedModelsStoreProfile(t, ctx, conn, now)
+
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin flat access target transaction: %v", err)
+	}
+	target := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "flat-target", now, nil))
+	source := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "flat-source", now, nil))
+	if err := replaceAccessTargets(ctx, tx, profileID, source.ID, []resolvedAccessTarget{{TargetType: "model", Position: 2, IsEnabled: true, Model: &target}}, now); err != nil {
+		t.Fatalf("replace flat access targets: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit flat access target transaction: %v", err)
+	}
+
+	loaded, err := loadAccessTargetsForModels(ctx, conn, profileID, []int{source.ID})
+	if err != nil {
+		t.Fatalf("load flat access targets: %v", err)
+	}
+	targets := loaded[source.ID]
+	if len(targets) != 1 || targets[0].Position != 2 || !targets[0].IsEnabled || targets[0].TargetModel == nil || targets[0].TargetModel.ModelID != target.ModelID {
+		t.Fatalf("unexpected flat access target records: %+v", targets)
+	}
+	assertAccessTargetColumnAbsent(t, ctx, conn, "weight")
+	assertAccessTargetColumnAbsent(t, ctx, conn, "target_priority")
+}
+
 func mustInsertModelRecord(t *testing.T, ctx context.Context, tx pgx.Tx, record modelRecord) modelRecord {
 	t.Helper()
 	created, err := insertModel(ctx, tx, record)
@@ -252,6 +282,17 @@ func assertPromotionTargetColumnAbsent(t *testing.T, ctx context.Context, conn *
 	}
 	if count != 0 {
 		t.Fatalf("expected %s to reject promotion target ownership, but column exists", tableName)
+	}
+}
+
+func assertAccessTargetColumnAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn, columnName string) {
+	t.Helper()
+	var count int
+	if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'model_access_targets' AND column_name = $1`, columnName).Scan(&count); err != nil {
+		t.Fatalf("query model_access_targets column %s: %v", columnName, err)
+	}
+	if count != 0 {
+		t.Fatalf("expected model_access_targets.%s to be absent", columnName)
 	}
 }
 

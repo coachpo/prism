@@ -1,6 +1,9 @@
 package configbundle
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -17,6 +20,54 @@ type profileImportRequest struct {
 	HeaderBlocklistRules  []headerBlocklistRuleExport `json:"header_blocklist_rules"`
 	UserAgentClientRules  []userAgentClientRuleExport `json:"user_agent_client_rules"`
 	SecretPayload         secretPayloadExport         `json:"secret_payload"`
+}
+
+func (request *profileImportRequest) UnmarshalJSON(data []byte) error {
+	if err := rejectObsoleteImportAccessTargetFields(data); err != nil {
+		return err
+	}
+	type profileImportRequestAlias profileImportRequest
+	var decoded profileImportRequestAlias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	*request = profileImportRequest(decoded)
+	return nil
+}
+
+func rejectObsoleteImportAccessTargetFields(data []byte) error {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return err
+	}
+	modelsRaw, ok := root["models"]
+	if !ok {
+		return nil
+	}
+	var models []map[string]json.RawMessage
+	if err := json.Unmarshal(modelsRaw, &models); err != nil {
+		return nil
+	}
+	for modelIndex, model := range models {
+		targetsRaw, ok := model["access_targets"]
+		if !ok {
+			continue
+		}
+		var targets []map[string]json.RawMessage
+		if err := json.Unmarshal(targetsRaw, &targets); err != nil {
+			continue
+		}
+		for targetIndex, target := range targets {
+			for _, obsoleteField := range []string{"weight", "target_priority"} {
+				if _, ok := target[obsoleteField]; ok {
+					return fmt.Errorf("obsolete access target field at models[%d].access_targets[%d].%s", modelIndex, targetIndex, obsoleteField)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 type profileImportPreviewResponse struct {
@@ -80,15 +131,11 @@ type importedModelPayload struct {
 }
 
 type importedAccessTargetPayload struct {
-	Position               int
-	IsEnabled              bool
-	TargetType             string
-	ConnectionRef          *string
-	TargetModelID          *string
-	Weight                 *int
-	ResolvedWeight         int
-	TargetPriority         *int
-	ResolvedTargetPriority int
+	Position      int
+	IsEnabled     bool
+	TargetType    string
+	ConnectionRef *string
+	TargetModelID *string
 }
 
 type secretPayloadEntryMap map[string]string

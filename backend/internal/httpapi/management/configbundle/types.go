@@ -73,13 +73,11 @@ type modelExport struct {
 }
 
 type accessTargetExport struct {
-	Position       int     `json:"position"`
-	IsEnabled      bool    `json:"is_enabled"`
-	TargetType     string  `json:"target_type"`
-	ConnectionRef  *string `json:"connection_ref"`
-	TargetModelID  *string `json:"target_model_id"`
-	Weight         *int    `json:"weight"`
-	TargetPriority *int    `json:"target_priority"`
+	Position      int     `json:"position"`
+	IsEnabled     bool    `json:"is_enabled"`
+	TargetType    string  `json:"target_type"`
+	ConnectionRef *string `json:"connection_ref"`
+	TargetModelID *string `json:"target_model_id"`
 }
 
 type connectionExport struct {
@@ -125,10 +123,38 @@ func (connection *connectionExport) UnmarshalJSON(data []byte) error {
 }
 
 type profileSettingsExport struct {
-	ReportCurrencyCode   string                    `json:"report_currency_code"`
-	ReportCurrencySymbol string                    `json:"report_currency_symbol"`
-	TimezonePreference   *string                   `json:"timezone_preference"`
-	EndpointFXMappings   []endpointFXMappingExport `json:"endpoint_fx_mappings"`
+	ReportCurrencyCode          string                        `json:"report_currency_code"`
+	ReportCurrencySymbol        string                        `json:"report_currency_symbol"`
+	TimezonePreference          *string                       `json:"timezone_preference"`
+	EndpointFXMappings          []endpointFXMappingExport     `json:"endpoint_fx_mappings"`
+	AuditAPIFamilySettings      []auditAPIFamilySettingExport `json:"audit_api_family_settings"`
+	AuditAPIFamilySettingsIsSet bool                          `json:"-"`
+}
+
+func (settings *profileSettingsExport) UnmarshalJSON(data []byte) error {
+	type profileSettingsExportAlias profileSettingsExport
+	var decoded profileSettingsExportAlias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	decoded.AuditAPIFamilySettingsIsSet = false
+	if _, ok := raw["audit_api_family_settings"]; ok {
+		decoded.AuditAPIFamilySettingsIsSet = true
+	}
+	*settings = profileSettingsExport(decoded)
+	return nil
+}
+
+type auditAPIFamilySettingExport struct {
+	APIFamily          string `json:"api_family"`
+	AuditEnabled       bool   `json:"audit_enabled"`
+	AuditCaptureBodies bool   `json:"audit_capture_bodies"`
 }
 
 type endpointFXMappingExport struct {

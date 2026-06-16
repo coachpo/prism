@@ -101,6 +101,9 @@ func TestProfileBundleV3RoundTrip(t *testing.T) {
 	if request.ProfileSettings == nil {
 		t.Fatal("test bundle must include profile settings")
 	}
+	if len(request.ProfileSettings.AuditAPIFamilySettings) != 3 {
+		t.Fatalf("test bundle must include full audit api family settings, got %+v", request.ProfileSettings.AuditAPIFamilySettings)
+	}
 
 	exported := profileBundleResponse{
 		Version:               request.Version,
@@ -129,6 +132,53 @@ func TestProfileBundleV3RoundTrip(t *testing.T) {
 	}
 	if imported.Version != canonicalProfileBundleVersion || len(imported.Connections) != 1 || len(imported.Models[0].AccessTargets) != 1 {
 		t.Fatalf("expected v3 unified-access shape, got version=%d connections=%d targets=%d", imported.Version, len(imported.Connections), len(imported.Models[0].AccessTargets))
+	}
+	if got := imported.ProfileSettings.AuditAPIFamilySettings; len(got) != 3 || got[0].APIFamily != "openai" || got[1].APIFamily != "anthropic" || got[2].APIFamily != "gemini" {
+		t.Fatalf("expected stable audit api family settings order, got %+v", got)
+	}
+}
+
+func TestProfileBundleImportRejectsObsoleteAccessTargetFields(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+	}{
+		{name: "weight", field: "weight"},
+		{name: "target priority", field: "target_priority"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rawPayload := marshalProfileImportRequestAsMap(t, validProfileBundleV3Request())
+			model := rawPayload["models"].([]any)[0].(map[string]any)
+			target := model["access_targets"].([]any)[0].(map[string]any)
+			target[test.field] = float64(1)
+			raw, err := json.Marshal(rawPayload)
+			if err != nil {
+				t.Fatalf("marshal obsolete access target payload: %v", err)
+			}
+
+			service := &Service{}
+			for _, route := range []string{"/api/config/profile/import/preview", "/api/config/profile/import"} {
+				response := httptest.NewRecorder()
+				service.handlePreviewProfileImport(response, httptest.NewRequest(http.MethodPost, route, bytes.NewReader(raw)))
+				if route == "/api/config/profile/import" {
+					response = httptest.NewRecorder()
+					service.handleImportProfileBundle(response, httptest.NewRequest(http.MethodPost, route, bytes.NewReader(raw)))
+				}
+				if response.Code != http.StatusBadRequest {
+					t.Fatalf("expected obsolete %s to reject with 400 on %s, got status=%d body=%s", test.field, route, response.Code, response.Body.String())
+				}
+				var body map[string]string
+				if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+					t.Fatalf("decode error response: %v", err)
+				}
+				expectedDetail := "obsolete access target field at models[0].access_targets[0]." + test.field
+				if body["detail"] != expectedDetail {
+					t.Fatalf("unexpected obsolete access target rejection detail: %q", body["detail"])
+				}
+			}
+		})
 	}
 }
 
@@ -281,6 +331,55 @@ func TestProfileBundleImportValidatesAccessTargets(t *testing.T) {
 				request.Models[0].AccessTargets[0] = accessTargetExport{Position: 0, IsEnabled: true, TargetType: "model", TargetModelID: stringPtr("missing-model")}
 			},
 			detail: "Model 'gpt-4o-mini' references unknown model access target 'missing-model'",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := validProfileBundleV3Request()
+			test.mutate(&request)
+
+			err := validateProfileImportRequest(request)
+			requireConfigBundleDomainError(t, err, http.StatusBadRequest, test.detail)
+		})
+	}
+}
+
+func TestProfileBundleImportValidatesAuditAPIFamilySettings(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*profileImportRequest)
+		detail string
+	}{
+		{
+			name: "missing audit api family settings",
+			mutate: func(request *profileImportRequest) {
+				request.ProfileSettings.AuditAPIFamilySettingsIsSet = false
+				request.ProfileSettings.AuditAPIFamilySettings = nil
+			},
+			detail: "profile_settings.audit_api_family_settings must include exactly openai, anthropic, and gemini",
+		},
+		{
+			name: "unknown family",
+			mutate: func(request *profileImportRequest) {
+				request.ProfileSettings.AuditAPIFamilySettings[1].APIFamily = "mistral"
+			},
+			detail: `profile_settings.audit_api_family_settings api_family "mistral" is not supported`,
+		},
+		{
+			name: "duplicate family",
+			mutate: func(request *profileImportRequest) {
+				request.ProfileSettings.AuditAPIFamilySettings[1].APIFamily = "openai"
+			},
+			detail: "Duplicate profile_settings.audit_api_family_settings entry for api_family=openai",
+		},
+		{
+			name: "capture requires enabled",
+			mutate: func(request *profileImportRequest) {
+				request.ProfileSettings.AuditAPIFamilySettings[0].AuditEnabled = false
+				request.ProfileSettings.AuditAPIFamilySettings[0].AuditCaptureBodies = true
+			},
+			detail: "profile_settings.audit_api_family_settings audit_capture_bodies requires audit_enabled",
 		},
 	}
 
@@ -500,10 +599,6 @@ func TestProfileBundleImportNormalizesLegacyFacadeAndTargetMetadataDefaults(t *t
 	if len(router.AccessTargets) != 1 {
 		t.Fatalf("expected one normalized router access target, got %+v", router.AccessTargets)
 	}
-	target := router.AccessTargets[0]
-	if target.Weight != nil || target.TargetPriority != nil || target.ResolvedWeight != 1 || target.ResolvedTargetPriority != 0 {
-		t.Fatalf("expected missing legacy model target metadata to default to weight=1 target_priority=position, got %+v", target)
-	}
 }
 
 func TestProfileBundleImportRejectsFacadeConfiguration(t *testing.T) {
@@ -517,24 +612,24 @@ func TestProfileBundleImportRejectsFacadeConfiguration(t *testing.T) {
 			mutate: func(request *profileImportRequest) {
 				request.Models[0].FacadeEnabled = true
 				request.Models[0].FacadeSelectionPolicy = stringPtr("invalid")
-				request.Models[0].FacadeFallbackPolicy = stringPtr("redistribute_ineligible_weight")
+				request.Models[0].FacadeFallbackPolicy = stringPtr("skip_ineligible_targets")
 			},
-			detail: "facade_selection_policy must be 'weighted_eligible_context'",
+			detail: "facade_selection_policy must be 'ordered_eligible_context'",
 		},
 		{
 			name: "invalid fallback policy",
 			mutate: func(request *profileImportRequest) {
 				request.Models[0].FacadeEnabled = true
-				request.Models[0].FacadeSelectionPolicy = stringPtr("weighted_eligible_context")
+				request.Models[0].FacadeSelectionPolicy = stringPtr("ordered_eligible_context")
 				request.Models[0].FacadeFallbackPolicy = stringPtr("invalid")
 			},
-			detail: "facade_fallback_policy must be 'redistribute_ineligible_weight'",
+			detail: "facade_fallback_policy must be 'skip_ineligible_targets'",
 		},
 		{
 			name: "missing selection policy when enabled",
 			mutate: func(request *profileImportRequest) {
 				request.Models[0].FacadeEnabled = true
-				request.Models[0].FacadeFallbackPolicy = stringPtr("redistribute_ineligible_weight")
+				request.Models[0].FacadeFallbackPolicy = stringPtr("skip_ineligible_targets")
 			},
 			detail: "facade_selection_policy is required when facade_enabled is true",
 		},
@@ -542,7 +637,7 @@ func TestProfileBundleImportRejectsFacadeConfiguration(t *testing.T) {
 			name: "missing fallback policy when enabled",
 			mutate: func(request *profileImportRequest) {
 				request.Models[0].FacadeEnabled = true
-				request.Models[0].FacadeSelectionPolicy = stringPtr("weighted_eligible_context")
+				request.Models[0].FacadeSelectionPolicy = stringPtr("ordered_eligible_context")
 			},
 			detail: "facade_fallback_policy is required when facade_enabled is true",
 		},
@@ -551,8 +646,8 @@ func TestProfileBundleImportRejectsFacadeConfiguration(t *testing.T) {
 			mutate: func(request *profileImportRequest) {
 				request.Models[0].APIFamily = "anthropic"
 				request.Models[0].FacadeEnabled = true
-				request.Models[0].FacadeSelectionPolicy = stringPtr("weighted_eligible_context")
-				request.Models[0].FacadeFallbackPolicy = stringPtr("redistribute_ineligible_weight")
+				request.Models[0].FacadeSelectionPolicy = stringPtr("ordered_eligible_context")
+				request.Models[0].FacadeFallbackPolicy = stringPtr("skip_ineligible_targets")
 			},
 			detail: "facade_enabled requires api_family 'openai'",
 		},
@@ -571,8 +666,8 @@ func TestProfileBundleImportRejectsFacadeConfiguration(t *testing.T) {
 func TestProfileBundleImportRejectsNestedFacades(t *testing.T) {
 	request := validProfileBundleV3Request()
 	request.Models[0].FacadeEnabled = true
-	request.Models[0].FacadeSelectionPolicy = stringPtr("weighted_eligible_context")
-	request.Models[0].FacadeFallbackPolicy = stringPtr("redistribute_ineligible_weight")
+	request.Models[0].FacadeSelectionPolicy = stringPtr("ordered_eligible_context")
+	request.Models[0].FacadeFallbackPolicy = stringPtr("skip_ineligible_targets")
 	request.Models = append(request.Models, modelExport{
 		APIFamily:               "openai",
 		ModelID:                 "gpt-4o-router",
@@ -580,12 +675,10 @@ func TestProfileBundleImportRejectsNestedFacades(t *testing.T) {
 		LoadbalanceStrategyName: stringPtr("Default single"),
 		IsEnabled:               true,
 		AccessTargets: []accessTargetExport{{
-			Position:       0,
-			IsEnabled:      true,
-			TargetType:     "model",
-			TargetModelID:  stringPtr("gpt-4o-mini"),
-			Weight:         intPtr(9),
-			TargetPriority: intPtr(4),
+			Position:      0,
+			IsEnabled:     true,
+			TargetType:    "model",
+			TargetModelID: stringPtr("gpt-4o-mini"),
 		}},
 	})
 
@@ -657,11 +750,30 @@ func validProfileBundleV3Request() profileImportRequest {
 				ConnectionRef: "openai-primary",
 				FXRate:        "1",
 			}},
+			AuditAPIFamilySettings: []auditAPIFamilySettingExport{
+				{APIFamily: "openai", AuditEnabled: true, AuditCaptureBodies: true},
+				{APIFamily: "anthropic", AuditEnabled: false, AuditCaptureBodies: false},
+				{APIFamily: "gemini", AuditEnabled: true, AuditCaptureBodies: false},
+			},
+			AuditAPIFamilySettingsIsSet: true,
 		},
 		HeaderBlocklistRules: []headerBlocklistRuleExport{},
 		UserAgentClientRules: []userAgentClientRuleExport{},
 		SecretPayload:        secretPayloadExport{Kind: "encrypted", Cipher: bundleSecretCipher, KeyID: "kid", Entries: []secretPayloadEntry{}},
 	}
+}
+
+func marshalProfileImportRequestAsMap(t *testing.T, request profileImportRequest) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal profile import request: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal profile import request map: %v", err)
+	}
+	return payload
 }
 
 func TestProfileBundleImportAllowsSparseAccessTargetPositions(t *testing.T) {

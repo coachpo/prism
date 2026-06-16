@@ -82,8 +82,6 @@ type accessTargetRow struct {
 	TargetModelID       *string
 	TargetConnectionID  *int
 	Position            int
-	Weight              *int
-	TargetPriority      *int
 	IsEnabled           bool
 }
 
@@ -118,6 +116,12 @@ type endpointFXMappingRow struct {
 	ModelID      string
 	ConnectionID int
 	FXRate       string
+}
+
+type auditAPIFamilySettingRow struct {
+	APIFamily          string
+	AuditEnabled       bool
+	AuditCaptureBodies bool
 }
 
 type headerBlocklistRuleRow struct {
@@ -162,6 +166,10 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 	if err != nil {
 		return profileBundleResponse{}, err
 	}
+	auditSettings, err := listProfileAuditAPIFamilySettings(ctx, exec, profileID)
+	if err != nil {
+		return profileBundleResponse{}, err
+	}
 	headerRules, err := listProfileHeaderBlocklistRules(ctx, exec, profileID)
 	if err != nil {
 		return profileBundleResponse{}, err
@@ -185,7 +193,7 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 	if err != nil {
 		return profileBundleResponse{}, err
 	}
-	exportedProfileSettings, err := buildProfileSettingsExport(userSettings, fxMappings, connectionRefByID)
+	exportedProfileSettings, err := buildProfileSettingsExport(userSettings, fxMappings, auditSettings, connectionRefByID)
 	if err != nil {
 		return profileBundleResponse{}, err
 	}
@@ -406,8 +414,6 @@ func buildAccessTargetExports(model modelRow, accessTargets []accessTargetRow, c
 				return nil, fmt.Errorf("load model target for model %q", model.ModelID)
 			}
 			exportedTarget.TargetModelID = target.TargetModelID
-			exportedTarget.Weight = intPtr(modelrouting.EffectiveModelTargetWeight(target.Weight))
-			exportedTarget.TargetPriority = intPtr(modelrouting.EffectiveModelTargetPriority(target.Position, target.TargetPriority))
 		default:
 			return nil, fmt.Errorf("load access target type %q for model %q", target.TargetType, model.ModelID)
 		}
@@ -485,7 +491,7 @@ func buildConnectionPricingTemplateName(connection connectionRow, pricingTemplat
 	return &template.Name, nil
 }
 
-func buildProfileSettingsExport(userSettings *userSettingsRow, fxMappings []endpointFXMappingRow, connectionRefByID map[int]string) (profileSettingsExport, error) {
+func buildProfileSettingsExport(userSettings *userSettingsRow, fxMappings []endpointFXMappingRow, auditSettings []auditAPIFamilySettingRow, connectionRefByID map[int]string) (profileSettingsExport, error) {
 	reportCurrencyCode := "USD"
 	reportCurrencySymbol := "$"
 	var timezonePreference *string
@@ -499,11 +505,30 @@ func buildProfileSettingsExport(userSettings *userSettingsRow, fxMappings []endp
 		return profileSettingsExport{}, err
 	}
 	return profileSettingsExport{
-		ReportCurrencyCode:   reportCurrencyCode,
-		ReportCurrencySymbol: reportCurrencySymbol,
-		TimezonePreference:   timezonePreference,
-		EndpointFXMappings:   exportedFXMappings,
+		ReportCurrencyCode:          reportCurrencyCode,
+		ReportCurrencySymbol:        reportCurrencySymbol,
+		TimezonePreference:          timezonePreference,
+		EndpointFXMappings:          exportedFXMappings,
+		AuditAPIFamilySettings:      buildAuditAPIFamilySettingExports(auditSettings),
+		AuditAPIFamilySettingsIsSet: true,
 	}, nil
+}
+
+func buildAuditAPIFamilySettingExports(rows []auditAPIFamilySettingRow) []auditAPIFamilySettingExport {
+	byFamily := make(map[string]auditAPIFamilySettingExport, len(rows))
+	for _, row := range rows {
+		family := strings.TrimSpace(row.APIFamily)
+		byFamily[family] = auditAPIFamilySettingExport{APIFamily: family, AuditEnabled: row.AuditEnabled, AuditCaptureBodies: row.AuditCaptureBodies}
+	}
+	exportedSettings := make([]auditAPIFamilySettingExport, 0, len(configBundleAuditAPIFamilies))
+	for _, family := range configBundleAuditAPIFamilies {
+		setting, ok := byFamily[family]
+		if !ok {
+			setting = auditAPIFamilySettingExport{APIFamily: family}
+		}
+		exportedSettings = append(exportedSettings, setting)
+	}
+	return exportedSettings
 }
 
 func buildEndpointFXMappingExports(fxMappings []endpointFXMappingRow, connectionRefByID map[int]string) ([]endpointFXMappingExport, error) {
@@ -641,7 +666,7 @@ func listAccessTargetsByModelIDs(ctx context.Context, exec queryExecutor, modelI
 	if len(modelIDs) == 0 {
 		return items, nil
 	}
-	rows, err := exec.Query(ctx, `SELECT model_access_targets.source_model_config_id, model_access_targets.target_type, target_models.model_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.weight, model_access_targets.target_priority, model_access_targets.is_enabled FROM model_access_targets LEFT JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.source_model_config_id = ANY($1) ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, toInt32Slice(modelIDs))
+	rows, err := exec.Query(ctx, `SELECT model_access_targets.source_model_config_id, model_access_targets.target_type, target_models.model_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled FROM model_access_targets LEFT JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.source_model_config_id = ANY($1) ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, toInt32Slice(modelIDs))
 	if err != nil {
 		return nil, fmt.Errorf("query access targets: %w", err)
 	}
@@ -650,16 +675,12 @@ func listAccessTargetsByModelIDs(ctx context.Context, exec queryExecutor, modelI
 	for rows.Next() {
 		var targetModelID sql.NullString
 		var targetConnectionID sql.NullInt32
-		var weight sql.NullInt32
-		var targetPriority sql.NullInt32
 		item := accessTargetRow{}
-		if err := rows.Scan(&item.SourceModelConfigID, &item.TargetType, &targetModelID, &targetConnectionID, &item.Position, &weight, &targetPriority, &item.IsEnabled); err != nil {
+		if err := rows.Scan(&item.SourceModelConfigID, &item.TargetType, &targetModelID, &targetConnectionID, &item.Position, &item.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan access target row: %w", err)
 		}
 		item.TargetModelID = nullableStringValue(targetModelID)
 		item.TargetConnectionID = nullableInt32(targetConnectionID)
-		item.Weight = nullableInt32(weight)
-		item.TargetPriority = nullableInt32(targetPriority)
 		items[item.SourceModelConfigID] = append(items[item.SourceModelConfigID], item)
 	}
 	if err := rows.Err(); err != nil {
@@ -742,6 +763,27 @@ func listEndpointFXMappings(ctx context.Context, exec queryExecutor, profileID i
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate endpoint fx mappings for profile %d: %w", profileID, err)
+	}
+	return items, nil
+}
+
+func listProfileAuditAPIFamilySettings(ctx context.Context, exec queryExecutor, profileID int) ([]auditAPIFamilySettingRow, error) {
+	rows, err := exec.Query(ctx, `SELECT api_family, audit_enabled, audit_capture_bodies FROM profile_api_family_audit_settings WHERE profile_id = $1 ORDER BY CASE api_family WHEN 'openai' THEN 1 WHEN 'anthropic' THEN 2 WHEN 'gemini' THEN 3 ELSE 4 END`, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("query profile audit api family settings for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+
+	items := make([]auditAPIFamilySettingRow, 0, len(configBundleAuditAPIFamilies))
+	for rows.Next() {
+		item := auditAPIFamilySettingRow{}
+		if err := rows.Scan(&item.APIFamily, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
+			return nil, fmt.Errorf("scan profile audit api family setting: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate profile audit api family settings for profile %d: %w", profileID, err)
 	}
 	return items, nil
 }

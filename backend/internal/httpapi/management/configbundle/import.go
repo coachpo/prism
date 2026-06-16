@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -20,25 +21,31 @@ import (
 )
 
 const (
-	canonicalProfileBundleVersion                    = 3
-	canonicalProfileBundleKind                       = "profile_config"
-	facadeSelectionPolicyWeightedEligibleContext     = "weighted_eligible_context"
-	facadeFallbackPolicyRedistributeIneligibleWeight = "redistribute_ineligible_weight"
-	facadeEnabledRequiresOpenAIDetail                = "facade_enabled requires api_family 'openai'"
-	nestedFacadesNotSupportedDetail                  = "nested facades are not supported"
-	importPromotionTargetField                       = "context_overflow_promotion_target_id"
-	promotionTargetValidationCodeUnknown             = "unknown_target"
-	promotionTargetValidationCodeSelf                = "self_target"
-	promotionTargetValidationCodeDisabled            = "disabled_target"
-	promotionTargetValidationCodeFacade              = "facade_target"
-	promotionTargetValidationCodeSameTerminal        = "same_terminal_target"
-	promotionTargetValidationCodeAPIFamilyMismatch   = "api_family_mismatch"
-	promotionTargetValidationCodeCycle               = "promotion_cycle_detected"
-	promotionTargetValidationCodeMaxDepth            = "promotion_max_depth_exceeded"
-	maxContextOverflowPromotionChainTransitions      = 3
+	canonicalProfileBundleVersion                  = 3
+	canonicalProfileBundleKind                     = "profile_config"
+	facadeSelectionPolicyOrderedEligibleContext    = "ordered_eligible_context"
+	facadeFallbackPolicySkipIneligibleTargets      = "skip_ineligible_targets"
+	facadeEnabledRequiresOpenAIDetail              = "facade_enabled requires api_family 'openai'"
+	nestedFacadesNotSupportedDetail                = "nested facades are not supported"
+	importPromotionTargetField                     = "context_overflow_promotion_target_id"
+	promotionTargetValidationCodeUnknown           = "unknown_target"
+	promotionTargetValidationCodeSelf              = "self_target"
+	promotionTargetValidationCodeDisabled          = "disabled_target"
+	promotionTargetValidationCodeFacade            = "facade_target"
+	promotionTargetValidationCodeSameTerminal      = "same_terminal_target"
+	promotionTargetValidationCodeAPIFamilyMismatch = "api_family_mismatch"
+	promotionTargetValidationCodeCycle             = "promotion_cycle_detected"
+	promotionTargetValidationCodeMaxDepth          = "promotion_max_depth_exceeded"
+	maxContextOverflowPromotionChainTransitions    = 3
 )
 
 var importedPricingTemplateDecimalPattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
+
+var configBundleAuditAPIFamilies = []string{
+	providercompat.APIFamilyOpenAI,
+	providercompat.APIFamilyAnthropic,
+	providercompat.APIFamilyGemini,
+}
 
 type routingPlanValidationIssue struct {
 	Code    string `json:"code"`
@@ -454,18 +461,12 @@ func normalizeImportedModels(models []modelExport) []importedModelPayload {
 func normalizeImportedAccessTargets(targets []accessTargetExport) []importedAccessTargetPayload {
 	items := make([]importedAccessTargetPayload, 0, len(targets))
 	for _, target := range targets {
-		resolvedWeight := modelrouting.EffectiveModelTargetWeight(target.Weight)
-		resolvedTargetPriority := modelrouting.EffectiveModelTargetPriority(target.Position, target.TargetPriority)
 		items = append(items, importedAccessTargetPayload{
-			Position:               target.Position,
-			IsEnabled:              target.IsEnabled,
-			TargetType:             modelrouting.NormalizeTargetType(target.TargetType),
-			ConnectionRef:          trimmedOptionalString(target.ConnectionRef),
-			TargetModelID:          trimmedOptionalString(target.TargetModelID),
-			Weight:                 target.Weight,
-			ResolvedWeight:         resolvedWeight,
-			TargetPriority:         target.TargetPriority,
-			ResolvedTargetPriority: resolvedTargetPriority,
+			Position:      target.Position,
+			IsEnabled:     target.IsEnabled,
+			TargetType:    modelrouting.NormalizeTargetType(target.TargetType),
+			ConnectionRef: trimmedOptionalString(target.ConnectionRef),
+			TargetModelID: trimmedOptionalString(target.TargetModelID),
 		})
 	}
 	return items
@@ -655,11 +656,11 @@ func validateImportedModelContextCapabilities(model importedModelPayload) error 
 }
 
 func validateImportedFacadePolicyValues(modelIndex int, selectionPolicy *string, fallbackPolicy *string) error {
-	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyWeightedEligibleContext {
-		return routingPlanValidationIssueError("facade_selection_policy_invalid", importedModelIssuePath(modelIndex, "facade_selection_policy"), "facade_selection_policy must be 'weighted_eligible_context'")
+	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyOrderedEligibleContext {
+		return routingPlanValidationIssueError("facade_selection_policy_invalid", importedModelIssuePath(modelIndex, "facade_selection_policy"), "facade_selection_policy must be 'ordered_eligible_context'")
 	}
-	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicyRedistributeIneligibleWeight {
-		return routingPlanValidationIssueError("facade_fallback_policy_invalid", importedModelIssuePath(modelIndex, "facade_fallback_policy"), "facade_fallback_policy must be 'redistribute_ineligible_weight'")
+	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicySkipIneligibleTargets {
+		return routingPlanValidationIssueError("facade_fallback_policy_invalid", importedModelIssuePath(modelIndex, "facade_fallback_policy"), "facade_fallback_policy must be 'skip_ineligible_targets'")
 	}
 	return nil
 }
@@ -723,10 +724,6 @@ func validateImportedAccessTargets(modelIndex int, modelID string, apiFamily str
 			return routingPlanValidationIssueError("target_position_duplicate", importedAccessTargetIssuePath(modelIndex, targetIndex, "position"), detail)
 		}
 		seenPositions[target.Position] = struct{}{}
-		if err := validateImportedAccessTargetMetadataContract(modelIndex, targetIndex, target); err != nil {
-			return err
-		}
-
 		switch {
 		case modelrouting.IsTerminalTargetType(target.TargetType):
 			if target.ConnectionRef == nil {
@@ -781,25 +778,6 @@ func validateImportedAccessTargets(modelIndex int, modelID string, apiFamily str
 			detail := fmt.Sprintf("Model '%s' access target_type must be 'model' or 'connection'", modelID)
 			return routingPlanValidationIssueError("target_type_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_type"), detail)
 		}
-	}
-	return nil
-}
-
-func validateImportedAccessTargetMetadataContract(modelIndex int, targetIndex int, target importedAccessTargetPayload) error {
-	if modelrouting.IsTerminalTargetType(target.TargetType) {
-		if target.Weight != nil {
-			return routingPlanValidationIssueError("terminal_target_metadata_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "weight"), "weight must be omitted for terminal targets")
-		}
-		if target.TargetPriority != nil {
-			return routingPlanValidationIssueError("terminal_target_metadata_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_priority"), "target_priority must be omitted for terminal targets")
-		}
-		return nil
-	}
-	if target.Weight != nil && *target.Weight <= 0 {
-		return routingPlanValidationIssueError("model_target_weight_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "weight"), "weight must be greater than 0")
-	}
-	if target.TargetPriority != nil && *target.TargetPriority < 0 {
-		return routingPlanValidationIssueError("model_target_priority_invalid", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_priority"), "target_priority must be greater than or equal to 0")
 	}
 	return nil
 }
@@ -943,7 +921,10 @@ func validateImportedModelGraphAcyclicWithModelRouting(graph map[string][]string
 
 func validateImportedProfileSettings(profileSettings *profileSettingsExport, connectionRefs map[string]importedConnectionValidationRef, importedConnectionPairs map[string]struct{}) error {
 	if profileSettings == nil {
-		return nil
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "profile_settings.audit_api_family_settings must include exactly openai, anthropic, and gemini"}
+	}
+	if err := normalizeAndValidateImportedAuditAPIFamilySettings(profileSettings); err != nil {
+		return err
 	}
 	seenFXMappings := map[string]struct{}{}
 	for _, mapping := range profileSettings.EndpointFXMappings {
@@ -964,6 +945,44 @@ func validateImportedProfileSettings(profileSettings *profileSettingsExport, con
 		}
 	}
 	return nil
+}
+
+func normalizeAndValidateImportedAuditAPIFamilySettings(profileSettings *profileSettingsExport) error {
+	if !profileSettings.AuditAPIFamilySettingsIsSet || len(profileSettings.AuditAPIFamilySettings) != len(configBundleAuditAPIFamilies) {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "profile_settings.audit_api_family_settings must include exactly openai, anthropic, and gemini"}
+	}
+	seen := make(map[string]auditAPIFamilySettingExport, len(configBundleAuditAPIFamilies))
+	for _, setting := range profileSettings.AuditAPIFamilySettings {
+		family := providercompat.NormalizeAPIFamily(setting.APIFamily)
+		if !isConfigBundleAuditAPIFamily(family) {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("profile_settings.audit_api_family_settings api_family %q is not supported", setting.APIFamily)}
+		}
+		if _, ok := seen[family]; ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate profile_settings.audit_api_family_settings entry for api_family=%s", family)}
+		}
+		if !setting.AuditEnabled && setting.AuditCaptureBodies {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "profile_settings.audit_api_family_settings audit_capture_bodies requires audit_enabled"}
+		}
+		setting.APIFamily = family
+		seen[family] = setting
+	}
+	normalized := make([]auditAPIFamilySettingExport, 0, len(configBundleAuditAPIFamilies))
+	for _, family := range configBundleAuditAPIFamilies {
+		setting, ok := seen[family]
+		if !ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("profile_settings.audit_api_family_settings must include api_family=%s", family)}
+		}
+		normalized = append(normalized, setting)
+	}
+	profileSettings.AuditAPIFamilySettings = normalized
+	return nil
+}
+
+func isConfigBundleAuditAPIFamily(value string) bool {
+	if !providercompat.IsSupportedAPIFamily(value) {
+		return false
+	}
+	return slices.Contains(configBundleAuditAPIFamilies, value)
 }
 
 func validateImportedHeaderBlocklistRules(rules []headerBlocklistRuleExport) error {
@@ -1094,7 +1113,7 @@ func lockProfileRow(ctx context.Context, exec queryExecutor, profileID int) erro
 }
 
 func lockImportTargetTables(ctx context.Context, exec queryExecutor) error {
-	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_access_targets, pricing_templates, user_settings, header_blocklist_rules, user_agent_client_rules IN SHARE ROW EXCLUSIVE MODE`)
+	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_access_targets, pricing_templates, user_settings, profile_api_family_audit_settings, header_blocklist_rules, user_agent_client_rules IN SHARE ROW EXCLUSIVE MODE`)
 	if err != nil {
 		return fmt.Errorf("lock config bundle import tables: %w", err)
 	}
@@ -1161,6 +1180,7 @@ func clearProfileImportState(ctx context.Context, exec queryExecutor, profileID 
 		`DELETE FROM pricing_templates WHERE profile_id = $1`,
 		`DELETE FROM header_blocklist_rules WHERE profile_id = $1 AND is_system = FALSE`,
 		`DELETE FROM user_agent_client_rules WHERE profile_id = $1 AND is_system = FALSE`,
+		`DELETE FROM profile_api_family_audit_settings WHERE profile_id = $1`,
 	}
 	for _, query := range queries {
 		if _, err := exec.Exec(ctx, query, profileID); err != nil {
@@ -1355,7 +1375,7 @@ func insertImportedAccessTargets(ctx context.Context, exec queryExecutor, profil
 				}
 				importedPairs[connectionPairKey(model.ModelID, *target.ConnectionRef)] = struct{}{}
 			case modelrouting.IsModelTargetType(target.TargetType):
-				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`, profileID, sourceModelID, modelrouting.TargetTypeModel, modelIDsByModelID[*target.TargetModelID], target.Position, target.ResolvedWeight, target.ResolvedTargetPriority, target.IsEnabled, currentTime); err != nil {
+				if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, profileID, sourceModelID, modelrouting.TargetTypeModel, modelIDsByModelID[*target.TargetModelID], target.Position, target.IsEnabled, currentTime); err != nil {
 					return fmt.Errorf("insert model access target for model %q: %w", model.ModelID, err)
 				}
 			}
@@ -1379,6 +1399,9 @@ func upsertImportedProfileSettings(ctx context.Context, exec queryExecutor, prof
 	if profileSettings == nil {
 		return nil
 	}
+	if err := insertImportedAuditAPIFamilySettings(ctx, exec, profileID, profileSettings.AuditAPIFamilySettings, currentTime); err != nil {
+		return err
+	}
 	for _, mapping := range profileSettings.EndpointFXMappings {
 		connectionRef := strings.TrimSpace(mapping.ConnectionRef)
 		if _, ok := importedPairs[connectionPairKey(mapping.ModelID, connectionRef)]; !ok {
@@ -1386,6 +1409,15 @@ func upsertImportedProfileSettings(ctx context.Context, exec queryExecutor, prof
 		}
 		if _, err := exec.Exec(ctx, `INSERT INTO endpoint_fx_rate_settings (profile_id, model_id, endpoint_id, fx_rate, created_at, updated_at) SELECT $1, $2, connections.endpoint_id, $4, $5, $5 FROM connections WHERE connections.id = $3`, profileID, mapping.ModelID, connectionIDsByRef[connectionRef], mapping.FXRate, currentTime); err != nil {
 			return fmt.Errorf("insert imported endpoint fx mapping for model %q: %w", mapping.ModelID, err)
+		}
+	}
+	return nil
+}
+
+func insertImportedAuditAPIFamilySettings(ctx context.Context, exec queryExecutor, profileID int, settings []auditAPIFamilySettingExport, currentTime time.Time) error {
+	for _, setting := range settings {
+		if _, err := exec.Exec(ctx, `INSERT INTO profile_api_family_audit_settings (profile_id, api_family, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)`, profileID, setting.APIFamily, setting.AuditEnabled, setting.AuditCaptureBodies, currentTime); err != nil {
+			return fmt.Errorf("insert imported audit setting %s for profile %d: %w", setting.APIFamily, profileID, err)
 		}
 	}
 	return nil

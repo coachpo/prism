@@ -7,23 +7,19 @@ import (
 )
 
 type modelAccessTargetRequest struct {
-	TargetType     string  `json:"target_type"`
-	TargetModelID  *string `json:"target_model_id"`
-	ConnectionID   *int    `json:"connection_id"`
-	Position       int     `json:"position"`
-	Weight         *int    `json:"weight"`
-	TargetPriority *int    `json:"target_priority"`
-	IsEnabled      *bool   `json:"is_enabled"`
+	TargetType    string  `json:"target_type"`
+	TargetModelID *string `json:"target_model_id"`
+	ConnectionID  *int    `json:"connection_id"`
+	Position      int     `json:"position"`
+	IsEnabled     *bool   `json:"is_enabled"`
 }
 
 type modelAccessTargetCreateRequest struct {
-	TargetType     string  `json:"target_type"`
-	TargetModelID  *string `json:"target_model_id"`
-	ConnectionID   *int    `json:"connection_id"`
-	Position       *int    `json:"position"`
-	Weight         *int    `json:"weight"`
-	TargetPriority *int    `json:"target_priority"`
-	IsEnabled      *bool   `json:"is_enabled"`
+	TargetType    string  `json:"target_type"`
+	TargetModelID *string `json:"target_model_id"`
+	ConnectionID  *int    `json:"connection_id"`
+	Position      *int    `json:"position"`
+	IsEnabled     *bool   `json:"is_enabled"`
 }
 
 type modelAccessTargetUpdateRequest struct {
@@ -32,8 +28,6 @@ type modelAccessTargetUpdateRequest struct {
 	ConnectionID       optionalInt    `json:"connection_id"`
 	TargetConnectionID optionalInt    `json:"target_connection_id"`
 	Position           optionalInt    `json:"position"`
-	Weight             optionalInt    `json:"weight"`
-	TargetPriority     optionalInt    `json:"target_priority"`
 	IsEnabled          optionalBool   `json:"is_enabled"`
 }
 
@@ -264,8 +258,6 @@ type modelAccessTargetResponse struct {
 	ConnectionID     *int                     `json:"connection_id"`
 	TerminalTargetID *int                     `json:"terminal_target_id"`
 	Position         int                      `json:"position"`
-	Weight           *int                     `json:"weight"`
-	TargetPriority   *int                     `json:"target_priority"`
 	IsEnabled        bool                     `json:"is_enabled"`
 	TargetModel      *modelTargetSummary      `json:"target_model"`
 	Connection       *connectionTargetSummary `json:"connection"`
