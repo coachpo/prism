@@ -48,7 +48,7 @@ platform/
 - When changing management route profile-scope or runtime-cache invalidation semantics, update `http/management_route_contract.json` with the code change instead of duplicating route expectations in frontend or backend tests.
 - Keep partitioned log-retention work on `logretention.Store` plus the low-priority `log_partition_maintenance` worker. Managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - Keep retention jobs low-priority and management-owned through `managementjobs/`; handlers should enqueue jobs, not run partition cleanup inline.
-- Keep shutdown sequencing explicit: HTTP shutdown, realtime shutdown, side-effect drain, scheduler stop, service close, then DB close.
+- Keep shutdown sequencing explicit: HTTP shutdown, realtime shutdown, side-effect drain, scheduler stop, service close, telemetry shutdown, then DB close.
 - Keep migrations fresh-install-only and schema-history-aware. Existing app tables without the current `prism_schema_migrations` baseline must fail fast instead of rewriting historical schemas.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
