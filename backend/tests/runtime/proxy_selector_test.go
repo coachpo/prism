@@ -196,10 +196,11 @@ func TestNonNativeOpenAITargetIsNotSelectedByGenericPlanner(t *testing.T) {
 		"previous_response_id": "resp_123",
 		"input":                "unsupported translated responses shape",
 	}, nil)
-	assertOpenAIRequestTranslationUnsupported(t, response, "openai_responses_to_chat_completions", "responses_previous_response_id")
-	if got := len(upstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected unsupported translated request to reject before provider transport, got %d upstream calls", got)
-	}
+	assertOpenAIResponseTranslationUnsupported(t, response, "openai_chat_completions_to_responses", "chat_choices")
+	assertProxySelectorRequestSequence(t, upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/translated/unsupported-shape/v1/chat/completions",
+		ModelID: modelID,
+	}})
 }
 
 func TestRuntimeCheapestEligibleContextSelectsLargerNestedTerminalBeforeUpstreamAttempt(t *testing.T) {
@@ -353,7 +354,7 @@ func TestFacadeOrderedEligibleContextRejectsSelectedTranslatedChildWithoutNative
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": publicModelID, "input": "facade native-only rejection", "text": map[string]any{"format": "json_schema"}, "max_output_tokens": 64}, nil)
-	assertOpenAIRequestTranslationUnsupported(t, response, "openai_responses_to_chat_completions", "responses_text")
+	assertOpenAIRequestTranslationUnsupported(t, response, "openai_responses_to_chat_completions", "responses_text_format")
 	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
 		t.Fatalf("expected unsupported facade translation to reject before provider transport, got %d upstream calls", got)
 	}
@@ -513,7 +514,7 @@ func TestProxySelectorPreferredContextFallsBackToDiscretionaryWhenNoPreferredCan
 	}})
 }
 
-func TestProxySelectorContextRankingResponsesTranslatedCandidateWinsByPolicyOrder(t *testing.T) {
+func TestProxySelectorContextRankingTranslatedCandidateWinsByPolicyOrder(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
@@ -631,6 +632,68 @@ func TestProxySelectorContextRankingChatTranslatedCandidateWinsByPolicyOrder(t *
 	}
 	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.chat_completions")
 	assertLatestProxySelectorAttribution(t, harness, profileID, translatedConnectionID, "openai.responses", string(runtimeapi.TranslationModeOpenAIChatCompletionsToResponses), "/v1/responses")
+}
+
+func TestProxySelectorContextRankingResponsesIncludeLossyFallback(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-selector-context-ranking-include-public-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-ranking-include-"+suffix, "cheapest_eligible_context")
+	modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
+	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "proxy-selector-context-ranking-include-translated-chat",
+		"object": "chat.completion",
+		"model":  publicModelID,
+		"choices": []map[string]any{{
+			"index": 0,
+			"message": map[string]any{
+				"role":    "assistant",
+				"content": "translated include candidate wins",
+			},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 13, "total_tokens": 20},
+	})
+	nativeUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id": "proxy-selector-context-ranking-include-native-responses",
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "native sibling should not run"}},
+		}},
+		"usage": map[string]any{"input_tokens": 7, "output_tokens": 13, "total_tokens": 20},
+	})
+	translatedEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-context-ranking-include-translated-"+suffix, translatedUpstream.baseURL("/proxy-selector/context-ranking-include/translated"), "proxy-selector-context-ranking-include-translated-key", 0)
+	nativeEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-context-ranking-include-native-"+suffix, nativeUpstream.baseURL("/proxy-selector/context-ranking-include/native"), "proxy-selector-context-ranking-include-native-key", 1)
+	translatedVariant := "chat_completions_reasoning_none"
+	nativeVariant := "responses_reasoning_none"
+	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-context-ranking-include-translated-connection-"+suffix, nil, nil, 0, &translatedVariant, runtimeStringPtr("chat_completions_only"))
+	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-context-ranking-include-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("responses_only"))
+	now := time.Now().UTC()
+	for _, connectionID := range []int{translatedConnectionID, nativeConnectionID} {
+		if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, 16_384, 1_024, 1.0, now); err != nil {
+			t.Fatalf("update context-ranking include connection %d context capabilities: %v", connectionID, err)
+		}
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"model":             publicModelID,
+		"input":             "responses include should still choose the earlier translated sibling",
+		"include":           []string{"file_search_call.results"},
+		"max_output_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertProxySelectorRequestSequence(t, translatedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/proxy-selector/context-ranking-include/translated/v1/chat/completions",
+		ModelID: publicModelID,
+	}})
+	if got := len(nativeUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected later native candidate to remain unattempted when include fallback selects translated candidate, got %d upstream requests", got)
+	}
+	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
+	assertLatestProxySelectorAttribution(t, harness, profileID, translatedConnectionID, "openai.chat_completions", string(runtimeapi.TranslationModeOpenAIResponsesToChatCompletions), "/v1/chat/completions")
 }
 
 func assertLatestProxySelectorAttribution(t *testing.T, harness *runtimeHarness, profileID int, connectionID int, operationName string, translationModeValue string, requestPath string) {
@@ -1223,6 +1286,15 @@ func assertOpenAIRequestTranslationUnsupported(t *testing.T, response *http.Resp
 	payload := runtimeResponsePayload(t, response)
 	if payload["error"] != "openai_request_translation_unsupported" || payload["translation_mode"] != wantMode || payload["unsupported_reason"] != wantReason {
 		t.Fatalf("expected unsupported OpenAI request translation %s/%s, got %+v", wantMode, wantReason, payload)
+	}
+}
+
+func assertOpenAIResponseTranslationUnsupported(t *testing.T, response *http.Response, wantMode string, wantReason string) {
+	t.Helper()
+	assertStatus(t, response, http.StatusBadGateway)
+	payload := runtimeResponsePayload(t, response)
+	if payload["error"] != "openai_response_translation_unsupported" || payload["translation_mode"] != wantMode || payload["unsupported_reason"] != wantReason {
+		t.Fatalf("expected unsupported OpenAI response translation %s/%s, got %+v", wantMode, wantReason, payload)
 	}
 }
 

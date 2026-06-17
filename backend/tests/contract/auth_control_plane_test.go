@@ -1383,6 +1383,9 @@ func performLoginAttempt(harness *contractHarness, client *http.Client, username
 
 func (h *contractHarness) requestJSON(t *testing.T, client *http.Client, method string, path string, body any, headers map[string]string) *http.Response {
 	t.Helper()
+	if bodyMap, ok := body.(map[string]any); ok {
+		h.ensureOpenAIAcceptedFormat(t, method, path, bodyMap)
+	}
 	var requestBody *bytes.Reader
 	if body == nil {
 		requestBody = bytes.NewReader(nil)
@@ -1411,6 +1414,37 @@ func (h *contractHarness) requestJSON(t *testing.T, client *http.Client, method 
 		_ = response.Body.Close()
 	})
 	return response
+}
+
+func (h *contractHarness) ensureOpenAIAcceptedFormat(t *testing.T, method string, path string, body map[string]any) {
+	t.Helper()
+	if _, ok := body["openai_accepted_format"]; ok {
+		return
+	}
+	if apiFamily, ok := body["api_family"].(string); ok {
+		if apiFamily == "openai" {
+			body["openai_accepted_format"] = "dual_native"
+		}
+		return
+	}
+	if method != http.MethodPut && method != http.MethodPatch {
+		return
+	}
+	const modelPathPrefix = "/api/models/"
+	if !strings.HasPrefix(path, modelPathPrefix) || strings.Contains(path, "/targets") || strings.Contains(path, "/connections") {
+		return
+	}
+	var modelID int
+	if _, err := fmt.Sscanf(strings.TrimPrefix(path, modelPathPrefix), "%d", &modelID); err != nil {
+		return
+	}
+	var apiFamily string
+	if err := h.conn.QueryRow(context.Background(), `SELECT api_family FROM model_configs WHERE id = $1`, modelID).Scan(&apiFamily); err != nil {
+		return
+	}
+	if apiFamily == "openai" {
+		body["openai_accepted_format"] = "dual_native"
+	}
 }
 
 func (m *captureMailer) SendEmailVerificationOTP(_ context.Context, recipient string, otpCode string) error {

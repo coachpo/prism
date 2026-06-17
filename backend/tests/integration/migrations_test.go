@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -25,6 +26,7 @@ var expectedPrismMigrationVersions = []string{
 	"000003_openai_text_capability",
 	"000004_endpoint_label_snapshot",
 	"000005_remove_access_target_weight_priority_add_audit_family_settings",
+	"000006_openai_accepted_format",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -60,6 +62,7 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertContextCapabilityColumnContracts(t, testContext, conn)
 	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
+	assertOpenAIAcceptedFormatColumnContract(t, testContext, conn)
 }
 
 func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T) {
@@ -80,7 +83,7 @@ func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T)
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected access-target ranking removal migration to apply, got %q", result.Outcome)
 	}
-	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings"})
+	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertModelAccessTargetsRankingColumnsAbsent(t, testContext, conn)
 	assertFacadePolicyConstraintContract(t, testContext, conn)
@@ -182,11 +185,46 @@ func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected endpoint label snapshot migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings"})
+	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
 	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
 	assertEndpointLabelSnapshotBackfillRows(t, testContext, conn, fixture.expectedLabels)
+}
+
+func TestMigrationBackfillsOpenAIAcceptedFormatToDualNative(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	oldRunner := newRunnerThroughMigration(t, "000005_remove_access_target_weight_priority_add_audit_family_settings", nil)
+	conn := harness.openDatabase(t, testContext, "openai_accepted_format_backfill")
+	defer func() { _ = conn.Close(testContext) }()
+
+	oldResult, err := oldRunner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run pre-openai-accepted-format migrations: %v", err)
+	}
+	if oldResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected pre-openai-accepted-format migrations to apply, got %q", oldResult.Outcome)
+	}
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsThrough(t, "000005_remove_access_target_weight_priority_add_audit_family_settings"))
+
+	profileID := seedOpenAIAcceptedFormatProfile(t, testContext, conn)
+	seedOpenAIAcceptedFormatModel(t, testContext, conn, profileID, "gpt-existing", "openai")
+	seedOpenAIAcceptedFormatModel(t, testContext, conn, profileID, "claude-existing", "anthropic")
+
+	newResult, err := newRunner(t).Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply openai accepted format migration: %v", err)
+	}
+	if newResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected openai accepted format migration to apply, got %q", newResult.Outcome)
+	}
+	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format"})
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+	assertOpenAIAcceptedFormatColumnContract(t, testContext, conn)
+	assertOpenAIAcceptedFormatBackfillRows(t, testContext, conn)
 }
 
 func TestDirtyDatabaseWithoutMigrationHistoryFails(t *testing.T) {
@@ -724,6 +762,83 @@ func assertProfileAPIFamilyAuditSettingsContract(t *testing.T, ctx context.Conte
 	assertConstraintDefinitionContains(t, ctx, conn, "profile_api_family_audit_settings_profile_id_fkey", "FOREIGN KEY", "profiles", "ON DELETE CASCADE")
 }
 
+func assertOpenAIAcceptedFormatColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `
+		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'model_configs'`)
+	if err != nil {
+		t.Fatalf("load model_configs columns: %v", err)
+	}
+	defer rows.Close()
+	columns := map[string]partitionedLogColumnContract{}
+	for rows.Next() {
+		var name string
+		var contract partitionedLogColumnContract
+		if err := rows.Scan(&name, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
+			t.Fatalf("scan model_configs column: %v", err)
+		}
+		columns[name] = contract
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate model_configs columns: %v", err)
+	}
+	assertColumnContract(t, columns, "openai_accepted_format", "text", 0, "YES")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_model_configs_openai_accepted_format", "responses_only", "chat_completions_only", "dual_native")
+}
+
+func seedOpenAIAcceptedFormatProfile(t *testing.T, ctx context.Context, conn *pgx.Conn) int {
+	t.Helper()
+	now := time.Now().UTC()
+	var profileID int
+	if err := conn.QueryRow(ctx, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, created_at, updated_at) VALUES ('accepted-format-profile', NULL, FALSE, FALSE, TRUE, 1, $1, $1) RETURNING id`, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed accepted-format profile: %v", err)
+	}
+	return profileID
+}
+
+func seedOpenAIAcceptedFormatModel(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, modelID string, apiFamily string) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := conn.Exec(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, default_output_token_reserve, max_context_utilization, facade_enabled, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $3, 4096, 0.90, FALSE, FALSE, $4, $4)`, profileID, apiFamily, modelID, now); err != nil {
+		t.Fatalf("seed accepted-format model %q: %v", modelID, err)
+	}
+}
+
+func assertOpenAIAcceptedFormatBackfillRows(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `SELECT model_id, openai_accepted_format FROM model_configs ORDER BY model_id ASC`)
+	if err != nil {
+		t.Fatalf("query accepted-format backfill rows: %v", err)
+	}
+	defer rows.Close()
+	values := map[string]*string{}
+	for rows.Next() {
+		var modelID string
+		var format sql.NullString
+		if err := rows.Scan(&modelID, &format); err != nil {
+			t.Fatalf("scan accepted-format backfill row: %v", err)
+		}
+		if format.Valid {
+			value := format.String
+			values[modelID] = &value
+		} else {
+			values[modelID] = nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate accepted-format backfill rows: %v", err)
+	}
+	if values["gpt-existing"] == nil || *values["gpt-existing"] != "dual_native" {
+		t.Fatalf("expected OpenAI model to backfill dual_native, got %+v", values["gpt-existing"])
+	}
+	if values["claude-existing"] != nil {
+		t.Fatalf("expected non-OpenAI model to keep null accepted format, got %q", *values["claude-existing"])
+	}
+}
+
 func assertProfileAPIFamilyAuditSettingsDataConstraints(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 	now := time.Now().UTC()
@@ -826,7 +941,7 @@ func seedModelAccessTargetConnectionOwner(t *testing.T, ctx context.Context, con
 	now := time.Now().UTC()
 
 	var sourceModelConfigID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, TRUE, $3, $3) RETURNING id`, profileID, modelID, now).Scan(&sourceModelConfigID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, 'dual_native', TRUE, $3, $3) RETURNING id`, profileID, modelID, now).Scan(&sourceModelConfigID); err != nil {
 		t.Fatalf("seed ownership source model %q: %v", modelID, err)
 	}
 	if _, err := conn.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, sourceModelConfigID, connectionID, now); err != nil {

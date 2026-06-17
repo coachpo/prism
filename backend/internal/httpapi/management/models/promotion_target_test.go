@@ -551,6 +551,9 @@ func insertPromotionModel(t *testing.T, ctx context.Context, tx pgx.Tx, profileI
 		CreatedAt:                 now,
 		UpdatedAt:                 now,
 	}
+	if seed.APIFamily == "openai" {
+		record.OpenAIAcceptedFormat = stringPtr(openAIAcceptedFormatDualNative)
+	}
 	return mustInsertModelRecord(t, ctx, tx, record)
 }
 

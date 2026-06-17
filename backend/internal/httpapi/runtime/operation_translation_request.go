@@ -9,18 +9,23 @@ import (
 )
 
 func translateOpenAIRequest(rawBody []byte, mode TranslationMode, targetModelID string) (string, []byte, error) {
+	path, body, _, err := translateOpenAIRequestWithLoss(rawBody, mode, targetModelID)
+	return path, body, err
+}
+
+func translateOpenAIRequestWithLoss(rawBody []byte, mode TranslationMode, targetModelID string) (string, []byte, *runtimeTranslationLossDecision, error) {
 	if mode == TranslationModeNone {
-		return "", nil, nil
+		return "", nil, nil, nil
 	}
 	adapter := openai.New()
 	translated, err := adapter.TranslateRequest(context.Background(), provider.ConversionRequest{RawBody: rawBody, Mode: providerTranslationMode(mode), TargetModelID: targetModelID})
 	if err != nil {
 		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {
-			return "", nil, domainErr
+			return "", nil, nil, domainErr
 		}
-		return "", nil, err
+		return "", nil, nil, err
 	}
-	return translated.Path, translated.Body, nil
+	return translated.Path, translated.Body, runtimeTranslationLossDecisionFromProvider(translated.TranslationLoss, mode), nil
 }
 
 func firstNonEmptyString(values ...any) string {

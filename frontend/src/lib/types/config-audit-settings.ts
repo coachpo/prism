@@ -3,6 +3,7 @@ import type { OpenAIProbeEndpointVariant, OpenAITextCapability, PricingComponent
 
 export type ConfigModelFacadeSelectionPolicy = "ordered_eligible_context";
 export type ConfigModelFacadeFallbackPolicy = "skip_ineligible_targets";
+export type ConfigModelOpenAIAcceptedFormat = "responses_only" | "chat_completions_only" | "dual_native";
 
 export interface ConfigEndpointExport {
   name: string;
@@ -151,6 +152,7 @@ export interface ConfigModelExport {
   facade_selection_policy: ConfigModelFacadeSelectionPolicy | null;
   facade_fallback_policy: ConfigModelFacadeFallbackPolicy | null;
   context_overflow_promotion_target_id: string | null;
+  openai_accepted_format: ConfigModelOpenAIAcceptedFormat | null;
   is_enabled: boolean;
   access_targets: ConfigAccessTargetExport[];
 }
@@ -168,6 +170,7 @@ export interface ConfigModelImport {
   facade_selection_policy?: ConfigModelFacadeSelectionPolicy | null;
   facade_fallback_policy?: ConfigModelFacadeFallbackPolicy | null;
   context_overflow_promotion_target_id?: string | null;
+  openai_accepted_format?: ConfigModelOpenAIAcceptedFormat | null;
   is_enabled?: boolean;
   access_targets: ConfigAccessTargetImport[];
 }

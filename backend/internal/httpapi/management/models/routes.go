@@ -37,8 +37,11 @@ type routingPlanValidationIssue struct {
 const (
 	facadeSelectionPolicyOrderedEligibleContext = "ordered_eligible_context"
 	facadeFallbackPolicySkipIneligibleTargets   = "skip_ineligible_targets"
-	facadeEnabledRequiresOpenAIDetail                = "facade_enabled requires api_family 'openai'"
-	nestedFacadesNotSupportedDetail                  = "nested facades are not supported"
+	facadeEnabledRequiresOpenAIDetail           = "facade_enabled requires api_family 'openai'"
+	nestedFacadesNotSupportedDetail             = "nested facades are not supported"
+	openAIAcceptedFormatResponsesOnly           = "responses_only"
+	openAIAcceptedFormatChatCompletionsOnly     = "chat_completions_only"
+	openAIAcceptedFormatDualNative              = "dual_native"
 )
 
 func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +133,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, contextCapabilityDomainError(err)
 		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, PreferredContextUtilizationThreshold: capabilitySettings.PreferredContextUtilizationThreshold, FacadeEnabled: resolveFacadeEnabled(requestBody.FacadeEnabled), FacadeSelectionPolicy: requestBody.FacadeSelectionPolicy, FacadeFallbackPolicy: requestBody.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: requestBody.ContextOverflowPromotionTargetID, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
+		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, PreferredContextUtilizationThreshold: capabilitySettings.PreferredContextUtilizationThreshold, FacadeEnabled: resolveFacadeEnabled(requestBody.FacadeEnabled), FacadeSelectionPolicy: requestBody.FacadeSelectionPolicy, FacadeFallbackPolicy: requestBody.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: requestBody.ContextOverflowPromotionTargetID, OpenAIAcceptedFormat: requestBody.OpenAIAcceptedFormat.Value, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
 		created, err := insertModel(r.Context(), tx, record)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -228,6 +231,11 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if requestBody.ContextOverflowPromotionTargetID.Set {
 			next.ContextOverflowPromotionTargetID = requestBody.ContextOverflowPromotionTargetID.Value
 		}
+		if requestBody.OpenAIAcceptedFormat.Set {
+			next.OpenAIAcceptedFormat = requestBody.OpenAIAcceptedFormat.Value
+		} else if next.APIFamily != "openai" {
+			next.OpenAIAcceptedFormat = nil
+		}
 		if requestBody.IsEnabled.Set {
 			next.IsEnabled = requestBody.IsEnabled.Value
 		}
@@ -291,6 +299,9 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		}
 		if next.LoadbalanceStrategyID == nil {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
+		}
+		if err := validateOpenAIAcceptedFormatForModel(next.APIFamily, next.OpenAIAcceptedFormat, requestBody.OpenAIAcceptedFormat.Set); err != nil {
+			return modelConfigResponse{}, err
 		}
 		if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *next.LoadbalanceStrategyID); err != nil {
 			return modelConfigResponse{}, err
@@ -1202,6 +1213,7 @@ func normalizeCreateRequest(requestBody *modelCreateRequest) {
 	requestBody.FacadeSelectionPolicy = normalizeOptionalString(requestBody.FacadeSelectionPolicy, true, true)
 	requestBody.FacadeFallbackPolicy = normalizeOptionalString(requestBody.FacadeFallbackPolicy, true, true)
 	requestBody.ContextOverflowPromotionTargetID = normalizeOptionalString(requestBody.ContextOverflowPromotionTargetID, false, true)
+	requestBody.OpenAIAcceptedFormat = optionalString{Set: requestBody.OpenAIAcceptedFormat.Set, Value: normalizeOptionalString(requestBody.OpenAIAcceptedFormat.Value, true, true)}
 	requestBody.AccessTargets = normalizeAccessTargets(requestBody.AccessTargets)
 }
 
@@ -1212,6 +1224,7 @@ func normalizeUpdateRequest(requestBody *modelUpdateRequest) {
 	requestBody.FacadeSelectionPolicy = optionalString{Set: requestBody.FacadeSelectionPolicy.Set, Value: normalizeOptionalString(requestBody.FacadeSelectionPolicy.Value, true, true)}
 	requestBody.FacadeFallbackPolicy = optionalString{Set: requestBody.FacadeFallbackPolicy.Set, Value: normalizeOptionalString(requestBody.FacadeFallbackPolicy.Value, true, true)}
 	requestBody.ContextOverflowPromotionTargetID = optionalString{Set: requestBody.ContextOverflowPromotionTargetID.Set, Value: normalizeOptionalString(requestBody.ContextOverflowPromotionTargetID.Value, false, true)}
+	requestBody.OpenAIAcceptedFormat = optionalString{Set: requestBody.OpenAIAcceptedFormat.Set, Value: normalizeOptionalString(requestBody.OpenAIAcceptedFormat.Value, true, true)}
 	requestBody.AccessTargets = optionalAccessTargets{Set: requestBody.AccessTargets.Set, Value: normalizeAccessTargets(requestBody.AccessTargets.Value)}
 }
 
@@ -1260,6 +1273,9 @@ func validateCreateRequest(requestBody modelCreateRequest) error {
 	if err := validateFacadePolicyValues(requestBody.FacadeSelectionPolicy, requestBody.FacadeFallbackPolicy); err != nil {
 		return err
 	}
+	if err := validateOpenAIAcceptedFormatForModel(requestBody.APIFamily, requestBody.OpenAIAcceptedFormat.Value, requestBody.OpenAIAcceptedFormat.Set); err != nil {
+		return err
+	}
 	if err := validateModelContextCapabilitiesCreate(requestBody); err != nil {
 		return err
 	}
@@ -1267,6 +1283,31 @@ func validateCreateRequest(requestBody modelCreateRequest) error {
 		return err
 	}
 	return validateAccessTargetsForSourceModel(requestBody.ModelID, requestBody.AccessTargets)
+}
+
+func validateOpenAIAcceptedFormatForModel(apiFamily string, value *string, provided bool) error {
+	if apiFamily != "openai" {
+		if provided {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "openai_accepted_format is only allowed when api_family is 'openai'"}
+		}
+		return nil
+	}
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "openai_accepted_format is required when api_family is 'openai'"}
+	}
+	if !isValidOpenAIAcceptedFormat(*value) {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "openai_accepted_format must be one of 'responses_only', 'chat_completions_only', or 'dual_native'"}
+	}
+	return nil
+}
+
+func isValidOpenAIAcceptedFormat(value string) bool {
+	switch value {
+	case openAIAcceptedFormatResponsesOnly, openAIAcceptedFormatChatCompletionsOnly, openAIAcceptedFormatDualNative:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateUpdateRequest(requestBody modelUpdateRequest) error {

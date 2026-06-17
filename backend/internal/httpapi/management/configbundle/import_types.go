@@ -126,6 +126,7 @@ type importedModelPayload struct {
 	FacadeFallbackPolicy                 *string
 	ContextOverflowPromotionTargetID     *string
 	ContextOverflowPromotionTargetSet    bool
+	OpenAIAcceptedFormat                 *string
 	IsEnabled                            bool
 	AccessTargets                        []importedAccessTargetPayload
 }

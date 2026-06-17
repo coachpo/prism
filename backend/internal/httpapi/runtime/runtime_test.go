@@ -259,8 +259,19 @@ func TestBuildRequestPlan_UnsupportedTranslatedShapeDoesNotSelectGenericTarget(t
 			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
-			_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
-			assertPlanDomainError(t, err, http.StatusBadRequest, openAIRequestTranslationUnsupportedDetail)
+			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
+			if err != nil {
+				t.Fatalf("build request plan: %v", err)
+			}
+			if plan.EffectiveRequestPath != "/v1/chat/completions" {
+				t.Fatalf("expected translated chat completions path, got %q", plan.EffectiveRequestPath)
+			}
+			if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_713 {
+				t.Fatalf("expected selected terminal target 2713, got %+v", plan.SelectedTerminalTargetID)
+			}
+			if plan.ContextRouting == nil || plan.ContextRouting.TranslationLoss == nil || !plan.ContextRouting.TranslationLoss.Lossy || plan.ContextRouting.TranslationLoss.Direction != "responses_to_chat" {
+				t.Fatalf("expected translated responses-to-chat routing metadata, got %+v", plan.ContextRouting)
+			}
 			if got := transport.calls.Load(); got != 0 {
 				t.Fatalf("expected generic planner rejection to avoid transport calls, got %d", got)
 			}
@@ -794,6 +805,34 @@ func TestBuildRequestPlan_CheapestEligibleContextPreferredContextPreservesTieBre
 		}
 		if len(plan.Connections) == 0 || plan.Connections[0].ID != 2_431 {
 			t.Fatalf("expected lower terminal-target id 2431 to lead same-position preferred tie, got %+v", plan.Connections)
+		}
+	})
+
+	t.Run("native OpenAI target breaks otherwise equal compatibility ties", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o-native-compatibility-tie-openai"})
+		model := snapshot.ModelsByID["gpt-4o-native-compatibility-tie-openai"]
+		setRequestPlanStrategyType(snapshot, model, "cheapest_eligible_context")
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+		rawBody := []byte(`{"model":"gpt-4o-native-compatibility-tie-openai","input":"hello","max_output_tokens":128}`)
+		estimation, err := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
+		if err != nil {
+			t.Fatalf("estimate native compatibility tie request: %v", err)
+		}
+		contextWindowTokens := estimation.EstimatedTotalContextTokens + 100
+		maxContextUtilization := 1.0
+		preferredThreshold := 1.0
+		pricing := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "1", OutputPrice: "1"}
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_441, 9_441, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization, preferredContextUtilizationThreshold: &preferredThreshold, pricingTemplateSnapshot: pricing, openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly)})
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_442, 9_442, 0, requestPlanConnectionTargetOptions{contextWindowTokens: &contextWindowTokens, maxContextUtilization: maxContextUtilization, preferredContextUtilizationThreshold: &preferredThreshold, pricingTemplateSnapshot: pricing, openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly)})
+		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		if err != nil {
+			t.Fatalf("build native compatibility tie request plan: %v", err)
+		}
+		if len(plan.Connections) == 0 || plan.Connections[0].ID != 2_442 {
+			t.Fatalf("expected native responses target 2442 to break otherwise equal tie, got %+v", plan.Connections)
 		}
 	})
 }
@@ -2483,6 +2522,8 @@ func TestRuntimeFacadeCandidateEvaluationReusesPreferredContextCostAndRuntimeSta
 		contextWindowTokens:                  &contextWindowTokens,
 		maxContextUtilization:                1.0,
 		preferredContextUtilizationThreshold: &preferredThreshold,
+		openAIProbeEndpointVariant:           stringPtr("chat_completions_reasoning_none"),
+		openAITextCapability:                 stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
 			PricingUnit:         runtimePricingUnitPerMillion,
 			PricingCurrencyCode: "USD",
@@ -2494,6 +2535,8 @@ func TestRuntimeFacadeCandidateEvaluationReusesPreferredContextCostAndRuntimeSta
 		contextWindowTokens:                  &contextWindowTokens,
 		maxContextUtilization:                1.0,
 		preferredContextUtilizationThreshold: &preferredThreshold,
+		openAIProbeEndpointVariant:           stringPtr("chat_completions_reasoning_none"),
+		openAITextCapability:                 stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 		pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
 			PricingUnit:         runtimePricingUnitPerMillion,
 			PricingCurrencyCode: "USD",
@@ -2853,6 +2896,9 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 		if model.LoadbalanceStrategyID == nil {
 			model.LoadbalanceStrategyID = &strategyID
 		}
+		if providercompat.IsOpenAI(model.APIFamily) && model.OpenAIAcceptedFormat == nil {
+			model.OpenAIAcceptedFormat = stringPtr(providercompat.OpenAITextCapabilityDualNative)
+		}
 		snapshot.ModelsByID[model.ModelID] = model
 		snapshot.StrategiesByModelID[model.ID] = strategy
 		connectionID := 1_000 + model.ID
@@ -3000,15 +3046,16 @@ func assertRecursivePlannerDomainError(t *testing.T, err error, want runtimeRecu
 
 func newRuntimeAccessResolutionContextForTest(service *Service, model runtimeModelRecord, operation RuntimeOperation, rawBody []byte, estimation *requestContextEstimation) runtimeAccessResolutionContext {
 	return runtimeAccessResolutionContext{
-		RequestedModelID:         model.ModelID,
-		RequestedAPIFamily:       model.APIFamily,
-		RequestOperation:         operation,
-		RawRequestBody:           rawBody,
-		RequestContextEstimation: estimation,
-		VisitedModelIDs:          map[int]struct{}{model.ID: struct{}{}},
-		ConsideredModelPath:      appendRuntimeModelPath(nil, model.ModelID),
-		Depth:                    1,
-		ReferenceNow:             service.nowUTC(),
+		RequestedModelID:              model.ModelID,
+		RequestedAPIFamily:            model.APIFamily,
+		RequestedOpenAIAcceptedFormat: model.OpenAIAcceptedFormat,
+		RequestOperation:              operation,
+		RawRequestBody:                rawBody,
+		RequestContextEstimation:      estimation,
+		VisitedModelIDs:               map[int]struct{}{model.ID: struct{}{}},
+		ConsideredModelPath:           appendRuntimeModelPath(nil, model.ModelID),
+		Depth:                         1,
+		ReferenceNow:                  service.nowUTC(),
 	}
 }
 

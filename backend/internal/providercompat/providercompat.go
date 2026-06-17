@@ -32,6 +32,12 @@ const (
 	OpenAITextTranslationModeNone               = "none"
 	OpenAITextTranslationModeResponsesToChat    = "openai_responses_to_chat_completions"
 	OpenAITextTranslationModeChatToResponses    = "openai_chat_completions_to_responses"
+	OpenAIWireFormatChatCompletions             = "chat_completions"
+	OpenAIWireFormatResponses                   = "responses"
+	OpenAIWireCompatibilityNative               = "native"
+	OpenAIWireCompatibilityTranslateToChat      = "translate-to-chat"
+	OpenAIWireCompatibilityTranslateToResponses = "translate-to-responses"
+	OpenAIWireCompatibilityReject               = "reject"
 )
 
 var (
@@ -213,6 +219,41 @@ func OpenAITextSiblingTranslationMode(capability string, ingressOperation string
 	return "", false
 }
 
+func OpenAICallerWireFormat(ingressOperation string) (string, bool) {
+	switch strings.TrimSpace(ingressOperation) {
+	case OpenAIUpstreamOperationChatCompletions:
+		return OpenAIWireFormatChatCompletions, true
+	case OpenAIUpstreamOperationResponses, OpenAIUpstreamOperationResponsesInputTokens, OpenAIUpstreamOperationResponsesCompact:
+		return OpenAIWireFormatResponses, true
+	default:
+		return "", false
+	}
+}
+
+func OpenAITextWireCompatibility(ingressOperation string, modelAcceptedFormat string, targetCapability string) string {
+	callerFormat, ok := OpenAICallerWireFormat(ingressOperation)
+	if !ok || !openAITextCapabilitySupportsWireFormat(modelAcceptedFormat, callerFormat) {
+		return OpenAIWireCompatibilityReject
+	}
+	if openAITextCapabilitySupportsWireFormat(targetCapability, callerFormat) {
+		return OpenAIWireCompatibilityNative
+	}
+	if !openAITextOperationAllowsSiblingTranslation(ingressOperation) {
+		return OpenAIWireCompatibilityReject
+	}
+	switch callerFormat {
+	case OpenAIWireFormatResponses:
+		if capabilitySupportsChatCompletions(targetCapability) {
+			return OpenAIWireCompatibilityTranslateToChat
+		}
+	case OpenAIWireFormatChatCompletions:
+		if capabilitySupportsResponses(targetCapability) {
+			return OpenAIWireCompatibilityTranslateToResponses
+		}
+	}
+	return OpenAIWireCompatibilityReject
+}
+
 func OpenAITextTranslationUpstreamOperation(mode string, ingressOperation string) string {
 	switch strings.TrimSpace(mode) {
 	case OpenAITextTranslationModeResponsesToChat:
@@ -221,6 +262,26 @@ func OpenAITextTranslationUpstreamOperation(mode string, ingressOperation string
 		return OpenAIUpstreamOperationResponses
 	}
 	return strings.TrimSpace(ingressOperation)
+}
+
+func openAITextOperationAllowsSiblingTranslation(ingressOperation string) bool {
+	switch strings.TrimSpace(ingressOperation) {
+	case OpenAIUpstreamOperationResponses, OpenAIUpstreamOperationChatCompletions:
+		return true
+	default:
+		return false
+	}
+}
+
+func openAITextCapabilitySupportsWireFormat(capability string, wireFormat string) bool {
+	switch strings.TrimSpace(wireFormat) {
+	case OpenAIWireFormatResponses:
+		return capabilitySupportsResponses(capability)
+	case OpenAIWireFormatChatCompletions:
+		return capabilitySupportsChatCompletions(capability)
+	default:
+		return false
+	}
 }
 
 func capabilitySupportsResponses(capability string) bool {

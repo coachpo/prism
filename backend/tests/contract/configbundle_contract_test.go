@@ -146,6 +146,8 @@ func TestProfileBundleImportAllowsSparseAccessTargetPositions(t *testing.T) {
 	asMap(t, accessTargets[0])["position"] = float64(4)
 	payload["models"] = models
 
+	models[len(models)-1].(map[string]any)["openai_accepted_format"] = "dual_native"
+
 	previewPayload := previewProfileImportPayload(t, harness, profileID, payload)
 	if previewPayload["ready"] != true || previewPayload["preview_token"] == "" {
 		t.Fatalf("expected ready preview for sparse positions, got %+v", previewPayload)
@@ -576,7 +578,7 @@ func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID i
 	}
 
 	var modelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $2, 128000, 4096, 0.90, TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $2, 'dual_native', 128000, 4096, 0.90, TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert model: %v", err)
 	}
 	var connectionID int
@@ -628,7 +630,7 @@ func seedConfigBundleOwnerCollision(t *testing.T, harness *contractHarness, prof
 	}
 
 	var collisionModelID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-collision', 'Collision GPT 4o', $2, TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&collisionModelID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-collision', 'Collision GPT 4o', $2, 'dual_native', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&collisionModelID); err != nil {
 		t.Fatalf("insert collision owner model: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, collisionModelID, connectionID, now); err != nil {
@@ -647,7 +649,7 @@ func seedConfigBundleFacadeRoutingModel(t *testing.T, harness *contractHarness, 
 		t.Fatalf("load facade routing fixture references: %v", err)
 	}
 	var routerModelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-router', 'GPT 4o Router', $2, TRUE, 'ordered_eligible_context', 'skip_ineligible_targets', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&routerModelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-router', 'GPT 4o Router', $2, 'dual_native', TRUE, 'ordered_eligible_context', 'skip_ineligible_targets', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&routerModelConfigID); err != nil {
 		t.Fatalf("insert facade routing model: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, TRUE, $4, $4)`, profileID, routerModelConfigID, targetModelConfigID, now); err != nil {
@@ -1140,6 +1142,7 @@ func TestConfigBundleLegacyFacadeAndTargetMetadataDefaults(t *testing.T) {
 	models := payload["models"].([]any)
 	models = append(models, map[string]any{
 		"api_family":                "openai",
+		"openai_accepted_format":    "dual_native",
 		"model_id":                  "gpt-4o-router",
 		"display_name":              "GPT 4o Router",
 		"loadbalance_strategy_name": "Default round robin",

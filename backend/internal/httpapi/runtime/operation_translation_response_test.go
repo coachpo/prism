@@ -3,10 +3,13 @@ package runtime
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
 func TestTranslateOpenAIResponsesToChatResponse(t *testing.T) {
@@ -171,6 +174,57 @@ func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 	}
 }
 
+func TestTranslateOpenAIChatToResponsesResponseWithToolContext(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	bridge := NewCodingAgentFormatBridge()
+	connection := runtimeConnection{
+		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
+		OpenAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+	}
+	rawRequest := []byte(`{"model":"responses-public","input":"use tools","tools":[{"type":"custom","name":"exec"},{"type":"tool_search"},{"type":"namespace","name":"mcp__apps__gmail","tools":[{"type":"function","name":"_search_emails","parameters":{"type":"object"}}]}]}`)
+	plan, translated, err := bridge.PlanRequest(operation, rawRequest, "chat-target", connection)
+	if err != nil {
+		t.Fatalf("plan responses-to-chat tool request: %v", err)
+	}
+	if !translated || plan.ToolContext == nil {
+		t.Fatalf("expected translated plan with request-scoped tool context, translated=%v context=%v", translated, plan.ToolContext)
+	}
+	namespaceChatName := plan.ToolContext.ChatNameForResponseFunction("_search_emails", "mcp__apps__gmail")
+	upstreamRaw := []byte(fmt.Sprintf(`{"id":"chatcmpl_tools","created":1700000001,"model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_custom","type":"function","function":{"name":"exec","arguments":%q}},{"id":"call_namespace","type":"function","function":{"name":%q,"arguments":%q}},{"id":"call_search","type":"function","function":{"name":"tool_search","arguments":%q}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}}`, `{"input":"ls -la"}`, namespaceChatName, `{"query":"from:alerts"}`, `{"query":"gmail","limit":3}`))
+	metadata := runtimeFinalResponseTranslationMetadata{RequestedModelID: "responses-public", ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient}
+	var forwarded bytes.Buffer
+	capture, err := bridge.ProxyNonEventResponseAndCaptureForFinalAttemptWithRequestBody(metadata, rawRequest, &forwarded, bytes.NewReader(upstreamRaw), fixedResponseHookTestNow, true)
+	if err != nil {
+		t.Fatalf("translate chat tool response with request context: %v", err)
+	}
+	if got := capture.extractedUsage(); !reflect.DeepEqual(got, generationResponseHookTestUsage(12, 5, 17)) {
+		t.Fatalf("expected canonical chat usage, got %+v", got)
+	}
+	payload := decodeTranslationTestPayload(t, forwarded.Bytes())
+	if got := stringValue(payload["model"]); got != "responses-public" {
+		t.Fatalf("expected requested public responses model, got %q", got)
+	}
+	output := payload["output"].([]any)
+	if len(output) != 3 {
+		t.Fatalf("expected three reconstructed tool output items, got %+v", output)
+	}
+	custom := output[0].(map[string]any)
+	if custom["type"] != "custom_tool_call" || custom["name"] != "exec" || custom["input"] != "ls -la" {
+		t.Fatalf("expected custom tool reconstruction, got %+v", custom)
+	}
+	namespace := output[1].(map[string]any)
+	if namespace["type"] != "function_call" || namespace["name"] != "_search_emails" || namespace["namespace"] != "mcp__apps__gmail" {
+		t.Fatalf("expected namespace tool reconstruction, got %+v", namespace)
+	}
+	toolSearch := output[2].(map[string]any)
+	if toolSearch["type"] != "tool_search_call" || toolSearch["execution"] != "client" || stringValue(nestedValue(toolSearch, "arguments", "query")) != "gmail" {
+		t.Fatalf("expected tool_search reconstruction, got %+v", toolSearch)
+	}
+	if strings.Contains(forwarded.String(), "chat-target") {
+		t.Fatalf("expected translated response not to leak resolved target model, got %s", forwarded.String())
+	}
+}
+
 func TestTranslateOpenAIResponseRefusal(t *testing.T) {
 	responsesRaw := []byte(`{"id":"resp_refusal","model":"responses-target","output":[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"I cannot help with that."}]}]}`)
 	chatBody, _, _, err := translateOpenAIResponsesUpstreamToChatClientResponseWithRequestedModel(responsesRaw, "")
@@ -204,6 +258,7 @@ func TestTranslateOpenAIResponseRejectsUnsupportedShape(t *testing.T) {
 	}{
 		{name: "responses unsupported output type", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"id":"resp_bad","output":[{"type":"unknown"}]}`), reason: "responses_output_type"},
 		{name: "chat empty choices", mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"id":"chatcmpl_empty","choices":[]}`), reason: "chat_choices"},
+		{name: "chat malformed choice", mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"id":"chatcmpl_bad","choices":["bad"]}`), reason: "chat_choice"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

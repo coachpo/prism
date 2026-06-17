@@ -1,30 +1,31 @@
 package runtime
 
 import (
-	"context"
 	"fmt"
 	"io"
 
-	"github.com/coachpo/prism/backend/internal/gateway/provider"
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
 )
 
 const openAITranslatedNonStreamResponseBodyLimit int64 = 8 * 1024 * 1024
 
 func translateOpenAIResponse(rawBody []byte, mode TranslationMode, requestedModelID string) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
+	return translateOpenAIResponseWithToolContext(rawBody, mode, requestedModelID, nil)
+}
+
+func translateOpenAIResponseWithToolContext(rawBody []byte, mode TranslationMode, requestedModelID string, toolContext *openai.ToolContext) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {
 	if mode == "" || mode == TranslationModeNone {
 		return append([]byte(nil), rawBody...), responseUsage{}, runtimeUsageNormalizationRule{}, nil
 	}
-	adapter := openai.New()
-	clientResponse, err := adapter.AdaptNonStreamResponse(context.Background(), provider.UpstreamResponse{StatusCode: 200, Body: rawBody, TranslationMode: providerTranslationMode(mode), RequestedModelID: requestedModelID})
+	body, usageEnvelope, _, err := openai.TranslateResponseWithToolContext(rawBody, providerTranslationMode(mode), requestedModelID, toolContext)
 	if err != nil {
 		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {
 			return nil, responseUsage{}, runtimeUsageNormalizationRule{}, domainErr
 		}
 		return nil, responseUsage{}, runtimeUsageNormalizationRule{}, err
 	}
-	usage, usageRule := responseUsageFromProviderEnvelope(clientResponse.Usage)
-	return clientResponse.Body, usage, usageRule, nil
+	usage, usageRule := responseUsageFromProviderEnvelope(usageEnvelope)
+	return body, usage, usageRule, nil
 }
 
 func translateOpenAIResponsesUpstreamToChatClientResponseWithRequestedModel(rawBody []byte, requestedModelID string) ([]byte, responseUsage, runtimeUsageNormalizationRule, error) {

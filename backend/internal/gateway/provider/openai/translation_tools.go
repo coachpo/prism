@@ -3,6 +3,7 @@ package openai
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 )
 
@@ -53,6 +54,43 @@ func BuildToolContextFromResponsesPayload(payload map[string]any) *ToolContext {
 	}
 	context.collectToolSearchOutputTools(payload["input"])
 	return context
+}
+
+func BuildToolContextFromChatPayload(payload map[string]any) *ToolContext {
+	context := NewToolContext()
+	tools, _ := payload["tools"].([]any)
+	for _, rawTool := range tools {
+		tool, _ := rawTool.(map[string]any)
+		function, _ := tool["function"].(map[string]any)
+		name := strings.TrimSpace(stringValue(function["name"]))
+		if name == "" {
+			continue
+		}
+		if name == toolSearchProxyName {
+			context.AddResponseTool(map[string]any{"type": string(ToolKindToolSearch)})
+			continue
+		}
+		if original := responseToolFromChatDescription(stringValue(function["description"])); original != nil {
+			context.AddResponseTool(original)
+			continue
+		}
+		if namespace, childName, ok := namespaceToolFromChatName(name); ok {
+			child := cloneAnyMap(function)
+			child["name"] = childName
+			context.AddResponseTool(map[string]any{"type": string(ToolKindNamespace), "name": namespace, "tools": []any{map[string]any{"type": string(ToolKindFunction), "function": child}}})
+			continue
+		}
+		context.AddResponseTool(map[string]any{"type": string(ToolKindFunction), "function": cloneAnyMap(function)})
+	}
+	return context
+}
+
+func BuildToolContextFromChatRawBody(rawBody []byte) *ToolContext {
+	payload, err := decodeOpenAIResponseTranslationPayload(rawBody)
+	if err != nil {
+		return nil
+	}
+	return BuildToolContextFromChatPayload(payload)
 }
 
 func (context *ToolContext) ChatTools() []map[string]any {
@@ -222,6 +260,44 @@ func responseFunctionToolToChatTool(tool map[string]any, chatName string) map[st
 
 func responseCustomToolDescription(tool map[string]any) string {
 	return customToolMetadataHeader + "\n```json\n" + canonicalJSONString(tool) + "\n```"
+}
+
+func responseToolFromChatDescription(description string) map[string]any {
+	start := strings.Index(description, customToolMetadataHeader)
+	if start < 0 {
+		return nil
+	}
+	remaining := description[start+len(customToolMetadataHeader):]
+	jsonStart := strings.Index(remaining, "```json")
+	if jsonStart < 0 {
+		return nil
+	}
+	remaining = remaining[jsonStart+len("```json"):]
+	jsonEnd := strings.Index(remaining, "```")
+	if jsonEnd < 0 {
+		return nil
+	}
+	var tool map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(remaining[:jsonEnd])), &tool); err != nil {
+		return nil
+	}
+	return tool
+}
+
+func namespaceToolFromChatName(name string) (string, string, bool) {
+	if !strings.HasPrefix(name, "mcp__") {
+		return "", "", false
+	}
+	separator := strings.LastIndex(name, "___")
+	if separator < 0 {
+		return "", "", false
+	}
+	namespace := strings.TrimSpace(name[:separator])
+	childName := "_" + strings.TrimSpace(name[separator+3:])
+	if namespace == "" || childName == "_" {
+		return "", "", false
+	}
+	return namespace, childName, true
 }
 
 func flattenNamespaceToolName(namespace string, name string) string {

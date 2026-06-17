@@ -105,10 +105,12 @@ export interface ConnectionPricingTemplateSummary {
   version: number;
 }
 
-export type OpenAITextCapability =
+export type OpenAIAcceptedFormat =
   | "responses_only"
   | "chat_completions_only"
   | "dual_native";
+
+export type OpenAITextCapability = OpenAIAcceptedFormat;
 
 export type OpenAIProbeEndpointVariant =
   | "responses_minimal"

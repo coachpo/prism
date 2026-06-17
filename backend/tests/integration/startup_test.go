@@ -1055,10 +1055,11 @@ func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed m
 			model_id,
 			display_name,
 			loadbalance_strategy_id,
+			openai_accepted_format,
 			is_enabled,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		) VALUES ($1, $2::varchar(50), $3, $4, $5, CASE WHEN $2::varchar(50) = 'openai' THEN 'dual_native'::text ELSE NULL::text END, $6, $7, $8)
 		RETURNING id`,
 		seed.ProfileID,
 		seed.APIFamily,

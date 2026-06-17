@@ -32,7 +32,7 @@ func TestTranslateResponsesToChatRequestToolsReasoningAndRichContent(t *testing.
 }
 
 func TestTranslateChatToResponsesRequestToolsAndDeterministicNRejection(t *testing.T) {
-	raw := []byte(`{"model":"chat-public","messages":[{"role":"assistant","reasoning_content":"Need lookup","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{ \"q\": \"x\" }"}}]},{"role":"tool","tool_call_id":"call_1","content":"done"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":{"type":"function","function":{"name":"lookup"}},"parallel_tool_calls":false}`)
+	raw := []byte(`{"model":"chat-public","messages":[{"role":"assistant","reasoning_content":"Need lookup","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{ \"q\": \"x\" }"}}]},{"role":"tool","tool_call_id":"call_1","content":"done"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":{"type":"function","function":{"name":"lookup"}}}`)
 	_, body, err := translateRequest(raw, provider.TranslationModeOpenAIChatCompletionsToResponses, "responses-target")
 	if err != nil {
 		t.Fatalf("translate chat tool request: %v", err)
@@ -42,7 +42,7 @@ func TestTranslateChatToResponsesRequestToolsAndDeterministicNRejection(t *testi
 	if input[0].(map[string]any)["type"] != "reasoning" || input[1].(map[string]any)["type"] != "function_call" || input[2].(map[string]any)["type"] != "function_call_output" {
 		t.Fatalf("expected reasoning, function call, and output items, got %+v", input)
 	}
-	if payload["parallel_tool_calls"] != false || payload["tools"].([]any)[0].(map[string]any)["name"] != "lookup" {
+	if payload["tools"].([]any)[0].(map[string]any)["name"] != "lookup" {
 		t.Fatalf("expected responses tool fields, got %+v", payload)
 	}
 
@@ -51,6 +51,25 @@ func TestTranslateChatToResponsesRequestToolsAndDeterministicNRejection(t *testi
 	if !errors.As(err, &adapterErr) || adapterErr.HTTPStatus != http.StatusBadRequest || adapterErr.Fields["unsupported_reason"] != "chat_multi_choice" {
 		t.Fatalf("expected deterministic n>1 rejection, got %+v", err)
 	}
+
+	_, _, err = translateRequest([]byte(`{"model":"chat-public","messages":[],"tools":[{"type":"function","function":{"name":"lookup"}}],"tool_choice":{"type":"allowed_tools","tools":[{"type":"function","function":{"name":"lookup"}}]}}`), provider.TranslationModeOpenAIChatCompletionsToResponses, "responses-target")
+	adapterErr = nil
+	if !errors.As(err, &adapterErr) || adapterErr.HTTPStatus != http.StatusBadRequest || adapterErr.Fields["unsupported_reason"] != "chat_tool_choice" {
+		t.Fatalf("expected non-representable tool_choice rejection, got %+v", err)
+	}
+}
+
+func TestTranslateResponsesToChatRequestRecordsDroppedToolMetadata(t *testing.T) {
+	raw := []byte(`{"model":"responses-public","input":"hello","tools":[{"type":"image_generation","name":"draw"}],"tool_choice":{"type":"function","name":"draw"},"parallel_tool_calls":true}`)
+	_, body, loss, err := translateRequestWithLoss(raw, provider.TranslationModeOpenAIResponsesToChatCompletions, "chat-target")
+	if err != nil {
+		t.Fatalf("translate lossy responses tools request: %v", err)
+	}
+	payload := decodeOpenAIParityPayload(t, body)
+	if _, ok := payload["tools"]; ok {
+		t.Fatalf("expected unsupported responses tool to drop, got %+v", payload)
+	}
+	assertOpenAIStringSliceContainsAll(t, loss.DroppedFields, []string{"responses_tools.0", "responses_tool_choice", "responses_parallel_tool_calls"}, "dropped fields")
 }
 
 func TestTranslateNonStreamResponsesToolsReasoningInlineThinkAndIncomplete(t *testing.T) {
@@ -92,4 +111,17 @@ func decodeOpenAIParityPayload(t *testing.T, raw []byte) map[string]any {
 		t.Fatalf("decode payload: %v", err)
 	}
 	return payload
+}
+
+func assertOpenAIStringSliceContainsAll(t *testing.T, got []string, want []string, label string) {
+	t.Helper()
+	values := map[string]struct{}{}
+	for _, value := range got {
+		values[value] = struct{}{}
+	}
+	for _, value := range want {
+		if _, ok := values[value]; !ok {
+			t.Fatalf("expected %s to contain %q, got %+v", label, value, got)
+		}
+	}
 }

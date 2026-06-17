@@ -86,7 +86,7 @@ func (adapter Adapter) BuildTextUpstreamRequest(ctx context.Context, request Tex
 		if err != nil {
 			return provider.UpstreamRequest{}, err
 		}
-		return provider.UpstreamRequest{Method: http.MethodPost, Path: translated.Path, Body: translated.Body}, nil
+		return provider.UpstreamRequest{Method: http.MethodPost, Path: translated.Path, Body: translated.Body, TranslationLoss: translated.TranslationLoss}, nil
 	}
 	body := rewriteJSONModel(request.RawBody, request.TargetModelID)
 	return provider.UpstreamRequest{Method: http.MethodPost, Path: metadata.NativePath, Body: body}, nil
@@ -226,11 +226,11 @@ func (adapter Adapter) ConversionCapability(_ context.Context, request provider.
 }
 
 func (adapter Adapter) TranslateRequest(_ context.Context, request provider.ConversionRequest) (provider.TranslatedRequest, error) {
-	path, body, err := translateRequest(request.RawBody, normalizedTranslationMode(request.Mode), request.TargetModelID)
+	path, body, loss, err := translateRequestWithLoss(request.RawBody, normalizedTranslationMode(request.Mode), request.TargetModelID)
 	if err != nil {
 		return provider.TranslatedRequest{}, err
 	}
-	return provider.TranslatedRequest{Path: path, Body: body}, nil
+	return provider.TranslatedRequest{Path: path, Body: body, TranslationLoss: loss}, nil
 }
 
 func (adapter Adapter) TranslateResponse(_ context.Context, request provider.ConversionRequest) (provider.TranslatedResponse, error) {

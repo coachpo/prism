@@ -10,6 +10,10 @@ export const modelAuthoringSchema = z.object({
   api_family: z.enum(["openai", "anthropic", "gemini"]),
   model_id: z.string().trim().min(1, "Model ID is required."),
   display_name: z.string(),
+  openai_accepted_format: z.union([
+    z.enum(["responses_only", "chat_completions_only", "dual_native"]),
+    z.literal(""),
+  ]),
   loadbalance_strategy_id: z.number().int().positive().nullable(),
   context_window_tokens: z.string(),
   default_output_token_reserve: z.string(),

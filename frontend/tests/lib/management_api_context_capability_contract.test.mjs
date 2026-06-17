@@ -127,6 +127,7 @@ function buildModelListItemPayload(overrides = {}) {
     api_family: "openai",
     model_id: "gpt-4.1",
     display_name: "GPT-4.1",
+    openai_accepted_format: "chat_completions_only",
     loadbalance_strategy_id: 9,
     loadbalance_strategy: buildLoadbalanceStrategySummary(),
     context_window_tokens: 200_000,
@@ -257,6 +258,8 @@ test("management model normalization preserves snake_case capability fields", as
     max_context_utilization: 0.9,
     preferred_context_utilization_threshold: 0.74,
   });
+  assert.equal(listItem.openai_accepted_format, "chat_completions_only");
+  assert.equal(detail.openai_accepted_format, "chat_completions_only");
   assert.ok(!Object.hasOwn(listItem, "contextWindowTokens"));
   assert.ok(!Object.hasOwn(listItem.access_targets[0], "weight"));
   assert.ok(!Object.hasOwn(listItem.access_targets[0], "target_priority"));
@@ -334,6 +337,7 @@ test("model list cache helpers keep capability fields during detail hydration", 
   assert.deepEqual(pickCapabilityFields(patchedItem), pickCapabilityFields(listItem));
   assert.equal(patchedItem.health_success_rate, 88);
   assert.equal(patchedItem.health_total_requests, 25);
+  assert.equal(patchedItem.openai_accepted_format, "chat_completions_only");
   assert.equal(patchedItem.connection_count, 1);
   assert.equal(patchedItem.active_connection_count, 1);
 });

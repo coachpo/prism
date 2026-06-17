@@ -17,7 +17,9 @@ const {
   getAccessTargetModelsForApiFamily,
   getEditModelConnectionOptions,
   getPromotionTargetModelsForApiFamily,
+  normalizeOpenAIAcceptedFormatForForm,
   setApiFamilyOnForm,
+  setOpenAIAcceptedFormatOnForm,
   toModelCreatePayload,
   toModelUpdatePayload,
   validateModelFormData,
@@ -28,6 +30,7 @@ const baseEditModel = {
   api_family: "openai",
   model_id: "native-model",
   display_name: "Native Model",
+  openai_accepted_format: "responses_only",
   loadbalance_strategy_id: 21,
   access_targets: [
     { target_type: "connection", connection_id: 88, position: 5, is_enabled: true, connection: null },
@@ -54,7 +57,9 @@ test("new model defaults seed canonical capability strings", () => {
   assert.equal(DEFAULT_MODEL_FORM_DATA.default_output_token_reserve, "4096");
   assert.equal(DEFAULT_MODEL_FORM_DATA.max_context_utilization, "0.90");
   assert.equal(DEFAULT_MODEL_FORM_DATA.preferred_context_utilization_threshold, "");
+  assert.equal(DEFAULT_MODEL_FORM_DATA.openai_accepted_format, "dual_native");
   assert.equal(formData.is_enabled, false);
+  assert.equal(formData.openai_accepted_format, "dual_native");
   assert.deepEqual(formData.access_targets, []);
   assert.equal(formData.loadbalance_strategy_id, 42);
 });
@@ -77,11 +82,36 @@ test("edit hydration seeds capability strings from list and detail payloads", ()
   assert.equal(fromList.default_output_token_reserve, "4096");
   assert.equal(fromList.max_context_utilization, "0.9");
   assert.equal(fromList.preferred_context_utilization_threshold, "0.72");
+  assert.equal(fromList.openai_accepted_format, "responses_only");
   assert.equal(fromDetail.context_window_tokens, "");
   assert.equal(fromDetail.default_output_token_reserve, "12288");
   assert.equal(fromDetail.max_context_utilization, "1");
   assert.equal(fromDetail.preferred_context_utilization_threshold, "");
   assert.equal(fromDetail.display_name, "");
+  assert.equal(fromDetail.openai_accepted_format, "responses_only");
+});
+
+test("edit hydration defaults missing OpenAI accepted format to dual native", () => {
+  const { openai_accepted_format: _format, ...legacyModel } = baseEditModel;
+
+  assert.equal(createEditModelFormData(legacyModel).openai_accepted_format, "dual_native");
+});
+
+test("accepted format normalization stays centralized in model form state", () => {
+  assert.equal(normalizeOpenAIAcceptedFormatForForm("openai", "responses_only"), "responses_only");
+  assert.equal(normalizeOpenAIAcceptedFormatForForm("openai", "chat_completions_only"), "chat_completions_only");
+  assert.equal(normalizeOpenAIAcceptedFormatForForm("openai", "dual_native"), "dual_native");
+  assert.equal(normalizeOpenAIAcceptedFormatForForm("openai", null), "dual_native");
+  assert.equal(normalizeOpenAIAcceptedFormatForForm("openai", "legacy"), "dual_native");
+  assert.equal(normalizeOpenAIAcceptedFormatForForm("anthropic", "dual_native"), "");
+
+  const openAIForm = setOpenAIAcceptedFormatOnForm(createNewModelFormData(17), "responses_only");
+  assert.equal(openAIForm.openai_accepted_format, "responses_only");
+
+  const anthropicForm = setApiFamilyOnForm(openAIForm, "anthropic");
+  assert.equal(anthropicForm.openai_accepted_format, "");
+  assert.equal(setOpenAIAcceptedFormatOnForm(anthropicForm, "chat_completions_only").openai_accepted_format, "");
+  assert.equal(setApiFamilyOnForm(anthropicForm, "openai").openai_accepted_format, "dual_native");
 });
 
 test("edit model connection options preserve terminal target display names", () => {
@@ -360,6 +390,7 @@ test("changing api family clears incompatible access targets and promotion targe
   );
 
   assert.equal(formData.api_family, "anthropic");
+  assert.equal(formData.openai_accepted_format, "");
   assert.equal(formData.context_overflow_promotion_target_id, "");
   assert.deepEqual(formData.access_targets, []);
 });
@@ -389,6 +420,7 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     api_family: "openai",
     model_id: "live-model",
     display_name: "  Live Model  ",
+    openai_accepted_format: "dual_native",
     loadbalance_strategy_id: 17,
     context_window_tokens: "",
     default_output_token_reserve: "4096",
@@ -416,6 +448,7 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     model_id: "live-model",
     display_name: "Live Model",
     is_enabled: true,
+    openai_accepted_format: "dual_native",
     loadbalance_strategy_id: 17,
     context_window_tokens: null,
     default_output_token_reserve: 4096,
@@ -430,6 +463,7 @@ test("payload shaping serializes capability strings to numeric fields", () => {
     display_name: "  Live Model  ",
     model_id: "live-model",
     is_enabled: true,
+    openai_accepted_format: "dual_native",
     loadbalance_strategy_id: 17,
     context_window_tokens: null,
     default_output_token_reserve: 4096,
@@ -445,6 +479,7 @@ test("payload shaping keeps promotion target separate from access target normali
     api_family: "openai",
     model_id: "live-model",
     display_name: "Live Model",
+    openai_accepted_format: "chat_completions_only",
     loadbalance_strategy_id: 17,
     context_window_tokens: "",
     default_output_token_reserve: "4096",
@@ -464,6 +499,7 @@ test("payload shaping keeps promotion target separate from access target normali
     display_name: "Live Model",
     model_id: "live-model",
     is_enabled: true,
+    openai_accepted_format: "chat_completions_only",
     loadbalance_strategy_id: 17,
     context_window_tokens: null,
     default_output_token_reserve: 4096,
@@ -479,4 +515,28 @@ test("payload shaping keeps promotion target separate from access target normali
       },
     ],
   });
+});
+
+test("non-OpenAI model payloads omit accepted format", () => {
+  const formData = setApiFamilyOnForm(createNewModelFormData(17), "anthropic");
+  const payload = toModelCreatePayload({
+    ...formData,
+    model_id: "claude-model",
+    display_name: "Claude Model",
+  });
+
+  assert.equal(payload.api_family, "anthropic");
+  assert.equal(Object.hasOwn(payload, "openai_accepted_format"), false);
+});
+
+test("OpenAI payload shaping normalizes blank accepted format to dual native", () => {
+  const payload = toModelCreatePayload({
+    ...createNewModelFormData(17),
+    model_id: "legacy-openai",
+    display_name: "Legacy OpenAI",
+    openai_accepted_format: "",
+  });
+
+  assert.equal(payload.api_family, "openai");
+  assert.equal(payload.openai_accepted_format, "dual_native");
 });

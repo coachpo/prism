@@ -40,7 +40,7 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			name:        "responses ingress translates to chat-only target",
 			requestPath: "/v1/responses",
 			requestBody: func(route seededRuntimeRoute) map[string]any {
-				return map[string]any{"model": route.PublicModelID, "input": "translated responses ingress", "max_output_tokens": 64}
+				return map[string]any{"model": route.PublicModelID, "input": "translated responses ingress", "include": []string{"file_search_call.results"}, "text": map[string]any{"format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "answer", "schema": map[string]any{"type": "object"}}}, "verbosity": "low"}, "reasoning": map[string]any{"effort": "medium", "encrypted_content": "opaque"}, "max_output_tokens": 64}
 			},
 			upstreamResponse:      `{"id":"chatcmpl_translated_responses","object":"chat.completion","created":1700000002,"model":"chat-only-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"translated responses ingress"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
 			probeVariant:          "chat_completions_reasoning_none",

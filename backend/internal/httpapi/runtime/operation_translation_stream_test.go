@@ -356,12 +356,14 @@ func TestTranslateOpenAIChatToResponsesStreamPreservesErrorPayload(t *testing.T)
 }
 
 func TestTranslateOpenAIChatToResponsesStreamAcceptsToolDeltas(t *testing.T) {
-	stream := "data: {\"id\":\"chatcmpl_tools\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_b\",\"type\":\"function\",\"function\":{\"name\":\"second\",\"arguments\":\"{\\\"b\\\":2}\"}},{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"first\",\"arguments\":\"{\\\"a\\\":1}\"}}]}}]}\n\n" +
+	rawRequest := []byte(`{"model":"responses-public","input":"use tools","tools":[{"type":"custom","name":"exec"},{"type":"tool_search"},{"type":"namespace","name":"mcp__apps__gmail","tools":[{"type":"function","name":"_search_emails","parameters":{"type":"object"}}]}]}`)
+	stream := "data: {\"id\":\"chatcmpl_tools\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_namespace\",\"type\":\"function\",\"function\":{\"name\":\"mcp__apps__gmail___search_emails\",\"arguments\":\"{\\\"query\\\":\\\"from:alerts\\\"}\"}},{\"index\":0,\"id\":\"call_custom\",\"type\":\"function\",\"function\":{\"name\":\"exec\",\"arguments\":\"{\\\"input\\\":\\\"ls -la\\\"}\"}},{\"index\":2,\"id\":\"call_search\",\"type\":\"function\",\"function\":{\"name\":\"tool_search\",\"arguments\":\"{\\\"query\\\":\\\"gmail\\\",\\\"limit\\\":3}\"}}]}}]}\n\n" +
 		"data: {\"id\":\"chatcmpl_tools\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
 		"data: [DONE]\n\n"
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	var forwarded bytes.Buffer
-	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIResponsesToChatCompletions, "responses-public", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
+	metadata := runtimeFinalResponseTranslationMetadata{RequestedModelID: "responses-public", ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient}
+	capture, err := NewCodingAgentFormatBridge().ProxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBody(operation, metadata, rawRequest, context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
 	if err != nil {
 		t.Fatalf("translate chat stream tool deltas to responses: %v", err)
 	}
@@ -372,8 +374,23 @@ func TestTranslateOpenAIChatToResponsesStreamAcceptsToolDeltas(t *testing.T) {
 	completed := translatedSSEEventPayload(t, events, "response.completed")
 	response := completed["response"].(map[string]any)
 	output := response["output"].([]any)
-	if len(output) != 2 || stringValue(output[0].(map[string]any)["name"]) != "first" || stringValue(output[1].(map[string]any)["name"]) != "second" {
+	if len(output) != 3 {
 		t.Fatalf("expected completed Responses tool calls sorted by tool_call index, got %+v", output)
+	}
+	custom := output[0].(map[string]any)
+	if custom["type"] != "custom_tool_call" || custom["name"] != "exec" || custom["input"] != "ls -la" {
+		t.Fatalf("expected custom tool reconstruction from stream context, got %+v", custom)
+	}
+	namespace := output[1].(map[string]any)
+	if namespace["type"] != "function_call" || namespace["name"] != "_search_emails" || namespace["namespace"] != "mcp__apps__gmail" {
+		t.Fatalf("expected namespace tool reconstruction from stream context, got %+v", namespace)
+	}
+	toolSearch := output[2].(map[string]any)
+	if toolSearch["type"] != "tool_search_call" || toolSearch["execution"] != "client" || stringValue(nestedValue(toolSearch, "arguments", "query")) != "gmail" {
+		t.Fatalf("expected tool_search reconstruction from stream context, got %+v", toolSearch)
+	}
+	if _, hasUsage := response["usage"]; hasUsage {
+		t.Fatalf("expected stream without provider usage to omit terminal usage instead of failing, got %+v", response)
 	}
 }
 
@@ -492,6 +509,38 @@ func TestTranslateOpenAIStreamRejectsUnsupportedShape(t *testing.T) {
 			stream: "event: response.output_text.done\n" +
 				"data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"item_id\":\"msg_1\",\"content_index\":0,\"part\":\"not-object\"}\n\n",
 			reason: "responses_stream_content_part",
+		},
+		{
+			name:        "chat upstream chunk missing choices",
+			ingressPath: "/v1/responses",
+			mode:        TranslationModeOpenAIResponsesToChatCompletions,
+			stream: "data: {\"id\":\"chatcmpl_bad\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\"}\n\n" +
+				"data: [DONE]\n\n",
+			reason: "chat_choices_stream",
+		},
+		{
+			name:        "chat upstream chunk non-array choices",
+			ingressPath: "/v1/responses",
+			mode:        TranslationModeOpenAIResponsesToChatCompletions,
+			stream: "data: {\"id\":\"chatcmpl_bad\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":{}}\n\n" +
+				"data: [DONE]\n\n",
+			reason: "chat_choices_stream",
+		},
+		{
+			name:        "chat upstream choice missing delta and message",
+			ingressPath: "/v1/responses",
+			mode:        TranslationModeOpenAIResponsesToChatCompletions,
+			stream: "data: {\"id\":\"chatcmpl_bad\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0}]}\n\n" +
+				"data: [DONE]\n\n",
+			reason: "chat_choice_stream",
+		},
+		{
+			name:        "chat upstream malformed tool arguments payload",
+			ingressPath: "/v1/responses",
+			mode:        TranslationModeOpenAIResponsesToChatCompletions,
+			stream: "data: {\"id\":\"chatcmpl_tools\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_custom\",\"type\":\"function\",\"function\":{\"name\":\"exec\",\"arguments\":\"{\"input\":\"ls -la\"}\"}}]}}]}\n\n" +
+				"data: [DONE]\n\n",
+			reason: "chat_stream_payload",
 		},
 	}
 	for _, test := range tests {

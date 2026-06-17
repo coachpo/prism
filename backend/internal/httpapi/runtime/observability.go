@@ -17,6 +17,7 @@ import (
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	gatewayaccounting "github.com/coachpo/prism/backend/internal/gateway/accounting"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	anthropicprovider "github.com/coachpo/prism/backend/internal/gateway/provider/anthropic"
@@ -1054,6 +1055,10 @@ type runtimeTelemetryAttemptContext struct {
 	responseTimeMS int
 }
 
+func runtimeTelemetryContextRoutingDecision(contextRouting *runtimeContextRoutingDecision, routeReason gatewaycore.RouteReason, strategy loadbalance.RuntimeStrategy) *runtimeContextRoutingDecision {
+	return runtimeContextRoutingWithRouteReason(contextRouting, routeReason, normalizedRuntimeLegacyStrategyType(strategy))
+}
+
 func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) runtimeTelemetryEnvelope {
 	telemetry := s.buildRuntimeTelemetryEnvelopeContext(plan, result, request, startedAt, responseCapture)
 	requestLogs := buildRuntimeRequestLogRows(plan, request, telemetry)
@@ -1204,7 +1209,7 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 	if routeReason == gatewaycore.RouteReasonDirectMatch {
 		routeReason = gatewaycore.RouteReasonPolicyReject
 	}
-	contextRouting = runtimeContextRoutingWithRouteReason(contextRouting, routeReason, normalizedRuntimeLegacyStrategyType(plan.Strategy))
+	contextRouting = runtimeTelemetryContextRoutingDecision(contextRouting, routeReason, plan.Strategy)
 	completionDurationMS := intPtr(responseTimeMS)
 	requestLog := requestLogInsert{
 		ProfileID:                     plan.ProfileID,
@@ -1471,7 +1476,7 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 		AuditCaptureBodiesAtRequest:   attempt.attempt.AuditCaptureBodiesAtRequest,
 		RequestGenerationParams:       generationSnapshot.Params,
 		RequestGenerationParamsStatus: trimmedStringPointer(generationSnapshot.Status),
-		ContextRouting:                runtimeContextRoutingWithRouteReason(plan.ContextRouting, telemetry.routeReason, normalizedRuntimeLegacyStrategyType(plan.Strategy)),
+		ContextRouting:                runtimeTelemetryContextRoutingDecision(plan.ContextRouting, telemetry.routeReason, plan.Strategy),
 	}
 	if attempt.isFinal {
 		applyRuntimeFinalAttemptTelemetry(&requestLog, telemetry, attempt)
@@ -1646,7 +1651,7 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		TTFTMS:                   telemetry.ttftMS,
 		StreamOutcome:            telemetry.streamOutcome,
 		StreamErrorKind:          telemetry.streamErrorKind,
-		ContextRouting:           runtimeContextRoutingWithRouteReason(plan.ContextRouting, telemetry.routeReason, normalizedRuntimeLegacyStrategyType(plan.Strategy)),
+		ContextRouting:           runtimeTelemetryContextRoutingDecision(plan.ContextRouting, telemetry.routeReason, plan.Strategy),
 	}
 	usageEvent.applyRuntimePricingResult(telemetry.pricingResult)
 	return usageEvent

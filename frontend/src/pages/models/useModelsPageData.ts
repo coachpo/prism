@@ -35,6 +35,8 @@ function getModelValidationMessage(
   switch (validationError) {
     case "model_id_required":
       return messages.modelsData.modelIdRequired;
+    case "openai_accepted_format_invalid":
+      return messages.modelsData.openaiAcceptedFormatInvalid;
     case "context_window_tokens_invalid":
       return messages.modelsData.contextWindowTokensInvalid;
     case "default_output_token_reserve_invalid":

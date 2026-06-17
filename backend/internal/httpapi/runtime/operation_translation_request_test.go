@@ -11,32 +11,34 @@ import (
 	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
-func TestResolveTranslationMode(t *testing.T) {
+func TestResolveOpenAIWireFormatCompatibilityMatrix(t *testing.T) {
 	responsesOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	inputTokensOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses/input_tokens").Operation
 	chatOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
 	compactOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses/compact").Operation
 	tests := []struct {
-		name       string
-		operation  RuntimeOperation
-		capability *string
-		want       TranslationMode
-		wantOK     bool
+		name           string
+		operation      RuntimeOperation
+		acceptedFormat *string
+		capability     *string
+		want           TranslationMode
+		wantOK         bool
 	}{
-		{name: "chat native", operation: chatOperation, capability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), want: TranslationModeNone, wantOK: true},
-		{name: "responses native", operation: responsesOperation, capability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeNone, wantOK: true},
-		{name: "responses to chat", operation: responsesOperation, capability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), want: TranslationModeOpenAIResponsesToChatCompletions, wantOK: true},
-		{name: "chat to responses", operation: chatOperation, capability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeOpenAIChatCompletionsToResponses, wantOK: true},
-		{name: "dual native responses", operation: responsesOperation, capability: stringPtr(providercompat.OpenAITextCapabilityDualNative), want: TranslationModeNone, wantOK: true},
-		{name: "missing capability", operation: responsesOperation, want: TranslationModeNone},
-		{name: "input tokens native", operation: inputTokensOperation, capability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeNone, wantOK: true},
-		{name: "input tokens chat only cannot run adjunct", operation: inputTokensOperation, capability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), want: TranslationModeNone, wantOK: false},
-		{name: "responses adjunct native", operation: compactOperation, capability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeNone, wantOK: true},
-		{name: "chat only cannot run responses adjunct", operation: compactOperation, capability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), want: TranslationModeNone},
+		{name: "chat native", operation: chatOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), capability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), want: TranslationModeNone, wantOK: true},
+		{name: "responses native", operation: responsesOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), capability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeNone, wantOK: true},
+		{name: "responses to chat", operation: responsesOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), capability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), want: TranslationModeOpenAIResponsesToChatCompletions, wantOK: true},
+		{name: "chat to responses", operation: chatOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), capability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeOpenAIChatCompletionsToResponses, wantOK: true},
+		{name: "dual native responses", operation: responsesOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityDualNative), capability: stringPtr(providercompat.OpenAITextCapabilityDualNative), want: TranslationModeNone, wantOK: true},
+		{name: "missing accepted format", operation: responsesOperation, capability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeNone},
+		{name: "missing capability", operation: responsesOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeNone},
+		{name: "input tokens native", operation: inputTokensOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), capability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeNone, wantOK: true},
+		{name: "input tokens chat only cannot run adjunct", operation: inputTokensOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), capability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), want: TranslationModeNone, wantOK: false},
+		{name: "responses adjunct native", operation: compactOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), capability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), want: TranslationModeNone, wantOK: true},
+		{name: "chat only cannot run responses adjunct", operation: compactOperation, acceptedFormat: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly), capability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly), want: TranslationModeNone},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, ok := resolveTranslationMode(test.operation, test.capability)
+			got, ok := resolveTranslationMode(test.operation, test.acceptedFormat, test.capability)
 			if got != test.want || ok != test.wantOK {
 				t.Fatalf("expected mode %q ok=%v, got mode %q ok=%v", test.want, test.wantOK, got, ok)
 			}
@@ -44,7 +46,29 @@ func TestResolveTranslationMode(t *testing.T) {
 	}
 }
 
-func TestTranslationCapability(t *testing.T) {
+func TestResolveOpenAIWireFormatRejectsModelContractMismatch(t *testing.T) {
+	responsesOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	chatOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	tests := []struct {
+		name           string
+		operation      RuntimeOperation
+		acceptedFormat string
+		capability     string
+	}{
+		{name: "responses caller rejected by chat-only model", operation: responsesOperation, acceptedFormat: providercompat.OpenAITextCapabilityChatCompletionsOnly, capability: providercompat.OpenAITextCapabilityResponsesOnly},
+		{name: "chat caller rejected by responses-only model", operation: chatOperation, acceptedFormat: providercompat.OpenAITextCapabilityResponsesOnly, capability: providercompat.OpenAITextCapabilityChatCompletionsOnly},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := resolveTranslationMode(test.operation, stringPtr(test.acceptedFormat), stringPtr(test.capability))
+			if got != TranslationModeNone || ok {
+				t.Fatalf("expected model contract mismatch rejection, got mode %q ok=%v", got, ok)
+			}
+		})
+	}
+}
+
+func TestClassifyOpenAITranslationCapability(t *testing.T) {
 	responsesOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	chatOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
 	tests := []struct {
@@ -61,9 +85,15 @@ func TestTranslationCapability(t *testing.T) {
 		{name: "responses text request safe", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":"hello"}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
 		{name: "chat text request safe", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}]}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
 		{name: "chat multi choice rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"n":2}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_multi_choice"},
-		{name: "responses previous response id rejected", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":"hello","previous_response_id":"resp_123"}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "responses_previous_response_id"},
-		{name: "chat structured output safe", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"response_format":{"type":"json_schema"}}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
-		{name: "responses reasoning state rejected", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":"hello","reasoning":{"encrypted_content":"state"}}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "responses_reasoning_encrypted_content"},
+		{name: "chat response format rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"response_format":{"type":"text"}}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_response_format"},
+		{name: "chat tool choice rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"tools":[{"type":"function","function":{"name":"lookup"}}],"tool_choice":{"type":"allowed_tools","tools":[{"type":"function","function":{"name":"lookup"}}]}}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_tool_choice"},
+		{name: "chat unknown field rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"parallel_tool_calls":true}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_unknown_field"},
+		{name: "chat modalities rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"modalities":["text"]}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_modalities"},
+		{name: "chat prediction rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"prediction":{"type":"content"}}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_prediction"},
+		{name: "responses previous response id with residual input safe", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":"hello","previous_response_id":"resp_123"}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
+		{name: "chat structured output safe", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"response_format":{"type":"json_schema","json_schema":{"name":"summary","schema":{"type":"object"}}}}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
+		{name: "responses reasoning state drops with residual input safe", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","input":"hello","reasoning":{"encrypted_content":"state"}}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
+		{name: "responses stateful continuation without runnable input rejected", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","previous_response_id":"resp_123"}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "responses_stateful_continuation_without_runnable_input"},
 		{name: "chat audio rejected", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"audio":{"format":"wav"}}`), wantRequestClass: openAITranslationCapabilityReject, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantReason: "chat_audio"},
 		{name: "chat stream tools safe", operation: chatOperation, mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","stream":true,"messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
 		{name: "responses stream tools safe", operation: responsesOperation, mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","stream":true,"input":"hello","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}`), wantRequestClass: openAITranslationCapabilitySafe, wantResponseClass: openAITranslationCapabilitySafe, wantStreamClass: openAITranslationCapabilitySafe, wantSupported: true},
@@ -144,8 +174,74 @@ func TestTranslateOpenAIResponsesReasoningRequest(t *testing.T) {
 	}
 }
 
-func TestTranslateOpenAIChatToResponsesRequest(t *testing.T) {
-	rawBody := []byte(`{"model":"chat-public","messages":[{"role":"system","content":"system note"},{"role":"user","content":[{"type":"text","text":"hello"}]}],"max_completion_tokens":32,"reasoning_effort":"low"}`)
+func TestTranslateResponsesToChatDropsInclude(t *testing.T) {
+	rawBody := []byte(`{"model":"responses-public","input":"hello","include":["file_search_call.results"],"text":{"format":{"type":"json_schema","json_schema":{"name":"answer","schema":{"type":"object"}}},"verbosity":"low"},"reasoning":{"effort":"medium","encrypted_content":"opaque"},"stream":true}`)
+
+	path, translated, err := translateOpenAIRequest(rawBody, TranslationModeOpenAIResponsesToChatCompletions, "chat-target")
+	if err != nil {
+		t.Fatalf("translate lossy responses request: %v", err)
+	}
+	if path != "/v1/chat/completions" {
+		t.Fatalf("expected translated path /v1/chat/completions, got %q", path)
+	}
+	payload := decodeTranslationTestPayload(t, translated)
+	if _, ok := payload["include"]; ok {
+		t.Fatalf("expected include to drop, got %s", string(translated))
+	}
+	if _, ok := payload["text"]; ok {
+		t.Fatalf("expected text object to drop after mapping format, got %s", string(translated))
+	}
+	if got := stringValue(payload["reasoning_effort"]); got != "medium" {
+		t.Fatalf("expected reasoning_effort=medium, got %q", got)
+	}
+	responseFormat := payload["response_format"].(map[string]any)
+	if got := stringValue(responseFormat["type"]); got != "json_schema" {
+		t.Fatalf("expected json_schema response_format, got %+v", responseFormat)
+	}
+	streamOptions := payload["stream_options"].(map[string]any)
+	if got, _ := streamOptions["include_usage"].(bool); !got {
+		t.Fatalf("expected stream_options.include_usage=true, got %+v", streamOptions)
+	}
+}
+
+func TestTranslateResponsesToChatRejectsStatefulContinuationWithoutRunnableInput(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  []byte
+	}{
+		{name: "previous response only", raw: []byte(`{"model":"responses-public","previous_response_id":"resp_123"}`)},
+		{name: "conversation only", raw: []byte(`{"model":"responses-public","conversation":"conv_123"}`)},
+		{name: "state with empty input", raw: []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":[]}`)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := translateOpenAIRequest(test.raw, TranslationModeOpenAIResponsesToChatCompletions, "chat-target")
+			var domainErr *domainError
+			if !errors.As(err, &domainErr) {
+				t.Fatalf("expected domain error, got %v", err)
+			}
+			if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_stateful_continuation_without_runnable_input" {
+				t.Fatalf("expected continuity rejection, got %+v", domainErr.Fields)
+			}
+		})
+	}
+}
+
+func TestTranslateResponsesToChatRejectsUnsupportedTextFormat(t *testing.T) {
+	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":{"type":"text"}}}`)
+
+	_, _, err := translateOpenAIRequest(rawBody, TranslationModeOpenAIResponsesToChatCompletions, "chat-target")
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected domain error, got %v", err)
+	}
+	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text_format" {
+		t.Fatalf("expected responses_text_format, got %+v", domainErr.Fields)
+	}
+}
+
+func TestTranslateChatToResponsesDropsApprovedMetadata(t *testing.T) {
+	rawBody := []byte(`{"model":"chat-public","stream":true,"messages":[{"role":"system","content":"system note"},{"role":"user","content":[{"type":"text","text":"hello"}]}],"max_completion_tokens":32,"reasoning_effort":"low","logprobs":true,"top_logprobs":2,"stream_options":{"include_usage":false},"response_format":{"type":"json_schema","json_schema":{"name":"summary","schema":{"type":"object"}}}}`)
 
 	path, translated, err := translateOpenAIRequest(rawBody, TranslationModeOpenAIChatCompletionsToResponses, "responses-target")
 	if err != nil {
@@ -167,12 +263,28 @@ func TestTranslateOpenAIChatToResponsesRequest(t *testing.T) {
 	if got := stringValue(payload["reasoning"].(map[string]any)["effort"]); got != "low" {
 		t.Fatalf("expected reasoning.effort=low, got %q", got)
 	}
+	if _, ok := payload["logprobs"]; ok {
+		t.Fatalf("expected logprobs to drop, got %s", string(translated))
+	}
+	if _, ok := payload["top_logprobs"]; ok {
+		t.Fatalf("expected top_logprobs to drop, got %s", string(translated))
+	}
+	if _, ok := payload["stream_options"]; ok {
+		t.Fatalf("expected stream_options to drop, got %s", string(translated))
+	}
+	if got, ok := payload["stream"].(bool); !ok || !got {
+		t.Fatalf("expected stream to pass through, got %+v", payload["stream"])
+	}
 	input := payload["input"].([]any)
 	if len(input) != 1 {
 		t.Fatalf("expected one translated user message, got %+v", input)
 	}
 	if got := stringValue(input[0].(map[string]any)["type"]); got != "message" {
 		t.Fatalf("expected translated message item, got %q", got)
+	}
+	responseFormat := payload["response_format"].(map[string]any)
+	if got := stringValue(responseFormat["type"]); got != "json_schema" {
+		t.Fatalf("expected json_schema response_format, got %+v", responseFormat)
 	}
 }
 
@@ -184,8 +296,13 @@ func TestTranslateOpenAIRequestRejectsUnsupportedShape(t *testing.T) {
 		reason string
 	}{
 		{name: "chat multi-choice", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"n":2}`), reason: "chat_multi_choice"},
-		{name: "responses previous_response_id", mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":"hello"}`), reason: "responses_previous_response_id"},
+		{name: "chat response format", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"response_format":{"type":"text"}}`), reason: "chat_response_format"},
+		{name: "chat tool choice", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"tools":[{"type":"function","function":{"name":"lookup"}}],"tool_choice":{"type":"custom","name":"lookup"}}`), reason: "chat_tool_choice"},
+		{name: "chat unknown field", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[],"functions":[{"name":"legacy"}]}`), reason: "chat_unknown_field"},
+		{name: "responses stateful continuation without input", mode: TranslationModeOpenAIResponsesToChatCompletions, raw: []byte(`{"model":"responses-public","previous_response_id":"resp_123"}`), reason: "responses_stateful_continuation_without_runnable_input"},
 		{name: "chat audio", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"audio":{"format":"wav"}}`), reason: "chat_audio"},
+		{name: "chat modalities", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"modalities":["text"]}`), reason: "chat_modalities"},
+		{name: "chat prediction", mode: TranslationModeOpenAIChatCompletionsToResponses, raw: []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"prediction":{"type":"content"}}`), reason: "chat_prediction"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -231,6 +348,31 @@ func TestCodingAgentFormatBridgePlanRequestResponsesToChat(t *testing.T) {
 	}
 }
 
+func TestCodingAgentFormatBridgeAllowsResponsesIncludeForChatOnlyTarget(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	bridge := NewCodingAgentFormatBridge()
+	connection := runtimeConnection{
+		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
+		OpenAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+	}
+	rawBody := []byte(`{"model":"responses-public","input":"hello","include":["file_search_call.results"]}`)
+
+	plan, translated, err := bridge.PlanRequest(operation, rawBody, "chat-target-model", connection)
+	if err != nil {
+		t.Fatalf("plan bridge responses include request: %v", err)
+	}
+	if !translated {
+		t.Fatal("expected bridge to identify translation target")
+	}
+	payload := decodeTranslationTestPayload(t, plan.UpstreamBody)
+	if _, ok := payload["include"]; ok {
+		t.Fatalf("expected include to drop from translated body, got %s", string(plan.UpstreamBody))
+	}
+	if got := extractModelFromBody(plan.UpstreamBody); got != "chat-target-model" {
+		t.Fatalf("expected translated target model chat-target-model, got %q", got)
+	}
+}
+
 func TestCodingAgentFormatBridgePlanRequestChatToResponses(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
 	bridge := NewCodingAgentFormatBridge()
@@ -265,7 +407,7 @@ func TestCodingAgentFormatBridgePlanRequestRejectsUnsupportedShape(t *testing.T)
 		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
 		OpenAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 	}
-	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"}}`)
+	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":{"type":"text"}}}`)
 
 	_, translated, err := bridge.PlanRequest(operation, rawBody, "chat-target-model", connection)
 	if !translated {
@@ -278,8 +420,8 @@ func TestCodingAgentFormatBridgePlanRequestRejectsUnsupportedShape(t *testing.T)
 	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode || domainErr.Detail != openAIRequestTranslationUnsupportedDetail {
 		t.Fatalf("expected pinned translation 400 contract, got %+v", domainErr)
 	}
-	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text" {
-		t.Fatalf("expected unsupported reason responses_text, got %+v", domainErr.Fields)
+	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text_format" {
+		t.Fatalf("expected unsupported reason responses_text_format, got %+v", domainErr.Fields)
 	}
 }
 
@@ -374,7 +516,7 @@ func TestBuildRequestPlan_SelectedResponsesOnlyTargetStaysNative(t *testing.T) {
 	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_811, 9_811, 1, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly)})
 	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"}}`)
+	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":{"type":"text"}}}`)
 
 	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
@@ -448,9 +590,79 @@ func TestBuildRequestPlan_ModelTargetPolicyFirstRejectsUnsupportedTranslatedChil
 	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode || domainErr.Detail != openAIRequestTranslationUnsupportedDetail {
 		t.Fatalf("expected pinned translation unsupported error, got %+v", domainErr)
 	}
-	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text" {
-		t.Fatalf("expected unsupported reason responses_text, got %+v", domainErr.Fields)
+	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text_format" {
+		t.Fatalf("expected unsupported reason responses_text_format, got %+v", domainErr.Fields)
 	}
+}
+
+func TestBuildRequestPlan_ModelAcceptedFormatResponsesIncludeDropsForChatOnlyFallback(t *testing.T) {
+	service := newRequestPlanUnitService()
+	responsesOnly := providercompat.OpenAITextCapabilityResponsesOnly
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-5.4-mini", OpenAIAcceptedFormat: &responsesOnly},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "deepseek-v4-pro"},
+	)
+	source := snapshot.ModelsByID["gpt-5.4-mini"]
+	target := snapshot.ModelsByID["deepseek-v4-pro"]
+	snapshot.AccessTargetsBySourceModelID[source.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[target.ID] = nil
+	addRequestPlanModelTargetAtPosition(snapshot, source.ModelID, target.ModelID, 0)
+	addRequestPlanConnectionTargetWithOptions(snapshot, target, 2_851, 9_851, 0, requestPlanConnectionTargetOptions{
+		openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
+		openAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"gpt-5.4-mini","input":"hello","include":["file_search_call.results"],"text":{"format":{"type":"json_schema","json_schema":{"name":"answer","schema":{"type":"object"}}},"verbosity":"low"},"reasoning":{"effort":"medium","encrypted_content":"opaque"}}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build deployed responses include fallback request plan: %v", err)
+	}
+	if got := plan.EffectiveRequestPath; got != "/v1/chat/completions" {
+		t.Fatalf("expected translated Chat path, got %q", got)
+	}
+	if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].Connection.ID != 2_851 {
+		t.Fatalf("expected deepseek chat-only terminal target 2851, got %+v", plan.TerminalAttempts)
+	}
+	if got := plan.TerminalAttempts[0].TranslationMode; got != TranslationModeOpenAIResponsesToChatCompletions {
+		t.Fatalf("expected responses-to-chat translation, got %q", got)
+	}
+	if got := extractModelFromBody(plan.UpstreamBody); got != "deepseek-v4-pro" {
+		t.Fatalf("expected translated upstream body model deepseek-v4-pro, got %q in %s", got, string(plan.UpstreamBody))
+	}
+	if plan.ContextRouting == nil || plan.ContextRouting.TranslationLoss == nil {
+		t.Fatalf("expected translation loss metadata for deployed responses_include fallback, got %+v", plan.ContextRouting)
+	}
+	if got := plan.ContextRouting.TranslationLoss.Direction; got != "responses_to_chat" {
+		t.Fatalf("expected translation loss direction responses_to_chat, got %+v", plan.ContextRouting.TranslationLoss)
+	}
+	assertRuntimeStringSliceContainsAll(t, plan.ContextRouting.TranslationLoss.DroppedFields, []string{"responses_include", "responses_text.verbosity", "responses_reasoning.encrypted_content"}, "dropped fields")
+	assertRuntimeStringSliceContainsAll(t, plan.ContextRouting.TranslationLoss.MappedFields, []string{"responses_text.format", "responses_reasoning.effort"}, "mapped fields")
+}
+
+func TestBuildRequestPlan_ResponsesUnsupportedToolsRecordLossyDrops(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"})
+	model := snapshot.ModelsByID["responses-public"]
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_861, 9_861, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly)})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"responses-public","input":"hello","tools":[{"type":"image_generation","name":"draw"}],"tool_choice":{"type":"function","name":"draw"},"parallel_tool_calls":true}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build lossy unsupported responses tools plan: %v", err)
+	}
+	payload := decodeTranslationTestPayload(t, plan.UpstreamBody)
+	if _, ok := payload["tools"]; ok {
+		t.Fatalf("expected unsupported responses tools to drop from translated body, got %s", string(plan.UpstreamBody))
+	}
+	if plan.ContextRouting == nil || plan.ContextRouting.TranslationLoss == nil {
+		t.Fatalf("expected translation loss metadata for dropped responses tools, got %+v", plan.ContextRouting)
+	}
+	assertRuntimeStringSliceContainsAll(t, plan.ContextRouting.TranslationLoss.DroppedFields, []string{"responses_tools.0", "responses_tool_choice", "responses_parallel_tool_calls"}, "dropped fields")
 }
 
 func TestBuildRequestPlan_AdapterGatedResponsesIngressCanUseChatOnlyTarget(t *testing.T) {
@@ -517,7 +729,7 @@ func TestBuildRequestPlan_AdapterGatedRejectsUnsupportedTranslatedOpenAITextShap
 	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_841, 9_841, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly)})
 	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"}}`)
+	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":{"type":"text"}}}`)
 
 	_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	var domainErr *domainError
@@ -527,8 +739,8 @@ func TestBuildRequestPlan_AdapterGatedRejectsUnsupportedTranslatedOpenAITextShap
 	if domainErr.StatusCode != http.StatusBadRequest || domainErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode || domainErr.Detail != openAIRequestTranslationUnsupportedDetail {
 		t.Fatalf("expected adapter-backed translation unsupported error, got %+v", domainErr)
 	}
-	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text" {
-		t.Fatalf("expected unsupported reason responses_text, got %+v", domainErr.Fields)
+	if got := stringValue(domainErr.Fields["unsupported_reason"]); got != "responses_text_format" {
+		t.Fatalf("expected unsupported reason responses_text_format, got %+v", domainErr.Fields)
 	}
 }
 
@@ -557,7 +769,7 @@ func TestBuildRequestPlan_TranslationUnsupportedStaysHardRejectionWithEstimatePr
 	})
 	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	rawBody := []byte(`{"model":"gpt-4o","input":"hello","text":{"format":"json_schema"}}`)
+	rawBody := []byte(`{"model":"gpt-4o","input":"hello","text":{"format":{"type":"text"}}}`)
 	estimation, estimationErr := estimatePreflightRequestContext(operationMatch.Operation, rawBody, model)
 	if estimationErr != nil || estimation == nil {
 		t.Fatalf("expected estimation-present request before translation rejection, estimation=%+v err=%v", estimation, estimationErr)

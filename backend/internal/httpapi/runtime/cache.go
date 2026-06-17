@@ -329,6 +329,12 @@ func (c *SharedCache) requireFreshPublishedSnapshot(ctx context.Context, refresh
 	if c == nil {
 		return nil, ErrPublishedRuntimeSnapshotUnavailable
 	}
+	if c.refreshPool == nil {
+		snapshot := c.published.Load()
+		if snapshot != nil {
+			return snapshot, nil
+		}
+	}
 	currentVector, err := c.readCurrentGenerationVector(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrPublishedRuntimeSnapshotUnavailable, err)

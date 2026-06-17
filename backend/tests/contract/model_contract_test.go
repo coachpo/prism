@@ -915,7 +915,11 @@ func modelInsertModel(t *testing.T, harness *contractHarness, profileID int, _ *
 	strategyID, isEnabled := parseModelInsertArgs(t, args)
 	now := time.Now().UTC()
 	var modelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, profileID, apiFamily, modelID, displayName, nullableTestInt(strategyID), isEnabled, now, now).Scan(&modelConfigID); err != nil {
+	var openAIAcceptedFormat any
+	if apiFamily == "openai" {
+		openAIAcceptedFormat = "dual_native"
+	}
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`, profileID, apiFamily, modelID, displayName, nullableTestInt(strategyID), openAIAcceptedFormat, isEnabled, now, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert model %q: %v", modelID, err)
 	}
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
@@ -926,7 +930,11 @@ func modelInsertFacadeModel(t *testing.T, harness *contractHarness, profileID in
 	t.Helper()
 	now := time.Now().UTC()
 	var modelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, $9, $9) RETURNING id`, profileID, apiFamily, modelID, displayName, nullableTestInt(strategyID), "ordered_eligible_context", "skip_ineligible_targets", isEnabled, now).Scan(&modelConfigID); err != nil {
+	var openAIAcceptedFormat any
+	if apiFamily == "openai" {
+		openAIAcceptedFormat = "dual_native"
+	}
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, $9, $10, $10) RETURNING id`, profileID, apiFamily, modelID, displayName, nullableTestInt(strategyID), openAIAcceptedFormat, "ordered_eligible_context", "skip_ineligible_targets", isEnabled, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert facade model %q: %v", modelID, err)
 	}
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})

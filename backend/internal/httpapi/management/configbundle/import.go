@@ -420,6 +420,9 @@ func validateImportedModels(models []modelExport, refs profileImportModelValidat
 		if err := validateImportedModelContextCapabilities(model); err != nil {
 			return nil, nil, err
 		}
+		if err := validateImportedModelAcceptedFormat(modelIndex, model, models[modelIndex].OpenAIAcceptedFormat); err != nil {
+			return nil, nil, err
+		}
 		if err := validateImportedFacadeConfiguration(modelIndex, model); err != nil {
 			return nil, nil, err
 		}
@@ -451,6 +454,7 @@ func normalizeImportedModels(models []modelExport) []importedModelPayload {
 			FacadeFallbackPolicy:                 normalizeImportedOptionalString(model.FacadeFallbackPolicy, true),
 			ContextOverflowPromotionTargetID:     normalizeImportedOptionalString(model.ContextOverflowPromotionTargetID, false),
 			ContextOverflowPromotionTargetSet:    model.ContextOverflowPromotionTargetID != nil,
+			OpenAIAcceptedFormat:                 normalizeImportedOptionalString(model.OpenAIAcceptedFormat, true),
 			IsEnabled:                            model.IsEnabled,
 			AccessTargets:                        normalizeImportedAccessTargets(model.AccessTargets),
 		})
@@ -653,6 +657,20 @@ func validateImportedModelContextCapabilities(model importedModelPayload) error 
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' preferred_context_utilization_threshold %s", model.ModelID, err.Error())}
 	}
 	return nil
+}
+
+func validateImportedModelAcceptedFormat(modelIndex int, model importedModelPayload, acceptedFormat *string) error {
+	_, err := normalizeImportedOpenAIAcceptedFormat(model.APIFamily, acceptedFormat)
+	if err == nil {
+		return nil
+	}
+	if !providercompat.IsOpenAI(model.APIFamily) {
+		return routingPlanValidationIssueError("model_openai_accepted_format_invalid", importedModelIssuePath(modelIndex, "openai_accepted_format"), "openai_accepted_format is only valid for OpenAI models")
+	}
+	if acceptedFormat == nil || strings.TrimSpace(*acceptedFormat) == "" {
+		return routingPlanValidationIssueError("model_openai_accepted_format_missing", importedModelIssuePath(modelIndex, "openai_accepted_format"), "openai_accepted_format is required when api_family is 'openai'")
+	}
+	return routingPlanValidationIssueError("model_openai_accepted_format_invalid", importedModelIssuePath(modelIndex, "openai_accepted_format"), "openai_accepted_format has invalid value")
 }
 
 func validateImportedFacadePolicyValues(modelIndex int, selectionPolicy *string, fallbackPolicy *string) error {
@@ -1306,7 +1324,7 @@ func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor,
 		settings := modelSettingsByModelID[model.ModelID]
 		strategyID := strategyIDsByName[*model.LoadbalanceStrategyName]
 		var modelConfigID int
-		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15) RETURNING id`, profileID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), nullableString(model.ContextOverflowPromotionTargetID), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16) RETURNING id`, profileID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), nullableString(model.ContextOverflowPromotionTargetID), nullableString(model.OpenAIAcceptedFormat), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
 			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", model.ModelID, err)
 		}
 		modelIDsByModelID[model.ModelID] = modelConfigID
@@ -1513,6 +1531,25 @@ func normalizeImportedOpenAITextCapability(apiFamily string, value *string, valu
 		return &capability, nil
 	default:
 		return nil, fmt.Errorf("has invalid openai_text_capability")
+	}
+}
+
+func normalizeImportedOpenAIAcceptedFormat(apiFamily string, value *string) (*string, error) {
+	if !providercompat.IsOpenAI(apiFamily) {
+		if value != nil {
+			return nil, fmt.Errorf("must not include openai_accepted_format outside the OpenAI API family")
+		}
+		return nil, nil
+	}
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil, fmt.Errorf("must include openai_accepted_format for OpenAI API family models")
+	}
+	acceptedFormat := strings.ToLower(strings.TrimSpace(*value))
+	switch acceptedFormat {
+	case openAITextCapabilityResponsesOnly, openAITextCapabilityChatCompletionsOnly, openAITextCapabilityDualNative:
+		return &acceptedFormat, nil
+	default:
+		return nil, fmt.Errorf("has invalid openai_accepted_format")
 	}
 }
 

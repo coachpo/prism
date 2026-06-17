@@ -65,10 +65,11 @@ type UpstreamTarget struct {
 }
 
 type UpstreamRequest struct {
-	Method string
-	Path   string
-	Header http.Header
-	Body   []byte
+	Method          string
+	Path            string
+	Header          http.Header
+	Body            []byte
+	TranslationLoss *TranslationLoss
 }
 
 type UpstreamResponse struct {
@@ -145,9 +146,15 @@ type ConversionCapability struct {
 	UpstreamOperationName string
 }
 
+type TranslationLoss struct {
+	DroppedFields []string
+	MappedFields  []string
+}
+
 type TranslatedRequest struct {
-	Path string
-	Body []byte
+	Path            string
+	Body            []byte
+	TranslationLoss *TranslationLoss
 }
 
 type TranslatedResponse struct {

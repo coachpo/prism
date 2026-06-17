@@ -3063,11 +3063,11 @@ func seedRequestLogModels(t *testing.T, harness *requestLogContractHarness, prof
 		t.Fatalf("insert current request-log strategy: %v", err)
 	}
 	var nativeModelID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $3, $4, TRUE, $5, $5) RETURNING id`, profileID, "gpt-4o-native", "GPT-4o Native", strategyID, now).Scan(&nativeModelID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $3, $4, 'dual_native', TRUE, $5, $5) RETURNING id`, profileID, "gpt-4o-native", "GPT-4o Native", strategyID, now).Scan(&nativeModelID); err != nil {
 		t.Fatalf("insert current native request-log model: %v", err)
 	}
 	var proxyModelID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $3, $4, TRUE, $5, $5) RETURNING id`, profileID, "gpt-4o", "GPT-4o Proxy", strategyID, now).Scan(&proxyModelID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $3, $4, 'dual_native', TRUE, $5, $5) RETURNING id`, profileID, "gpt-4o", "GPT-4o Proxy", strategyID, now).Scan(&proxyModelID); err != nil {
 		t.Fatalf("insert current proxy request-log model: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, TRUE, $4, $4)`, profileID, proxyModelID, nativeModelID, now); err != nil {

@@ -844,15 +844,15 @@ func TestManagementAuditStatsTopologyGraphDistinguishesTerminalRouteAndEndpointB
 	now := phase7Now.UTC()
 
 	var entryModelID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'phase7-entry', 'Phase 7 Entry', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&entryModelID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'phase7-entry', 'Phase 7 Entry', NULL, 'dual_native', TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&entryModelID); err != nil {
 		t.Fatalf("insert entry model: %v", err)
 	}
 	var terminalModelID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'phase7-terminal', 'Phase 7 Terminal', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&terminalModelID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'phase7-terminal', 'Phase 7 Terminal', NULL, 'dual_native', TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&terminalModelID); err != nil {
 		t.Fatalf("insert terminal model: %v", err)
 	}
 	var disabledModelID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'phase7-disabled', 'Phase 7 Disabled', NULL, FALSE, $2, $2) RETURNING id`, profileID, now).Scan(&disabledModelID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'phase7-disabled', 'Phase 7 Disabled', NULL, 'dual_native', FALSE, $2, $2) RETURNING id`, profileID, now).Scan(&disabledModelID); err != nil {
 		t.Fatalf("insert disabled model: %v", err)
 	}
 	var endpointID int
@@ -1632,7 +1632,7 @@ func phase7InsertDashboardRoutingTarget(t *testing.T, ctx context.Context, exec 
 	now := phase7Now.UTC()
 	modelID := "phase7-" + suffix
 	var modelConfigID int
-	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $3, NULL, TRUE, $4, $4) RETURNING id`, profileID, modelID, "Phase 7 "+suffix, now).Scan(&modelConfigID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $3, NULL, 'dual_native', TRUE, $4, $4) RETURNING id`, profileID, modelID, "Phase 7 "+suffix, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert dashboard routing model: %v", err)
 	}
 	endpointName := "Phase 7 " + suffix + " Endpoint"

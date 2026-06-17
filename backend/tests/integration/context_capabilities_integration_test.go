@@ -216,7 +216,7 @@ func seedIntegrationConfigBundleGraph(t *testing.T, conn *pgx.Conn, profileID in
 		t.Fatalf("insert integration strategy: %v", err)
 	}
 	var modelConfigID int
-	if err := conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $2, 128000, 4096, 0.90, TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelConfigID); err != nil {
+	if err := conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $2, 128000, 4096, 0.90, 'dual_native', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert integration model: %v", err)
 	}
 	var connectionID int

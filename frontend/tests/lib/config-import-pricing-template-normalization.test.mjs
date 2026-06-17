@@ -67,6 +67,7 @@ function buildValidConfigImport() {
         api_family: "openai",
         model_id: "demo-native",
         loadbalance_strategy_name: "Default round robin",
+        openai_accepted_format: "dual_native",
         access_targets: [
           {
             position: 0,

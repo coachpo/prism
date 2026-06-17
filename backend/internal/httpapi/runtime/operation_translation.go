@@ -123,15 +123,20 @@ func normalizedTranslationUnsupportedReason(reason string) string {
 	return "unsupported_request_shape"
 }
 
-func resolveTranslationMode(operation RuntimeOperation, openAITextCapability *string) (TranslationMode, bool) {
-	if openAITextCapability == nil {
+func resolveTranslationMode(operation RuntimeOperation, openAIAcceptedFormat *string, openAITextCapability *string) (TranslationMode, bool) {
+	if openAIAcceptedFormat == nil || openAITextCapability == nil {
 		return TranslationModeNone, false
 	}
-	mode, ok := providercompat.OpenAITextSiblingTranslationMode(*openAITextCapability, operation.Name)
-	if !ok {
+	switch providercompat.OpenAITextWireCompatibility(operation.Name, *openAIAcceptedFormat, *openAITextCapability) {
+	case providercompat.OpenAIWireCompatibilityNative:
+		return TranslationModeNone, true
+	case providercompat.OpenAIWireCompatibilityTranslateToChat:
+		return TranslationModeOpenAIResponsesToChatCompletions, true
+	case providercompat.OpenAIWireCompatibilityTranslateToResponses:
+		return TranslationModeOpenAIChatCompletionsToResponses, true
+	default:
 		return TranslationModeNone, false
 	}
-	return TranslationMode(mode), true
 }
 
 func isRequestTranslationUnsupportedError(err error) (*domainError, bool) {

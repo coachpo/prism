@@ -786,7 +786,7 @@ func task9InsertRuntimeStrategy(t *testing.T, ctx context.Context, exec task9Que
 func task9InsertRuntimeModel(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, apiFamily string, modelID string, _ string, strategyID *int, now time.Time) int {
 	t.Helper()
 	var modelConfigID int
-	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, NULL, $4, TRUE, $5, $5) RETURNING id`, profileID, apiFamily, modelID, nullableTask9Int(strategyID), now).Scan(&modelConfigID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, $2::varchar(50), $3, NULL, $4, CASE WHEN $2::varchar(50) = 'openai' THEN 'dual_native'::text ELSE NULL::text END, TRUE, $5, $5) RETURNING id`, profileID, apiFamily, modelID, nullableTask9Int(strategyID), now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert task9 runtime model %s: %v", modelID, err)
 	}
 	return modelConfigID

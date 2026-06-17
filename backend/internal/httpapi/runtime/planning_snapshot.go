@@ -190,6 +190,7 @@ const (
 type runtimeAccessResolutionContext struct {
 	RequestedModelID                     string
 	RequestedAPIFamily                   string
+	RequestedOpenAIAcceptedFormat        *string
 	RequestOperation                     RuntimeOperation
 	RawRequestBody                       []byte
 	RequestContextEstimation             *requestContextEstimation
@@ -290,6 +291,7 @@ func (s *Service) resolveExecutionTargetFromRoutingPlanWithOptions(profileID int
 	ctx := runtimeAccessResolutionContext{
 		RequestedModelID:              requestedModel.ModelID,
 		RequestedAPIFamily:            requestedModel.APIFamily,
+		RequestedOpenAIAcceptedFormat: requestedModel.OpenAIAcceptedFormat,
 		RequestOperation:              requestOperation,
 		RawRequestBody:                rawRequestBody,
 		RequestContextEstimation:      contextEstimation,
@@ -856,7 +858,7 @@ func (s *Service) applyIngressOperationCompatibility(candidate runtimeResolvedAc
 		if !attempt.TargetModel.allowsOpenAITextSiblingTranslation() {
 			continue
 		}
-		mode, supported := resolveTranslationMode(ctx.RequestOperation, attempt.Connection.OpenAITextCapability)
+		mode, supported := resolveTranslationMode(ctx.RequestOperation, ctx.RequestedOpenAIAcceptedFormat, attempt.Connection.OpenAITextCapability)
 		if !supported {
 			continue
 		}
@@ -865,7 +867,7 @@ func (s *Service) applyIngressOperationCompatibility(candidate runtimeResolvedAc
 		}
 		compatibility := openAITextAttemptCompatibilityResult{Compatible: true, TranslationMode: mode}
 		if !deferTranslationValidation {
-			compatibility = planOpenAITextAttemptCompatibility(ctx.RequestOperation, ctx.RawRequestBody, attempt, adapter)
+			compatibility = planOpenAITextAttemptCompatibility(ctx.RequestOperation, ctx.RawRequestBody, ctx.RequestedOpenAIAcceptedFormat, attempt, adapter)
 		}
 		if compatibility.Err != nil {
 			return runtimeResolvedAccessPlan{}, false, compatibility.Err
@@ -1125,6 +1127,12 @@ func compareRuntimeResolvedAccessCandidates(left runtimeResolvedAccessCandidate,
 		}
 		return 1
 	}
+	if leftNative, rightNative := runtimeResolvedAccessCandidateUsesNativeOpenAIText(left), runtimeResolvedAccessCandidateUsesNativeOpenAIText(right); leftNative != rightNative {
+		if leftNative {
+			return -1
+		}
+		return 1
+	}
 	leftTerminalTargetID := left.resolved.TerminalAttempts[0].Connection.ID
 	rightTerminalTargetID := right.resolved.TerminalAttempts[0].Connection.ID
 	if leftTerminalTargetID < rightTerminalTargetID {
@@ -1140,6 +1148,17 @@ func compareRuntimeResolvedAccessCandidates(left runtimeResolvedAccessCandidate,
 		return 1
 	}
 	return 0
+}
+
+func runtimeResolvedAccessCandidateUsesNativeOpenAIText(candidate runtimeResolvedAccessCandidate) bool {
+	if len(candidate.resolved.TerminalAttempts) == 0 {
+		return false
+	}
+	attempt := candidate.resolved.TerminalAttempts[0]
+	if !providercompat.IsOpenAI(attempt.Connection.APIFamily) {
+		return false
+	}
+	return normalizedRuntimeTranslationMode(attempt.TranslationMode) == TranslationModeNone
 }
 
 func preferredContextWindowTokensForConnection(connection runtimeConnection) int {
@@ -1359,7 +1378,8 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		ctx,
 		`SELECT model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id,
 			model_configs.loadbalance_strategy_id, model_configs.facade_enabled, model_configs.facade_selection_policy,
-			model_configs.facade_fallback_policy, model_configs.context_window_tokens, model_configs.default_output_token_reserve,
+			model_configs.facade_fallback_policy, model_configs.openai_accepted_format,
+			model_configs.context_window_tokens, model_configs.default_output_token_reserve,
 			model_configs.max_context_utilization, model_configs.preferred_context_utilization_threshold,
 			model_configs.context_overflow_promotion_target_id,
 			COALESCE(audit_settings.audit_enabled, FALSE),
@@ -1381,13 +1401,14 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		var strategyID sql.NullInt32
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
+		var openAIAcceptedFormat sql.NullString
 		var contextWindowTokens sql.NullInt32
 		var defaultOutputTokenReserve sql.NullInt32
 		var maxContextUtilization sql.NullFloat64
 		var preferredContextUtilizationThreshold sql.NullFloat64
 		var contextOverflowPromotionTargetID sql.NullString
 		item := runtimeModelRecord{}
-		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &strategyID, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization, &preferredContextUtilizationThreshold, &contextOverflowPromotionTargetID, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
+		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &strategyID, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &openAIAcceptedFormat, &contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization, &preferredContextUtilizationThreshold, &contextOverflowPromotionTargetID, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
 			return nil, fmt.Errorf("scan enabled model for profile %d: %w", profileID, err)
 		}
 		if _, exists := items[item.ModelID]; exists {
@@ -1399,6 +1420,7 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		}
 		item.FacadeSelectionPolicy = nullableString(facadeSelectionPolicy)
 		item.FacadeFallbackPolicy = nullableString(facadeFallbackPolicy)
+		item.OpenAIAcceptedFormat = nullableString(openAIAcceptedFormat)
 		item.ContextWindowTokens = nullableInt32(contextWindowTokens)
 		item.DefaultOutputTokenReserve = nullableInt32(defaultOutputTokenReserve)
 		item.MaxContextUtilization = nullableFloat64(maxContextUtilization)

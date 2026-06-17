@@ -19,6 +19,10 @@ const (
 	runtimeTraceAttrUpstreamOperationName                                 = "prism.upstream_operation_name"
 	runtimeTraceAttrOperationTranslationMode                              = "prism.operation_translation_mode"
 	runtimeTraceAttrUpstreamRequestPath                                   = "prism.upstream_request_path"
+	runtimeTraceAttrTranslationLossy                                      = "prism.runtime.translation_lossy"
+	runtimeTraceAttrTranslationLossDirection                              = "prism.runtime.translation_loss_direction"
+	runtimeTraceAttrTranslationLossDroppedFields                          = "prism.runtime.translation_loss_dropped_fields"
+	runtimeTraceAttrTranslationLossMappedFields                           = "prism.runtime.translation_loss_mapped_fields"
 	runtimeTraceAttrPreferredContextBand                                  = "prism.preferred_context_band"
 	runtimeTraceAttrSelectedTerminalTargetID                              = "prism.selected_terminal_target_id"
 	runtimeTraceAttrContextOverflowPromotion                              = "prism.context_overflow_promotion"
@@ -172,6 +176,25 @@ func runtimeTraceAttemptAttributionAttributes(operation RuntimeOperation, transl
 		attrs = append(attrs, runtimeTraceContextOverflowAffinityAttributes(contextRouting)...)
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(contextRouting)...)
 		attrs = append(attrs, runtimeTracePlannerTraceAttributes(contextRouting.PlannerTrace)...)
+		attrs = append(attrs, runtimeTraceTranslationLossAttributes(contextRouting)...)
+	}
+	return attrs
+}
+
+func runtimeTraceTranslationLossAttributes(contextRouting *runtimeContextRoutingDecision) []attribute.KeyValue {
+	if contextRouting == nil || contextRouting.TranslationLoss == nil || !contextRouting.TranslationLoss.Lossy {
+		return nil
+	}
+	loss := contextRouting.TranslationLoss
+	attrs := []attribute.KeyValue{
+		attribute.Bool(runtimeTraceAttrTranslationLossy, true),
+		attribute.String(runtimeTraceAttrTranslationLossDirection, runtimeTracePolicy.translationLossDirection(loss.Direction)),
+	}
+	if dropped := runtimeTracePolicy.translationLossFields(loss.DroppedFields); len(dropped) > 0 {
+		attrs = append(attrs, attribute.StringSlice(runtimeTraceAttrTranslationLossDroppedFields, dropped))
+	}
+	if mapped := runtimeTracePolicy.translationLossFields(loss.MappedFields); len(mapped) > 0 {
+		attrs = append(attrs, attribute.StringSlice(runtimeTraceAttrTranslationLossMappedFields, mapped))
 	}
 	return attrs
 }
@@ -357,6 +380,7 @@ func runtimeTracePlanningFailureAttributes(failure runtimePlanningFailureTelemet
 		attrs = append(attrs, runtimeTraceContextOverflowAffinityAttributes(failure.ContextRouting)...)
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(failure.ContextRouting)...)
 		attrs = append(attrs, runtimeTracePlannerTraceAttributes(failure.ContextRouting.PlannerTrace)...)
+		attrs = append(attrs, runtimeTraceTranslationLossAttributes(failure.ContextRouting)...)
 	}
 	return attrs
 }
@@ -393,6 +417,7 @@ func runtimeTraceEnvelopeAttributes(envelope runtimeTelemetryEnvelope) []attribu
 		attrs = append(attrs, runtimeTraceContextOverflowAffinityAttributes(envelope.UsageEvent.ContextRouting)...)
 		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(envelope.UsageEvent.ContextRouting)...)
 		attrs = append(attrs, runtimeTracePlannerTraceAttributes(envelope.UsageEvent.ContextRouting.PlannerTrace)...)
+		attrs = append(attrs, runtimeTraceTranslationLossAttributes(envelope.UsageEvent.ContextRouting)...)
 	}
 	if envelope.UsageEvent.StatusCode >= 100 && envelope.UsageEvent.StatusCode <= 599 {
 		attrs = append(attrs, attribute.Int(runtimeTraceAttrHTTPStatus, envelope.UsageEvent.StatusCode))
@@ -503,6 +528,29 @@ func (policy runtimeTraceAttributePolicy) requestPath(value string) string {
 		}
 	}
 	return runtimeTraceValueUnknown
+}
+
+func (policy runtimeTraceAttributePolicy) translationLossDirection(value string) string {
+	switch strings.TrimSpace(value) {
+	case "responses_to_chat", "chat_to_responses":
+		return strings.TrimSpace(value)
+	default:
+		return runtimeTraceValueUnknown
+	}
+}
+
+func (policy runtimeTraceAttributePolicy) translationLossFields(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			fields = append(fields, trimmed)
+		}
+	}
+	return fields
 }
 
 func (policy runtimeTraceAttributePolicy) plannerVersion(value string) string {

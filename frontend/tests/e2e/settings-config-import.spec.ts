@@ -103,6 +103,7 @@ function createModelListItem() {
     api_family: "openai",
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
+    openai_accepted_format: "dual_native" as const,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
     ...liveAuthoringCapabilityDefaults,
@@ -172,6 +173,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
           loadbalance_strategy_name: "Alpha legacy routing",
           ...liveAuthoringCapabilityDefaults,
           ...facadePolicyDefaults,
+          openai_accepted_format: "dual_native" as const,
           is_enabled: true,
           access_targets: [
             { position: 0, is_enabled: true, target_type: "connection" as const, connection_ref: "alpha-connection" },
@@ -238,6 +240,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
           display_name: "Router model",
           loadbalance_strategy_name: "Routing facade",
           ...liveAuthoringCapabilityDefaults,
+          openai_accepted_format: "dual_native" as const,
           is_enabled: true,
           access_targets: [
             {
@@ -254,6 +257,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
           display_name: "Leaf model",
           loadbalance_strategy_name: "Routing facade",
           ...liveAuthoringCapabilityDefaults,
+          openai_accepted_format: "dual_native" as const,
           is_enabled: true,
           access_targets: [],
         },

@@ -474,17 +474,15 @@ func TestAdapterGatedUnsupportedTranslatedResponsesShapeDoesNotPromoteToChatOnly
 		"model":                route.PublicModelID,
 		"previous_response_id": "resp_123",
 	}, nil)
-	assertStatus(t, response, http.StatusBadRequest)
-	payload := runtimeResponsePayload(t, response)
-	errorPayload, ok := payload["error"].(map[string]any)
-	if !ok || errorPayload["message"] != "unsupported translated shape source overflow stays final" {
-		t.Fatalf("expected original source overflow payload for unsupported translated shape, got %+v", payload)
-	}
+	assertOpenAIResponseTranslationUnsupported(t, response, "openai_chat_completions_to_responses", "chat_choices")
 	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
 		Path:    "/overflow/responses-unsupported/source/v1/responses",
 		ModelID: route.TargetModelID,
 	}})
-	assertNoScriptedUpstreamRequests(t, promotedUpstream, "unsupported translated shape promotion target")
+	assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/overflow/responses-unsupported/promoted/v1/chat/completions",
+		ModelID: promotedModelID,
+	}})
 }
 
 func TestPromotionIneligibleReturnsOriginalSourceResponse(t *testing.T) {
@@ -977,12 +975,12 @@ func TestResponsesNonStreamPreDispatchPromotionSkipsSourceUpstream(t *testing.T)
 			"max_output_tokens": 600,
 			"text":              map[string]any{"format": map[string]any{"type": "json_object"}},
 		}, nil)
-		assertStatus(t, response, http.StatusOK)
-		assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-			Path:    "/overflow/responses-nonstream-predispatch-unsupported/source/v1/responses",
-			ModelID: route.TargetModelID,
+		assertOpenAIResponseTranslationUnsupported(t, response, "openai_chat_completions_to_responses", "chat_choices")
+		assertNoScriptedUpstreamRequests(t, sourceUpstream, "unsupported translation pre-dispatch source upstream")
+		assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+			Path:    "/overflow/responses-nonstream-predispatch-unsupported/promoted/v1/chat/completions",
+			ModelID: promotedModelID,
 		}})
-		assertNoScriptedUpstreamRequests(t, promotedUpstream, "unsupported translation pre-dispatch promotion target")
 	})
 }
 

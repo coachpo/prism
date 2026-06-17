@@ -75,3 +75,26 @@ test("models dialog model target copy avoids fallback wording", () => {
   ].join("\n");
   assert.doesNotMatch(chineseModelTargetCopy, /回退|退避/);
 });
+
+test("models dialog shows accepted-format controls only for OpenAI models", () => {
+  assert.match(
+    modelDialogSource,
+    /formData\.api_family === "openai" \? \([\s\S]*?model-openai-accepted-format[\s\S]*?\) : null/,
+    "accepted-format control should be rendered behind the OpenAI family guard",
+  );
+  assert.match(
+    modelDialogSource,
+    /value=\{openAIAcceptedFormatValue\}/,
+    "accepted-format control should consume the normalized form-state value",
+  );
+  assert.match(
+    modelDialogSource,
+    /setOpenAIAcceptedFormatOnForm\(prev, value as OpenAIAcceptedFormat\)/,
+    "accepted-format control should update through modelFormState helpers",
+  );
+  assert.equal(enMessages.modelsUi.openaiAcceptedFormat, "OpenAI accepted format");
+  assert.equal(enMessages.modelsUi.openaiAcceptedFormatDualNative, "Dual native");
+  assert.equal(enMessages.modelsUi.openaiAcceptedFormatResponsesOnly, "Responses only");
+  assert.equal(enMessages.modelsUi.openaiAcceptedFormatChatCompletionsOnly, "Chat Completions only");
+  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormat, "OpenAI 接受格式");
+});

@@ -80,6 +80,7 @@ function createModelListItem() {
     api_family: "openai",
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
+    openai_accepted_format: "dual_native" as const,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
     ...liveAuthoringCapabilityDefaults,
@@ -136,6 +137,7 @@ function createExportModel(overrides = {}) {
     display_name: "GPT-4o mini",
     loadbalance_strategy_name: "Default export routing",
     ...liveAuthoringCapabilityDefaults,
+    openai_accepted_format: "dual_native" as const,
     is_enabled: true,
     access_targets: [
       {

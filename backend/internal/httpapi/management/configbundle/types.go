@@ -68,6 +68,7 @@ type modelExport struct {
 	FacadeSelectionPolicy                *string              `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 *string              `json:"facade_fallback_policy"`
 	ContextOverflowPromotionTargetID     *string              `json:"context_overflow_promotion_target_id"`
+	OpenAIAcceptedFormat                 *string              `json:"openai_accepted_format"`
 	IsEnabled                            bool                 `json:"is_enabled"`
 	AccessTargets                        []accessTargetExport `json:"access_targets"`
 }

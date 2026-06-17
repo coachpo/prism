@@ -5,6 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/providercompat"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func TestObservability_FacadeTranslatedRejectionPersistsDecisionMetadataAndTraceAttributes(t *testing.T) {
@@ -240,5 +243,96 @@ func TestObservability_TranslatedResponseAuditUsesUpstreamBody(t *testing.T) {
 	assertRuntimeStringPtr(t, finalAudit.ResponseBody, string(capture.AuditBody), "translated audit response body")
 	if finalAudit.ResponseBody != nil && *finalAudit.ResponseBody == string(capture.Body) {
 		t.Fatalf("expected translated client body to stay out of audit storage, got %+v", finalAudit)
+	}
+}
+
+func TestObservability_LossyTranslationMetadataPersistsDroppedFields(t *testing.T) {
+	startedAt := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(800 * time.Millisecond)
+	service := newRequestPlanUnitService()
+	service.now = func() time.Time { return completedAt }
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"})
+	model := snapshot.ModelsByID["responses-public"]
+	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_901, 9_901, 0, requestPlanConnectionTargetOptions{openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"), openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly)})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"responses-public","input":"hello","include":["file_search_call.results"],"text":{"format":{"type":"json_schema","json_schema":{"name":"answer","schema":{"type":"object"}}},"verbosity":"low"},"reasoning":{"effort":"medium","encrypted_content":"opaque"}}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build lossy translated request plan: %v", err)
+	}
+	if plan.ContextRouting == nil || plan.ContextRouting.TranslationLoss == nil {
+		t.Fatalf("expected plan translation loss metadata, got %+v", plan.ContextRouting)
+	}
+	assertRuntimeTranslationLossDecision(t, plan.ContextRouting.TranslationLoss, "responses_to_chat", []string{"responses_include", "responses_text.verbosity", "responses_reasoning.encrypted_content"}, []string{"responses_text.format", "responses_reasoning.effort"})
+
+	connection := plan.TerminalAttempts[0].Connection
+	resolvedTargetModelID := plan.TerminalAttempts[0].TargetModel.ModelID
+	result := executionResult{
+		Response:              &http.Response{StatusCode: http.StatusOK},
+		Connection:            connection,
+		ResolvedTargetModelID: stringPtr(resolvedTargetModelID),
+		Attempts: []executionAttempt{{
+			Connection:               connection,
+			ResolvedTargetModelID:    resolvedTargetModelID,
+			StatusCode:               http.StatusOK,
+			ResponseTimeMS:           800,
+			CompletedAt:              completedAt,
+			UpstreamOperationName:    openAIUpstreamOperationChatCompletions,
+			UpstreamRequestPath:      "/v1/chat/completions",
+			OperationTranslationMode: TranslationModeOpenAIResponsesToChatCompletions,
+		}},
+	}
+	capture := runtimeResponseCapture{Usage: responseUsage{InputTokens: intPtr(5), OutputTokens: intPtr(2), TotalTokens: intPtr(7)}, CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
+
+	envelope := service.buildRuntimeTelemetryEnvelope(plan, result, request, startedAt, capture)
+	if len(envelope.RequestLogs) != 1 {
+		t.Fatalf("expected one lossy translated request-log row, got %d", len(envelope.RequestLogs))
+	}
+	assertRuntimeTranslationLossDecision(t, envelope.RequestLogs[0].ContextRouting.TranslationLoss, "responses_to_chat", []string{"responses_include", "responses_text.verbosity", "responses_reasoning.encrypted_content"}, []string{"responses_text.format", "responses_reasoning.effort"})
+	assertRuntimeTranslationLossDecision(t, envelope.UsageEvent.ContextRouting.TranslationLoss, "responses_to_chat", []string{"responses_include", "responses_text.verbosity", "responses_reasoning.encrypted_content"}, []string{"responses_text.format", "responses_reasoning.effort"})
+	assertRuntimeStringPtr(t, envelope.RequestLogs[0].UpstreamOperationName, openAIUpstreamOperationChatCompletions, "lossy translated request-log upstream operation")
+	assertRuntimeStringPtr(t, envelope.RequestLogs[0].OperationTranslationMode, string(TranslationModeOpenAIResponsesToChatCompletions), "lossy translated request-log translation mode")
+	assertRuntimeStringPtr(t, envelope.RequestLogs[0].UpstreamRequestPath, "/v1/chat/completions", "lossy translated request-log upstream request path")
+	assertRuntimeStringPtr(t, envelope.UsageEvent.UpstreamOperationName, openAIUpstreamOperationChatCompletions, "lossy translated usage-event upstream operation")
+	assertRuntimeStringPtr(t, envelope.UsageEvent.OperationTranslationMode, string(TranslationModeOpenAIResponsesToChatCompletions), "lossy translated usage-event translation mode")
+	assertRuntimeStringPtr(t, envelope.UsageEvent.UpstreamRequestPath, "/v1/chat/completions", "lossy translated usage-event upstream request path")
+
+	planAttrs := attributesByKey(runtimeTracePlanAttributes(plan))
+	assertRuntimeTranslationLossAttrs(t, planAttrs, "responses_to_chat", []string{"responses_include", "responses_text.verbosity", "responses_reasoning.encrypted_content"}, []string{"responses_text.format", "responses_reasoning.effort"})
+	envelopeAttrs := attributesByKey(runtimeTraceEnvelopeAttributes(envelope))
+	assertRuntimeTranslationLossAttrs(t, envelopeAttrs, "responses_to_chat", []string{"responses_include", "responses_text.verbosity", "responses_reasoning.encrypted_content"}, []string{"responses_text.format", "responses_reasoning.effort"})
+}
+
+func assertRuntimeTranslationLossDecision(t *testing.T, got *runtimeTranslationLossDecision, direction string, droppedFields []string, mappedFields []string) {
+	t.Helper()
+	if got == nil || !got.Lossy || got.Direction != direction {
+		t.Fatalf("expected translation loss direction=%q, got %+v", direction, got)
+	}
+	assertRuntimeStringSliceContainsAll(t, got.DroppedFields, droppedFields, "dropped fields")
+	assertRuntimeStringSliceContainsAll(t, got.MappedFields, mappedFields, "mapped fields")
+}
+
+func assertRuntimeTranslationLossAttrs(t *testing.T, attrs map[string]attribute.Value, direction string, droppedFields []string, mappedFields []string) {
+	t.Helper()
+	if !attrs[runtimeTraceAttrTranslationLossy].AsBool() || attrs[runtimeTraceAttrTranslationLossDirection].AsString() != direction {
+		t.Fatalf("expected translation loss attrs direction=%q, got %+v", direction, attrs)
+	}
+	assertRuntimeStringSliceContainsAll(t, attrs[runtimeTraceAttrTranslationLossDroppedFields].AsStringSlice(), droppedFields, "trace dropped fields")
+	assertRuntimeStringSliceContainsAll(t, attrs[runtimeTraceAttrTranslationLossMappedFields].AsStringSlice(), mappedFields, "trace mapped fields")
+}
+
+func assertRuntimeStringSliceContainsAll(t *testing.T, got []string, want []string, label string) {
+	t.Helper()
+	values := map[string]struct{}{}
+	for _, value := range got {
+		values[value] = struct{}{}
+	}
+	for _, value := range want {
+		if _, ok := values[value]; !ok {
+			t.Fatalf("expected %s to contain %q, got %+v", label, value, got)
+		}
 	}
 }

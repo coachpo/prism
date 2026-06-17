@@ -73,6 +73,7 @@ type modelRow struct {
 	FacadeSelectionPolicy                *string
 	FacadeFallbackPolicy                 *string
 	ContextOverflowPromotionTargetID     *string
+	OpenAIAcceptedFormat                 *string
 	IsEnabled                            bool
 }
 
@@ -379,6 +380,7 @@ func buildModelExport(model modelRow, strategyNameByID map[int]string, accessTar
 		FacadeSelectionPolicy:                model.FacadeSelectionPolicy,
 		FacadeFallbackPolicy:                 model.FacadeFallbackPolicy,
 		ContextOverflowPromotionTargetID:     model.ContextOverflowPromotionTargetID,
+		OpenAIAcceptedFormat:                 model.OpenAIAcceptedFormat,
 		IsEnabled:                            model.IsEnabled,
 		AccessTargets:                        exportedTargets,
 	}, nil
@@ -627,7 +629,7 @@ func listStrategies(ctx context.Context, exec queryExecutor, profileID int) ([]s
 }
 
 func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]modelRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, openai_accepted_format, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query models for profile %d: %w", profileID, err)
 	}
@@ -642,8 +644,9 @@ func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]model
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
 		var contextOverflowPromotionTargetID sql.NullString
+		var openAIAcceptedFormat sql.NullString
 		item := modelRow{}
-		if err := rows.Scan(&item.ID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &preferredContextUtilizationThreshold, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &item.IsEnabled); err != nil {
+		if err := rows.Scan(&item.ID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &preferredContextUtilizationThreshold, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &openAIAcceptedFormat, &item.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan model row: %w", err)
 		}
 		item.DisplayName = nullableStringValue(displayName)
@@ -653,6 +656,7 @@ func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]model
 		item.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
 		item.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
 		item.ContextOverflowPromotionTargetID = nullableStringValue(contextOverflowPromotionTargetID)
+		item.OpenAIAcceptedFormat = nullableStringValue(openAIAcceptedFormat)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

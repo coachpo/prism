@@ -48,6 +48,7 @@ type modelCreateRequest struct {
 	FacadeSelectionPolicy                *string                    `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 *string                    `json:"facade_fallback_policy"`
 	ContextOverflowPromotionTargetID     *string                    `json:"context_overflow_promotion_target_id"`
+	OpenAIAcceptedFormat                 optionalString             `json:"openai_accepted_format"`
 	AccessTargets                        []modelAccessTargetRequest `json:"access_targets"`
 	IsEnabled                            *bool                      `json:"is_enabled"`
 }
@@ -155,6 +156,7 @@ type modelUpdateRequest struct {
 	FacadeSelectionPolicy                optionalString        `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 optionalString        `json:"facade_fallback_policy"`
 	ContextOverflowPromotionTargetID     optionalString        `json:"context_overflow_promotion_target_id"`
+	OpenAIAcceptedFormat                 optionalString        `json:"openai_accepted_format"`
 	AccessTargets                        optionalAccessTargets `json:"access_targets"`
 	IsEnabled                            optionalBool          `json:"is_enabled"`
 }
@@ -248,6 +250,7 @@ type modelTargetSummary struct {
 	FacadeEnabled                        bool     `json:"facade_enabled"`
 	FacadeSelectionPolicy                *string  `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 *string  `json:"facade_fallback_policy"`
+	OpenAIAcceptedFormat                 *string  `json:"openai_accepted_format"`
 	IsEnabled                            bool     `json:"is_enabled"`
 }
 
@@ -282,6 +285,7 @@ type modelConfigListResponse struct {
 	FacadeSelectionPolicy                *string                     `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 *string                     `json:"facade_fallback_policy"`
 	ContextOverflowPromotionTargetID     *string                     `json:"context_overflow_promotion_target_id"`
+	OpenAIAcceptedFormat                 *string                     `json:"openai_accepted_format"`
 	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
 	IsEnabled                            bool                        `json:"is_enabled"`
 	ConnectionCount                      int                         `json:"connection_count"`
@@ -308,6 +312,7 @@ type modelConfigResponse struct {
 	FacadeSelectionPolicy                *string                     `json:"facade_selection_policy"`
 	FacadeFallbackPolicy                 *string                     `json:"facade_fallback_policy"`
 	ContextOverflowPromotionTargetID     *string                     `json:"context_overflow_promotion_target_id"`
+	OpenAIAcceptedFormat                 *string                     `json:"openai_accepted_format"`
 	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
 	IsEnabled                            bool                        `json:"is_enabled"`
 	CreatedAt                            time.Time                   `json:"created_at"`

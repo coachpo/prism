@@ -75,6 +75,12 @@ const OpenAITextCapabilityImportSchema = z.enum([
   "dual_native",
 ]);
 
+const OpenAIAcceptedFormatImportSchema = z.enum([
+  "responses_only",
+  "chat_completions_only",
+  "dual_native",
+]);
+
 const OpenAIProbeEndpointVariantImportSchema = z.enum([
   "responses_minimal",
   "responses_reasoning_none",
@@ -271,6 +277,7 @@ const ModelImportSchema = z.strictObject({
   facade_selection_policy: FacadeSelectionPolicyImportSchema,
   facade_fallback_policy: FacadeFallbackPolicyImportSchema,
   context_overflow_promotion_target_id: z.string().nullable().optional(),
+  openai_accepted_format: OpenAIAcceptedFormatImportSchema.nullable().optional(),
   is_enabled: z.boolean().optional(),
   access_targets: z.array(AccessTargetImportSchema),
 }).superRefine((model, context) => {
@@ -281,6 +288,22 @@ const ModelImportSchema = z.strictObject({
   );
   const seenPositions = new Set<number>();
   const seenTargets = new Set<string>();
+
+  if (model.api_family === "openai") {
+    if (!model.openai_accepted_format) {
+      context.addIssue({
+        code: "custom",
+        path: ["openai_accepted_format"],
+        message: "OpenAI models must include openai_accepted_format",
+      });
+    }
+  } else if (model.openai_accepted_format != null) {
+    context.addIssue({
+      code: "custom",
+      path: ["openai_accepted_format"],
+      message: "openai_accepted_format is only valid for OpenAI models",
+    });
+  }
 
   for (const [index, target] of model.access_targets.entries()) {
     if (seenPositions.has(target.position)) {

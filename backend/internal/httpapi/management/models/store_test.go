@@ -229,6 +229,7 @@ func testModelRecord(profileID int, modelID string, now time.Time, promotionTarg
 		MaxContextUtilization:            0.9,
 		FacadeEnabled:                    false,
 		ContextOverflowPromotionTargetID: promotionTargetID,
+		OpenAIAcceptedFormat:             stringPtr(openAIAcceptedFormatDualNative),
 		IsEnabled:                        true,
 		CreatedAt:                        now,
 		UpdatedAt:                        now,

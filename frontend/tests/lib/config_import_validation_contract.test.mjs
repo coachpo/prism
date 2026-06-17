@@ -103,6 +103,7 @@ function buildValidConfigImport() {
         display_name: "GPT 4o Mini",
         loadbalance_strategy_name: "Default single",
         ...liveAuthoringCapabilityDefaults,
+        openai_accepted_format: "dual_native",
         is_enabled: true,
         access_targets: [
           {
@@ -150,6 +151,7 @@ function buildPromotionChainConfigImport(modelIds = ["source-small", "target-sam
     context_window_tokens: [32_000, 32_000, 24_000, 128_000, 256_000][index] ?? 512_000,
     default_output_token_reserve: 4096,
     max_context_utilization: 0.9,
+    openai_accepted_format: "dual_native",
     context_overflow_promotion_target_id: modelIds[index + 1] ?? null,
     is_enabled: true,
     access_targets: [],
@@ -175,6 +177,7 @@ test("config import schema accepts current profile bundle v3 Ban Policy payloads
   assert.equal(parsed.loadbalance_strategies[0].ban_cumulative_retry_attempt_threshold, 4);
   assert.equal(parsed.connections[0].ref, "openai-primary");
   assert.equal(parsed.connections[0].openai_text_capability, "responses_only");
+  assert.equal(parsed.models[0].openai_accepted_format, "dual_native");
   assert.deepEqual(
     {
       context_window_tokens: parsed.connections[0].context_window_tokens,
@@ -205,6 +208,24 @@ test("config import schema requires explicit OpenAI text capability for OpenAI c
   assert.throws(() => ConfigImportSchema.parse(payload), /OpenAI connections must include openai_text_capability/);
 });
 
+test("config import schema requires openai_accepted_format for OpenAI models", () => {
+  const payload = buildValidConfigImport();
+  delete payload.models[0].openai_accepted_format;
+
+  assert.throws(() => ConfigImportSchema.parse(payload), /OpenAI models must include openai_accepted_format/);
+});
+
+test("config import schema accepts all OpenAI accepted-format values", () => {
+  for (const acceptedFormat of ["dual_native", "responses_only", "chat_completions_only"]) {
+    const payload = buildValidConfigImport();
+    payload.models[0].openai_accepted_format = acceptedFormat;
+
+    const parsed = ConfigImportSchema.parse(payload);
+
+    assert.equal(parsed.models[0].openai_accepted_format, acceptedFormat);
+  }
+});
+
 test("config import schema rejects OpenAI-only fields on non-OpenAI connections", () => {
   const payload = buildValidConfigImport();
   payload.connections[0].api_family = "anthropic";
@@ -215,6 +236,13 @@ test("config import schema rejects OpenAI-only fields on non-OpenAI connections"
   payload.connections[0].openai_probe_endpoint_variant = "responses_minimal";
 
   assert.throws(() => ConfigImportSchema.parse(payload), /openai_probe_endpoint_variant is only valid for OpenAI connections/);
+});
+
+test("config import schema rejects openai_accepted_format on non-OpenAI models", () => {
+  const payload = buildValidConfigImport();
+  payload.models[0].api_family = "anthropic";
+
+  assert.throws(() => ConfigImportSchema.parse(payload), /openai_accepted_format is only valid for OpenAI models/);
 });
 
 test("config import schema accepts cheapest_eligible_context loadbalance strategies", () => {
@@ -257,6 +285,7 @@ test("config import schema accepts backend-exported overflow promotion target fi
       display_name: "GPT 4o Router",
       loadbalance_strategy_name: "Default single",
       ...liveAuthoringCapabilityDefaults,
+      openai_accepted_format: "dual_native",
       context_overflow_promotion_target_id: "gpt-4o-terminal",
       is_enabled: true,
       access_targets: [],
@@ -267,6 +296,7 @@ test("config import schema accepts backend-exported overflow promotion target fi
       display_name: "GPT 4o Terminal",
       loadbalance_strategy_name: "Default single",
       ...liveAuthoringCapabilityDefaults,
+      openai_accepted_format: "dual_native",
       is_enabled: true,
       access_targets: [],
     },
@@ -380,6 +410,7 @@ test("config import schema mirrors same-terminal promotion rejection when bundle
       display_name: "Source small",
       loadbalance_strategy_name: "Default single",
       ...liveAuthoringCapabilityDefaults,
+      openai_accepted_format: "dual_native",
       context_overflow_promotion_target_id: "target-large",
       is_enabled: true,
       access_targets: [
@@ -397,6 +428,7 @@ test("config import schema mirrors same-terminal promotion rejection when bundle
       display_name: "Target large",
       loadbalance_strategy_name: "Default single",
       ...liveAuthoringCapabilityDefaults,
+      openai_accepted_format: "dual_native",
       is_enabled: true,
       access_targets: [
         {
@@ -432,7 +464,15 @@ test("config bundle TypeScript DTOs expose flat access targets and audit setting
   );
   assert.match(
     source,
+    /interface ConfigModelExport \{[\s\S]*?openai_accepted_format: ConfigModelOpenAIAcceptedFormat \| null;[\s\S]*?\n\}/,
+  );
+  assert.match(
+    source,
     /interface ConfigModelImport \{[\s\S]*?context_overflow_promotion_target_id\?: string \| null;[\s\S]*?\n\}/,
+  );
+  assert.match(
+    source,
+    /interface ConfigModelImport \{[\s\S]*?openai_accepted_format\?: ConfigModelOpenAIAcceptedFormat \| null;[\s\S]*?\n\}/,
   );
   assert.match(
     source,
@@ -524,6 +564,7 @@ test("config import schema rejects obsolete model access target metadata keys", 
       display_name: "GPT 4o Router",
       loadbalance_strategy_name: "Default single",
       ...liveAuthoringCapabilityDefaults,
+      openai_accepted_format: "dual_native",
       is_enabled: true,
       access_targets: [
         {
@@ -541,6 +582,7 @@ test("config import schema rejects obsolete model access target metadata keys", 
       display_name: "GPT 4o Mini Terminal",
       loadbalance_strategy_name: "Default single",
       ...liveAuthoringCapabilityDefaults,
+      openai_accepted_format: "dual_native",
       is_enabled: true,
       access_targets: [
         {
@@ -637,6 +679,7 @@ test("config import schema rejects duplicate connection_ref ownership across mod
     model_id: "gpt-4o-mini-shadow",
     display_name: "GPT 4o Mini Shadow",
     loadbalance_strategy_name: "Default single",
+    openai_accepted_format: "dual_native",
     is_enabled: true,
     access_targets: [
       {

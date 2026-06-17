@@ -106,6 +106,7 @@ func TestBundleImportRejectsApiFamilyMismatchPromotionTarget(t *testing.T) {
 		request.Connections[1].OpenAITextCapability = nil
 		request.Connections[1].OpenAITextCapabilitySet = false
 		request.Models[1].APIFamily = "anthropic"
+		request.Models[1].OpenAIAcceptedFormat = nil
 	}, promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
 }
 
@@ -269,8 +270,8 @@ func validPromotionTargetBundleRequest() profileImportRequest {
 			{Ref: "target-conn", APIFamily: "openai", EndpointName: "OpenAI", ContextWindowTokens: intPtr(16_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), IsActive: true, Priority: 1, OpenAITextCapability: stringPtr("responses_only"), OpenAITextCapabilitySet: true},
 		},
 		Models: []modelExport{
-			{APIFamily: "openai", ModelID: "source-small", DisplayName: stringPtr("Source Small"), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(8_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), ContextOverflowPromotionTargetID: stringPtr("target-large"), IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr("source-conn")}}},
-			{APIFamily: "openai", ModelID: "target-large", DisplayName: stringPtr("Target Large"), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(16_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr("target-conn")}}},
+			{APIFamily: "openai", ModelID: "source-small", DisplayName: stringPtr("Source Small"), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(8_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), ContextOverflowPromotionTargetID: stringPtr("target-large"), OpenAIAcceptedFormat: stringPtr("dual_native"), IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr("source-conn")}}},
+			{APIFamily: "openai", ModelID: "target-large", DisplayName: stringPtr("Target Large"), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(16_000), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), OpenAIAcceptedFormat: stringPtr("dual_native"), IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr("target-conn")}}},
 		},
 		ProfileSettings: &profileSettingsExport{
 			ReportCurrencyCode:   "USD",
@@ -305,7 +306,7 @@ func promotionTargetConnection(ref string, contextWindowTokens int, priority int
 }
 
 func promotionTargetModel(modelID string, connectionRef string, promotionTargetID *string, contextWindowTokens int) modelExport {
-	return modelExport{APIFamily: "openai", ModelID: modelID, DisplayName: stringPtr(modelID), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(contextWindowTokens), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), ContextOverflowPromotionTargetID: promotionTargetID, IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr(connectionRef)}}}
+	return modelExport{APIFamily: "openai", ModelID: modelID, DisplayName: stringPtr(modelID), LoadbalanceStrategyName: stringPtr("Default single"), ContextWindowTokens: intPtr(contextWindowTokens), DefaultOutputTokenReserve: intPtr(4096), MaxContextUtilization: float64Ptr(1.0), ContextOverflowPromotionTargetID: promotionTargetID, OpenAIAcceptedFormat: stringPtr("dual_native"), IsEnabled: true, AccessTargets: []accessTargetExport{{Position: 0, IsEnabled: true, TargetType: "connection", ConnectionRef: stringPtr(connectionRef)}}}
 }
 
 func configBundleMigratedConn(t *testing.T, name string) (context.Context, *pgx.Conn) {
@@ -455,7 +456,7 @@ func insertConfigBundleModel(t *testing.T, ctx context.Context, exec interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, profileID int, strategyID int, modelID string, now time.Time) {
 	t.Helper()
-	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $2, $3, NULL, 4096, 0.9, NULL, FALSE, NULL, NULL, NULL, TRUE, $4, $4) RETURNING id`, profileID, modelID, strategyID, now).Scan(new(int)); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', $2, $2, $3, NULL, 4096, 0.9, NULL, FALSE, NULL, NULL, NULL, 'dual_native', TRUE, $4, $4) RETURNING id`, profileID, modelID, strategyID, now).Scan(new(int)); err != nil {
 		t.Fatalf("insert model %q: %v", modelID, err)
 	}
 }

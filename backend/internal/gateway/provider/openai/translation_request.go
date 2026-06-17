@@ -31,78 +31,106 @@ func unsupportedTranslationMode(mode provider.TranslationMode) error {
 }
 
 func translateRequest(rawBody []byte, mode provider.TranslationMode, targetModelID string) (string, []byte, error) {
+	path, body, _, err := translateRequestWithLoss(rawBody, mode, targetModelID)
+	return path, body, err
+}
+
+func translateRequestWithLoss(rawBody []byte, mode provider.TranslationMode, targetModelID string) (string, []byte, *provider.TranslationLoss, error) {
 	switch mode {
 	case provider.TranslationModeOpenAIResponsesToChatCompletions:
-		body, err := translateResponsesToChatRequest(rawBody, targetModelID)
-		return "/v1/chat/completions", body, err
+		body, loss, err := translateResponsesToChatRequest(rawBody, targetModelID)
+		return "/v1/chat/completions", body, loss, err
 	case provider.TranslationModeOpenAIChatCompletionsToResponses:
-		body, err := translateChatToResponsesRequest(rawBody, targetModelID)
-		return "/v1/responses", body, err
+		body, loss, err := translateChatToResponsesRequest(rawBody, targetModelID)
+		return "/v1/responses", body, loss, err
 	case provider.TranslationModeNone:
-		return "", nil, nil
+		return "", nil, nil, nil
 	default:
-		return "", nil, unsupportedTranslationMode(mode)
+		return "", nil, nil, unsupportedTranslationMode(mode)
 	}
 }
 
-func translateResponsesToChatRequest(rawBody []byte, targetModelID string) ([]byte, error) {
+func translateResponsesToChatRequest(rawBody []byte, targetModelID string) ([]byte, *provider.TranslationLoss, error) {
 	payload, err := decodeOpenAITranslationPayload(rawBody, provider.TranslationModeOpenAIResponsesToChatCompletions)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := rejectResponsesTranslationUnsupportedFields(payload); err != nil {
-		return nil, err
+	policy, err := applyResponsesToChatFieldPolicy(payload)
+	if err != nil {
+		return nil, nil, err
 	}
 	translated := map[string]any{"model": targetModelID}
 	copyTranslationField(payload, translated, "temperature", "top_p", "seed", "store", "metadata", "user", "service_tier", "stream")
+	if boolValue(payload["stream"]) {
+		translated["stream_options"] = map[string]any{"include_usage": true}
+	}
+	if responseFormat := translateResponsesTextFormatToChat(payload["text"]); responseFormat != nil {
+		translated["response_format"] = responseFormat
+	}
 	toolContext := BuildToolContextFromResponsesPayload(payload)
+	translatedTools := toolContext.ChatTools()
+	policy.droppedFields = append(policy.droppedFields, droppedResponsesToolFields(payload)...)
 	if instructions := trimmedStringFromAny(payload["instructions"]); instructions != nil {
 		translated["messages"] = appendChatTranslationMessage(nil, "system", *instructions)
 	}
 	messages, err := translateResponsesInputToChatMessages(payload["input"], toolContext)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	translated["messages"] = appendChatTranslationMessages(translated["messages"], messages)
-	if tools := toolContext.ChatTools(); len(tools) > 0 {
-		translated["tools"] = mapsFromAnyMaps(tools)
+	if len(translatedTools) > 0 {
+		translated["tools"] = mapsFromAnyMaps(translatedTools)
 		if toolChoice, ok := translateResponsesToolChoiceToChat(payload["tool_choice"], toolContext); ok {
 			translated["tool_choice"] = toolChoice
+		} else if fieldHasValue(payload, "tool_choice") {
+			policy.droppedFields = append(policy.droppedFields, "responses_tool_choice")
 		}
 		copyTranslationField(payload, translated, "parallel_tool_calls")
+	} else {
+		if fieldHasValue(payload, "tool_choice") {
+			policy.droppedFields = append(policy.droppedFields, "responses_tool_choice")
+		}
+		if fieldHasValue(payload, "parallel_tool_calls") {
+			policy.droppedFields = append(policy.droppedFields, "responses_parallel_tool_calls")
+		}
 	}
 	if maxOutputTokens := intPointerFromAny(payload["max_output_tokens"]); maxOutputTokens != nil {
 		translated["max_completion_tokens"] = *maxOutputTokens
 	}
 	if effort, err := translateResponsesReasoningEffort(payload["reasoning"]); err != nil {
-		return nil, err
+		return nil, nil, err
 	} else if effort != nil {
 		translated["reasoning_effort"] = *effort
 	}
-	return marshalTranslatedOpenAIRequest(translated, provider.TranslationModeOpenAIResponsesToChatCompletions)
+	if policy.requiresRunnableResidualInput && !chatRequestHasRunnableResidualInput(translated) {
+		return nil, nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_stateful_continuation_without_runnable_input")
+	}
+	body, err := marshalTranslatedOpenAIRequest(translated, provider.TranslationModeOpenAIResponsesToChatCompletions)
+	return body, translationLossFromFieldPolicy(policy.droppedFields, policy.mappedFields), err
 }
 
-func translateChatToResponsesRequest(rawBody []byte, targetModelID string) ([]byte, error) {
+func translateChatToResponsesRequest(rawBody []byte, targetModelID string) ([]byte, *provider.TranslationLoss, error) {
 	payload, err := decodeOpenAITranslationPayload(rawBody, provider.TranslationModeOpenAIChatCompletionsToResponses)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := rejectChatTranslationUnsupportedFields(payload); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	fieldLoss := buildChatToResponsesFieldLoss(payload)
 	translated := map[string]any{"model": targetModelID}
 	copyTranslationField(payload, translated, "temperature", "top_p", "seed", "store", "metadata", "user", "service_tier", "stream")
 	messagesValue, _ := payload["messages"].([]any)
 	instructions, remainingMessages, err := extractLeadingChatInstructions(messagesValue)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if instructions != nil {
 		translated["instructions"] = *instructions
 	}
 	inputItems, err := translateChatMessagesToResponsesInput(remainingMessages)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(inputItems) > 0 {
 		translated["input"] = inputItems
@@ -115,8 +143,54 @@ func translateChatToResponsesRequest(rawBody []byte, targetModelID string) ([]by
 	if effort := trimmedStringFromAny(payload["reasoning_effort"]); effort != nil {
 		translated["reasoning"] = map[string]any{"effort": *effort}
 	}
-	copyChatToolsToResponses(payload, translated)
-	return marshalTranslatedOpenAIRequest(translated, provider.TranslationModeOpenAIChatCompletionsToResponses)
+	if responseFormat, err := translateChatResponseFormatToResponses(payload["response_format"]); err != nil {
+		return nil, nil, err
+	} else if responseFormat != nil {
+		translated["response_format"] = responseFormat
+	}
+	tools, err := translateChatToolsToResponsesRequest(payload["tools"])
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(tools) > 0 {
+		translated["tools"] = tools
+	}
+	if toolChoice, err := translateChatToolChoiceToResponsesRequest(payload["tool_choice"], tools); err != nil {
+		return nil, nil, err
+	} else if toolChoice != nil {
+		translated["tool_choice"] = toolChoice
+	}
+	body, err := marshalTranslatedOpenAIRequest(translated, provider.TranslationModeOpenAIChatCompletionsToResponses)
+	return body, translationLossFromFieldPolicy(fieldLoss.droppedFields, fieldLoss.mappedFields), err
+}
+
+func translationLossFromFieldPolicy(droppedFields []string, mappedFields []string) *provider.TranslationLoss {
+	dropped := normalizedTranslationLossFields(droppedFields)
+	mapped := normalizedTranslationLossFields(mappedFields)
+	if len(dropped) == 0 && len(mapped) == 0 {
+		return nil
+	}
+	return &provider.TranslationLoss{DroppedFields: dropped, MappedFields: mapped}
+}
+
+func normalizedTranslationLossFields(fields []string) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(fields))
+	seen := map[string]struct{}{}
+	for _, field := range fields {
+		trimmed := strings.TrimSpace(field)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func decodeOpenAITranslationPayload(rawBody []byte, mode provider.TranslationMode) (map[string]any, error) {
@@ -129,48 +203,384 @@ func decodeOpenAITranslationPayload(rawBody []byte, mode provider.TranslationMod
 	return payload, nil
 }
 
-func rejectResponsesTranslationUnsupportedFields(payload map[string]any) error {
-	if fieldHasValue(payload, "previous_response_id") {
-		return requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_previous_response_id")
-	}
-	if fieldHasValue(payload, "conversation") {
-		return requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_conversation")
-	}
-	if fieldHasValue(payload, "include") {
-		return requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_include")
-	}
-	if fieldHasValue(payload, "text") {
-		return requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_text")
-	}
-	return rejectUnsupportedResponsesReasoning(payload["reasoning"])
+type responsesToChatFieldPolicy struct {
+	droppedFields                 []string
+	mappedFields                  []string
+	requiresRunnableResidualInput bool
 }
 
-func rejectUnsupportedResponsesReasoning(value any) error {
-	reasoning, ok := value.(map[string]any)
-	if !ok || len(reasoning) == 0 {
+type chatToResponsesFieldLoss struct {
+	droppedFields []string
+	mappedFields  []string
+}
+
+func buildChatToResponsesFieldLoss(payload map[string]any) chatToResponsesFieldLoss {
+	loss := chatToResponsesFieldLoss{}
+	for _, key := range []string{"logprobs", "top_logprobs", "stream_options"} {
+		if fieldHasValue(payload, key) {
+			loss.droppedFields = append(loss.droppedFields, "chat_"+key)
+		}
+	}
+	if fieldHasValue(payload, "max_completion_tokens") {
+		loss.mappedFields = append(loss.mappedFields, "chat_max_completion_tokens")
+	} else if fieldHasValue(payload, "max_tokens") {
+		loss.mappedFields = append(loss.mappedFields, "chat_max_tokens")
+	}
+	for _, key := range []string{"reasoning_effort", "response_format", "tools", "tool_choice"} {
+		if fieldHasValue(payload, key) {
+			loss.mappedFields = append(loss.mappedFields, "chat_"+key)
+		}
+	}
+	return loss
+}
+
+func applyResponsesToChatFieldPolicy(payload map[string]any) (responsesToChatFieldPolicy, error) {
+	policy := responsesToChatFieldPolicy{}
+	allowedTopLevel := map[string]struct{}{
+		"model": {}, "instructions": {}, "input": {}, "tools": {}, "tool_choice": {}, "parallel_tool_calls": {}, "max_output_tokens": {},
+		"temperature": {}, "top_p": {}, "seed": {}, "store": {}, "metadata": {}, "user": {}, "service_tier": {}, "stream": {},
+		"include": {}, "text": {}, "previous_response_id": {}, "conversation": {}, "reasoning": {},
+	}
+	for key, value := range payload {
+		if _, ok := allowedTopLevel[key]; !ok && valueHasMeaning(value) {
+			return policy, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_unknown_field")
+		}
+	}
+	if fieldHasValue(payload, "include") {
+		policy.droppedFields = append(policy.droppedFields, "responses_include")
+	}
+	if fieldHasValue(payload, "previous_response_id") {
+		policy.droppedFields = append(policy.droppedFields, "responses_previous_response_id")
+		policy.requiresRunnableResidualInput = true
+	}
+	if fieldHasValue(payload, "conversation") {
+		policy.droppedFields = append(policy.droppedFields, "responses_conversation")
+		policy.requiresRunnableResidualInput = true
+	}
+	textPolicy, err := applyResponsesTextPolicy(payload["text"])
+	if err != nil {
+		return policy, err
+	}
+	policy.droppedFields = append(policy.droppedFields, textPolicy.droppedFields...)
+	policy.mappedFields = append(policy.mappedFields, textPolicy.mappedFields...)
+	reasoningPolicy, err := applyResponsesReasoningPolicy(payload["reasoning"])
+	if err != nil {
+		return policy, err
+	}
+	policy.droppedFields = append(policy.droppedFields, reasoningPolicy.droppedFields...)
+	policy.mappedFields = append(policy.mappedFields, reasoningPolicy.mappedFields...)
+	return policy, nil
+}
+
+func droppedResponsesToolFields(payload map[string]any) []string {
+	tools, ok := payload["tools"].([]any)
+	if !ok {
 		return nil
 	}
-	for key, item := range reasoning {
-		if strings.TrimSpace(key) == "effort" {
+	dropped := make([]string, 0)
+	for index, rawTool := range tools {
+		context := NewToolContext()
+		if tool, _ := rawTool.(map[string]any); tool != nil {
+			context.AddResponseTool(tool)
+		} else if name := strings.TrimSpace(stringValue(rawTool)); name != "" {
+			context.AddResponseTool(map[string]any{"type": string(ToolKindCustom), "name": name})
+		}
+		if len(context.ChatTools()) == 0 {
+			dropped = append(dropped, fmt.Sprintf("responses_tools.%d", index))
+		}
+	}
+	return dropped
+}
+
+func applyResponsesTextPolicy(value any) (responsesToChatFieldPolicy, error) {
+	policy := responsesToChatFieldPolicy{}
+	if value == nil {
+		return policy, nil
+	}
+	text, ok := value.(map[string]any)
+	if !ok {
+		if valueHasMeaning(value) {
+			return policy, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_text")
+		}
+		return policy, nil
+	}
+	for key, item := range text {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "format" {
+			if valueHasMeaning(item) {
+				if _, err := validateResponsesTextFormat(item); err != nil {
+					return policy, err
+				}
+				policy.mappedFields = append(policy.mappedFields, "responses_text.format")
+			}
 			continue
 		}
 		if valueHasMeaning(item) {
-			return requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_reasoning_"+strings.TrimSpace(key))
+			policy.droppedFields = append(policy.droppedFields, "responses_text."+trimmedKey)
 		}
 	}
-	return nil
+	return policy, nil
+}
+
+func applyResponsesReasoningPolicy(value any) (responsesToChatFieldPolicy, error) {
+	policy := responsesToChatFieldPolicy{}
+	if value == nil {
+		return policy, nil
+	}
+	reasoning, ok := value.(map[string]any)
+	if !ok {
+		if valueHasMeaning(value) {
+			return policy, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_reasoning")
+		}
+		return policy, nil
+	}
+	for key, item := range reasoning {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "effort" {
+			if valueHasMeaning(item) {
+				policy.mappedFields = append(policy.mappedFields, "responses_reasoning.effort")
+			}
+			continue
+		}
+		if valueHasMeaning(item) {
+			policy.droppedFields = append(policy.droppedFields, "responses_reasoning."+trimmedKey)
+		}
+	}
+	return policy, nil
+}
+
+func translateResponsesTextFormatToChat(value any) any {
+	format, err := validateResponsesTextFormat(nestedAny(value, "format"))
+	if err != nil {
+		return nil
+	}
+	if format == nil {
+		return nil
+	}
+	return format
+}
+
+func validateResponsesTextFormat(value any) (map[string]any, error) {
+	if value == nil || !valueHasMeaning(value) {
+		return nil, nil
+	}
+	format, ok := value.(map[string]any)
+	if !ok {
+		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_text_format")
+	}
+	formatType := strings.TrimSpace(stringValue(format["type"]))
+	switch formatType {
+	case "json_schema":
+		if !fieldHasValue(format, "json_schema") || hasMeaningfulKeysOutside(format, "type", "json_schema") {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_text_format")
+		}
+		return map[string]any{"type": "json_schema", "json_schema": cloneJSONValue(format["json_schema"])}, nil
+	case "json_object":
+		if hasMeaningfulKeysOutside(format, "type") {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_text_format")
+		}
+		return map[string]any{"type": "json_object"}, nil
+	default:
+		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_text_format")
+	}
+}
+
+func chatRequestHasRunnableResidualInput(payload map[string]any) bool {
+	if messages, _ := payload["messages"].([]any); len(messages) > 0 {
+		for _, rawMessage := range messages {
+			message, _ := rawMessage.(map[string]any)
+			if chatMessageHasRunnableContent(message) {
+				return true
+			}
+		}
+	}
+	if tools, _ := payload["tools"].([]any); len(tools) > 0 {
+		return true
+	}
+	return false
+}
+
+func chatMessageHasRunnableContent(message map[string]any) bool {
+	if message == nil {
+		return false
+	}
+	if valueHasMeaning(message["content"]) || fieldHasValue(message, "tool_calls") || fieldHasValue(message, "tool_call_id") || fieldHasValue(message, "function_call") {
+		return true
+	}
+	return false
+}
+
+func hasMeaningfulKeysOutside(payload map[string]any, allowedKeys ...string) bool {
+	allowed := map[string]struct{}{}
+	for _, key := range allowedKeys {
+		allowed[key] = struct{}{}
+	}
+	for key, value := range payload {
+		if _, ok := allowed[key]; !ok && valueHasMeaning(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func nestedAny(value any, key string) any {
+	payload, _ := value.(map[string]any)
+	if payload == nil {
+		return nil
+	}
+	return payload[key]
+}
+
+func cloneJSONValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAnyMap(typed)
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, cloneJSONValue(item))
+		}
+		return out
+	default:
+		return typed
+	}
 }
 
 func rejectChatTranslationUnsupportedFields(payload map[string]any) error {
 	if n := intPointerFromAny(payload["n"]); n != nil && *n > 1 {
 		return requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_multi_choice")
 	}
-	for _, key := range []string{"audio", "logprobs", "top_logprobs", "stream_options", "modalities", "prediction"} {
+	for _, key := range []string{"audio", "modalities", "prediction"} {
 		if fieldHasValue(payload, key) {
 			return requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_"+key)
 		}
 	}
+	allowedTopLevel := map[string]struct{}{
+		"model":                 {},
+		"messages":              {},
+		"tools":                 {},
+		"tool_choice":           {},
+		"max_completion_tokens": {},
+		"max_tokens":            {},
+		"temperature":           {},
+		"top_p":                 {},
+		"seed":                  {},
+		"store":                 {},
+		"metadata":              {},
+		"user":                  {},
+		"service_tier":          {},
+		"stream":                {},
+		"reasoning_effort":      {},
+		"response_format":       {},
+		"n":                     {},
+		"logprobs":              {},
+		"top_logprobs":          {},
+		"stream_options":        {},
+		"audio":                 {},
+		"modalities":            {},
+		"prediction":            {},
+	}
+	for key, value := range payload {
+		if _, ok := allowedTopLevel[key]; !ok && valueHasMeaning(value) {
+			return requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_unknown_field")
+		}
+	}
 	return nil
+}
+
+func translateChatResponseFormatToResponses(value any) (any, error) {
+	if value == nil || !valueHasMeaning(value) {
+		return nil, nil
+	}
+	format, ok := value.(map[string]any)
+	if !ok {
+		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_response_format")
+	}
+	formatType := strings.TrimSpace(stringValue(format["type"]))
+	switch formatType {
+	case "json_schema":
+		if !fieldHasValue(format, "json_schema") {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_response_format")
+		}
+		return cloneAnyMap(format), nil
+	case "json_object":
+		if hasMeaningfulKeysOutside(format, "type") {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_response_format")
+		}
+		return map[string]any{"type": "json_object"}, nil
+	default:
+		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_response_format")
+	}
+}
+
+func translateChatToolsToResponsesRequest(value any) ([]any, error) {
+	if value == nil || !valueHasMeaning(value) {
+		return nil, nil
+	}
+	tools, ok := value.([]any)
+	if !ok {
+		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tools")
+	}
+	out := make([]any, 0, len(tools))
+	for _, rawTool := range tools {
+		tool, ok := rawTool.(map[string]any)
+		if !ok || hasMeaningfulKeysOutside(tool, "type", "function") {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tools")
+		}
+		if strings.TrimSpace(stringValue(tool["type"])) != "function" {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tools")
+		}
+		function, ok := tool["function"].(map[string]any)
+		if !ok || !valueHasMeaning(function["name"]) {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tools")
+		}
+		translatedTool := cloneAnyMap(function)
+		translatedTool["type"] = "function"
+		out = append(out, translatedTool)
+	}
+	return out, nil
+}
+
+func translateChatToolChoiceToResponsesRequest(value any, tools []any) (any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	availableTools := map[string]struct{}{}
+	for _, rawTool := range tools {
+		tool, _ := rawTool.(map[string]any)
+		name := strings.TrimSpace(stringValue(tool["name"]))
+		if name != "" {
+			availableTools[name] = struct{}{}
+		}
+	}
+	switch typed := value.(type) {
+	case string:
+		switch strings.TrimSpace(typed) {
+		case "":
+			return nil, nil
+		case "auto", "none", "required":
+			return typed, nil
+		default:
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_choice")
+		}
+	case map[string]any:
+		if strings.TrimSpace(stringValue(typed["type"])) != "function" {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_choice")
+		}
+		name := stringValue(typed["name"])
+		if function, _ := typed["function"].(map[string]any); function != nil && name == "" {
+			name = stringValue(function["name"])
+		}
+		if name == "" {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_choice")
+		}
+		if _, ok := availableTools[name]; !ok {
+			return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_choice")
+		}
+		return map[string]any{"type": "function", "name": name}, nil
+	default:
+		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat_tool_choice")
+	}
 }
 
 func translateResponsesInputToChatMessages(value any, toolContext *ToolContext) ([]any, error) {
@@ -336,13 +746,23 @@ func translateResponsesToolChoiceToChat(value any, toolContext *ToolContext) (an
 			if toolContext != nil {
 				chatName = toolContext.ChatNameForResponseFunction(name, stringValue(typed["namespace"]))
 			}
+			if _, ok := toolContext.LookupChatName(chatName); !ok {
+				return nil, false
+			}
 			return map[string]any{"type": "function", "function": map[string]any{"name": chatName}}, true
 		case "custom":
-			return map[string]any{"type": "function", "function": map[string]any{"name": stringValue(typed["name"])}}, true
+			name := stringValue(typed["name"])
+			if _, ok := toolContext.LookupChatName(name); !ok {
+				return nil, false
+			}
+			return map[string]any{"type": "function", "function": map[string]any{"name": name}}, true
 		case "tool_search":
+			if _, ok := toolContext.LookupChatName(toolSearchProxyName); !ok {
+				return nil, false
+			}
 			return map[string]any{"type": "function", "function": map[string]any{"name": toolSearchProxyName}}, true
 		default:
-			return cloneAnyMap(typed), true
+			return nil, false
 		}
 	default:
 		return typed, true
@@ -663,54 +1083,6 @@ func isChatAudioPart(part map[string]any) bool {
 	return strings.TrimSpace(stringValue(part["type"])) == "input_audio"
 }
 
-func copyChatToolsToResponses(source map[string]any, target map[string]any) {
-	if tools, ok := translateChatToolsToResponses(source["tools"]); ok {
-		target["tools"] = tools
-	}
-	if choice, ok := translateChatToolChoiceToResponses(source["tool_choice"]); ok {
-		target["tool_choice"] = choice
-	}
-	copyTranslationField(source, target, "parallel_tool_calls", "response_format")
-}
-
-func translateChatToolsToResponses(value any) ([]any, bool) {
-	tools, ok := value.([]any)
-	if !ok || len(tools) == 0 {
-		return nil, false
-	}
-	out := make([]any, 0, len(tools))
-	for _, rawTool := range tools {
-		tool, _ := rawTool.(map[string]any)
-		if strings.TrimSpace(stringValue(tool["type"])) == "function" {
-			function, _ := tool["function"].(map[string]any)
-			responseTool := cloneAnyMap(function)
-			responseTool["type"] = "function"
-			out = append(out, responseTool)
-		}
-	}
-	return out, len(out) > 0
-}
-
-func translateChatToolChoiceToResponses(value any) (any, bool) {
-	switch typed := value.(type) {
-	case nil:
-		return nil, false
-	case string:
-		if strings.TrimSpace(typed) == "" {
-			return nil, false
-		}
-		return typed, true
-	case map[string]any:
-		if strings.TrimSpace(stringValue(typed["type"])) == "function" {
-			function, _ := typed["function"].(map[string]any)
-			return map[string]any{"type": "function", "name": stringValue(function["name"])}, true
-		}
-		return cloneAnyMap(typed), true
-	default:
-		return typed, true
-	}
-}
-
 func firstNonEmptyString(values ...any) string {
 	for _, value := range values {
 		if trimmed := strings.TrimSpace(stringValue(value)); trimmed != "" {
@@ -805,6 +1177,11 @@ func intPointerFromAny(value any) *int {
 	default:
 		return nil
 	}
+}
+
+func boolValue(value any) bool {
+	boolean, _ := value.(bool)
+	return boolean
 }
 
 func firstValue(payload map[string]any, keys ...string) any {

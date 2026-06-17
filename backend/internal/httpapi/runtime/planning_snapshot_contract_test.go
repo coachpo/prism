@@ -117,7 +117,7 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 
 	switch {
 	case strings.Contains(query, "FROM model_configs") && strings.Contains(query, "model_configs.loadbalance_strategy_id"):
-		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, false, sql.NullString{}, sql.NullString{}, sql.NullInt32{Int32: 16000, Valid: true}, sql.NullInt32{Int32: 512, Valid: true}, sql.NullFloat64{Float64: 0.90, Valid: true}, sql.NullFloat64{Float64: 0.70, Valid: true}, sql.NullString{String: "overflow-openai", Valid: true}, true, false}), nil
+		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, false, sql.NullString{}, sql.NullString{}, sql.NullString{String: "dual_native", Valid: true}, sql.NullInt32{Int32: 16000, Valid: true}, sql.NullInt32{Int32: 512, Valid: true}, sql.NullFloat64{Float64: 0.90, Valid: true}, sql.NullFloat64{Float64: 0.70, Valid: true}, sql.NullString{String: "overflow-openai", Valid: true}, true, false}), nil
 	case strings.Contains(query, "FROM model_access_targets"):
 		return newRuntimePlanningRows([]any{501, 42, 11, runtimeAccessTargetTypeConnection, sql.NullInt32{}, sql.NullString{}, sql.NullInt32{}, sql.NullString{}, sql.NullBool{}, sql.NullInt32{Int32: 901, Valid: true}, sql.NullInt32{Int32: 42, Valid: true}, sql.NullString{String: "openai", Valid: true}, 2, true, sql.NullString{String: "router-openai", Valid: true}, sql.NullInt32{Int32: 801, Valid: true}, sql.NullString{String: "1.25", Valid: true}}), nil
 	case strings.Contains(query, "FROM loadbalance_strategies"):

@@ -15,12 +15,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem } from "@/lib/types";
+import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem, OpenAIAcceptedFormat } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { OperatorCallout, OperatorInsetPanel, OperatorSwitchField } from "@/shared/design-system";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
-import { getEditModelConnectionOptions, setApiFamilyOnForm, setDisplayNameOnForm, setModelIdOnForm } from "./modelFormState";
+import {
+  DEFAULT_OPENAI_ACCEPTED_FORMAT,
+  getEditModelConnectionOptions,
+  OPENAI_ACCEPTED_FORMAT_OPTIONS,
+  setApiFamilyOnForm,
+  setDisplayNameOnForm,
+  setModelIdOnForm,
+  setOpenAIAcceptedFormatOnForm,
+} from "./modelFormState";
 
 type EditableModel = ModelConfig | ModelConfigListItem;
 
@@ -63,6 +71,26 @@ function CapabilityField({ children, description, error, id, label }: Capability
       ) : error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   );
+}
+
+function getOpenAIAcceptedFormatLabel(format: OpenAIAcceptedFormat, copy: ReturnType<typeof useLocale>["messages"]["modelsUi"]) {
+  if (format === "responses_only") {
+    return copy.openaiAcceptedFormatResponsesOnly;
+  }
+  if (format === "chat_completions_only") {
+    return copy.openaiAcceptedFormatChatCompletionsOnly;
+  }
+  return copy.openaiAcceptedFormatDualNative;
+}
+
+function getOpenAIAcceptedFormatHint(format: OpenAIAcceptedFormat, copy: ReturnType<typeof useLocale>["messages"]["modelsUi"]) {
+  if (format === "responses_only") {
+    return copy.openaiAcceptedFormatResponsesOnlyHint;
+  }
+  if (format === "chat_completions_only") {
+    return copy.openaiAcceptedFormatChatCompletionsOnlyHint;
+  }
+  return copy.openaiAcceptedFormatDualNativeHint;
 }
 
 const NO_PROMOTION_TARGET_VALUE = "__none__";
@@ -143,6 +171,7 @@ export function ModelDialog({
   const promotionTargetValue = formData.context_overflow_promotion_target_id.trim() === ""
     ? NO_PROMOTION_TARGET_VALUE
     : formData.context_overflow_promotion_target_id;
+  const openAIAcceptedFormatValue = formData.openai_accepted_format || DEFAULT_OPENAI_ACCEPTED_FORMAT;
   const selectedPromotionTarget = promotionTargetModelsForApiFamily.find(
     (model) => model.model_id === formData.context_overflow_promotion_target_id,
   );
@@ -180,6 +209,42 @@ export function ModelDialog({
                     placeholder={detailCopy.selectApiFamily}
                   />
                 </div>
+                {formData.api_family === "openai" ? (
+                  <div className="min-w-0 flex flex-col gap-2">
+                    <Label htmlFor="model-openai-accepted-format">{copy.openaiAcceptedFormat}</Label>
+                    <Select
+                      value={openAIAcceptedFormatValue}
+                      onValueChange={(value) =>
+                        setFormData((prev) => setOpenAIAcceptedFormatOnForm(prev, value as OpenAIAcceptedFormat))}
+                    >
+                      <SelectTrigger id="model-openai-accepted-format" className="h-auto w-full min-w-0 max-w-full items-start py-2 text-left whitespace-normal">
+                        <SelectValue>
+                          <span className="flex min-w-0 flex-col items-start gap-1 whitespace-normal leading-5">
+                            <span>{getOpenAIAcceptedFormatLabel(openAIAcceptedFormatValue, copy)}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {getOpenAIAcceptedFormatHint(openAIAcceptedFormatValue, copy)}
+                            </span>
+                          </span>
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
+                        <SelectGroup>
+                          {OPENAI_ACCEPTED_FORMAT_OPTIONS.map((format) => (
+                            <SelectItem key={format} value={format}>
+                              <span className="block whitespace-normal break-words pr-4 leading-5">
+                                <span className="block">{getOpenAIAcceptedFormatLabel(format, copy)}</span>
+                                <span className="block text-xs text-muted-foreground">
+                                  {getOpenAIAcceptedFormatHint(format, copy)}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">{copy.openaiAcceptedFormatDescription}</p>
+                  </div>
+                ) : null}
               </div>
 
               {!editingModel || showModelIdInEditMode ? (

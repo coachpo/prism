@@ -19,10 +19,14 @@ type openAIStreamTranslator interface {
 }
 
 func proxyEventStreamAndCaptureCompletedResponseByOperation(operation RuntimeOperation, translationMode TranslationMode, requestedModelID string, ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+	return proxyEventStreamAndCaptureCompletedResponseByOperationWithToolContext(operation, translationMode, requestedModelID, nil, ctx, dst, src, now, captureAuditBody)
+}
+
+func proxyEventStreamAndCaptureCompletedResponseByOperationWithToolContext(operation RuntimeOperation, translationMode TranslationMode, requestedModelID string, toolContext *openai.ToolContext, ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if translationMode == "" || translationMode == TranslationModeNone {
 		return proxyEventStreamAndCaptureCompletedResponse(operation, ctx, dst, src, now, captureAuditBody)
 	}
-	streamHooks, translator, err := newOpenAIStreamTranslator(translationMode, requestedModelID)
+	streamHooks, translator, err := newOpenAIStreamTranslator(translationMode, requestedModelID, toolContext)
 	if err != nil {
 		return runtimeResponseCapture{}, err
 	}
@@ -53,10 +57,11 @@ func proxyEventStreamAndCaptureCompletedResponseByOperation(operation RuntimeOpe
 		if strings.TrimSpace(string(payloadBytes)) == "[DONE]" {
 			frames, err = translator.consumeDone()
 		} else {
-			payload := map[string]any{}
-			if unmarshalErr := json.Unmarshal(payloadBytes, &payload); unmarshalErr == nil {
-				frames, err = translator.consumeEvent(eventName, payload)
+			payload, decodeErr := decodeTranslatedOpenAIStreamPayload(payloadBytes, translationMode)
+			if decodeErr != nil {
+				return nil, decodeErr
 			}
+			frames, err = translator.consumeEvent(eventName, payload)
 		}
 		if err != nil {
 			return nil, err
@@ -109,12 +114,24 @@ func proxyEventStreamAndCaptureCompletedResponseByOperation(operation RuntimeOpe
 	}
 }
 
-func newOpenAIStreamTranslator(mode TranslationMode, requestedModelID string) (operationStreamHooks, openAIStreamTranslator, error) {
+func decodeTranslatedOpenAIStreamPayload(payloadBytes []byte, translationMode TranslationMode) (map[string]any, error) {
+	payload := map[string]any{}
+	if err := json.Unmarshal(payloadBytes, &payload); err == nil {
+		return payload, nil
+	}
+	reason := "responses_stream_payload"
+	if translationMode == TranslationModeOpenAIResponsesToChatCompletions {
+		reason = "chat_stream_payload"
+	}
+	return nil, openAIStreamTranslationUnsupportedDomainError(translationMode, reason)
+}
+
+func newOpenAIStreamTranslator(mode TranslationMode, requestedModelID string, toolContext *openai.ToolContext) (operationStreamHooks, openAIStreamTranslator, error) {
 	hooks, ok := translatedOpenAIStreamHooksForMode(mode)
 	if !ok {
 		return operationStreamHooks{}, nil, unsupportedTranslationModeError(mode)
 	}
-	translator, err := openai.NewStreamTranslator(providerTranslationMode(mode), requestedModelID)
+	translator, err := openai.NewStreamTranslatorWithToolContext(providerTranslationMode(mode), requestedModelID, toolContext)
 	if err != nil {
 		return operationStreamHooks{}, nil, err
 	}

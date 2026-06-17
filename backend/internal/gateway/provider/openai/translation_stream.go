@@ -23,9 +23,13 @@ type StreamTranslator interface {
 }
 
 func NewStreamTranslator(mode provider.TranslationMode, requestedModelID string) (StreamTranslator, error) {
+	return NewStreamTranslatorWithToolContext(mode, requestedModelID, nil)
+}
+
+func NewStreamTranslatorWithToolContext(mode provider.TranslationMode, requestedModelID string, toolContext *ToolContext) (StreamTranslator, error) {
 	switch normalizedTranslationMode(mode) {
 	case provider.TranslationModeOpenAIResponsesToChatCompletions:
-		return &ChatUpstreamToResponsesClientStreamTranslator{requestedModelID: requestedModelID, messageRole: "assistant", messageItemID: "msg_0", inlineThink: NewInlineThinkState(), tools: map[int]*ToolCallState{}}, nil
+		return &ChatUpstreamToResponsesClientStreamTranslator{requestedModelID: requestedModelID, messageRole: "assistant", messageItemID: "msg_0", inlineThink: NewInlineThinkState(), tools: map[int]*ToolCallState{}, requestToolContext: toolContext}, nil
 	case provider.TranslationModeOpenAIChatCompletionsToResponses:
 		return &ResponsesUpstreamToChatClientStreamTranslator{requestedModelID: requestedModelID, messageRole: "assistant", tools: map[int]*ToolCallState{}}, nil
 	default:
@@ -87,6 +91,7 @@ type ChatUpstreamToResponsesClientStreamTranslator struct {
 	reasoning          ReasoningItemState
 	inlineThink        InlineThinkState
 	tools              map[int]*ToolCallState
+	requestToolContext *ToolContext
 }
 
 func (translator *ChatUpstreamToResponsesClientStreamTranslator) ConsumeEvent(_ string, payload map[string]any) ([][]byte, error) {
@@ -94,12 +99,17 @@ func (translator *ChatUpstreamToResponsesClientStreamTranslator) ConsumeEvent(_ 
 	if errPayload, ok := payload["error"].(map[string]any); ok {
 		translator.errorPayload = errPayload
 	}
-	choices, ok := payload["choices"].([]any)
-	if !ok || len(choices) == 0 {
+	rawChoices, hasChoices := payload["choices"]
+	choices, ok := rawChoices.([]any)
+	if !hasChoices || !ok {
+		return nil, unsupportedOpenAIStreamTranslationShapeError(provider.TranslationModeOpenAIResponsesToChatCompletions, "chat_choices_stream")
+	}
+	if len(choices) == 0 {
 		if usage := extractResponseUsageFromPayload(payload, OperationChatCompletions); usageHasValues(usage) {
 			translator.terminalUsage = usage
+			return nil, nil
 		}
-		return nil, nil
+		return nil, unsupportedOpenAIStreamTranslationShapeError(provider.TranslationModeOpenAIResponsesToChatCompletions, "chat_choices_stream")
 	}
 	if len(choices) > 1 {
 		return nil, unsupportedOpenAIStreamTranslationShapeError(provider.TranslationModeOpenAIResponsesToChatCompletions, "chat_multi_choice_stream")
@@ -113,8 +123,15 @@ func (translator *ChatUpstreamToResponsesClientStreamTranslator) ConsumeEvent(_ 
 	}
 	delta, ok := choice["delta"].(map[string]any)
 	if !ok {
-		return nil, nil
+		if message, messageOK := choice["message"].(map[string]any); messageOK {
+			return translator.consumeChatMessagePayload(message)
+		}
+		return nil, unsupportedOpenAIStreamTranslationShapeError(provider.TranslationModeOpenAIResponsesToChatCompletions, "chat_choice_stream")
 	}
+	return translator.consumeChatMessagePayload(delta)
+}
+
+func (translator *ChatUpstreamToResponsesClientStreamTranslator) consumeChatMessagePayload(delta map[string]any) ([][]byte, error) {
 	translator.messageRole = firstNonEmptyString(delta["role"], translator.messageRole, "assistant")
 	frames := make([][]byte, 0, 4)
 	if reasoning := ExtractReasoningFieldText(delta); reasoning != nil {
@@ -188,7 +205,7 @@ func (translator *ChatUpstreamToResponsesClientStreamTranslator) consumeChatTool
 	tool := translator.tools[index]
 	if tool == nil {
 		outputIndex := index
-		tool = &ToolCallState{OutputIndex: &outputIndex, ItemID: responseToolItemID(firstNonEmptyString(callID, fmt.Sprintf("call_%d", index)), name, nil)}
+		tool = &ToolCallState{OutputIndex: &outputIndex, ItemID: responseToolItemID(firstNonEmptyString(callID, fmt.Sprintf("call_%d", index)), name, translator.toolContext())}
 		translator.tools[index] = tool
 	}
 	tool.ApplyDelta(callID, name, arguments, reasoning)
@@ -218,7 +235,7 @@ func (translator *ChatUpstreamToResponsesClientStreamTranslator) consumeChatTool
 }
 
 func (translator *ChatUpstreamToResponsesClientStreamTranslator) toolContext() *ToolContext {
-	return nil
+	return translator.requestToolContext
 }
 
 func (translator *ChatUpstreamToResponsesClientStreamTranslator) ConsumeDone() ([][]byte, error) {
@@ -297,7 +314,7 @@ func (translator *ChatUpstreamToResponsesClientStreamTranslator) completedRespon
 	if err != nil {
 		return nil, fmt.Errorf("marshal translated %s stream payload: %w", provider.TranslationModeOpenAIResponsesToChatCompletions, err)
 	}
-	translatedBody, _, _, err := translateResponse(rawPayload, provider.TranslationModeOpenAIResponsesToChatCompletions, translator.requestedModelID)
+	translatedBody, _, _, err := translateResponseWithToolContext(rawPayload, provider.TranslationModeOpenAIResponsesToChatCompletions, translator.requestedModelID, translator.toolContext())
 	if err != nil {
 		return nil, streamTranslationErrorFromResponseError(provider.TranslationModeOpenAIResponsesToChatCompletions, err, "chat_terminal_payload")
 	}

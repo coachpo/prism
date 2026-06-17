@@ -23,6 +23,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
+	"github.com/coachpo/prism/backend/internal/gateway/provider"
 	gatewayrouting "github.com/coachpo/prism/backend/internal/gateway/routing"
 	"github.com/coachpo/prism/backend/internal/providercompat"
 )
@@ -87,6 +88,7 @@ type runtimeModelRecord struct {
 	FacadeEnabled                        bool
 	FacadeSelectionPolicy                *string
 	FacadeFallbackPolicy                 *string
+	OpenAIAcceptedFormat                 *string
 	ContextWindowTokens                  *int
 	DefaultOutputTokenReserve            *int
 	MaxContextUtilization                *float64
@@ -221,7 +223,7 @@ type runtimeConnection struct {
 }
 
 const (
-	runtimeContextRoutingCostRankingMethod = "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id"
+	runtimeContextRoutingCostRankingMethod = "estimated_blended_request_cost_then_access_target_position_then_native_translation_tie_break_then_terminal_target_id"
 
 	runtimeContextRoutingSkipReasonEstimatedContextExceedsUsableWindow = "estimated_context_exceeds_usable_window"
 	runtimeContextRoutingSkipReasonUsableContextWindowUnavailable      = "usable_context_window_unavailable"
@@ -371,6 +373,14 @@ type runtimeContextRoutingDecision struct {
 	PlannerTrace                       *runtimePlannerTraceDecision                 `json:"planner_trace,omitempty"`
 	ContextOverflowPromotion           *runtimeContextOverflowPromotionDecision     `json:"context_overflow_promotion,omitempty"`
 	ContextOverflowAffinity            *runtimeContextOverflowAffinityDecision      `json:"context_overflow_affinity,omitempty"`
+	TranslationLoss                    *runtimeTranslationLossDecision              `json:"translation_loss,omitempty"`
+}
+
+type runtimeTranslationLossDecision struct {
+	Lossy         bool     `json:"lossy"`
+	Direction     string   `json:"direction"`
+	DroppedFields []string `json:"dropped_fields,omitempty"`
+	MappedFields  []string `json:"mapped_fields,omitempty"`
 }
 
 func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *runtimeContextRoutingDecision {
@@ -399,11 +409,79 @@ func cloneRuntimeContextRoutingDecision(source *runtimeContextRoutingDecision) *
 		PlannerTrace:                       cloneRuntimePlannerTraceDecision(source.PlannerTrace),
 		ContextOverflowPromotion:           cloneRuntimeContextOverflowPromotionDecision(source.ContextOverflowPromotion),
 		ContextOverflowAffinity:            cloneRuntimeContextOverflowAffinityDecision(source.ContextOverflowAffinity),
+		TranslationLoss:                    cloneRuntimeTranslationLossDecision(source.TranslationLoss),
 	}
 	if cloned.Policy == "" {
 		cloned.Policy = source.Policy
 	}
 	return cloned
+}
+
+func cloneRuntimeTranslationLossDecision(source *runtimeTranslationLossDecision) *runtimeTranslationLossDecision {
+	if source == nil || !source.Lossy {
+		return nil
+	}
+	return &runtimeTranslationLossDecision{
+		Lossy:         source.Lossy,
+		Direction:     strings.TrimSpace(source.Direction),
+		DroppedFields: cloneRuntimeStringList(source.DroppedFields),
+		MappedFields:  cloneRuntimeStringList(source.MappedFields),
+	}
+}
+
+func cloneRuntimeStringList(source []string) []string {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make([]string, 0, len(source))
+	for _, value := range source {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			cloned = append(cloned, trimmed)
+		}
+	}
+	return cloned
+}
+
+func attachRuntimeTranslationLossDecision(contextRouting *runtimeContextRoutingDecision, translationLoss *runtimeTranslationLossDecision, policy string) *runtimeContextRoutingDecision {
+	if translationLoss == nil || !translationLoss.Lossy {
+		return cloneRuntimeContextRoutingDecision(contextRouting)
+	}
+	cloned := cloneRuntimeContextRoutingDecision(contextRouting)
+	if cloned == nil {
+		cloned = &runtimeContextRoutingDecision{Policy: strings.TrimSpace(policy)}
+	}
+	if strings.TrimSpace(cloned.Policy) == "" {
+		cloned.Policy = strings.TrimSpace(policy)
+	}
+	cloned.TranslationLoss = cloneRuntimeTranslationLossDecision(translationLoss)
+	return cloned
+}
+
+func runtimeTranslationLossDecisionFromProvider(loss *provider.TranslationLoss, mode TranslationMode) *runtimeTranslationLossDecision {
+	if loss == nil {
+		return nil
+	}
+	dropped := cloneRuntimeStringList(loss.DroppedFields)
+	mapped := cloneRuntimeStringList(loss.MappedFields)
+	if len(dropped) == 0 && len(mapped) == 0 {
+		return nil
+	}
+	direction := runtimeTranslationLossDirection(mode)
+	if direction == "" {
+		return nil
+	}
+	return &runtimeTranslationLossDecision{Lossy: true, Direction: direction, DroppedFields: dropped, MappedFields: mapped}
+}
+
+func runtimeTranslationLossDirection(mode TranslationMode) string {
+	switch normalizedRuntimeTranslationMode(mode) {
+	case TranslationModeOpenAIResponsesToChatCompletions:
+		return "responses_to_chat"
+	case TranslationModeOpenAIChatCompletionsToResponses:
+		return "chat_to_responses"
+	default:
+		return ""
+	}
 }
 
 func cloneRuntimeRecursiveContextOverflowPlannerResult(source *runtimeRecursiveContextOverflowPlannerResult) *runtimeRecursiveContextOverflowPlannerResult {
@@ -1002,6 +1080,7 @@ type plannedUpstreamRequest struct {
 	IsStreamingRequest      bool
 	ClientHeaders           map[string]string
 	RequestGenerationParams requestGenerationParamsSnapshot
+	TranslationLoss         *runtimeTranslationLossDecision
 }
 
 type runtimeTerminalAttempt struct {
@@ -1013,6 +1092,7 @@ type runtimeTerminalAttempt struct {
 	UpstreamBody              []byte
 	AuditEnabledAtRequest     bool
 	AuditCaptureBodiesRequest bool
+	TranslationLoss           *runtimeTranslationLossDecision
 }
 
 type runtimeRequestBodySource struct {
@@ -1425,6 +1505,7 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 	}
 	effectiveRequestPath := input.Request.URL.Path
 	upstreamBody := input.RawBody
+	var translationLoss *runtimeTranslationLossDecision
 	switch attempt.TranslationMode {
 	case "", TranslationModeNone:
 		switch operation.Match.Operation.ModelBindingSource {
@@ -1441,12 +1522,13 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 			return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
 		}
 	default:
-		translatedPath, translatedBody, err := defaultCodingAgentFormatBridge().TranslateRequest(input.RawBody, attempt.TranslationMode, attempt.TargetModel.ModelID)
+		translatedPath, translatedBody, loss, err := defaultCodingAgentFormatBridge().TranslateRequestWithLoss(input.RawBody, attempt.TranslationMode, attempt.TargetModel.ModelID)
 		if err != nil {
 			return plannedUpstreamRequest{}, err
 		}
 		effectiveRequestPath = translatedPath
 		upstreamBody = translatedBody
+		translationLoss = loss
 	}
 
 	return plannedUpstreamRequest{
@@ -1456,6 +1538,7 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 		IsStreamingRequest:      requestWantsStreamForOperation(operation.Match.Operation, input.RawBody, effectiveRequestPath),
 		ClientHeaders:           flattenHeaders(input.Request.Header),
 		RequestGenerationParams: extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody),
+		TranslationLoss:         translationLoss,
 	}, nil
 }
 
@@ -1468,6 +1551,7 @@ func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOp
 	connections := connectionsFromTerminalAttempts(terminalAttempts)
 	contextRouting := runtimeContextRoutingWithEstimationState(target.ContextRouting, contextEstimation, input.ContextEstimationUnavailableReason)
 	contextRouting = runtimeContextRoutingWithRecursivePlannerMetadata(contextRouting, target.RecursivePlanner, stringPointerIfNotEmpty(target.TargetModel.ModelID), target.SelectedTerminalTargetID, contextEstimation, input.ContextEstimationUnavailableReason)
+	contextRouting = attachRuntimeTranslationLossDecision(contextRouting, firstAttempt.TranslationLoss, runtimeContextRoutingPolicyName(target.Strategy))
 	return requestPlan{
 		RequestedModelID:                          operation.RequestedModelID,
 		ResolvedTargetModelID:                     stringPointerIfNotEmpty(firstAttempt.TargetModel.ModelID),
@@ -1519,6 +1603,7 @@ func buildPlannedTerminalAttempts(input requestPlanningInput, operation resolved
 		planned.UpstreamBody = upstreamRequest.UpstreamBody
 		planned.AuditEnabledAtRequest = attempt.TargetModel.AuditEnabled
 		planned.AuditCaptureBodiesRequest = attempt.TargetModel.AuditEnabled && attempt.TargetModel.AuditCaptureBodies
+		planned.TranslationLoss = cloneRuntimeTranslationLossDecision(upstreamRequest.TranslationLoss)
 		plannedAttempts = append(plannedAttempts, planned)
 		if index == 0 {
 			firstUpstream = upstreamRequest

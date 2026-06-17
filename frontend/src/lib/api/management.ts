@@ -20,6 +20,7 @@ import type {
   ModelConfigCreate,
   ModelConfigListItem,
   ModelConfigUpdate,
+  OpenAIAcceptedFormat,
   ModelAccessTarget,
   ModelAccessTargetCreate,
   ModelAccessTargetUpdate,
@@ -40,18 +41,22 @@ import { request } from "./core";
 
 export type ManagedModelConfigListItem = ModelConfigListItem & {
   context_overflow_promotion_target_id: string | null;
+  openai_accepted_format: OpenAIAcceptedFormat | null;
 };
 
 export type ManagedModelConfig = ModelConfig & {
   context_overflow_promotion_target_id: string | null;
+  openai_accepted_format: OpenAIAcceptedFormat | null;
 };
 
 export type ManagedModelConfigCreate = ModelConfigCreate & {
   context_overflow_promotion_target_id?: string | null;
+  openai_accepted_format?: OpenAIAcceptedFormat | null;
 };
 
 export type ManagedModelConfigUpdate = ModelConfigUpdate & {
   context_overflow_promotion_target_id?: string | null;
+  openai_accepted_format?: OpenAIAcceptedFormat | null;
 };
 
 type RawLoadbalanceBanPolicyFields = {

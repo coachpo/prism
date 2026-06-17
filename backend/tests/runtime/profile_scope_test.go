@@ -2801,6 +2801,10 @@ func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily strin
 		resolvedStrategyID = &createdStrategyID
 	}
 	now := time.Now().UTC()
+	var openAIAcceptedFormat *string
+	if strings.EqualFold(strings.TrimSpace(apiFamily), "openai") {
+		openAIAcceptedFormat = runtimeStringPtr("dual_native")
+	}
 	var modelConfigID int
 	if err := h.conn.QueryRow(
 		context.Background(),
@@ -2810,16 +2814,18 @@ func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily strin
 			model_id,
 			display_name,
 			loadbalance_strategy_id,
+			openai_accepted_format,
 			is_enabled,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, TRUE, $6, $6)
+		) VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $7)
 		RETURNING id`,
 		profileID,
 		apiFamily,
 		modelID,
 		nil,
 		nullableTestInt(resolvedStrategyID),
+		openAIAcceptedFormat,
 		now,
 	).Scan(&modelConfigID); err != nil {
 		tb.Fatalf("insert runtime model %q: %v", modelID, err)

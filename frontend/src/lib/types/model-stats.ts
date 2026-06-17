@@ -2,6 +2,7 @@ import type { ApiFamily } from "./vendor";
 import type {
   Connection,
   ContextCapabilityFields,
+  OpenAIAcceptedFormat,
 } from "./routing";
 import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
@@ -34,6 +35,7 @@ export interface ModelAccessTargetModelSummary {
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
+  openai_accepted_format: OpenAIAcceptedFormat | null;
   loadbalance_strategy_id: number | null;
   is_enabled: boolean;
 }
@@ -86,6 +88,7 @@ export interface ModelConfig extends ContextCapabilityFields {
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
+  openai_accepted_format: OpenAIAcceptedFormat | null;
   loadbalance_strategy_id: number | null;
   loadbalance_strategy: LoadbalanceStrategySummary | null;
   access_targets: ModelAccessTarget[];
@@ -100,6 +103,7 @@ export interface ModelConfigListItem extends ContextCapabilityFields {
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
+  openai_accepted_format: OpenAIAcceptedFormat | null;
   loadbalance_strategy_id: number | null;
   loadbalance_strategy: LoadbalanceStrategySummary | null;
   access_targets: ModelAccessTarget[];
@@ -116,6 +120,7 @@ interface ModelConfigMutationBase {
   api_family?: ApiFamily;
   model_id?: string;
   display_name?: string | null;
+  openai_accepted_format?: OpenAIAcceptedFormat | null;
   loadbalance_strategy_id?: number;
   context_window_tokens?: number | null;
   default_output_token_reserve?: number | null;

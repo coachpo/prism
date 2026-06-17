@@ -17,8 +17,8 @@ type openAITextAttemptCompatibilityResult struct {
 	Err             error
 }
 
-func planOpenAITextAttemptCompatibility(operation RuntimeOperation, rawBody []byte, attempt runtimeTerminalAttempt, adapter openai.Adapter) openAITextAttemptCompatibilityResult {
-	mode, supported := resolveTranslationMode(operation, attempt.Connection.OpenAITextCapability)
+func planOpenAITextAttemptCompatibility(operation RuntimeOperation, rawBody []byte, openAIAcceptedFormat *string, attempt runtimeTerminalAttempt, adapter openai.Adapter) openAITextAttemptCompatibilityResult {
+	mode, supported := resolveTranslationMode(operation, openAIAcceptedFormat, attempt.Connection.OpenAITextCapability)
 	if !supported {
 		return openAITextAttemptCompatibilityResult{}
 	}
@@ -99,6 +99,7 @@ func buildOpenAITextPlannedUpstreamRequest(input requestPlanningInput, operation
 		IsStreamingRequest:      requestWantsStreamForOperation(operation.Match.Operation, input.RawBody, effectiveRequestPath),
 		ClientHeaders:           flattenHeaders(input.Request.Header),
 		RequestGenerationParams: extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody),
+		TranslationLoss:         runtimeTranslationLossDecisionFromProvider(upstream.TranslationLoss, attempt.TranslationMode),
 	}, true, nil
 }
 

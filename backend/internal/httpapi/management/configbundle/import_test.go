@@ -73,6 +73,21 @@ func TestNormalizeOpenAIProbeEndpointVariant(t *testing.T) {
 	}
 }
 
+func TestNormalizeImportedOpenAIAcceptedFormat(t *testing.T) {
+	if got, err := normalizeImportedOpenAIAcceptedFormat("openai", stringPtr("  DUAL_NATIVE  ")); err != nil || got == nil || *got != "dual_native" {
+		t.Fatalf("expected normalized OpenAI accepted format, got format=%#v err=%v", got, err)
+	}
+	if _, err := normalizeImportedOpenAIAcceptedFormat("openai", nil); err == nil || err.Error() != "must include openai_accepted_format for OpenAI API family models" {
+		t.Fatalf("expected missing OpenAI accepted format error, got %v", err)
+	}
+	if _, err := normalizeImportedOpenAIAcceptedFormat("openai", stringPtr("bogus")); err == nil || err.Error() != "has invalid openai_accepted_format" {
+		t.Fatalf("expected invalid OpenAI accepted format error, got %v", err)
+	}
+	if _, err := normalizeImportedOpenAIAcceptedFormat("anthropic", stringPtr("responses_only")); err == nil || err.Error() != "must not include openai_accepted_format outside the OpenAI API family" {
+		t.Fatalf("expected non-OpenAI accepted format rejection, got %v", err)
+	}
+}
+
 func TestValidateConnectionAuthTypeAndNormalization(t *testing.T) {
 	valid := stringPtr(" OpenAI ")
 	if err := validateConnectionAuthType(valid); err != nil {
@@ -136,6 +151,75 @@ func TestProfileBundleV3RoundTrip(t *testing.T) {
 	if got := imported.ProfileSettings.AuditAPIFamilySettings; len(got) != 3 || got[0].APIFamily != "openai" || got[1].APIFamily != "anthropic" || got[2].APIFamily != "gemini" {
 		t.Fatalf("expected stable audit api family settings order, got %+v", got)
 	}
+}
+
+func TestConfigBundleImportPreservesOpenAIAcceptedFormat(t *testing.T) {
+	for _, format := range []string{"responses_only", "chat_completions_only", "dual_native"} {
+		t.Run(format, func(t *testing.T) {
+			request := validProfileBundleV3Request()
+			request.Models[0].OpenAIAcceptedFormat = stringPtr(format)
+
+			if err := validateProfileImportRequest(request); err != nil {
+				t.Fatalf("validate imported bundle: %v", err)
+			}
+
+			importedModels := normalizeImportedModels(request.Models)
+			if got := importedModels[0].OpenAIAcceptedFormat; got == nil || *got != format {
+				t.Fatalf("expected normalized imported format %q, got %#v", format, got)
+			}
+
+			exported, err := buildModelExport(modelRow{
+				APIFamily:                 "openai",
+				ModelID:                   request.Models[0].ModelID,
+				DisplayName:               request.Models[0].DisplayName,
+				DefaultOutputTokenReserve: 4096,
+				MaxContextUtilization:     1.0,
+				OpenAIAcceptedFormat:      importedModels[0].OpenAIAcceptedFormat,
+				IsEnabled:                 true,
+			}, map[int]string{}, nil, map[int]string{})
+			if err != nil {
+				t.Fatalf("build exported model: %v", err)
+			}
+			if exported.OpenAIAcceptedFormat == nil || *exported.OpenAIAcceptedFormat != format {
+				t.Fatalf("expected exported format %q, got %#v", format, exported.OpenAIAcceptedFormat)
+			}
+		})
+	}
+}
+
+func TestConfigBundleExportIncludesOpenAIAcceptedFormat(t *testing.T) {
+	exported, err := buildModelExport(modelRow{
+		APIFamily:                 "openai",
+		ModelID:                   "gpt-4o-mini",
+		DisplayName:               stringPtr("GPT 4o Mini"),
+		DefaultOutputTokenReserve: 4096,
+		MaxContextUtilization:     1.0,
+		OpenAIAcceptedFormat:      stringPtr("dual_native"),
+		IsEnabled:                 true,
+	}, map[int]string{}, nil, map[int]string{})
+	if err != nil {
+		t.Fatalf("build exported model: %v", err)
+	}
+	if exported.OpenAIAcceptedFormat == nil || *exported.OpenAIAcceptedFormat != "dual_native" {
+		t.Fatalf("expected exported openai_accepted_format dual_native, got %#v", exported.OpenAIAcceptedFormat)
+	}
+}
+
+func TestConfigBundleImportRejectsOpenAIAcceptedFormatForNonOpenAI(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.Models[0].APIFamily = "anthropic"
+	request.Models[0].OpenAIAcceptedFormat = stringPtr("dual_native")
+
+	err := validateProfileImportRequest(request)
+	requireConfigBundleDomainError(t, err, http.StatusBadRequest, "openai_accepted_format is only valid for OpenAI models")
+}
+
+func TestConfigBundleImportRejectsInvalidOpenAIAcceptedFormat(t *testing.T) {
+	request := validProfileBundleV3Request()
+	request.Models[0].OpenAIAcceptedFormat = stringPtr("bogus")
+
+	err := validateProfileImportRequest(request)
+	requireConfigBundleDomainError(t, err, http.StatusBadRequest, "openai_accepted_format has invalid value")
 }
 
 func TestProfileBundleImportRejectsObsoleteAccessTargetFields(t *testing.T) {
@@ -568,6 +652,7 @@ func TestProfileBundleImportNormalizesLegacyFacadeAndTargetMetadataDefaults(t *t
 		ModelID:                 "gpt-4o-router",
 		DisplayName:             stringPtr("GPT 4o Router"),
 		LoadbalanceStrategyName: stringPtr("Default single"),
+		OpenAIAcceptedFormat:    stringPtr("dual_native"),
 		IsEnabled:               true,
 		AccessTargets: []accessTargetExport{{
 			Position:      0,
@@ -645,6 +730,7 @@ func TestProfileBundleImportRejectsFacadeConfiguration(t *testing.T) {
 			name: "non-openai facade enabled",
 			mutate: func(request *profileImportRequest) {
 				request.Models[0].APIFamily = "anthropic"
+				request.Models[0].OpenAIAcceptedFormat = nil
 				request.Models[0].FacadeEnabled = true
 				request.Models[0].FacadeSelectionPolicy = stringPtr("ordered_eligible_context")
 				request.Models[0].FacadeFallbackPolicy = stringPtr("skip_ineligible_targets")
@@ -673,6 +759,7 @@ func TestProfileBundleImportRejectsNestedFacades(t *testing.T) {
 		ModelID:                 "gpt-4o-router",
 		DisplayName:             stringPtr("GPT 4o Router"),
 		LoadbalanceStrategyName: stringPtr("Default single"),
+		OpenAIAcceptedFormat:    stringPtr("dual_native"),
 		IsEnabled:               true,
 		AccessTargets: []accessTargetExport{{
 			Position:      0,
@@ -734,6 +821,7 @@ func validProfileBundleV3Request() profileImportRequest {
 			ModelID:                 "gpt-4o-mini",
 			DisplayName:             stringPtr("GPT 4o Mini"),
 			LoadbalanceStrategyName: stringPtr("Default single"),
+			OpenAIAcceptedFormat:    stringPtr("dual_native"),
 			IsEnabled:               true,
 			AccessTargets: []accessTargetExport{{
 				Position:      0,
