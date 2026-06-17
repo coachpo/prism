@@ -47,6 +47,11 @@ func TestObservability_FacadeTranslatedRejectionPersistsDecisionMetadataAndTrace
 	runtimeErr := &domainError{StatusCode: http.StatusBadRequest, ErrorCode: openAIRequestTranslationUnsupportedErrorCode, Detail: "translated rejection", PlanningFailure: &failure, SelectedTerminalTargetID: selectedTerminalTargetID, ContextRouting: contextRouting}
 
 	envelope := service.buildRuntimePlanningFailureTelemetryEnvelope(failure, request, startedAt, runtimeErr)
+	if len(envelope.RequestLogs) != 1 {
+		t.Fatalf("expected one translated rejection request-log row, got %d", len(envelope.RequestLogs))
+	}
+	assertRuntimeIntPtr(t, envelope.RequestLogs[0].SelectedTerminalTargetID, 101, "facade translated rejection request-log selected terminal target")
+	assertRuntimeIntPtr(t, envelope.UsageEvent.SelectedTerminalTargetID, 101, "facade translated rejection usage-event selected terminal target")
 	assertRuntimeFacadeSelectionDecision(t, envelope.RequestLogs[0].ContextRouting.FacadeSelection, "facade-translated-public", stringPtr("facade-translated-target"), intPtr(1), intPtr(0), stringPtr("translation_rejection=1"))
 	assertRuntimeFacadeSelectionDecision(t, envelope.UsageEvent.ContextRouting.FacadeSelection, "facade-translated-public", stringPtr("facade-translated-target"), intPtr(1), intPtr(0), stringPtr("translation_rejection=1"))
 
