@@ -45,3 +45,33 @@ test("models dialog overflow promotion copy is locale-backed", () => {
     "选择已启用的同家族模型作为递归溢出提升目标。Prism 会在保存时验证链深度、环路、终端循环与路由计划问题。",
   );
 });
+
+test("models dialog model target copy avoids fallback wording", () => {
+  assert.equal(enMessages.modelsUi.modelFallbackTargets, "Model targets");
+  assert.equal(enMessages.modelsUi.modelTarget, "Model target");
+  assert.equal(enMessages.modelsUi.selectSameFamilyModel, "Select target model");
+  assert.equal(
+    enMessages.modelsUi.noSameFamilyModelsAvailable,
+    "No other same-family models are available. Save disabled now, or add a model target later before enabling.",
+  );
+
+  const englishModelTargetCopy = [
+    enMessages.modelsUi.modelFallbackTargets,
+    enMessages.modelsUi.modelTarget,
+    enMessages.modelsUi.selectSameFamilyModel,
+    enMessages.modelsUi.noSameFamilyModelsAvailable,
+  ].join("\n");
+  assert.doesNotMatch(englishModelTargetCopy, /fallback/i);
+
+  const chineseModelTargetCopy = [
+    zhCNMessages.modelsUi.accessTargetsDescription,
+    zhCNMessages.modelsUi.modelFallbackTargets,
+    zhCNMessages.modelsUi.modelFallbackTargetsDescription,
+    zhCNMessages.modelsUi.modelTarget,
+    zhCNMessages.modelsUi.noAccessTargetsSelected,
+    zhCNMessages.modelsUi.noSameFamilyModelsAvailable,
+    zhCNMessages.modelsUi.selectSameFamilyModel,
+    zhCNMessages.modelsUi.terminalTargetsDescription,
+  ].join("\n");
+  assert.doesNotMatch(chineseModelTargetCopy, /回退|退避/);
+});
