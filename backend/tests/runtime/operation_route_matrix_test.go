@@ -332,7 +332,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			assertRouteMatrixUsage(t, harness, profileID, test.usage)
 			assertRouteMatrixGenerationParams(t, harness, profileID, test.generationParams)
 			if test.persistedAttribution != nil {
-				assertRouteMatrixPersistedAttribution(t, harness, profileID, test.operationName, *test.persistedAttribution)
+				assertRouteMatrixPersistedAttribution(t, harness, profileID, route.ConnectionID, test.operationName, *test.persistedAttribution)
 			}
 		})
 	}
@@ -713,19 +713,23 @@ func assertRouteMatrixSharedCorePersistence(t *testing.T, harness *runtimeHarnes
 	}
 }
 
-func assertRouteMatrixPersistedAttribution(t *testing.T, harness *runtimeHarness, profileID int, wantOperationName string, want routeMatrixPersistedAttributionExpectation) {
+func assertRouteMatrixPersistedAttribution(t *testing.T, harness *runtimeHarness, profileID int, selectedTerminalTargetID int, wantOperationName string, want routeMatrixPersistedAttributionExpectation) {
 	t.Helper()
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
 
 	assertAttributionRow := func(label string, query string) {
 		t.Helper()
+		var selectedTargetID sql.NullInt64
 		var operationName sql.NullString
 		var upstreamOperationName sql.NullString
 		var translationMode sql.NullString
 		var upstreamRequestPath sql.NullString
-		if err := harness.conn.QueryRow(context.Background(), query, profileID, ingressRequestID).Scan(&operationName, &upstreamOperationName, &translationMode, &upstreamRequestPath); err != nil {
+		if err := harness.conn.QueryRow(context.Background(), query, profileID, ingressRequestID).Scan(&selectedTargetID, &operationName, &upstreamOperationName, &translationMode, &upstreamRequestPath); err != nil {
 			t.Fatalf("load %s attribution row: %v", label, err)
+		}
+		if !selectedTargetID.Valid || int(selectedTargetID.Int64) != selectedTerminalTargetID {
+			t.Fatalf("expected %s selected_terminal_target_id %d, got %+v", label, selectedTerminalTargetID, selectedTargetID)
 		}
 		if !operationName.Valid || operationName.String != wantOperationName {
 			t.Fatalf("expected %s operation_name %q, got %+v", label, wantOperationName, operationName)
@@ -743,11 +747,11 @@ func assertRouteMatrixPersistedAttribution(t *testing.T, harness *runtimeHarness
 
 	assertAttributionRow(
 		"request_log",
-		`SELECT operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		`SELECT selected_terminal_target_id, operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
 	)
 	assertAttributionRow(
 		"usage_event",
-		`SELECT operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
+		`SELECT selected_terminal_target_id, operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
 	)
 }
 

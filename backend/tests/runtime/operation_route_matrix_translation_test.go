@@ -123,7 +123,7 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 				t.Fatalf("expected one upstream request, got %d", len(requests))
 			}
 			assertTranslatedRouteMatrixUpstreamRequest(t, requests[0], route, test.wantUpstreamPath, endpointAPIKey)
-			assertRouteMatrixPersistedAttribution(t, harness, profileID, test.wantOperationName, routeMatrixPersistedAttributionExpectation{
+			assertRouteMatrixPersistedAttribution(t, harness, profileID, route.ConnectionID, test.wantOperationName, routeMatrixPersistedAttributionExpectation{
 				upstreamOperationName: test.wantUpstreamOperation,
 				translationMode:       test.wantTranslationMode,
 				upstreamRequestPath:   test.wantUpstreamPath,
@@ -186,7 +186,7 @@ func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
 					t.Fatalf("expected one native adjunct upstream request, got %d", len(requests))
 				}
 				assertTranslatedRouteMatrixUpstreamRequest(t, requests[0], route, test.requestPath, endpointAPIKey)
-				assertRouteMatrixPersistedAttribution(t, harness, profileID, test.operationName, routeMatrixPersistedAttributionExpectation{
+				assertRouteMatrixPersistedAttribution(t, harness, profileID, route.ConnectionID, test.operationName, routeMatrixPersistedAttributionExpectation{
 					upstreamOperationName: test.operationName,
 					translationMode:       "none",
 					upstreamRequestPath:   test.requestPath,
