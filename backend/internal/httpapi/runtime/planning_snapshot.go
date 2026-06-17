@@ -188,16 +188,17 @@ const (
 )
 
 type runtimeAccessResolutionContext struct {
-	RequestedModelID              string
-	RequestedAPIFamily            string
-	RequestOperation              RuntimeOperation
-	RawRequestBody                []byte
-	RequestContextEstimation      *requestContextEstimation
-	AllowMissingContextEstimation bool
-	VisitedModelIDs               map[int]struct{}
-	ConsideredModelPath           []string
-	Depth                         int
-	ReferenceNow                  time.Time
+	RequestedModelID                     string
+	RequestedAPIFamily                   string
+	RequestOperation                     RuntimeOperation
+	RawRequestBody                       []byte
+	RequestContextEstimation             *requestContextEstimation
+	AllowMissingContextEstimation        bool
+	DeferOpenAITextTranslationValidation bool
+	VisitedModelIDs                      map[int]struct{}
+	ConsideredModelPath                  []string
+	Depth                                int
+	ReferenceNow                         time.Time
 }
 
 func (model runtimeModelRecord) allowsOpenAITextSiblingTranslation() bool {
@@ -456,7 +457,9 @@ func (s *Service) evaluateModelPeerTargetsFromRoutingPlan(profileID int, routing
 	eligibleCandidates := make([]runtimeResolvedAccessCandidate, 0, len(targets))
 	var firstCompatibilityError error
 	for _, target := range targets {
-		evaluation, err := s.evaluateAccessTargetCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, target, ctx)
+		evaluationContext := ctx
+		evaluationContext.DeferOpenAITextTranslationValidation = true
+		evaluation, err := s.evaluateAccessTargetCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, target, evaluationContext)
 		if err != nil {
 			return nil, err
 		}
@@ -474,7 +477,6 @@ func (s *Service) evaluateModelPeerTargetsFromRoutingPlan(profileID int, routing
 			eligibleCandidates = append(eligibleCandidates, *evaluation.eligibleCandidate)
 		}
 	}
-	eligibleCandidates = preferNativeResolvedAccessCandidates(eligibleCandidates)
 	if len(eligibleCandidates) == 0 && firstCompatibilityError != nil && selection.compatibilityError == nil {
 		selection.compatibilityError = firstCompatibilityError
 	}
@@ -562,7 +564,7 @@ func (s *Service) resolveModelAccessFromRoutingPlan(profileID int, routingPlan *
 			appendRuntimeResolvedAccessPlan(&resolved, candidate)
 		}
 		if len(resolved.TerminalAttempts) > 0 && len(resolved.Connections) > 0 {
-			compatibleResolved, compatible, err := s.applyIngressOperationCompatibility(resolved, childContext)
+			compatibleResolved, compatible, err := s.applyIngressOperationCompatibility(resolved, childContext, childContext.DeferOpenAITextTranslationValidation)
 			if err != nil {
 				return runtimeResolvedAccessPlan{}, err
 			}
@@ -617,7 +619,6 @@ func (s *Service) resolveCheapestEligibleContextModelAccess(profileID int, routi
 			eligibleCandidates = append(eligibleCandidates, *evaluation.eligibleCandidate)
 		}
 	}
-	eligibleCandidates = preferNativeResolvedAccessCandidates(eligibleCandidates)
 	if len(eligibleCandidates) == 0 {
 		if firstCompatibilityError != nil {
 			return runtimeResolvedAccessPlan{}, firstCompatibilityError
@@ -680,7 +681,7 @@ func (s *Service) evaluateAccessTargetCandidateFromRoutingPlan(profileID int, ro
 		return evaluation, nil
 	}
 
-	compatibleCandidate, compatible, err := s.applyIngressOperationCompatibility(candidate, ctx)
+	compatibleCandidate, compatible, err := s.applyIngressOperationCompatibility(candidate, ctx, ctx.DeferOpenAITextTranslationValidation)
 	if err != nil {
 		if domainErr, ok := isRequestTranslationUnsupportedError(err); ok && domainErr != nil {
 			evaluation.compatibilityError = domainErr
@@ -840,47 +841,51 @@ func filterRuntimeResolvedAccessPlanByContext(candidate runtimeResolvedAccessPla
 	return filtered, skippedTerminalTargets, largestUsableContextWindowTokens, contextFitEvaluated
 }
 
-func (s *Service) applyIngressOperationCompatibility(candidate runtimeResolvedAccessPlan, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
+func (s *Service) applyIngressOperationCompatibility(candidate runtimeResolvedAccessPlan, ctx runtimeAccessResolutionContext, deferTranslationValidation bool) (runtimeResolvedAccessPlan, bool, error) {
 	if len(candidate.TerminalAttempts) == 0 || len(candidate.Connections) == 0 {
 		return candidate, false, nil
 	}
 	if !openai.IsTextOperation(providerOperationFromRuntime(ctx.RequestOperation)) {
 		return candidate, true, nil
 	}
-	nativeAttempts := make([]runtimeTerminalAttempt, 0, len(candidate.TerminalAttempts))
-	translatedAttempts := make([]runtimeTerminalAttempt, 0, len(candidate.TerminalAttempts))
-	var firstTranslationError error
+	compatibleAttempts := make([]runtimeTerminalAttempt, 0, len(candidate.TerminalAttempts))
+	selectedMode := TranslationModeNone
+	selectedModeSet := false
 	adapter := openai.New()
 	for _, attempt := range candidate.TerminalAttempts {
 		if !attempt.TargetModel.allowsOpenAITextSiblingTranslation() {
 			continue
 		}
-		compatibility := planOpenAITextAttemptCompatibility(ctx.RequestOperation, ctx.RawRequestBody, attempt, adapter)
-		if compatibility.Err != nil {
-			if firstTranslationError == nil {
-				firstTranslationError = compatibility.Err
-			}
+		mode, supported := resolveTranslationMode(ctx.RequestOperation, attempt.Connection.OpenAITextCapability)
+		if !supported {
 			continue
+		}
+		if selectedModeSet && mode != selectedMode {
+			continue
+		}
+		compatibility := openAITextAttemptCompatibilityResult{Compatible: true, TranslationMode: mode}
+		if !deferTranslationValidation {
+			compatibility = planOpenAITextAttemptCompatibility(ctx.RequestOperation, ctx.RawRequestBody, attempt, adapter)
+		}
+		if compatibility.Err != nil {
+			return runtimeResolvedAccessPlan{}, false, compatibility.Err
 		}
 		if !compatibility.Compatible {
 			continue
 		}
-		plannedAttempt := attempt
-		plannedAttempt.TranslationMode = compatibility.TranslationMode
-		if plannedAttempt.TranslationMode == TranslationModeNone {
-			nativeAttempts = append(nativeAttempts, plannedAttempt)
+		if selectedModeSet && compatibility.TranslationMode != selectedMode {
 			continue
 		}
-		translatedAttempts = append(translatedAttempts, plannedAttempt)
+		plannedAttempt := attempt
+		plannedAttempt.TranslationMode = compatibility.TranslationMode
+		if !selectedModeSet {
+			selectedMode = plannedAttempt.TranslationMode
+			selectedModeSet = true
+		}
+		compatibleAttempts = append(compatibleAttempts, plannedAttempt)
 	}
-	if len(nativeAttempts) > 0 {
-		return candidateWithCompatibleOpenAITextAttempts(candidate, nativeAttempts), true, nil
-	}
-	if len(translatedAttempts) > 0 {
-		return candidateWithCompatibleOpenAITextAttempts(candidate, translatedAttempts), true, nil
-	}
-	if firstTranslationError != nil {
-		return runtimeResolvedAccessPlan{}, false, firstTranslationError
+	if len(compatibleAttempts) > 0 {
+		return candidateWithCompatibleOpenAITextAttempts(candidate, compatibleAttempts), true, nil
 	}
 	return runtimeResolvedAccessPlan{}, false, nil
 }
@@ -901,22 +906,6 @@ func candidateWithCompatibleOpenAITextAttempts(candidate runtimeResolvedAccessPl
 	candidate.RuntimeStates = states
 	candidate.SelectedTerminalTargetID = intPtr(attempts[0].Connection.ID)
 	return candidate
-}
-
-func preferNativeResolvedAccessCandidates(candidates []runtimeResolvedAccessCandidate) []runtimeResolvedAccessCandidate {
-	nativeCandidates := make([]runtimeResolvedAccessCandidate, 0, len(candidates))
-	for _, candidate := range candidates {
-		if len(candidate.resolved.TerminalAttempts) == 0 {
-			continue
-		}
-		if candidate.resolved.TerminalAttempts[0].TranslationMode == TranslationModeNone {
-			nativeCandidates = append(nativeCandidates, candidate)
-		}
-	}
-	if len(nativeCandidates) > 0 {
-		return nativeCandidates
-	}
-	return candidates
 }
 
 func buildRuntimeContextRoutingSkippedTerminalTarget(connection runtimeConnection, estimation *requestContextEstimation, usableContextWindowTokens int) runtimeContextRoutingSkippedTerminalTarget {
