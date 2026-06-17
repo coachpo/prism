@@ -318,25 +318,47 @@ func TestFacadeOrderedEligibleContextNoContextFitReturns413WithoutUpstreamAttemp
 	}
 }
 
-func TestFacadeOrderedEligibleContextSkipsNonNativeOpenAITarget(t *testing.T) {
+func TestFacadeOrderedEligibleContextRejectsSelectedTranslatedChildWithoutNativeSiblingFallback(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "facade-translation-public-" + suffix
 	chatOnlyVariant := "chat_completions_reasoning_none"
-	seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{{
-		ModelID:                    "facade-translation-target-" + suffix,
-		EndpointBaseURL:            harness.upstream.baseURL("/facade/translation/chat-only"),
-		EndpointAPIKey:             "facade-translation-key",
-		OpenAIProbeEndpointVariant: &chatOnlyVariant,
-		OpenAITextCapability:       runtimeStringPtr("chat_completions_only"),
-	}})
+	responsesVariant := "responses_reasoning_none"
+	nativeSibling := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id": "resp_facade_translation_native_sibling",
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "native sibling"}},
+		}},
+		"usage": map[string]any{"input_tokens": 5, "output_tokens": 7, "total_tokens": 12},
+	})
+	seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
+		{
+			ModelID:                    "facade-translation-target-" + suffix,
+			EndpointBaseURL:            harness.upstream.baseURL("/facade/translation/chat-only"),
+			EndpointAPIKey:             "facade-translation-key",
+			OpenAIProbeEndpointVariant: &chatOnlyVariant,
+			OpenAITextCapability:       runtimeStringPtr("chat_completions_only"),
+		},
+		{
+			ModelID:                    "facade-translation-native-sibling-" + suffix,
+			EndpointBaseURL:            nativeSibling.baseURL("/facade/translation/native-sibling"),
+			EndpointAPIKey:             "facade-translation-native-sibling-key",
+			OpenAIProbeEndpointVariant: &responsesVariant,
+			OpenAITextCapability:       runtimeStringPtr("responses_only"),
+		},
+	})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": publicModelID, "input": "facade native-only rejection", "text": map[string]any{"format": "json_schema"}, "max_output_tokens": 64}, nil)
 	assertOpenAIRequestTranslationUnsupported(t, response, "openai_responses_to_chat_completions", "responses_text")
 	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
 		t.Fatalf("expected unsupported facade translation to reject before provider transport, got %d upstream calls", got)
+	}
+	if got := len(nativeSibling.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected native facade sibling to remain unattempted after selected child rejection, got %d upstream calls", got)
 	}
 }
 
@@ -379,6 +401,7 @@ func TestProxySelectorTopologyCascadeShortTextSafeResponsesStayOnPrimaryChild(t 
 	}})
 	assertNoScriptedUpstreamRequests(t, route.GPT54Upstream, "gpt-5.4 long-context tier")
 	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek fallback tier")
+	assertNoScriptedUpstreamRequests(t, route.LaterNativeUpstream, "later native tier")
 }
 
 func TestProxySelectorTopologyCascadeOversizedCompatibleResponsesRouteToGPT54(t *testing.T) {
@@ -394,6 +417,7 @@ func TestProxySelectorTopologyCascadeOversizedCompatibleResponsesRouteToGPT54(t 
 		ModelID: route.GPT54ModelID,
 	}})
 	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek fallback tier")
+	assertNoScriptedUpstreamRequests(t, route.LaterNativeUpstream, "later native tier")
 }
 
 func TestProxySelectorTopologyCascadeTranslatesToChatOnlyTargetAfterEarlierTiersAreIneligible(t *testing.T) {
@@ -409,6 +433,7 @@ func TestProxySelectorTopologyCascadeTranslatesToChatOnlyTargetAfterEarlierTiers
 		Path:    route.DeepSeekPathPrefix + "/v1/chat/completions",
 		ModelID: route.DeepSeekModelID,
 	}})
+	assertNoScriptedUpstreamRequests(t, route.LaterNativeUpstream, "later native tier")
 }
 
 func TestProxySelectorTopologyCascadeDirectGPT54UsesItsOwnLongContextTerminalPath(t *testing.T) {
@@ -488,83 +513,104 @@ func TestProxySelectorPreferredContextFallsBackToDiscretionaryWhenNoPreferredCan
 	}})
 }
 
-func TestProxySelectorNativeResponsesSupportWinsOverTranslatedCandidate(t *testing.T) {
+func TestProxySelectorContextRankingResponsesTranslatedCandidateWinsByPolicyOrder(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
-	publicModelID := "proxy-selector-native-support-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-native-support-"+suffix, "cheapest_eligible_context")
+	publicModelID := "proxy-selector-context-ranking-public-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-ranking-"+suffix, "cheapest_eligible_context")
 	modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
-	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "proxy-selector-translated-should-not-run"})
-	nativeUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
-		"id": "proxy-selector-native-responses",
-		"output": []map[string]any{{
-			"type":    "message",
-			"role":    "assistant",
-			"content": []map[string]any{{"type": "output_text", "text": "native support wins"}},
-		}},
-		"usage": map[string]any{"input_tokens": 7, "output_tokens": 13, "total_tokens": 20},
-	})
-	translatedEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-native-support-translated-"+suffix, translatedUpstream.baseURL("/proxy-selector/native-support/translated"), "proxy-selector-native-support-translated-key", 0)
-	nativeEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-native-support-native-"+suffix, nativeUpstream.baseURL("/proxy-selector/native-support/native"), "proxy-selector-native-support-native-key", 1)
-	translatedVariant := "chat_completions_reasoning_none"
-	nativeVariant := "responses_reasoning_none"
-	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-native-support-translated-connection-"+suffix, nil, nil, 0, &translatedVariant, runtimeStringPtr("chat_completions_only"))
-	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-native-support-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("responses_only"))
-	now := time.Now().UTC()
-	for _, connectionID := range []int{translatedConnectionID, nativeConnectionID} {
-		if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, 16_384, 1_024, 1.0, now); err != nil {
-			t.Fatalf("update native-support connection %d context capabilities: %v", connectionID, err)
-		}
-	}
-	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
-		"model":             publicModelID,
-		"input":             "native responses support should win over eligible translated sibling",
-		"max_output_tokens": 64,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	if got := len(translatedUpstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected translated chat-only candidate to be skipped when native responses support exists, got %d upstream requests", got)
-	}
-	assertProxySelectorRequestSequence(t, nativeUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/proxy-selector/native-support/native/v1/responses",
-		ModelID: publicModelID,
-	}})
-	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
-
-	assertLatestProxySelectorNativeAttribution(t, harness, profileID, nativeConnectionID, "openai.responses", "/v1/responses")
-}
-
-func TestProxySelectorNativeChatSupportWinsOverTranslatedCandidate(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	publicModelID := "proxy-selector-native-chat-support-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-native-chat-support-"+suffix, "cheapest_eligible_context")
-	modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
-	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "proxy-selector-translated-chat-should-not-run"})
-	nativeUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
-		"id":     "proxy-selector-native-chat-completions",
+	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "proxy-selector-context-ranking-translated-chat",
 		"object": "chat.completion",
 		"model":  publicModelID,
 		"choices": []map[string]any{{
 			"index": 0,
 			"message": map[string]any{
 				"role":    "assistant",
-				"content": "native chat support wins",
+				"content": "translated policy candidate wins",
 			},
 			"finish_reason": "stop",
 		}},
 		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 13, "total_tokens": 20},
 	})
-	translatedEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-native-chat-support-translated-"+suffix, translatedUpstream.baseURL("/proxy-selector/native-chat-support/translated"), "proxy-selector-native-chat-support-translated-key", 0)
-	nativeEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-native-chat-support-native-"+suffix, nativeUpstream.baseURL("/proxy-selector/native-chat-support/native"), "proxy-selector-native-chat-support-native-key", 1)
+	nativeUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id": "proxy-selector-context-ranking-native-responses",
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "native sibling should not run"}},
+		}},
+		"usage": map[string]any{"input_tokens": 7, "output_tokens": 13, "total_tokens": 20},
+	})
+	translatedEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-context-ranking-translated-"+suffix, translatedUpstream.baseURL("/proxy-selector/context-ranking/translated"), "proxy-selector-context-ranking-translated-key", 0)
+	nativeEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-context-ranking-native-"+suffix, nativeUpstream.baseURL("/proxy-selector/context-ranking/native"), "proxy-selector-context-ranking-native-key", 1)
+	translatedVariant := "chat_completions_reasoning_none"
+	nativeVariant := "responses_reasoning_none"
+	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-context-ranking-translated-connection-"+suffix, nil, nil, 0, &translatedVariant, runtimeStringPtr("chat_completions_only"))
+	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-context-ranking-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("responses_only"))
+	now := time.Now().UTC()
+	for _, connectionID := range []int{translatedConnectionID, nativeConnectionID} {
+		if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, 16_384, 1_024, 1.0, now); err != nil {
+			t.Fatalf("update context-ranking connection %d context capabilities: %v", connectionID, err)
+		}
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
+		"model":             publicModelID,
+		"input":             "context ranking should choose the earlier translated sibling",
+		"max_output_tokens": 64,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertProxySelectorRequestSequence(t, translatedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/proxy-selector/context-ranking/translated/v1/chat/completions",
+		ModelID: publicModelID,
+	}})
+	if got := len(nativeUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected later native candidate to remain unattempted when policy rank selects translated candidate, got %d upstream requests", got)
+	}
+	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.responses")
+
+	assertLatestProxySelectorAttribution(t, harness, profileID, translatedConnectionID, "openai.chat_completions", string(runtimeapi.TranslationModeOpenAIResponsesToChatCompletions), "/v1/chat/completions")
+}
+
+func TestProxySelectorContextRankingChatTranslatedCandidateWinsByPolicyOrder(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-selector-context-ranking-chat-public-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-ranking-chat-"+suffix, "cheapest_eligible_context")
+	modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
+	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id": "proxy-selector-context-ranking-translated-responses",
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "translated policy candidate wins"}},
+		}},
+		"usage": map[string]any{"input_tokens": 7, "output_tokens": 13, "total_tokens": 20},
+	})
+	nativeUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "proxy-selector-context-ranking-native-chat-completions",
+		"object": "chat.completion",
+		"model":  publicModelID,
+		"choices": []map[string]any{{
+			"index": 0,
+			"message": map[string]any{
+				"role":    "assistant",
+				"content": "native sibling should not run",
+			},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 13, "total_tokens": 20},
+	})
+	translatedEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-context-ranking-chat-translated-"+suffix, translatedUpstream.baseURL("/proxy-selector/context-ranking-chat/translated"), "proxy-selector-context-ranking-chat-translated-key", 0)
+	nativeEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-context-ranking-chat-native-"+suffix, nativeUpstream.baseURL("/proxy-selector/context-ranking-chat/native"), "proxy-selector-context-ranking-chat-native-key", 1)
 	translatedVariant := "responses_reasoning_none"
 	nativeVariant := "chat_completions_reasoning_none"
-	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-native-chat-support-translated-connection-"+suffix, nil, nil, 0, &translatedVariant, runtimeStringPtr("responses_only"))
-	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-native-chat-support-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("chat_completions_only"))
+	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-context-ranking-chat-translated-connection-"+suffix, nil, nil, 0, &translatedVariant, runtimeStringPtr("responses_only"))
+	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-context-ranking-chat-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("chat_completions_only"))
 	for _, connectionID := range []int{translatedConnectionID, nativeConnectionID} {
 		setRuntimeHarnessConnectionContextCapabilities(t, harness, connectionID, 16_384, 1_024, 1.0)
 	}
@@ -572,22 +618,22 @@ func TestProxySelectorNativeChatSupportWinsOverTranslatedCandidate(t *testing.T)
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
 		"model":                 publicModelID,
-		"messages":              []map[string]any{{"role": "user", "content": "native chat support should win over eligible translated sibling"}},
+		"messages":              []map[string]any{{"role": "user", "content": "context ranking should choose the earlier translated sibling"}},
 		"max_completion_tokens": 64,
 	}, nil)
 	assertStatus(t, response, http.StatusOK)
-	if got := len(translatedUpstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected translated responses-only candidate to be skipped when native chat support exists, got %d upstream requests", got)
-	}
-	assertProxySelectorRequestSequence(t, nativeUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/proxy-selector/native-chat-support/native/v1/chat/completions",
+	assertProxySelectorRequestSequence(t, translatedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    "/proxy-selector/context-ranking-chat/translated/v1/responses",
 		ModelID: publicModelID,
 	}})
+	if got := len(nativeUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected later native candidate to remain unattempted when policy rank selects translated candidate, got %d upstream requests", got)
+	}
 	assertLatestRuntimeOperationName(t, harness.conn, profileID, "openai.chat_completions")
-	assertLatestProxySelectorNativeAttribution(t, harness, profileID, nativeConnectionID, "openai.chat_completions", "/v1/chat/completions")
+	assertLatestProxySelectorAttribution(t, harness, profileID, translatedConnectionID, "openai.responses", string(runtimeapi.TranslationModeOpenAIChatCompletionsToResponses), "/v1/responses")
 }
 
-func assertLatestProxySelectorNativeAttribution(t *testing.T, harness *runtimeHarness, profileID int, nativeConnectionID int, operationName string, requestPath string) {
+func assertLatestProxySelectorAttribution(t *testing.T, harness *runtimeHarness, profileID int, connectionID int, operationName string, translationModeValue string, requestPath string) {
 	t.Helper()
 	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
 	var selectedTerminalTargetID sql.NullInt64
@@ -600,19 +646,19 @@ func assertLatestProxySelectorNativeAttribution(t *testing.T, harness *runtimeHa
 		profileID,
 		ingressRequestID,
 	).Scan(&selectedTerminalTargetID, &upstreamOperationName, &translationMode, &upstreamRequestPath); err != nil {
-		t.Fatalf("load proxy-selector native-support request-log attribution: %v", err)
+		t.Fatalf("load proxy-selector request-log attribution: %v", err)
 	}
-	if !selectedTerminalTargetID.Valid || int(selectedTerminalTargetID.Int64) != nativeConnectionID {
-		t.Fatalf("expected native-support selected_terminal_target_id %d, got %+v", nativeConnectionID, selectedTerminalTargetID)
+	if !selectedTerminalTargetID.Valid || int(selectedTerminalTargetID.Int64) != connectionID {
+		t.Fatalf("expected selected_terminal_target_id %d, got %+v", connectionID, selectedTerminalTargetID)
 	}
 	if !upstreamOperationName.Valid || upstreamOperationName.String != operationName {
-		t.Fatalf("expected native-support upstream_operation_name %s, got %+v", operationName, upstreamOperationName)
+		t.Fatalf("expected upstream_operation_name %s, got %+v", operationName, upstreamOperationName)
 	}
-	if !translationMode.Valid || translationMode.String != "none" {
-		t.Fatalf("expected native-support operation_translation_mode none, got %+v", translationMode)
+	if !translationMode.Valid || translationMode.String != translationModeValue {
+		t.Fatalf("expected operation_translation_mode %s, got %+v", translationModeValue, translationMode)
 	}
 	if !upstreamRequestPath.Valid || upstreamRequestPath.String != requestPath {
-		t.Fatalf("expected native-support upstream_request_path %s, got %+v", requestPath, upstreamRequestPath)
+		t.Fatalf("expected upstream_request_path %s, got %+v", requestPath, upstreamRequestPath)
 	}
 }
 
@@ -971,16 +1017,19 @@ type seededFacadeRoute struct {
 }
 
 type seededTopologyCascadeRoute struct {
-	PublicModelID      string
-	PrimaryModelID     string
-	GPT54ModelID       string
-	DeepSeekModelID    string
-	PrimaryPathPrefix  string
-	GPT54PathPrefix    string
-	DeepSeekPathPrefix string
-	PrimaryUpstream    *scriptedUpstream
-	GPT54Upstream      *scriptedUpstream
-	DeepSeekUpstream   *scriptedUpstream
+	PublicModelID         string
+	PrimaryModelID        string
+	GPT54ModelID          string
+	DeepSeekModelID       string
+	LaterNativeModelID    string
+	PrimaryPathPrefix     string
+	GPT54PathPrefix       string
+	DeepSeekPathPrefix    string
+	LaterNativePathPrefix string
+	PrimaryUpstream       *scriptedUpstream
+	GPT54Upstream         *scriptedUpstream
+	DeepSeekUpstream      *scriptedUpstream
+	LaterNativeUpstream   *scriptedUpstream
 }
 
 func seedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelID string, targets []facadeTargetSeed) seededFacadeRoute {
@@ -1014,17 +1063,21 @@ func seedOpenAITopologyCascadeRoute(t *testing.T, harness *runtimeHarness, profi
 	primaryStrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-primary-"+randomSuffix(), "fill-first")
 	gpt54StrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-gpt54-"+randomSuffix(), "fill-first")
 	deepSeekStrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-deepseek-"+randomSuffix(), "fill-first")
+	laterNativeStrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-later-native-"+randomSuffix(), "fill-first")
 	primaryModelConfigID := harness.seedModel(t, profileID, "openai", "gpt-5.5-primary", "native", &primaryStrategyID)
 	gpt54ModelConfigID := harness.seedModel(t, profileID, "openai", "gpt-5.4", "native", &gpt54StrategyID)
 	deepSeekModelConfigID := harness.seedModel(t, profileID, "openai", "deepseek-v4-flash", "native", &deepSeekStrategyID)
+	laterNativeModelConfigID := harness.seedModel(t, profileID, "openai", "gpt-5.3-later-native", "native", &laterNativeStrategyID)
 	harness.seedProxyTargetAtPosition(t, publicModelConfigID, primaryModelConfigID, 0)
 	harness.seedProxyTargetAtPosition(t, publicModelConfigID, gpt54ModelConfigID, 1)
 	harness.seedProxyTargetAtPosition(t, publicModelConfigID, deepSeekModelConfigID, 2)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, laterNativeModelConfigID, 3)
 	responsesVariant := "responses_reasoning_none"
 	chatOnlyVariant := "chat_completions_reasoning_none"
 	primaryPathPrefix := pathPrefix + "/primary"
 	gpt54PathPrefix := pathPrefix + "/gpt-5-4"
 	deepSeekPathPrefix := pathPrefix + "/deepseek"
+	laterNativePathPrefix := pathPrefix + "/later-native"
 	primaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
 		"id": "resp_topology_cascade_primary",
 		"output": []map[string]any{{
@@ -1057,28 +1110,43 @@ func seedOpenAITopologyCascadeRoute(t *testing.T, harness *runtimeHarness, profi
 		}},
 		"usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 14, "total_tokens": 24},
 	})
+	laterNativeUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id": "resp_topology_cascade_later_native",
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": "later native"}},
+		}},
+		"usage": map[string]any{"input_tokens": 11, "output_tokens": 17, "total_tokens": 28},
+	})
 	primaryEndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-primary-endpoint-"+randomSuffix(), primaryUpstream.baseURL(primaryPathPrefix), "topology-cascade-primary-key", 0)
 	gpt54EndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-gpt54-endpoint-"+randomSuffix(), gpt54Upstream.baseURL(gpt54PathPrefix), "topology-cascade-gpt54-key", 1)
 	deepSeekEndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-deepseek-endpoint-"+randomSuffix(), deepSeekUpstream.baseURL(deepSeekPathPrefix), "topology-cascade-deepseek-key", 2)
+	laterNativeEndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-later-native-endpoint-"+randomSuffix(), laterNativeUpstream.baseURL(laterNativePathPrefix), "topology-cascade-later-native-key", 3)
 	primaryConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, primaryModelConfigID, primaryEndpointID, "topology-cascade-primary-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant, runtimeStringPtr("responses_only"))
 	gpt54ConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, gpt54ModelConfigID, gpt54EndpointID, "topology-cascade-gpt54-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant, runtimeStringPtr("responses_only"))
 	deepSeekConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, deepSeekModelConfigID, deepSeekEndpointID, "topology-cascade-deepseek-connection-"+randomSuffix(), nil, nil, 0, &chatOnlyVariant, runtimeStringPtr("chat_completions_only"))
+	laterNativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, laterNativeModelConfigID, laterNativeEndpointID, "topology-cascade-later-native-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant, runtimeStringPtr("responses_only"))
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 400, 64, 1.0)
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, gpt54ConnectionID, 1_400, 64, 1.0)
 	setRuntimeHarnessConnectionContextCapabilities(t, harness, deepSeekConnectionID, 2_400, 64, 1.0)
+	setRuntimeHarnessConnectionContextCapabilities(t, harness, laterNativeConnectionID, 3_200, 64, 1.0)
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return seededTopologyCascadeRoute{
-		PublicModelID:      "gpt-5.5",
-		PrimaryModelID:     "gpt-5.5-primary",
-		GPT54ModelID:       "gpt-5.4",
-		DeepSeekModelID:    "deepseek-v4-flash",
-		PrimaryPathPrefix:  primaryPathPrefix,
-		GPT54PathPrefix:    gpt54PathPrefix,
-		DeepSeekPathPrefix: deepSeekPathPrefix,
-		PrimaryUpstream:    primaryUpstream,
-		GPT54Upstream:      gpt54Upstream,
-		DeepSeekUpstream:   deepSeekUpstream,
+		PublicModelID:         "gpt-5.5",
+		PrimaryModelID:        "gpt-5.5-primary",
+		GPT54ModelID:          "gpt-5.4",
+		DeepSeekModelID:       "deepseek-v4-flash",
+		LaterNativeModelID:    "gpt-5.3-later-native",
+		PrimaryPathPrefix:     primaryPathPrefix,
+		GPT54PathPrefix:       gpt54PathPrefix,
+		DeepSeekPathPrefix:    deepSeekPathPrefix,
+		LaterNativePathPrefix: laterNativePathPrefix,
+		PrimaryUpstream:       primaryUpstream,
+		GPT54Upstream:         gpt54Upstream,
+		DeepSeekUpstream:      deepSeekUpstream,
+		LaterNativeUpstream:   laterNativeUpstream,
 	}
 }
 
