@@ -123,7 +123,27 @@ func isOpenAIChatCompletionsFinalUsageChunk(payload map[string]any) bool {
 		return false
 	}
 	choices, ok := payload["choices"].([]any)
-	return ok && len(choices) == 0
+	if !ok {
+		return false
+	}
+	if len(choices) == 0 {
+		return true
+	}
+	for _, choice := range choices {
+		choicePayload, ok := choice.(map[string]any)
+		if !ok || !hasOpenAIChatCompletionsTerminalFinishReason(choicePayload) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasOpenAIChatCompletionsTerminalFinishReason(choice map[string]any) bool {
+	if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
+		return true
+	}
+	finishReason, ok := choice["finishReason"].(string)
+	return ok && finishReason != ""
 }
 
 func mergeOpenAIResponsesStreamUsage(rule runtimeUsageNormalizationRule, usage *responseUsage, event string, payload map[string]any) {

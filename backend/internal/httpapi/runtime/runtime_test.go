@@ -1533,6 +1533,54 @@ func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
 	}
 }
 
+func TestProxyEventStreamMergesUsageFromOpenAIChatTerminalChoiceChunk(t *testing.T) {
+	tests := []struct {
+		name         string
+		finishField   string
+	}{
+		{name: "snake_case_finish_reason", finishField: `"finish_reason":"stop"`},
+		{name: "camelCase_finishReason", finishField: `"finishReason":"stop"`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+			stream := "data: {\"id\":\"chatcmpl-usage\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}],\"usage\":{\"prompt_tokens\":999,\"completion_tokens\":999,\"total_tokens\":1998}}\n\n" +
+				"data: {\"id\":\"chatcmpl-usage\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"final\"}," + test.finishField + "}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":6,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":4},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n" +
+				"data: [DONE]\n\n"
+			var forwarded bytes.Buffer
+			capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
+			if err != nil {
+				t.Fatalf("proxy SSE with terminal choice usage and [DONE]: %v", err)
+			}
+			if capture.StreamOutcome != runtimeStreamOutcomeCompleted || capture.CompletedAt == nil || capture.StreamErrorKind != nil || capture.StreamErrorDetail != nil {
+				t.Fatalf("expected usage stream ending with [DONE] to complete, got %+v", capture)
+			}
+			wantUsage := responseUsage{InputTokens: intPtr(6), OutputTokens: intPtr(3), TotalTokens: intPtr(16), CacheReadInputTokens: intPtr(4), ReasoningTokens: intPtr(3)}
+			if !reflect.DeepEqual(capture.Usage, wantUsage) {
+				t.Fatalf("expected terminal choice usage to win over earlier bogus root usage: want %+v got %+v", wantUsage, capture.Usage)
+			}
+		})
+	}
+}
+
+func TestProxyEventStreamIgnoresOpenAIChatUsageWhenAnyChoiceIsNonTerminal(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
+	stream := "data: {\"id\":\"chatcmpl-usage\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"},\"finish_reason\":\"stop\"},{\"index\":1,\"delta\":{\"content\":\"still-running\"}}],\"usage\":{\"prompt_tokens\":999,\"completion_tokens\":999,\"total_tokens\":1998}}\n\n" +
+		"data: [DONE]\n\n"
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
+	if err != nil {
+		t.Fatalf("proxy SSE with mixed choice usage and [DONE]: %v", err)
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted || capture.CompletedAt == nil || capture.StreamErrorKind != nil || capture.StreamErrorDetail != nil {
+		t.Fatalf("expected usage stream ending with [DONE] to complete, got %+v", capture)
+	}
+	if capture.Usage.hasValues() {
+		t.Fatalf("expected mixed terminal/non-terminal choice chunk usage to be ignored, got %+v", capture.Usage)
+	}
+}
+
 func TestProxyEventStreamCapturesRawAuditBodyWhenEnabled(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	stream := "event: response.created\n" +
