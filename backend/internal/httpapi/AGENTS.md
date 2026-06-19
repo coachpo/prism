@@ -6,7 +6,7 @@
 ## STRUCTURE
 ```text
 httpapi/
-├── management/      # `/api/*` management handlers and services
+├── management/      # `/api/*` management handlers, services, and leaf docs
 ├── proxykeyusage/   # Runtime proxy-key usage persistence helper
 ├── realtime/        # `/api/realtime/ws`, connection manager, dashboard and analytics publishers
 ├── requestcontext/  # Request metadata helpers shared by handlers
@@ -14,6 +14,7 @@ httpapi/
 ```
 
 ## WHERE TO LOOK
+- Management fanout, shared conventions, and response helpers: `management/AGENTS.md`, `management/responseutil/`
 - Management subpackages: `management/auth/`, `management/audit/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/responseutil/`, `management/settings/`, `management/stats/`
 - Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/auth/AGENTS.md`, `management/bootstrapconfig/AGENTS.md`, `management/configbundle/AGENTS.md`, `management/configrules/AGENTS.md`, `management/connections/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/settings/AGENTS.md`, `management/stats/AGENTS.md`
 - Startup bootstrap ownership: `management/bootstrapconfig/AGENTS.md`, `management/bootstrapconfig/service.go`

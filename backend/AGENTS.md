@@ -23,6 +23,7 @@ backend/
 - `internal/gateway/AGENTS.md`: preserved gateway contracts, hooks, records, adapters, routing, reservations, and accounting.
 - `internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, proxy-key usage, retention jobs, and request context.
 - `internal/httpapi/{runtime,realtime}/AGENTS.md`: operation registry, hook residency, telemetry/feedback, partitions, websocket delivery, and publishers.
+- `internal/httpapi/management/AGENTS.md`: `/api/*` management fanout, selected-profile conventions, shared response helpers, and leaf-doc routing.
 - `internal/httpapi/management/*/AGENTS.md`: auth, bootstrap config, config bundles, routing config, endpoints, models, profiles, settings, stats, audit.
 - `tests/AGENTS.md`: Go regression boundaries for route matrix, rejected routes, bootstrap config, Dockerfile, and pool priority.
 
@@ -41,7 +42,7 @@ backend/
 ## WHERE TO LOOK
 - Process entrypoint and startup flow: `cmd/prism-backend/main.go`, `internal/platform/AGENTS.md`, `internal/platform/migrate/`
 - Gateway and runtime contracts: `internal/gateway/AGENTS.md`, `internal/httpapi/runtime/AGENTS.md`, `internal/httpapi/runtime/operations.go`
-- HTTP mounting, realtime, management fanout, and request context: `internal/httpapi/AGENTS.md`, `internal/httpapi/realtime/AGENTS.md`, `internal/httpapi/management/*/AGENTS.md`
+- HTTP mounting, realtime, management fanout, and request context: `internal/httpapi/AGENTS.md`, `internal/httpapi/realtime/AGENTS.md`, `internal/httpapi/management/AGENTS.md`, `internal/httpapi/management/*/AGENTS.md`
 - Stats, audit, loadbalance, transactions, partitions, and schema: `internal/domain/`, `internal/pgxutil/tx.go`, `migrations/`, `internal/platform/logretention/`
 - Container and regression boundaries: `Dockerfile`, `tests/integration/dockerfile_contract_test.go`, `tests/AGENTS.md`, `tests/`
 
