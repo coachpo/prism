@@ -1359,12 +1359,8 @@ export interface Messages {
     noTerminalTargetsSelected: string;
     openaiAcceptedFormat: string;
     openaiAcceptedFormatChatCompletionsOnly: string;
-    openaiAcceptedFormatChatCompletionsOnlyHint: string;
-    openaiAcceptedFormatDescription: string;
     openaiAcceptedFormatDualNative: string;
-    openaiAcceptedFormatDualNativeHint: string;
     openaiAcceptedFormatResponsesOnly: string;
-    openaiAcceptedFormatResponsesOnlyHint: string;
     optionalFriendlyName: string;
     overflowPromotionTarget: string;
     overflowPromotionTargetDescription: string;
@@ -3386,12 +3382,8 @@ export const enMessages: Messages = {
     noTerminalTargetsSelected: "No terminal targets are attached yet. Create or manage them from Model Detail.",
     openaiAcceptedFormat: "OpenAI accepted format",
     openaiAcceptedFormatChatCompletionsOnly: "Chat Completions only",
-    openaiAcceptedFormatChatCompletionsOnlyHint: "Accept only callers using the OpenAI Chat Completions operation.",
-    openaiAcceptedFormatDescription: "Choose which OpenAI text request formats this public model accepts before terminal-target routing.",
     openaiAcceptedFormatDualNative: "Dual native",
-    openaiAcceptedFormatDualNativeHint: "Accept both Responses and Chat Completions callers natively.",
     openaiAcceptedFormatResponsesOnly: "Responses only",
-    openaiAcceptedFormatResponsesOnlyHint: "Accept only callers using the OpenAI Responses operation.",
     optionalFriendlyName: "Optional friendly name",
     overflowPromotionTarget: "Overflow promotion target",
     overflowPromotionTargetDescription: "Choose an enabled same-family model for recursive overflow promotion. Prism validates chain depth, cycles, terminal loops, and routing-plan issues on save.",

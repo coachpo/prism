@@ -83,16 +83,6 @@ function getOpenAIAcceptedFormatLabel(format: OpenAIAcceptedFormat, copy: Return
   return copy.openaiAcceptedFormatDualNative;
 }
 
-function getOpenAIAcceptedFormatHint(format: OpenAIAcceptedFormat, copy: ReturnType<typeof useLocale>["messages"]["modelsUi"]) {
-  if (format === "responses_only") {
-    return copy.openaiAcceptedFormatResponsesOnlyHint;
-  }
-  if (format === "chat_completions_only") {
-    return copy.openaiAcceptedFormatChatCompletionsOnlyHint;
-  }
-  return copy.openaiAcceptedFormatDualNativeHint;
-}
-
 const NO_PROMOTION_TARGET_VALUE = "__none__";
 const OVERFLOW_PROMOTION_TARGET_PLACEHOLDER = "Select model";
 const OVERFLOW_PROMOTION_TARGET_NONE_LABEL = "None";
@@ -221,9 +211,6 @@ export function ModelDialog({
                         <SelectValue>
                           <span className="flex min-w-0 flex-col items-start gap-1 whitespace-normal leading-5">
                             <span>{getOpenAIAcceptedFormatLabel(openAIAcceptedFormatValue, copy)}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {getOpenAIAcceptedFormatHint(openAIAcceptedFormatValue, copy)}
-                            </span>
                           </span>
                         </SelectValue>
                       </SelectTrigger>
@@ -233,16 +220,12 @@ export function ModelDialog({
                             <SelectItem key={format} value={format}>
                               <span className="block whitespace-normal break-words pr-4 leading-5">
                                 <span className="block">{getOpenAIAcceptedFormatLabel(format, copy)}</span>
-                                <span className="block text-xs text-muted-foreground">
-                                  {getOpenAIAcceptedFormatHint(format, copy)}
-                                </span>
                               </span>
                             </SelectItem>
                           ))}
                         </SelectGroup>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">{copy.openaiAcceptedFormatDescription}</p>
                   </div>
                 ) : null}
               </div>
