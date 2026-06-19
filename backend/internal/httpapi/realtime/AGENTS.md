@@ -24,6 +24,7 @@ realtime/
 - Frontend consumers: `../../../../frontend/src/hooks/useRealtimeData.ts`, `../../../../frontend/src/lib/websocket.ts`
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep websocket mounting under `/api/realtime/ws`; runtime `/v1` and `/v1beta` routes stay separate.
 - Keep auth gating on the management-auth seam instead of duplicating cookie or token parsing here.
 - Keep dashboard and analytics as the supported channel families.

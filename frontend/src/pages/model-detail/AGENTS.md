@@ -35,6 +35,8 @@ model-detail/
 - E2E seams for model-to-request-log handoff and connection probe behavior: `../../../tests/e2e/model-detail-request-logs-handoff.spec.ts`, `../../../tests/e2e/model-detail-connection-dialog-probe.spec.ts`
 
 ## CONVENTIONS
+- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid deprecated compatibility wrappers listed there.
+- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Keep access-target option building and update payload shaping in `useModelDetailDataSupport.ts` / `useModelDetailModelForm.ts`; access-target card/dialog rendering should stay presentation-focused.
 - Keep OpenAI probe variant decomposition and normalization in `connectionProbeBehavior.ts` instead of scattering probe endpoint logic across dialog or form files.
 - Do not duplicate default form factories or redirect-target logic outside `useModelDetailDataSupport.ts`.

@@ -22,6 +22,7 @@ loadbalance/
 - Shared domain operations: `../../../domain/loadbalance/`.
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep strategy CRUD selected-profile scoped.
 - Don't delete strategies attached to models.
 - Keep current-state reset/list wired through `LocalRuntimeStateStore` and the loadbalance domain.

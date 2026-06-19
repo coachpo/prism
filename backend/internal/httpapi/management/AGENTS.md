@@ -32,6 +32,7 @@ management/
 - Shared profile/error response shaping used across leaves: `responseutil/profile_errors.go`
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep `/api/*` management handlers here; server mounting, admission, runtime-cache invalidation middleware, telemetry middleware, and CORS snapshots stay in `../../../platform/http/`.
 - Keep selected-profile CRUD scoped through effective-profile resolution and `X-Profile-Id` only where the leaf contract says so; runtime proxy traffic never depends on selected-profile state.
 - Keep raw secrets, tokens, endpoint keys, SMTP passwords, and bundle secrets write-only or metadata-only in responses.

@@ -27,6 +27,7 @@ gateway/
 - Runtime integration and request-log/accounting use: `../httpapi/runtime/`, especially `runtime.go`, `service.go`, and `observability.go`
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep `httpapi/runtime/operations.go` as Prism's concrete runtime allowlist; gateway registry code stays generic and reusable.
 - Keep provider-native request/response/stream/media behavior inside provider adapters, not in route planning or accounting.
 - Keep hook payloads clone-safe and permission-gated. Do not leak body/header access beyond declared hook permissions.

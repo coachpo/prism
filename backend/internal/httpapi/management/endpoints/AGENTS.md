@@ -19,6 +19,7 @@ endpoints/
 - API-key encryption and base URL validation: `routes.go`, `endpointdomain` helpers.
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep endpoint writes selected-profile scoped and position-normalized.
 - Keep API keys encrypted at rest and masked from responses.
 - Don't delete endpoints still referenced by connections.

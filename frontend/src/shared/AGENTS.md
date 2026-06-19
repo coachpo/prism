@@ -22,6 +22,8 @@ shared/
 - Consumers in feature routes and seam tests: `../features/`, `../test/`, `../../tests/lib/`
 
 ## CONVENTIONS
+- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid deprecated compatibility wrappers listed there.
+- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Keep this directory framework-level and cross-route. Feature-only schemas, payload builders, and mutation hooks belong beside their route feature.
 - Keep selected-profile query scope explicit in shared query keys. Global control surfaces should use global scope helpers, not fake profile ids.
 - Keep server validation helpers shape-preserving so backend field paths remain visible to route forms.

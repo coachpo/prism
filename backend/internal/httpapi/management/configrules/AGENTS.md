@@ -19,6 +19,7 @@ configrules/
 - System-rule mutability and duplicate checks: `routes.go`, `store.go`.
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep these routes under `/api/config/*`; startup bootstrap config belongs to `bootstrapconfig/`.
 - Keep rules selected-profile scoped, while allowing system rules to appear where the store includes them.
 - Don't let system header-blocklist rules be deleted or reshaped through profile CRUD.

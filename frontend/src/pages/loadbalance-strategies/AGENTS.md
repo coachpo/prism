@@ -15,6 +15,8 @@ loadbalance-strategies/
 - Table rendering and destructive flow entrypoints: `LoadbalanceStrategiesTable.tsx`, `DeleteLoadbalanceStrategyDialog.tsx`
 
 ## CONVENTIONS
+- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid deprecated compatibility wrappers listed there.
+- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Keep backend access on the shared `api.*` boundary; this cluster should not create a parallel fetch layer.
 - Keep retry-window fields explicit in feature form state: failure status codes, base retry delay, backoff, jitter, maximum retry delay, cycle retry attempts, cumulative ban threshold, ban mode, and ban duration.
 - Do not let table components own API calls directly when the feature data hook centralizes CRUD orchestration.

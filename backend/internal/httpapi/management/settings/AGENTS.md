@@ -21,6 +21,7 @@ settings/
 - Frontend settings consumers: `../../../../../frontend/src/pages/settings/`, `../../../../../frontend/src/pages/settings/costing/`
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep costing, timezone, and API-family audit settings profile-scoped through effective-profile resolution and `X-Profile-Id`.

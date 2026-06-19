@@ -16,6 +16,7 @@ audit/
 - Management job list/get/cancel flows: `service.go`, `../../../platform/managementjobs/`.
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep audit-log reads selected-profile scoped through effective-profile resolution.
 - Keep audit list windows bounded and explicit; unsupported filters and ascending sort stay rejected.
 - Keep management job status and cancellation here, while job creation and retention settings stay in `settings/` and platform workers.

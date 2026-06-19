@@ -20,6 +20,8 @@ endpoints/
 - Shared endpoint cache and reorder helpers: `useEndpointBootstrapData.ts`, `useEndpointReorder.ts`
 
 ## CONVENTIONS
+- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid deprecated compatibility wrappers listed there.
+- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Reuse the shared endpoint cache in `@/lib/referenceData` instead of layering another endpoint-specific cache.
 - Keep reorder state and DnD bookkeeping in `useEndpointReorder.ts`; cards stay presentational.
 - Patch local endpoint state through the feature data hook after create, update, duplicate, delete, and reorder flows.

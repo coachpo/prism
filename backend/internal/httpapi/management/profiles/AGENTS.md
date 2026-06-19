@@ -18,6 +18,7 @@ profiles/
 - Shared profile invariants and limits: `profiledomain`.
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep selected-profile headers separate from active runtime profile routing.
 - Keep default profile guardrails intact: locked names and no delete.
 - Activation must check the expected active profile before switching.

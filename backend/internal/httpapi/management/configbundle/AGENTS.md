@@ -26,6 +26,7 @@ configbundle/
 - Frontend consumers: `../../../../../frontend/src/pages/settings/useConfigBackupData.ts`, `../../../../../frontend/src/lib/configImportValidation.ts`
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep profile bundles on the v3 contract with top-level private connections, exactly-one-owner connection refs in ordered model access targets, nullable `context_overflow_promotion_target_id`, `profile_settings.audit_api_family_settings` as the three-family full-replacement audit policy, and explicit Ban Policy fields: `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and `ban_mode` values `off`, `temporary`, or `until_reset`.
 - Reject obsolete access-target `weight` and `target_priority` keys during import and preview instead of upgrading or dropping them silently.
 - Keep context overflow promotion targets import-validated against exact imported model IDs in the imported profile graph, same `api_family`, enabled non-facade non-self targets, acyclic explicit chains, max depth 3, and no same-terminal loop. Runtime planning owns terminal-fit decisions.

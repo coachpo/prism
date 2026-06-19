@@ -22,6 +22,7 @@ models/
 - Model request/response fields for exact-facade authoring, context overflow promotion target IDs, and model-target metadata: `types.go`.
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep model `api_family` as runtime compatibility truth.
 - Keep selected-profile model IDs unique inside the profile.
 - Keep Release 1 facade authoring exact-ID only. This package owns backend CRUD for `facade_enabled`, `facade_selection_policy`, and `facade_fallback_policy`; do not add regex matcher fields, capability-metadata expansion, or frontend-only authoring assumptions here.

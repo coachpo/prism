@@ -21,6 +21,7 @@ domain/
 - HTTP ownership that consumes these domains: `../httpapi/management/stats/AGENTS.md`, `../httpapi/runtime/AGENTS.md`, `../httpapi/realtime/AGENTS.md`
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep this tree HTTP-neutral. Handlers, route parsing, auth, selected-profile resolution, and response shaping stay under `../httpapi/`.
 - Keep platform concerns out of domain packages. DB lane selection, transactions, scheduler work, migrations, retention workers, and side-effect dispatch stay under `../platform/` or `../pgxutil/`.
 - Keep runtime load-balance state deterministic and profile/model scoped; policy thresholds and ban modes must match the management loadbalance contract.

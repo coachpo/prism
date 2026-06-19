@@ -17,6 +17,7 @@ stats/
 - Invalidation event source outside the public stats routes: `../../../platform/managementsideeffects/`, `../../../platform/http/runtime_cache_invalidation.go`
 
 ## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep these as read-oriented management observability routes; runtime request execution stays in `runtime/`.
 - Keep request logs and statistics in this package, not in runtime handlers.
 - Use dashboard aggregate snapshots only for matching default dashboard windows.
