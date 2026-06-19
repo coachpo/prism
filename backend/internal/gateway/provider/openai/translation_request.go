@@ -823,11 +823,12 @@ func translateResponsesMessageToChatMessage(item map[string]any) (map[string]any
 	if role == "" {
 		return nil, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_message_role")
 	}
-	content, err := translateResponsesMessageContentToChat(item["content"], role)
+	chatRole := responsesRoleToChatRole(role)
+	content, err := translateResponsesMessageContentToChat(item["content"], chatRole)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"role": role, "content": content}, nil
+	return map[string]any{"role": chatRole, "content": content}, nil
 }
 
 func translateResponsesMessageContentToChat(value any, role string) (any, error) {

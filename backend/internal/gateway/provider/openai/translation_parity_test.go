@@ -108,6 +108,13 @@ func TestTranslateResponsesToChatRequestDropsCodexMetadataFields(t *testing.T) {
 	}
 
 	payload := decodeOpenAIParityPayload(t, body)
+	messages := payload["messages"].([]any)
+	if got := stringValue(messages[0].(map[string]any)["role"]); got != "system" {
+		t.Fatalf("expected developer message to translate to system role, got %q in %+v", got, messages[0])
+	}
+	if got := stringValue(messages[1].(map[string]any)["role"]); got != "user" {
+		t.Fatalf("expected second message role user, got %q in %+v", got, messages[1])
+	}
 	for _, field := range []string{"client_metadata", "prompt_cache_key", "include", "text"} {
 		if _, ok := payload[field]; ok {
 			t.Fatalf("expected %s to be dropped from chat request, got %+v", field, payload)
