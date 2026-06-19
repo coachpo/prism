@@ -31,6 +31,74 @@ func TestTranslateResponsesToChatRequestToolsReasoningAndRichContent(t *testing.
 	}
 }
 
+func TestTranslateResponsesToChatRequestMapsMaxOutputTokensByTargetModelFamily(t *testing.T) {
+	tests := []struct {
+		name           string
+		targetModelID  string
+		raw            []byte
+		wantTokenField string
+		absentField    string
+		wantValue      int
+	}{
+		{name: "o-series target", targetModelID: "o3-mini", raw: []byte(`{"model":"responses-public","input":"hello","max_output_tokens":64}`), wantTokenField: "max_completion_tokens", absentField: "max_tokens", wantValue: 64},
+		{name: "non-o-series target", targetModelID: "deepseek-v4-pro", raw: []byte(`{"model":"responses-public","input":"hello","max_output_tokens":64}`), wantTokenField: "max_tokens", absentField: "max_completion_tokens", wantValue: 64},
+		{name: "canonical max output wins over chat alias", targetModelID: "deepseek-v4-pro", raw: []byte(`{"model":"responses-public","input":"hello","max_output_tokens":64,"max_tokens":200000}`), wantTokenField: "max_tokens", absentField: "max_completion_tokens", wantValue: 64},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, body, err := translateRequest(test.raw, provider.TranslationModeOpenAIResponsesToChatCompletions, test.targetModelID)
+			if err != nil {
+				t.Fatalf("translate max output tokens request: %v", err)
+			}
+
+			payload := decodeOpenAIParityPayload(t, body)
+			if got := intPointerFromAny(payload[test.wantTokenField]); got == nil || *got != test.wantValue {
+				t.Fatalf("expected %s=%d, got %+v in %+v", test.wantTokenField, test.wantValue, payload[test.wantTokenField], payload)
+			}
+			if _, ok := payload[test.absentField]; ok {
+				t.Fatalf("expected %s to be absent, got %+v", test.absentField, payload)
+			}
+		})
+	}
+}
+
+func TestTranslateResponsesToChatRequestPassesChatTokenAliasWhenCanonicalAbsent(t *testing.T) {
+	raw := []byte(`{"model":"responses-public","input":"hello","max_tokens":77}`)
+
+	_, body, err := translateRequest(raw, provider.TranslationModeOpenAIResponsesToChatCompletions, "deepseek-v4-pro")
+	if err != nil {
+		t.Fatalf("translate chat token alias request: %v", err)
+	}
+
+	payload := decodeOpenAIParityPayload(t, body)
+	if got := intPointerFromAny(payload["max_tokens"]); got == nil || *got != 77 {
+		t.Fatalf("expected max_tokens=77, got %+v", payload)
+	}
+}
+
+func TestTranslateResponsesToChatRequestPassesChatFieldsAndMergesStreamOptions(t *testing.T) {
+	raw := []byte(`{"model":"responses-public","input":"hello","stream":true,"stream_options":{"include_usage":false,"chunking":"line"},"frequency_penalty":0.2,"presence_penalty":0.3,"logit_bias":{"42":-1},"logprobs":true,"top_logprobs":2,"n":1,"stop":["\n\n"],"response_format":{"type":"json_object"}}`)
+
+	_, body, err := translateRequest(raw, provider.TranslationModeOpenAIResponsesToChatCompletions, "deepseek-v4-pro")
+	if err != nil {
+		t.Fatalf("translate chat passthrough request: %v", err)
+	}
+
+	payload := decodeOpenAIParityPayload(t, body)
+	for _, field := range []string{"frequency_penalty", "presence_penalty", "logit_bias", "logprobs", "top_logprobs", "n", "stop", "response_format"} {
+		if _, ok := payload[field]; !ok {
+			t.Fatalf("expected passthrough field %q, got %+v", field, payload)
+		}
+	}
+	streamOptions := payload["stream_options"].(map[string]any)
+	if got, _ := streamOptions["include_usage"].(bool); !got {
+		t.Fatalf("expected stream_options.include_usage=true, got %+v", streamOptions)
+	}
+	if got := stringValue(streamOptions["chunking"]); got != "line" {
+		t.Fatalf("expected stream_options.chunking=line to survive merge, got %+v", streamOptions)
+	}
+}
+
 func TestTranslateChatToResponsesRequestToolsAndDeterministicNRejection(t *testing.T) {
 	raw := []byte(`{"model":"chat-public","messages":[{"role":"assistant","reasoning_content":"Need lookup","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{ \"q\": \"x\" }"}}]},{"role":"tool","tool_call_id":"call_1","content":"done"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":{"type":"function","function":{"name":"lookup"}}}`)
 	_, body, err := translateRequest(raw, provider.TranslationModeOpenAIChatCompletionsToResponses, "responses-target")

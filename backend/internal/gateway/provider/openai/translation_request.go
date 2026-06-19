@@ -60,13 +60,12 @@ func translateResponsesToChatRequest(rawBody []byte, targetModelID string) ([]by
 		return nil, nil, err
 	}
 	translated := map[string]any{"model": targetModelID}
-	copyTranslationField(payload, translated, "temperature", "top_p", "seed", "store", "metadata", "user", "service_tier", "stream")
-	if boolValue(payload["stream"]) {
-		translated["stream_options"] = map[string]any{"include_usage": true}
-	}
+	copyTranslationField(payload, translated, "temperature", "top_p", "seed", "store", "metadata", "user", "service_tier", "stream", "frequency_penalty", "logit_bias", "logprobs", "n", "presence_penalty", "stop", "stream_options", "top_logprobs")
 	if responseFormat := translateResponsesTextFormatToChat(payload["text"]); responseFormat != nil {
 		translated["response_format"] = responseFormat
 	}
+	copyTranslationField(payload, translated, "response_format")
+	injectChatStreamIncludeUsage(translated)
 	toolContext := BuildToolContextFromResponsesPayload(payload)
 	translatedTools := toolContext.ChatTools()
 	policy.droppedFields = append(policy.droppedFields, droppedResponsesToolFields(payload)...)
@@ -95,7 +94,13 @@ func translateResponsesToChatRequest(rawBody []byte, targetModelID string) ([]by
 		}
 	}
 	if maxOutputTokens := intPointerFromAny(payload["max_output_tokens"]); maxOutputTokens != nil {
-		translated["max_completion_tokens"] = *maxOutputTokens
+		if isOpenAIOSeriesModel(targetModelID) {
+			translated["max_completion_tokens"] = *maxOutputTokens
+		} else {
+			translated["max_tokens"] = *maxOutputTokens
+		}
+	} else {
+		copyTranslationField(payload, translated, "max_tokens", "max_completion_tokens")
 	}
 	if effort, err := translateResponsesReasoningEffort(payload["reasoning"]); err != nil {
 		return nil, nil, err
@@ -237,8 +242,8 @@ func buildChatToResponsesFieldLoss(payload map[string]any) chatToResponsesFieldL
 func applyResponsesToChatFieldPolicy(payload map[string]any) (responsesToChatFieldPolicy, error) {
 	policy := responsesToChatFieldPolicy{}
 	allowedTopLevel := map[string]struct{}{
-		"model": {}, "instructions": {}, "input": {}, "tools": {}, "tool_choice": {}, "parallel_tool_calls": {}, "max_output_tokens": {},
-		"temperature": {}, "top_p": {}, "seed": {}, "store": {}, "metadata": {}, "user": {}, "service_tier": {}, "stream": {},
+		"model": {}, "instructions": {}, "input": {}, "tools": {}, "tool_choice": {}, "parallel_tool_calls": {}, "max_output_tokens": {}, "max_tokens": {}, "max_completion_tokens": {},
+		"temperature": {}, "top_p": {}, "seed": {}, "store": {}, "metadata": {}, "user": {}, "service_tier": {}, "stream": {}, "frequency_penalty": {}, "logit_bias": {}, "logprobs": {}, "n": {}, "presence_penalty": {}, "response_format": {}, "stop": {}, "stream_options": {}, "top_logprobs": {},
 		"include": {}, "text": {}, "previous_response_id": {}, "conversation": {}, "reasoning": {},
 	}
 	for key, value := range payload {
@@ -1098,6 +1103,23 @@ func copyTranslationField(source map[string]any, target map[string]any, keys ...
 			target[key] = value
 		}
 	}
+}
+
+func injectChatStreamIncludeUsage(payload map[string]any) {
+	if !boolValue(payload["stream"]) {
+		return
+	}
+	if options, ok := payload["stream_options"].(map[string]any); ok {
+		merged := cloneAnyMap(options)
+		merged["include_usage"] = true
+		payload["stream_options"] = merged
+		return
+	}
+	payload["stream_options"] = map[string]any{"include_usage": true}
+}
+
+func isOpenAIOSeriesModel(model string) bool {
+	return len(model) > 1 && strings.HasPrefix(model, "o") && model[1] >= '0' && model[1] <= '9'
 }
 
 func appendChatTranslationMessage(existing any, role string, content string) []any {
