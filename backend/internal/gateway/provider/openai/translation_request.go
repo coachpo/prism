@@ -244,11 +244,16 @@ func applyResponsesToChatFieldPolicy(payload map[string]any) (responsesToChatFie
 	allowedTopLevel := map[string]struct{}{
 		"model": {}, "instructions": {}, "input": {}, "tools": {}, "tool_choice": {}, "parallel_tool_calls": {}, "max_output_tokens": {}, "max_tokens": {}, "max_completion_tokens": {},
 		"temperature": {}, "top_p": {}, "seed": {}, "store": {}, "metadata": {}, "user": {}, "service_tier": {}, "stream": {}, "frequency_penalty": {}, "logit_bias": {}, "logprobs": {}, "n": {}, "presence_penalty": {}, "response_format": {}, "stop": {}, "stream_options": {}, "top_logprobs": {},
-		"include": {}, "text": {}, "previous_response_id": {}, "conversation": {}, "reasoning": {},
+		"include": {}, "text": {}, "previous_response_id": {}, "conversation": {}, "reasoning": {}, "client_metadata": {}, "prompt_cache_key": {},
 	}
 	for key, value := range payload {
 		if _, ok := allowedTopLevel[key]; !ok && valueHasMeaning(value) {
 			return policy, requestTranslationUnsupportedError(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses_unknown_field")
+		}
+	}
+	for _, key := range []string{"client_metadata", "prompt_cache_key"} {
+		if fieldHasValue(payload, key) {
+			policy.droppedFields = append(policy.droppedFields, "responses_"+key)
 		}
 	}
 	if fieldHasValue(payload, "include") {

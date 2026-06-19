@@ -99,6 +99,27 @@ func TestTranslateResponsesToChatRequestPassesChatFieldsAndMergesStreamOptions(t
 	}
 }
 
+func TestTranslateResponsesToChatRequestDropsCodexMetadataFields(t *testing.T) {
+	raw := []byte(`{"model":"responses-public","input":[{"role":"developer","content":[{"type":"input_text","text":"system"}]},{"role":"user","content":[{"type":"input_text","text":"hello"}]}],"client_metadata":{"session_id":"session-1","thread_id":"thread-1"},"prompt_cache_key":"session-1","include":["reasoning.encrypted_content"],"text":{"verbosity":"low"},"stream":true}`)
+
+	_, body, loss, err := translateRequestWithLoss(raw, provider.TranslationModeOpenAIResponsesToChatCompletions, "chat-target")
+	if err != nil {
+		t.Fatalf("translate common codex responses request: %v", err)
+	}
+
+	payload := decodeOpenAIParityPayload(t, body)
+	for _, field := range []string{"client_metadata", "prompt_cache_key", "include", "text"} {
+		if _, ok := payload[field]; ok {
+			t.Fatalf("expected %s to be dropped from chat request, got %+v", field, payload)
+		}
+	}
+	streamOptions := payload["stream_options"].(map[string]any)
+	if got, _ := streamOptions["include_usage"].(bool); !got {
+		t.Fatalf("expected stream_options.include_usage=true, got %+v", streamOptions)
+	}
+	assertOpenAIStringSliceContainsAll(t, loss.DroppedFields, []string{"responses_client_metadata", "responses_prompt_cache_key", "responses_include", "responses_text.verbosity"}, "dropped fields")
+}
+
 func TestTranslateChatToResponsesRequestToolsAndDeterministicNRejection(t *testing.T) {
 	raw := []byte(`{"model":"chat-public","messages":[{"role":"assistant","reasoning_content":"Need lookup","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{ \"q\": \"x\" }"}}]},{"role":"tool","tool_call_id":"call_1","content":"done"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":{"type":"function","function":{"name":"lookup"}}}`)
 	_, body, err := translateRequest(raw, provider.TranslationModeOpenAIChatCompletionsToResponses, "responses-target")
