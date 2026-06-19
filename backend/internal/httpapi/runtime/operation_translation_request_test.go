@@ -169,8 +169,11 @@ func TestTranslateOpenAIResponsesReasoningRequest(t *testing.T) {
 	if got := stringValue(payload["reasoning_effort"]); got != "medium" {
 		t.Fatalf("expected reasoning_effort=medium, got %q", got)
 	}
-	if got := intValue(intPointerFromAny(payload["max_completion_tokens"])); got != 32 {
-		t.Fatalf("expected max_completion_tokens=32, got %+v", payload["max_completion_tokens"])
+	if got := intValue(intPointerFromAny(payload["max_tokens"])); got != 32 {
+		t.Fatalf("expected max_tokens=32, got %+v", payload["max_tokens"])
+	}
+	if _, ok := payload["max_completion_tokens"]; ok {
+		t.Fatalf("expected max_completion_tokens to be absent for non-o-series target, got %s", string(translated))
 	}
 }
 
@@ -639,6 +642,45 @@ func TestBuildRequestPlan_ModelAcceptedFormatResponsesIncludeDropsForChatOnlyFal
 	}
 	assertRuntimeStringSliceContainsAll(t, plan.ContextRouting.TranslationLoss.DroppedFields, []string{"responses_include", "responses_text.verbosity", "responses_reasoning.encrypted_content"}, "dropped fields")
 	assertRuntimeStringSliceContainsAll(t, plan.ContextRouting.TranslationLoss.MappedFields, []string{"responses_text.format", "responses_reasoning.effort"}, "mapped fields")
+}
+
+func TestBuildRequestPlan_ResponsesToChatUsesSelectedTargetForMaxOutputTokenField(t *testing.T) {
+	service := newRequestPlanUnitService()
+	responsesOnly := providercompat.OpenAITextCapabilityResponsesOnly
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "o3-mini", OpenAIAcceptedFormat: &responsesOnly},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "deepseek-v4-pro"},
+	)
+	source := snapshot.ModelsByID["o3-mini"]
+	target := snapshot.ModelsByID["deepseek-v4-pro"]
+	snapshot.AccessTargetsBySourceModelID[source.ID] = nil
+	snapshot.AccessTargetsBySourceModelID[target.ID] = nil
+	addRequestPlanModelTargetAtPosition(snapshot, source.ModelID, target.ModelID, 0)
+	addRequestPlanConnectionTargetWithOptions(snapshot, target, 2_852, 9_852, 0, requestPlanConnectionTargetOptions{
+		openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
+		openAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	rawBody := []byte(`{"model":"o3-mini","input":"hello","max_output_tokens":64}`)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build target-model token-field request plan: %v", err)
+	}
+	if got := plan.EffectiveRequestPath; got != "/v1/chat/completions" {
+		t.Fatalf("expected translated Chat path, got %q", got)
+	}
+	if got := extractModelFromBody(plan.UpstreamBody); got != "deepseek-v4-pro" {
+		t.Fatalf("expected translated upstream body model deepseek-v4-pro, got %q in %s", got, string(plan.UpstreamBody))
+	}
+	payload := decodeTranslationTestPayload(t, plan.UpstreamBody)
+	if got := intValue(intPointerFromAny(payload["max_tokens"])); got != 64 {
+		t.Fatalf("expected selected non-o-series target to receive max_tokens=64, got %+v in %s", payload["max_tokens"], string(plan.UpstreamBody))
+	}
+	if _, ok := payload["max_completion_tokens"]; ok {
+		t.Fatalf("expected max_completion_tokens to be absent for selected non-o-series target, got %s", string(plan.UpstreamBody))
+	}
 }
 
 func TestBuildRequestPlan_ResponsesUnsupportedToolsRecordLossyDrops(t *testing.T) {

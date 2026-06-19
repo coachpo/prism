@@ -2583,8 +2583,11 @@ func assertResponsesNonStreamPreDispatchPromotedRequestBody(t *testing.T, reques
 	if got, ok := payload["stream"].(bool); ok && got {
 		t.Fatalf("expected translated promoted responses request to preserve non-stream mode, got %+v", payload)
 	}
-	if got, ok := payload["max_completion_tokens"].(float64); !ok || int(got) != 600 {
-		t.Fatalf("expected translated promoted responses max_completion_tokens=600, got %+v", payload)
+	if got, ok := payload["max_tokens"].(float64); !ok || int(got) != 600 {
+		t.Fatalf("expected translated promoted responses max_tokens=600, got %+v", payload)
+	}
+	if _, ok := payload["max_completion_tokens"]; ok {
+		t.Fatalf("expected translated promoted responses max_completion_tokens to be absent, got %+v", payload)
 	}
 	messages, ok := payload["messages"].([]any)
 	if !ok || len(messages) != 1 {
