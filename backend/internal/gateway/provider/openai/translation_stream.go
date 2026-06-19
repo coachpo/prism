@@ -120,6 +120,9 @@ func (translator *ChatUpstreamToResponsesClientStreamTranslator) ConsumeEvent(_ 
 	}
 	if finishReason := firstNonEmptyString(choice["finish_reason"], choice["finishReason"]); finishReason != "" {
 		translator.finishReason = finishReason
+		if usage := extractResponseUsageFromPayload(payload, OperationChatCompletions); usageHasValues(usage) {
+			translator.terminalUsage = usage
+		}
 	}
 	delta, ok := choice["delta"].(map[string]any)
 	if !ok {

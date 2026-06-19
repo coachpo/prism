@@ -263,6 +263,47 @@ func TestTranslateOpenAIChatToResponsesStreamRequestedEqualsResolved(t *testing.
 	}
 }
 
+func TestTranslateOpenAIChatToResponsesStreamCapturesTerminalChoiceUsage(t *testing.T) {
+	stream := "data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello \"}}]}\n\n" +
+		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":6,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":4},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n" +
+		"data: [DONE]\n\n"
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponseByOperation(operation, TranslationModeOpenAIResponsesToChatCompletions, "responses-public", context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
+	if err != nil {
+		t.Fatalf("translate chat stream to responses: %v", err)
+	}
+	wantUsage := generationResponseHookTestUsageWithCacheAndReasoning(6, 3, 16, 4, 3)
+	if got := capture.extractedUsage(); !reflect.DeepEqual(got, wantUsage) {
+		t.Fatalf("expected terminal choice usage to populate capture, want %+v got %+v", wantUsage, got)
+	}
+	events := parseTranslatedSSEEvents(t, forwarded.String())
+	completed := translatedSSEEventPayload(t, events, "response.completed")
+	response := completed["response"].(map[string]any)
+	usage, ok := response["usage"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected translated response.completed.response.usage to be present, got %+v", response)
+	}
+	if got := intValue(intPointerFromAny(usage["input_tokens"])); got != 10 {
+		t.Fatalf("expected translated response.completed.response.usage.input_tokens to match upstream terminal choice usage, got %d", got)
+	}
+	if got := intValue(intPointerFromAny(usage["output_tokens"])); got != 6 {
+		t.Fatalf("expected translated response.completed.response.usage.output_tokens to match upstream terminal choice usage, got %d", got)
+	}
+	if got := intValue(intPointerFromAny(usage["total_tokens"])); got != 16 {
+		t.Fatalf("expected translated response.completed.response.usage.total_tokens to match upstream terminal choice usage, got %d", got)
+	}
+	if got := intValue(intPointerFromAny(nestedValue(usage, "input_tokens_details", "cached_tokens"))); got != 4 {
+		t.Fatalf("expected translated response.completed.response.usage.input_tokens_details.cached_tokens to match upstream terminal choice usage, got %d", got)
+	}
+	if got := intValue(intPointerFromAny(nestedValue(usage, "output_tokens_details", "reasoning_tokens"))); got != 3 {
+		t.Fatalf("expected translated response.completed.response.usage.output_tokens_details.reasoning_tokens to match upstream terminal choice usage, got %d", got)
+	}
+	if !strings.Contains(forwarded.String(), "event: response.completed") {
+		t.Fatalf("expected forwarded SSE to include response.completed, got %q", forwarded.String())
+	}
+}
+
 func TestTranslateOpenAIChatToResponsesStream(t *testing.T) {
 	stream := "data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello \"}}]}\n\n" +
 		"data: {\"id\":\"chatcmpl_stream\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"chat-target\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
