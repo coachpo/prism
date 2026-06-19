@@ -100,6 +100,12 @@ func extractOpenAIResponsesGenerationParams(payload map[string]any, params *requ
 	if maxOutputTokens := intPointerFromAny(payload["max_output_tokens"]); maxOutputTokens != nil {
 		params.MaxOutputTokens = maxOutputTokens
 		params.MaxOutputTokensSource = stringPtr("max_output_tokens")
+	} else if maxCompletionTokens := intPointerFromAny(payload["max_completion_tokens"]); maxCompletionTokens != nil {
+		params.MaxOutputTokens = maxCompletionTokens
+		params.MaxOutputTokensSource = stringPtr("max_completion_tokens")
+	} else if maxTokens := intPointerFromAny(payload["max_tokens"]); maxTokens != nil {
+		params.MaxOutputTokens = maxTokens
+		params.MaxOutputTokensSource = stringPtr("max_tokens")
 	}
 	if effort := trimmedStringFromAny(nestedValue(payload, "reasoning", "effort")); effort != nil {
 		reasoning := params.ensureReasoning()
