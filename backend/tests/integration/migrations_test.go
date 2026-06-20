@@ -378,19 +378,12 @@ func TestPreferredContextSchemaGuardUpgradesStampedDatabase(t *testing.T) {
 	if _, err := conn.Exec(testContext, `ALTER TABLE public.connections DROP CONSTRAINT IF EXISTS ck_connections_preferred_context_utilization_threshold`); err != nil {
 		t.Fatalf("drop preferred context constraint from connections: %v", err)
 	}
-	if _, err := conn.Exec(testContext, `ALTER TABLE public.model_configs DROP CONSTRAINT IF EXISTS ck_model_configs_preferred_context_utilization_threshold`); err != nil {
-		t.Fatalf("drop preferred context constraint from model_configs: %v", err)
-	}
 	if _, err := conn.Exec(testContext, `ALTER TABLE public.connections DROP COLUMN IF EXISTS preferred_context_utilization_threshold_overridden`); err != nil {
 		t.Fatalf("drop preferred context override column from connections: %v", err)
 	}
 	if _, err := conn.Exec(testContext, `ALTER TABLE public.connections DROP COLUMN IF EXISTS preferred_context_utilization_threshold`); err != nil {
 		t.Fatalf("drop preferred context column from connections: %v", err)
 	}
-	if _, err := conn.Exec(testContext, `ALTER TABLE public.model_configs DROP COLUMN IF EXISTS preferred_context_utilization_threshold`); err != nil {
-		t.Fatalf("drop preferred context column from model_configs: %v", err)
-	}
-
 	guardResult, err := runner.Run(testContext, conn)
 	if err != nil {
 		t.Fatalf("rerun baseline with stamped database missing preferred context schema: %v", err)
@@ -400,7 +393,6 @@ func TestPreferredContextSchemaGuardUpgradesStampedDatabase(t *testing.T) {
 	}
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertContextCapabilityColumnContracts(t, testContext, conn)
-	assertConstraintDefinitionContains(t, testContext, conn, "ck_model_configs_preferred_context_utilization_threshold", "preferred_context_utilization_threshold", "<= max_context_utilization")
 	assertConstraintDefinitionContains(t, testContext, conn, "ck_connections_preferred_context_utilization_threshold", "preferred_context_utilization_threshold", "<= max_context_utilization")
 }
 
@@ -802,7 +794,7 @@ func seedOpenAIAcceptedFormatProfile(t *testing.T, ctx context.Context, conn *pg
 func seedOpenAIAcceptedFormatModel(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, modelID string, apiFamily string) {
 	t.Helper()
 	now := time.Now().UTC()
-	if _, err := conn.Exec(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, default_output_token_reserve, max_context_utilization, facade_enabled, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $3, 4096, 0.90, FALSE, FALSE, $4, $4)`, profileID, apiFamily, modelID, now); err != nil {
+	if _, err := conn.Exec(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, facade_enabled, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $3, FALSE, FALSE, $4, $4)`, profileID, apiFamily, modelID, now); err != nil {
 		t.Fatalf("seed accepted-format model %q: %v", modelID, err)
 	}
 }
