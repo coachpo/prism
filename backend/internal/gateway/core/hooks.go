@@ -19,7 +19,6 @@ const (
 	HookPhaseOnPostNormalize    HookPhase = "on_post_normalize"
 	HookPhaseOnModelResolved    HookPhase = "on_model_resolved"
 	HookPhaseOnPreTokenCount    HookPhase = "on_pre_token_count"
-	HookPhaseOnContextOverflow  HookPhase = "on_context_overflow"
 	HookPhaseOnRouteCandidates  HookPhase = "on_route_candidates"
 	HookPhaseOnBeforeDispatch   HookPhase = "on_before_dispatch"
 	HookPhaseOnResponseHeaders  HookPhase = "on_response_headers"
@@ -38,7 +37,6 @@ var orderedHookPhases = []HookPhase{
 	HookPhaseOnPostNormalize,
 	HookPhaseOnModelResolved,
 	HookPhaseOnPreTokenCount,
-	HookPhaseOnContextOverflow,
 	HookPhaseOnRouteCandidates,
 	HookPhaseOnBeforeDispatch,
 	HookPhaseOnResponseHeaders,
@@ -497,7 +495,7 @@ func phaseAllowsPatchRequest(phase HookPhase) bool {
 
 func phaseAllowsPatchRoute(phase HookPhase) bool {
 	switch phase {
-	case HookPhaseOnModelResolved, HookPhaseOnContextOverflow, HookPhaseOnRouteCandidates, HookPhaseOnBeforeDispatch:
+	case HookPhaseOnModelResolved, HookPhaseOnRouteCandidates, HookPhaseOnBeforeDispatch:
 		return true
 	default:
 		return false

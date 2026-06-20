@@ -960,7 +960,6 @@ func TestRuntimeAdmissionSkipsQPSExhaustedConnectionBeforeLaunch(t *testing.T) {
 		t.Fatalf("expected fallback upstream body model %q, got %q", targetModelID, requestModelID(t, requests[0].Body))
 	}
 	waitForRuntimeTelemetryCounts(t, harness.conn, activeProfileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeRouteReason(t, harness.conn, activeProfileID, "qps_overflow")
 }
 
 func TestRuntimeAdmissionSkipsQPSExhaustedAnthropicConnectionBeforeLaunch(t *testing.T) {
@@ -999,7 +998,6 @@ func TestRuntimeAdmissionSkipsQPSExhaustedAnthropicConnectionBeforeLaunch(t *tes
 		t.Fatalf("expected fallback upstream body model %q, got %q", targetModelID, requestModelID(t, requests[0].Body))
 	}
 	waitForRuntimeTelemetryCounts(t, harness.conn, activeProfileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeRouteReason(t, harness.conn, activeProfileID, "qps_overflow")
 }
 
 func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
@@ -1050,7 +1048,6 @@ func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
 		t.Fatalf("expected no upstream attempts when all connections are admission-rejected, got %d", got)
 	}
 	waitForRuntimeTelemetryCounts(t, harness.conn, activeProfileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeRouteReason(t, harness.conn, activeProfileID, "concurrency_overflow")
 }
 
 func TestRuntimeLoadBalanceSingleDoesNotFailOverAfterPrimaryFailure(t *testing.T) {
@@ -3426,32 +3423,6 @@ func requestModelID(t *testing.T, body []byte) string {
 	}
 	modelID, _ := payload["model"].(string)
 	return modelID
-}
-
-func assertLatestRuntimeRouteReason(t *testing.T, conn *pgx.Conn, profileID int, want string) {
-	t.Helper()
-	assertLatestRuntimeRouteReasonFromTable(t, conn, profileID, "request_logs", want)
-}
-
-func assertLatestRuntimeUsageRouteReason(t *testing.T, conn *pgx.Conn, profileID int, want string) {
-	t.Helper()
-	assertLatestRuntimeRouteReasonFromTable(t, conn, profileID, "usage_request_events", want)
-}
-
-func assertLatestRuntimeRouteReasonFromTable(t *testing.T, conn *pgx.Conn, profileID int, table string, want string) {
-	t.Helper()
-	var rawContextRouting []byte
-	query := fmt.Sprintf(`SELECT COALESCE(context_routing, '{}'::jsonb) FROM %s WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, table)
-	if err := conn.QueryRow(context.Background(), query, profileID).Scan(&rawContextRouting); err != nil {
-		t.Fatalf("load latest runtime context routing from %s for profile %d: %v", table, profileID, err)
-	}
-	var contextRouting map[string]any
-	if err := json.Unmarshal(rawContextRouting, &contextRouting); err != nil {
-		t.Fatalf("decode latest runtime context routing %q: %v", string(rawContextRouting), err)
-	}
-	if got, _ := contextRouting["route_reason"].(string); got != want {
-		t.Fatalf("expected latest runtime route_reason=%q from %s, got %+v", want, table, contextRouting)
-	}
 }
 
 func marshalNullableJSON(tb testing.TB, value any) any {

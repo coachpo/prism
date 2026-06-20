@@ -111,8 +111,6 @@ func NormalizeRouteReason(reason gatewaycore.RouteReason) gatewaycore.RouteReaso
 		gatewaycore.RouteReasonRetry429,
 		gatewaycore.RouteReasonRetry5xx,
 		gatewaycore.RouteReasonRetryConnectTimeout,
-		gatewaycore.RouteReasonContextOverflowPreflight,
-		gatewaycore.RouteReasonContextOverflowProviderFallback,
 		gatewaycore.RouteReasonCircuitOpenSkip,
 		gatewaycore.RouteReasonNoHealthyUpstream,
 		gatewaycore.RouteReasonPolicyReject:

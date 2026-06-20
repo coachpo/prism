@@ -3,22 +3,20 @@ package core
 type RouteReason string
 
 const (
-	RouteReasonDirectMatch                     RouteReason = "direct_match"
-	RouteReasonModelRedirect                   RouteReason = "model_redirect"
-	RouteReasonUpstreamRedirect                RouteReason = "upstream_redirect"
-	RouteReasonQPSOverflow                     RouteReason = "qps_overflow"
-	RouteReasonRPMOverflow                     RouteReason = "rpm_overflow"
-	RouteReasonTPMOverflow                     RouteReason = "tpm_overflow"
-	RouteReasonIPMOverflow                     RouteReason = "ipm_overflow"
-	RouteReasonConcurrencyOverflow             RouteReason = "concurrency_overflow"
-	RouteReasonRetry429                        RouteReason = "retry_429"
-	RouteReasonRetry5xx                        RouteReason = "retry_5xx"
-	RouteReasonRetryConnectTimeout             RouteReason = "retry_connect_timeout"
-	RouteReasonContextOverflowPreflight        RouteReason = "context_overflow_preflight"
-	RouteReasonContextOverflowProviderFallback RouteReason = "context_overflow_provider_fallback"
-	RouteReasonCircuitOpenSkip                 RouteReason = "circuit_open_skip"
-	RouteReasonNoHealthyUpstream               RouteReason = "no_healthy_upstream"
-	RouteReasonPolicyReject                    RouteReason = "policy_reject"
+	RouteReasonDirectMatch         RouteReason = "direct_match"
+	RouteReasonModelRedirect       RouteReason = "model_redirect"
+	RouteReasonUpstreamRedirect    RouteReason = "upstream_redirect"
+	RouteReasonQPSOverflow         RouteReason = "qps_overflow"
+	RouteReasonRPMOverflow         RouteReason = "rpm_overflow"
+	RouteReasonTPMOverflow         RouteReason = "tpm_overflow"
+	RouteReasonIPMOverflow         RouteReason = "ipm_overflow"
+	RouteReasonConcurrencyOverflow RouteReason = "concurrency_overflow"
+	RouteReasonRetry429            RouteReason = "retry_429"
+	RouteReasonRetry5xx            RouteReason = "retry_5xx"
+	RouteReasonRetryConnectTimeout RouteReason = "retry_connect_timeout"
+	RouteReasonCircuitOpenSkip     RouteReason = "circuit_open_skip"
+	RouteReasonNoHealthyUpstream   RouteReason = "no_healthy_upstream"
+	RouteReasonPolicyReject        RouteReason = "policy_reject"
 )
 
 type UsageSource string

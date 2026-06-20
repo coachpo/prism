@@ -363,7 +363,7 @@ func newRuntimeImageEditMultipartBody(t *testing.T, model string) ([]byte, strin
 func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAIProbeEndpointVariant string, openAITextCapability string) seededRuntimeRoute {
 	t.Helper()
 	suffix := randomSuffix()
-	strategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-"+suffix, "cheapest_eligible_context")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-"+suffix, "fill-first")
 	publicModelID := publicModelPrefix + "-" + suffix
 	targetModelID := targetModelPrefix + "-" + suffix
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)

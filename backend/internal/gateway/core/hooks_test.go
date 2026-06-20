@@ -18,7 +18,6 @@ func TestHookPhasesExposeCanonicalOrder(t *testing.T) {
 		HookPhaseOnPostNormalize,
 		HookPhaseOnModelResolved,
 		HookPhaseOnPreTokenCount,
-		HookPhaseOnContextOverflow,
 		HookPhaseOnRouteCandidates,
 		HookPhaseOnBeforeDispatch,
 		HookPhaseOnResponseHeaders,

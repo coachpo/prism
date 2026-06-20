@@ -634,14 +634,6 @@ func TestBuildRequestPlan_ModelAcceptedFormatResponsesIncludeDropsForChatOnlyFal
 	if got := extractModelFromBody(plan.UpstreamBody); got != "deepseek-v4-pro" {
 		t.Fatalf("expected translated upstream body model deepseek-v4-pro, got %q in %s", got, string(plan.UpstreamBody))
 	}
-	if plan.ContextRouting == nil || plan.ContextRouting.TranslationLoss == nil {
-		t.Fatalf("expected translation loss metadata for deployed responses_include fallback, got %+v", plan.ContextRouting)
-	}
-	if got := plan.ContextRouting.TranslationLoss.Direction; got != "responses_to_chat" {
-		t.Fatalf("expected translation loss direction responses_to_chat, got %+v", plan.ContextRouting.TranslationLoss)
-	}
-	assertRuntimeStringSliceContainsAll(t, plan.ContextRouting.TranslationLoss.DroppedFields, []string{"responses_include", "responses_text.verbosity", "responses_reasoning.encrypted_content"}, "dropped fields")
-	assertRuntimeStringSliceContainsAll(t, plan.ContextRouting.TranslationLoss.MappedFields, []string{"responses_text.format", "responses_reasoning.effort"}, "mapped fields")
 }
 
 func TestBuildRequestPlan_ResponsesToChatUsesSelectedTargetForMaxOutputTokenField(t *testing.T) {
@@ -701,10 +693,6 @@ func TestBuildRequestPlan_ResponsesUnsupportedToolsRecordLossyDrops(t *testing.T
 	if _, ok := payload["tools"]; ok {
 		t.Fatalf("expected unsupported responses tools to drop from translated body, got %s", string(plan.UpstreamBody))
 	}
-	if plan.ContextRouting == nil || plan.ContextRouting.TranslationLoss == nil {
-		t.Fatalf("expected translation loss metadata for dropped responses tools, got %+v", plan.ContextRouting)
-	}
-	assertRuntimeStringSliceContainsAll(t, plan.ContextRouting.TranslationLoss.DroppedFields, []string{"responses_tools.0", "responses_tool_choice", "responses_parallel_tool_calls"}, "dropped fields")
 }
 
 func TestBuildRequestPlan_AdapterGatedResponsesIngressCanUseChatOnlyTarget(t *testing.T) {

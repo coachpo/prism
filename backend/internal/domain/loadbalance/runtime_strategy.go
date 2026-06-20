@@ -207,10 +207,6 @@ func isSingleStrategy(strategy RuntimeStrategy) bool {
 	return isLegacyStrategyType(strategy, "single")
 }
 
-func (strategy RuntimeStrategy) IsCheapestEligibleContextStrategy() bool {
-	return isLegacyStrategyType(strategy, "cheapest_eligible_context")
-}
-
 func isLegacyStrategyType(strategy RuntimeStrategy, legacyType string) bool {
 	if strategy.LegacyStrategyType == nil {
 		return false

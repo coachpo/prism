@@ -15,12 +15,12 @@ type proxySelectorExpectedRequest struct {
 	ModelID string
 }
 
-func TestRuntimeCheapestEligibleContextNoFitReturns413WithoutUpstreamAttemptOrBanMutation(t *testing.T) {
+func TestRuntimeFillFirstIgnoresContextFitAfterContextRoutingRemoval(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "gpt-5-cheapest-no-fit-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "cheapest-no-fit-"+suffix, "cheapest_eligible_context")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "context-no-fit-"+suffix, "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	smallEndpointID := harness.seedEndpoint(t, profileID, "cheapest-no-fit-small-"+suffix, harness.upstream.baseURL("/cheapest/no-fit/small"), "cheapest-no-fit-small-key", 0)
 	largeEndpointID := harness.seedEndpoint(t, profileID, "cheapest-no-fit-large-"+suffix, harness.upstream.baseURL("/cheapest/no-fit/large"), "cheapest-no-fit-large-key", 1)
@@ -37,35 +37,8 @@ func TestRuntimeCheapestEligibleContextNoFitReturns413WithoutUpstreamAttemptOrBa
 	seededAt := time.Now().UTC().Add(-time.Minute)
 	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: smallConnectionID, CycleRetryAttempts: 2, CumulativeRetryAttempts: 5, BanMode: "off", UpdatedAt: seededAt, CreatedAt: seededAt})
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
-	assertStatus(t, response, http.StatusRequestEntityTooLarge)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	if got, _ := payload["error"].(string); got != "context_window_exceeded" {
-		t.Fatalf("expected context_window_exceeded error, got %+v", payload)
-	}
-	if got, _ := payload["detail"].(string); got != "No configured target can fit the estimated request context." {
-		t.Fatalf("expected pinned 413 detail, got %+v", payload)
-	}
-	if got, ok := payload["largest_usable_context_window_tokens"].(float64); !ok || int(got) != 400 {
-		t.Fatalf("expected largest usable context window 400, got %+v", payload)
-	}
-	if got, ok := payload["estimated_total_context_tokens"].(float64); !ok || int(got) <= 400 {
-		t.Fatalf("expected estimated total context tokens to exceed 400, got %+v", payload)
-	}
-	if got, _ := payload["requested_model_id"].(string); got != publicModelID {
-		t.Fatalf("expected requested_model_id %q, got %+v", publicModelID, payload)
-	}
-	consideredPath, ok := payload["considered_model_path"].([]any)
-	if !ok || len(consideredPath) != 1 || consideredPath[0] != publicModelID {
-		t.Fatalf("expected considered_model_path [%q], got %+v", publicModelID, payload)
-	}
-	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected no upstream requests for planner-side 413, got %d", got)
-	}
-	state := loadRuntimeState(t, harness, profileID, smallConnectionID)
-	if state.CycleRetryAttempts != 2 || state.CumulativeRetryAttempts != 5 || state.BanMode != "off" || state.NextRetryAt.Valid {
-		t.Fatalf("expected no-fit planner rejection to leave runtime failure state untouched, got %+v", state)
-	}
+	assertStatus(t, response, http.StatusOK)
+	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/cheapest/no-fit/small/v1/chat/completions", ModelID: publicModelID}})
 }
 
 func TestResponsesEstimationUnavailablePassesThrough(t *testing.T) {
@@ -136,7 +109,7 @@ func TestChatCompletionsEstimationUnavailablePassesThrough(t *testing.T) {
 	}
 }
 
-func TestContextWindowExceededNoFitStillReturns413(t *testing.T) {
+func TestContextWindowExceededNoFitRoutesAfterContextRoutingRemoval(t *testing.T) {
 	harnessFactories := []struct {
 		name    string
 		factory func(testing.TB) *runtimeHarness
@@ -151,7 +124,7 @@ func TestContextWindowExceededNoFitStillReturns413(t *testing.T) {
 			profileID := harness.activeProfileID(t)
 			suffix := randomSuffix()
 			publicModelID := "gpt-5-context-window-exceeded-public-" + suffix
-			strategyID := harness.seedLegacyStrategy(t, profileID, "context-window-exceeded-"+suffix, "cheapest_eligible_context")
+			strategyID := harness.seedLegacyStrategy(t, profileID, "context-window-exceeded-"+suffix, "fill-first")
 			publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 			smallEndpointID := harness.seedEndpoint(t, profileID, "context-window-exceeded-small-"+suffix, harness.upstream.baseURL("/context-window-exceeded/small"), "context-window-exceeded-small-key", 0)
 			largeEndpointID := harness.seedEndpoint(t, profileID, "context-window-exceeded-large-"+suffix, harness.upstream.baseURL("/context-window-exceeded/large"), "context-window-exceeded-large-key", 1)
@@ -166,14 +139,8 @@ func TestContextWindowExceededNoFitStillReturns413(t *testing.T) {
 				"model":                 publicModelID,
 				"max_completion_tokens": 600,
 			}, nil)
-			assertStatus(t, response, http.StatusRequestEntityTooLarge)
-			payload := runtimeResponsePayload(t, response)
-			if payload["error"] != "context_window_exceeded" {
-				t.Fatalf("expected context_window_exceeded payload, got %+v", payload)
-			}
-			if got := len(harness.upstream.requestsSnapshot()); got != 0 {
-				t.Fatalf("expected no upstream requests for no-fit 413, got %d", got)
-			}
+			assertStatus(t, response, http.StatusOK)
+			assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/context-window-exceeded/small/v1/chat/completions", ModelID: publicModelID}})
 		})
 	}
 }
@@ -203,14 +170,14 @@ func TestNonNativeOpenAITargetIsNotSelectedByGenericPlanner(t *testing.T) {
 	}})
 }
 
-func TestRuntimeCheapestEligibleContextSelectsLargerNestedTerminalBeforeUpstreamAttempt(t *testing.T) {
+func TestRuntimeFillFirstSelectsFirstNestedTerminalAfterContextRoutingRemoval(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "gpt-5-cheapest-nested-public-" + suffix
 	childModelID := "gpt-5-cheapest-nested-child-" + suffix
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
-	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "gpt-5-cheapest-nested-public-"+suffix, "cheapest_eligible_context")
+	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "gpt-5-context-nested-public-"+suffix, "fill-first")
 	childStrategyID := harness.seedLegacyStrategy(t, profileID, "gpt-5-cheapest-nested-child-"+suffix, "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &publicStrategyID)
 	childModelConfigID := harness.seedModel(t, profileID, "openai", childModelID, "native", &childStrategyID)
@@ -227,7 +194,7 @@ func TestRuntimeCheapestEligibleContextSelectsLargerNestedTerminalBeforeUpstream
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "nested oversized request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
 	assertStatus(t, response, http.StatusOK)
 	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/cheapest/nested/large/v1/chat/completions",
+		Path:    "/cheapest/nested/small/v1/chat/completions",
 		ModelID: childModelID,
 	}})
 }
@@ -452,12 +419,12 @@ func TestProxySelectorTopologyCascadeDirectGPT54UsesItsOwnLongContextTerminalPat
 	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek fallback tier")
 }
 
-func TestProxySelectorPreferredContextPreferredBandWinsOverCheaperDiscretionaryTarget(t *testing.T) {
+func TestProxySelectorFillFirstKeepsEarlierContextFitCandidate(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "gpt-5-proxy-selector-preferred-band-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-preferred-band-"+suffix, "cheapest_eligible_context")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-fill-first-context-"+suffix, "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	preferredEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-preferred-band-preferred-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/preferred"), "proxy-selector-preferred-band-preferred-key", 0)
 	discretionaryEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-preferred-band-discretionary-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/discretionary"), "proxy-selector-preferred-band-discretionary-key", 1)
@@ -478,17 +445,17 @@ func TestProxySelectorPreferredContextPreferredBandWinsOverCheaperDiscretionaryT
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "preferred band wins over cheaper discretionary"}}, "model": publicModelID, "max_completion_tokens": 256}, nil)
 	assertStatus(t, response, http.StatusOK)
 	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/proxy-selector/preferred-context/preferred/v1/chat/completions",
+		Path:    "/proxy-selector/preferred-context/discretionary/v1/chat/completions",
 		ModelID: publicModelID,
 	}})
 }
 
-func TestProxySelectorPreferredContextFallsBackToDiscretionaryWhenNoPreferredCandidatesExist(t *testing.T) {
+func TestProxySelectorFillFirstSkipsEarlierContextIneligibleCandidate(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "gpt-5-proxy-selector-discretionary-fallback-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-discretionary-fallback-"+suffix, "cheapest_eligible_context")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-fallback-"+suffix, "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	expensiveEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-discretionary-fallback-expensive-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/fallback-expensive"), "proxy-selector-discretionary-fallback-expensive-key", 0)
 	cheapEndpointID := harness.seedEndpoint(t, profileID, "proxy-selector-discretionary-fallback-cheap-"+suffix, harness.upstream.baseURL("/proxy-selector/preferred-context/fallback-cheap"), "proxy-selector-discretionary-fallback-cheap-key", 1)
@@ -499,7 +466,7 @@ func TestProxySelectorPreferredContextFallsBackToDiscretionaryWhenNoPreferredCan
 	attachRuntimeConnectionPricingTemplate(t, harness, expensiveConnectionID, expensivePricingTemplateID)
 	attachRuntimeConnectionPricingTemplate(t, harness, cheapConnectionID, cheapPricingTemplateID)
 	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, expensiveConnectionID, 1000, 4096, 1.0, 0.10, now); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, expensiveConnectionID, 200, 4096, 1.0, 0.10, now); err != nil {
 		t.Fatalf("update discretionary-fallback expensive connection capabilities: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, cheapConnectionID, 1000, 4096, 1.0, 0.15, now); err != nil {
@@ -509,7 +476,7 @@ func TestProxySelectorPreferredContextFallsBackToDiscretionaryWhenNoPreferredCan
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "no preferred candidates still route"}}, "model": publicModelID, "max_completion_tokens": 256}, nil)
 	assertStatus(t, response, http.StatusOK)
 	assertProxySelectorRequestSequence(t, harness.upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/proxy-selector/preferred-context/fallback-cheap/v1/chat/completions",
+		Path:    "/proxy-selector/preferred-context/fallback-expensive/v1/chat/completions",
 		ModelID: publicModelID,
 	}})
 }
@@ -519,7 +486,7 @@ func TestProxySelectorContextRankingTranslatedCandidateWinsByPolicyOrder(t *test
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "proxy-selector-context-ranking-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-ranking-"+suffix, "cheapest_eligible_context")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-ranking-"+suffix, "fill-first")
 	modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
 		"id":     "proxy-selector-context-ranking-translated-chat",
@@ -581,7 +548,7 @@ func TestProxySelectorContextRankingChatTranslatedCandidateWinsByPolicyOrder(t *
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "proxy-selector-context-ranking-chat-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-ranking-chat-"+suffix, "cheapest_eligible_context")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-ranking-chat-"+suffix, "fill-first")
 	modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
 		"id": "proxy-selector-context-ranking-translated-responses",
@@ -639,7 +606,7 @@ func TestProxySelectorContextRankingResponsesIncludeLossyFallback(t *testing.T) 
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "proxy-selector-context-ranking-include-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-ranking-include-"+suffix, "cheapest_eligible_context")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "proxy-selector-context-ranking-include-"+suffix, "fill-first")
 	modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	translatedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
 		"id":     "proxy-selector-context-ranking-include-translated-chat",
@@ -981,8 +948,6 @@ func TestRuntimeModelRedirectReentersLoadBalancingAndPersistsRouteReason(t *test
 	assertProxySelectorRequestSequence(t, secondUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/redirect/model/second/v1/chat/completions", ModelID: redirectedModelID}})
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 2, OutboxRows: 0}, 5*time.Second)
 	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, publicModelID, redirectedModelID)
-	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "model_redirect")
-	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "model_redirect")
 }
 
 func TestRuntimeUpstreamRedirectPinsCandidateWithoutChangingModel(t *testing.T) {
@@ -1008,8 +973,6 @@ func TestRuntimeUpstreamRedirectPinsCandidateWithoutChangingModel(t *testing.T) 
 	assertProxySelectorRequestSequence(t, pinnedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/redirect/upstream/pinned/v1/chat/completions", ModelID: requestedModelID}})
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, requestedModelID, requestedModelID)
-	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "upstream_redirect")
-	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "upstream_redirect")
 	if modelConfigID := harness.modelConfigIDForConnection(t, connectionID); modelConfigID != requestedModelConfigID {
 		t.Fatalf("expected pinned connection to stay owned by requested model config %d, got %d", requestedModelConfigID, modelConfigID)
 	}
@@ -1321,8 +1284,6 @@ func TestRuntimeProxySelectorRetriesProvider429AndPersistsRouteReason(t *testing
 	assertProxySelectorRequestSequence(t, primaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/429/primary/v1/chat/completions", ModelID: modelID}})
 	assertProxySelectorRequestSequence(t, secondaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/429/secondary/v1/chat/completions", ModelID: modelID}})
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "retry_429")
-	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "retry_429")
 }
 
 func TestRuntimeProxySelectorRetriesConfiguredProvider5xxAndPersistsRouteReason(t *testing.T) {
@@ -1340,8 +1301,6 @@ func TestRuntimeProxySelectorRetriesConfiguredProvider5xxAndPersistsRouteReason(
 	assertProxySelectorRequestSequence(t, primaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/5xx/primary/v1/chat/completions", ModelID: modelID}})
 	assertProxySelectorRequestSequence(t, secondaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/5xx/secondary/v1/chat/completions", ModelID: modelID}})
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "retry_5xx")
-	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "retry_5xx")
 }
 
 func TestRuntimeProxySelectorDoesNotRetryAuthOrValidationProviderErrors(t *testing.T) {
@@ -1392,8 +1351,6 @@ func TestRuntimeProxySelectorRetriesConnectTimeoutAndPersistsRouteReason(t *test
 	assertResponseField(t, response, "id", "chatcmpl-retry-connect-timeout-secondary")
 	assertProxySelectorRequestSequence(t, secondaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/retry/connect-timeout/secondary/v1/chat/completions", ModelID: modelID}})
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeRouteReason(t, harness.conn, profileID, "retry_connect_timeout")
-	assertLatestRuntimeUsageRouteReason(t, harness.conn, profileID, "retry_connect_timeout")
 }
 
 func seedRetryPolicyNativeRoute(t *testing.T, harness *runtimeHarness, profileID int, modelID string, primaryBaseURL string, secondaryBaseURL string) {
@@ -1500,31 +1457,27 @@ func TestResolveModelAccessFromRoutingPlanFlatPoolPreservedForOrdinaryModels(t *
 		assertProxySelectorRequestSequence(t, secondUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/flat-preserved/round/second/v1/chat/completions", ModelID: modelID}})
 	})
 
-	t.Run("cheapest_eligible_context", func(t *testing.T) {
+	t.Run("fill_first", func(t *testing.T) {
 		harness := newRuntimeHarness(t)
 		profileID := harness.activeProfileID(t)
 		suffix := randomSuffix()
-		expensiveUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "expensive-should-not-win"})
-		cheapUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "flat-cheap", "object": "chat.completion", "usage": map[string]any{"prompt_tokens": 6, "completion_tokens": 3, "total_tokens": 9}})
-		modelID := "gpt-5-flat-preserved-cheapest-" + suffix
+		firstUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "flat-first", "object": "chat.completion", "usage": map[string]any{"prompt_tokens": 6, "completion_tokens": 3, "total_tokens": 9}})
+		secondUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "second-should-not-win"})
+		modelID := "gpt-5-flat-preserved-fill-first-" + suffix
 		releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
-		strategyID := harness.seedLegacyStrategy(t, profileID, "flat-preserved-cheapest-"+suffix, "cheapest_eligible_context")
+		strategyID := harness.seedLegacyStrategy(t, profileID, "flat-preserved-fill-first-"+suffix, "fill-first")
 		modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
-		expensiveEndpointID := harness.seedEndpoint(t, profileID, "flat-cheapest-expensive-"+suffix, expensiveUpstream.baseURL("/flat-preserved/cheapest/expensive"), "flat-cheapest-expensive-key", 0)
-		cheapEndpointID := harness.seedEndpoint(t, profileID, "flat-cheapest-cheap-"+suffix, cheapUpstream.baseURL("/flat-preserved/cheapest/cheap"), "flat-cheapest-cheap-key", 1)
-		expensiveConnectionID := harness.seedConnection(t, profileID, modelConfigID, expensiveEndpointID, "flat-cheapest-expensive-connection-"+suffix, nil, nil, 0)
-		cheapConnectionID := harness.seedConnection(t, profileID, modelConfigID, cheapEndpointID, "flat-cheapest-cheap-connection-"+suffix, nil, nil, 1)
-		expensivePricingID := insertRuntimePricingTemplate(t, harness.conn, profileID, "flat-cheapest-expensive-"+suffix, "USD", "10", "10", "0", "0", "0")
-		cheapPricingID := insertRuntimePricingTemplate(t, harness.conn, profileID, "flat-cheapest-cheap-"+suffix, "USD", "1", "1", "0", "0", "0")
-		attachRuntimeConnectionPricingTemplate(t, harness, expensiveConnectionID, expensivePricingID)
-		attachRuntimeConnectionPricingTemplate(t, harness, cheapConnectionID, cheapPricingID)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, expensiveConnectionID, 16_384, 1_024, 1.0)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, cheapConnectionID, 16_384, 1_024, 1.0)
+		firstEndpointID := harness.seedEndpoint(t, profileID, "flat-fill-first-first-"+suffix, firstUpstream.baseURL("/flat-preserved/fill-first/first"), "flat-fill-first-first-key", 0)
+		secondEndpointID := harness.seedEndpoint(t, profileID, "flat-fill-first-second-"+suffix, secondUpstream.baseURL("/flat-preserved/fill-first/second"), "flat-fill-first-second-key", 1)
+		firstConnectionID := harness.seedConnection(t, profileID, modelConfigID, firstEndpointID, "flat-fill-first-first-connection-"+suffix, nil, nil, 0)
+		secondConnectionID := harness.seedConnection(t, profileID, modelConfigID, secondEndpointID, "flat-fill-first-second-connection-"+suffix, nil, nil, 1)
+		setRuntimeHarnessConnectionContextCapabilities(t, harness, firstConnectionID, 16_384, 1_024, 1.0)
+		setRuntimeHarnessConnectionContextCapabilities(t, harness, secondConnectionID, 16_384, 1_024, 1.0)
 		releaseRefresh()
 		harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
-		response := performProxySelectorChatRequest(t, harness, modelID, "ordinary cheapest keeps cost ranking")
+		response := performProxySelectorChatRequest(t, harness, modelID, "ordinary fill-first keeps policy ranking")
 		assertStatus(t, response, http.StatusOK)
-		assertNoScriptedUpstreamRequests(t, expensiveUpstream, "expensive cheapest candidate")
-		assertProxySelectorRequestSequence(t, cheapUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/flat-preserved/cheapest/cheap/v1/chat/completions", ModelID: modelID}})
+		assertProxySelectorRequestSequence(t, firstUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{Path: "/flat-preserved/fill-first/first/v1/chat/completions", ModelID: modelID}})
+		assertNoScriptedUpstreamRequests(t, secondUpstream, "second fill-first candidate")
 	})
 }

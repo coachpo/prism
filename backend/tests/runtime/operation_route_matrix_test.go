@@ -684,32 +684,30 @@ func assertRouteMatrixSharedCorePersistence(t *testing.T, harness *runtimeHarnes
 	var logRequestPath string
 	var logEndpointBaseURL string
 	var logConnectionID int
-	var logRouteReason string
 	if err := harness.conn.QueryRow(
 		context.Background(),
-		`SELECT request_path, endpoint_base_url, connection_id, COALESCE(context_routing->>'route_reason', '') FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		`SELECT request_path, endpoint_base_url, connection_id FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
 		profileID,
 		ingressRequestID,
-	).Scan(&logRequestPath, &logEndpointBaseURL, &logConnectionID, &logRouteReason); err != nil {
+	).Scan(&logRequestPath, &logEndpointBaseURL, &logConnectionID); err != nil {
 		t.Fatalf("load route-matrix request_log shared-core fields: %v", err)
 	}
-	if logRequestPath != requestPath || logEndpointBaseURL != route.EndpointBaseURL || logConnectionID != route.ConnectionID || logRouteReason != "model_redirect" {
-		t.Fatalf("expected request_log path/base/connection/reason %q/%q/%d/model_redirect, got %q/%q/%d/%q", requestPath, route.EndpointBaseURL, route.ConnectionID, logRequestPath, logEndpointBaseURL, logConnectionID, logRouteReason)
+	if logRequestPath != requestPath || logEndpointBaseURL != route.EndpointBaseURL || logConnectionID != route.ConnectionID {
+		t.Fatalf("expected request_log path/base/connection %q/%q/%d, got %q/%q/%d", requestPath, route.EndpointBaseURL, route.ConnectionID, logRequestPath, logEndpointBaseURL, logConnectionID)
 	}
 
 	var eventRequestPath string
 	var eventConnectionID int
-	var eventRouteReason string
 	if err := harness.conn.QueryRow(
 		context.Background(),
-		`SELECT request_path, connection_id, COALESCE(context_routing->>'route_reason', '') FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
+		`SELECT request_path, connection_id FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
 		profileID,
 		ingressRequestID,
-	).Scan(&eventRequestPath, &eventConnectionID, &eventRouteReason); err != nil {
+	).Scan(&eventRequestPath, &eventConnectionID); err != nil {
 		t.Fatalf("load route-matrix usage_event shared-core fields: %v", err)
 	}
-	if eventRequestPath != requestPath || eventConnectionID != route.ConnectionID || eventRouteReason != "model_redirect" {
-		t.Fatalf("expected usage_event path/connection/reason %q/%d/model_redirect, got %q/%d/%q", requestPath, route.ConnectionID, eventRequestPath, eventConnectionID, eventRouteReason)
+	if eventRequestPath != requestPath || eventConnectionID != route.ConnectionID {
+		t.Fatalf("expected usage_event path/connection %q/%d, got %q/%d", requestPath, route.ConnectionID, eventRequestPath, eventConnectionID)
 	}
 }
 

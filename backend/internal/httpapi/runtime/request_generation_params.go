@@ -236,10 +236,7 @@ type requestContextEstimationOptions struct {
 
 func estimatePreflightRequestContext(operation RuntimeOperation, rawBody []byte, requestedModel runtimeModelRecord) (*requestContextEstimation, error) {
 	options := requestContextEstimationOptions{
-		ModelID:                   requestedModel.ModelID,
-		DefaultOutputTokenReserve: requestedModel.DefaultOutputTokenReserve,
-		ContextWindowTokens:       requestedModel.ContextWindowTokens,
-		MaxContextUtilization:     requestedModel.MaxContextUtilization,
+		ModelID: requestedModel.ModelID,
 	}
 	switch strings.TrimSpace(operation.Name) {
 	case "openai.chat_completions":

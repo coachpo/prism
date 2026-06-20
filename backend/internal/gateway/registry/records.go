@@ -8,14 +8,13 @@ import (
 )
 
 type ModelProfile struct {
-	ID                               string
-	APIFamily                        string
-	ContextWindowTokens              int
-	DefaultOutputTokenReserve        int
-	MaxContextUtilization            float64
-	RedirectModelID                  string
-	ContextOverflowPromotionTargetID string
-	PreserveResponseShape            bool
+	ID                        string
+	APIFamily                 string
+	ContextWindowTokens       int
+	DefaultOutputTokenReserve int
+	MaxContextUtilization     float64
+	RedirectModelID           string
+	PreserveResponseShape     bool
 }
 
 type UpstreamEndpoint struct {
@@ -116,29 +115,27 @@ const (
 	LoadBalanceFillFirst  LoadBalanceStrategy = "fill-first"
 	LoadBalanceRoundRobin LoadBalanceStrategy = "round-robin"
 
-	RouteReasonDirectMatch                     RouteReason = "direct_match"
-	RouteReasonModelRedirect                   RouteReason = "model_redirect"
-	RouteReasonUpstreamRedirect                RouteReason = "upstream_redirect"
-	RouteReasonQPSOverflow                     RouteReason = "qps_overflow"
-	RouteReasonRPMOverflow                     RouteReason = "rpm_overflow"
-	RouteReasonTPMOverflow                     RouteReason = "tpm_overflow"
-	RouteReasonIPMOverflow                     RouteReason = "ipm_overflow"
-	RouteReasonConcurrencyOverflow             RouteReason = "concurrency_overflow"
-	RouteReasonRetry429                        RouteReason = "retry_429"
-	RouteReasonRetry5xx                        RouteReason = "retry_5xx"
-	RouteReasonRetryConnectTimeout             RouteReason = "retry_connect_timeout"
-	RouteReasonContextOverflowPreflight        RouteReason = "context_overflow_preflight"
-	RouteReasonContextOverflowProviderFallback RouteReason = "context_overflow_provider_fallback"
-	RouteReasonCircuitOpenSkip                 RouteReason = "circuit_open_skip"
-	RouteReasonNoHealthyUpstream               RouteReason = "no_healthy_upstream"
-	RouteReasonPolicyReject                    RouteReason = "policy_reject"
+	RouteReasonDirectMatch         RouteReason = "direct_match"
+	RouteReasonModelRedirect       RouteReason = "model_redirect"
+	RouteReasonUpstreamRedirect    RouteReason = "upstream_redirect"
+	RouteReasonQPSOverflow         RouteReason = "qps_overflow"
+	RouteReasonRPMOverflow         RouteReason = "rpm_overflow"
+	RouteReasonTPMOverflow         RouteReason = "tpm_overflow"
+	RouteReasonIPMOverflow         RouteReason = "ipm_overflow"
+	RouteReasonConcurrencyOverflow RouteReason = "concurrency_overflow"
+	RouteReasonRetry429            RouteReason = "retry_429"
+	RouteReasonRetry5xx            RouteReason = "retry_5xx"
+	RouteReasonRetryConnectTimeout RouteReason = "retry_connect_timeout"
+	RouteReasonCircuitOpenSkip     RouteReason = "circuit_open_skip"
+	RouteReasonNoHealthyUpstream   RouteReason = "no_healthy_upstream"
+	RouteReasonPolicyReject        RouteReason = "policy_reject"
 
 	PriceUnitPerMillionTokens PriceUnit = "per_1m_tokens"
 	PriceUnitPerImage         PriceUnit = "per_image"
 )
 
 var validRouteReasons = map[RouteReason]struct{}{
-	RouteReasonDirectMatch: {}, RouteReasonModelRedirect: {}, RouteReasonUpstreamRedirect: {}, RouteReasonQPSOverflow: {}, RouteReasonRPMOverflow: {}, RouteReasonTPMOverflow: {}, RouteReasonIPMOverflow: {}, RouteReasonConcurrencyOverflow: {}, RouteReasonRetry429: {}, RouteReasonRetry5xx: {}, RouteReasonRetryConnectTimeout: {}, RouteReasonContextOverflowPreflight: {}, RouteReasonContextOverflowProviderFallback: {}, RouteReasonCircuitOpenSkip: {}, RouteReasonNoHealthyUpstream: {}, RouteReasonPolicyReject: {},
+	RouteReasonDirectMatch: {}, RouteReasonModelRedirect: {}, RouteReasonUpstreamRedirect: {}, RouteReasonQPSOverflow: {}, RouteReasonRPMOverflow: {}, RouteReasonTPMOverflow: {}, RouteReasonIPMOverflow: {}, RouteReasonConcurrencyOverflow: {}, RouteReasonRetry429: {}, RouteReasonRetry5xx: {}, RouteReasonRetryConnectTimeout: {}, RouteReasonCircuitOpenSkip: {}, RouteReasonNoHealthyUpstream: {}, RouteReasonPolicyReject: {},
 }
 
 func (profile ModelProfile) Validate() error {
@@ -156,9 +153,6 @@ func (profile ModelProfile) Validate() error {
 	}
 	if sameNonEmpty(profile.ID, profile.RedirectModelID) {
 		issues = append(issues, issue("model_profile_redirect_self", "redirect_model_id", "model redirect cannot target itself"))
-	}
-	if sameNonEmpty(profile.ID, profile.ContextOverflowPromotionTargetID) {
-		issues = append(issues, issue("model_profile_overflow_target_self", "context_overflow_promotion_target_id", "overflow promotion target cannot be itself"))
 	}
 	return newValidationError("ModelProfile", issues)
 }
