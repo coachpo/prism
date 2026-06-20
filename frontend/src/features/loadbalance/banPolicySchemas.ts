@@ -2,7 +2,7 @@ import { z } from "zod"
 import { DEFAULT_BAN_POLICY_FIELDS, normalizeFailureStatusCodes } from "@/lib/loadbalanceRoutingPolicy"
 import type { LoadbalanceStrategy, LoadbalanceStrategyCreate, LoadbalanceStrategyUpdate, LegacyLoadbalanceStrategyType, LoadbalanceBanMode } from "@/lib/types"
 
-export const banPolicyRoutingTypes = ["single", "fill-first", "round-robin", "cheapest_eligible_context"] as const
+export const banPolicyRoutingTypes = ["single", "fill-first", "round-robin"] as const
 export const banPolicyModes = ["off", "temporary", "until_reset"] as const
 
 export type BanPolicyFormValues = {

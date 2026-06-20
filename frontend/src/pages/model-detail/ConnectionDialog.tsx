@@ -46,7 +46,7 @@ import {
   type ConnectionCapabilityFieldName,
   type ConnectionDialogForm,
   type HeaderRow,
-  type OwnerContextCapabilityDefaults,
+  type TerminalTargetCapabilityDefaults,
 } from "./useModelDetailDialogState";
 
 interface ConnectionDialogProps {
@@ -71,7 +71,7 @@ interface ConnectionDialogProps {
   clearDialogTestResult: () => void;
   handleDialogTestConnection: () => Promise<void>;
   endpointSourceDefaultName: string | null;
-  ownerCapabilityDefaults?: Partial<OwnerContextCapabilityDefaults>;
+  terminalTargetCapabilityDefaults?: Partial<TerminalTargetCapabilityDefaults>;
   pricingTemplates: PricingTemplate[];
 }
 
@@ -173,7 +173,7 @@ export function ConnectionDialog({
   clearDialogTestResult,
   handleDialogTestConnection,
   endpointSourceDefaultName,
-  ownerCapabilityDefaults,
+  terminalTargetCapabilityDefaults,
   pricingTemplates,
 }: ConnectionDialogProps) {
   const { messages } = useLocale();
@@ -320,9 +320,9 @@ export function ConnectionDialog({
     setHeaderRows(nextRows);
   };
 
-  const getInheritedCapabilityValue = (field: ConnectionCapabilityFieldName): number | null => {
-    const inheritedValue = ownerCapabilityDefaults?.[field];
-    return inheritedValue == null ? null : inheritedValue;
+  const getDefaultCapabilityValue = (field: ConnectionCapabilityFieldName): number | null => {
+    const defaultValue = terminalTargetCapabilityDefaults?.[field];
+    return defaultValue == null ? null : defaultValue;
   };
 
   const updateContextCapabilityDraft = (
@@ -348,8 +348,8 @@ export function ConnectionDialog({
 
   const handleContextCapabilityReset = (field: ConnectionCapabilityFieldName) => {
     updateContextCapabilityDraft(field, {
-      mode: "inherit",
-      value: stringifyCapabilityValue(getInheritedCapabilityValue(field)),
+      mode: "default",
+      value: stringifyCapabilityValue(getDefaultCapabilityValue(field)),
     });
   };
 
@@ -722,16 +722,16 @@ export function ConnectionDialog({
                     ) : null}
 
                     <ConnectionDialogSection
-                      title={copy.contextRoutingOverrides}
-                      description={copy.contextRoutingOverridesDescription}
-                      dataTestId="connection-dialog-context-routing-overrides-section"
+                      title={copy.terminalTargetCapabilityOverrides}
+                      description={copy.terminalTargetCapabilityOverridesDescription}
+                      dataTestId="connection-dialog-terminal-target-capability-overrides-section"
                     >
                       <div className="flex flex-col gap-2">
                         {contextRoutingOverrideFields.map((field) => {
                           const draft = connectionForm.context_capability_drafts[field.field];
-                          const inheritedValue = getInheritedCapabilityValue(field.field);
-                          const inheritedLabel = copy.inheritedFromModel(
-                            inheritedValue == null ? copy.notSet : String(inheritedValue),
+                          const defaultValue = getDefaultCapabilityValue(field.field);
+                          const defaultLabel = copy.usingDefaultCapability(
+                            defaultValue == null ? copy.notSet : String(defaultValue),
                           );
 
                           return (
@@ -742,8 +742,8 @@ export function ConnectionDialog({
                             >
                               <div className="flex min-w-0 flex-col gap-1.5">
                                 <Label htmlFor={field.id}>{field.label}</Label>
-                                {draft.mode === "inherit" ? (
-                                  <p className="text-xs text-muted-foreground">{inheritedLabel}</p>
+                                {draft.mode === "default" ? (
+                                  <p className="text-xs text-muted-foreground">{defaultLabel}</p>
                                 ) : (
                                   <Input
                                     id={field.id}
@@ -762,7 +762,7 @@ export function ConnectionDialog({
                               </div>
 
                               <div className="flex md:justify-end">
-                                {draft.mode === "inherit" ? (
+                                {draft.mode === "default" ? (
                                   <Button
                                     type="button"
                                     variant="outline"
@@ -778,7 +778,7 @@ export function ConnectionDialog({
                                     size="sm"
                                     onClick={() => handleContextCapabilityReset(field.field)}
                                   >
-                                    {copy.resetToModelDefault}
+                                    {copy.resetToDefault}
                                   </Button>
                                 )}
                               </div>

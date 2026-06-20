@@ -10,10 +10,7 @@ import type {
   PricingTemplate,
   SpendingSummary,
 } from "@/lib/types"
-import {
-  getAccessTargetModelsForApiFamily,
-  getPromotionTargetModelsForApiFamily,
-} from "@/pages/models/modelFormState"
+import { getAccessTargetModelsForApiFamily } from "@/pages/models/modelFormState"
 import {
   type AccessTargetSummary,
   buildAccessTargetSummary,
@@ -95,14 +92,6 @@ export function useModelDetailFeatureData({
   } = useModelDetailDialogState({
     apiFamily: model?.api_family ?? null,
     globalEndpoints,
-    ownerCapabilityDefaults: model
-      ? {
-          context_window_tokens: model.context_window_tokens,
-          default_output_token_reserve: model.default_output_token_reserve,
-          max_context_utilization: model.max_context_utilization,
-          preferred_context_utilization_threshold: model.preferred_context_utilization_threshold,
-        }
-      : undefined,
   })
 
   useModelDetailBootstrap({
@@ -205,10 +194,6 @@ export function useModelDetailFeatureData({
     () => getAccessTargetModelsForApiFamily(allModels, effectiveTargetApiFamily, model?.model_id),
     [allModels, effectiveTargetApiFamily, model?.model_id],
   )
-  const promotionTargetModelsForApiFamily = useMemo(
-    () => getPromotionTargetModelsForApiFamily(allModels, effectiveTargetApiFamily, formData.model_id),
-    [allModels, effectiveTargetApiFamily, formData.model_id],
-  )
   const targetConnectionsForApiFamily = useMemo(
     () => getSameFamilyConnections(allConnections, effectiveTargetApiFamily, modelConfigId),
     [allConnections, effectiveTargetApiFamily, modelConfigId],
@@ -238,7 +223,6 @@ export function useModelDetailFeatureData({
     formData,
     setFormData,
     setLoadbalanceStrategyId,
-    promotionTargetModelsForApiFamily,
     targetConnectionsForApiFamily,
     targetModelsForApiFamily,
     targetEditorError,

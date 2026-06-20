@@ -9,8 +9,7 @@ export type LoadbalanceEventType =
 export type LegacyLoadbalanceStrategyType =
   | "single"
   | "fill-first"
-  | "round-robin"
-  | "cheapest_eligible_context";
+  | "round-robin";
 export type LoadbalanceBanMode = "off" | "temporary" | "until_reset";
 
 export type LoadbalanceFailureKind =

@@ -20,7 +20,6 @@ import type {
   ModelConfigCreate,
   ModelConfigListItem,
   ModelConfigUpdate,
-  OpenAIAcceptedFormat,
   ModelAccessTarget,
   ModelAccessTargetCreate,
   ModelAccessTargetUpdate,
@@ -39,25 +38,10 @@ import type {
 import { normalizeFailureStatusCodes } from "../loadbalanceRoutingPolicy";
 import { request } from "./core";
 
-export type ManagedModelConfigListItem = ModelConfigListItem & {
-  context_overflow_promotion_target_id: string | null;
-  openai_accepted_format: OpenAIAcceptedFormat | null;
-};
-
-export type ManagedModelConfig = ModelConfig & {
-  context_overflow_promotion_target_id: string | null;
-  openai_accepted_format: OpenAIAcceptedFormat | null;
-};
-
-export type ManagedModelConfigCreate = ModelConfigCreate & {
-  context_overflow_promotion_target_id?: string | null;
-  openai_accepted_format?: OpenAIAcceptedFormat | null;
-};
-
-export type ManagedModelConfigUpdate = ModelConfigUpdate & {
-  context_overflow_promotion_target_id?: string | null;
-  openai_accepted_format?: OpenAIAcceptedFormat | null;
-};
+export type ManagedModelConfigListItem = ModelConfigListItem;
+export type ManagedModelConfig = ModelConfig;
+export type ManagedModelConfigCreate = ModelConfigCreate;
+export type ManagedModelConfigUpdate = ModelConfigUpdate;
 
 type RawLoadbalanceBanPolicyFields = {
   legacy_strategy_type?: unknown;
@@ -134,16 +118,6 @@ function unsupportedManagementModel(reason: string): never {
   throw new Error(`Unsupported model contract from management API: ${reason}`);
 }
 
-function normalizeOptionalString(value: unknown, field: string): string | null {
-  if (value == null) {
-    return null;
-  }
-  if (typeof value !== "string") {
-    unsupportedManagementModel(field);
-  }
-  return value;
-}
-
 function normalizeModelAccessTarget(target: RawModelAccessTarget): ModelAccessTarget {
   const obsoleteTarget = target as unknown as Record<string, unknown>;
   const obsoleteTargetPriority = "target_priority";
@@ -176,8 +150,7 @@ function normalizeLegacyStrategyType(value: unknown): LegacyLoadbalanceStrategyT
   if (
     value === "single" ||
     value === "fill-first" ||
-    value === "round-robin" ||
-    value === "cheapest_eligible_context"
+    value === "round-robin"
   ) {
     return value;
   }
@@ -269,25 +242,39 @@ function normalizeLoadbalanceStrategy(strategy: RawLoadbalanceStrategy): Loadbal
 
 function normalizeModelConfigListItem(model: RawModelConfigListItem): ManagedModelConfigListItem {
   return {
-    ...model,
-    context_overflow_promotion_target_id: normalizeOptionalString(
-      model.context_overflow_promotion_target_id,
-      "context_overflow_promotion_target_id",
-    ),
+    id: model.id,
+    profile_id: model.profile_id,
+    api_family: model.api_family,
+    model_id: model.model_id,
+    display_name: model.display_name,
+    openai_accepted_format: model.openai_accepted_format,
+    loadbalance_strategy_id: model.loadbalance_strategy_id,
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(model.loadbalance_strategy),
     access_targets: model.access_targets.map(normalizeModelAccessTarget),
+    is_enabled: model.is_enabled,
+    connection_count: model.connection_count,
+    active_connection_count: model.active_connection_count,
+    health_success_rate: model.health_success_rate,
+    health_total_requests: model.health_total_requests,
+    created_at: model.created_at,
+    updated_at: model.updated_at,
   };
 }
 
 function normalizeModelConfig(model: RawModelConfig): ManagedModelConfig {
   return {
-    ...model,
-    context_overflow_promotion_target_id: normalizeOptionalString(
-      model.context_overflow_promotion_target_id,
-      "context_overflow_promotion_target_id",
-    ),
+    id: model.id,
+    profile_id: model.profile_id,
+    api_family: model.api_family,
+    model_id: model.model_id,
+    display_name: model.display_name,
+    openai_accepted_format: model.openai_accepted_format,
+    loadbalance_strategy_id: model.loadbalance_strategy_id,
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(model.loadbalance_strategy),
     access_targets: model.access_targets.map(normalizeModelAccessTarget),
+    is_enabled: model.is_enabled,
+    created_at: model.created_at,
+    updated_at: model.updated_at,
   };
 }
 

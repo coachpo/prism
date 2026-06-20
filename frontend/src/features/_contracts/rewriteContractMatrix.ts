@@ -184,8 +184,8 @@ export const rewriteContractMatrix = {
       featureOwner: "src/features/models/",
       scope: "protected-selected-profile",
       protection: "Selected profile scopes model CRUD through X-Profile-Id; active runtime profile is not changed by selection.",
-      workflows: ["model list/create/edit/search", "api-family grouping", "context overflow promotion target"],
-      deletionCriterion: "Old models directory deleted after model CRUD and promotion target parity tests pass.",
+      workflows: ["model list/create/edit/search", "api-family grouping", "access-target authoring"],
+      deletionCriterion: "Old models directory deleted after model CRUD and access-target parity tests pass.",
     },
     {
       currentPath: "/models/:id",
@@ -709,4 +709,3 @@ export function renderRewriteContractMatrixMarkdown(matrix: RewriteContractMatri
 
   return `${lines.join("\n").trimEnd()}\n`;
 }
-

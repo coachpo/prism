@@ -16,7 +16,6 @@ import {
   DEFAULT_MODEL_FORM_DATA,
   getAccessTargetModelsForApiFamily,
   getAccessTargetOptionKeys,
-  getPromotionTargetModelsForApiFamily,
   type ModelFormData,
   type ModelFormValidationError,
   setLoadbalanceStrategyIdOnForm,
@@ -37,16 +36,6 @@ function getModelValidationMessage(
       return messages.modelsData.modelIdRequired;
     case "openai_accepted_format_invalid":
       return messages.modelsData.openaiAcceptedFormatInvalid;
-    case "context_window_tokens_invalid":
-      return messages.modelsData.contextWindowTokensInvalid;
-    case "default_output_token_reserve_invalid":
-      return messages.modelsData.defaultOutputTokenReserveInvalid;
-    case "max_context_utilization_invalid":
-      return messages.modelsData.maxContextUtilizationInvalid;
-    case "preferred_context_utilization_threshold_invalid":
-      return messages.modelsData.preferredContextUtilizationThresholdInvalid;
-    case "preferred_context_utilization_threshold_exceeds_max":
-      return messages.modelsData.preferredContextUtilizationThresholdExceedsMaxContextUtilization;
     default:
       return null;
   }
@@ -273,11 +262,6 @@ export function useModelsPageData(revision: number) {
     formData.api_family ?? "openai",
     editingModel ? formData.model_id : undefined,
   );
-  const promotionTargetModelsForApiFamily = getPromotionTargetModelsForApiFamily(
-    models,
-    formData.api_family ?? "openai",
-    formData.model_id,
-  );
 
   const filtered = useMemo(
     () =>
@@ -315,7 +299,6 @@ export function useModelsPageData(revision: number) {
     modelMetrics24h,
     modelSpend30dMicros,
     models,
-    promotionTargetModelsForApiFamily,
     targetModelsForApiFamily,
     search,
     setDeleteTarget,

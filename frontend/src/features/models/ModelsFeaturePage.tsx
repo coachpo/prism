@@ -111,7 +111,6 @@ export function ModelsFeaturePage() {
         formError={data.formError}
         isDialogOpen={data.isDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
-        promotionTargetModelsForApiFamily={data.promotionTargetModelsForApiFamily}
         targetModelsForApiFamily={data.targetModelsForApiFamily}
         setFormData={data.setFormData}
         setIsDialogOpen={data.setIsDialogOpen}

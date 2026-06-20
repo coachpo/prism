@@ -24,7 +24,7 @@ export interface HeaderRow {
 export type ConnectionCapabilityFieldName = keyof ContextCapabilityOverrides;
 
 export interface ConnectionCapabilityDraft {
-  mode: "inherit" | "override";
+  mode: "default" | "override";
   value: string;
 }
 
@@ -33,9 +33,9 @@ export interface ConnectionDialogForm
   context_capability_drafts: Record<ConnectionCapabilityFieldName, ConnectionCapabilityDraft>;
 }
 
-export type OwnerContextCapabilityDefaults = Pick<ContextCapabilityFields, ConnectionCapabilityFieldName>;
+export type TerminalTargetCapabilityDefaults = Pick<ContextCapabilityFields, ConnectionCapabilityFieldName>;
 
-type ConnectionCapabilityInheritedValues = Partial<Record<ConnectionCapabilityFieldName, number | null>>;
+type ConnectionCapabilityDefaultValues = Partial<Record<ConnectionCapabilityFieldName, number | null>>;
 
 const CONNECTION_CAPABILITY_FIELDS: ConnectionCapabilityFieldName[] = [
   "context_window_tokens",
@@ -62,7 +62,7 @@ function stringifyCapabilityDraftValue(value: number | null | undefined): string
 
 function createConnectionCapabilityDraft(
   overrideValue: number | null | undefined,
-  inheritedValue: number | null | undefined,
+  defaultValue: number | null | undefined,
 ): ConnectionCapabilityDraft {
   if (typeof overrideValue === "number") {
     return {
@@ -72,38 +72,38 @@ function createConnectionCapabilityDraft(
   }
 
   return {
-    mode: "inherit",
-    value: stringifyCapabilityDraftValue(inheritedValue),
+    mode: "default",
+    value: stringifyCapabilityDraftValue(defaultValue),
   };
 }
 
 function createConnectionCapabilityDrafts(
   overrides?: ContextCapabilityOverrides,
-  inheritedValues?: ConnectionCapabilityInheritedValues,
+  defaultValues?: ConnectionCapabilityDefaultValues,
 ): Record<ConnectionCapabilityFieldName, ConnectionCapabilityDraft> {
   return {
     context_window_tokens: createConnectionCapabilityDraft(
       overrides?.context_window_tokens,
-      inheritedValues?.context_window_tokens,
+      defaultValues?.context_window_tokens,
     ),
     default_output_token_reserve: createConnectionCapabilityDraft(
       overrides?.default_output_token_reserve,
-      inheritedValues?.default_output_token_reserve,
+      defaultValues?.default_output_token_reserve,
     ),
     max_context_utilization: createConnectionCapabilityDraft(
       overrides?.max_context_utilization,
-      inheritedValues?.max_context_utilization,
+      defaultValues?.max_context_utilization,
     ),
     preferred_context_utilization_threshold: createConnectionCapabilityDraft(
       overrides?.preferred_context_utilization_threshold,
-      inheritedValues?.preferred_context_utilization_threshold,
+      defaultValues?.preferred_context_utilization_threshold,
     ),
   };
 }
 
 export function createDefaultConnectionForm(
   apiFamily: ApiFamily | null = null,
-  ownerCapabilityDefaults?: Partial<OwnerContextCapabilityDefaults>,
+  terminalTargetCapabilityDefaults?: Partial<TerminalTargetCapabilityDefaults>,
 ): ConnectionDialogForm {
   const resolvedApiFamily = apiFamily ?? "openai";
 
@@ -120,7 +120,7 @@ export function createDefaultConnectionForm(
     qps_limit: null,
     max_in_flight_non_stream: null,
     max_in_flight_stream: null,
-    context_capability_drafts: createConnectionCapabilityDrafts(undefined, ownerCapabilityDefaults),
+    context_capability_drafts: createConnectionCapabilityDrafts(undefined, terminalTargetCapabilityDefaults),
   };
 }
 
@@ -128,12 +128,12 @@ export function createEditConnectionForm(
   connection: Connection,
   options?: {
     apiFamily?: ApiFamily | null;
-    ownerCapabilityDefaults?: Partial<OwnerContextCapabilityDefaults>;
+    terminalTargetCapabilityDefaults?: Partial<TerminalTargetCapabilityDefaults>;
   },
 ): ConnectionDialogForm {
-  const inheritedValues = CONNECTION_CAPABILITY_FIELDS.reduce<ConnectionCapabilityInheritedValues>(
+  const defaultValues = CONNECTION_CAPABILITY_FIELDS.reduce<ConnectionCapabilityDefaultValues>(
     (drafts, field) => {
-      drafts[field] = options?.ownerCapabilityDefaults?.[field] ?? connection[field];
+      drafts[field] = options?.terminalTargetCapabilityDefaults?.[field] ?? connection[field];
       return drafts;
     },
     {},
@@ -161,7 +161,7 @@ export function createEditConnectionForm(
     max_in_flight_stream: connection.max_in_flight_stream,
     context_capability_drafts: createConnectionCapabilityDrafts(
       connection.context_capability_overrides,
-      inheritedValues,
+      defaultValues,
     ),
   };
 }
@@ -169,13 +169,13 @@ export function createEditConnectionForm(
 interface UseModelDetailDialogStateInput {
   apiFamily: ApiFamily | null;
   globalEndpoints: Endpoint[];
-  ownerCapabilityDefaults?: Partial<OwnerContextCapabilityDefaults>;
+  terminalTargetCapabilityDefaults?: Partial<TerminalTargetCapabilityDefaults>;
 }
 
 export function useModelDetailDialogState({
   apiFamily,
   globalEndpoints,
-  ownerCapabilityDefaults,
+  terminalTargetCapabilityDefaults,
 }: UseModelDetailDialogStateInput) {
   const [isEditModelDialogOpen, setIsEditModelDialogOpen] = useState(false);
   const [editRedirectTo, setEditRedirectTo] = useState("");
@@ -194,7 +194,7 @@ export function useModelDetailDialogState({
     ...createDefaultEndpointForm(),
   }));
   const [connectionFormState, setConnectionFormState] = useState<ConnectionDialogForm>(() => ({
-    ...createDefaultConnectionForm(apiFamily, ownerCapabilityDefaults),
+    ...createDefaultConnectionForm(apiFamily, terminalTargetCapabilityDefaults),
   }));
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
 
@@ -234,7 +234,7 @@ export function useModelDetailDialogState({
       setConnectionFormState(
         createEditConnectionForm(connection, {
           apiFamily: apiFamily ?? connection.api_family,
-          ownerCapabilityDefaults,
+          terminalTargetCapabilityDefaults,
         }),
       );
       setNewEndpointForm({ ...createDefaultEndpointForm() });
@@ -243,7 +243,7 @@ export function useModelDetailDialogState({
     } else {
       setEditingConnection(null);
       setHeaderRows([]);
-      setConnectionFormState({ ...createDefaultConnectionForm(apiFamily, ownerCapabilityDefaults) });
+      setConnectionFormState({ ...createDefaultConnectionForm(apiFamily, terminalTargetCapabilityDefaults) });
       setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
       setSelectedEndpointId("");

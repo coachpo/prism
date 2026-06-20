@@ -189,8 +189,6 @@ export interface Messages {
     strategyBehaviorSectionTitle: string;
   };
   loadbalanceStrategyCopy: {
-    cheapestEligibleContextLabel: string;
-    cheapestEligibleContextSummary: string;
     fillFirstLabel: string;
     fillFirstSummary: string;
     legacyFamilyLabel: string;
@@ -1146,9 +1144,9 @@ export interface Messages {
     connectionDialogDescription: string;
     connectionDisplayNamePlaceholder: string;
     connectionHealthy: string;
-    contextRoutingOverrides: string;
-    contextRoutingOverridesDescription: string;
-    inheritedFromModel: (value: string) => string;
+    terminalTargetCapabilityOverrides: string;
+    terminalTargetCapabilityOverridesDescription: string;
+    usingDefaultCapability: (value: string) => string;
     connectionNameOptional: string;
     connectionNameSummaryLabel: string;
     connectionUnhealthy: string;
@@ -1276,7 +1274,7 @@ export interface Messages {
     reasoningHandlingDisabledHint: string;
     resolvedProbeVariant: string;
     resetBanPolicyState: string;
-    resetToModelDefault: string;
+    resetToDefault: string;
     requests24h: string;
     requestsLabel: string;
     routingPriorityHint: string;
@@ -1330,8 +1328,6 @@ export interface Messages {
     modelFallbackTargets: string;
     modelFallbackTargetsDescription: string;
     connectionTarget: string;
-    contextRoutingDefaults: string;
-    contextRoutingDefaultsDescription: string;
     contextWindowTokens: string;
     contextWindowTokensHelper: string;
     currentApiFamily: (apiFamily: string) => string;
@@ -1362,8 +1358,6 @@ export interface Messages {
     openaiAcceptedFormatDualNative: string;
     openaiAcceptedFormatResponsesOnly: string;
     optionalFriendlyName: string;
-    overflowPromotionTarget: string;
-    overflowPromotionTargetDescription: string;
     position: (value: string) => string;
     priority: (value: string) => string;
     routingTypeDescription: string;
@@ -1659,18 +1653,6 @@ export interface Messages {
     finalTargetModel: string;
     selectedTerminalTarget: string;
     noTerminalTargetSelected: string;
-    estimationMethod: string;
-    usableContextWindow: string;
-    costRankingMethod: string;
-    selectedEstimatedBlendedCost: string;
-    contextRoutingDecision: string;
-    routingPolicy: string;
-    estimatedInputTokens: string;
-    reservedOutputTokens: string;
-    estimatedTotalContextTokens: string;
-    skippedTerminalTargets: string;
-    skippedTargetReasonContextWindowExceeded: string;
-    skippedTargetReasonUsableContextWindowUnavailable: string;
     time: string;
     totalCost: string;
     totalTokens: string;
@@ -2151,9 +2133,6 @@ export const enMessages: Messages = {
     strategyBehaviorSectionTitle: "Legacy Routing",
   },
   loadbalanceStrategyCopy: {
-    cheapestEligibleContextLabel: "Cheapest target that fits context",
-    cheapestEligibleContextSummary:
-      "Pick the lowest-cost terminal target that passes the hard context fit; prefer the preferred band before using the discretionary band. If no target fits, Prism returns 413.",
     fillFirstLabel: "Fill first",
     fillFirstSummary: "Keep using the first eligible connection until it is unavailable.",
     legacyFamilyLabel: "Legacy routing",
@@ -3083,10 +3062,10 @@ export const enMessages: Messages = {
       "Configure where this model-private terminal target sends requests. Routing priority stays owned by drag-and-drop in the terminal-target list.",
     connectionDisplayNamePlaceholder: "Terminal Target Display Name",
     connectionHealthy: "Terminal Target Healthy",
-    contextRoutingOverrides: "Context routing overrides",
-    contextRoutingOverridesDescription:
-      "Choose per field whether this terminal target inherits the entry model defaults or overrides them for this endpoint.",
-    inheritedFromModel: (value) => `Inherited from model: ${value}`,
+    terminalTargetCapabilityOverrides: "Terminal Target capability overrides",
+    terminalTargetCapabilityOverridesDescription:
+      "Choose per field whether this terminal target uses Terminal Target defaults when unset or stores an explicit override for this endpoint.",
+    usingDefaultCapability: (value) => `Using default capability: ${value}`,
     connectionNameOptional: "Terminal Target Name (Optional)",
     connectionNameSummaryLabel: "Resolved Terminal Target Name",
     connectionUnhealthy: "Terminal Target Unhealthy",
@@ -3217,7 +3196,7 @@ export const enMessages: Messages = {
     retryWindowBlocked: "Retry Window Open",
     retryWindowCounting: "Ban Policy Counting",
     resetBanPolicyState: "Reset Ban Policy State",
-    resetToModelDefault: "Reset to model default",
+    resetToDefault: "Reset to default",
     requests24h: "Requests (24h)",
     requestsLabel: "Requests",
     routingPriorityHint:
@@ -3352,8 +3331,6 @@ export const enMessages: Messages = {
     modelFallbackTargets: "Model targets",
     modelFallbackTargetsDescription: "",
     connectionTarget: "Terminal target",
-    contextRoutingDefaults: "Context routing defaults",
-    contextRoutingDefaultsDescription: "",
     contextWindowTokens: "Context window tokens",
     contextWindowTokensHelper: "Leave blank when the model context window is unknown.",
     currentApiFamily: (apiFamily) => `Current API family: ${apiFamily}`,
@@ -3367,7 +3344,7 @@ export const enMessages: Messages = {
     maxContextUtilization: "Max context utilization",
     preferredContextUtilizationThreshold: "Preferred context utilization threshold",
     preferredContextUtilizationThresholdHelper:
-      "Optional soft preference band for cheapest eligible context routing. Leave blank to disable the preferred band.",
+      "Optional terminal-target context preference threshold. Leave blank to inherit the default behavior.",
     modelId: "Model ID",
     modelIdPlaceholder: "e.g. gpt-4o",
     modelTarget: "Model target",
@@ -3385,8 +3362,6 @@ export const enMessages: Messages = {
     openaiAcceptedFormatDualNative: "Dual native",
     openaiAcceptedFormatResponsesOnly: "Responses only",
     optionalFriendlyName: "Optional friendly name",
-    overflowPromotionTarget: "Overflow promotion target",
-    overflowPromotionTargetDescription: "Choose an enabled same-family model for recursive overflow promotion. Prism validates chain depth, cycles, terminal loops, and routing-plan issues on save.",
     position: (value) => `Position ${value}`,
     priority: (value) => `Priority ${value}`,
     routingTypeDescription: "",
@@ -3661,18 +3636,6 @@ export const enMessages: Messages = {
     finalTargetModel: "Final Target Model",
     selectedTerminalTarget: "Selected Terminal Target",
     noTerminalTargetSelected: "No terminal target selected",
-    estimationMethod: "Estimation method",
-    usableContextWindow: "Usable context window",
-    costRankingMethod: "Cost ranking method",
-    selectedEstimatedBlendedCost: "Selected estimated blended cost",
-    contextRoutingDecision: "Context-routing decision",
-    routingPolicy: "Routing policy",
-    estimatedInputTokens: "Estimated input tokens",
-    reservedOutputTokens: "Reserved output tokens",
-    estimatedTotalContextTokens: "Estimated total context tokens",
-    skippedTerminalTargets: "Skipped terminal targets",
-    skippedTargetReasonContextWindowExceeded: "Estimated context exceeds usable context window",
-    skippedTargetReasonUsableContextWindowUnavailable: "Usable context window unavailable",
     time: "Time",
     totalCost: "Total cost",
     totalTokens: "Total tokens",

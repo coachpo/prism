@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { ApiFamilySelect } from "@/components/ApiFamilySelect";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
@@ -14,7 +13,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem, OpenAIAcceptedFormat } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { OperatorCallout, OperatorInsetPanel, OperatorSwitchField } from "@/shared/design-system";
@@ -38,7 +36,6 @@ type Props = {
   formError: string | null;
   isDialogOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
-  promotionTargetModelsForApiFamily: ModelConfigListItem[];
   targetModelsForApiFamily: ModelConfigListItem[];
   dialogDescription?: string;
   dialogTitle?: string;
@@ -51,28 +48,6 @@ type Props = {
   onSubmit: (event: SubmitEventLike) => void;
 };
 
-type CapabilityFieldProps = {
-  children: ReactNode;
-  description?: string;
-  error?: string | null;
-  id: string;
-  label: string;
-};
-
-function CapabilityField({ children, description, error, id, label }: CapabilityFieldProps) {
-  return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-      {description ? (
-        <p className={cn("text-xs", error ? "text-destructive" : "text-muted-foreground")}>
-          {error ?? description}
-        </p>
-      ) : error ? <p className="text-xs text-destructive">{error}</p> : null}
-    </div>
-  );
-}
-
 function getOpenAIAcceptedFormatLabel(format: OpenAIAcceptedFormat, copy: ReturnType<typeof useLocale>["messages"]["modelsUi"]) {
   if (format === "responses_only") {
     return copy.openaiAcceptedFormatResponsesOnly;
@@ -83,25 +58,12 @@ function getOpenAIAcceptedFormatLabel(format: OpenAIAcceptedFormat, copy: Return
   return copy.openaiAcceptedFormatDualNative;
 }
 
-const NO_PROMOTION_TARGET_VALUE = "__none__";
-const OVERFLOW_PROMOTION_TARGET_PLACEHOLDER = "Select model";
-const OVERFLOW_PROMOTION_TARGET_NONE_LABEL = "None";
-const OVERFLOW_PROMOTION_TARGET_PREFIX = "context_overflow_promotion_target_id";
-
-function formatPromotionTargetOptionLabel(model: ModelConfigListItem) {
-  if (model.display_name && model.display_name !== model.model_id) {
-    return `${model.display_name} (${model.model_id})`;
-  }
-  return model.model_id;
-}
-
 export function ModelDialog({
   editingModel,
   formData,
   formError,
   isDialogOpen,
   loadbalanceStrategies,
-  promotionTargetModelsForApiFamily,
   targetModelsForApiFamily,
   dialogDescription: dialogDescriptionOverride,
   dialogTitle,
@@ -133,41 +95,7 @@ export function ModelDialog({
     ? copy.editModelEnabledDescription
     : copy.newModelEnabledDescription;
   const saveDisabled = loadbalanceStrategies.length === 0;
-  const contextWindowTokensError = formError === messages.modelsData.contextWindowTokensInvalid
-    ? formError
-    : null;
-  const defaultOutputTokenReserveError = formError === messages.modelsData.defaultOutputTokenReserveInvalid
-    ? formError
-    : null;
-  const maxContextUtilizationError = formError === messages.modelsData.maxContextUtilizationInvalid
-    ? formError
-    : null;
-  const preferredContextUtilizationThresholdError =
-    formError === messages.modelsData.preferredContextUtilizationThresholdInvalid
-      || formError === messages.modelsData.preferredContextUtilizationThresholdExceedsMaxContextUtilization
-      ? formError
-      : null;
-  const promotionTargetError = formError?.startsWith(OVERFLOW_PROMOTION_TARGET_PREFIX)
-    ? formError
-    : null;
-  const hasCapabilityValidationError = Boolean(
-    contextWindowTokensError
-      || defaultOutputTokenReserveError
-      || maxContextUtilizationError
-      || preferredContextUtilizationThresholdError,
-  );
-  const hasInlineFieldError = hasCapabilityValidationError || Boolean(promotionTargetError);
-  const accessTargetsError = hasInlineFieldError ? null : formError;
-  const promotionTargetValue = formData.context_overflow_promotion_target_id.trim() === ""
-    ? NO_PROMOTION_TARGET_VALUE
-    : formData.context_overflow_promotion_target_id;
   const openAIAcceptedFormatValue = formData.openai_accepted_format || DEFAULT_OPENAI_ACCEPTED_FORMAT;
-  const selectedPromotionTarget = promotionTargetModelsForApiFamily.find(
-    (model) => model.model_id === formData.context_overflow_promotion_target_id,
-  );
-  const selectedPromotionTargetLabel = selectedPromotionTarget
-    ? formatPromotionTargetOptionLabel(selectedPromotionTarget)
-    : formData.context_overflow_promotion_target_id.trim() || null;
   const terminalTargetConnectionOptions = includeTerminalTargetConnectionOptions
     ? getEditModelConnectionOptions(editingModel)
     : [];
@@ -184,7 +112,7 @@ export function ModelDialog({
           <input type="hidden" name="loadbalance_strategy_id" value={loadbalanceStrategyValue} />
           <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
           <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
-            {formError && !hasInlineFieldError ? (
+            {formError ? (
               <OperatorCallout intent="danger" description={formError} />
             ) : null}
             <OperatorInsetPanel>
@@ -209,9 +137,9 @@ export function ModelDialog({
                     >
                       <SelectTrigger id="model-openai-accepted-format" className="h-auto w-full min-w-0 max-w-full items-start py-2 text-left whitespace-normal">
                         <SelectValue>
-                          <span className="flex min-w-0 flex-col items-start gap-1 whitespace-normal leading-5">
-                            <span>{getOpenAIAcceptedFormatLabel(openAIAcceptedFormatValue, copy)}</span>
-                          </span>
+                            <span className="flex min-w-0 flex-col items-start gap-1 whitespace-normal leading-5">
+                              <span>{getOpenAIAcceptedFormatLabel(openAIAcceptedFormatValue, copy)}</span>
+                            </span>
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
@@ -258,135 +186,6 @@ export function ModelDialog({
               </div>
             </OperatorInsetPanel>
 
-            <OperatorInsetPanel>
-              <div className="flex flex-col gap-1">
-                <p className="text-sm font-medium text-foreground">{copy.contextRoutingDefaults}</p>
-                <p className="text-sm text-muted-foreground">{copy.contextRoutingDefaultsDescription}</p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <CapabilityField
-                  id="model-context-window-tokens"
-                  label={copy.contextWindowTokens}
-                  description={copy.contextWindowTokensHelper}
-                  error={contextWindowTokensError}
-                >
-                  <Input
-                    id="model-context-window-tokens"
-                    name="context_window_tokens"
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={formData.context_window_tokens}
-                    onChange={(event) => setFormData((prev) => ({ ...prev, context_window_tokens: event.target.value }))}
-                    aria-invalid={Boolean(contextWindowTokensError) || undefined}
-                  />
-                </CapabilityField>
-
-                <CapabilityField
-                  id="model-default-output-token-reserve"
-                  label={copy.defaultOutputTokenReserve}
-                  error={defaultOutputTokenReserveError}
-                >
-                  <Input
-                    id="model-default-output-token-reserve"
-                    name="default_output_token_reserve"
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={formData.default_output_token_reserve}
-                    onChange={(event) => setFormData((prev) => ({ ...prev, default_output_token_reserve: event.target.value }))}
-                    aria-invalid={Boolean(defaultOutputTokenReserveError) || undefined}
-                  />
-                </CapabilityField>
-
-                <CapabilityField
-                  id="model-max-context-utilization"
-                  label={copy.maxContextUtilization}
-                  error={maxContextUtilizationError}
-                >
-                  <Input
-                    id="model-max-context-utilization"
-                    name="max_context_utilization"
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={formData.max_context_utilization}
-                    onChange={(event) => setFormData((prev) => ({ ...prev, max_context_utilization: event.target.value }))}
-                    aria-invalid={Boolean(maxContextUtilizationError) || undefined}
-                  />
-                </CapabilityField>
-
-                <CapabilityField
-                  id="model-preferred-context-utilization-threshold"
-                  label={copy.preferredContextUtilizationThreshold}
-                  description={copy.preferredContextUtilizationThresholdHelper}
-                  error={preferredContextUtilizationThresholdError}
-                >
-                  <Input
-                    id="model-preferred-context-utilization-threshold"
-                    name="preferred_context_utilization_threshold"
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={formData.preferred_context_utilization_threshold}
-                    onChange={(event) => setFormData((prev) => ({ ...prev, preferred_context_utilization_threshold: event.target.value }))}
-                    aria-invalid={Boolean(preferredContextUtilizationThresholdError) || undefined}
-                  />
-                </CapabilityField>
-
-                <div className="sm:col-span-2 xl:col-span-4">
-                  <CapabilityField
-                    id="model-overflow-promotion-target"
-                    label={copy.overflowPromotionTarget}
-                    description={copy.overflowPromotionTargetDescription}
-                    error={promotionTargetError}
-                  >
-                    <Select
-                      value={promotionTargetValue}
-                      onValueChange={(value) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          context_overflow_promotion_target_id:
-                            value === NO_PROMOTION_TARGET_VALUE ? "" : value,
-                        }))}
-                    >
-                      <SelectTrigger
-                        id="model-overflow-promotion-target"
-                        className="h-auto w-full min-w-0 max-w-full items-start py-2 text-left whitespace-normal"
-                        aria-invalid={Boolean(promotionTargetError) || undefined}
-                      >
-                        <SelectValue placeholder={OVERFLOW_PROMOTION_TARGET_PLACEHOLDER}>
-                          {selectedPromotionTargetLabel ? (
-                            <span className="min-w-0 whitespace-normal break-words leading-5">
-                              {selectedPromotionTargetLabel}
-                            </span>
-                          ) : null}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
-                        <SelectGroup>
-                          <SelectItem value={NO_PROMOTION_TARGET_VALUE}>
-                            <span className="block whitespace-normal break-words pr-4 leading-5">
-                              {OVERFLOW_PROMOTION_TARGET_NONE_LABEL}
-                            </span>
-                          </SelectItem>
-                          {promotionTargetModelsForApiFamily.map((model) => (
-                            <SelectItem key={model.id} value={model.model_id}>
-                              <span className="block whitespace-normal break-words pr-4 leading-5">
-                                {formatPromotionTargetOptionLabel(model)}
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </CapabilityField>
-                </div>
-              </div>
-            </OperatorInsetPanel>
-
             <OperatorInsetPanel className="bg-surface">
               <OperatorInsetPanel>
                 <div className="flex flex-col gap-1">
@@ -420,7 +219,7 @@ export function ModelDialog({
                 accessTargets={formData.access_targets}
                 modelOptions={targetModelsForApiFamily}
                 connectionOptions={terminalTargetConnectionOptions}
-                error={accessTargetsError}
+                error={formError}
                 onChange={(accessTargets) => setFormData((prev) => ({ ...prev, access_targets: accessTargets }))}
               />
 

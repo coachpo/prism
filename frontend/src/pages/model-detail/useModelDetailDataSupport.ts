@@ -48,7 +48,7 @@ type ConnectionCapabilityFieldName =
   | "preferred_context_utilization_threshold";
 
 type ConnectionCapabilityDraftLike = {
-  mode: "inherit" | "override";
+  mode: "default" | "override";
   value: string;
 };
 
@@ -63,7 +63,7 @@ const CONNECTION_CAPABILITY_FIELDS: ConnectionCapabilityFieldName[] = [
   "preferred_context_utilization_threshold",
 ];
 
-type OwnerContextCapabilityDefaultsLike = Partial<Record<ConnectionCapabilityFieldName, number | null>>;
+type TerminalTargetCapabilityDefaultsLike = Partial<Record<ConnectionCapabilityFieldName, number | null>>;
 
 interface BuildConnectionDraftPayloadInput {
   apiFamily: ApiFamily | null;
@@ -74,7 +74,7 @@ interface BuildConnectionDraftPayloadInput {
   headerRows: HeaderRowLike[];
   editingConnection: Connection | null;
   endpointSourceDefaultName: string | null;
-  ownerCapabilityDefaults?: OwnerContextCapabilityDefaultsLike;
+  terminalTargetCapabilityDefaults?: TerminalTargetCapabilityDefaultsLike;
 }
 
 export function normalizeConnectionHeaders(
@@ -96,7 +96,7 @@ export function buildConnectionDraftPayload({
   headerRows,
   editingConnection,
   endpointSourceDefaultName,
-  ownerCapabilityDefaults,
+  terminalTargetCapabilityDefaults,
 }: BuildConnectionDraftPayloadInput): {
   errorMessage: string | null;
   payload: ConnectionCreate | null;
@@ -112,7 +112,10 @@ export function buildConnectionDraftPayload({
         ? endpointSourceDefaultName
         : null;
 
-  const parsedContextCapabilityValues = buildContextCapabilityPayload(connectionForm, ownerCapabilityDefaults);
+  const parsedContextCapabilityValues = buildContextCapabilityPayload(
+    connectionForm,
+    terminalTargetCapabilityDefaults,
+  );
   if (!parsedContextCapabilityValues.payload) {
     return {
       errorMessage: parsedContextCapabilityValues.errorMessage,
@@ -190,7 +193,7 @@ function getContextCapabilityInvalidMessage(field: ConnectionCapabilityFieldName
 
 function buildContextCapabilityPayload(
   connectionForm: ConnectionDialogFormLike,
-  ownerCapabilityDefaults?: OwnerContextCapabilityDefaultsLike,
+  terminalTargetCapabilityDefaults?: TerminalTargetCapabilityDefaultsLike,
 ): {
   errorMessage: string | null;
   payload: Pick<ConnectionCreate, ConnectionCapabilityFieldName> | null;
@@ -201,7 +204,7 @@ function buildContextCapabilityPayload(
   for (const field of CONNECTION_CAPABILITY_FIELDS) {
     const parsedValue = parseContextCapabilityDraftValue(
       field,
-      connectionForm.context_capability_drafts?.[field] ?? { mode: "inherit", value: "" },
+      connectionForm.context_capability_drafts?.[field] ?? { mode: "default", value: "" },
     );
 
     if (parsedValue === undefined) {
@@ -212,7 +215,7 @@ function buildContextCapabilityPayload(
     }
 
     parsedValues[field] = parsedValue;
-    effectiveValues[field] = parsedValue ?? ownerCapabilityDefaults?.[field] ?? null;
+    effectiveValues[field] = parsedValue ?? terminalTargetCapabilityDefaults?.[field] ?? null;
   }
 
   if (
@@ -236,7 +239,7 @@ function parseContextCapabilityDraftValue(
   field: ConnectionCapabilityFieldName,
   draft: ConnectionCapabilityDraftLike,
 ): number | null | undefined {
-  if (draft.mode === "inherit") {
+  if (draft.mode === "default") {
     return null;
   }
 
@@ -548,4 +551,3 @@ function buildConnectionPricingTemplateSummary(
     version: pricingTemplate.version,
   };
 }
-

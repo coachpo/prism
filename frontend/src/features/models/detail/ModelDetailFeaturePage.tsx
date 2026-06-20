@@ -159,12 +159,6 @@ export function ModelDetailFeaturePage({
         clearDialogTestResult={data.clearDialogTestResult}
         handleDialogTestConnection={data.handleDialogTestConnection}
         endpointSourceDefaultName={data.endpointSourceDefaultName}
-        ownerCapabilityDefaults={{
-          context_window_tokens: model.context_window_tokens,
-          default_output_token_reserve: model.default_output_token_reserve,
-          max_context_utilization: model.max_context_utilization,
-          preferred_context_utilization_threshold: model.preferred_context_utilization_threshold,
-        }}
         pricingTemplates={data.pricingTemplates}
       />
 
@@ -174,7 +168,6 @@ export function ModelDetailFeaturePage({
         formError={data.targetEditorError}
         isDialogOpen={data.isEditModelDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
-        promotionTargetModelsForApiFamily={data.promotionTargetModelsForApiFamily}
         targetModelsForApiFamily={data.targetModelsForApiFamily}
         dialogTitle={messages.modelDetail.modelSettingsTitle}
         dialogDescription={messages.modelDetail.modelSettingsAccessTargetsDescription}

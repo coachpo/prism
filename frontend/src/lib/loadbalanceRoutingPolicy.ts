@@ -8,7 +8,6 @@ export const LOADBALANCE_LEGACY_STRATEGY_TYPES = [
   "single",
   "fill-first",
   "round-robin",
-  "cheapest_eligible_context",
 ] as const;
 export const LOADBALANCE_BAN_MODES = ["off", "temporary", "until_reset"] as const;
 export const DEFAULT_FAILURE_STATUS_CODES = [403, 422, 429, 500, 502, 503, 504, 529];
@@ -26,8 +25,6 @@ export const DEFAULT_BAN_POLICY_FIELDS = {
 };
 
 type LegacyStrategyCopy = {
-  cheapestEligibleContextLabel: string;
-  cheapestEligibleContextSummary: string;
   fillFirstLabel: string;
   fillFirstSummary: string;
   legacyFamilyLabel: string;
@@ -68,8 +65,6 @@ export function getLegacyLoadbalanceStrategyLabel(
       return copy.fillFirstLabel;
     case "round-robin":
       return copy.roundRobinLabel;
-    case "cheapest_eligible_context":
-      return copy.cheapestEligibleContextLabel;
   }
 }
 
@@ -84,8 +79,6 @@ export function getLegacyLoadbalanceStrategySummary(
       return copy.fillFirstSummary;
     case "round-robin":
       return copy.roundRobinSummary;
-    case "cheapest_eligible_context":
-      return copy.cheapestEligibleContextSummary;
   }
 }
 

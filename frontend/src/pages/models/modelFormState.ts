@@ -22,11 +22,6 @@ export interface ModelFormData {
   display_name: string;
   openai_accepted_format: OpenAIAcceptedFormat | "";
   loadbalance_strategy_id: number | null;
-  context_window_tokens: string;
-  default_output_token_reserve: string;
-  max_context_utilization: string;
-  preferred_context_utilization_threshold: string;
-  context_overflow_promotion_target_id: string;
   access_targets: ModelAccessTargetMutation[];
   is_enabled: boolean;
   last_auto_display_name?: string | null;
@@ -37,19 +32,9 @@ export type ModelFormValidationError =
   | "model_id_required"
   | "openai_accepted_format_invalid"
   | "loadbalance_strategy_required"
-  | "access_target_required"
-  | "context_window_tokens_invalid"
-  | "default_output_token_reserve_invalid"
-  | "max_context_utilization_invalid"
-  | "preferred_context_utilization_threshold_invalid"
-  | "preferred_context_utilization_threshold_exceeds_max";
+  | "access_target_required";
 
 const DEFAULT_API_FAMILY: ApiFamily = "openai";
-const DEFAULT_CONTEXT_WINDOW_TOKENS = "";
-const DEFAULT_OUTPUT_TOKEN_RESERVE = "4096";
-const DEFAULT_MAX_CONTEXT_UTILIZATION = "0.90";
-const DEFAULT_PREFERRED_CONTEXT_UTILIZATION_THRESHOLD = "";
-const DEFAULT_CONTEXT_OVERFLOW_PROMOTION_TARGET_ID = "";
 export const DEFAULT_OPENAI_ACCEPTED_FORMAT: OpenAIAcceptedFormat = "dual_native";
 export const OPENAI_ACCEPTED_FORMAT_OPTIONS: readonly OpenAIAcceptedFormat[] = [
   "dual_native",
@@ -63,11 +48,6 @@ export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   display_name: "",
   openai_accepted_format: DEFAULT_OPENAI_ACCEPTED_FORMAT,
   loadbalance_strategy_id: null,
-  context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
-  default_output_token_reserve: DEFAULT_OUTPUT_TOKEN_RESERVE,
-  max_context_utilization: DEFAULT_MAX_CONTEXT_UTILIZATION,
-  preferred_context_utilization_threshold: DEFAULT_PREFERRED_CONTEXT_UTILIZATION_THRESHOLD,
-  context_overflow_promotion_target_id: DEFAULT_CONTEXT_OVERFLOW_PROMOTION_TARGET_ID,
   access_targets: [],
   is_enabled: false,
   last_auto_display_name: "",
@@ -96,40 +76,6 @@ export function normalizeOpenAIAcceptedFormatForForm(
 function shouldAutoSyncDisplayName(formData: ModelFormData): boolean {
   const displayName = formData.display_name ?? "";
   return displayName.trim() === "" || displayName === (formData.last_auto_display_name ?? "");
-}
-
-function stringifyCapabilityValue(value: number | null): string {
-  return value === null ? "" : String(value);
-}
-
-function parsePositiveIntegerField(value: string): number | null {
-  if (value.trim() === "") {
-    return null;
-  }
-  const parsedValue = Number(value);
-  return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
-}
-
-function parseRequiredPositiveIntegerField(value: string): number | null {
-  const parsedValue = parsePositiveIntegerField(value);
-  return parsedValue === null ? null : parsedValue;
-}
-
-function parseOptionalUtilizationField(value: string): number | null {
-  if (value.trim() === "") {
-    return null;
-  }
-  const parsedValue = Number(value);
-  return Number.isFinite(parsedValue) && parsedValue > 0 && parsedValue <= 1 ? parsedValue : null;
-}
-
-function normalizeOptionalModelIdField(value: string | null | undefined): string | null {
-  const trimmedValue = value?.trim() ?? "";
-  return trimmedValue === "" ? null : trimmedValue;
-}
-
-function parseRequiredUtilizationField(value: string): number | null {
-  return parseOptionalUtilizationField(value);
 }
 
 export interface IndexedModelAccessTargetMutation {
@@ -287,10 +233,6 @@ type EditableModelFormSource = (
         | "display_name"
         | "openai_accepted_format"
         | "loadbalance_strategy_id"
-        | "context_window_tokens"
-        | "default_output_token_reserve"
-        | "max_context_utilization"
-        | "preferred_context_utilization_threshold"
         | "access_targets"
         | "is_enabled"
     >
@@ -302,16 +244,10 @@ type EditableModelFormSource = (
         | "display_name"
         | "openai_accepted_format"
         | "loadbalance_strategy_id"
-        | "context_window_tokens"
-        | "default_output_token_reserve"
-        | "max_context_utilization"
-        | "preferred_context_utilization_threshold"
         | "access_targets"
         | "is_enabled"
     >
-) & {
-  context_overflow_promotion_target_id?: string | null;
-};
+);
 
 export function getModelConnections(
   model: Pick<ModelConfig, "access_targets"> | Pick<ModelConfigListItem, "access_targets">,
@@ -339,11 +275,6 @@ export function createEditModelFormData(model: EditableModelFormSource): ModelFo
       model.openai_accepted_format,
     ),
     loadbalance_strategy_id: model.loadbalance_strategy_id,
-    context_window_tokens: stringifyCapabilityValue(model.context_window_tokens),
-    default_output_token_reserve: stringifyCapabilityValue(model.default_output_token_reserve),
-    max_context_utilization: stringifyCapabilityValue(model.max_context_utilization),
-    preferred_context_utilization_threshold: stringifyCapabilityValue(model.preferred_context_utilization_threshold),
-    context_overflow_promotion_target_id: model.context_overflow_promotion_target_id ?? "",
     access_targets: normalizeAccessTargetMutations(
       model.access_targets.map(accessTargetToMutation).filter((target): target is ModelAccessTargetMutation => target !== null),
     ),
@@ -359,11 +290,6 @@ export function createNewModelFormData(loadbalanceStrategyId: number | null): Mo
     display_name: DEFAULT_MODEL_FORM_DATA.display_name,
     openai_accepted_format: DEFAULT_MODEL_FORM_DATA.openai_accepted_format,
     loadbalance_strategy_id: loadbalanceStrategyId,
-    context_window_tokens: DEFAULT_MODEL_FORM_DATA.context_window_tokens,
-    default_output_token_reserve: DEFAULT_MODEL_FORM_DATA.default_output_token_reserve,
-    max_context_utilization: DEFAULT_MODEL_FORM_DATA.max_context_utilization,
-    preferred_context_utilization_threshold: DEFAULT_MODEL_FORM_DATA.preferred_context_utilization_threshold,
-    context_overflow_promotion_target_id: DEFAULT_MODEL_FORM_DATA.context_overflow_promotion_target_id,
     access_targets: [...DEFAULT_MODEL_FORM_DATA.access_targets],
     is_enabled: DEFAULT_MODEL_FORM_DATA.is_enabled,
     last_auto_display_name: DEFAULT_MODEL_FORM_DATA.last_auto_display_name,
@@ -396,31 +322,6 @@ export function validateModelFormData(
   }
   if (formData.loadbalance_strategy_id === null) {
     return "loadbalance_strategy_required";
-  }
-  if (formData.context_window_tokens.trim() !== "" && parsePositiveIntegerField(formData.context_window_tokens) === null) {
-    return "context_window_tokens_invalid";
-  }
-  if (parseRequiredPositiveIntegerField(formData.default_output_token_reserve) === null) {
-    return "default_output_token_reserve_invalid";
-  }
-  const maxContextUtilization = parseRequiredUtilizationField(formData.max_context_utilization);
-  if (maxContextUtilization === null) {
-    return "max_context_utilization_invalid";
-  }
-  const preferredContextUtilizationThreshold = parseOptionalUtilizationField(
-    formData.preferred_context_utilization_threshold,
-  );
-  if (
-    formData.preferred_context_utilization_threshold.trim() !== ""
-    && preferredContextUtilizationThreshold === null
-  ) {
-    return "preferred_context_utilization_threshold_invalid";
-  }
-  if (
-    typeof preferredContextUtilizationThreshold === "number"
-    && preferredContextUtilizationThreshold > maxContextUtilization
-  ) {
-    return "preferred_context_utilization_threshold_exceeds_max";
   }
   const normalizedTargets = normalizeAccessTargetMutations(formData.access_targets);
   const enabledTargets = normalizedTargets.filter((target) => target.is_enabled !== false);
@@ -462,47 +363,6 @@ function getNormalizedRoutingState(formData: ModelFormData) {
   };
 }
 
-function getNormalizedCapabilityState(formData: ModelFormData) {
-  const contextWindowTokens = parsePositiveIntegerField(formData.context_window_tokens);
-  const defaultOutputTokenReserve = parseRequiredPositiveIntegerField(formData.default_output_token_reserve);
-  const maxContextUtilization = parseRequiredUtilizationField(formData.max_context_utilization);
-  const preferredContextUtilizationThreshold = parseOptionalUtilizationField(
-    formData.preferred_context_utilization_threshold,
-  );
-
-  if (formData.context_window_tokens.trim() !== "" && contextWindowTokens === null) {
-    throw new Error("context_window_tokens is invalid");
-  }
-  if (defaultOutputTokenReserve === null) {
-    throw new Error("default_output_token_reserve is invalid");
-  }
-  if (maxContextUtilization === null) {
-    throw new Error("max_context_utilization is invalid");
-  }
-  if (
-    formData.preferred_context_utilization_threshold.trim() !== ""
-    && preferredContextUtilizationThreshold === null
-  ) {
-    throw new Error("preferred_context_utilization_threshold is invalid");
-  }
-  if (
-    typeof preferredContextUtilizationThreshold === "number"
-    && preferredContextUtilizationThreshold > maxContextUtilization
-  ) {
-    throw new Error("preferred_context_utilization_threshold exceeds max_context_utilization");
-  }
-
-  return {
-    context_window_tokens: contextWindowTokens,
-    default_output_token_reserve: defaultOutputTokenReserve,
-    max_context_utilization: maxContextUtilization,
-    preferred_context_utilization_threshold: preferredContextUtilizationThreshold,
-    context_overflow_promotion_target_id: normalizeOptionalModelIdField(
-      formData.context_overflow_promotion_target_id,
-    ),
-  };
-}
-
 function getNormalizedOpenAIState(formData: ModelFormData) {
   if (formData.api_family !== "openai") {
     return {};
@@ -528,7 +388,6 @@ export function toModelCreatePayload(formData: ModelFormData): ManagedModelConfi
     is_enabled: formData.is_enabled,
     ...getNormalizedOpenAIState(formData),
     ...getNormalizedRoutingState(formData),
-    ...getNormalizedCapabilityState(formData),
   };
 }
 
@@ -540,7 +399,6 @@ export function toModelUpdatePayload(formData: ModelFormData): ManagedModelConfi
     is_enabled: formData.is_enabled,
     ...getNormalizedOpenAIState(formData),
     ...getNormalizedRoutingState(formData),
-    ...getNormalizedCapabilityState(formData),
   };
 }
 
@@ -560,7 +418,6 @@ export function setApiFamilyOnForm(formData: ModelFormData, apiFamily: ApiFamily
     ...formData,
     api_family: apiFamily,
     openai_accepted_format: openAIAcceptedFormat,
-    context_overflow_promotion_target_id: "",
     access_targets: [],
   };
 }
@@ -619,27 +476,8 @@ export function getAccessTargetModelsForApiFamily<T extends ApiFamilyModelOption
   );
 }
 
-export function getPromotionTargetModelsForApiFamily<T extends ApiFamilyModelOption>(
-  models: T[],
-  apiFamily: ApiFamily,
-  excludedModelId?: string,
-): T[] {
-  const normalizedExcludedModelId = excludedModelId?.trim() ?? "";
-  return models.filter(
-    (model) =>
-      model.api_family === apiFamily
-      && (normalizedExcludedModelId === "" || model.model_id !== normalizedExcludedModelId)
-      && model.is_enabled !== false
-      && !isFacadeModelOption(model),
-  );
-}
-
-type ModelListItemSource = ModelConfig & {
-  context_overflow_promotion_target_id?: string | null;
-};
-
 export function toModelListItem(
-  model: ModelListItemSource,
+  model: ModelConfig,
   existing?: ModelConfigListItem,
 ): ManagedModelConfigListItem {
   const connections = getModelConnections(model);
@@ -652,11 +490,6 @@ export function toModelListItem(
     openai_accepted_format: model.openai_accepted_format,
     loadbalance_strategy_id: model.loadbalance_strategy_id,
     loadbalance_strategy: model.loadbalance_strategy,
-    context_window_tokens: model.context_window_tokens,
-    default_output_token_reserve: model.default_output_token_reserve,
-    max_context_utilization: model.max_context_utilization,
-    preferred_context_utilization_threshold: model.preferred_context_utilization_threshold,
-    context_overflow_promotion_target_id: model.context_overflow_promotion_target_id ?? null,
     access_targets: model.access_targets,
     is_enabled: model.is_enabled,
     connection_count: connections.length,

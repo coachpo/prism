@@ -51,7 +51,6 @@ export interface ConfigLoadbalanceStrategyExport {
     | "single"
     | "fill-first"
     | "round-robin"
-    | "cheapest_eligible_context"
     | null;
   failure_status_codes: number[];
   ban_mode: "off" | "temporary" | "until_reset" | null;
@@ -144,14 +143,9 @@ export interface ConfigModelExport {
   model_id: string;
   display_name: string | null;
   loadbalance_strategy_name: string | null;
-  context_window_tokens: number | null;
-  default_output_token_reserve: number;
-  max_context_utilization: number;
-  preferred_context_utilization_threshold: number | null;
   facade_enabled: boolean;
   facade_selection_policy: ConfigModelFacadeSelectionPolicy | null;
   facade_fallback_policy: ConfigModelFacadeFallbackPolicy | null;
-  context_overflow_promotion_target_id: string | null;
   openai_accepted_format: ConfigModelOpenAIAcceptedFormat | null;
   is_enabled: boolean;
   access_targets: ConfigAccessTargetExport[];
@@ -162,14 +156,9 @@ export interface ConfigModelImport {
   model_id: string;
   display_name?: string | null;
   loadbalance_strategy_name: string;
-  context_window_tokens?: number | null;
-  default_output_token_reserve?: number | null;
-  max_context_utilization?: number | null;
-  preferred_context_utilization_threshold?: number | null;
   facade_enabled?: boolean;
   facade_selection_policy?: ConfigModelFacadeSelectionPolicy | null;
   facade_fallback_policy?: ConfigModelFacadeFallbackPolicy | null;
-  context_overflow_promotion_target_id?: string | null;
   openai_accepted_format?: ConfigModelOpenAIAcceptedFormat | null;
   is_enabled?: boolean;
   access_targets: ConfigAccessTargetImport[];

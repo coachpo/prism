@@ -104,24 +104,6 @@ function renderAuditCaptureState(
   }
 }
 
-function formatContextRoutingReason(
-  reason: string,
-  messages: ReturnType<typeof useLocale>["messages"],
-) {
-  switch (reason) {
-    case "estimated_context_exceeds_usable_window":
-      return messages.requestLogs.skippedTargetReasonContextWindowExceeded;
-    case "usable_context_window_unavailable":
-      return messages.requestLogs.skippedTargetReasonUsableContextWindowUnavailable;
-    default:
-      return reason;
-  }
-}
-
-function formatRoutingTokenValue(value: number | null | undefined) {
-  return value == null ? "—" : formatTokens(value);
-}
-
 export function RequestLogOverviewTab({
   request,
   formatTimestamp,
@@ -131,10 +113,7 @@ export function RequestLogOverviewTab({
   const summary = request.summary;
   const requestInfo = request.request;
   const routing = request.routing;
-  const contextRouting = routing.context_routing ?? null;
-  const selectedTerminalTargetId = routing.selected_terminal_target_id
-    ?? contextRouting?.selected_terminal_target_id
-    ?? null;
+  const selectedTerminalTargetId = routing.selected_terminal_target_id ?? null;
   const usage = request.usage;
   const costing = request.costing;
   const spendTrust = resolveSpendTrustState(
@@ -436,71 +415,6 @@ export function RequestLogOverviewTab({
               <DetailRow label={messages.requestLogs.auditCapture}>
                 {renderAuditCaptureState(routing, messages)}
               </DetailRow>
-              {contextRouting ? (
-                <>
-                  {contextRouting.estimation_method ? (
-                    <DetailRow label={messages.requestLogs.estimationMethod}>
-                      <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                        {contextRouting.estimation_method}
-                      </span>
-                    </DetailRow>
-                  ) : null}
-                  {contextRouting.usable_context_window_tokens != null ? (
-                    <DetailRow label={messages.requestLogs.usableContextWindow}>
-                      <span className="font-mono">{formatRoutingTokenValue(contextRouting.usable_context_window_tokens)}</span>
-                    </DetailRow>
-                  ) : null}
-                  {contextRouting.cost_ranking_method ? (
-                    <DetailRow label={messages.requestLogs.costRankingMethod}>
-                      <span className="font-mono text-[11px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                        {contextRouting.cost_ranking_method}
-                      </span>
-                    </DetailRow>
-                  ) : null}
-                  {contextRouting.selected_estimated_blended_cost_micros != null ? (
-                    <DetailRow label={messages.requestLogs.selectedEstimatedBlendedCost}>
-                      <span className="font-mono">
-                        {formatNumber(contextRouting.selected_estimated_blended_cost_micros)} micros
-                      </span>
-                    </DetailRow>
-                  ) : null}
-                  <DetailRow label={messages.requestLogs.contextRoutingDecision}>
-                    <div className="flex flex-col gap-2">
-                      <div className="flex flex-col gap-1 text-sm">
-                        <p><span className="text-muted-foreground">{messages.requestLogs.routingPolicy}:</span> <span className="font-mono">{contextRouting.policy}</span></p>
-                        <p><span className="text-muted-foreground">{messages.requestLogs.estimatedInputTokens}:</span> <span className="font-mono">{formatRoutingTokenValue(contextRouting.estimated_input_tokens)}</span></p>
-                        <p><span className="text-muted-foreground">{messages.requestLogs.reservedOutputTokens}:</span> <span className="font-mono">{formatRoutingTokenValue(contextRouting.reserved_output_tokens)}</span></p>
-                        <p><span className="text-muted-foreground">{messages.requestLogs.estimatedTotalContextTokens}:</span> <span className="font-mono">{formatRoutingTokenValue(contextRouting.estimated_total_context_tokens)}</span></p>
-                      </div>
-                      {contextRouting.skipped_terminal_targets?.length ? (
-                        <div className="flex flex-col gap-1">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                            {messages.requestLogs.skippedTerminalTargets}
-                          </p>
-                          <ul className="flex flex-col gap-1 text-sm text-foreground">
-                            {contextRouting.skipped_terminal_targets.map((target, index) => (
-                              <li key={`${target.terminal_target_id ?? "none"}-${index}`} className="rounded-lg border border-outline-variant bg-surface-container-low px-2.5 py-2">
-                                <p className="font-mono text-[12px]">
-                                  #{target.terminal_target_id ?? "—"}
-                                  {target.endpoint_id != null ? ` · endpoint #${target.endpoint_id}` : ""}
-                                </p>
-                                <p className="text-muted-foreground">
-                                  {formatContextRoutingReason(target.reason, messages)}
-                                </p>
-                                <p className="font-mono text-[11px] text-muted-foreground">
-                                  {messages.requestLogs.usableContextWindow}: {formatRoutingTokenValue(target.usable_context_window_tokens)}
-                                  {" · "}
-                                  {messages.requestLogs.estimatedTotalContextTokens}: {formatRoutingTokenValue(target.estimated_total_context_tokens)}
-                                </p>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
-                  </DetailRow>
-                </>
-              ) : null}
             </div>
           </div>
         </SectionCard>

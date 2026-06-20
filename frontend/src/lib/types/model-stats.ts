@@ -1,7 +1,6 @@
 import type { ApiFamily } from "./vendor";
 import type {
   Connection,
-  ContextCapabilityFields,
   OpenAIAcceptedFormat,
 } from "./routing";
 import type { LoadbalanceStrategySummary } from "./loadbalance";
@@ -82,7 +81,7 @@ export interface ModelAccessTargetUpdate {
   is_enabled?: boolean;
 }
 
-export interface ModelConfig extends ContextCapabilityFields {
+export interface ModelConfig {
   id: number;
   profile_id: number;
   api_family: ApiFamily;
@@ -97,7 +96,7 @@ export interface ModelConfig extends ContextCapabilityFields {
   updated_at: string;
 }
 
-export interface ModelConfigListItem extends ContextCapabilityFields {
+export interface ModelConfigListItem {
   id: number;
   profile_id: number;
   api_family: ApiFamily;
@@ -122,10 +121,6 @@ interface ModelConfigMutationBase {
   display_name?: string | null;
   openai_accepted_format?: OpenAIAcceptedFormat | null;
   loadbalance_strategy_id?: number;
-  context_window_tokens?: number | null;
-  default_output_token_reserve?: number | null;
-  max_context_utilization?: number | null;
-  preferred_context_utilization_threshold?: number | null;
   access_targets?: ModelAccessTargetModelMutation[];
   is_enabled?: boolean;
 }
@@ -295,34 +290,12 @@ export interface RequestLogDetailRequest {
   error_detail: string | null;
 }
 
-export interface RequestLogContextRoutingSkippedTerminalTarget {
-  terminal_target_id?: number | null;
-  endpoint_id?: number | null;
-  reason: string;
-  usable_context_window_tokens?: number | null;
-  estimated_total_context_tokens?: number | null;
-}
-
-export interface RequestLogContextRouting {
-  policy: string;
-  selected_terminal_target_id?: number | null;
-  estimation_method?: string | null;
-  estimated_input_tokens?: number | null;
-  reserved_output_tokens?: number | null;
-  estimated_total_context_tokens?: number | null;
-  usable_context_window_tokens?: number | null;
-  cost_ranking_method?: string | null;
-  selected_estimated_blended_cost_micros?: number | null;
-  skipped_terminal_targets?: RequestLogContextRoutingSkippedTerminalTarget[];
-}
-
 export interface RequestLogDetailRouting {
   profile_id: number;
   endpoint_label: string;
   endpoint_id: number | null;
   terminal_target_id?: number | null;
   selected_terminal_target_id?: number | null;
-  context_routing?: RequestLogContextRouting | null;
   endpoint_base_url: string | null;
   endpoint_description: string | null;
   audit_enabled_at_request: boolean;
