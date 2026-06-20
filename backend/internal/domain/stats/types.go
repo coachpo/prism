@@ -158,101 +158,16 @@ type RequestLogDetailRequest struct {
 	RequestGenerationParamsStatus *string          `json:"request_generation_params_status"`
 }
 
-type RequestLogContextRoutingSkippedTerminalTarget struct {
-	TerminalTargetID            *int    `json:"terminal_target_id,omitempty"`
-	EndpointID                  *int    `json:"endpoint_id,omitempty"`
-	ContextBand                 *string `json:"context_band,omitempty"`
-	Reason                      string  `json:"reason"`
-	UsableContextWindowTokens   *int    `json:"usable_context_window_tokens,omitempty"`
-	EstimatedTotalContextTokens *int    `json:"estimated_total_context_tokens,omitempty"`
-}
-
-type RequestLogFacadeExclusionReason struct {
-	Reason string `json:"reason"`
-	Count  int    `json:"count"`
-}
-
-type RequestLogFacadeSelection struct {
-	FacadeModelID         string                            `json:"facade_model_id"`
-	SelectedTargetModelID *string                           `json:"selected_target_model_id,omitempty"`
-	ExclusionReasons      []RequestLogFacadeExclusionReason `json:"exclusion_reasons,omitempty"`
-	ExclusionSummary      *string                           `json:"exclusion_summary,omitempty"`
-}
-
-type RequestLogContextOverflowPromotion struct {
-	TriggerStatus                 int     `json:"trigger_status"`
-	TriggerErrorCode              *string `json:"trigger_error_code,omitempty"`
-	TriggerClassifier             string  `json:"trigger_classifier"`
-	EstimationMode                string  `json:"estimation_mode,omitempty"`
-	EstimationStatus              string  `json:"estimation_status,omitempty"`
-	EstimationUnavailableReason   *string `json:"estimation_unavailable_reason,omitempty"`
-	FromResolvedTargetModelID     *string `json:"from_resolved_target_model_id,omitempty"`
-	FromSelectedTerminalTargetID  *int    `json:"from_selected_terminal_target_id,omitempty"`
-	ToResolvedTargetModelID       *string `json:"to_resolved_target_model_id,omitempty"`
-	ToSelectedTerminalTargetID    *int    `json:"to_selected_terminal_target_id,omitempty"`
-	FromUsableContextWindowTokens *int    `json:"from_usable_context_window_tokens,omitempty"`
-	ToUsableContextWindowTokens   *int    `json:"to_usable_context_window_tokens,omitempty"`
-	SourceAttemptCount            int     `json:"source_attempt_count"`
-	FinalAttemptCount             int     `json:"final_attempt_count"`
-	Result                        string  `json:"result"`
-}
-
-type RequestLogPlannerTrace struct {
-	PlannerVersion           string  `json:"planner_version"`
-	Decision                 string  `json:"decision"`
-	Policy                   string  `json:"policy,omitempty"`
-	AccessTargetID           *int    `json:"access_target_id,omitempty"`
-	AccessTargetType         *string `json:"access_target_type,omitempty"`
-	SelectedTargetModelID    *string `json:"selected_target_model_id,omitempty"`
-	SelectedTerminalTargetID *int    `json:"selected_terminal_target_id,omitempty"`
-	TranslationMode          *string `json:"translation_mode,omitempty"`
-	SkippedTerminalTargets   int     `json:"skipped_terminal_targets,omitempty"`
-	FacadeExclusionSummary   *string `json:"facade_exclusion_summary,omitempty"`
-}
-
-type RequestLogContextOverflowAffinity struct {
-	State                  string  `json:"state"`
-	AffinityHashPrefix     string  `json:"affinity_hash_prefix,omitempty"`
-	ParentHashPrefix       *string `json:"parent_hash_prefix,omitempty"`
-	ContextBucket          string  `json:"context_bucket,omitempty"`
-	SourceModelID          string  `json:"source_model_id,omitempty"`
-	PromotionTargetModelID string  `json:"promotion_target_model_id,omitempty"`
-	RejectionReason        *string `json:"rejection_reason,omitempty"`
-}
-
-type RequestLogContextRouting struct {
-	Policy                             string                                          `json:"policy"`
-	SelectedTerminalTargetID           *int                                            `json:"selected_terminal_target_id,omitempty"`
-	SelectedEndpointID                 *int                                            `json:"selected_endpoint_id,omitempty"`
-	SelectedContextBand                *string                                         `json:"selected_context_band,omitempty"`
-	SelectedUsableContextWindowTokens  *int                                            `json:"selected_usable_context_window_tokens,omitempty"`
-	EstimationStatus                   string                                          `json:"estimation_status,omitempty"`
-	EstimationUnavailableReason        *string                                         `json:"estimation_unavailable_reason,omitempty"`
-	EstimationMethod                   *string                                         `json:"estimation_method,omitempty"`
-	EstimatedInputTokens               *int                                            `json:"estimated_input_tokens,omitempty"`
-	ReservedOutputTokens               *int                                            `json:"reserved_output_tokens,omitempty"`
-	EstimatedTotalContextTokens        *int                                            `json:"estimated_total_context_tokens,omitempty"`
-	UsableContextWindowTokens          *int                                            `json:"usable_context_window_tokens,omitempty"`
-	CostRankingMethod                  *string                                         `json:"cost_ranking_method,omitempty"`
-	SelectedEstimatedBlendedCostMicros *int64                                          `json:"selected_estimated_blended_cost_micros,omitempty"`
-	SkippedTerminalTargets             []RequestLogContextRoutingSkippedTerminalTarget `json:"skipped_terminal_targets,omitempty"`
-	FacadeSelection                    *RequestLogFacadeSelection                      `json:"facade_selection,omitempty"`
-	PlannerTrace                       *RequestLogPlannerTrace                         `json:"planner_trace,omitempty"`
-	ContextOverflowPromotion           *RequestLogContextOverflowPromotion             `json:"context_overflow_promotion,omitempty"`
-	ContextOverflowAffinity            *RequestLogContextOverflowAffinity              `json:"context_overflow_affinity,omitempty"`
-}
-
 type RequestLogDetailRouting struct {
-	ProfileID                   int                       `json:"profile_id"`
-	EndpointLabel               string                    `json:"endpoint_label"`
-	EndpointID                  *int                      `json:"endpoint_id"`
-	TerminalTargetID            *int                      `json:"terminal_target_id"`
-	SelectedTerminalTargetID    *int                      `json:"selected_terminal_target_id"`
-	ContextRouting              *RequestLogContextRouting `json:"context_routing,omitempty"`
-	EndpointBaseURL             *string                   `json:"endpoint_base_url"`
-	EndpointDescription         *string                   `json:"endpoint_description"`
-	AuditEnabledAtRequest       bool                      `json:"audit_enabled_at_request"`
-	AuditCaptureBodiesAtRequest bool                      `json:"audit_capture_bodies_at_request"`
+	ProfileID                   int     `json:"profile_id"`
+	EndpointLabel               string  `json:"endpoint_label"`
+	EndpointID                  *int    `json:"endpoint_id"`
+	TerminalTargetID            *int    `json:"terminal_target_id"`
+	SelectedTerminalTargetID    *int    `json:"selected_terminal_target_id"`
+	EndpointBaseURL             *string `json:"endpoint_base_url"`
+	EndpointDescription         *string `json:"endpoint_description"`
+	AuditEnabledAtRequest       bool    `json:"audit_enabled_at_request"`
+	AuditCaptureBodiesAtRequest bool    `json:"audit_capture_bodies_at_request"`
 }
 
 type RequestLogDetailUsage struct {

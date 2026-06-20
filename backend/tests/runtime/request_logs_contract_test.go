@@ -244,7 +244,7 @@ func TestRequestLogDetailContract(t *testing.T) {
 	if !ok || auditCaptureBodiesAtRequest {
 		t.Fatalf("expected request-log detail routing.audit_capture_bodies_at_request=false boolean, got %+v", routing)
 	}
-	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family"} {
+	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family", "context_routing"} {
 		if _, ok := routing[absent]; ok {
 			t.Fatalf("did not expect routing field %s in detail payload, got %+v", absent, routing)
 		}
@@ -267,365 +267,6 @@ func TestRequestLogDetailContract(t *testing.T) {
 	decodeJSONResponse(t, missing, &missingPayload)
 	if missingPayload["detail"] != "Request log not found" {
 		t.Fatalf("expected scoped request-log 404 detail, got %+v", missingPayload)
-	}
-}
-
-func TestRequestLogsDetailContractIncludesContextRoutingMetadata(t *testing.T) {
-	harness := newRequestLogContractHarness(t)
-	profileID := loadRuntimeDefaultProfileID(t, harness)
-	seedRequestLogEndpoints(t, harness, profileID)
-	seedRequestLogUserAgentRules(t, harness, profileID)
-	seedFixtureRequestLog(t, harness, profileID)
-
-	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/101", nil, runtimeModelHeader(profileID))
-	assertStatus(t, response, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	routing := asMapRuntime(t, payload["routing"])
-	if got, ok := routing["selected_terminal_target_id"].(float64); !ok || int(got) != 34 {
-		t.Fatalf("expected selected_terminal_target_id=34, got %+v", routing)
-	}
-	contextRouting := asMapRuntime(t, routing["context_routing"])
-	if contextRouting["policy"] != "cheapest_eligible_context" || contextRouting["estimation_method"] != "openai_chat_tokenizer_v1" {
-		t.Fatalf("expected context routing policy and estimation method, got %+v", contextRouting)
-	}
-	if got, ok := contextRouting["selected_endpoint_id"].(float64); !ok || int(got) != 12 {
-		t.Fatalf("expected selected_endpoint_id=12, got %+v", contextRouting)
-	}
-	if contextRouting["selected_context_band"] != "preferred" {
-		t.Fatalf("expected selected_context_band=preferred, got %+v", contextRouting)
-	}
-	if contextRouting["cost_ranking_method"] != "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id" {
-		t.Fatalf("expected pinned cost ranking method, got %+v", contextRouting)
-	}
-	if got, ok := contextRouting["usable_context_window_tokens"].(float64); !ok || int(got) != 8192 {
-		t.Fatalf("expected usable_context_window_tokens=8192, got %+v", contextRouting)
-	}
-	skippedTargets, ok := contextRouting["skipped_terminal_targets"].([]any)
-	if !ok || len(skippedTargets) != 1 {
-		t.Fatalf("expected one skipped terminal target, got %+v", contextRouting)
-	}
-	firstSkipped := asMapRuntime(t, skippedTargets[0])
-	if firstSkipped["context_band"] != "ineligible" {
-		t.Fatalf("expected skipped target context_band=ineligible, got %+v", firstSkipped)
-	}
-	if firstSkipped["reason"] != "estimated_context_exceeds_usable_window" {
-		t.Fatalf("expected skipped target reason to stay persisted, got %+v", firstSkipped)
-	}
-	promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
-	if got, ok := promotion["trigger_status"].(float64); !ok || int(got) != 400 {
-		t.Fatalf("expected context overflow promotion trigger_status=400, got %+v", promotion)
-	}
-	if promotion["trigger_classifier"] != "context_length_exceeded" || promotion["result"] != "promoted_success" {
-		t.Fatalf("expected persisted overflow promotion classifier/result, got %+v", promotion)
-	}
-	if got, ok := promotion["final_attempt_count"].(float64); !ok || int(got) != 2 {
-		t.Fatalf("expected context overflow promotion final_attempt_count=2, got %+v", promotion)
-	}
-	usage := asMapRuntime(t, payload["usage"])
-	if got, ok := usage["input_tokens"].(float64); !ok || int(got) != 15 {
-		t.Fatalf("expected provider usage input_tokens=15 to remain authoritative, got %+v", usage)
-	}
-	if got, ok := usage["output_tokens"].(float64); !ok || int(got) != 42 {
-		t.Fatalf("expected provider usage output_tokens=42 to remain authoritative, got %+v", usage)
-	}
-}
-
-func TestRequestLogsOverflowAffinityCacheMetadataIsRedacted(t *testing.T) {
-	const rawAffinity = "affinity-token"
-	const rawParent = "parent-token-for-redaction"
-	fixture := newOverflowAffinityCacheRuntimeFixture(t, "request-logs-redacted", http.StatusBadRequest, runtimeOverflowErrorPayload("request-log cache metadata source overflow"), http.StatusOK, map[string]any{
-		"id":      "chatcmpl-overflow-affinity-request-log",
-		"object":  "chat.completion",
-		"choices": []map[string]any{{"index": 0, "message": map[string]any{"role": "assistant", "content": "promoted"}, "finish_reason": "stop"}},
-		"usage":   map[string]any{"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
-	})
-	headers := map[string]string{"x-session-affinity": rawAffinity, "x-parent-session-id": rawParent}
-
-	firstResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "populate request-log cache metadata", headers)
-	assertStatus(t, firstResponse, http.StatusOK)
-	waitForRuntimeTelemetryCounts(t, fixture.harness.conn, fixture.profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	populatedDetail := latestRequestLogDetailPayload(t, fixture.harness, fixture.profileID)
-	assertOverflowAffinityDetailMetadataRedacted(t, populatedDetail, "populated", rawAffinity, rawParent)
-
-	secondResponse := performOverflowAffinityChatRequest(t, fixture.harness, fixture.route.PublicModelID, "accepted request-log cache metadata", headers)
-	assertStatus(t, secondResponse, http.StatusOK)
-	waitForRuntimeTelemetryCounts(t, fixture.harness.conn, fixture.profileID, runtimeTelemetryCounts{RequestLogs: 3, UsageEvents: 2, OutboxRows: 0}, 5*time.Second)
-	acceptedDetail := latestRequestLogDetailPayload(t, fixture.harness, fixture.profileID)
-	assertOverflowAffinityDetailMetadataRedacted(t, acceptedDetail, "accepted", rawAffinity, rawParent)
-
-	var persistedRouting string
-	if err := fixture.harness.conn.QueryRow(context.Background(), `SELECT COALESCE(string_agg(context_routing::text, ' '), '') FROM request_logs WHERE profile_id = $1`, fixture.profileID).Scan(&persistedRouting); err != nil {
-		t.Fatalf("load persisted request-log context routing: %v", err)
-	}
-	var persistedUsageRouting string
-	if err := fixture.harness.conn.QueryRow(context.Background(), `SELECT COALESCE(string_agg(context_routing::text, ' '), '') FROM usage_request_events WHERE profile_id = $1`, fixture.profileID).Scan(&persistedUsageRouting); err != nil {
-		t.Fatalf("load persisted usage-event context routing: %v", err)
-	}
-	if strings.Contains(persistedRouting, rawAffinity) || strings.Contains(persistedRouting, rawParent) || strings.Contains(persistedUsageRouting, rawAffinity) || strings.Contains(persistedUsageRouting, rawParent) {
-		t.Fatalf("persisted context routing leaked raw affinity material: request_logs=%s usage_events=%s", persistedRouting, persistedUsageRouting)
-	}
-}
-
-func latestRequestLogDetailPayload(t *testing.T, harness *runtimeHarness, profileID int) map[string]any {
-	t.Helper()
-	var requestLogID int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestLogID); err != nil {
-		t.Fatalf("load latest request log id: %v", err)
-	}
-	response := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
-	assertStatus(t, response, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	return payload
-}
-
-func assertOverflowAffinityDetailMetadataRedacted(t *testing.T, payload map[string]any, wantState string, rawAffinity string, rawParent string) {
-	t.Helper()
-	rawPayload, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal request-log detail payload: %v", err)
-	}
-	if strings.Contains(string(rawPayload), rawAffinity) || strings.Contains(string(rawPayload), rawParent) {
-		t.Fatalf("request-log detail leaked raw affinity material: %s", rawPayload)
-	}
-	routing := asMapRuntime(t, payload["routing"])
-	contextRouting := asMapRuntime(t, routing["context_routing"])
-	affinity := asMapRuntime(t, contextRouting["context_overflow_affinity"])
-	if affinity["state"] != wantState {
-		t.Fatalf("expected affinity cache state %q, got %+v", wantState, affinity)
-	}
-	prefix, ok := affinity["affinity_hash_prefix"].(string)
-	if !ok || len(prefix) != 16 || prefix == rawAffinity {
-		t.Fatalf("expected redacted 16-char affinity prefix, got %+v", affinity)
-	}
-	parentPrefix, ok := affinity["parent_hash_prefix"].(string)
-	if !ok || len(parentPrefix) != 16 || parentPrefix == rawParent {
-		t.Fatalf("expected redacted 16-char parent prefix, got %+v", affinity)
-	}
-	if affinity["context_bucket"] == "" || affinity["source_model_id"] == "" || affinity["promotion_target_model_id"] == "" {
-		t.Fatalf("expected safe cache metadata fields, got %+v", affinity)
-	}
-}
-
-func TestRequestLogsPersistRecursivePromotionChain(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	sensitivePrompt := "secret prompt must not appear in recursive metadata " + suffix
-	sourceUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "recursive source should not dispatch"})
-	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "gpt-5-request-log-recursive-public-" + suffix, TargetModelID: "request-log-recursive-source-" + suffix, EndpointBaseURL: sourceUpstream.baseURL("/request-logs/recursive/source"), EndpointAPIKey: "request-log-recursive-source-key"})
-	middleUpstream := newScriptedUpstream(t, http.StatusInternalServerError, map[string]any{"error": "recursive middle should not dispatch"})
-	_, middleConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, "request-log-recursive-middle-"+suffix, middleUpstream.baseURL("/request-logs/recursive/middle"), "request-log-recursive-middle-key", nil, 300)
-	finalModelID := "request-log-recursive-final-" + suffix
-	finalUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "recursive-request-log-" + suffix, "object": "chat.completion", "usage": map[string]any{"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11}})
-	_, finalConnectionID := seedRuntimePromotionNativeModel(t, harness, profileID, finalModelID, finalUpstream.baseURL("/request-logs/recursive/final"), "request-log-recursive-final-key", nil, 4_096)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 256, 32, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, middleConnectionID, 300, 32, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, finalConnectionID, 4_096, 32, 1.0)
-	middleModelID := "request-log-recursive-middle-" + suffix
-	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.PublicModelID, middleModelID)
-	setRuntimeHarnessPromotionTarget(t, harness, profileID, middleModelID, finalModelID)
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": sensitivePrompt}}, "model": route.PublicModelID, "max_completion_tokens": 600}, nil)
-	assertStatus(t, response, http.StatusOK)
-	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertNoScriptedUpstreamRequests(t, sourceUpstream, "recursive request-log source")
-	assertNoScriptedUpstreamRequests(t, middleUpstream, "recursive request-log middle")
-	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, finalModelID)
-	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
-	for _, table := range []string{"request_logs", "usage_request_events"} {
-		contextRouting := loadLatestRuntimeContextRoutingForIngress(t, harness, profileID, ingressRequestID, table)
-		promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
-		if promotion["trigger_phase"] != "pre_dispatch_estimate" || promotion["estimation_mode"] != "preflight_estimated" || promotion["result"] != "promoted_success" {
-			t.Fatalf("expected %s recursive pre-dispatch metadata, got %+v", table, promotion)
-		}
-		chain, ok := promotion["promotion_chain"].([]any)
-		if !ok || len(chain) != 3 || chain[0] != route.PublicModelID || chain[1] != middleModelID || chain[2] != finalModelID {
-			t.Fatalf("expected %s recursive promotion_chain public->middle->final, got %+v", table, promotion)
-		}
-		assertTranslatedPromotionNumber(t, table, promotion, "promotion_depth", 2)
-		assertTranslatedPromotionNumber(t, table, promotion, "final_selected_terminal_target_id", finalConnectionID)
-		if promotion["final_resolved_target_model_id"] != finalModelID || promotion["to_resolved_target_model_id"] != finalModelID {
-			t.Fatalf("expected %s additive final model metadata %q, got %+v", table, finalModelID, promotion)
-		}
-		raw, err := json.Marshal(contextRouting)
-		if err != nil || strings.Contains(string(raw), sensitivePrompt) || strings.Contains(string(raw), "raw request body") {
-			t.Fatalf("%s recursive metadata leaked prompt/body content: %s err=%v", table, raw, err)
-		}
-	}
-}
-
-func TestRequestLogsNoFitPlanningFailurePersistsContextRoutingMetadata(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	publicModelID := "gpt-4o-request-logs-no-fit-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "request-logs-no-fit-"+suffix, "cheapest_eligible_context")
-	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
-	smallEndpointID := harness.seedEndpoint(t, profileID, "request-logs-no-fit-small-"+suffix, harness.upstream.baseURL("/request-logs/no-fit/small"), "request-logs-no-fit-small-key", 0)
-	largeEndpointID := harness.seedEndpoint(t, profileID, "request-logs-no-fit-large-"+suffix, harness.upstream.baseURL("/request-logs/no-fit/large"), "request-logs-no-fit-large-key", 1)
-	smallConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, smallEndpointID, "request-logs-no-fit-small-connection-"+suffix, nil, nil, 0)
-	largeConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, largeEndpointID, "request-logs-no-fit-large-connection-"+suffix, nil, nil, 1)
-	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, smallConnectionID, 200, 4096, 1.0, now); err != nil {
-		t.Fatalf("update small no-fit connection capabilities: %v", err)
-	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, largeConnectionID, 400, 4096, 1.0, now); err != nil {
-		t.Fatalf("update large no-fit connection capabilities: %v", err)
-	}
-	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
-	assertStatus(t, response, http.StatusRequestEntityTooLarge)
-	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeModelIdentityNull(t, harness.conn, profileID, publicModelID)
-
-	var requestLogID int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestLogID); err != nil {
-		t.Fatalf("load no-fit request log id: %v", err)
-	}
-	detailResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
-	assertStatus(t, detailResponse, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, detailResponse, &payload)
-	routing := asMapRuntime(t, payload["routing"])
-	if got, ok := routing["selected_terminal_target_id"]; !ok || got != nil {
-		t.Fatalf("expected selected_terminal_target_id=null for no-fit rejection, got %+v", routing)
-	}
-	if got, ok := routing["terminal_target_id"]; !ok || got != nil {
-		t.Fatalf("expected terminal_target_id=null for no-fit rejection detail, got %+v", routing)
-	}
-	contextRouting := asMapRuntime(t, routing["context_routing"])
-	if contextRouting["policy"] != "cheapest_eligible_context" || contextRouting["estimation_method"] != "openai_chat_tokenizer_v1" {
-		t.Fatalf("expected persisted no-fit context routing metadata, got %+v", contextRouting)
-	}
-	if got, ok := contextRouting["estimated_total_context_tokens"].(float64); !ok || int(got) <= 400 {
-		t.Fatalf("expected estimated_total_context_tokens to exceed 400, got %+v", contextRouting)
-	}
-	skippedTargets, ok := contextRouting["skipped_terminal_targets"].([]any)
-	if !ok || len(skippedTargets) != 2 {
-		t.Fatalf("expected two skipped terminal targets for no-fit rejection, got %+v", contextRouting)
-	}
-	usage := asMapRuntime(t, payload["usage"])
-	if got, ok := usage["input_tokens"]; !ok || got != nil {
-		t.Fatalf("expected no-fit usage.input_tokens=null without provider truth, got %+v", usage)
-	}
-}
-
-func TestRequestLogsFacadeSuccessDetailIncludesFacadeSelectionMetadata(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	route := seedOpenAIFacadeRoute(t, harness, profileID, "gpt-4o-request-logs-facade-success-public-"+suffix, []facadeTargetSeed{
-		{ModelID: "request-logs-facade-success-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/first"), EndpointAPIKey: "request-logs-facade-success-first-key"},
-		{ModelID: "request-logs-facade-success-blocked-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/blocked"), EndpointAPIKey: "request-logs-facade-success-blocked-key"},
-		{ModelID: "request-logs-facade-success-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/success/second"), EndpointAPIKey: "request-logs-facade-success-second-key"},
-	})
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[1], 400, 4096, 1.0)
-	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages":              []map[string]any{{"role": "user", "content": "facade observability success"}},
-		"model":                 route.PublicModelID,
-		"max_completion_tokens": 600,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-
-	payload := loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)
-	routing := asMapRuntime(t, payload["routing"])
-	contextRouting := asMapRuntime(t, routing["context_routing"])
-	facadeSelection := asMapRuntime(t, contextRouting["facade_selection"])
-	if facadeSelection["facade_model_id"] != route.PublicModelID {
-		t.Fatalf("expected facade_model_id=%q, got %+v", route.PublicModelID, facadeSelection)
-	}
-	if facadeSelection["selected_target_model_id"] != route.TargetModelIDs[0] {
-		t.Fatalf("expected selected_target_model_id=%q, got %+v", route.TargetModelIDs[0], facadeSelection)
-	}
-	obsoleteSelectedKey := "selected_" + "weight"
-	obsoleteEligibleKey := "eligible_total_" + "weight"
-	if _, ok := facadeSelection[obsoleteSelectedKey]; ok {
-		t.Fatalf("expected obsolete facade selected metadata to stay omitted, got %+v", facadeSelection)
-	}
-	if _, ok := facadeSelection[obsoleteEligibleKey]; ok {
-		t.Fatalf("expected obsolete facade eligible metadata to stay omitted, got %+v", facadeSelection)
-	}
-	if facadeSelection["exclusion_summary"] != "estimated_context_exceeds_usable_window=1" {
-		t.Fatalf("expected facade exclusion summary for blocked sibling, got %+v", facadeSelection)
-	}
-}
-
-func TestRequestLogsFacadeNoFitPlanningFailureIncludesFacadeSelectionMetadata(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	publicModelID := "gpt-4o-request-logs-facade-no-fit-public-" + suffix
-	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: "request-logs-facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/small"), EndpointAPIKey: "request-logs-facade-no-fit-small-key"},
-		{ModelID: "request-logs-facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-fit/large"), EndpointAPIKey: "request-logs-facade-no-fit-large-key"},
-	})
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[0], 200, 4096, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[1], 400, 4096, 1.0)
-	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized facade request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
-	assertStatus(t, response, http.StatusRequestEntityTooLarge)
-	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeModelIdentityNull(t, harness.conn, profileID, publicModelID)
-
-	payload := loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)
-	routing := asMapRuntime(t, payload["routing"])
-	contextRouting := asMapRuntime(t, routing["context_routing"])
-	facadeSelection := asMapRuntime(t, contextRouting["facade_selection"])
-	if facadeSelection["facade_model_id"] != publicModelID {
-		t.Fatalf("expected no-fit facade_model_id=%q, got %+v", publicModelID, facadeSelection)
-	}
-	if _, ok := facadeSelection["selected_target_model_id"]; ok {
-		t.Fatalf("expected no-fit selected_target_model_id to stay omitted without planner selection, got %+v", facadeSelection)
-	}
-	obsoleteEligibleKey := "eligible_total_" + "weight"
-	if _, ok := facadeSelection[obsoleteEligibleKey]; ok {
-		t.Fatalf("expected no-fit obsolete facade eligible metadata to stay omitted, got %+v", facadeSelection)
-	}
-	if facadeSelection["exclusion_summary"] != "estimated_context_exceeds_usable_window=2" {
-		t.Fatalf("expected no-fit exclusion summary, got %+v", facadeSelection)
-	}
-}
-
-func TestRequestLogsFacadeNoEligiblePlanningFailureIncludesFacadeSelectionMetadata(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	publicModelID := "gpt-4o-request-logs-facade-no-eligible-public-" + suffix
-	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: "request-logs-facade-no-eligible-first-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/first"), EndpointAPIKey: "request-logs-facade-no-eligible-first-key"},
-		{ModelID: "request-logs-facade-no-eligible-second-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/request-logs/facade/no-eligible/second"), EndpointAPIKey: "request-logs-facade-no-eligible-second-key"},
-	})
-	harness.runtimeService.RuntimeState().ResetProfile(profileID)
-	blockedUntilAt := time.Now().UTC().Add(10 * time.Minute)
-	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: route.ConnectionIDs[0], BlockedUntilAt: &blockedUntilAt, CircuitState: "open"})
-	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: route.ConnectionIDs[1], BlockedUntilAt: &blockedUntilAt, CircuitState: "open"})
-
-	response := performProxySelectorChatRequest(t, harness, publicModelID, "all facade targets unroutable")
-	assertStatus(t, response, http.StatusServiceUnavailable)
-	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeModelIdentityNull(t, harness.conn, profileID, publicModelID)
-
-	payload := loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)
-	routing := asMapRuntime(t, payload["routing"])
-	contextRouting := asMapRuntime(t, routing["context_routing"])
-	facadeSelection := asMapRuntime(t, contextRouting["facade_selection"])
-	if facadeSelection["facade_model_id"] != publicModelID {
-		t.Fatalf("expected no-eligible facade_model_id=%q, got %+v", publicModelID, facadeSelection)
-	}
-	if _, ok := facadeSelection["selected_target_model_id"]; ok {
-		t.Fatalf("expected no-eligible selected_target_model_id to stay omitted without planner selection, got %+v", facadeSelection)
-	}
-	obsoleteEligibleKey := "eligible_total_" + "weight"
-	if _, ok := facadeSelection[obsoleteEligibleKey]; ok {
-		t.Fatalf("expected no-eligible obsolete facade eligible metadata to stay omitted, got %+v", facadeSelection)
-	}
-	if _, ok := facadeSelection["exclusion_summary"]; ok {
-		t.Fatalf("expected no-eligible exclusion_summary to stay omitted when planner has no exclusion reasons, got %+v", facadeSelection)
 	}
 }
 
@@ -871,64 +512,6 @@ func TestRuntimeRequestLogsPreserveRequestedPublicAndResolvedNativeIdentityForTr
 	}
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.TargetModelID)
-}
-
-func TestRequestLogsTranslatedPromotionPersistsAdditiveAttribution(t *testing.T) {
-	harness := newEnforcedRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	sourceVariant := "responses_reasoning_none"
-	chatOnlyVariant := "chat_completions_reasoning_none"
-	sourceUpstream := newScriptedUpstream(t, http.StatusBadRequest, runtimeOverflowErrorPayload("translated promotion source overflow"))
-	route := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:                  profileID,
-		APIFamily:                  "openai",
-		PublicModelID:              "request-logs-translated-promotion-public-" + suffix,
-		TargetModelID:              "request-logs-translated-promotion-source-" + suffix,
-		EndpointBaseURL:            sourceUpstream.baseURL("/request-logs/translated-promotion/source"),
-		EndpointAPIKey:             "request-logs-translated-promotion-source-key",
-		OpenAIProbeEndpointVariant: &sourceVariant,
-		OpenAITextCapability:       runtimeStringPtr("responses_only"),
-	})
-	promotedModelID := "request-logs-translated-promotion-promoted-" + suffix
-	promotedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
-		"id":      "chatcmpl-request-logs-translated-promotion-" + suffix,
-		"object":  "chat.completion",
-		"created": 1710000000,
-		"model":   promotedModelID,
-		"choices": []map[string]any{{
-			"index":         0,
-			"message":       map[string]any{"role": "assistant", "content": "translated promoted request log"},
-			"finish_reason": "stop",
-		}},
-		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12},
-	})
-	_, promotedConnectionID := seedRuntimePromotionNativeModelWithOpenAITextCapability(t, harness, profileID, promotedModelID, promotedUpstream.baseURL("/request-logs/translated-promotion/promoted"), "request-logs-translated-promotion-promoted-key", &chatOnlyVariant, runtimeStringPtr("chat_completions_only"), 32_768)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionID, 16_384, 1_024, 1.0)
-	setRuntimeHarnessPromotionTarget(t, harness, profileID, route.TargetModelID, promotedModelID)
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
-		"input":             "translated promotion request-log attribution",
-		"model":             route.PublicModelID,
-		"max_output_tokens": 64,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	payload := runtimeResponsePayload(t, response)
-	if payload["id"] != "chatcmpl-request-logs-translated-promotion-"+suffix || payload["object"] != "response" {
-		t.Fatalf("expected translated promoted response body, got %+v", payload)
-	}
-	assertProxySelectorRequestSequence(t, sourceUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/request-logs/translated-promotion/source/v1/responses",
-		ModelID: route.TargetModelID,
-	}})
-	assertProxySelectorRequestSequence(t, promotedUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    "/request-logs/translated-promotion/promoted/v1/chat/completions",
-		ModelID: promotedModelID,
-	}})
-	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 2, 2)
-	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, promotedModelID)
-	assertLatestTranslatedPromotionAttribution(t, harness, profileID, route.PublicModelID, route.TargetModelID, promotedModelID, route.ConnectionID, promotedConnectionID)
 }
 
 func TestRuntimeRequestLogsSkipCrossFamilyProxyTargets(t *testing.T) {
@@ -1690,12 +1273,12 @@ func TestRuntimeUsageEventEndpointLabelSnapshotFallsBackToBaseURL(t *testing.T) 
 	}
 }
 
-func TestRuntimeUsageEventEndpointLabelSnapshotUnknownEndpoint(t *testing.T) {
+func TestRuntimeUsageEventEndpointLabelSnapshotForSelectedEndpoint(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
 	publicModelID := "gpt-4o-runtime-usage-label-unknown-public-" + suffix
-	strategyID := harness.seedLegacyStrategy(t, profileID, "runtime-usage-label-unknown-strategy-"+suffix, "cheapest_eligible_context")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "runtime-usage-label-unknown-strategy-"+suffix, "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 	smallEndpointID := harness.seedEndpoint(t, profileID, "runtime-usage-label-unknown-small-"+suffix, harness.upstream.baseURL("/request-logs/usage-label/unknown/small"), "runtime-usage-label-unknown-small-key", 0)
 	largeEndpointID := harness.seedEndpoint(t, profileID, "runtime-usage-label-unknown-large-"+suffix, harness.upstream.baseURL("/request-logs/usage-label/unknown/large"), "runtime-usage-label-unknown-large-key", 1)
@@ -1715,11 +1298,14 @@ func TestRuntimeUsageEventEndpointLabelSnapshotUnknownEndpoint(t *testing.T) {
 		"model":                 publicModelID,
 		"max_completion_tokens": 600,
 	}, nil)
-	assertStatus(t, response, http.StatusRequestEntityTooLarge)
+	assertStatus(t, response, http.StatusOK)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 	row := loadLatestRuntimeUsageEndpointLabelSnapshot(t, harness.conn, profileID)
-	if row.EndpointID.Valid || row.ConnectionID.Valid || row.EndpointLabelSnapshot != "Unknown Endpoint" {
-		t.Fatalf("expected no-endpoint usage event to persist Unknown Endpoint, got %+v", row)
+	if !row.EndpointID.Valid || int(row.EndpointID.Int64) != smallEndpointID || !row.ConnectionID.Valid || int(row.ConnectionID.Int64) != smallConnectionID {
+		t.Fatalf("expected usage event to persist selected endpoint/connection, got %+v", row)
+	}
+	if row.EndpointLabelSnapshot != "runtime-usage-label-unknown-small-"+suffix {
+		t.Fatalf("expected selected endpoint label snapshot, got %+v", row)
 	}
 }
 
@@ -2646,67 +2232,6 @@ func assertLatestRuntimeModelIdentityState(t *testing.T, conn *pgx.Conn, profile
 	}
 }
 
-func assertLatestTranslatedPromotionAttribution(t *testing.T, harness *runtimeHarness, profileID int, wantModelID string, wantSourceResolvedTargetModelID string, wantPromotedResolvedTargetModelID string, wantSourceTerminalTargetID int, wantPromotedTerminalTargetID int) {
-	t.Helper()
-	ingressRequestID := loadLatestRuntimeIngressRequestID(t, harness.conn, profileID)
-
-	assertAttributionRow := func(label string, query string) {
-		t.Helper()
-		var modelID string
-		var resolvedTargetModelID sql.NullString
-		var operationName sql.NullString
-		var upstreamOperationName sql.NullString
-		var translationMode sql.NullString
-		var upstreamRequestPath sql.NullString
-		var contextRoutingRaw string
-		if err := harness.conn.QueryRow(context.Background(), query, profileID, ingressRequestID).Scan(&modelID, &resolvedTargetModelID, &operationName, &upstreamOperationName, &translationMode, &upstreamRequestPath, &contextRoutingRaw); err != nil {
-			t.Fatalf("load %s translated promotion attribution: %v", label, err)
-		}
-		if modelID != wantModelID || !resolvedTargetModelID.Valid || resolvedTargetModelID.String != wantPromotedResolvedTargetModelID {
-			t.Fatalf("expected %s ingress model %q and promoted resolved target %q, got model=%q resolved=%+v", label, wantModelID, wantPromotedResolvedTargetModelID, modelID, resolvedTargetModelID)
-		}
-		if !operationName.Valid || operationName.String != "openai.responses" {
-			t.Fatalf("expected %s operation_name openai.responses, got %+v", label, operationName)
-		}
-		if !upstreamOperationName.Valid || upstreamOperationName.String != "openai.chat_completions" {
-			t.Fatalf("expected %s upstream_operation_name openai.chat_completions, got %+v", label, upstreamOperationName)
-		}
-		if !translationMode.Valid || translationMode.String != "openai_responses_to_chat_completions" {
-			t.Fatalf("expected %s operation_translation_mode openai_responses_to_chat_completions, got %+v", label, translationMode)
-		}
-		if !upstreamRequestPath.Valid || upstreamRequestPath.String != "/v1/chat/completions" {
-			t.Fatalf("expected %s upstream_request_path /v1/chat/completions, got %+v", label, upstreamRequestPath)
-		}
-		var contextRouting map[string]any
-		if err := json.Unmarshal([]byte(contextRoutingRaw), &contextRouting); err != nil {
-			t.Fatalf("decode %s context routing %q: %v", label, contextRoutingRaw, err)
-		}
-		promotion := asMapRuntime(t, contextRouting["context_overflow_promotion"])
-		assertTranslatedPromotionNumber(t, label, promotion, "trigger_status", http.StatusBadRequest)
-		assertTranslatedPromotionNumber(t, label, promotion, "source_attempt_count", 1)
-		assertTranslatedPromotionNumber(t, label, promotion, "final_attempt_count", 2)
-		assertTranslatedPromotionNumber(t, label, promotion, "from_selected_terminal_target_id", wantSourceTerminalTargetID)
-		assertTranslatedPromotionNumber(t, label, promotion, "to_selected_terminal_target_id", wantPromotedTerminalTargetID)
-		if promotion["trigger_error_code"] != "context_length_exceeded" || promotion["trigger_classifier"] != "error_code" || promotion["result"] != "promoted_success" {
-			t.Fatalf("expected %s translated promotion trigger/result metadata, got %+v", label, promotion)
-		}
-		if promotion["from_resolved_target_model_id"] != wantSourceResolvedTargetModelID || promotion["to_resolved_target_model_id"] != wantPromotedResolvedTargetModelID {
-			t.Fatalf("expected %s source/promoted model metadata %q -> %q, got %+v", label, wantSourceResolvedTargetModelID, wantPromotedResolvedTargetModelID, promotion)
-		}
-	}
-
-	assertAttributionRow("request_logs", `SELECT model_id, resolved_target_model_id, operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path, COALESCE(context_routing::text, '{}') FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`)
-	assertAttributionRow("usage_request_events", `SELECT model_id, resolved_target_model_id, operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path, COALESCE(context_routing::text, '{}') FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`)
-}
-
-func assertTranslatedPromotionNumber(t *testing.T, label string, promotion map[string]any, field string, want int) {
-	t.Helper()
-	got, ok := promotion[field].(float64)
-	if !ok || int(got) != want {
-		t.Fatalf("expected %s context_overflow_promotion.%s=%d, got %+v", label, field, want, promotion)
-	}
-}
-
 func assertLatestRuntimeAttemptSequence(t *testing.T, conn *pgx.Conn, profileID int, want []runtimeRequestLogAttempt) {
 	t.Helper()
 	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
@@ -3030,7 +2555,7 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, resolved_target_model_id, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, reasoning_tokens, input_cost_micros, output_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_reasoning, cache_read_input_tokens, cache_creation_input_tokens, cache_read_input_cost_micros, cache_creation_input_cost_micros, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NULL, $21, $22, $23, $24, $25, $26, $27, $28, $29, NULL, NULL, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, NULL, $42, $43, $44, $45, $46, $47, $48, $49)`, 101, profileID, "gpt-4o", "openai", "gpt-4o-native", 12, 34, "ingress_req_42", 2, "req_upstream_abc123", "https://api.openai.com", 200, 1234, false, 15, 42, 57, true, true, true, 0, 500, 750, 0, 1250, 1250, "USD", "USD", "$", "1M tokens", "2.500000", "10.000000", "0.000000", 0, 0, 0, 0, "1.250000", "0.000000", 1, "/v1/chat/completions", "Primary production key", createdAt, "codex/1.0", "OpenAI/Python 1.0", 914, 320, false, false); err != nil {
 		t.Fatalf("seed fixture request log: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET operation_name = 'openai.chat_completions', upstream_operation_name = 'openai.chat_completions', operation_translation_mode = 'none', upstream_request_path = '/v1/chat/completions', request_generation_params = $1::jsonb, request_generation_params_status = 'complete', selected_terminal_target_id = 34, context_routing = $2::jsonb WHERE profile_id = $3 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, `{"policy":"cheapest_eligible_context","selected_terminal_target_id":34,"selected_endpoint_id":12,"selected_context_band":"preferred","selected_usable_context_window_tokens":8192,"estimation_method":"openai_chat_tokenizer_v1","estimated_input_tokens":15,"reserved_output_tokens":1024,"estimated_total_context_tokens":1039,"usable_context_window_tokens":8192,"cost_ranking_method":"estimated_blended_request_cost_then_access_target_position_then_terminal_target_id","skipped_terminal_targets":[{"terminal_target_id":35,"endpoint_id":13,"context_band":"ineligible","reason":"estimated_context_exceeds_usable_window","usable_context_window_tokens":512,"estimated_total_context_tokens":1039}],"context_overflow_promotion":{"trigger_status":400,"trigger_error_code":"context_length_exceeded","trigger_classifier":"context_length_exceeded","estimation_mode":"preflight_estimated","from_resolved_target_model_id":"gpt-4o","from_selected_terminal_target_id":22,"to_resolved_target_model_id":"gpt-4o-native","to_selected_terminal_target_id":34,"from_usable_context_window_tokens":4096,"to_usable_context_window_tokens":8192,"source_attempt_count":1,"final_attempt_count":2,"result":"promoted_success"}}`, profileID); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET operation_name = 'openai.chat_completions', upstream_operation_name = 'openai.chat_completions', operation_translation_mode = 'none', upstream_request_path = '/v1/chat/completions', request_generation_params = $1::jsonb, request_generation_params_status = 'complete', selected_terminal_target_id = 34 WHERE profile_id = $2 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, profileID); err != nil {
 		t.Fatalf("seed fixture request generation params: %v", err)
 	}
 }

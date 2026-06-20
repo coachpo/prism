@@ -2,7 +2,6 @@ package contract_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -338,7 +337,6 @@ func TestObservabilityUsageEventSeedPersistsMergedPersistenceSemantics(t *testin
 func TestObservabilityUsageEventPersistsTranslatedAttributionColumns(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	contextRouting := `{"policy":"cheapest_eligible_context","selected_terminal_target_id":34,"selected_endpoint_id":12,"selected_context_band":"preferred","selected_usable_context_window_tokens":8192,"skipped_terminal_targets":[{"terminal_target_id":35,"endpoint_id":13,"context_band":"ineligible","reason":"estimated_context_exceeds_usable_window","usable_context_window_tokens":256,"estimated_total_context_tokens":1024}]}`
 	insertUsageEvent(t, harness, usageEventSeed{
 		ID:                       4,
 		ProfileID:                profileID,
@@ -351,7 +349,6 @@ func TestObservabilityUsageEventPersistsTranslatedAttributionColumns(t *testing.
 		AttemptCount:             1,
 		RequestPath:              "/v1/responses",
 		UpstreamRequestPath:      stringPtr("/v1/chat/completions"),
-		ContextRouting:           stringPtr(contextRouting),
 		StatusCode:               200,
 		SuccessFlag:              true,
 		CreatedAt:                fixedS15Now.Add(-7 * time.Minute),
@@ -359,27 +356,15 @@ func TestObservabilityUsageEventPersistsTranslatedAttributionColumns(t *testing.
 
 	var operationName, upstreamOperationName, operationTranslationMode string
 	var upstreamRequestPath string
-	var rawContextRouting []byte
 	if err := harness.conn.QueryRow(
 		context.Background(),
-		`SELECT operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path, context_routing FROM usage_request_events WHERE profile_id = $1 AND id = 4`,
+		`SELECT operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path FROM usage_request_events WHERE profile_id = $1 AND id = 4`,
 		profileID,
-	).Scan(&operationName, &upstreamOperationName, &operationTranslationMode, &upstreamRequestPath, &rawContextRouting); err != nil {
+	).Scan(&operationName, &upstreamOperationName, &operationTranslationMode, &upstreamRequestPath); err != nil {
 		t.Fatalf("load translated observability usage-event row: %v", err)
 	}
 	if operationName != "openai.responses" || upstreamOperationName != "openai.chat_completions" || operationTranslationMode != "openai_responses_to_chat_completions" || upstreamRequestPath != "/v1/chat/completions" {
 		t.Fatalf("expected translated usage-event attribution columns, got ingress=%q upstream=%q mode=%q path=%q", operationName, upstreamOperationName, operationTranslationMode, upstreamRequestPath)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(rawContextRouting, &decoded); err != nil {
-		t.Fatalf("decode translated context_routing json: %v", err)
-	}
-	if decoded["selected_context_band"] != "preferred" {
-		t.Fatalf("expected selected_context_band=preferred, got %+v", decoded)
-	}
-	firstSkipped := decoded["skipped_terminal_targets"].([]any)[0].(map[string]any)
-	if firstSkipped["context_band"] != "ineligible" {
-		t.Fatalf("expected skipped target context_band=ineligible, got %+v", firstSkipped)
 	}
 }
 
@@ -1555,7 +1540,6 @@ type usageEventSeed struct {
 	AttemptCount                      int
 	RequestPath                       string
 	UpstreamRequestPath               *string
-	ContextRouting                    *string
 	ResponseTimeMS                    *int
 	TTFTMS                            *int
 	CompletionDurationMS              *int
@@ -1629,7 +1613,7 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("usage_request_events", seed.CreatedAt))
 	if _, err := harness.conn.Exec(
 		context.Background(),
-		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name, upstream_operation_name, operation_translation_mode, endpoint_id, endpoint_label_snapshot, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, attempt_count, request_path, upstream_request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason, context_routing) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52)`,
+		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name, upstream_operation_name, operation_translation_mode, endpoint_id, endpoint_label_snapshot, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, attempt_count, request_path, upstream_request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51)`,
 		seed.ID,
 		seed.ProfileID,
 		seed.IngressRequestID,
@@ -1681,17 +1665,9 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 		nullableTestBool(seed.BillableFlag),
 		nullableTestBool(seed.PricedFlag),
 		nullableTestString(seed.UnpricedReason),
-		nullableTestJSON(seed.ContextRouting),
 	); err != nil {
 		t.Fatalf("insert usage event %d: %v", seed.ID, err)
 	}
-}
-
-func nullableTestJSON(value *string) any {
-	if value == nil {
-		return nil
-	}
-	return []byte(*value)
 }
 
 func usageEventEndpointLabel(t *testing.T, harness *contractHarness, seed usageEventSeed) string {

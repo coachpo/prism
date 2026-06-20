@@ -15,69 +15,30 @@ import (
 )
 
 const (
-	runtimeTraceAttrOperationName                                         = "prism.operation_name"
-	runtimeTraceAttrUpstreamOperationName                                 = "prism.upstream_operation_name"
-	runtimeTraceAttrOperationTranslationMode                              = "prism.operation_translation_mode"
-	runtimeTraceAttrUpstreamRequestPath                                   = "prism.upstream_request_path"
-	runtimeTraceAttrTranslationLossy                                      = "prism.runtime.translation_lossy"
-	runtimeTraceAttrTranslationLossDirection                              = "prism.runtime.translation_loss_direction"
-	runtimeTraceAttrTranslationLossDroppedFields                          = "prism.runtime.translation_loss_dropped_fields"
-	runtimeTraceAttrTranslationLossMappedFields                           = "prism.runtime.translation_loss_mapped_fields"
-	runtimeTraceAttrPreferredContextBand                                  = "prism.preferred_context_band"
-	runtimeTraceAttrSelectedTerminalTargetID                              = "prism.selected_terminal_target_id"
-	runtimeTraceAttrContextOverflowPromotion                              = "prism.context_overflow_promotion"
-	runtimeTraceAttrContextOverflowPromotionFromModelID                   = "prism.context_overflow_promotion.from_model_id"
-	runtimeTraceAttrContextOverflowPromotionToModelID                     = "prism.context_overflow_promotion.to_model_id"
-	runtimeTraceAttrContextOverflowPromotionTriggerStatus                 = "prism.context_overflow_promotion.trigger_status"
-	runtimeTraceAttrContextOverflowPromotionTriggerPhase                  = "prism.context_overflow_promotion.trigger_phase"
-	runtimeTraceAttrContextOverflowPromotionTriggerCode                   = "prism.context_overflow_promotion.trigger_code"
-	runtimeTraceAttrContextOverflowPromotionTriggerClassifier             = "prism.context_overflow_promotion.trigger_classifier"
-	runtimeTraceAttrContextOverflowPromotionEstimationMode                = "prism.context_overflow_promotion.estimation_mode"
-	runtimeTraceAttrContextOverflowPromotionEstimationStatus              = "prism.context_overflow_promotion.estimation_status"
-	runtimeTraceAttrContextOverflowPromotionEstimationUnavailableReason   = "prism.context_overflow_promotion.estimation_unavailable_reason"
-	runtimeTraceAttrContextOverflowPromotionEstimationMethod              = "prism.context_overflow_promotion.estimation_method"
-	runtimeTraceAttrContextOverflowPromotionEstimatedInputTokens          = "prism.context_overflow_promotion.estimated_input_tokens"
-	runtimeTraceAttrContextOverflowPromotionReservedOutputTokens          = "prism.context_overflow_promotion.reserved_output_tokens"
-	runtimeTraceAttrContextOverflowPromotionEstimatedTotalContextTokens   = "prism.context_overflow_promotion.estimated_total_context_tokens"
-	runtimeTraceAttrContextOverflowPromotionFromSelectedTerminalTargetID  = "prism.context_overflow_promotion.from_selected_terminal_target_id"
-	runtimeTraceAttrContextOverflowPromotionToSelectedTerminalTargetID    = "prism.context_overflow_promotion.to_selected_terminal_target_id"
-	runtimeTraceAttrContextOverflowPromotionFinalResolvedTargetModelID    = "prism.context_overflow_promotion.final_resolved_target_model_id"
-	runtimeTraceAttrContextOverflowPromotionFinalSelectedTerminalTargetID = "prism.context_overflow_promotion.final_selected_terminal_target_id"
-	runtimeTraceAttrContextOverflowPromotionPromotionChain                = "prism.context_overflow_promotion.promotion_chain"
-	runtimeTraceAttrContextOverflowPromotionPromotionDepth                = "prism.context_overflow_promotion.promotion_depth"
-	runtimeTraceAttrContextOverflowPromotionStopReason                    = "prism.context_overflow_promotion.stop_reason"
-	runtimeTraceAttrContextOverflowPromotionFromUsableContextWindowTokens = "prism.context_overflow_promotion.from_usable_context_window_tokens"
-	runtimeTraceAttrContextOverflowPromotionToUsableContextWindowTokens   = "prism.context_overflow_promotion.to_usable_context_window_tokens"
-	runtimeTraceAttrContextOverflowPromotionSourceAttemptCount            = "prism.context_overflow_promotion.source_attempt_count"
-	runtimeTraceAttrContextOverflowPromotionFinalAttemptCount             = "prism.context_overflow_promotion.final_attempt_count"
-	runtimeTraceAttrContextOverflowPromotionResult                        = "prism.context_overflow_promotion.result"
-	runtimeTraceAttrContextOverflowAffinityState                          = "prism.context_overflow_affinity.state"
-	runtimeTraceAttrContextOverflowAffinityHashPrefix                     = "prism.context_overflow_affinity.affinity_hash_prefix"
-	runtimeTraceAttrContextOverflowAffinityParentHashPrefix               = "prism.context_overflow_affinity.parent_hash_prefix"
-	runtimeTraceAttrContextOverflowAffinityContextBucket                  = "prism.context_overflow_affinity.context_bucket"
-	runtimeTraceAttrContextOverflowAffinitySourceModelID                  = "prism.context_overflow_affinity.source_model_id"
-	runtimeTraceAttrContextOverflowAffinityPromotionTargetModelID         = "prism.context_overflow_affinity.promotion_target_model_id"
-	runtimeTraceAttrContextOverflowAffinityRejectionReason                = "prism.context_overflow_affinity.rejection_reason"
-	runtimeTraceAttrFacadeModelID                                         = "prism.facade_model_id"
-	runtimeTraceAttrFacadeSelectedTargetModel                             = "prism.facade_selected_target_model_id"
-	runtimeTraceAttrFacadeExclusionSummary                                = "prism.facade_exclusion_summary"
-	runtimeTraceAttrPlannerVersion                                        = "prism.planner_version"
-	runtimeTraceAttrPlannerDecision                                       = "prism.planner_decision"
-	runtimeTraceAttrPlannerPolicy                                         = "prism.planner_policy"
-	runtimeTraceAttrPlannerSkippedTargets                                 = "prism.planner_skipped_terminal_targets"
-	runtimeTraceAttrAPIFamily                                             = "prism.api_family"
-	runtimeTraceAttrStreaming                                             = "prism.streaming"
-	runtimeTraceAttrStatusClass                                           = "prism.status_class"
-	runtimeTraceAttrStreamOutcome                                         = "prism.stream_outcome"
-	runtimeTraceAttrRouteReason                                           = "prism.route_reason"
-	runtimeTraceAttrUsageSource                                           = "prism.usage_source"
-	runtimeTraceAttrPricingConfigVersionUsed                              = "prism.pricing_config_version_used"
-	runtimeTraceAttrBodyMode                                              = "prism.body_mode"
-	runtimeTraceAttrAttemptResult                                         = "prism.attempt_result"
-	runtimeTraceAttrFeedbackKind                                          = "prism.feedback_kind"
-	runtimeTraceAttrEnqueueStatus                                         = "prism.enqueue_status"
-	runtimeTraceAttrHTTPMethod                                            = "http.request.method"
-	runtimeTraceAttrHTTPStatus                                            = "http.response.status_code"
+	runtimeTraceAttrOperationName                = "prism.operation_name"
+	runtimeTraceAttrUpstreamOperationName        = "prism.upstream_operation_name"
+	runtimeTraceAttrOperationTranslationMode     = "prism.operation_translation_mode"
+	runtimeTraceAttrUpstreamRequestPath          = "prism.upstream_request_path"
+	runtimeTraceAttrTranslationLossy             = "prism.runtime.translation_lossy"
+	runtimeTraceAttrTranslationLossDirection     = "prism.runtime.translation_loss_direction"
+	runtimeTraceAttrTranslationLossDroppedFields = "prism.runtime.translation_loss_dropped_fields"
+	runtimeTraceAttrTranslationLossMappedFields  = "prism.runtime.translation_loss_mapped_fields"
+	runtimeTraceAttrFacadeModelID                = "prism.facade_model_id"
+	runtimeTraceAttrFacadeSelectedTargetModel    = "prism.facade_selected_target_model_id"
+	runtimeTraceAttrFacadeExclusionSummary       = "prism.facade_exclusion_summary"
+	runtimeTraceAttrAPIFamily                    = "prism.api_family"
+	runtimeTraceAttrStreaming                    = "prism.streaming"
+	runtimeTraceAttrStatusClass                  = "prism.status_class"
+	runtimeTraceAttrStreamOutcome                = "prism.stream_outcome"
+	runtimeTraceAttrRouteReason                  = "prism.route_reason"
+	runtimeTraceAttrUsageSource                  = "prism.usage_source"
+	runtimeTraceAttrPricingConfigVersionUsed     = "prism.pricing_config_version_used"
+	runtimeTraceAttrBodyMode                     = "prism.body_mode"
+	runtimeTraceAttrAttemptResult                = "prism.attempt_result"
+	runtimeTraceAttrFeedbackKind                 = "prism.feedback_kind"
+	runtimeTraceAttrEnqueueStatus                = "prism.enqueue_status"
+	runtimeTraceAttrHTTPMethod                   = "http.request.method"
+	runtimeTraceAttrHTTPStatus                   = "http.response.status_code"
 
 	runtimeTraceValueUnknown  = "unknown"
 	runtimeTraceBodyStreaming = "streaming"
@@ -159,179 +120,12 @@ func runtimeTraceOperationAttributes(operation RuntimeOperation) []attribute.Key
 	}
 }
 
-func runtimeTraceAttemptAttributionAttributes(operation RuntimeOperation, translationMode TranslationMode, contextRouting *runtimeContextRoutingDecision) []attribute.KeyValue {
-	attrs := []attribute.KeyValue{
+func runtimeTraceAttemptAttributionAttributes(operation RuntimeOperation, translationMode TranslationMode) []attribute.KeyValue {
+	return []attribute.KeyValue{
 		attribute.String(runtimeTraceAttrUpstreamOperationName, runtimeMetricPolicy.operationName(runtimeUpstreamOperationName(operation, translationMode))),
 		attribute.String(runtimeTraceAttrOperationTranslationMode, runtimeTracePolicy.translationMode(string(normalizedRuntimeTranslationMode(translationMode)))),
 		attribute.String(runtimeTraceAttrUpstreamRequestPath, runtimeTracePolicy.requestPath(runtimeUpstreamRequestPathTemplate(operation, translationMode))),
 	}
-	if contextRouting != nil {
-		if contextRouting.SelectedContextBand != nil {
-			attrs = append(attrs, attribute.String(runtimeTraceAttrPreferredContextBand, runtimeTracePolicy.preferredContextBand(*contextRouting.SelectedContextBand)))
-		}
-		if contextRouting.SelectedTerminalTargetID != nil {
-			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *contextRouting.SelectedTerminalTargetID))
-		}
-		attrs = append(attrs, runtimeTraceContextOverflowPromotionAttributes(contextRouting)...)
-		attrs = append(attrs, runtimeTraceContextOverflowAffinityAttributes(contextRouting)...)
-		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(contextRouting)...)
-		attrs = append(attrs, runtimeTracePlannerTraceAttributes(contextRouting.PlannerTrace)...)
-		attrs = append(attrs, runtimeTraceTranslationLossAttributes(contextRouting)...)
-	}
-	return attrs
-}
-
-func runtimeTraceTranslationLossAttributes(contextRouting *runtimeContextRoutingDecision) []attribute.KeyValue {
-	if contextRouting == nil || contextRouting.TranslationLoss == nil || !contextRouting.TranslationLoss.Lossy {
-		return nil
-	}
-	loss := contextRouting.TranslationLoss
-	attrs := []attribute.KeyValue{
-		attribute.Bool(runtimeTraceAttrTranslationLossy, true),
-		attribute.String(runtimeTraceAttrTranslationLossDirection, runtimeTracePolicy.translationLossDirection(loss.Direction)),
-	}
-	if dropped := runtimeTracePolicy.translationLossFields(loss.DroppedFields); len(dropped) > 0 {
-		attrs = append(attrs, attribute.StringSlice(runtimeTraceAttrTranslationLossDroppedFields, dropped))
-	}
-	if mapped := runtimeTracePolicy.translationLossFields(loss.MappedFields); len(mapped) > 0 {
-		attrs = append(attrs, attribute.StringSlice(runtimeTraceAttrTranslationLossMappedFields, mapped))
-	}
-	return attrs
-}
-
-func runtimeTraceFacadeSelectionAttributes(contextRouting *runtimeContextRoutingDecision) []attribute.KeyValue {
-	if contextRouting == nil || contextRouting.FacadeSelection == nil {
-		return nil
-	}
-	facadeSelection := contextRouting.FacadeSelection
-	attrs := []attribute.KeyValue{attribute.String(runtimeTraceAttrFacadeModelID, strings.TrimSpace(facadeSelection.FacadeModelID))}
-	if facadeSelection.SelectedTargetModelID != nil && strings.TrimSpace(*facadeSelection.SelectedTargetModelID) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrFacadeSelectedTargetModel, strings.TrimSpace(*facadeSelection.SelectedTargetModelID)))
-	}
-	if facadeSelection.ExclusionSummary != nil && strings.TrimSpace(*facadeSelection.ExclusionSummary) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrFacadeExclusionSummary, strings.TrimSpace(*facadeSelection.ExclusionSummary)))
-	}
-	return attrs
-}
-
-func runtimeTraceContextOverflowPromotionAttributes(contextRouting *runtimeContextRoutingDecision) []attribute.KeyValue {
-	if contextRouting == nil || contextRouting.ContextOverflowPromotion == nil {
-		return nil
-	}
-	promotion := contextRouting.ContextOverflowPromotion
-	attrs := []attribute.KeyValue{
-		attribute.Bool(runtimeTraceAttrContextOverflowPromotion, true),
-		attribute.Int(runtimeTraceAttrContextOverflowPromotionTriggerStatus, promotion.TriggerStatus),
-		attribute.String(runtimeTraceAttrContextOverflowPromotionTriggerPhase, runtimeTracePolicy.contextOverflowPromotionTriggerPhase(promotion.TriggerPhase)),
-		attribute.Int(runtimeTraceAttrContextOverflowPromotionSourceAttemptCount, promotion.SourceAttemptCount),
-		attribute.Int(runtimeTraceAttrContextOverflowPromotionFinalAttemptCount, promotion.FinalAttemptCount),
-		attribute.String(runtimeTraceAttrContextOverflowPromotionResult, runtimeTracePolicy.contextOverflowPromotionResult(promotion.Result)),
-	}
-	if strings.TrimSpace(promotion.TriggerClassifier) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionTriggerClassifier, runtimeTracePolicy.contextOverflowPromotionClassifier(promotion.TriggerClassifier)))
-	}
-	if promotion.TriggerErrorCode != nil && strings.TrimSpace(*promotion.TriggerErrorCode) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionTriggerCode, runtimeTracePolicy.contextOverflowPromotionTriggerCode(*promotion.TriggerErrorCode)))
-	}
-	if strings.TrimSpace(promotion.EstimationMode) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationMode, runtimeTracePolicy.contextOverflowPromotionEstimationMode(promotion.EstimationMode)))
-	}
-	if strings.TrimSpace(promotion.EstimationStatus) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationStatus, runtimeTracePolicy.contextEstimationStatus(promotion.EstimationStatus)))
-	}
-	if promotion.EstimationUnavailableReason != nil && strings.TrimSpace(*promotion.EstimationUnavailableReason) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationUnavailableReason, runtimeTracePolicy.contextEstimationUnavailableReason(*promotion.EstimationUnavailableReason)))
-	}
-	if promotion.EstimationMethod != nil && strings.TrimSpace(*promotion.EstimationMethod) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionEstimationMethod, strings.TrimSpace(*promotion.EstimationMethod)))
-	}
-	if promotion.EstimatedInputTokens != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionEstimatedInputTokens, *promotion.EstimatedInputTokens))
-	}
-	if promotion.ReservedOutputTokens != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionReservedOutputTokens, *promotion.ReservedOutputTokens))
-	}
-	if promotion.EstimatedTotalContextTokens != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionEstimatedTotalContextTokens, *promotion.EstimatedTotalContextTokens))
-	}
-	if promotion.FromResolvedTargetModelID != nil && strings.TrimSpace(*promotion.FromResolvedTargetModelID) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionFromModelID, runtimeTracePolicy.contextOverflowPromotionModelID(*promotion.FromResolvedTargetModelID)))
-	}
-	if promotion.ToResolvedTargetModelID != nil && strings.TrimSpace(*promotion.ToResolvedTargetModelID) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionToModelID, runtimeTracePolicy.contextOverflowPromotionModelID(*promotion.ToResolvedTargetModelID)))
-	}
-	if promotion.FromSelectedTerminalTargetID != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionFromSelectedTerminalTargetID, *promotion.FromSelectedTerminalTargetID))
-	}
-	if promotion.ToSelectedTerminalTargetID != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionToSelectedTerminalTargetID, *promotion.ToSelectedTerminalTargetID))
-	}
-	if promotion.FinalResolvedTargetModelID != nil && strings.TrimSpace(*promotion.FinalResolvedTargetModelID) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionFinalResolvedTargetModelID, runtimeTracePolicy.contextOverflowPromotionModelID(*promotion.FinalResolvedTargetModelID)))
-	}
-	if promotion.FinalSelectedTerminalTargetID != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionFinalSelectedTerminalTargetID, *promotion.FinalSelectedTerminalTargetID))
-	}
-	if chain := runtimeTracePolicy.contextOverflowPromotionModelPath(promotion.PromotionChain); len(chain) > 0 {
-		attrs = append(attrs, attribute.StringSlice(runtimeTraceAttrContextOverflowPromotionPromotionChain, chain))
-	}
-	if promotion.PromotionDepth != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionPromotionDepth, *promotion.PromotionDepth))
-	}
-	if promotion.StopReason != nil && strings.TrimSpace(*promotion.StopReason) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowPromotionStopReason, runtimeTracePolicy.contextOverflowPromotionStopReason(*promotion.StopReason)))
-	}
-	if promotion.FromUsableContextWindowTokens != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionFromUsableContextWindowTokens, *promotion.FromUsableContextWindowTokens))
-	}
-	if promotion.ToUsableContextWindowTokens != nil {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrContextOverflowPromotionToUsableContextWindowTokens, *promotion.ToUsableContextWindowTokens))
-	}
-	return attrs
-}
-
-func runtimeTraceContextOverflowAffinityAttributes(contextRouting *runtimeContextRoutingDecision) []attribute.KeyValue {
-	if contextRouting == nil || contextRouting.ContextOverflowAffinity == nil {
-		return nil
-	}
-	affinity := contextRouting.ContextOverflowAffinity
-	attrs := []attribute.KeyValue{attribute.String(runtimeTraceAttrContextOverflowAffinityState, strings.TrimSpace(affinity.State))}
-	if strings.TrimSpace(affinity.AffinityHashPrefix) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityHashPrefix, strings.TrimSpace(affinity.AffinityHashPrefix)))
-	}
-	if affinity.ParentHashPrefix != nil && strings.TrimSpace(*affinity.ParentHashPrefix) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityParentHashPrefix, strings.TrimSpace(*affinity.ParentHashPrefix)))
-	}
-	if strings.TrimSpace(affinity.ContextBucket) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityContextBucket, strings.TrimSpace(affinity.ContextBucket)))
-	}
-	if strings.TrimSpace(affinity.SourceModelID) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinitySourceModelID, strings.TrimSpace(affinity.SourceModelID)))
-	}
-	if strings.TrimSpace(affinity.PromotionTargetModelID) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityPromotionTargetModelID, strings.TrimSpace(affinity.PromotionTargetModelID)))
-	}
-	if affinity.RejectionReason != nil && strings.TrimSpace(*affinity.RejectionReason) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrContextOverflowAffinityRejectionReason, strings.TrimSpace(*affinity.RejectionReason)))
-	}
-	return attrs
-}
-
-func runtimeTracePlannerTraceAttributes(plannerTrace *runtimePlannerTraceDecision) []attribute.KeyValue {
-	if plannerTrace == nil {
-		return nil
-	}
-	attrs := []attribute.KeyValue{
-		attribute.String(runtimeTraceAttrPlannerVersion, runtimeTracePolicy.plannerVersion(plannerTrace.PlannerVersion)),
-		attribute.String(runtimeTraceAttrPlannerDecision, runtimeTracePolicy.plannerDecision(plannerTrace.Decision)),
-	}
-	if strings.TrimSpace(plannerTrace.Policy) != "" {
-		attrs = append(attrs, attribute.String(runtimeTraceAttrPlannerPolicy, runtimeTracePolicy.plannerPolicy(plannerTrace.Policy)))
-	}
-	if plannerTrace.SkippedTerminalTargets > 0 {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrPlannerSkippedTargets, plannerTrace.SkippedTerminalTargets))
-	}
-	return attrs
 }
 
 func runtimeTracePlanAttributes(plan requestPlan) []attribute.KeyValue {
@@ -340,7 +134,7 @@ func runtimeTracePlanAttributes(plan requestPlan) []attribute.KeyValue {
 		attribute.String(runtimeTraceAttrAPIFamily, runtimeTracePolicy.apiFamily(plan.APIFamily)),
 		attribute.Bool(runtimeTraceAttrStreaming, plan.IsStreamingRequest),
 	}
-	attrs = append(attrs, runtimeTraceAttemptAttributionAttributes(plan.RuntimeOperation, firstTerminalAttempt(plan).TranslationMode, plan.ContextRouting)...)
+	attrs = append(attrs, runtimeTraceAttemptAttributionAttributes(plan.RuntimeOperation, firstTerminalAttempt(plan).TranslationMode)...)
 	return attrs
 }
 
@@ -350,7 +144,7 @@ func runtimeTraceAttemptAttributes(plan requestPlan, attempt runtimeTerminalAtte
 		attribute.String(runtimeTraceAttrAPIFamily, runtimeTracePolicy.apiFamily(plan.APIFamily)),
 		attribute.Bool(runtimeTraceAttrStreaming, plan.IsStreamingRequest),
 	}
-	attrs = append(attrs, runtimeTraceAttemptAttributionAttributes(plan.RuntimeOperation, attempt.TranslationMode, plan.ContextRouting)...)
+	attrs = append(attrs, runtimeTraceAttemptAttributionAttributes(plan.RuntimeOperation, attempt.TranslationMode)...)
 	return attrs
 }
 
@@ -368,19 +162,6 @@ func runtimeTracePlanningFailureAttributes(failure runtimePlanningFailureTelemet
 	}
 	if failure.UpstreamRequestPath != nil {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrUpstreamRequestPath, runtimeTracePolicy.requestPath(*failure.UpstreamRequestPath)))
-	}
-	if failure.ContextRouting != nil {
-		if failure.ContextRouting.SelectedContextBand != nil {
-			attrs = append(attrs, attribute.String(runtimeTraceAttrPreferredContextBand, runtimeTracePolicy.preferredContextBand(*failure.ContextRouting.SelectedContextBand)))
-		}
-		if failure.ContextRouting.SelectedTerminalTargetID != nil {
-			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *failure.ContextRouting.SelectedTerminalTargetID))
-		}
-		attrs = append(attrs, runtimeTraceContextOverflowPromotionAttributes(failure.ContextRouting)...)
-		attrs = append(attrs, runtimeTraceContextOverflowAffinityAttributes(failure.ContextRouting)...)
-		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(failure.ContextRouting)...)
-		attrs = append(attrs, runtimeTracePlannerTraceAttributes(failure.ContextRouting.PlannerTrace)...)
-		attrs = append(attrs, runtimeTraceTranslationLossAttributes(failure.ContextRouting)...)
 	}
 	return attrs
 }
@@ -405,22 +186,6 @@ func runtimeTraceEnvelopeAttributes(envelope runtimeTelemetryEnvelope) []attribu
 	}
 	if envelope.UsageEvent.UpstreamRequestPath != nil {
 		attrs = append(attrs, attribute.String(runtimeTraceAttrUpstreamRequestPath, runtimeTracePolicy.requestPath(*envelope.UsageEvent.UpstreamRequestPath)))
-	}
-	if envelope.UsageEvent.ContextRouting != nil {
-		if envelope.UsageEvent.ContextRouting.SelectedContextBand != nil {
-			attrs = append(attrs, attribute.String(runtimeTraceAttrPreferredContextBand, runtimeTracePolicy.preferredContextBand(*envelope.UsageEvent.ContextRouting.SelectedContextBand)))
-		}
-		if envelope.UsageEvent.ContextRouting.SelectedTerminalTargetID != nil {
-			attrs = append(attrs, attribute.Int(runtimeTraceAttrSelectedTerminalTargetID, *envelope.UsageEvent.ContextRouting.SelectedTerminalTargetID))
-		}
-		attrs = append(attrs, runtimeTraceContextOverflowPromotionAttributes(envelope.UsageEvent.ContextRouting)...)
-		attrs = append(attrs, runtimeTraceContextOverflowAffinityAttributes(envelope.UsageEvent.ContextRouting)...)
-		attrs = append(attrs, runtimeTraceFacadeSelectionAttributes(envelope.UsageEvent.ContextRouting)...)
-		attrs = append(attrs, runtimeTracePlannerTraceAttributes(envelope.UsageEvent.ContextRouting.PlannerTrace)...)
-		attrs = append(attrs, runtimeTraceTranslationLossAttributes(envelope.UsageEvent.ContextRouting)...)
-	}
-	if envelope.UsageEvent.StatusCode >= 100 && envelope.UsageEvent.StatusCode <= 599 {
-		attrs = append(attrs, attribute.Int(runtimeTraceAttrHTTPStatus, envelope.UsageEvent.StatusCode))
 	}
 	return attrs
 }
@@ -551,141 +316,6 @@ func (policy runtimeTraceAttributePolicy) translationLossFields(values []string)
 		}
 	}
 	return fields
-}
-
-func (policy runtimeTraceAttributePolicy) plannerVersion(value string) string {
-	if strings.TrimSpace(value) == runtimePlannerTraceVersion {
-		return runtimePlannerTraceVersion
-	}
-	return runtimeTraceValueUnknown
-}
-
-func (policy runtimeTraceAttributePolicy) plannerDecision(value string) string {
-	switch strings.TrimSpace(value) {
-	case runtimePlannerTraceDecisionSelected, runtimePlannerTraceDecisionNoFit, runtimePlannerTraceDecisionNoTarget:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) plannerPolicy(value string) string {
-	switch strings.TrimSpace(value) {
-	case "single", "fill-first", "round-robin", "cheapest_eligible_context", runtimeFacadeSelectionPolicyOrderedEligibleContext:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) preferredContextBand(value string) string {
-	switch strings.TrimSpace(value) {
-	case runtimeContextBandPreferred, runtimeContextBandDiscretionary:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) contextOverflowPromotionResult(value string) string {
-	switch strings.TrimSpace(value) {
-	case runtimeContextOverflowPromotionResultPromotedSuccess, runtimeContextOverflowPromotionResultNotPromoted:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) contextOverflowPromotionStopReason(value string) string {
-	switch runtimeRecursiveContextOverflowStopReason(strings.TrimSpace(value)) {
-	case runtimeRecursiveContextOverflowStopReasonEstimationUnavailable,
-		runtimeRecursiveContextOverflowStopReasonMissingContextWindow,
-		runtimeRecursiveContextOverflowStopReasonCycle,
-		runtimeRecursiveContextOverflowStopReasonMaxDepth:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) contextOverflowPromotionModelID(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return runtimeTraceValueUnknown
-	}
-	return "redacted_model"
-}
-
-func (policy runtimeTraceAttributePolicy) contextOverflowPromotionModelPath(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	path := make([]string, 0, len(values))
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			path = append(path, policy.contextOverflowPromotionModelID(value))
-		}
-	}
-	return path
-}
-
-func (policy runtimeTraceAttributePolicy) contextOverflowPromotionClassifier(value string) string {
-	switch strings.TrimSpace(value) {
-	case cliProxyAPIOverflowClassifierErrorCode, cliProxyAPIOverflowClassifierMessageText:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) contextOverflowPromotionTriggerCode(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "context_length_exceeded", "context_too_large":
-		return strings.ToLower(strings.TrimSpace(value))
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) contextOverflowPromotionTriggerPhase(value string) string {
-	switch strings.TrimSpace(value) {
-	case runtimeContextOverflowPromotionTriggerPhasePreDispatchEstimate, runtimeContextOverflowPromotionTriggerPhaseProviderOverflow:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) contextOverflowPromotionEstimationMode(value string) string {
-	switch strings.TrimSpace(value) {
-	case runtimeContextOverflowPromotionEstimationModeEstimated, runtimeContextOverflowPromotionEstimationModePassThrough:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) contextEstimationStatus(value string) string {
-	switch strings.TrimSpace(value) {
-	case runtimeContextEstimationStatusPresent, runtimeContextEstimationStatusUnavailable:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
-}
-
-func (policy runtimeTraceAttributePolicy) contextEstimationUnavailableReason(value string) string {
-	switch requestContextEstimationUnavailableReason(strings.TrimSpace(value)) {
-	case requestContextEstimationUnavailableReasonUnknownTokenizerModel,
-		requestContextEstimationUnavailableReasonMalformedRequestJSON,
-		requestContextEstimationUnavailableReasonChatNonTextContent,
-		requestContextEstimationUnavailableReasonChatUnsafeToolShape,
-		requestContextEstimationUnavailableReasonResponsesStatefulRef,
-		requestContextEstimationUnavailableReasonResponsesNonTextInput,
-		requestContextEstimationUnavailableReasonResponsesUnsafeToolShape:
-		return strings.TrimSpace(value)
-	default:
-		return runtimeTraceValueUnknown
-	}
 }
 
 func (policy runtimeTraceAttributePolicy) attemptResult(value string) string {
