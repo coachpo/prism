@@ -27,20 +27,12 @@ function createModelResponse({
   modelId,
   displayName,
   connections = [],
-  contextWindowTokens = 16384,
-  defaultOutputTokenReserve = 4096,
-  maxContextUtilization = 0.9,
-  preferredContextUtilizationThreshold = null,
 }: {
   id: number;
   apiFamily: "openai" | "anthropic";
   modelId: string;
   displayName: string;
   connections?: Connection[];
-  contextWindowTokens?: number | null;
-  defaultOutputTokenReserve?: number;
-  maxContextUtilization?: number;
-  preferredContextUtilizationThreshold?: number | null;
 }) {
   return {
     id,
@@ -50,10 +42,6 @@ function createModelResponse({
     display_name: displayName,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
-    context_window_tokens: contextWindowTokens,
-    default_output_token_reserve: defaultOutputTokenReserve,
-    max_context_utilization: maxContextUtilization,
-    preferred_context_utilization_threshold: preferredContextUtilizationThreshold,
     access_targets: connections.map<TestAccessTarget>((connection, index) => ({
       id: 700 + index,
       target_type: "connection",
@@ -144,19 +132,11 @@ function createModelListItem({
   apiFamily,
   modelId,
   displayName,
-  contextWindowTokens = 16384,
-  defaultOutputTokenReserve = 4096,
-  maxContextUtilization = 0.9,
-  preferredContextUtilizationThreshold = null,
 }: {
   id: number;
   apiFamily: "openai" | "anthropic";
   modelId: string;
   displayName: string;
-  contextWindowTokens?: number | null;
-  defaultOutputTokenReserve?: number;
-  maxContextUtilization?: number;
-  preferredContextUtilizationThreshold?: number | null;
 }) {
   return {
     id,
@@ -166,10 +146,6 @@ function createModelListItem({
     display_name: displayName,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
-    context_window_tokens: contextWindowTokens,
-    default_output_token_reserve: defaultOutputTokenReserve,
-    max_context_utilization: maxContextUtilization,
-    preferred_context_utilization_threshold: preferredContextUtilizationThreshold,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -225,26 +201,23 @@ type ConnectionMutationPayload = {
 function applyConnectionPayload(
   connection: Connection,
   payload: ConnectionMutationPayload,
-  model: ReturnType<typeof createModelResponse>,
 ): Connection {
   const nextContextWindowTokens =
     payload.context_window_tokens === undefined
       ? connection.context_window_tokens
-      : payload.context_window_tokens ?? model.context_window_tokens ?? null;
+      : payload.context_window_tokens ?? connection.context_window_tokens;
   const nextDefaultOutputTokenReserve =
     payload.default_output_token_reserve === undefined
       ? connection.default_output_token_reserve
-      : payload.default_output_token_reserve ?? model.default_output_token_reserve;
+      : payload.default_output_token_reserve ?? connection.default_output_token_reserve;
   const nextMaxContextUtilization =
     payload.max_context_utilization === undefined
       ? connection.max_context_utilization
-      : payload.max_context_utilization ?? model.max_context_utilization;
+      : payload.max_context_utilization ?? connection.max_context_utilization;
   const nextPreferredContextUtilizationThreshold =
     payload.preferred_context_utilization_threshold === undefined
       ? connection.preferred_context_utilization_threshold
-      : payload.preferred_context_utilization_threshold
-        ?? model.preferred_context_utilization_threshold
-        ?? null;
+      : payload.preferred_context_utilization_threshold ?? connection.preferred_context_utilization_threshold;
 
   return {
     ...connection,
@@ -342,10 +315,6 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
           apiFamily: model.api_family,
           modelId: model.model_id,
           displayName: model.display_name ?? model.model_id,
-          contextWindowTokens: model.context_window_tokens,
-          defaultOutputTokenReserve: model.default_output_token_reserve,
-          maxContextUtilization: model.max_context_utilization,
-          preferredContextUtilizationThreshold: model.preferred_context_utilization_threshold,
         }),
       ]);
     }
@@ -390,13 +359,8 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
           name: payload.name ?? endpoint.name,
           openaiProbeEndpointVariant: payload.openai_probe_endpoint_variant ?? null,
           openaiTextCapability: payload.openai_text_capability ?? null,
-          contextWindowTokens: model.context_window_tokens,
-          defaultOutputTokenReserve: model.default_output_token_reserve,
-          maxContextUtilization: model.max_context_utilization,
-          preferredContextUtilizationThreshold: model.preferred_context_utilization_threshold,
         }),
         payload,
-        model,
       );
       accessTargets = [
         ...accessTargets,
@@ -421,7 +385,7 @@ async function stubModelDetailRoutes(page: Page, model: ReturnType<typeof create
       savePayloads.push(payload);
       const currentConnection = accessTargets[0]?.connection;
       const updatedConnection = currentConnection
-        ? applyConnectionPayload(currentConnection, payload, model)
+        ? applyConnectionPayload(currentConnection, payload)
         : currentConnection;
       accessTargets = accessTargets.map((target) =>
         target.connection_id === 301 && updatedConnection
@@ -537,16 +501,12 @@ test("editing an OpenAI connection hydrates the saved probe settings into both s
   await expect(page.locator("#conn-probe-reasoning-mode")).toContainText("Disable reasoning");
 });
 
-test("context-capability-authoring: connection dialog submits mixed inherit and override payloads", async ({ page }) => {
+test("terminal target capability editor submits mixed default and override payloads", async ({ page }) => {
   const model = createModelResponse({
     id: 4,
     apiFamily: "openai",
     modelId: "gpt-4.1-context-create",
     displayName: "GPT 4.1 Context Create",
-    contextWindowTokens: null,
-    defaultOutputTokenReserve: 4096,
-    maxContextUtilization: 0.9,
-    preferredContextUtilizationThreshold: 0.7,
   });
   const { savePayloads } = await stubModelDetailRoutes(page, model);
 
@@ -554,14 +514,14 @@ test("context-capability-authoring: connection dialog submits mixed inherit and 
   await page.getByRole("button", { name: "New terminal target" }).first().click();
 
   const contextWindowField = page.getByTestId("conn-context-window-tokens-field");
-  await expect(contextWindowField).toContainText("Inherited from model: Not set");
+  await expect(contextWindowField).toContainText("Using default capability: Not set");
   await page.locator("#conn-selected-endpoint").click();
   await page.getByRole("option", { name: /OpenAI Primary/ }).click();
 
   await contextWindowField.getByRole("button", { name: "Override" }).click();
   await page.locator("#conn-context-window-tokens").fill("32768");
-  await contextWindowField.getByRole("button", { name: "Reset to model default" }).click();
-  await expect(contextWindowField).toContainText("Inherited from model: Not set");
+  await contextWindowField.getByRole("button", { name: "Reset to default" }).click();
+  await expect(contextWindowField).toContainText("Using default capability: Not set");
 
   const reserveField = page.getByTestId("conn-default-output-token-reserve-field");
   await reserveField.getByRole("button", { name: "Override" }).click();
@@ -572,7 +532,7 @@ test("context-capability-authoring: connection dialog submits mixed inherit and 
   await page.locator("#conn-max-context-utilization").fill("0.75");
 
   const preferredField = page.getByTestId("conn-preferred-context-utilization-threshold-field");
-  await expect(preferredField).toContainText("Inherited from model: 0.7");
+  await expect(preferredField).toContainText("Using default capability: Not set");
   await preferredField.getByRole("button", { name: "Override" }).click();
   await page.locator("#conn-preferred-context-utilization-threshold").fill("0.6");
 
@@ -586,7 +546,7 @@ test("context-capability-authoring: connection dialog submits mixed inherit and 
   });
 });
 
-test("context-capability-authoring: connection dialog reopens same-as-owner explicit overrides in override mode", async ({ page }) => {
+test("terminal target capability editor reopens same-as-default explicit overrides in override mode", async ({ page }) => {
   const endpoint: Endpoint = {
     id: 11,
     profile_id: 1,
@@ -603,10 +563,6 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
     apiFamily: "openai",
     modelId: "gpt-4.1-context-edit",
     displayName: "GPT 4.1 Context Edit",
-    contextWindowTokens: 16384,
-    defaultOutputTokenReserve: 4096,
-    maxContextUtilization: 0.9,
-    preferredContextUtilizationThreshold: 0.7,
     connections: [
       createConnection({
         id: 301,
@@ -635,9 +591,9 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
   await expect(page.locator("#conn-context-window-tokens")).toHaveValue("16384");
   await expect(page.locator("#conn-max-context-utilization")).toHaveValue("0.9");
   await expect(page.locator("#conn-preferred-context-utilization-threshold")).toHaveValue("0.7");
-  await expect(page.getByTestId("conn-context-window-tokens-field")).not.toContainText("Inherited from model: 16384");
-  await expect(page.getByTestId("conn-context-window-tokens-field")).toContainText("Reset to model default");
-  await expect(page.getByTestId("conn-preferred-context-utilization-threshold-field")).toContainText("Reset to model default");
+  await expect(page.getByTestId("conn-context-window-tokens-field")).not.toContainText("Using default capability: 16384");
+  await expect(page.getByTestId("conn-context-window-tokens-field")).toContainText("Reset to default");
+  await expect(page.getByTestId("conn-preferred-context-utilization-threshold-field")).toContainText("Reset to default");
 
   await page.locator("#conn-name").fill("Saved Terminal Target Renamed");
   await page.getByRole("button", { name: "Save Terminal Target" }).click();
@@ -653,21 +609,17 @@ test("context-capability-authoring: connection dialog reopens same-as-owner expl
   await expect(page.locator("#conn-context-window-tokens")).toHaveValue("16384");
   await expect(page.locator("#conn-max-context-utilization")).toHaveValue("0.9");
   await expect(page.locator("#conn-preferred-context-utilization-threshold")).toHaveValue("0.7");
-  await expect(page.getByTestId("conn-context-window-tokens-field")).toContainText("Reset to model default");
-  await expect(page.getByTestId("conn-preferred-context-utilization-threshold-field")).toContainText("Reset to model default");
+  await expect(page.getByTestId("conn-context-window-tokens-field")).toContainText("Reset to default");
+  await expect(page.getByTestId("conn-preferred-context-utilization-threshold-field")).toContainText("Reset to default");
 });
 
 
-test("context-capability-authoring: connection dialog blocks preferred threshold above the effective max before save", async ({ page }) => {
+test("terminal target capability editor blocks preferred threshold above the effective max before save", async ({ page }) => {
   const model = createModelResponse({
     id: 6,
     apiFamily: "openai",
     modelId: "gpt-4.1-context-invalid",
     displayName: "GPT 4.1 Context Invalid",
-    contextWindowTokens: 16384,
-    defaultOutputTokenReserve: 4096,
-    maxContextUtilization: 0.9,
-    preferredContextUtilizationThreshold: 0.7,
   });
   const { savePayloads } = await stubModelDetailRoutes(page, model);
 
@@ -679,6 +631,9 @@ test("context-capability-authoring: connection dialog blocks preferred threshold
   const utilizationField = page.getByTestId("conn-max-context-utilization-field");
   await utilizationField.getByRole("button", { name: "Override" }).click();
   await page.locator("#conn-max-context-utilization").fill("0.6");
+  const preferredField = page.getByTestId("conn-preferred-context-utilization-threshold-field");
+  await preferredField.getByRole("button", { name: "Override" }).click();
+  await page.locator("#conn-preferred-context-utilization-threshold").fill("0.7");
 
   await page.getByRole("button", { name: "Save Terminal Target" }).click();
   await expect(page.getByText("Preferred context utilization threshold must be less than or equal to max context utilization.")).toBeVisible();

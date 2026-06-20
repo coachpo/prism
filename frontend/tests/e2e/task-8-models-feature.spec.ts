@@ -16,7 +16,7 @@ function strategy() {
 }
 
 function model(id: number, modelId: string, displayName: string, apiFamily: "openai" | "anthropic" | "gemini" = "openai") {
-  return { id, profile_id: 1, api_family: apiFamily, model_id: modelId, display_name: displayName, loadbalance_strategy_id: 11, loadbalance_strategy: strategy(), context_window_tokens: null, default_output_token_reserve: 4096, max_context_utilization: 0.9, preferred_context_utilization_threshold: null, context_overflow_promotion_target_id: null, access_targets: [], is_enabled: id !== 1, connection_count: 0, active_connection_count: 0, health_success_rate: null, health_total_requests: 0, created_at: timestamp, updated_at: timestamp }
+  return { id, profile_id: 1, api_family: apiFamily, model_id: modelId, display_name: displayName, loadbalance_strategy_id: 11, loadbalance_strategy: strategy(), access_targets: [], is_enabled: id !== 1, connection_count: 0, active_connection_count: 0, health_success_rate: null, health_total_requests: 0, created_at: timestamp, updated_at: timestamp }
 }
 
 async function mockRoutes(page: Page) {
@@ -64,24 +64,11 @@ test("task 8 models feature create/edit/error evidence", async ({ page }) => {
   await page.getByRole("button", { name: "New Model" }).click()
   const dialog = page.getByRole("dialog", { name: "New Model" })
   await dialog.locator("#model-id").fill("gpt-entry")
-  await dialog.locator("#model-context-window-tokens").fill("131072")
-  await dialog.locator("#model-default-output-token-reserve").fill("8192")
-  await dialog.locator("#model-max-context-utilization").fill("0.75")
-  await dialog.locator("#model-preferred-context-utilization-threshold").fill("0.7")
-  await dialog.getByLabel("Overflow promotion target").click()
-  await page.getByRole("option", { name: "GPT Large (gpt-large)" }).click()
   await dialog.getByRole("button", { name: "Save" }).click()
   await expect(page.getByText("Model created")).toBeVisible()
 
   writeFileSync(requestCapturePath, capture.requests.join("\n\n"))
 
-  await page.getByRole("button", { name: "New Model" }).click()
-  const errorDialog = page.getByRole("dialog", { name: "New Model" })
-  await errorDialog.locator("#model-id").fill("bad-threshold")
-  await errorDialog.locator("#model-max-context-utilization").fill("0.5")
-  await errorDialog.locator("#model-preferred-context-utilization-threshold").fill("0.75")
-  await errorDialog.getByRole("button", { name: "Save" }).click()
-  await expect(errorDialog.getByText("Preferred context utilization threshold must be less than or equal to max context utilization.")).toBeVisible()
   await page.screenshot({ path: thresholdScreenshotPath, fullPage: true })
 
   expect(capture.requests).toHaveLength(1)

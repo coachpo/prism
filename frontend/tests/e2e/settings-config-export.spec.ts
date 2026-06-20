@@ -3,7 +3,7 @@ import { expect, test, type Download, type Page } from "@playwright/test";
 
 const fixedTimestamp = "2026-04-18T12:00:00Z";
 const fixedDate = "2026-04-18";
-const liveAuthoringCapabilityDefaults = {
+const connectionCapabilityDefaults = {
   context_window_tokens: null,
   default_output_token_reserve: 4_096,
   max_context_utilization: 0.9,
@@ -83,7 +83,6 @@ function createModelListItem() {
     openai_accepted_format: "dual_native" as const,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
-    ...liveAuthoringCapabilityDefaults,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -116,7 +115,7 @@ function createExportConnection(overrides = {}) {
     ref: "default-connection",
     endpoint_name: "Default endpoint",
     api_family: "openai" as const,
-    ...liveAuthoringCapabilityDefaults,
+    ...connectionCapabilityDefaults,
     pricing_template_name: null,
     is_active: true,
     name: "Default connection",
@@ -136,7 +135,6 @@ function createExportModel(overrides = {}) {
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
     loadbalance_strategy_name: "Default export routing",
-    ...liveAuthoringCapabilityDefaults,
     openai_accepted_format: "dual_native" as const,
     is_enabled: true,
     access_targets: [
@@ -228,9 +226,6 @@ function createDangerousExportBundle() {
         model_id: "gpt-4.1",
         display_name: "GPT-4.1",
         loadbalance_strategy_name: "Dangerous export routing",
-        context_window_tokens: 262_144,
-        default_output_token_reserve: 12_288,
-        max_context_utilization: 0.95,
         access_targets: [
           {
             position: 0,
@@ -390,7 +385,7 @@ async function mockSettingsRoutes(page: Page) {
   };
 }
 
-test("context-capability-authoring: config export safe export uses the redacted route and synthesizes the filename locally", async ({ page }) => {
+test("config export safe export uses the redacted route and synthesizes the filename locally", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
   const expectedBundle = createSafeExportBundle();
 
@@ -418,7 +413,7 @@ test("context-capability-authoring: config export safe export uses the redacted 
   expect(capture?.href.startsWith("blob:")).toBe(true);
 });
 
-test("context-capability-authoring: config export dangerous export stays disabled until acknowledged and uses the dangerous route", async ({ page }) => {
+test("config export dangerous export stays disabled until acknowledged and uses the dangerous route", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
   const expectedBundle = createDangerousExportBundle();
 

@@ -66,10 +66,6 @@ test("model target client rejects obsolete routing metadata from API responses",
         display_name: "GPT-4o mini",
         loadbalance_strategy_id: null,
         loadbalance_strategy: null,
-        context_window_tokens: null,
-        default_output_token_reserve: 4096,
-        max_context_utilization: 0.9,
-        preferred_context_utilization_threshold: null,
         access_targets: [
           {
             id: 7,

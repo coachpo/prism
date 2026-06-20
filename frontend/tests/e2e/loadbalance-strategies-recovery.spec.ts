@@ -12,7 +12,7 @@ function createCostingSettings() {
   };
 }
 
-type StrategyType = "single" | "fill-first" | "round-robin" | "cheapest_eligible_context";
+type StrategyType = "single" | "fill-first" | "round-robin";
 type StrategyBanMode = "off" | "temporary" | "until_reset";
 
 type StrategyPayload = {
@@ -208,12 +208,12 @@ test("loadbalance strategies table shows explicit Ban Policy rows by name", asyn
   await expect(cumulativeThresholdInput).toHaveValue("5");
 });
 
-test("loadbalance strategy dialog creates and edits Cheapest target that fits context", async ({ page }) => {
+test("loadbalance strategy dialog creates and edits surviving routing families", async ({ page }) => {
   const strategies = [
     createStrategyRow({
       id: 8,
-      name: "Existing cheapest eligible context",
-      legacyStrategyType: "cheapest_eligible_context",
+      name: "Existing round robin",
+      legacyStrategyType: "round-robin",
       banMode: "off",
     }),
   ];
@@ -333,32 +333,30 @@ test("loadbalance strategy dialog creates and edits Cheapest target that fits co
   });
 
   await page.goto("/route/ban-policies");
-  await expect(page.getByRole("table")).toContainText("Existing cheapest eligible context");
-  await expect(page.getByRole("table")).toContainText("Cheapest target that fits context");
-  await expect(page.getByRole("table")).toContainText("Pick the lowest-cost terminal target that passes the hard context fit; prefer the preferred band before using the discretionary band. If no target fits, Prism returns 413.");
+  await expect(page.getByRole("table")).toContainText("Existing round robin");
+  await expect(page.getByRole("table")).toContainText("Round robin");
 
   await page.getByRole("button", { name: "Add Strategy" }).first().click();
   await expect(page.getByText("Configure reusable terminal-target routing families and Ban Policy for this profile.")).toBeVisible();
-  await page.getByLabel("Name").fill("Cheapest context routing");
+  await page.getByLabel("Name").fill("Fill-first routing");
   await page.getByLabel("Routing family").click();
   await expect(page.getByRole("option")).toHaveText([
     "Single",
     "Fill first",
     "Round robin",
-    "Cheapest target that fits context",
   ]);
-  await page.getByRole("option", { name: "Cheapest target that fits context" }).click();
+  await page.getByRole("option", { name: "Fill first" }).click();
   await page.getByRole("button", { name: "Save Strategy" }).click();
 
-  await expect(page.getByRole("table")).toContainText("Cheapest context routing");
-  await expect(page.getByRole("table")).toContainText("Cheapest target that fits context");
-  expect(createdStrategyType).toBe("cheapest_eligible_context");
+  await expect(page.getByRole("table")).toContainText("Fill-first routing");
+  await expect(page.getByRole("table")).toContainText("Fill first");
+  expect(createdStrategyType).toBe("fill-first");
 
-  const createdRow = page.getByRole("row", { name: /Cheapest context routing/ });
+  const createdRow = page.getByRole("row", { name: /Fill-first routing/ });
   await createdRow.getByRole("button", { name: "Edit" }).click();
-  await page.getByLabel("Name").fill("Cheapest context routing updated");
+  await page.getByLabel("Name").fill("Fill-first routing updated");
   await page.getByRole("button", { name: "Save Strategy" }).click();
 
-  await expect(page.getByRole("table")).toContainText("Cheapest context routing updated");
-  expect(updatedStrategyType).toBe("cheapest_eligible_context");
+  await expect(page.getByRole("table")).toContainText("Fill-first routing updated");
+  expect(updatedStrategyType).toBe("fill-first");
 });

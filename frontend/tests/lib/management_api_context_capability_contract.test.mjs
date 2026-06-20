@@ -130,10 +130,6 @@ function buildModelListItemPayload(overrides = {}) {
     openai_accepted_format: "chat_completions_only",
     loadbalance_strategy_id: 9,
     loadbalance_strategy: buildLoadbalanceStrategySummary(),
-    context_window_tokens: 200_000,
-    default_output_token_reserve: 4_096,
-    max_context_utilization: 0.9,
-    preferred_context_utilization_threshold: 0.74,
     access_targets: [
       buildAccessTarget(),
       buildAccessTarget({
@@ -246,20 +242,22 @@ const { patchModelListItemFromDetail } = load(
   path.join(frontendDir, "src/pages/model-detail/useModelDetailDataSupport.ts"),
 );
 
-test("management model normalization preserves snake_case capability fields", async () => {
+test("management model normalization preserves model CRUD fields and terminal target capability overrides", async () => {
   requestCalls.length = 0;
 
   const [listItem] = await models.list();
   const detail = await models.get(42);
 
-  assert.deepEqual(pickCapabilityFields(listItem), {
-    context_window_tokens: 200_000,
-    default_output_token_reserve: 4_096,
-    max_context_utilization: 0.9,
-    preferred_context_utilization_threshold: 0.74,
-  });
   assert.equal(listItem.openai_accepted_format, "chat_completions_only");
   assert.equal(detail.openai_accepted_format, "chat_completions_only");
+  assert.ok(!Object.hasOwn(listItem, "context_window_tokens"));
+  assert.ok(!Object.hasOwn(listItem, "default_output_token_reserve"));
+  assert.ok(!Object.hasOwn(listItem, "max_context_utilization"));
+  assert.ok(!Object.hasOwn(listItem, "preferred_context_utilization_threshold"));
+  assert.ok(!Object.hasOwn(detail, "context_window_tokens"));
+  assert.ok(!Object.hasOwn(detail, "default_output_token_reserve"));
+  assert.ok(!Object.hasOwn(detail, "max_context_utilization"));
+  assert.ok(!Object.hasOwn(detail, "preferred_context_utilization_threshold"));
   assert.ok(!Object.hasOwn(listItem, "contextWindowTokens"));
   assert.ok(!Object.hasOwn(listItem.access_targets[0], "weight"));
   assert.ok(!Object.hasOwn(listItem.access_targets[0], "target_priority"));
@@ -309,7 +307,7 @@ test("management connection reads preserve owner-scoped overrides and keep publi
   ]);
 });
 
-test("model list cache helpers keep capability fields during detail hydration", () => {
+test("model list cache helpers drop deleted capability fields during detail hydration", () => {
   const existing = buildModelListItemPayload({
     context_window_tokens: 16_384,
     default_output_token_reserve: 1_024,
@@ -328,13 +326,14 @@ test("model list cache helpers keep capability fields during detail hydration", 
   const listItem = toModelListItem(updatedModel, existing);
   const [patchedItem] = patchModelListItemFromDetail([existing], updatedModel);
 
-  assert.deepEqual(pickCapabilityFields(listItem), {
-    context_window_tokens: null,
-    default_output_token_reserve: 8_192,
-    max_context_utilization: 0.92,
-    preferred_context_utilization_threshold: null,
-  });
-  assert.deepEqual(pickCapabilityFields(patchedItem), pickCapabilityFields(listItem));
+  assert.ok(!Object.hasOwn(listItem, "context_window_tokens"));
+  assert.ok(!Object.hasOwn(listItem, "default_output_token_reserve"));
+  assert.ok(!Object.hasOwn(listItem, "max_context_utilization"));
+  assert.ok(!Object.hasOwn(listItem, "preferred_context_utilization_threshold"));
+  assert.ok(!Object.hasOwn(patchedItem, "context_window_tokens"));
+  assert.ok(!Object.hasOwn(patchedItem, "default_output_token_reserve"));
+  assert.ok(!Object.hasOwn(patchedItem, "max_context_utilization"));
+  assert.ok(!Object.hasOwn(patchedItem, "preferred_context_utilization_threshold"));
   assert.equal(patchedItem.health_success_rate, 88);
   assert.equal(patchedItem.health_total_requests, 25);
   assert.equal(patchedItem.openai_accepted_format, "chat_completions_only");

@@ -7,7 +7,7 @@ const routeReadyTimeout = 15_000;
 const evidenceDir = resolve(process.cwd(), "../.omo/evidence/frontend-rewrite");
 const keyboardTracePath = resolve(evidenceDir, "task-17-keyboard-tables.zip");
 const cursorScreenshotPath = resolve(evidenceDir, "task-17-cursor-url.png");
-const configAuthoringDefaults = {
+const connectionCapabilityDefaults = {
   context_window_tokens: null,
   default_output_token_reserve: 4096,
   max_context_utilization: 0.9,
@@ -214,7 +214,7 @@ function profileBundleV3() {
       name: "Terminal connection",
       endpoint_name: endpoint.name,
       api_family: "openai",
-      ...configAuthoringDefaults,
+      ...connectionCapabilityDefaults,
       pricing_template_name: null,
       is_active: true,
       auth_type: null,
@@ -243,7 +243,6 @@ function profileBundleV3() {
       model_id: requestedModel.model_id,
       display_name: requestedModel.display_name,
       loadbalance_strategy_name: strategy.name,
-      ...configAuthoringDefaults,
       ...facadePolicyDefaults,
       is_enabled: true,
       access_targets: [{ position: 0, is_enabled: true, target_type: "connection", connection_ref: "terminal-connection" }],

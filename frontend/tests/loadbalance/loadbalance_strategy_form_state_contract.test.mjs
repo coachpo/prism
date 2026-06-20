@@ -13,6 +13,7 @@ const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const {
   DEFAULT_BAN_POLICY_FORM_VALUES,
   banPolicyFormSchema,
+  banPolicyRoutingTypes,
   banPolicyFormValuesFromStrategy,
   buildBanPolicyPayload,
 } = load(path.join(frontendDir, "src/features/loadbalance/banPolicySchemas.ts"));
@@ -68,12 +69,17 @@ test("strategy form state maps canonical Ban Policy fields from strategy respons
   assert.ok(!Object.hasOwn(form, removedRetryAttemptsKey));
 });
 
-test("strategy form state accepts cheapest_eligible_context strategy responses", () => {
+test("strategy form state exposes only active routing families", () => {
+  assert.deepEqual(banPolicyRoutingTypes, ["single", "fill-first", "round-robin"]);
+  assert.equal(firstValidationMessage(buildForm({ legacy_strategy_type: "cheapest_eligible_context" })), "Invalid option: expected one of \"single\"|\"fill-first\"|\"round-robin\"");
+});
+
+test("strategy form state maps surviving routing family strategy responses", () => {
   const form = banPolicyFormValuesFromStrategy({
     id: 43,
     profile_id: 7,
-    name: "Cheapest",
-    legacy_strategy_type: "cheapest_eligible_context",
+    name: "Fill first",
+    legacy_strategy_type: "fill-first",
     failure_status_codes: [500, 429],
     ban_mode: "temporary",
     retry_base_delay_ms: 1000,
@@ -88,7 +94,7 @@ test("strategy form state accepts cheapest_eligible_context strategy responses",
     updated_at: "2026-05-29T00:00:00Z",
   });
 
-  assert.equal(form.legacy_strategy_type, "cheapest_eligible_context");
+  assert.equal(form.legacy_strategy_type, "fill-first");
   assert.equal(form.failure_status_codes_input, "429, 500");
 });
 

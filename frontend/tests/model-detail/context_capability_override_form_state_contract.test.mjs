@@ -39,7 +39,7 @@ const { load } = createTsModuleLoader({
   },
 });
 
-test("connection capability drafts build mixed inherit and override payloads", () => {
+test("connection capability drafts build mixed default and override payloads", () => {
   const { buildConnectionDraftPayload } = load(
     path.join(frontendDir, "src/pages/model-detail/useModelDetailDataSupport.ts"),
   );
@@ -65,7 +65,7 @@ test("connection capability drafts build mixed inherit and override payloads", (
       openai_text_capability: "dual_native",
       openai_probe_endpoint_variant: "responses_reasoning_none",
       context_capability_drafts: {
-        context_window_tokens: { mode: "inherit", value: "16384" },
+        context_window_tokens: { mode: "default", value: "16384" },
         default_output_token_reserve: { mode: "override", value: "8192" },
         max_context_utilization: { mode: "override", value: "0.75" },
         preferred_context_utilization_threshold: { mode: "override", value: "0.6" },
@@ -90,7 +90,7 @@ test("connection capability drafts build mixed inherit and override payloads", (
   assert.equal(result.payload.max_in_flight_stream, 2);
 });
 
-test("edit hydration preserves same-as-owner explicit override intent from raw metadata", () => {
+test("edit hydration preserves same-as-default explicit override intent from raw metadata", () => {
   const { createEditConnectionForm } = load(
     path.join(frontendDir, "src/pages/model-detail/useModelDetailDialogState.ts"),
   );
@@ -105,7 +105,7 @@ test("edit hydration preserves same-as-owner explicit override intent from raw m
       endpoint: undefined,
       is_active: true,
       priority: 0,
-      name: "Owner override preserved",
+      name: "Default override preserved",
       auth_type: null,
       custom_headers: null,
       openai_text_capability: "responses_only",
@@ -133,7 +133,7 @@ test("edit hydration preserves same-as-owner explicit override intent from raw m
     },
     {
       apiFamily: "openai",
-      ownerCapabilityDefaults: {
+      terminalTargetCapabilityDefaults: {
         context_window_tokens: 16384,
         default_output_token_reserve: 4096,
         max_context_utilization: 0.9,
@@ -148,7 +148,7 @@ test("edit hydration preserves same-as-owner explicit override intent from raw m
     value: "16384",
   });
   assert.deepEqual(hydratedForm.context_capability_drafts.default_output_token_reserve, {
-    mode: "inherit",
+    mode: "default",
     value: "4096",
   });
   assert.deepEqual(hydratedForm.context_capability_drafts.max_context_utilization, {
@@ -161,7 +161,7 @@ test("edit hydration preserves same-as-owner explicit override intent from raw m
   });
 });
 
-test("blanking or inheriting override drafts emits explicit null instead of stale numeric data", () => {
+test("blanking or defaulting override drafts emits explicit null instead of stale numeric data", () => {
   const { createEditConnectionForm } = load(
     path.join(frontendDir, "src/pages/model-detail/useModelDetailDialogState.ts"),
   );
@@ -207,7 +207,7 @@ test("blanking or inheriting override drafts emits explicit null instead of stal
     },
     {
       apiFamily: "openai",
-      ownerCapabilityDefaults: {
+      terminalTargetCapabilityDefaults: {
         context_window_tokens: 16384,
         default_output_token_reserve: 4096,
         max_context_utilization: 0.9,
@@ -217,7 +217,7 @@ test("blanking or inheriting override drafts emits explicit null instead of stal
   );
 
   connectionForm.context_capability_drafts.context_window_tokens = {
-    mode: "inherit",
+    mode: "default",
     value: "32768",
   };
   connectionForm.context_capability_drafts.preferred_context_utilization_threshold = {
@@ -272,7 +272,7 @@ test("blanking or inheriting override drafts emits explicit null instead of stal
       updated_at: "2026-06-01T00:00:00Z",
     },
     endpointSourceDefaultName: "OpenAI Primary",
-    ownerCapabilityDefaults: {
+    terminalTargetCapabilityDefaults: {
       context_window_tokens: 16384,
       default_output_token_reserve: 4096,
       max_context_utilization: 0.9,
@@ -287,7 +287,7 @@ test("blanking or inheriting override drafts emits explicit null instead of stal
   assert.equal(result.payload.preferred_context_utilization_threshold, null);
 });
 
-test("effective preferred threshold cannot exceed the effective max across inherit and override drafts", () => {
+test("effective preferred threshold cannot exceed the effective max across default and override drafts", () => {
   const { buildConnectionDraftPayload } = load(
     path.join(frontendDir, "src/pages/model-detail/useModelDetailDataSupport.ts"),
   );
@@ -313,16 +313,16 @@ test("effective preferred threshold cannot exceed the effective max across inher
       openai_text_capability: "responses_only",
       openai_probe_endpoint_variant: "responses_minimal",
       context_capability_drafts: {
-        context_window_tokens: { mode: "inherit", value: "16384" },
-        default_output_token_reserve: { mode: "inherit", value: "4096" },
+        context_window_tokens: { mode: "default", value: "16384" },
+        default_output_token_reserve: { mode: "default", value: "4096" },
         max_context_utilization: { mode: "override", value: "0.6" },
-        preferred_context_utilization_threshold: { mode: "inherit", value: "0.7" },
+        preferred_context_utilization_threshold: { mode: "default", value: "0.7" },
       },
     },
     headerRows: [],
     editingConnection: null,
     endpointSourceDefaultName: "OpenAI Primary",
-    ownerCapabilityDefaults: {
+    terminalTargetCapabilityDefaults: {
       context_window_tokens: 16384,
       default_output_token_reserve: 4096,
       max_context_utilization: 0.9,

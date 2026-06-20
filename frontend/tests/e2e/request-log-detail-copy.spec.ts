@@ -1,5 +1,4 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import type { RequestLogDetailRouting } from "../../src/lib/types";
 
 const timestamp = "2026-04-13T00:00:00Z";
 const rawErrorDetail = JSON.stringify({
@@ -9,45 +8,22 @@ const rawErrorDetail = JSON.stringify({
   },
 });
 const formattedErrorDetail = JSON.stringify(JSON.parse(rawErrorDetail), null, 2);
-function createRequestLogDetail(routingOverrides: Partial<RequestLogDetailRouting> = {}) {
+function createRequestLogDetail(routingOverrides: Record<string, unknown> = {}) {
   const baseRouting = {
     profile_id: 1,
     endpoint_label: "Primary endpoint",
     endpoint_id: 1,
     terminal_target_id: 501,
     selected_terminal_target_id: 501,
-    context_routing: {
-      policy: "cheapest_eligible_context",
-      selected_terminal_target_id: 501,
-      estimation_method: "openai_chat_heuristic_v1",
-      estimated_input_tokens: 120,
-      reserved_output_tokens: 4096,
-      estimated_total_context_tokens: 4216,
-      usable_context_window_tokens: 115200,
-      cost_ranking_method: "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id",
-      selected_estimated_blended_cost_micros: 1250,
-      skipped_terminal_targets: [
-        {
-          terminal_target_id: 502,
-          endpoint_id: 2,
-          reason: "estimated_context_exceeds_usable_window",
-          usable_context_window_tokens: 4096,
-          estimated_total_context_tokens: 4216,
-        },
-      ],
-    },
     endpoint_base_url: "https://api.example.test",
     endpoint_description: "Primary endpoint",
     audit_enabled_at_request: true,
     audit_capture_bodies_at_request: true,
-  } satisfies RequestLogDetailRouting;
+  };
   const routing = {
     ...baseRouting,
     ...routingOverrides,
-    context_routing: "context_routing" in routingOverrides
-      ? routingOverrides.context_routing
-      : baseRouting.context_routing,
-  } satisfies RequestLogDetailRouting;
+  };
 
   return {
     summary: {
@@ -305,7 +281,7 @@ async function openRequestLogDetail(
 }
 
 test.describe("request log detail copy regression", () => {
-  test("context-capability-authoring: request-log detail overview error detail copy button writes the formatted block text", async ({ page, context }) => {
+  test("request-log detail overview error detail copy button writes the formatted block text", async ({ page, context }) => {
     const { drawer, ownerRouteRequests } = await openRequestLogDetail(page, context);
     const overviewCopyButton = drawer.getByRole("button", { name: /^Copy$/ });
     const routingContext = drawer.getByText("Routing context", { exact: true }).locator("xpath=..");
@@ -316,23 +292,8 @@ test.describe("request log detail copy regression", () => {
     await expect(routingContext.getByRole("link", { name: "Open connection" })).toHaveCount(0);
     await expect(routingContext).toContainText("Selected Terminal Target");
     await expect(routingContext).toContainText("#501");
-    await expect(routingContext).toContainText("Context-routing decision");
-    await expect(routingContext).toContainText("cheapest_eligible_context");
-    await expect(routingContext).toContainText("openai_chat_heuristic_v1");
-    await expect(routingContext).toContainText("Usable context window");
-    await expect(routingContext).toContainText("115,200");
-    await expect(routingContext).toContainText("estimated_blended_request_cost_then_access_target_position_then_terminal_target_id");
-    await expect(routingContext).toContainText("Selected estimated blended cost");
-    await expect(routingContext).toContainText("1,250 micros");
-    await expect(routingContext).toContainText("Estimated input tokens");
-    await expect(routingContext).toContainText("120");
-    await expect(routingContext).toContainText("Reserved output tokens");
-    await expect(routingContext).toContainText("4,096");
-    await expect(routingContext).toContainText("Estimated total context tokens");
-    await expect(routingContext).toContainText("4,216");
-    await expect(routingContext).toContainText("Skipped terminal targets");
-    await expect(routingContext).toContainText("#502");
-    await expect(routingContext).toContainText("Estimated context exceeds usable context window");
+    await expect(routingContext).not.toContainText("Context-routing decision");
+    await expect(routingContext).not.toContainText("context_routing");
     expect(ownerRouteRequests).toEqual([]);
     await expect(overviewCopyButton).toHaveCount(1);
 
@@ -345,10 +306,9 @@ test.describe("request log detail copy regression", () => {
     await expectCopyWithoutDownload(page, () => overviewCopyButton.click(), formattedErrorDetail);
   });
 
-  test("context-capability-authoring: request-log detail legacy rows do not collapse executed terminal targets into selected targets", async ({ page, context }) => {
+  test("request-log detail legacy rows do not collapse executed terminal targets into selected targets", async ({ page, context }) => {
     const legacyDetail = createRequestLogDetail({
-      selected_terminal_target_id: undefined,
-      context_routing: null,
+      selected_terminal_target_id: null,
     });
     const { drawer } = await openRequestLogDetail(page, context, legacyDetail);
     const routingContext = drawer.getByText("Routing context", { exact: true }).locator("xpath=..");

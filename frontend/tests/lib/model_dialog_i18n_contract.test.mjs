@@ -18,32 +18,14 @@ const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const { enMessages } = load(path.join(frontendDir, "src/i18n/messages/en.ts"));
 const { zhCNMessages } = load(path.join(frontendDir, "src/i18n/messages/zh-CN.ts"));
 
-test("models dialog overflow promotion copy is locale-backed", () => {
+test("models dialog no longer renders overflow promotion copy", () => {
   assert.doesNotMatch(
     modelDialogSource,
-    /OVERFLOW_PROMOTION_TARGET_LABEL = "Overflow promotion target"/,
-    "dialog label must come from the locale catalog",
+    /Overflow promotion target|overflowPromotionTarget|context_overflow_promotion_target_id/,
+    "overflow promotion UI should be hard-deleted from the model dialog",
   );
-  assert.match(
-    modelDialogSource,
-    /label=\{copy\.overflowPromotionTarget\}/,
-    "overflow promotion label should use modelsUi copy",
-  );
-  assert.match(
-    modelDialogSource,
-    /description=\{copy\.overflowPromotionTargetDescription\}/,
-    "overflow promotion helper should use modelsUi copy",
-  );
-  assert.equal(enMessages.modelsUi.overflowPromotionTarget, "Overflow promotion target");
-  assert.equal(
-    enMessages.modelsUi.overflowPromotionTargetDescription,
-    "Choose an enabled same-family model for recursive overflow promotion. Prism validates chain depth, cycles, terminal loops, and routing-plan issues on save.",
-  );
-  assert.equal(zhCNMessages.modelsUi.overflowPromotionTarget, "溢出提升目标");
-  assert.equal(
-    zhCNMessages.modelsUi.overflowPromotionTargetDescription,
-    "选择已启用的同家族模型作为递归溢出提升目标。Prism 会在保存时验证链深度、环路、终端循环与路由计划问题。",
-  );
+  assert.equal(Object.hasOwn(enMessages.modelsUi, "overflowPromotionTarget"), false);
+  assert.equal(Object.hasOwn(zhCNMessages.modelsUi, "overflowPromotionTarget"), false);
 });
 
 test("models dialog model target copy avoids fallback wording", () => {

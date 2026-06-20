@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const fixedTimestamp = "2026-04-28T12:00:00Z";
-const liveAuthoringCapabilityDefaults = {
+const connectionCapabilityDefaults = {
   context_window_tokens: null,
   default_output_token_reserve: 4_096,
   max_context_utilization: 0.9,
@@ -106,7 +106,6 @@ function createModelListItem() {
     openai_accepted_format: "dual_native" as const,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
-    ...liveAuthoringCapabilityDefaults,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -118,7 +117,7 @@ function createModelListItem() {
   };
 }
 
-function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recursive-routing") {
+function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
   if (variant === "alpha") {
     return {
       version: 3 as const,
@@ -138,7 +137,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
           endpoint_name: "Alpha endpoint",
           api_family: "openai" as const,
           openai_text_capability: "dual_native" as const,
-          ...liveAuthoringCapabilityDefaults,
+          ...connectionCapabilityDefaults,
           pricing_template_name: null,
           is_active: true,
           name: "Alpha connection",
@@ -171,7 +170,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
           model_id: "alpha-model",
           display_name: "Alpha model",
           loadbalance_strategy_name: "Alpha legacy routing",
-          ...liveAuthoringCapabilityDefaults,
           ...facadePolicyDefaults,
           openai_accepted_format: "dual_native" as const,
           is_enabled: true,
@@ -239,7 +237,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
           model_id: "router-model",
           display_name: "Router model",
           loadbalance_strategy_name: "Routing facade",
-          ...liveAuthoringCapabilityDefaults,
           openai_accepted_format: "dual_native" as const,
           is_enabled: true,
           access_targets: [
@@ -256,7 +253,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
           model_id: "leaf-model",
           display_name: "Leaf model",
           loadbalance_strategy_name: "Routing facade",
-          ...liveAuthoringCapabilityDefaults,
           openai_accepted_format: "dual_native" as const,
           is_enabled: true,
           access_targets: [],
@@ -278,41 +274,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
         entries: [],
       },
     };
-  }
-
-  if (variant === "recursive-routing") {
-    const bundle = buildProfileImportBundle("routing");
-    bundle.models = [
-      {
-        ...bundle.models[0],
-        model_id: "source-small",
-        display_name: "Source small",
-        context_window_tokens: 32_000,
-        context_overflow_promotion_target_id: "target-same-size",
-        access_targets: [],
-      },
-      {
-        ...bundle.models[1],
-        model_id: "target-same-size",
-        display_name: "Target same size",
-        context_window_tokens: 32_000,
-        context_overflow_promotion_target_id: "target-hop",
-      },
-      {
-        ...bundle.models[1],
-        model_id: "target-hop",
-        display_name: "Target hop",
-        context_window_tokens: 24_000,
-        context_overflow_promotion_target_id: "target-large",
-      },
-      {
-        ...bundle.models[1],
-        model_id: "target-large",
-        display_name: "Target large",
-        context_window_tokens: 128_000,
-      },
-    ];
-    return bundle;
   }
 
   return {
@@ -355,7 +316,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
         ref: "beta-connection-b",
         endpoint_name: "Beta endpoint B",
         api_family: "anthropic" as const,
-        ...liveAuthoringCapabilityDefaults,
+        ...connectionCapabilityDefaults,
         pricing_template_name: null,
         is_active: true,
         name: "Beta connection B",
@@ -388,9 +349,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing" | "recur
         model_id: "beta-model",
         display_name: "Beta model",
         loadbalance_strategy_name: "Beta legacy routing",
-        context_window_tokens: 262_144,
-        default_output_token_reserve: 12_288,
-        max_context_utilization: 0.95,
         is_enabled: true,
         access_targets: [
           { position: 0, is_enabled: true, target_type: "connection" as const, connection_ref: "beta-connection-a" },
@@ -621,7 +579,7 @@ async function mockSettingsRoutes(page: Page, options: MockSettingsRoutesOptions
   };
 }
 
-test("context-capability-authoring: config import requires an explicit preview before apply", async ({ page }) => {
+test("config import requires an explicit preview before apply", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
   const importBundle = buildProfileImportBundle("alpha");
 
@@ -664,7 +622,7 @@ test("context-capability-authoring: config import requires an explicit preview b
   expect(routes.getAppliedProfileHeaders()).toEqual(["1"]);
 });
 
-test("context-capability-authoring: config import displays stale preview token conflicts without partial mutation", async ({ page }) => {
+test("config import displays stale preview token conflicts without partial mutation", async ({ page }) => {
   const routes = await mockSettingsRoutes(page, {
     importErrorResponseFactory: () => ({
       status: 409,
@@ -691,7 +649,7 @@ test("context-capability-authoring: config import displays stale preview token c
   expect(routes.getAppliedPreviewTokens()).toEqual([]);
 });
 
-test("context-capability-authoring: config import keeps apply disabled and surfaces the first blocking preview error", async ({ page }) => {
+test("config import keeps apply disabled and surfaces the first blocking preview error", async ({ page }) => {
   const routes = await mockSettingsRoutes(page, {
     previewResponseFactory: (bundle, previewToken) => ({
       ...buildPreviewResponse(bundle, previewToken),
@@ -724,7 +682,7 @@ test("context-capability-authoring: config import keeps apply disabled and surfa
   expect(routes.getAppliedPreviewTokens()).toEqual([]);
 });
 
-test("context-capability-authoring: config import accepts backend-valid sparse routing metadata", async ({ page }) => {
+test("config import accepts backend-valid sparse routing metadata", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
   const importBundle = buildProfileImportBundle("routing");
 
@@ -756,39 +714,7 @@ test("context-capability-authoring: config import accepts backend-valid sparse r
   expect(routes.getImportedPayloads()).toEqual([importBundle]);
 });
 
-test("context-capability-authoring: promotion target config import accepts recursive explicit chains", async ({ page }) => {
-  const routes = await mockSettingsRoutes(page);
-  const importBundle = buildProfileImportBundle("recursive-routing");
-
-  const backupSection = await gotoBackupSection(page);
-  const applyButton = backupSection.getByTestId("profile-import-apply");
-  await backupSection.getByTestId("profile-import-file").setInputFiles({
-    name: "profile-import-recursive-promotion-target.json",
-    mimeType: "application/json",
-    buffer: Buffer.from(JSON.stringify(importBundle)),
-  });
-  await expect(backupSection.getByText("Loaded profile-import-recursive-promotion-target.json: 0 endpoints, 1 strategies, 4 models, 0 top-level connections.")).toBeVisible();
-
-  await backupSection.getByTestId("profile-import-preview").click();
-
-  await expect(backupSection.getByText("Preview status")).toBeVisible();
-  await expect(applyButton).toBeEnabled();
-
-  const previewRequests = routes.getPreviewRequests();
-  expect(previewRequests).toHaveLength(1);
-  expect(previewRequests[0]).toEqual({
-    payload: importBundle,
-    previewToken: "profile-preview-token-1",
-    profileHeader: "1",
-  });
-
-  await applyButton.click();
-
-  await expect(page.getByText("Imported 0 endpoints, 1 strategies, 4 models, 0 top-level connections")).toBeVisible();
-  expect(routes.getImportedPayloads()).toEqual([importBundle]);
-});
-
-test("context-capability-authoring: config import surfaces structured routing preview issues", async ({ page }) => {
+test("config import surfaces structured routing preview issues", async ({ page }) => {
   const routes = await mockSettingsRoutes(page, {
     previewErrorResponseFactory: () => ({
       status: 400,
@@ -838,41 +764,7 @@ test("context-capability-authoring: config import surfaces structured routing pr
   expect(routes.getImportedPayloads()).toEqual([]);
 });
 
-test("context-capability-authoring: config import surfaces structured promotion preview issues from backend", async ({ page }) => {
-  const routes = await mockSettingsRoutes(page, {
-    previewErrorResponseFactory: () => ({
-      status: 400,
-      body: {
-        detail: "context_overflow_promotion_target_id must not introduce a promotion target cycle",
-        routing_plan_issues: [
-          {
-            code: "promotion_cycle_detected",
-            path: "models[0].context_overflow_promotion_target_id",
-            message: "context_overflow_promotion_target_id must not introduce a promotion target cycle",
-          },
-        ],
-      },
-    }),
-  });
-  const importBundle = buildProfileImportBundle("routing");
-
-  const backupSection = await gotoBackupSection(page);
-  const applyButton = backupSection.getByTestId("profile-import-apply");
-  await backupSection.getByTestId("profile-import-file").setInputFiles({
-    name: "profile-import-routing-plan-issue.json",
-    mimeType: "application/json",
-    buffer: Buffer.from(JSON.stringify(importBundle)),
-  });
-
-  await backupSection.getByTestId("profile-import-preview").click();
-
-  await expect(page.getByText("models[0].context_overflow_promotion_target_id: context_overflow_promotion_target_id must not introduce a promotion target cycle")).toBeVisible();
-  await expect(applyButton).toBeDisabled();
-  expect(routes.getPreviewRequests()).toHaveLength(1);
-  expect(routes.getImportedPayloads()).toEqual([]);
-});
-
-test("context-capability-authoring: config import invalidates a stale preview when the bundle changes", async ({ page }) => {
+test("config import invalidates a stale preview when the bundle changes", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
   const firstBundle = buildProfileImportBundle("alpha");
   const secondBundle = buildProfileImportBundle("beta");
@@ -922,7 +814,7 @@ test("context-capability-authoring: config import invalidates a stale preview wh
   expect(routes.getAppliedProfileHeaders()).toEqual(["1"]);
 });
 
-test("context-capability-authoring: config import invalidates a stale preview when the selected profile changes", async ({ page }) => {
+test("config import invalidates a stale preview when the selected profile changes", async ({ page }) => {
   const routes = await mockSettingsRoutes(page, {
     profiles: [createProfile(), createSecondaryProfile()],
   });

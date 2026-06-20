@@ -243,7 +243,6 @@ function createRequestLogDetail(scenario: Scenario) {
       endpoint_id: 1,
       terminal_target_id: null,
       selected_terminal_target_id: null,
-      context_routing: null,
       endpoint_base_url: "https://api.example.test",
       endpoint_description: "Primary endpoint",
       audit_enabled_at_request: config.auditEnabledAtRequest,
