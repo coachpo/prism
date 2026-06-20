@@ -33,7 +33,7 @@ backend/
 - `internal/platform/http/server.go` mounts `/health`, `/api`, `/v1`, and `/v1beta`; exact runtime operations are allowlisted later by `internal/httpapi/runtime/operations.go`.
 - `internal/platform/config/` owns the plaintext bootstrap contract; steady-state startup settings live there, while `PRISM_CONFIG_PATH` and optional `DATABASE_URL` remain bootstrap-only env exceptions.
 - `internal/httpapi/management/` fans out into auth, bootstrapconfig, configbundle, configrules, connections, endpoints, loadbalance, models, profiles, settings, stats, and audit.
-- `internal/httpapi/runtime/` owns operation-registered ingress, model binding, hooks, context overflow promotion, telemetry outbox enqueue, request logging, `operation_name`, and partition ensuring.
+- `internal/httpapi/runtime/` owns operation-registered ingress, model binding, hooks, telemetry outbox enqueue, request logging, `operation_name`, flat final-target attribution, and partition ensuring.
 - Stats and request-log ownership includes endpoint label snapshots, caller-only `client_rule_id` filtering, and final-target `resolved_target_model_id` filtering.
 - `internal/gateway/` owns provider-agnostic gateway contracts used by runtime execution: hook phases, envelopes, operation records, adapters, route planning, and reservations.
 - `Dockerfile` builds from the monorepo root, copies migrations, runs as `prism:prism` (`1000:1000`), and defaults `PRISM_CONFIG_PATH` to `/app/config/config.json`.

@@ -413,15 +413,10 @@ Request:
   "api_family": "openai",
   "model_id": "gpt-4o-public",
   "display_name": "GPT-4o Public",
-  "context_window_tokens": 128000,
-  "default_output_token_reserve": 4096,
-  "max_context_utilization": 0.90,
-  "preferred_context_utilization_threshold": 0.70,
   "loadbalance_strategy_id": 7,
   "facade_enabled": true,
   "facade_selection_policy": "ordered_eligible_context",
   "facade_fallback_policy": "skip_ineligible_targets",
-  "context_overflow_promotion_target_id": "gpt-4o-large",
   "access_targets": [
     {
       "target_type": "model",
@@ -443,8 +438,7 @@ Validation rules:
 - Public create and update payloads may author only ordered same-profile, same-`api_family` model targets by exact `target_model_id`.
 - Submitted `target_type="connection"`, `connection_id`, or `target_connection_id` entries are rejected. Terminal Target rows are managed from model detail through model-scoped connection routes.
 - Every public model target requires `target_model_id`, `position`, and `is_enabled`. Positions are ordered peers, not priority or weight. Positions must stay contiguous starting at `0`, and duplicate positions reject with a deterministic validation error. Obsolete `weight` and `target_priority` keys reject instead of being ignored.
-- Context capability fields are validated on create and update. `default_output_token_reserve` defaults to `4096`, `max_context_utilization` defaults to `0.90`, utilization values must be greater than `0` and less than or equal to `1`, and reserve must be at least `1` when supplied. `preferred_context_utilization_threshold` is nullable; `null` means no preferred band, while a supplied value must be less than or equal to `max_context_utilization`.
-- `context_overflow_promotion_target_id` is nullable. When set, it must name an exact enabled same-profile, same-`api_family`, non-facade model. It must not point to the same model, must not create a promotion cycle, must not exceed the runtime-owned `3` transition chain limit, and must not create a same-terminal loop with the source model's resolved Terminal Targets. CRUD and config-bundle validation do not require the immediate target to fit the source request; runtime recursive planning owns terminal-fit decisions.
+- Model-owned context capability fields are not part of create or update payloads. Terminal Target capability fields stay connection-owned and are managed from model detail.
 - Nested facades are rejected at write time: public model targets cannot point at facade-enabled target models, and enabling `facade_enabled = true` on a model that already has inbound model-target referrers is rejected.
 - Model target self-reference and target cycles are rejected.
 - Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its Terminal Targets with the owning target rows.
@@ -459,15 +453,10 @@ Request (all fields optional):
   "api_family": "openai",
   "model_id": "gpt-4o-public-updated",
   "display_name": "GPT-4o Public (Updated)",
-  "context_window_tokens": 256000,
-  "default_output_token_reserve": 2048,
-  "max_context_utilization": 0.85,
-  "preferred_context_utilization_threshold": null,
   "loadbalance_strategy_id": 9,
   "facade_enabled": true,
   "facade_selection_policy": "ordered_eligible_context",
   "facade_fallback_policy": "skip_ineligible_targets",
-  "context_overflow_promotion_target_id": "gpt-4o-large",
   "access_targets": [],
   "is_enabled": true
 }
@@ -634,7 +623,7 @@ Create semantics:
 - The connection `api_family` is derived from the owner model. A conflicting request value is rejected.
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
-- Context capability fields inherit the owner model's effective values when omitted or reset to `null`, so terminal-target rows persist explicit request-time capability values. `preferred_context_utilization_threshold` follows the same owner-scoped override shape; inherited and explicit values must stay less than or equal to the effective `max_context_utilization`, and `null` means the terminal target has no preferred band.
+- Context capability fields are connection-owned Terminal Target settings. `context_window_tokens` is nullable; omitted or `null` values leave no explicit Terminal Target context window. `default_output_token_reserve` defaults to `4096`, and `max_context_utilization` defaults to `0.90`. `preferred_context_utilization_threshold` is nullable; omitted or `null` values mean the Terminal Target has no preferred band, and a set value must be less than or equal to the effective `max_context_utilization`.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, and is required for OpenAI rows. Non-OpenAI rows must omit it or persist `null`.
 - `openai_probe_endpoint_variant` selects only the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. It does not derive runtime capability or request shape. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
@@ -824,10 +813,6 @@ Response `200`:
       "connection_ref": "openai-primary",
       "endpoint_name": "Primary OpenAI",
       "api_family": "openai",
-      "context_window_tokens": 128000,
-      "default_output_token_reserve": 4096,
-      "max_context_utilization": 0.90,
-      "preferred_context_utilization_threshold": 0.70,
       "is_active": true,
       "name": "Primary production key",
       "auth_type": null,
@@ -845,15 +830,10 @@ Response `200`:
       "model_id": "gpt-4o",
       "api_family": "openai",
       "display_name": "GPT-4o",
-      "context_window_tokens": 128000,
-      "default_output_token_reserve": 4096,
-      "max_context_utilization": 0.90,
-      "preferred_context_utilization_threshold": 0.70,
       "loadbalance_strategy_name": "Default fill-first routing",
       "facade_enabled": false,
       "facade_selection_policy": null,
       "facade_fallback_policy": null,
-      "context_overflow_promotion_target_id": null,
       "is_enabled": true,
       "access_targets": [
         {
@@ -898,9 +878,8 @@ Profile export semantics:
 - Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
 - Profile bundles preserve top-level private connection records, model `access_targets`, same-family model routing, exact-facade model flags (`facade_enabled`, `facade_selection_policy`, `facade_fallback_policy`), and attached loadbalance strategy references. Each exported `connection_ref` must be owned by exactly one model access target.
 - Export serializes exact facade state by exact model ID only. Release 1 profile bundles do not include regex matcher fields or capability-metadata facade expansion.
-- Export includes `models[].context_overflow_promotion_target_id` as a nullable exact model ID. Import validates the explicit recursive-chain contract as model CRUD: exact imported target ID, same import graph, same `api_family`, enabled target, non-facade, non-self, acyclic explicit chain, max depth 3, and no same-terminal loop. Runtime planning, not import validation, owns terminal-fit decisions.
 - Exported access targets use the flat ordered shape only: `target_type`, the target pointer (`target_model_id` for model targets or `connection_ref` for Terminal Target ownership refs), `position`, and `is_enabled`. Profile bundles never export `weight` or `target_priority`.
-- Export and preview always serialize effective context capability defaults explicitly: omitted model or connection reserves become `default_output_token_reserve: 4096`, and omitted utilization becomes `max_context_utilization: 0.90`. Import may accept legacy omissions, but it normalizes them before persistence and any later export.
+- Export and preview always serialize Terminal Target context capability defaults explicitly: omitted connection reserves become `default_output_token_reserve: 4096`, and omitted utilization becomes `max_context_utilization: 0.90`. Import may accept legacy connection omissions, but it normalizes them before persistence and any later export.
 - Export includes `profile_settings.audit_api_family_settings` in stable `openai`, `anthropic`, `gemini` order. Import treats that array as the full audit-policy replacement for the selected profile.
 
 #### Preview Profile Import
@@ -1007,7 +986,7 @@ Profile import semantics:
 - Exported/imported Terminal Targets live at the top-level `connections` bundle key and include `api_family`, endpoint and pricing-template name references, context capability fields including `preferred_context_utilization_threshold`, OpenAI probe variant metadata, explicit `openai_text_capability`, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields and no preferred band for the preferred-threshold field. OpenAI connections require `openai_text_capability`; non-OpenAI connections must omit it or use `null`.
 - Import rejects `connection_ref` values used by multiple models, duplicate Terminal Target ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
 - Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle v3 import normalizes missing, null, or blank pricing inputs for any of those fields to `"0"` before validation.
-- Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`, including `cheapest_eligible_context`.
+- Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`, limited to `single`, `fill-first`, and `round-robin`.
 - Their explicit Ban Policy shape carries failure status codes, retry-window fields, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration. Import rejects removed keys and accepts only `off`, `temporary`, or `until_reset` for `ban_mode`.
 - Other profile config version numbers are unsupported.
 
@@ -1304,24 +1283,11 @@ Unsupported runtime routes return a Prism JSON `404` response before Prism reads
 
 Wrong methods on supported runtime paths return a Prism JSON `405` response before the same downstream seams run. The response includes `Allow: POST`, and the current error detail is `Method not allowed for runtime operation`.
 
-### 2.2A Context-aware routing failures
+### 2.2A Routing Failures
 
-When the attached strategy is `cheapest_eligible_context`, Prism performs local preflight context estimation before provider transport for OpenAI Chat Completions and OpenAI Responses requests that have deterministic request-local input. The estimator methods are `openai_chat_tokenizer_v1` and `openai_responses_tokenizer_v1`. They add estimated input tokens plus an explicit request output limit when present, then `default_output_token_reserve`, then fallback `4096`. Hard-fit legality uses `floor(context_window_tokens * max_context_utilization)`, with the default utilization normalized to `0.90`. The nullable `preferred_context_utilization_threshold` creates an optional preferred band at `floor(context_window_tokens * preferred_context_utilization_threshold)`; `null` means no preferred band. Fitting candidates above the preferred band but within hard fit are discretionary, and candidates above hard fit are ineligible.
+Runtime planning applies the requested model's ordered access graph and attached Ban Policy strategy before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. Unsupported translated OpenAI sibling-operation shapes reject with `openai_request_translation_unsupported` when adapter capability checks fail.
 
-When Prism cannot bound an OpenAI Chat Completions or Responses request locally, it passes the request through the normal resolved target path instead of returning local `400 context_estimation_unavailable`. This pass-through is non-stream and stream agnostic at the planning layer. Provider-overflow replay remains limited to the endpoint-specific promotion paths in section 2.2D. Prism still returns local failures for non-OpenAI operations, unsupported translated shapes, and other planner errors that are not missing context estimation.
-
-When context fit is evaluated and no terminal target fits, Prism returns HTTP `413` before provider transport with:
-
-```json
-{
-  "error": "context_window_exceeded",
-  "detail": "No configured target can fit the estimated request context.",
-  "estimated_total_context_tokens": 4216,
-  "largest_usable_context_window_tokens": 4096
-}
-```
-
-The matching request-log detail can include `routing.context_routing` with `policy`, `estimation_method`, `estimated_input_tokens`, `reserved_output_tokens`, `estimated_total_context_tokens`, `usable_context_window_tokens`, `cost_ranking_method`, `selected_terminal_target_id`, `selected_endpoint_id`, `selected_context_band`, `selected_usable_context_window_tokens`, `selected_estimated_blended_cost_micros`, and `skipped_terminal_targets[]`. Skipped targets include `context_band`, with hard-fit rejects reported as `ineligible`. Candidate ranking is band-first: preferred candidates sort before discretionary candidates, then within each band Prism ranks priced candidates before unpriced candidates by estimated blended request cost, access-target position, terminal target ID, and target ID.
+Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
 
 ### 2.2B OpenAI sibling-operation translation
 
@@ -1353,24 +1319,6 @@ Native request behavior:
 | `deepseek-v4-flash` | `/v1/responses` | `chat_completions_only` | `/v1/chat/completions` | `openai_responses_to_chat_completions` | Responses |
 | `deepseek-v4-flash` | `/v1/chat/completions` | `chat_completions_only` | `/v1/chat/completions` | `none` | Chat Completions |
 
-Context overflow promotion behavior follows the same capability rules because promotion reuses ordinary explicit-target request planning. The immediate promotion target no longer needs to prove a larger usable context window at write time. Validation checks that each explicit chain link is an exact same-profile, same-family, enabled, non-facade, non-self model, that the chain is acyclic, that it stays within `3` promotion transitions, and that it does not loop back to the same terminal target set. Runtime planning decides which resolved terminal target fits the request.
-
-| Source model | Source ingress path | Explicit promotion chain | Final fitting target capability | Promoted upstream path | `operation_translation_mode` | Final client-visible shape |
-|---|---|---|---|---|---|---|
-| `gpt-5.5` | `/v1/responses` | `gpt-5.5 -> gpt-5.4` | `dual_native` | `/v1/responses` | `none` | Responses |
-| `gpt-5.5` | `/v1/chat/completions` | `gpt-5.5 -> gpt-5.4` | `dual_native` | `/v1/chat/completions` | `none` | Chat Completions |
-| `gpt-5.5` | `/v1/responses` | `gpt-5.5 -> deepseek-v4-flash` | `chat_completions_only` | `/v1/chat/completions` | `openai_responses_to_chat_completions` | Responses |
-| `gpt-5.5` | `/v1/chat/completions` | `gpt-5.5 -> deepseek-v4-flash` | `chat_completions_only` | `/v1/chat/completions` | `none` | Chat Completions |
-| `gpt-5.4` | `/v1/responses` | `gpt-5.4 -> gpt-5.5 -> gpt-5.4-long` | `dual_native` | `/v1/responses` | `none` | Responses |
-
-Invalid or unavailable promotion edges under the same example:
-- `gpt-5.5 -> gpt-5.5`: invalid self-target
-- `gpt-5.4 -> gpt-5.5 -> gpt-5.4`: invalid cycle
-- `gpt-5.5 -> facade-public`: invalid facade promotion target
-- `gpt-5.5 -> disabled-large`: invalid disabled promotion target
-- `gpt-5.5 -> anthropic-large`: invalid `api_family` mismatch
-- `gpt-5.5 -> same-terminal-wrapper`: invalid same-terminal loop when the target resolves back to the same Terminal Target set
-
 Translated rows above remain subject to adapter approval for the specific request shape. If a request shape is not safely translatable, Prism rejects that translated candidate instead of forcing conversion.
 
 ### 2.2C Exact OpenAI facade routing (Release 1)
@@ -1388,34 +1336,9 @@ Release 1 exact facade routing does not add regex model matching, capability-met
 
 Facade rejections stay aligned with the selected child evaluation branch before provider transport: translated-shape rejection returns `400 openai_request_translation_unsupported`, hard no-fit returns `413 context_window_exceeded`, and no eligible child target returns `503`.
 
-### 2.2D CLIProxyAPI context overflow promotion
+### 2.2D Retired Overflow Replay
 
-The known upstream for context overflow promotion is CLIProxyAPI, not official OpenAI. Prism does not claim one official OpenAI-shaped overflow envelope. CLIProxyAPI can serve native OpenAI-compatible and translated sibling-operation paths through different executors, so Prism treats promotion as a conservative Prism-classified replay path over the response it actually receives.
-
-Promotion scope is intentionally narrow:
-- Only `openai.chat_completions` and `openai.responses` are eligible.
-- Recursive pre-dispatch planning is available for eligible Chat Completions and Responses requests, both streaming and non-stream, when tokenizer-backed estimation is present. Prism first builds the ordinary normal route for the requested model. If that route has a fitting terminal target, ordinary routing wins. If it has no fitting terminal target, Prism may follow the model's explicit `context_overflow_promotion_target_id` to the next planning frame, repeat ordinary routing there, and select the first fitting terminal plan found across the explicit chain.
-- Recursive pre-dispatch planning is bounded to `3` promotion transitions, tracks visited model IDs, and records stop reasons for `estimation_unavailable`, `missing_context_window`, `cycle`, and `max_depth`. The planner makes no provider calls. It never infers targets from context windows, pricing, labels, endpoint metadata, facade siblings, or operation shape.
-- Provider-overflow replay is a fallback, not the primary path for eligible tokenizable requests. It remains available only when Prism could not prove pre-dispatch promotion because estimation is unavailable, selected context-window metadata is missing, or the provider reports overflow despite a local fit estimate; bounded pre-visible Responses streaming replay uses the same fallback classification before client-visible bytes.
-- Provider-overflow replay is one-shot and non-recursive. A source provider overflow can replay once to the explicit promotion target when the fallback gate allows it. If recursive pre-dispatch planning already selected the final model, a provider overflow from that selected model is final and does not chain.
-- Responses streaming provider-overflow fallback can replay only before client-visible source bytes. Prism can replay a pre-stream JSON provider-overflow response before downstream commit. It can also stage a bounded SSE prelude, limited to replay-safe `response.created` and `response.in_progress` events, up to `16 KiB`, `2` events, and `250 ms`, and replay only if the next staged event is a code-classified overflow `error` with `context_length_exceeded` or `context_too_large`. Non-overflow SSE errors, unknown prelude events, semantic output such as `response.output_text.delta`, cap expiry, timeout, or any client-visible source byte close the replay window and the source stream continues unchanged. A replay reuses the original buffered ingress body exactly once against the explicit promotion target, and the promoted response is the first client-visible response.
-- Non-stream Chat Completions and Responses provider-overflow replay remains body-classified fallback behavior with additive `trigger_phase=provider_overflow` metadata.
-- After headers, flush, SSE, or any client-visible bytes commit downstream output, Prism never retries, promotes, or switches upstreams for that stream.
-- Replay paths preserve the original buffered ingress body, including `previous_response_id`, `store`, and other continuation fields. Prism does not reconstruct, flatten, fabricate, or compact hidden Responses state.
-- Only explicit `context_overflow_promotion_target_id` links can be used. Prism never searches sibling facade targets, pricing metadata, display names, or vendor rows for a larger model.
-- Strict-mode promotion is not implemented in v1.
-
-Management CRUD and config-bundle import/export preserve `context_overflow_promotion_target_id` as an exact ID field. Validation requires a same-profile, same-`api_family`, enabled, non-facade, non-self target and an acyclic explicit chain bounded to `3` transitions with no same-terminal loop. Validation no longer requires the immediate target to fit by context window. Runtime planning owns fit because each recursive frame can resolve a routing model into a different terminal plan.
-
-The selected-child exact-facade restriction is preserved. If a public facade selected one child model, promotion eligibility is evaluated on that selected child only. Prism does not reopen the facade sibling set, and no sibling fallback is allowed after child selection. Direct Terminal Targets on facade models reject during recursive promotion target evaluation; ordinary requested facade planning remains exact-ID and model-target-only.
-
-The classifier is status plus body, never status alone. Eligible statuses are `400`, `413`, `422`, and body-confirmed `429`. Plain `429` never promotes; rate-limit, quota, capacity, auth, model lookup, malformed JSON, and ambiguous validation bodies are returned without promotion unless the body carries explicit context-overflow evidence. Native non-stream paths can classify OpenAI-style top-level `error` objects or unambiguous flat CLIProxyAPI gateway JSON, while translated non-stream paths accept only top-level `error` objects and reject translated flat-gateway JSON for promotion in v1.
-
-If promotion starts from provider-overflow fallback, Prism closes any source response body and executes the promoted model once. The promoted model inherits the same planner behavior as ordinary terminal resolution: native-compatible attempts remain preferred, and adapter-approved OpenAI text sibling translations can run when the selected terminal target's `openai_text_capability` requires translation. A provider-overflow promoted-target failure is final and is returned to the client. Final status, usage, pricing, and `usage_request_events` attribution come from the final response returned to the client. Failed source attempts remain visible as attempt-level `request_logs` rows and optional audit rows under the same `ingress_request_id`; recursive pre-dispatch promotion has no failed source upstream attempt because the source upstream is not opened.
-
-Promotion observability is additive under `context_routing.context_overflow_promotion` in request logs and usage events, with matching promotion trace attributes when promotion metadata is attached. Prism preserves requested-model identity in the ordinary request-log, usage-event, and response fields; promotion metadata adds source and final resolved target IDs, source and final selected terminal target IDs, `promotion_chain`, `promotion_depth`, `trigger_phase`, `estimation_mode`, and `stop_reason` when recursive planning halts. Pre-dispatch metadata uses `trigger_phase=pre_dispatch_estimate`, `source_attempt_count=0`, and `final_attempt_count=1`; provider fallback uses `trigger_phase=provider_overflow`.
-
-Estimation observability is explicit. When local estimation is present, context-routing and promotion metadata record `estimation_status=present`, `estimation_method`, `estimated_input_tokens`, `reserved_output_tokens`, and `estimated_total_context_tokens`. When estimation is unavailable, they record `estimation_status=unavailable` plus exact `estimation_unavailable_reason`; token totals and `estimation_method` are omitted for that unavailable path. Halted recursive metadata with `result=not_promoted` does not block provider-overflow replay when preflight estimation is unavailable. Trace recursive model identifiers are redacted, while persisted context-routing metadata keeps model IDs and never includes prompt text or raw request body content.
+Model-scoped overflow replay and its authoring fields are retired. Runtime planning now uses the ordinary operation registry, access-target graph, exact facade planner, sibling-operation translation checks, and the attached Ban Policy strategy. Public request-log and usage surfaces keep flat requested model, final target, Terminal Target, endpoint, and operation fields without nested retired routing metadata.
 
 ### 2.3 OpenAI Operations
 
@@ -1565,7 +1488,7 @@ The gateway accumulates SSE chunks during streaming and extracts usage from oper
 | `anthropic.messages` | `message_start` usage plus cumulative `message_delta.usage.output_tokens` | Base input, cache-read input, cache-creation input, and final base output stay separate |
 | `gemini.stream_generate_content` | Stream terminal or final chunk carrying `usageMetadata` | Same canonical disjoint fields as Gemini non-stream `usageMetadata` |
 
-If token data cannot be extracted from the provider response, runtime usage token fields are logged as `null`. Preflight context estimation for `cheapest_eligible_context` is routing metadata only and does not replace provider usage extraction or post-response costing. Completed streams that lack required usage keep `MISSING_TOKEN_USAGE`; interrupted or no-terminal streams with missing required tokens use `STREAM_USAGE_UNAVAILABLE` when their classified stream outcome made terminal usage unavailable. Aggregate `cached_tokens` is derived-only from cache-read plus cache-creation input tokens and is not a persisted runtime component.
+If token data cannot be extracted from the provider response, runtime usage token fields are logged as `null`. Completed streams that lack required usage keep `MISSING_TOKEN_USAGE`; interrupted or no-terminal streams with missing required tokens use `STREAM_USAGE_UNAVAILABLE` when their classified stream outcome made terminal usage unavailable. Aggregate `cached_tokens` is derived-only from cache-read plus cache-creation input tokens and is not a persisted runtime component.
 
 ---
 
@@ -1907,21 +1830,6 @@ Response `200`:
     "endpoint_id": 12,
     "terminal_target_id": 1,
     "selected_terminal_target_id": 1,
-    "context_routing": {
-      "policy": "cheapest_eligible_context",
-      "selected_terminal_target_id": 1,
-      "estimation_method": "openai_chat_tokenizer_v1",
-      "estimated_input_tokens": 15,
-      "reserved_output_tokens": 4096,
-      "estimated_total_context_tokens": 4111,
-      "usable_context_window_tokens": 115200,
-      "cost_ranking_method": "estimated_blended_request_cost_then_access_target_position_then_terminal_target_id",
-      "selected_endpoint_id": 12,
-      "selected_context_band": "preferred",
-      "selected_usable_context_window_tokens": 115200,
-      "selected_estimated_blended_cost_micros": 1250,
-      "skipped_terminal_targets": []
-    },
     "endpoint_base_url": "https://api.openai.com",
     "endpoint_description": "Primary production key",
     "audit_enabled_at_request": false,
@@ -1969,21 +1877,7 @@ Request-log detail uses the same canonical disjoint token components as runtime 
 
 Request-log detail keeps ingress and upstream attribution separate. `request.operation_name` and `request.request_path` are ingress-led. `request.upstream_operation_name`, `request.operation_translation_mode`, and `request.upstream_request_path` describe the provider-facing operation selected for the attempt. Native attempts use `operation_translation_mode = "none"` and usually keep ingress and upstream fields equal; translated attempts keep canonical usage from the upstream payload while presenting the client-visible operation in `operation_name`.
 
-Exact facade attempts add nested `routing.context_routing.facade_selection` metadata without rewriting the top-level requested/resolved model fields:
-```json
-{
-  "facade_selection": {
-    "facade_model_id": "gpt-4o-public",
-    "selected_target_model_id": "gpt-4o-regional",
-    "selected_position": 0,
-    "exclusion_reasons": [
-      {"reason": "translation_rejection", "count": 1}
-    ],
-    "exclusion_summary": "translation_rejection=1"
-  }
-}
-```
-The same planner output also surfaces in traces through additive `prism.runtime.facade_*` attributes: `prism.runtime.facade_model_id`, `prism.runtime.facade_selected_target_model_id`, `prism.runtime.facade_selected_position`, and `prism.runtime.facade_exclusion_summary`.
+Exact facade attempts preserve the top-level requested and resolved model fields without rewriting client-visible model identity. The same planner output also surfaces in traces through additive `prism.runtime.facade_*` attributes: `prism.runtime.facade_model_id`, `prism.runtime.facade_selected_target_model_id`, `prism.runtime.facade_selected_position`, and `prism.runtime.facade_exclusion_summary`.
 
 Response `404`: returned when the request ID is missing or out of scope for the effective profile.
 
@@ -2506,7 +2400,7 @@ Response `201`: Created strategy object.
 
 Validation rules:
 - `name` must be unique within the effective profile scope.
-- `legacy_strategy_type` must be `single`, `fill-first`, `round-robin`, or `cheapest_eligible_context`.
+- `legacy_strategy_type` must be `single`, `fill-first`, or `round-robin`.
 - `failure_status_codes` must be a unique, sorted list of valid HTTP status integers (`100..599`).
 - Retry-window delay, backoff, jitter, max delay, and cycle retry attempt limit must stay within backend bounds.
 - `cycle_retry_attempt_limit` is required and valid from `1` to `50`.

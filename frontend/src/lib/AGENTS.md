@@ -1,7 +1,7 @@
 # FRONTEND LIB KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, frontend-side import validation including obsolete access-target rejection and context overflow promotion targets, explicit Ban Policy loadbalance mirror, selected-profile keyed reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
+`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, frontend-side import validation including obsolete access-target rejection, explicit Ban Policy loadbalance mirror, selected-profile keyed reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
 
 ## STRUCTURE
 ```
@@ -19,7 +19,7 @@ lib/
 ├── websocket/                    # Protocol, subscription, transport/reconnect helpers
 ├── referenceData.ts              # Shared reference-data cache keyed by profile revision
 ├── referenceDataRegistry.ts      # Registry of shared reference-data datasets
-├── configImportValidation.ts     # Frontend-side mirrored config import checks, including promotion targets
+├── configImportValidation.ts     # Frontend-side mirrored config import checks
 ├── configImportValidationReferences.ts
 ├── loadbalanceRoutingPolicy.ts   # Dual-family defaults and policy normalization
 ├── appVersion.ts                 # Browser-facing app version helper built from Vite-injected package metadata
@@ -36,7 +36,7 @@ lib/
 - Public import boundary: `api.ts`
 - Typed `/api/*` client split, grouped surfaces, `api/core.ts` request rules, and profile-scope matcher: `api/AGENTS.md`
 - Shared lookup cache, request dedupe, and dataset registry: `referenceData.ts`, `referenceDataRegistry.ts`
-- Frontend-side config import reference validation, including `context_overflow_promotion_target_id`: `configImportValidation.ts`, `configImportValidationReferences.ts`
+- Frontend-side config import reference validation: `configImportValidation.ts`, `configImportValidationReferences.ts`
 - Shared dual-family load-balance defaults and policy normalization: `loadbalanceRoutingPolicy.ts`
 - Browser app version label formatting and Vite-injected package metadata: `appVersion.ts`
 - Shared reporting-currency cache, normalization, active-currency sync, `prime()` and `refresh()` support, and fail-open default used by `ReportingCurrencyContext.tsx`: `reportingCurrency.ts`
@@ -63,14 +63,14 @@ lib/
 - `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
 - Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
 - `referenceData.ts` and `referenceDataRegistry.ts` own shared cache reuse, request dedupe, and revision-keyed lookup invalidation.
-- `configImportValidation.ts` owns frontend-side mirrored validation of config import contracts, including config-bundle v3 top-level connections, flat ordered model access targets, obsolete `weight` / `target_priority` rejection, `profile_settings.audit_api_family_settings`, `context_overflow_promotion_target_id`, and explicit Ban Policy strategy data, instead of leaving that logic in page components.
+- `configImportValidation.ts` owns frontend-side mirrored validation of config import contracts, including config-bundle v3 top-level connections, flat ordered model access targets, obsolete `weight` / `target_priority` rejection, `profile_settings.audit_api_family_settings`, and explicit Ban Policy strategy data, instead of leaving that logic in page components.
 - `loadbalanceRoutingPolicy.ts` owns explicit Ban Policy defaults, retry-window labels, and normalized failure-status or ban-policy handling.
 - `appVersion.ts` owns the browser-facing frontend version contract so shell chrome reads the synced `frontend/package.json` version through Vite instead of hard-coded literals.
 - `reportingCurrency.ts` owns selected-profile keyed cache reuse, active-currency sync, `prime()` or `refresh()` support, fail-open defaults, and normalization of `report_currency_code` or `report_currency_symbol` used by `ReportingCurrencyContext.tsx`, settings, and costing.
 - `websocket.ts` owns the singleton client; `websocket/AGENTS.md` owns protocol parsing, subscription bookkeeping, and reconnect transport helpers, while shared React consumers should prefer `useRealtimeData()`.
 - `timezone.ts` owns shared timezone preference caching and helper access beneath `useTimezone()`.
 - `costing.ts` owns shared cost formatting and usage labels on top of the active reporting currency instead of duplicating cache or normalization logic.
-- Keep backend payload naming aligned with server schemas, including fixed `api_family` fields, `context_overflow_promotion_target_id`, `expected_active_profile_id`, and stats or request-log identifiers like `ingress_request_id`.
+- Keep backend payload naming aligned with server schemas, including fixed `api_family` fields, `expected_active_profile_id`, and stats or request-log identifiers like `ingress_request_id`.
 - Treat `types.ts` as a barrel. Backend-aligned contracts live in `types/` leaf files and should retain server field names.
 - Request-log clipboard fallback behavior is shared infrastructure through `clipboard.ts`; route sheets can supply scoped fallback roots, but copy helpers stay here.
 
@@ -84,7 +84,7 @@ lib/
 - Do not bypass `api/core.ts` or `api/profileScope.ts` for Prism backend requests or selected-profile header rules.
 - Do not create ad hoc websocket clients or duplicate subscribe/unsubscribe bookkeeping outside `websocket.ts` and `websocket/`.
 - Do not add a parallel reference-data cache when `referenceData.ts` already owns the shared lookup datasets.
-- Do not duplicate config import validation or promotion-target schema checks in page or dialog code when `configImportValidation.ts` already mirrors that contract.
+- Do not duplicate config import validation in page or dialog code when `configImportValidation.ts` already mirrors that contract.
 - Do not duplicate reporting-currency cache or normalization in settings, costing, or page code when `reportingCurrency.ts` already owns that seam.
 - Do not duplicate timezone or cost helper logic in page folders when `timezone.ts` and `costing.ts` already own those seams.
 - Do not camelCase backend response fields in the shared type layer.

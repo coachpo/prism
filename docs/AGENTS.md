@@ -10,7 +10,6 @@ docs/
 ├── ARCHITECTURE.md
 ├── API_SPEC.md
 ├── DATA_MODEL.md
-├── CONTEXT_OVERFLOW_PROMOTION_TEST_MATRIX.md
 ├── PRD.md
 ├── REQUESTS_PAGE.md
 ├── SMOKE_TEST_PLAN.md
@@ -20,7 +19,7 @@ docs/
 
 ## OWNERSHIP
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source-of-truth trio.
-- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, `TEST_CASE_GENERATION_METHODOLOGY.md`, and `CONTEXT_OVERFLOW_PROMOTION_TEST_MATRIX.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
+- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
 - Active working plans belong in `../.omo/plans/`, not under `docs/`.
 - Live execution evidence and LLM test-run records belong in `../.omo/evidence/`, not under `docs/`.
 
@@ -29,7 +28,7 @@ docs/
 - Backend/frontend version surfaces: `../VERSION`, `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend container contract: `../backend/Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation contract, hook residency, rejected-route isolation, and `operation_name` persistence: `API_SPEC.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `../backend/internal/httpapi/runtime/AGENTS.md`, `../backend/internal/httpapi/runtime/operations.go`
-- CLIProxyAPI context overflow promotion regression matrix: `CONTEXT_OVERFLOW_PROMOTION_TEST_MATRIX.md`, `../backend/tests/runtime/context_overflow_promotion_test.go`, `../backend/internal/httpapi/runtime/operation_translation_request_test.go`, `../backend/internal/httpapi/runtime/operation_translation_stream_test.go`
+- OpenAI sibling-operation translation and exact-facade coverage: `../backend/internal/httpapi/runtime/operation_translation_request_test.go`, `../backend/internal/httpapi/runtime/operation_translation_stream_test.go`, `../backend/internal/httpapi/runtime/operation_translation_golden_test.go`
 - Startup bootstrap contract, hot-apply effect reporting, and startup-tab ownership: `../backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `../backend/internal/platform/config/`, `../frontend/src/features/settings/startup/`
 - Config bundle export/import ownership: `../backend/internal/httpapi/management/configbundle/AGENTS.md`, `../frontend/src/pages/settings/`, `../frontend/src/pages/settings/useConfigBackupData.ts`
 - Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000001_initial_schema.sql`
@@ -50,7 +49,7 @@ docs/
 - Prefer documenting steady-state configuration through the file-backed startup JSON and its owning AGENTS/code paths; mention env vars only when they are bootstrap-critical exceptions such as `PRISM_CONFIG_PATH` or `DATABASE_URL`.
 - Keep launcher facts aligned with `../start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, the canonical PostgreSQL host port `15432`, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, the checked-in `config.json` backend port `8000`, and the bootstrap-only startup contract.
 - Keep runtime contract docs aligned with the explicit operation allowlist, operation hook collections, rejected-route isolation, and `operation_name` persistence instead of broad vendor path-family wording.
-- Keep CLIProxyAPI context overflow promotion docs aligned with the model-scoped `context_overflow_promotion_target_id`, additive request-log/trace metadata, config-bundle import validation, and frontend authoring/import seams.
+- Keep hard-delete docs aligned: model-owned context routing and overflow-promotion authoring are retired, while Terminal Target capability fields, exact facades, Ban Policy strategies, and flat final-target request-log fields remain live.
 - Keep bootstrap docs aligned with backend ownership: plaintext file-backed v1, required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, metadata-only safe secrets, `runtime.secretEncryptionKey` preserve-only, apply-capability reporting, unsupported encrypted legacy files, and enabled SMTP fail-fast.
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
@@ -72,4 +71,3 @@ docs/
 - Do not leave active implementation details stranded only in `docs/` when the owning backend or frontend AGENTS tree should carry the implementation map.
 - Do not describe bootstrap config as DB-backed, encrypted, hot-reloaded, or merged with PostgreSQL profile bundle import.
 - Do not document log retention as a generic cleanup query; it is partitioned-log ownership across runtime writers, management jobs, and platform maintenance.
-

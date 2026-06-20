@@ -53,7 +53,7 @@ frontend/
 - Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, route scopes, and legacy redirects; `src/App.tsx` stays the thin wrapper.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep dashboard routing visualization on the React Flow-backed `src/pages/dashboard/routing-diagram/` leaf; `@xyflow/react` CSS is imported once from `src/main.tsx`.
-- Keep model context overflow promotion target authoring in `src/pages/models/` and typed/import validation in `src/lib/`; do not spread that field through unrelated page state.
+- Keep model CRUD, access-target authoring, accepted-format controls, and typed/import validation in their owning leaves without reintroducing deleted model-owned context routing fields.
 - Keep backend access on the typed `src/lib/api.ts` boundary and the modules it re-exports.
 - Keep backend startup configuration on the Startup tab and typed bootstrap API surface rather than inventing new frontend env-based settings channels. `VITE_API_BASE` plus launcher proxy envs are transport wiring only.
 - Keep startup bootstrap rendering dependent on backend-provided values. The frontend owns no canonical backend startup default table; fresh defaults are backend source of truth, including `8000`, `5173`, `15432`, `300s`, and `10s`.
