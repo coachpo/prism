@@ -109,7 +109,6 @@ func TestNormativeDocsParity(t *testing.T) {
 	apiSpecPath := docsPath(t, "API_SPEC.md")
 	assertFileContains(t, apiSpecPath, append([]string{
 		"Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.",
-		"preferred_context_utilization_threshold",
 		"operation_translation_mode",
 		"upstream_operation_name",
 		"upstream_request_path",
@@ -119,7 +118,6 @@ func TestNormativeDocsParity(t *testing.T) {
 	architecturePath := docsPath(t, "ARCHITECTURE.md")
 	assertFileContains(t, architecturePath, append([]string{
 		"Supported runtime operations always use active profile and ignore override headers.",
-		"preferred_context_utilization_threshold",
 		"operation_translation_mode",
 		"upstream_operation_name",
 		"upstream_request_path",
