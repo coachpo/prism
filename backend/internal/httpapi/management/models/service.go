@@ -1,7 +1,6 @@
 package models
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -34,25 +33,8 @@ type domainError struct {
 	Fields     map[string]any
 }
 
-const (
-	contextOverflowPromotionTargetField            = "context_overflow_promotion_target_id"
-	promotionTargetValidationCodeUnknown           = "unknown_target"
-	promotionTargetValidationCodeSelf              = "self_target"
-	promotionTargetValidationCodeDisabled          = "disabled_target"
-	promotionTargetValidationCodeFacade            = "facade_target"
-	promotionTargetValidationCodeCrossProfile      = "cross_profile_target"
-	promotionTargetValidationCodeSameTerminal      = "same_terminal_target"
-	promotionTargetValidationCodeAPIFamilyMismatch = "api_family_mismatch"
-	promotionTargetValidationCodeCycle             = "promotion_cycle_detected"
-	promotionTargetValidationCodeMaxDepth          = "promotion_max_depth_exceeded"
-)
-
 func (err *domainError) Error() string {
 	return err.Detail
-}
-
-func (s *Service) validateContextOverflowPromotionTarget(ctx context.Context, exec queryExecutor, profileID int, source modelRecord) error {
-	return validateConfiguredPromotionTarget(ctx, exec, profileID, source)
 }
 
 func NewService(settings config.Settings, options Options) (*Service, error) {

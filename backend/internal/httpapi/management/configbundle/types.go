@@ -56,21 +56,16 @@ type loadbalanceStrategyExport struct {
 }
 
 type modelExport struct {
-	APIFamily                            string               `json:"api_family"`
-	ModelID                              string               `json:"model_id"`
-	DisplayName                          *string              `json:"display_name"`
-	LoadbalanceStrategyName              *string              `json:"loadbalance_strategy_name"`
-	ContextWindowTokens                  *int                 `json:"context_window_tokens"`
-	DefaultOutputTokenReserve            *int                 `json:"default_output_token_reserve"`
-	MaxContextUtilization                *float64             `json:"max_context_utilization"`
-	PreferredContextUtilizationThreshold *float64             `json:"preferred_context_utilization_threshold"`
-	FacadeEnabled                        bool                 `json:"facade_enabled"`
-	FacadeSelectionPolicy                *string              `json:"facade_selection_policy"`
-	FacadeFallbackPolicy                 *string              `json:"facade_fallback_policy"`
-	ContextOverflowPromotionTargetID     *string              `json:"context_overflow_promotion_target_id"`
-	OpenAIAcceptedFormat                 *string              `json:"openai_accepted_format"`
-	IsEnabled                            bool                 `json:"is_enabled"`
-	AccessTargets                        []accessTargetExport `json:"access_targets"`
+	APIFamily               string               `json:"api_family"`
+	ModelID                 string               `json:"model_id"`
+	DisplayName             *string              `json:"display_name"`
+	LoadbalanceStrategyName *string              `json:"loadbalance_strategy_name"`
+	FacadeEnabled           bool                 `json:"facade_enabled"`
+	FacadeSelectionPolicy   *string              `json:"facade_selection_policy"`
+	FacadeFallbackPolicy    *string              `json:"facade_fallback_policy"`
+	OpenAIAcceptedFormat    *string              `json:"openai_accepted_format"`
+	IsEnabled               bool                 `json:"is_enabled"`
+	AccessTargets           []accessTargetExport `json:"access_targets"`
 }
 
 type accessTargetExport struct {

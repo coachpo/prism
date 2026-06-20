@@ -19,166 +19,26 @@ import (
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
-const (
-	promotionTargetScenarioValid          = "valid"
-	promotionTargetScenarioRecursiveValid = "recursive_valid"
-)
-
 type modelRouteErrorResponse struct {
 	Detail            string                       `json:"detail"`
 	RoutingPlanIssues []routingPlanValidationIssue `json:"routing_plan_issues"`
 }
 
-func TestModelServiceAcceptsValidPromotionTarget(t *testing.T) {
-	ctx, conn, _ := createPromotionTargetTestDatabase(t, "model_service_accepts_valid_promotion_target")
-	now := time.Date(2026, time.June, 5, 20, 0, 0, 0, time.UTC)
-	source, targetModelID, profileID := seedPromotionTargetScenario(t, ctx, conn, now, promotionTargetScenarioValid)
-	source.ContextOverflowPromotionTargetID = stringPtr(targetModelID)
-
-	service := &Service{}
-	if err := service.validateContextOverflowPromotionTarget(ctx, conn, profileID, source); err != nil {
-		t.Fatalf("expected valid promotion target to pass, got %v", err)
-	}
-}
-
-func TestModelServiceRejectsUnknownPromotionTarget(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeUnknown)
-}
-
-func TestModelServiceRejectsSelfPromotionTarget(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeSelf)
-}
-
-func TestModelServiceRejectsDisabledPromotionTarget(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeDisabled)
-}
-
-func TestModelServiceRejectsFacadePromotionTarget(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeFacade)
-}
-
-func TestModelServiceRejectsCrossProfilePromotionTarget(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeCrossProfile)
-}
-
-func TestModelServiceRejectsSameTerminalPromotionTarget(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeSameTerminal)
-}
-
-func TestModelServiceRejectsAPIFamilyMismatchPromotionTarget(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeAPIFamilyMismatch)
-}
-
-func TestModelServiceAcceptsRecursivePromotionChainWithoutImmediateLargerWindow(t *testing.T) {
-	ctx, conn, _ := createPromotionTargetTestDatabase(t, "model_service_accepts_recursive_promotion_chain")
-	now := time.Date(2026, time.June, 5, 20, 5, 0, 0, time.UTC)
-	source, targetModelID, profileID := seedPromotionTargetScenario(t, ctx, conn, now, promotionTargetScenarioRecursiveValid)
-	source.ContextOverflowPromotionTargetID = stringPtr(targetModelID)
-
-	service := &Service{}
-	if err := service.validateContextOverflowPromotionTarget(ctx, conn, profileID, source); err != nil {
-		t.Fatalf("expected recursive promotion chain to pass, got %v", err)
-	}
-}
-
-func TestModelServiceRejectsPromotionCycle(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeCycle)
-}
-
-func TestModelServiceRejectsPromotionMaxDepth(t *testing.T) {
-	assertServicePromotionTargetValidationFailure(t, promotionTargetValidationCodeMaxDepth)
-}
-
-func TestModelRoutesExposePromotionTargetField(t *testing.T) {
-	ctx, conn, dsn := createPromotionTargetTestDatabase(t, "model_routes_expose_promotion_target_field")
-	now := time.Date(2026, time.June, 5, 20, 15, 0, 0, time.UTC)
-	source, targetModelID, profileID := seedPromotionTargetScenario(t, ctx, conn, now, promotionTargetScenarioValid)
-	router := newPromotionTargetRouter(t, ctx, dsn, now)
-
-	updateResponse := performPromotionTargetModelRequest(t, router, http.MethodPut, fmt.Sprintf("/models/%d", source.ID), profileID, map[string]any{
-		contextOverflowPromotionTargetField: targetModelID,
-	})
-	if updateResponse.Code != http.StatusOK {
-		t.Fatalf("expected PUT /models/%d to succeed, got %d: %s", source.ID, updateResponse.Code, updateResponse.Body.String())
-	}
-	var updated modelConfigResponse
-	decodePromotionTargetJSON(t, updateResponse, &updated)
-	requirePromotionTargetEquals(t, updated.ContextOverflowPromotionTargetID, targetModelID)
-
-	loaded, found, err := loadModelRecord(ctx, conn, profileID, source.ID, false)
-	if err != nil {
-		t.Fatalf("load updated model: %v", err)
-	}
-	if !found {
-		t.Fatalf("expected source model %d to exist after route update", source.ID)
-	}
-	requirePromotionTargetEquals(t, loaded.ContextOverflowPromotionTargetID, targetModelID)
-
-	getResponse := performPromotionTargetModelRequest(t, router, http.MethodGet, fmt.Sprintf("/models/%d", source.ID), profileID, nil)
-	if getResponse.Code != http.StatusOK {
-		t.Fatalf("expected GET /models/%d to succeed, got %d: %s", source.ID, getResponse.Code, getResponse.Body.String())
-	}
-	var detail modelConfigResponse
-	decodePromotionTargetJSON(t, getResponse, &detail)
-	requirePromotionTargetEquals(t, detail.ContextOverflowPromotionTargetID, targetModelID)
-
-	listResponse := performPromotionTargetModelRequest(t, router, http.MethodGet, "/models", profileID, nil)
-	if listResponse.Code != http.StatusOK {
-		t.Fatalf("expected GET /models to succeed, got %d: %s", listResponse.Code, listResponse.Body.String())
-	}
-	var listed []modelConfigListResponse
-	decodePromotionTargetJSON(t, listResponse, &listed)
-	listItem := findListedModelByID(t, listed, source.ID)
-	requirePromotionTargetEquals(t, listItem.ContextOverflowPromotionTargetID, targetModelID)
-}
-
-func TestModelRoutesReturnStablePromotionTargetValidationErrors(t *testing.T) {
-	codes := []string{
-		promotionTargetValidationCodeUnknown,
-		promotionTargetValidationCodeSelf,
-		promotionTargetValidationCodeDisabled,
-		promotionTargetValidationCodeFacade,
-		promotionTargetValidationCodeCrossProfile,
-		promotionTargetValidationCodeSameTerminal,
-		promotionTargetValidationCodeAPIFamilyMismatch,
-		promotionTargetValidationCodeCycle,
-		promotionTargetValidationCodeMaxDepth,
-	}
-	for _, code := range codes {
-		t.Run(code, func(t *testing.T) {
-			ctx, conn, dsn := createPromotionTargetTestDatabase(t, "model_routes_return_stable_promotion_target_validation_errors_"+code)
-			now := time.Date(2026, time.June, 5, 20, 30, 0, 0, time.UTC)
-			source, targetModelID, profileID := seedPromotionTargetScenario(t, ctx, conn, now, code)
-			router := newPromotionTargetRouter(t, ctx, dsn, now)
-
-			response := performPromotionTargetModelRequest(t, router, http.MethodPut, fmt.Sprintf("/models/%d", source.ID), profileID, map[string]any{
-				contextOverflowPromotionTargetField: targetModelID,
-			})
-			if response.Code != http.StatusBadRequest {
-				t.Fatalf("expected PUT /models/%d to fail with 400 for %s, got %d: %s", source.ID, code, response.Code, response.Body.String())
-			}
-			var payload modelRouteErrorResponse
-			decodePromotionTargetJSON(t, response, &payload)
-			assertPromotionTargetRouteError(t, payload, code)
-
-			loaded, found, err := loadModelRecord(ctx, conn, profileID, source.ID, false)
-			if err != nil {
-				t.Fatalf("load source model after failed update: %v", err)
-			}
-			if !found {
-				t.Fatalf("expected source model %d to exist after failed update", source.ID)
-			}
-			if loaded.ContextOverflowPromotionTargetID != nil {
-				t.Fatalf("expected failed update to keep promotion target unset, got %q", *loaded.ContextOverflowPromotionTargetID)
-			}
-		})
-	}
-}
-
 func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
 	ctx, conn, dsn := createPromotionTargetTestDatabase(t, "model_routes_reject_obsolete_access_target_fields")
 	now := time.Date(2026, time.June, 5, 21, 0, 0, 0, time.UTC)
-	source, targetModelID, profileID := seedPromotionTargetScenario(t, ctx, conn, now, promotionTargetScenarioValid)
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed transaction: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	profileID := insertPromotionProfile(t, ctx, tx, "obsolete-target-fields-profile", now)
+	strategyID := insertPromotionStrategy(t, ctx, tx, profileID, "obsolete-target-fields-strategy", now)
+	source := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "obsolete-source", APIFamily: "openai", IsEnabled: false})
+	target := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "obsolete-target", APIFamily: "openai", IsEnabled: false})
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed transaction: %v", err)
+	}
 	router := newPromotionTargetRouter(t, ctx, dsn, now)
 
 	createResponse := performPromotionTargetModelRequest(t, router, http.MethodPost, "/models", profileID, map[string]any{
@@ -187,7 +47,7 @@ func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
 		"loadbalance_strategy_id": source.LoadbalanceStrategyID,
 		"access_targets": []map[string]any{{
 			"target_type":     "model",
-			"target_model_id": targetModelID,
+			"target_model_id": target.ModelID,
 			"position":        0,
 			"weight":          1,
 		}},
@@ -197,7 +57,7 @@ func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
 	updateResponse := performPromotionTargetModelRequest(t, router, http.MethodPut, fmt.Sprintf("/models/%d", source.ID), profileID, map[string]any{
 		"access_targets": []map[string]any{{
 			"target_type":     "model",
-			"target_model_id": targetModelID,
+			"target_model_id": target.ModelID,
 			"position":        0,
 			"target_priority": 0,
 		}},
@@ -206,7 +66,7 @@ func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
 
 	targetCreateResponse := performPromotionTargetModelRequest(t, router, http.MethodPost, fmt.Sprintf("/models/%d/targets", source.ID), profileID, map[string]any{
 		"target_type":     "model",
-		"target_model_id": targetModelID,
+		"target_model_id": target.ModelID,
 		"position":        1,
 		"weight":          1,
 	})
@@ -216,50 +76,6 @@ func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
 		"target_priority": 0,
 	})
 	assertObsoleteAccessTargetRouteError(t, targetPatchResponse, "target_priority")
-}
-
-func assertServicePromotionTargetValidationFailure(t *testing.T, expectedCode string) {
-	t.Helper()
-	ctx, conn, _ := createPromotionTargetTestDatabase(t, "model_service_validation_failure_"+expectedCode)
-	now := time.Date(2026, time.June, 5, 20, 45, 0, 0, time.UTC)
-	source, targetModelID, profileID := seedPromotionTargetScenario(t, ctx, conn, now, expectedCode)
-	source.ContextOverflowPromotionTargetID = stringPtr(targetModelID)
-
-	service := &Service{}
-	err := service.validateContextOverflowPromotionTarget(ctx, conn, profileID, source)
-	requirePromotionTargetDomainError(t, err, expectedCode)
-}
-
-func requirePromotionTargetDomainError(t *testing.T, err error, expectedCode string) {
-	t.Helper()
-	detail := expectedPromotionTargetDetail(expectedCode)
-	domainErr := requireModelDomainError(t, err, http.StatusBadRequest, detail)
-	issues, ok := domainErr.Fields["routing_plan_issues"].([]routingPlanValidationIssue)
-	if !ok {
-		t.Fatalf("expected routing_plan_issues payload, got %+v", domainErr.Fields)
-	}
-	if len(issues) != 1 {
-		t.Fatalf("expected one routing_plan_issue, got %+v", issues)
-	}
-	issue := issues[0]
-	if issue.Code != expectedCode || issue.Path != contextOverflowPromotionTargetField || issue.Message != detail {
-		t.Fatalf("unexpected promotion-target routing_plan_issue: %+v", issue)
-	}
-}
-
-func assertPromotionTargetRouteError(t *testing.T, payload modelRouteErrorResponse, expectedCode string) {
-	t.Helper()
-	detail := expectedPromotionTargetDetail(expectedCode)
-	if payload.Detail != detail {
-		t.Fatalf("expected detail %q, got %q", detail, payload.Detail)
-	}
-	if len(payload.RoutingPlanIssues) != 1 {
-		t.Fatalf("expected one routing_plan_issue, got %+v", payload.RoutingPlanIssues)
-	}
-	issue := payload.RoutingPlanIssues[0]
-	if issue.Code != expectedCode || issue.Path != contextOverflowPromotionTargetField || issue.Message != detail {
-		t.Fatalf("unexpected route routing_plan_issue: %+v", issue)
-	}
 }
 
 func assertObsoleteAccessTargetRouteError(t *testing.T, response *httptest.ResponseRecorder, path string) {
@@ -276,31 +92,6 @@ func assertObsoleteAccessTargetRouteError(t *testing.T, response *httptest.Respo
 	issue := payload.RoutingPlanIssues[0]
 	if issue.Code != "obsolete_access_target_field" || issue.Path != path || issue.Message != detail {
 		t.Fatalf("unexpected obsolete field issue: %+v", issue)
-	}
-}
-
-func expectedPromotionTargetDetail(code string) string {
-	switch code {
-	case promotionTargetValidationCodeUnknown:
-		return "context_overflow_promotion_target_id must reference an existing model"
-	case promotionTargetValidationCodeSelf:
-		return "context_overflow_promotion_target_id cannot reference the source model"
-	case promotionTargetValidationCodeDisabled:
-		return "context_overflow_promotion_target_id must reference an enabled model"
-	case promotionTargetValidationCodeFacade:
-		return "context_overflow_promotion_target_id must reference a non-facade model"
-	case promotionTargetValidationCodeCrossProfile:
-		return "context_overflow_promotion_target_id must reference a model in the selected profile"
-	case promotionTargetValidationCodeSameTerminal:
-		return "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model"
-	case promotionTargetValidationCodeAPIFamilyMismatch:
-		return "context_overflow_promotion_target_id must reference a model with the same api_family"
-	case promotionTargetValidationCodeCycle:
-		return "context_overflow_promotion_target_id must not introduce a promotion target cycle"
-	case promotionTargetValidationCodeMaxDepth:
-		return "context_overflow_promotion_target_id promotion chain cannot exceed depth 3"
-	default:
-		panic(fmt.Sprintf("unexpected promotion target validation code %q", code))
 	}
 }
 
@@ -391,111 +182,6 @@ type promotionModelSeed struct {
 	FacadeEnabled bool
 }
 
-func seedPromotionTargetScenario(t *testing.T, ctx context.Context, conn *pgx.Conn, now time.Time, scenarioCode string) (modelRecord, string, int) {
-	t.Helper()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin scenario transaction: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	profileID := insertPromotionProfile(t, ctx, tx, "profile-"+scenarioCode, now)
-	strategyID := insertPromotionStrategy(t, ctx, tx, profileID, "strategy-"+scenarioCode, now)
-
-	switch scenarioCode {
-	case promotionTargetScenarioValid:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-small", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		target, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-large", APIFamily: "openai", IsEnabled: true}, 16_000, 1.0)
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit valid scenario: %v", err)
-		}
-		return source, target.ModelID, profileID
-	case promotionTargetScenarioRecursiveValid:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-recursive", APIFamily: "openai", IsEnabled: true}, 16_000, 1.0)
-		intermediate, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-recursive-small", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		terminal, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-recursive-terminal", APIFamily: "openai", IsEnabled: true}, 32_000, 1.0)
-		setPromotionTargetID(t, ctx, tx, intermediate.ID, terminal.ModelID)
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit recursive valid scenario: %v", err)
-		}
-		return source, intermediate.ModelID, profileID
-	case promotionTargetValidationCodeUnknown:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-openai", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit unknown-target scenario: %v", err)
-		}
-		return source, "missing-promotion-target", profileID
-	case promotionTargetValidationCodeSelf:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "self-openai", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit self-target scenario: %v", err)
-		}
-		return source, source.ModelID, profileID
-	case promotionTargetValidationCodeDisabled:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-disabled-check", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		target := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-disabled", APIFamily: "openai", IsEnabled: false})
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit disabled-target scenario: %v", err)
-		}
-		return source, target.ModelID, profileID
-	case promotionTargetValidationCodeFacade:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-facade-check", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		target := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-facade", APIFamily: "openai", IsEnabled: true, FacadeEnabled: true})
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit facade-target scenario: %v", err)
-		}
-		return source, target.ModelID, profileID
-	case promotionTargetValidationCodeCrossProfile:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-cross-profile", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		otherProfileID := insertPromotionProfileWithActive(t, ctx, tx, "profile-other", false, now)
-		otherStrategyID := insertPromotionStrategy(t, ctx, tx, otherProfileID, "strategy-other", now)
-		target, _ := seedPromotionTerminalModel(t, ctx, tx, otherProfileID, otherStrategyID, now, promotionModelSeed{ModelID: "target-cross-profile", APIFamily: "openai", IsEnabled: true}, 16_000, 1.0)
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit cross-profile scenario: %v", err)
-		}
-		return source, target.ModelID, profileID
-	case promotionTargetValidationCodeSameTerminal:
-		target, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-same-terminal", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		source := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-same-terminal", APIFamily: "openai", IsEnabled: true})
-		insertPromotionModelTarget(t, ctx, tx, profileID, source.ID, target.ID, 0, true, now)
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit same-terminal scenario: %v", err)
-		}
-		return source, target.ModelID, profileID
-	case promotionTargetValidationCodeAPIFamilyMismatch:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-openai-mismatch", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		target, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-anthropic", APIFamily: "anthropic", IsEnabled: true}, 16_000, 1.0)
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit api-family mismatch scenario: %v", err)
-		}
-		return source, target.ModelID, profileID
-	case promotionTargetValidationCodeCycle:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-cycle", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		target, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-cycle", APIFamily: "openai", IsEnabled: true}, 16_000, 1.0)
-		setPromotionTargetID(t, ctx, tx, target.ID, source.ModelID)
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit promotion cycle scenario: %v", err)
-		}
-		return source, target.ModelID, profileID
-	case promotionTargetValidationCodeMaxDepth:
-		source, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "source-depth", APIFamily: "openai", IsEnabled: true}, 8_000, 1.0)
-		first, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-depth-1", APIFamily: "openai", IsEnabled: true}, 16_000, 1.0)
-		second, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-depth-2", APIFamily: "openai", IsEnabled: true}, 24_000, 1.0)
-		third, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-depth-3", APIFamily: "openai", IsEnabled: true}, 32_000, 1.0)
-		fourth, _ := seedPromotionTerminalModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "target-depth-4", APIFamily: "openai", IsEnabled: true}, 40_000, 1.0)
-		setPromotionTargetID(t, ctx, tx, first.ID, second.ModelID)
-		setPromotionTargetID(t, ctx, tx, second.ID, third.ModelID)
-		setPromotionTargetID(t, ctx, tx, third.ID, fourth.ModelID)
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit promotion max-depth scenario: %v", err)
-		}
-		return source, first.ModelID, profileID
-	default:
-		t.Fatalf("unexpected promotion target scenario %q", scenarioCode)
-		return modelRecord{}, "", 0
-	}
-}
-
 func seedPromotionTerminalModel(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, strategyID int, now time.Time, seed promotionModelSeed, contextWindowTokens int, maxContextUtilization float64) (modelRecord, int) {
 	t.Helper()
 	model := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, seed)
@@ -537,31 +223,22 @@ func insertPromotionModel(t *testing.T, ctx context.Context, tx pgx.Tx, profileI
 		fallbackPolicy = stringPtr(facadeFallbackPolicySkipIneligibleTargets)
 	}
 	record := modelRecord{
-		ProfileID:                 profileID,
-		APIFamily:                 seed.APIFamily,
-		ModelID:                   seed.ModelID,
-		DisplayName:               stringPtr(seed.ModelID),
-		LoadbalanceStrategyID:     intPtr(strategyID),
-		DefaultOutputTokenReserve: 4096,
-		MaxContextUtilization:     0.9,
-		FacadeEnabled:             seed.FacadeEnabled,
-		FacadeSelectionPolicy:     selectionPolicy,
-		FacadeFallbackPolicy:      fallbackPolicy,
-		IsEnabled:                 seed.IsEnabled,
-		CreatedAt:                 now,
-		UpdatedAt:                 now,
+		ProfileID:             profileID,
+		APIFamily:             seed.APIFamily,
+		ModelID:               seed.ModelID,
+		DisplayName:           stringPtr(seed.ModelID),
+		LoadbalanceStrategyID: intPtr(strategyID),
+		FacadeEnabled:         seed.FacadeEnabled,
+		FacadeSelectionPolicy: selectionPolicy,
+		FacadeFallbackPolicy:  fallbackPolicy,
+		IsEnabled:             seed.IsEnabled,
+		CreatedAt:             now,
+		UpdatedAt:             now,
 	}
 	if seed.APIFamily == "openai" {
 		record.OpenAIAcceptedFormat = stringPtr(openAIAcceptedFormatDualNative)
 	}
 	return mustInsertModelRecord(t, ctx, tx, record)
-}
-
-func setPromotionTargetID(t *testing.T, ctx context.Context, tx pgx.Tx, modelConfigID int, targetModelID string) {
-	t.Helper()
-	if _, err := tx.Exec(ctx, `UPDATE model_configs SET context_overflow_promotion_target_id = $2 WHERE id = $1`, modelConfigID, targetModelID); err != nil {
-		t.Fatalf("set promotion target for model %d: %v", modelConfigID, err)
-	}
 }
 
 func insertPromotionEndpoint(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, name string, now time.Time) int {

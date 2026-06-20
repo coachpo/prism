@@ -25,14 +25,70 @@ func TestCreateModelRequiresOpenAIAcceptedFormatForOpenAI(t *testing.T) {
 	router := newPromotionTargetRouter(t, ctx, dsn, now)
 
 	response := performPromotionTargetModelRequest(t, router, http.MethodPost, "/models", profileID, map[string]any{
-		"api_family":                   "openai",
-		"model_id":                     "missing-openai-accepted-format",
-		"loadbalance_strategy_id":      strategyID,
-		"default_output_token_reserve": 4096,
-		"max_context_utilization":      0.9,
-		"is_enabled":                   false,
+		"api_family":              "openai",
+		"model_id":                "missing-openai-accepted-format",
+		"loadbalance_strategy_id": strategyID,
+		"is_enabled":              false,
 	})
 	assertModelRouteDetail(t, response, http.StatusBadRequest, "openai_accepted_format is required when api_family is 'openai'")
+}
+
+func TestCreateModelRejectsRemovedContextAuthoringFields(t *testing.T) {
+	ctx, conn, dsn := createPromotionTargetTestDatabase(t, "create_rejects_removed_context_authoring_fields")
+	now := time.Date(2026, time.June, 19, 9, 0, 0, 0, time.UTC)
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed transaction: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	profileID := insertPromotionProfile(t, ctx, tx, "removed-context-create-profile", now)
+	strategyID := insertPromotionStrategy(t, ctx, tx, profileID, "removed-context-create-strategy", now)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed transaction: %v", err)
+	}
+	router := newPromotionTargetRouter(t, ctx, dsn, now)
+
+	response := performPromotionTargetModelRequest(t, router, http.MethodPost, "/models", profileID, map[string]any{
+		"api_family":                              "openai",
+		"model_id":                                "removed-context-create",
+		"loadbalance_strategy_id":                 strategyID,
+		"context_window_tokens":                   8192,
+		"default_output_token_reserve":            4096,
+		"max_context_utilization":                 0.9,
+		"preferred_context_utilization_threshold": 0.8,
+		"openai_accepted_format":                  openAIAcceptedFormatDualNative,
+		"is_enabled":                              false,
+	})
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected removed context authoring fields to be rejected, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestUpdateModelRejectsRemovedContextAuthoringFields(t *testing.T) {
+	ctx, conn, dsn := createPromotionTargetTestDatabase(t, "update_rejects_removed_context_authoring_fields")
+	now := time.Date(2026, time.June, 19, 9, 5, 0, 0, time.UTC)
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed transaction: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	profileID := insertPromotionProfile(t, ctx, tx, "removed-context-update-profile", now)
+	strategyID := insertPromotionStrategy(t, ctx, tx, profileID, "removed-context-update-strategy", now)
+	model := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "removed-context-update", APIFamily: "openai", IsEnabled: false})
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed transaction: %v", err)
+	}
+	router := newPromotionTargetRouter(t, ctx, dsn, now)
+
+	response := performPromotionTargetModelRequest(t, router, http.MethodPut, fmt.Sprintf("/models/%d", model.ID), profileID, map[string]any{
+		"context_window_tokens":                   8192,
+		"default_output_token_reserve":            4096,
+		"max_context_utilization":                 0.9,
+		"preferred_context_utilization_threshold": 0.8,
+	})
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected removed context authoring fields to be rejected, got %d: %s", response.Code, response.Body.String())
+	}
 }
 
 func TestUpdateModelRejectsOpenAIAcceptedFormatForNonOpenAI(t *testing.T) {

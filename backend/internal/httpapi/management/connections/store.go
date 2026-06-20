@@ -22,15 +22,11 @@ type queryExecutor interface {
 }
 
 type modelRecord struct {
-	ID                                   int
-	ProfileID                            int
-	ModelID                              string
-	APIFamily                            string
-	ContextWindowTokens                  *int
-	DefaultOutputTokenReserve            int
-	MaxContextUtilization                float64
-	PreferredContextUtilizationThreshold *float64
-	IsEnabled                            bool
+	ID        int
+	ProfileID int
+	ModelID   string
+	APIFamily string
+	IsEnabled bool
 }
 
 type endpointRecord struct {
@@ -87,7 +83,7 @@ type pricingTemplateResponse struct {
 const pricingTemplateSelectQuery = `SELECT id, profile_id, name, description, pricing_unit, pricing_currency_code, COALESCE(input_price, '0'), COALESCE(output_price, '0'), COALESCE(cached_input_price, '0'), COALESCE(cache_creation_price, '0'), COALESCE(reasoning_price, '0'), version, created_at, updated_at FROM pricing_templates`
 
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, forUpdate bool) (modelRecord, bool, error) {
-	query := `SELECT id, profile_id, model_id, api_family, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, is_enabled FROM model_configs WHERE profile_id = $1 AND id = $2`
+	query := `SELECT id, profile_id, model_id, api_family, is_enabled FROM model_configs WHERE profile_id = $1 AND id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -536,14 +532,10 @@ func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionRespo
 }
 
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
-	var contextWindowTokens sql.NullInt32
-	var preferredContextUtilizationThreshold sql.NullFloat64
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &contextWindowTokens, &record.DefaultOutputTokenReserve, &record.MaxContextUtilization, &preferredContextUtilizationThreshold, &record.IsEnabled); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &record.IsEnabled); err != nil {
 		return modelRecord{}, err
 	}
-	record.ContextWindowTokens = nullableInt32(contextWindowTokens)
-	record.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 	return record, nil
 }
 

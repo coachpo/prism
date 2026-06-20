@@ -60,11 +60,7 @@ func TestConfigBundle(t *testing.T) {
 	if _, ok := exported["runtime"]; ok {
 		t.Fatalf("expected profile export to stay on the existing bundle contract without bootstrap runtime rollout controls, got %+v", exported)
 	}
-	model := asMap(t, exported["models"].([]any)[0])
 	connection := asMap(t, exported["connections"].([]any)[0])
-	if integrationJSONInt(t, model["context_window_tokens"]) != 128000 || integrationJSONInt(t, model["default_output_token_reserve"]) != 4096 || integrationJSONFloat(t, model["max_context_utilization"]) != 0.9 {
-		t.Fatalf("expected explicit model capability export, got %+v", model)
-	}
 	if integrationJSONInt(t, connection["context_window_tokens"]) != 200000 || integrationJSONInt(t, connection["default_output_token_reserve"]) != 4096 || integrationJSONFloat(t, connection["max_context_utilization"]) != 0.9 {
 		t.Fatalf("expected explicit connection capability export, got %+v", connection)
 	}
@@ -73,9 +69,6 @@ func TestConfigBundle(t *testing.T) {
 	}
 
 	mutated := cloneJSONMap(t, exported)
-	mutatedModel := asMap(t, mutated["models"].([]any)[0])
-	delete(mutatedModel, "default_output_token_reserve")
-	delete(mutatedModel, "max_context_utilization")
 	mutatedConnection := asMap(t, mutated["connections"].([]any)[0])
 	delete(mutatedConnection, "default_output_token_reserve")
 	delete(mutatedConnection, "max_context_utilization")
@@ -93,11 +86,7 @@ func TestConfigBundle(t *testing.T) {
 	}
 
 	reExported := requestJSONMap(t, harness.client, http.MethodGet, harness.server.URL+"/api/config/profile/export", nil, profileHeader(profileID))
-	reExportedModel := asMap(t, reExported["models"].([]any)[0])
 	reExportedConnection := asMap(t, reExported["connections"].([]any)[0])
-	if integrationJSONInt(t, reExportedModel["default_output_token_reserve"]) != 4096 || integrationJSONFloat(t, reExportedModel["max_context_utilization"]) != 0.9 {
-		t.Fatalf("expected re-exported model defaults after legacy omission import, got %+v", reExportedModel)
-	}
 	if integrationJSONInt(t, reExportedConnection["default_output_token_reserve"]) != 4096 || integrationJSONFloat(t, reExportedConnection["max_context_utilization"]) != 0.9 {
 		t.Fatalf("expected re-exported connection defaults after legacy omission import, got %+v", reExportedConnection)
 	}
@@ -105,15 +94,14 @@ func TestConfigBundle(t *testing.T) {
 		t.Fatalf("expected re-exported connection to keep openai_probe_endpoint_variant=responses_minimal, got %+v", reExportedConnection)
 	}
 
-	assertIntegrationStoredModelCapabilities(t, harness.conn, "gpt-4o-mini", intPtr(128000), 4096, 0.9)
 	assertIntegrationStoredConnectionCapabilities(t, harness.conn, "Primary OpenAI connection", intPtr(200000), 4096, 0.9)
 	assertIntegrationStoredConnectionProbeVariant(t, harness.conn, "Primary OpenAI connection", "responses_minimal")
 }
 
-func TestConfigBundleRoundTripsCheapestEligibleContext(t *testing.T) {
+func TestConfigBundleRoundTripsRoundRobinStrategy(t *testing.T) {
 	harness := newConfigBundleIntegrationHarness(t)
 	profileID := loadIntegrationDefaultProfileID(t, harness.conn)
-	seedIntegrationConfigBundleGraph(t, harness.conn, profileID, "Default cheapest eligible context", "cheapest_eligible_context")
+	seedIntegrationConfigBundleGraph(t, harness.conn, profileID, "Default round-robin routing", "round-robin")
 
 	exported := requestJSONMap(t, harness.client, http.MethodGet, harness.server.URL+"/api/config/profile/export", nil, profileHeader(profileID))
 	strategies := exported["loadbalance_strategies"].([]any)
@@ -121,34 +109,34 @@ func TestConfigBundleRoundTripsCheapestEligibleContext(t *testing.T) {
 		t.Fatalf("expected one exported loadbalance strategy, got %+v", strategies)
 	}
 	strategy := asMap(t, strategies[0])
-	if strategy["legacy_strategy_type"] != "cheapest_eligible_context" || strategy["name"] != "Default cheapest eligible context" {
-		t.Fatalf("expected cheapest_eligible_context export, got %+v", strategy)
+	if strategy["legacy_strategy_type"] != "round-robin" || strategy["name"] != "Default round-robin routing" {
+		t.Fatalf("expected round-robin export, got %+v", strategy)
 	}
 
 	preview := requestJSONMap(t, harness.client, http.MethodPost, harness.server.URL+"/api/config/profile/import/preview", exported, profileHeader(profileID))
 	if preview["ready"] != true || strings.TrimSpace(preview["preview_token"].(string)) == "" {
-		t.Fatalf("expected ready preview token for cheapest_eligible_context import, got %+v", preview)
+		t.Fatalf("expected ready preview token for round-robin import, got %+v", preview)
 	}
 
 	importHeaders := profileHeader(profileID)
 	importHeaders["X-Prism-Preview-Token"] = preview["preview_token"].(string)
 	imported := requestJSONMap(t, harness.client, http.MethodPost, harness.server.URL+"/api/config/profile/import", exported, importHeaders)
 	if integrationJSONInt(t, imported["strategies_imported"]) != 1 {
-		t.Fatalf("expected one imported cheapest_eligible_context strategy, got %+v", imported)
+		t.Fatalf("expected one imported round-robin strategy, got %+v", imported)
 	}
 
 	reExported := requestJSONMap(t, harness.client, http.MethodGet, harness.server.URL+"/api/config/profile/export", nil, profileHeader(profileID))
 	reExportedStrategy := asMap(t, reExported["loadbalance_strategies"].([]any)[0])
-	if reExportedStrategy["legacy_strategy_type"] != "cheapest_eligible_context" || reExportedStrategy["name"] != "Default cheapest eligible context" {
-		t.Fatalf("expected cheapest_eligible_context re-export, got %+v", reExportedStrategy)
+	if reExportedStrategy["legacy_strategy_type"] != "round-robin" || reExportedStrategy["name"] != "Default round-robin routing" {
+		t.Fatalf("expected round-robin re-export, got %+v", reExportedStrategy)
 	}
 
 	var storedStrategyType string
-	if err := harness.conn.QueryRow(context.Background(), `SELECT legacy_strategy_type FROM loadbalance_strategies WHERE profile_id = $1 AND name = $2 LIMIT 1`, profileID, "Default cheapest eligible context").Scan(&storedStrategyType); err != nil {
-		t.Fatalf("load stored cheapest_eligible_context strategy: %v", err)
+	if err := harness.conn.QueryRow(context.Background(), `SELECT legacy_strategy_type FROM loadbalance_strategies WHERE profile_id = $1 AND name = $2 LIMIT 1`, profileID, "Default round-robin routing").Scan(&storedStrategyType); err != nil {
+		t.Fatalf("load stored round-robin strategy: %v", err)
 	}
-	if storedStrategyType != "cheapest_eligible_context" {
-		t.Fatalf("expected stored cheapest_eligible_context strategy, got %q", storedStrategyType)
+	if storedStrategyType != "round-robin" {
+		t.Fatalf("expected stored round-robin strategy, got %q", storedStrategyType)
 	}
 }
 
@@ -216,7 +204,7 @@ func seedIntegrationConfigBundleGraph(t *testing.T, conn *pgx.Conn, profileID in
 		t.Fatalf("insert integration strategy: %v", err)
 	}
 	var modelConfigID int
-	if err := conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $2, 128000, 4096, 0.90, 'dual_native', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelConfigID); err != nil {
+	if err := conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-mini', 'GPT 4o Mini', $2, 'dual_native', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert integration model: %v", err)
 	}
 	var connectionID int
@@ -239,16 +227,29 @@ func loadIntegrationDefaultProfileID(t *testing.T, conn *pgx.Conn) int {
 
 func assertContextCapabilityColumnContracts(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	for _, tableName := range []string{"model_configs", "connections"} {
-		assertContextCapabilityColumn(t, ctx, conn, tableName, "context_window_tokens", "integer", "YES", "")
-		assertContextCapabilityColumn(t, ctx, conn, tableName, "default_output_token_reserve", "integer", "NO", "4096")
-		assertContextCapabilityColumn(t, ctx, conn, tableName, "max_context_utilization", "double precision", "NO", "0.9")
-		assertContextCapabilityColumn(t, ctx, conn, tableName, "preferred_context_utilization_threshold", "double precision", "YES", "")
-	}
+	assertContextCapabilityColumnAbsent(t, ctx, conn, "model_configs", "context_window_tokens")
+	assertContextCapabilityColumnAbsent(t, ctx, conn, "model_configs", "default_output_token_reserve")
+	assertContextCapabilityColumnAbsent(t, ctx, conn, "model_configs", "max_context_utilization")
+	assertContextCapabilityColumnAbsent(t, ctx, conn, "model_configs", "preferred_context_utilization_threshold")
+	assertContextCapabilityColumn(t, ctx, conn, "connections", "context_window_tokens", "integer", "YES", "")
+	assertContextCapabilityColumn(t, ctx, conn, "connections", "default_output_token_reserve", "integer", "NO", "4096")
+	assertContextCapabilityColumn(t, ctx, conn, "connections", "max_context_utilization", "double precision", "NO", "0.9")
+	assertContextCapabilityColumn(t, ctx, conn, "connections", "preferred_context_utilization_threshold", "double precision", "YES", "")
 	assertContextCapabilityColumn(t, ctx, conn, "connections", "context_window_tokens_overridden", "boolean", "NO", "false")
 	assertContextCapabilityColumn(t, ctx, conn, "connections", "default_output_token_reserve_overridden", "boolean", "NO", "false")
 	assertContextCapabilityColumn(t, ctx, conn, "connections", "max_context_utilization_overridden", "boolean", "NO", "false")
 	assertContextCapabilityColumn(t, ctx, conn, "connections", "preferred_context_utilization_threshold_overridden", "boolean", "NO", "false")
+}
+
+func assertContextCapabilityColumnAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string) {
+	t.Helper()
+	var columnCount int
+	if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`, tableName, columnName).Scan(&columnCount); err != nil {
+		t.Fatalf("check %s.%s absence contract: %v", tableName, columnName, err)
+	}
+	if columnCount != 0 {
+		t.Fatalf("expected %s.%s to be absent, got %d matching columns", tableName, columnName, columnCount)
+	}
 }
 
 func assertContextCapabilityColumn(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string, dataType string, isNullable string, defaultContains string) {
@@ -271,17 +272,6 @@ func assertContextCapabilityColumn(t *testing.T, ctx context.Context, conn *pgx.
 	if !strings.Contains(strings.ToLower(gotDefault), strings.ToLower(defaultContains)) {
 		t.Fatalf("expected %s.%s default to contain %q, got %q", tableName, columnName, defaultContains, gotDefault)
 	}
-}
-
-func assertIntegrationStoredModelCapabilities(t *testing.T, conn *pgx.Conn, modelID string, wantContextWindowTokens *int, wantDefaultOutputTokenReserve int, wantMaxContextUtilization float64) {
-	t.Helper()
-	var contextWindowTokens sql.NullInt32
-	var defaultOutputTokenReserve int
-	var maxContextUtilization float64
-	if err := conn.QueryRow(context.Background(), `SELECT context_window_tokens, default_output_token_reserve, max_context_utilization FROM model_configs WHERE model_id = $1 LIMIT 1`, modelID).Scan(&contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization); err != nil {
-		t.Fatalf("load model %q capabilities: %v", modelID, err)
-	}
-	assertIntegrationCapabilityValues(t, fmt.Sprintf("model %s", modelID), contextWindowTokens.Valid, int(contextWindowTokens.Int32), defaultOutputTokenReserve, maxContextUtilization, wantContextWindowTokens, wantDefaultOutputTokenReserve, wantMaxContextUtilization)
 }
 
 func assertIntegrationStoredConnectionCapabilities(t *testing.T, conn *pgx.Conn, connectionName string, wantContextWindowTokens *int, wantDefaultOutputTokenReserve int, wantMaxContextUtilization float64) {
@@ -417,7 +407,6 @@ func TestContextCapabilities(t *testing.T) {
 		if _, err := runner.Run(testContext, conn); err != nil {
 			t.Fatalf("run baseline for preferred context capability migration contract: %v", err)
 		}
-		assertContextCapabilityColumn(t, testContext, conn, "model_configs", "preferred_context_utilization_threshold", "double precision", "YES", "")
 		assertContextCapabilityColumn(t, testContext, conn, "connections", "preferred_context_utilization_threshold", "double precision", "YES", "")
 		assertContextCapabilityColumn(t, testContext, conn, "connections", "preferred_context_utilization_threshold_overridden", "boolean", "NO", "false")
 	})
@@ -426,37 +415,25 @@ func TestContextCapabilities(t *testing.T) {
 		harness := newConfigBundleIntegrationHarness(t)
 		profileID := loadIntegrationDefaultProfileID(t, harness.conn)
 		seedIntegrationConfigBundleGraph(t, harness.conn, profileID, "Default single", "single")
-		if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET preferred_context_utilization_threshold = 0.70 WHERE profile_id = $1`, profileID); err != nil {
-			t.Fatalf("seed integration model preferred_context_utilization_threshold: %v", err)
-		}
 		if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET preferred_context_utilization_threshold = 0.65 WHERE profile_id = $1`, profileID); err != nil {
 			t.Fatalf("seed integration connection preferred_context_utilization_threshold: %v", err)
 		}
 
 		exported := requestJSONMap(t, harness.client, http.MethodGet, harness.server.URL+"/api/config/profile/export", nil, profileHeader(profileID))
-		model := asMap(t, exported["models"].([]any)[0])
 		connection := asMap(t, exported["connections"].([]any)[0])
-		if integrationJSONFloat(t, model["preferred_context_utilization_threshold"]) != 0.7 || integrationJSONFloat(t, connection["preferred_context_utilization_threshold"]) != 0.65 {
-			t.Fatalf("expected preferred_context_utilization_threshold export values, got model=%+v connection=%+v", model, connection)
+		if integrationJSONFloat(t, connection["preferred_context_utilization_threshold"]) != 0.65 {
+			t.Fatalf("expected connection preferred_context_utilization_threshold export value, got %+v", connection)
 		}
 
 		mutated := cloneJSONMap(t, exported)
-		delete(asMap(t, mutated["models"].([]any)[0]), "preferred_context_utilization_threshold")
 		delete(asMap(t, mutated["connections"].([]any)[0]), "preferred_context_utilization_threshold")
 		roundTripPreview := requestJSONMap(t, harness.client, http.MethodPost, harness.server.URL+"/api/config/profile/import/preview", exported, profileHeader(profileID))
 		roundTripHeaders := profileHeader(profileID)
 		roundTripHeaders["X-Prism-Preview-Token"] = roundTripPreview["preview_token"].(string)
 		_ = requestJSONMap(t, harness.client, http.MethodPost, harness.server.URL+"/api/config/profile/import", exported, roundTripHeaders)
 		roundTripExported := requestJSONMap(t, harness.client, http.MethodGet, harness.server.URL+"/api/config/profile/export", nil, profileHeader(profileID))
-		if integrationJSONFloat(t, asMap(t, roundTripExported["models"].([]any)[0])["preferred_context_utilization_threshold"]) != 0.7 || integrationJSONFloat(t, asMap(t, roundTripExported["connections"].([]any)[0])["preferred_context_utilization_threshold"]) != 0.65 {
+		if integrationJSONFloat(t, asMap(t, roundTripExported["connections"].([]any)[0])["preferred_context_utilization_threshold"]) != 0.65 {
 			t.Fatalf("expected non-null preferred_context_utilization_threshold to round-trip, got %+v", roundTripExported)
-		}
-		var roundTripModelPreferred sql.NullFloat64
-		if err := harness.conn.QueryRow(context.Background(), `SELECT preferred_context_utilization_threshold FROM model_configs WHERE profile_id = $1 LIMIT 1`, profileID).Scan(&roundTripModelPreferred); err != nil {
-			t.Fatalf("load integration model preferred_context_utilization_threshold after non-null roundtrip: %v", err)
-		}
-		if !roundTripModelPreferred.Valid || roundTripModelPreferred.Float64 != 0.7 {
-			t.Fatalf("expected integration model preferred_context_utilization_threshold 0.70 after non-null roundtrip, got %+v", roundTripModelPreferred)
 		}
 		var roundTripConnectionPreferred sql.NullFloat64
 		if err := harness.conn.QueryRow(context.Background(), `SELECT preferred_context_utilization_threshold FROM connections WHERE profile_id = $1 LIMIT 1`, profileID).Scan(&roundTripConnectionPreferred); err != nil {
@@ -470,15 +447,8 @@ func TestContextCapabilities(t *testing.T) {
 		importHeaders["X-Prism-Preview-Token"] = preview["preview_token"].(string)
 		_ = requestJSONMap(t, harness.client, http.MethodPost, harness.server.URL+"/api/config/profile/import", mutated, importHeaders)
 		reExported := requestJSONMap(t, harness.client, http.MethodGet, harness.server.URL+"/api/config/profile/export", nil, profileHeader(profileID))
-		if asMap(t, reExported["models"].([]any)[0])["preferred_context_utilization_threshold"] != nil || asMap(t, reExported["connections"].([]any)[0])["preferred_context_utilization_threshold"] != nil {
+		if asMap(t, reExported["connections"].([]any)[0])["preferred_context_utilization_threshold"] != nil {
 			t.Fatalf("expected legacy omission import to clear preferred_context_utilization_threshold, got %+v", reExported)
-		}
-		var modelPreferred sql.NullFloat64
-		if err := harness.conn.QueryRow(context.Background(), `SELECT preferred_context_utilization_threshold FROM model_configs WHERE profile_id = $1 LIMIT 1`, profileID).Scan(&modelPreferred); err != nil {
-			t.Fatalf("load integration model preferred_context_utilization_threshold: %v", err)
-		}
-		if modelPreferred.Valid {
-			t.Fatalf("expected integration model preferred_context_utilization_threshold NULL after legacy import, got %0.2f", modelPreferred.Float64)
 		}
 		var connectionPreferred sql.NullFloat64
 		if err := harness.conn.QueryRow(context.Background(), `SELECT preferred_context_utilization_threshold FROM connections WHERE profile_id = $1 LIMIT 1`, profileID).Scan(&connectionPreferred); err != nil {

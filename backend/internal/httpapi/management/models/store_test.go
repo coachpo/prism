@@ -3,7 +3,6 @@ package models
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -32,137 +31,6 @@ type modelsPostgresHarness struct {
 	hostPort      string
 }
 
-func TestModelsStorePromotionTargetPersists(t *testing.T) {
-	ctx, conn := modelsMigratedConn(t, "models_promotion_target_persists")
-	now := time.Date(2026, time.June, 5, 18, 30, 0, 0, time.UTC)
-	profileID := seedModelsStoreProfile(t, ctx, conn, now)
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin create transaction: %v", err)
-	}
-	target := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "gpt-5.4", now, nil))
-	source := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "gpt-5.5", now, stringPtr(target.ModelID)))
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit create transaction: %v", err)
-	}
-
-	nextTime := now.Add(time.Minute)
-	tx, err = conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin update transaction: %v", err)
-	}
-	nextTarget := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "gpt-5.6", nextTime, nil))
-	source.ContextOverflowPromotionTargetID = stringPtr(nextTarget.ModelID)
-	source.UpdatedAt = nextTime
-	updated, err := updateModel(ctx, tx, source)
-	if err != nil {
-		t.Fatalf("update model promotion target: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit update transaction: %v", err)
-	}
-
-	loaded, found, err := loadModelRecord(ctx, conn, profileID, updated.ID, false)
-	if err != nil {
-		t.Fatalf("load updated model: %v", err)
-	}
-	if !found {
-		t.Fatal("expected updated model to exist")
-	}
-	requirePromotionTargetEquals(t, loaded.ContextOverflowPromotionTargetID, nextTarget.ModelID)
-
-	listed, err := listModelRecords(ctx, conn, profileID)
-	if err != nil {
-		t.Fatalf("list models: %v", err)
-	}
-	listedSource, ok := findModelRecordByID(listed, updated.ID)
-	if !ok {
-		t.Fatalf("expected source model %d in listed records", updated.ID)
-	}
-	requirePromotionTargetEquals(t, listedSource.ContextOverflowPromotionTargetID, nextTarget.ModelID)
-
-	var stored sql.NullString
-	if err := conn.QueryRow(ctx, `SELECT context_overflow_promotion_target_id FROM model_configs WHERE id = $1`, updated.ID).Scan(&stored); err != nil {
-		t.Fatalf("query stored promotion target: %v", err)
-	}
-	if !stored.Valid || stored.String != nextTarget.ModelID {
-		t.Fatalf("expected stored promotion target %q, got %+v", nextTarget.ModelID, stored)
-	}
-
-	detail := buildModelDetailResponse(loaded, nil, nil)
-	listItem := buildModelListResponse(listedSource, nil, nil, nil, nil)
-	requirePromotionTargetEquals(t, detail.ContextOverflowPromotionTargetID, nextTarget.ModelID)
-	requirePromotionTargetEquals(t, listItem.ContextOverflowPromotionTargetID, nextTarget.ModelID)
-}
-
-func TestModelsStorePromotionTargetNullRoundTrip(t *testing.T) {
-	ctx, conn := modelsMigratedConn(t, "models_promotion_target_null_roundtrip")
-	now := time.Date(2026, time.June, 5, 18, 45, 0, 0, time.UTC)
-	profileID := seedModelsStoreProfile(t, ctx, conn, now)
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin create transaction: %v", err)
-	}
-	target := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "gpt-5.4", now, nil))
-	source := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "gpt-5.5", now, stringPtr(target.ModelID)))
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit create transaction: %v", err)
-	}
-
-	tx, err = conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin null update transaction: %v", err)
-	}
-	source.ContextOverflowPromotionTargetID = nil
-	source.UpdatedAt = now.Add(time.Minute)
-	updated, err := updateModel(ctx, tx, source)
-	if err != nil {
-		t.Fatalf("clear model promotion target: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit null update transaction: %v", err)
-	}
-
-	loaded, found, err := loadModelRecord(ctx, conn, profileID, updated.ID, false)
-	if err != nil {
-		t.Fatalf("load cleared model: %v", err)
-	}
-	if !found {
-		t.Fatal("expected cleared model to exist")
-	}
-	if loaded.ContextOverflowPromotionTargetID != nil {
-		t.Fatalf("expected cleared promotion target to stay nil, got %q", *loaded.ContextOverflowPromotionTargetID)
-	}
-
-	listed, err := listModelRecords(ctx, conn, profileID)
-	if err != nil {
-		t.Fatalf("list models after clear: %v", err)
-	}
-	listedSource, ok := findModelRecordByID(listed, updated.ID)
-	if !ok {
-		t.Fatalf("expected source model %d in listed records", updated.ID)
-	}
-	if listedSource.ContextOverflowPromotionTargetID != nil {
-		t.Fatalf("expected listed promotion target to stay nil, got %q", *listedSource.ContextOverflowPromotionTargetID)
-	}
-
-	var stored sql.NullString
-	if err := conn.QueryRow(ctx, `SELECT context_overflow_promotion_target_id FROM model_configs WHERE id = $1`, updated.ID).Scan(&stored); err != nil {
-		t.Fatalf("query cleared promotion target: %v", err)
-	}
-	if stored.Valid {
-		t.Fatalf("expected stored promotion target to be NULL, got %+v", stored)
-	}
-
-	detail := buildModelDetailResponse(loaded, nil, nil)
-	listItem := buildModelListResponse(listedSource, nil, nil, nil, nil)
-	if detail.ContextOverflowPromotionTargetID != nil || listItem.ContextOverflowPromotionTargetID != nil {
-		t.Fatalf("expected nil response promotion targets, got detail=%v list=%v", detail.ContextOverflowPromotionTargetID, listItem.ContextOverflowPromotionTargetID)
-	}
-}
-
 func TestModelsStoreRejectsPromotionTargetOnTerminalRows(t *testing.T) {
 	ctx, conn := modelsMigratedConn(t, "models_promotion_target_terminal_rows")
 
@@ -188,8 +56,8 @@ func TestModelsStoreUsesFlatAccessTargetsWithoutObsoleteColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin flat access target transaction: %v", err)
 	}
-	target := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "flat-target", now, nil))
-	source := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "flat-source", now, nil))
+	target := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "flat-target", now))
+	source := mustInsertModelRecord(t, ctx, tx, testModelRecord(profileID, "flat-source", now))
 	if err := replaceAccessTargets(ctx, tx, profileID, source.ID, []resolvedAccessTarget{{TargetType: "model", Position: 2, IsEnabled: true, Model: &target}}, now); err != nil {
 		t.Fatalf("replace flat access targets: %v", err)
 	}
@@ -218,21 +86,17 @@ func mustInsertModelRecord(t *testing.T, ctx context.Context, tx pgx.Tx, record 
 	return created
 }
 
-func testModelRecord(profileID int, modelID string, now time.Time, promotionTargetID *string) modelRecord {
+func testModelRecord(profileID int, modelID string, now time.Time) modelRecord {
 	return modelRecord{
-		ProfileID:   profileID,
-		APIFamily:   "openai",
-		ModelID:     modelID,
-		DisplayName: stringPtr(strings.ToUpper(modelID)),
-
-		DefaultOutputTokenReserve:        4096,
-		MaxContextUtilization:            0.9,
-		FacadeEnabled:                    false,
-		ContextOverflowPromotionTargetID: promotionTargetID,
-		OpenAIAcceptedFormat:             stringPtr(openAIAcceptedFormatDualNative),
-		IsEnabled:                        true,
-		CreatedAt:                        now,
-		UpdatedAt:                        now,
+		ProfileID:            profileID,
+		APIFamily:            "openai",
+		ModelID:              modelID,
+		DisplayName:          stringPtr(strings.ToUpper(modelID)),
+		FacadeEnabled:        false,
+		OpenAIAcceptedFormat: stringPtr(openAIAcceptedFormatDualNative),
+		IsEnabled:            true,
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 }
 
@@ -252,13 +116,6 @@ func findModelRecordByID(records []modelRecord, modelConfigID int) (modelRecord,
 		}
 	}
 	return modelRecord{}, false
-}
-
-func requirePromotionTargetEquals(t *testing.T, got *string, want string) {
-	t.Helper()
-	if got == nil || *got != want {
-		t.Fatalf("expected promotion target %q, got %v", want, got)
-	}
 }
 
 func requireUndefinedColumnError(t *testing.T, err error, columnName string) {

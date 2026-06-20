@@ -15,7 +15,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/coachpo/prism/backend/internal/contextcapability"
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
@@ -128,12 +127,8 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *requestBody.LoadbalanceStrategyID); err != nil {
 			return modelConfigResponse{}, err
 		}
-		capabilitySettings, err := contextcapability.NormalizeModelSettings(requestBody.ContextWindowTokens, requestBody.DefaultOutputTokenReserve, requestBody.MaxContextUtilization, requestBody.PreferredContextUtilizationThreshold)
-		if err != nil {
-			return modelConfigResponse{}, contextCapabilityDomainError(err)
-		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, ContextWindowTokens: capabilitySettings.ContextWindowTokens, DefaultOutputTokenReserve: capabilitySettings.DefaultOutputTokenReserve, MaxContextUtilization: capabilitySettings.MaxContextUtilization, PreferredContextUtilizationThreshold: capabilitySettings.PreferredContextUtilizationThreshold, FacadeEnabled: resolveFacadeEnabled(requestBody.FacadeEnabled), FacadeSelectionPolicy: requestBody.FacadeSelectionPolicy, FacadeFallbackPolicy: requestBody.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: requestBody.ContextOverflowPromotionTargetID, OpenAIAcceptedFormat: requestBody.OpenAIAcceptedFormat.Value, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
+		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, FacadeEnabled: resolveFacadeEnabled(requestBody.FacadeEnabled), FacadeSelectionPolicy: requestBody.FacadeSelectionPolicy, FacadeFallbackPolicy: requestBody.FacadeFallbackPolicy, OpenAIAcceptedFormat: requestBody.OpenAIAcceptedFormat.Value, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
 		created, err := insertModel(r.Context(), tx, record)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -155,9 +150,6 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, err
 		}
 		if err := replaceAccessTargets(r.Context(), tx, profile.ID, created.ID, resolvedTargets, now); err != nil {
-			return modelConfigResponse{}, err
-		}
-		if err := s.validateContextOverflowPromotionTarget(r.Context(), tx, profile.ID, created); err != nil {
 			return modelConfigResponse{}, err
 		}
 		strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{created})
@@ -228,9 +220,6 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if requestBody.FacadeFallbackPolicy.Set {
 			next.FacadeFallbackPolicy = requestBody.FacadeFallbackPolicy.Value
 		}
-		if requestBody.ContextOverflowPromotionTargetID.Set {
-			next.ContextOverflowPromotionTargetID = requestBody.ContextOverflowPromotionTargetID.Value
-		}
 		if requestBody.OpenAIAcceptedFormat.Set {
 			next.OpenAIAcceptedFormat = requestBody.OpenAIAcceptedFormat.Value
 		} else if next.APIFamily != "openai" {
@@ -242,53 +231,6 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if requestBody.LoadbalanceStrategyID.Set {
 			next.LoadbalanceStrategyID = requestBody.LoadbalanceStrategyID.Value
 		}
-		if requestBody.ContextWindowTokens.Set {
-			if requestBody.ContextWindowTokens.Value == nil {
-				next.ContextWindowTokens = nil
-			} else {
-				resolvedContextWindowTokens, normalizeErr := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens.Value)
-				if normalizeErr != nil {
-					return modelConfigResponse{}, contextCapabilityFieldDomainError("context_window_tokens", normalizeErr)
-				}
-				next.ContextWindowTokens = resolvedContextWindowTokens
-			}
-		}
-		if requestBody.DefaultOutputTokenReserve.Set {
-			if requestBody.DefaultOutputTokenReserve.Value == nil {
-				return modelConfigResponse{}, requiredContextCapabilityFieldError("default_output_token_reserve")
-			}
-			resolvedOutputTokenReserve, normalizeErr := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve.Value)
-			if normalizeErr != nil {
-				return modelConfigResponse{}, contextCapabilityFieldDomainError("default_output_token_reserve", normalizeErr)
-			}
-			next.DefaultOutputTokenReserve = resolvedOutputTokenReserve
-		}
-		if requestBody.MaxContextUtilization.Set {
-			if requestBody.MaxContextUtilization.Value == nil {
-				return modelConfigResponse{}, requiredContextCapabilityFieldError("max_context_utilization")
-			}
-			resolvedMaxContextUtilization, normalizeErr := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization.Value)
-			if normalizeErr != nil {
-				return modelConfigResponse{}, contextCapabilityFieldDomainError("max_context_utilization", normalizeErr)
-			}
-			next.MaxContextUtilization = resolvedMaxContextUtilization
-		}
-		if requestBody.PreferredContextUtilizationThreshold.Set {
-			if requestBody.PreferredContextUtilizationThreshold.Value == nil {
-				next.PreferredContextUtilizationThreshold = nil
-			} else {
-				resolvedPreferredContextUtilizationThreshold, normalizeErr := contextcapability.NormalizePreferredContextUtilizationThreshold(requestBody.PreferredContextUtilizationThreshold.Value, next.MaxContextUtilization)
-				if normalizeErr != nil {
-					return modelConfigResponse{}, contextCapabilityFieldDomainError("preferred_context_utilization_threshold", normalizeErr)
-				}
-				next.PreferredContextUtilizationThreshold = resolvedPreferredContextUtilizationThreshold
-			}
-		}
-		resolvedPreferredContextUtilizationThreshold, normalizeErr := contextcapability.NormalizePreferredContextUtilizationThreshold(next.PreferredContextUtilizationThreshold, next.MaxContextUtilization)
-		if normalizeErr != nil {
-			return modelConfigResponse{}, contextCapabilityFieldDomainError("preferred_context_utilization_threshold", normalizeErr)
-		}
-		next.PreferredContextUtilizationThreshold = resolvedPreferredContextUtilizationThreshold
 		if requestBody.APIFamily.Set && next.APIFamily != current.APIFamily && hasConnectionAccessTargetRecords(currentAccessTargetsByModel[current.ID]) {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change api_family while private connections exist"}
 		}
@@ -339,9 +281,6 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, err
 		}
 		if err := replaceAccessTargetsPreservingConnections(r.Context(), tx, profile.ID, updated.ID, resolvedTargets, preservedConnectionTargets, next.UpdatedAt); err != nil {
-			return modelConfigResponse{}, err
-		}
-		if err := s.validateContextOverflowPromotionTarget(r.Context(), tx, profile.ID, updated); err != nil {
 			return modelConfigResponse{}, err
 		}
 		if updated.ModelID != originalModelID {
@@ -1212,7 +1151,6 @@ func normalizeCreateRequest(requestBody *modelCreateRequest) {
 	requestBody.DisplayName = normalizeOptionalString(requestBody.DisplayName, false, true)
 	requestBody.FacadeSelectionPolicy = normalizeOptionalString(requestBody.FacadeSelectionPolicy, true, true)
 	requestBody.FacadeFallbackPolicy = normalizeOptionalString(requestBody.FacadeFallbackPolicy, true, true)
-	requestBody.ContextOverflowPromotionTargetID = normalizeOptionalString(requestBody.ContextOverflowPromotionTargetID, false, true)
 	requestBody.OpenAIAcceptedFormat = optionalString{Set: requestBody.OpenAIAcceptedFormat.Set, Value: normalizeOptionalString(requestBody.OpenAIAcceptedFormat.Value, true, true)}
 	requestBody.AccessTargets = normalizeAccessTargets(requestBody.AccessTargets)
 }
@@ -1223,7 +1161,6 @@ func normalizeUpdateRequest(requestBody *modelUpdateRequest) {
 	requestBody.DisplayName = optionalString{Set: requestBody.DisplayName.Set, Value: normalizeOptionalString(requestBody.DisplayName.Value, false, true)}
 	requestBody.FacadeSelectionPolicy = optionalString{Set: requestBody.FacadeSelectionPolicy.Set, Value: normalizeOptionalString(requestBody.FacadeSelectionPolicy.Value, true, true)}
 	requestBody.FacadeFallbackPolicy = optionalString{Set: requestBody.FacadeFallbackPolicy.Set, Value: normalizeOptionalString(requestBody.FacadeFallbackPolicy.Value, true, true)}
-	requestBody.ContextOverflowPromotionTargetID = optionalString{Set: requestBody.ContextOverflowPromotionTargetID.Set, Value: normalizeOptionalString(requestBody.ContextOverflowPromotionTargetID.Value, false, true)}
 	requestBody.OpenAIAcceptedFormat = optionalString{Set: requestBody.OpenAIAcceptedFormat.Set, Value: normalizeOptionalString(requestBody.OpenAIAcceptedFormat.Value, true, true)}
 	requestBody.AccessTargets = optionalAccessTargets{Set: requestBody.AccessTargets.Set, Value: normalizeAccessTargets(requestBody.AccessTargets.Value)}
 }
@@ -1276,9 +1213,6 @@ func validateCreateRequest(requestBody modelCreateRequest) error {
 	if err := validateOpenAIAcceptedFormatForModel(requestBody.APIFamily, requestBody.OpenAIAcceptedFormat.Value, requestBody.OpenAIAcceptedFormat.Set); err != nil {
 		return err
 	}
-	if err := validateModelContextCapabilitiesCreate(requestBody); err != nil {
-		return err
-	}
 	if err := validatePublicAccessTargets(requestBody.AccessTargets); err != nil {
 		return err
 	}
@@ -1325,72 +1259,10 @@ func validateUpdateRequest(requestBody modelUpdateRequest) error {
 	if err := validateFacadePolicyValues(requestBody.FacadeSelectionPolicy.Value, requestBody.FacadeFallbackPolicy.Value); err != nil {
 		return err
 	}
-	if err := validateModelContextCapabilitiesUpdate(requestBody); err != nil {
-		return err
-	}
 	if requestBody.AccessTargets.Set {
 		return validatePublicAccessTargets(requestBody.AccessTargets.Value)
 	}
 	return nil
-}
-
-func validateModelContextCapabilitiesCreate(requestBody modelCreateRequest) error {
-	if _, err := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens); err != nil {
-		return contextCapabilityFieldDomainError("context_window_tokens", err)
-	}
-	if _, err := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve); err != nil {
-		return contextCapabilityFieldDomainError("default_output_token_reserve", err)
-	}
-	resolvedMaxContextUtilization, err := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization)
-	if err != nil {
-		return contextCapabilityFieldDomainError("max_context_utilization", err)
-	}
-	if _, err := contextcapability.NormalizePreferredContextUtilizationThreshold(requestBody.PreferredContextUtilizationThreshold, resolvedMaxContextUtilization); err != nil {
-		return contextCapabilityFieldDomainError("preferred_context_utilization_threshold", err)
-	}
-	return nil
-}
-
-func validateModelContextCapabilitiesUpdate(requestBody modelUpdateRequest) error {
-	if requestBody.ContextWindowTokens.Set && requestBody.ContextWindowTokens.Value != nil {
-		if _, err := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens.Value); err != nil {
-			return contextCapabilityFieldDomainError("context_window_tokens", err)
-		}
-	}
-	if requestBody.DefaultOutputTokenReserve.Set {
-		if requestBody.DefaultOutputTokenReserve.Value == nil {
-			return requiredContextCapabilityFieldError("default_output_token_reserve")
-		}
-		if _, err := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve.Value); err != nil {
-			return contextCapabilityFieldDomainError("default_output_token_reserve", err)
-		}
-	}
-	if requestBody.MaxContextUtilization.Set {
-		if requestBody.MaxContextUtilization.Value == nil {
-			return requiredContextCapabilityFieldError("max_context_utilization")
-		}
-		if _, err := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization.Value); err != nil {
-			return contextCapabilityFieldDomainError("max_context_utilization", err)
-		}
-	}
-	if requestBody.PreferredContextUtilizationThreshold.Set && requestBody.PreferredContextUtilizationThreshold.Value != nil {
-		if _, err := contextcapability.NormalizePreferredContextUtilizationThreshold(requestBody.PreferredContextUtilizationThreshold.Value, 1); err != nil {
-			return contextCapabilityFieldDomainError("preferred_context_utilization_threshold", err)
-		}
-	}
-	return nil
-}
-
-func contextCapabilityDomainError(err error) error {
-	return &domainError{StatusCode: http.StatusBadRequest, Detail: err.Error()}
-}
-
-func contextCapabilityFieldDomainError(fieldName string, err error) error {
-	return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("%s %s", fieldName, err.Error())}
-}
-
-func requiredContextCapabilityFieldError(fieldName string) error {
-	return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("%s is required", fieldName)}
 }
 
 func validateFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
@@ -1451,123 +1323,6 @@ func ensureNoNestedFacadeTargets(resolvedTargets []resolvedAccessTarget) error {
 	return nil
 }
 
-const maxContextOverflowPromotionChainTransitions = 3
-
-type promotionTargetTerminalStats struct {
-	TerminalConnectionIDs map[int]struct{}
-}
-
-func (stats promotionTargetTerminalStats) overlaps(other promotionTargetTerminalStats) bool {
-	if len(stats.TerminalConnectionIDs) == 0 || len(other.TerminalConnectionIDs) == 0 {
-		return false
-	}
-	for connectionID := range stats.TerminalConnectionIDs {
-		if _, ok := other.TerminalConnectionIDs[connectionID]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func validateConfiguredPromotionTarget(ctx context.Context, exec queryExecutor, profileID int, source modelRecord) error {
-	targetModelID := strings.TrimSpace(nullablePromotionTargetID(source.ContextOverflowPromotionTargetID))
-	if targetModelID == "" {
-		return nil
-	}
-	target, err := validatePromotionTargetLink(ctx, exec, profileID, source, targetModelID)
-	if err != nil {
-		return err
-	}
-	sourceStats, err := loadPromotionTargetTerminalStats(ctx, exec, profileID, source.ID, source.APIFamily)
-	if err != nil {
-		return err
-	}
-	return validatePromotionTargetChain(ctx, exec, profileID, source, target, sourceStats)
-}
-
-func validatePromotionTargetLink(ctx context.Context, exec queryExecutor, profileID int, source modelRecord, targetModelID string) (modelRecord, error) {
-	target, foundInProfile, foundElsewhere, err := loadPromotionTargetModelRecord(ctx, exec, profileID, targetModelID)
-	if err != nil {
-		return modelRecord{}, err
-	}
-	if !foundInProfile {
-		if foundElsewhere {
-			return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeCrossProfile, "context_overflow_promotion_target_id must reference a model in the selected profile")
-		}
-		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an existing model")
-	}
-	if target.ID == source.ID || target.ModelID == source.ModelID {
-		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeSelf, "context_overflow_promotion_target_id cannot reference the source model")
-	}
-	if !target.IsEnabled {
-		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeDisabled, "context_overflow_promotion_target_id must reference an enabled model")
-	}
-	if target.FacadeEnabled {
-		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeFacade, "context_overflow_promotion_target_id must reference a non-facade model")
-	}
-	if target.APIFamily != source.APIFamily {
-		return modelRecord{}, promotionTargetValidationIssueError(promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
-	}
-	return target, nil
-}
-
-func validatePromotionTargetChain(ctx context.Context, exec queryExecutor, profileID int, source modelRecord, target modelRecord, sourceStats promotionTargetTerminalStats) error {
-	visited := map[int]struct{}{source.ID: {}}
-	current := source
-	for depth := 1; ; depth++ {
-		if _, ok := visited[target.ID]; ok {
-			return promotionTargetValidationIssueError(promotionTargetValidationCodeCycle, "context_overflow_promotion_target_id must not introduce a promotion target cycle")
-		}
-		visited[target.ID] = struct{}{}
-		targetStats, err := loadPromotionTargetTerminalStats(ctx, exec, profileID, target.ID, target.APIFamily)
-		if err != nil {
-			return err
-		}
-		if sourceStats.overlaps(targetStats) {
-			return promotionTargetValidationIssueError(promotionTargetValidationCodeSameTerminal, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model")
-		}
-		nextTargetModelID := strings.TrimSpace(nullablePromotionTargetID(target.ContextOverflowPromotionTargetID))
-		if nextTargetModelID == "" {
-			return nil
-		}
-		if depth == maxContextOverflowPromotionChainTransitions {
-			return promotionTargetValidationIssueError(promotionTargetValidationCodeMaxDepth, "context_overflow_promotion_target_id promotion chain cannot exceed depth 3")
-		}
-		current = target
-		nextTarget, err := validatePromotionTargetLink(ctx, exec, profileID, current, nextTargetModelID)
-		if err != nil {
-			return err
-		}
-		target = nextTarget
-	}
-}
-
-func nullablePromotionTargetID(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func promotionTargetValidationIssueError(code string, detail string) error {
-	return routingPlanValidationIssueError(code, contextOverflowPromotionTargetField, detail)
-}
-
-func loadPromotionTargetModelRecord(ctx context.Context, exec queryExecutor, profileID int, targetModelID string) (modelRecord, bool, bool, error) {
-	record, found, err := loadModelRecordByModelID(ctx, exec, profileID, targetModelID)
-	if err != nil {
-		return modelRecord{}, false, false, err
-	}
-	if found {
-		return record, true, false, nil
-	}
-	foundElsewhere, err := promotionTargetModelExistsOutsideProfile(ctx, exec, profileID, targetModelID)
-	if err != nil {
-		return modelRecord{}, false, false, err
-	}
-	return modelRecord{}, false, foundElsewhere, nil
-}
-
 func loadModelRecordByModelID(ctx context.Context, exec queryExecutor, profileID int, modelID string) (modelRecord, bool, error) {
 	record, err := scanModelRecord(exec.QueryRow(ctx, `SELECT `+modelRecordSelectColumns+` FROM model_configs WHERE profile_id = $1 AND model_id = $2 LIMIT 1`, profileID, modelID))
 	if err == pgx.ErrNoRows {
@@ -1577,90 +1332,6 @@ func loadModelRecordByModelID(ctx context.Context, exec queryExecutor, profileID
 		return modelRecord{}, false, fmt.Errorf("load model %q in profile %d: %w", modelID, profileID, err)
 	}
 	return record, true, nil
-}
-
-func promotionTargetModelExistsOutsideProfile(ctx context.Context, exec queryExecutor, profileID int, modelID string) (bool, error) {
-	var existingID int
-	err := exec.QueryRow(ctx, `SELECT id FROM model_configs WHERE profile_id <> $1 AND model_id = $2 LIMIT 1`, profileID, modelID).Scan(&existingID)
-	if err == pgx.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("query cross-profile promotion target %q: %w", modelID, err)
-	}
-	return true, nil
-}
-
-func loadPromotionTargetTerminalStats(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, apiFamily string) (promotionTargetTerminalStats, error) {
-	rows, err := exec.Query(ctx, `WITH RECURSIVE terminal_reachability AS (
-		SELECT model_access_targets.target_model_config_id AS next_model_config_id,
-			model_access_targets.target_connection_id AS terminal_connection_id,
-			connections.context_window_tokens,
-			connections.max_context_utilization,
-			ARRAY[model_access_targets.source_model_config_id] || CASE WHEN model_access_targets.target_model_config_id IS NULL THEN ARRAY[]::integer[] ELSE ARRAY[model_access_targets.target_model_config_id] END AS path
-		FROM model_access_targets
-		LEFT JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id
-		LEFT JOIN connections ON connections.id = model_access_targets.target_connection_id AND connections.profile_id = model_access_targets.profile_id
-		WHERE model_access_targets.profile_id = $1
-			AND model_access_targets.source_model_config_id = $2
-			AND model_access_targets.is_enabled = TRUE
-			AND (
-				(model_access_targets.target_model_config_id IS NOT NULL
-					AND target_models.profile_id = model_access_targets.profile_id
-					AND target_models.is_enabled = TRUE
-					AND target_models.facade_enabled = FALSE
-					AND target_models.api_family = $3)
-				OR
-				(model_access_targets.target_connection_id IS NOT NULL
-					AND connections.profile_id = model_access_targets.profile_id
-					AND connections.api_family = $3)
-			)
-		UNION ALL
-		SELECT child.target_model_config_id AS next_model_config_id,
-			child.target_connection_id AS terminal_connection_id,
-			connections.context_window_tokens,
-			connections.max_context_utilization,
-			terminal_reachability.path || CASE WHEN child.target_model_config_id IS NULL THEN ARRAY[]::integer[] ELSE ARRAY[child.target_model_config_id] END AS path
-		FROM terminal_reachability
-		JOIN model_access_targets AS child ON child.profile_id = $1 AND child.source_model_config_id = terminal_reachability.next_model_config_id
-		LEFT JOIN model_configs AS target_models ON target_models.id = child.target_model_config_id
-		LEFT JOIN connections ON connections.id = child.target_connection_id AND connections.profile_id = child.profile_id
-		WHERE terminal_reachability.next_model_config_id IS NOT NULL
-			AND child.is_enabled = TRUE
-			AND (
-				(child.target_model_config_id IS NOT NULL
-					AND target_models.profile_id = child.profile_id
-					AND target_models.is_enabled = TRUE
-					AND target_models.facade_enabled = FALSE
-					AND target_models.api_family = $3
-					AND NOT child.target_model_config_id = ANY(terminal_reachability.path))
-				OR
-				(child.target_connection_id IS NOT NULL
-					AND connections.profile_id = child.profile_id
-					AND connections.api_family = $3)
-			)
-		)
-		SELECT DISTINCT terminal_connection_id
-		FROM terminal_reachability
-		WHERE terminal_connection_id IS NOT NULL
-		ORDER BY terminal_connection_id ASC`, profileID, modelConfigID, apiFamily)
-	if err != nil {
-		return promotionTargetTerminalStats{}, fmt.Errorf("query terminal promotion stats for model %d: %w", modelConfigID, err)
-	}
-	defer rows.Close()
-
-	stats := promotionTargetTerminalStats{TerminalConnectionIDs: map[int]struct{}{}}
-	for rows.Next() {
-		var terminalConnectionID int
-		if err := rows.Scan(&terminalConnectionID); err != nil {
-			return promotionTargetTerminalStats{}, fmt.Errorf("scan terminal promotion stats for model %d: %w", modelConfigID, err)
-		}
-		stats.TerminalConnectionIDs[terminalConnectionID] = struct{}{}
-	}
-	if err := rows.Err(); err != nil {
-		return promotionTargetTerminalStats{}, fmt.Errorf("iterate terminal promotion stats for model %d: %w", modelConfigID, err)
-	}
-	return stats, nil
 }
 
 func routingPlanValidationIssueError(code string, path string, detail string) error {

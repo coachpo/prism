@@ -196,7 +196,7 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		if err := validateConnectionContextCapabilitiesCreate(owner, requestBody); err != nil {
+		if err := validateConnectionContextCapabilitiesCreate(requestBody); err != nil {
 			return connectionResponse{}, err
 		}
 		endpoint, err := s.resolveCreateEndpoint(r.Context(), tx, profile.ID, requestBody.EndpointID, requestBody.EndpointCreate)
@@ -207,7 +207,7 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		capabilitySettings, err := contextcapability.NormalizeConnectionSettings(contextcapability.Settings{ContextWindowTokens: contextcapability.CopyIntPtr(owner.ContextWindowTokens), DefaultOutputTokenReserve: owner.DefaultOutputTokenReserve, MaxContextUtilization: owner.MaxContextUtilization, PreferredContextUtilizationThreshold: contextcapability.CopyFloat64Ptr(owner.PreferredContextUtilizationThreshold)}, requestBody.ContextWindowTokens, requestBody.DefaultOutputTokenReserve, requestBody.MaxContextUtilization, requestBody.PreferredContextUtilizationThreshold)
+		capabilitySettings, err := contextcapability.NormalizeConnectionSettings(defaultConnectionCapabilitySettings(), requestBody.ContextWindowTokens, requestBody.DefaultOutputTokenReserve, requestBody.MaxContextUtilization, requestBody.PreferredContextUtilizationThreshold)
 		if err != nil {
 			return connectionResponse{}, connectionContextCapabilityDomainError(err)
 		}
@@ -370,6 +370,7 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 		return connectionResponse{}, err
 	}
 	next.OpenAITextCapability = openAITextCapability
+	baseCapabilitySettings := defaultConnectionCapabilitySettings()
 
 	if requestBody.EndpointCreate.Set && requestBody.EndpointCreate.Value != nil {
 		endpoint, err := s.createInlineEndpoint(ctx, tx, profileID, *requestBody.EndpointCreate.Value)
@@ -390,7 +391,7 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	}
 	if requestBody.ContextWindowTokens.Set {
 		if requestBody.ContextWindowTokens.Value == nil {
-			next.ContextWindowTokens = contextcapability.CopyIntPtr(owner.ContextWindowTokens)
+			next.ContextWindowTokens = contextcapability.CopyIntPtr(baseCapabilitySettings.ContextWindowTokens)
 			next.ContextWindowTokensOverridden = false
 		} else {
 			resolvedContextWindowTokens, normalizeErr := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens.Value)
@@ -403,7 +404,7 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	}
 	if requestBody.DefaultOutputTokenReserve.Set {
 		if requestBody.DefaultOutputTokenReserve.Value == nil {
-			next.DefaultOutputTokenReserve = owner.DefaultOutputTokenReserve
+			next.DefaultOutputTokenReserve = baseCapabilitySettings.DefaultOutputTokenReserve
 			next.DefaultOutputTokenReserveOverridden = false
 		} else {
 			resolvedOutputTokenReserve, normalizeErr := contextcapability.NormalizeOutputTokenReserve(requestBody.DefaultOutputTokenReserve.Value)
@@ -416,7 +417,7 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	}
 	if requestBody.MaxContextUtilization.Set {
 		if requestBody.MaxContextUtilization.Value == nil {
-			next.MaxContextUtilization = owner.MaxContextUtilization
+			next.MaxContextUtilization = baseCapabilitySettings.MaxContextUtilization
 			next.MaxContextUtilizationOverridden = false
 		} else {
 			resolvedMaxContextUtilization, normalizeErr := contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization.Value)
@@ -429,7 +430,7 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	}
 	if requestBody.PreferredContextUtilizationThreshold.Set {
 		if requestBody.PreferredContextUtilizationThreshold.Value == nil {
-			next.PreferredContextUtilizationThreshold = contextcapability.CopyFloat64Ptr(owner.PreferredContextUtilizationThreshold)
+			next.PreferredContextUtilizationThreshold = contextcapability.CopyFloat64Ptr(baseCapabilitySettings.PreferredContextUtilizationThreshold)
 			next.PreferredContextUtilizationThresholdOverridden = false
 		} else {
 			resolvedPreferredContextUtilizationThreshold, normalizeErr := contextcapability.NormalizePreferredContextUtilizationThreshold(requestBody.PreferredContextUtilizationThreshold.Value, next.MaxContextUtilization)
@@ -723,7 +724,7 @@ func connectionContextCapabilityFieldError(fieldName string, err error) error {
 	return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s %s", fieldName, err.Error())}
 }
 
-func validateConnectionContextCapabilitiesCreate(owner modelRecord, requestBody connectionCreateRequest) error {
+func validateConnectionContextCapabilitiesCreate(requestBody connectionCreateRequest) error {
 	if _, err := contextcapability.NormalizeContextWindowTokens(requestBody.ContextWindowTokens); err != nil {
 		return connectionContextCapabilityFieldError("context_window_tokens", err)
 	}
@@ -732,7 +733,7 @@ func validateConnectionContextCapabilitiesCreate(owner modelRecord, requestBody 
 			return connectionContextCapabilityFieldError("default_output_token_reserve", err)
 		}
 	}
-	resolvedMaxContextUtilization := owner.MaxContextUtilization
+	resolvedMaxContextUtilization := contextcapability.DefaultMaxContextUtilization
 	if requestBody.MaxContextUtilization != nil {
 		var err error
 		resolvedMaxContextUtilization, err = contextcapability.NormalizeMaxContextUtilization(requestBody.MaxContextUtilization)
@@ -744,6 +745,13 @@ func validateConnectionContextCapabilitiesCreate(owner modelRecord, requestBody 
 		return connectionContextCapabilityFieldError("preferred_context_utilization_threshold", err)
 	}
 	return nil
+}
+
+func defaultConnectionCapabilitySettings() contextcapability.Settings {
+	return contextcapability.Settings{
+		DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve,
+		MaxContextUtilization:     contextcapability.DefaultMaxContextUtilization,
+	}
 }
 
 func validateLimiter(fieldName string, value *int) error {

@@ -113,22 +113,16 @@ type importedStrategyPayload struct {
 }
 
 type importedModelPayload struct {
-	APIFamily                            string
-	ModelID                              string
-	DisplayName                          *string
-	LoadbalanceStrategyName              *string
-	ContextWindowTokens                  *int
-	DefaultOutputTokenReserve            *int
-	MaxContextUtilization                *float64
-	PreferredContextUtilizationThreshold *float64
-	FacadeEnabled                        bool
-	FacadeSelectionPolicy                *string
-	FacadeFallbackPolicy                 *string
-	ContextOverflowPromotionTargetID     *string
-	ContextOverflowPromotionTargetSet    bool
-	OpenAIAcceptedFormat                 *string
-	IsEnabled                            bool
-	AccessTargets                        []importedAccessTargetPayload
+	APIFamily               string
+	ModelID                 string
+	DisplayName             *string
+	LoadbalanceStrategyName *string
+	FacadeEnabled           bool
+	FacadeSelectionPolicy   *string
+	FacadeFallbackPolicy    *string
+	OpenAIAcceptedFormat    *string
+	IsEnabled               bool
+	AccessTargets           []importedAccessTargetPayload
 }
 
 type importedAccessTargetPayload struct {

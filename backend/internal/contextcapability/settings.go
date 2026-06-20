@@ -14,31 +14,6 @@ type Settings struct {
 	PreferredContextUtilizationThreshold *float64
 }
 
-func NormalizeModelSettings(contextWindowTokens *int, defaultOutputTokenReserve *int, maxContextUtilization *float64, preferredContextUtilizationThreshold *float64) (Settings, error) {
-	resolvedContextWindowTokens, err := NormalizeContextWindowTokens(contextWindowTokens)
-	if err != nil {
-		return Settings{}, err
-	}
-	resolvedOutputTokenReserve, err := NormalizeOutputTokenReserve(defaultOutputTokenReserve)
-	if err != nil {
-		return Settings{}, err
-	}
-	resolvedMaxContextUtilization, err := NormalizeMaxContextUtilization(maxContextUtilization)
-	if err != nil {
-		return Settings{}, err
-	}
-	resolvedPreferredContextUtilizationThreshold, err := NormalizePreferredContextUtilizationThreshold(preferredContextUtilizationThreshold, resolvedMaxContextUtilization)
-	if err != nil {
-		return Settings{}, err
-	}
-	return Settings{
-		ContextWindowTokens:                  resolvedContextWindowTokens,
-		DefaultOutputTokenReserve:            resolvedOutputTokenReserve,
-		MaxContextUtilization:                resolvedMaxContextUtilization,
-		PreferredContextUtilizationThreshold: resolvedPreferredContextUtilizationThreshold,
-	}, nil
-}
-
 func NormalizeConnectionSettings(base Settings, contextWindowTokens *int, defaultOutputTokenReserve *int, maxContextUtilization *float64, preferredContextUtilizationThreshold *float64) (Settings, error) {
 	resolvedContextWindowTokens := CopyIntPtr(base.ContextWindowTokens)
 	if contextWindowTokens != nil {

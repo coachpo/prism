@@ -21,22 +21,12 @@ import (
 )
 
 const (
-	canonicalProfileBundleVersion                  = 3
-	canonicalProfileBundleKind                     = "profile_config"
-	facadeSelectionPolicyOrderedEligibleContext    = "ordered_eligible_context"
-	facadeFallbackPolicySkipIneligibleTargets      = "skip_ineligible_targets"
-	facadeEnabledRequiresOpenAIDetail              = "facade_enabled requires api_family 'openai'"
-	nestedFacadesNotSupportedDetail                = "nested facades are not supported"
-	importPromotionTargetField                     = "context_overflow_promotion_target_id"
-	promotionTargetValidationCodeUnknown           = "unknown_target"
-	promotionTargetValidationCodeSelf              = "self_target"
-	promotionTargetValidationCodeDisabled          = "disabled_target"
-	promotionTargetValidationCodeFacade            = "facade_target"
-	promotionTargetValidationCodeSameTerminal      = "same_terminal_target"
-	promotionTargetValidationCodeAPIFamilyMismatch = "api_family_mismatch"
-	promotionTargetValidationCodeCycle             = "promotion_cycle_detected"
-	promotionTargetValidationCodeMaxDepth          = "promotion_max_depth_exceeded"
-	maxContextOverflowPromotionChainTransitions    = 3
+	canonicalProfileBundleVersion               = 3
+	canonicalProfileBundleKind                  = "profile_config"
+	facadeSelectionPolicyOrderedEligibleContext = "ordered_eligible_context"
+	facadeFallbackPolicySkipIneligibleTargets   = "skip_ineligible_targets"
+	facadeEnabledRequiresOpenAIDetail           = "facade_enabled requires api_family 'openai'"
+	nestedFacadesNotSupportedDetail             = "nested facades are not supported"
 )
 
 var importedPricingTemplateDecimalPattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
@@ -72,9 +62,6 @@ func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, 
 		return profileImportPreviewResponse{}, err
 	}
 	if err := validateExistingProfileConnectionOwnership(ctx, exec, profileID); err != nil {
-		return profileImportPreviewResponse{}, err
-	}
-	if err := validateImportedPromotionTargets(data.Models, data.Connections); err != nil {
 		return profileImportPreviewResponse{}, err
 	}
 
@@ -146,9 +133,6 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 		return profileImportResponse{}, err
 	}
 	if err := validateExistingProfileConnectionOwnership(ctx, exec, profileID); err != nil {
-		return profileImportResponse{}, err
-	}
-	if err := validateImportedPromotionTargets(data.Models, data.Connections); err != nil {
 		return profileImportResponse{}, err
 	}
 
@@ -238,7 +222,7 @@ func validateProfileImportRequest(data profileImportRequest) error {
 	if err != nil {
 		return err
 	}
-	if err := validateImportedConnectionPreferredContextThresholds(importedModels, data.Connections); err != nil {
+	if err := validateImportedConnectionPreferredContextThresholds(data.Connections); err != nil {
 		return err
 	}
 	if err := validateImportedAccessTargetReferences(importedModels); err != nil {
@@ -417,9 +401,6 @@ func validateImportedModels(models []modelExport, refs profileImportModelValidat
 		if err := validateImportedModelStrategy(model, refs.strategyNames); err != nil {
 			return nil, nil, err
 		}
-		if err := validateImportedModelContextCapabilities(model); err != nil {
-			return nil, nil, err
-		}
 		if err := validateImportedModelAcceptedFormat(modelIndex, model, models[modelIndex].OpenAIAcceptedFormat); err != nil {
 			return nil, nil, err
 		}
@@ -441,22 +422,16 @@ func normalizeImportedModels(models []modelExport) []importedModelPayload {
 	items := make([]importedModelPayload, 0, len(models))
 	for _, model := range models {
 		items = append(items, importedModelPayload{
-			APIFamily:                            providercompat.NormalizeAPIFamily(model.APIFamily),
-			ModelID:                              strings.TrimSpace(model.ModelID),
-			DisplayName:                          trimmedOptionalString(model.DisplayName),
-			LoadbalanceStrategyName:              trimmedOptionalString(model.LoadbalanceStrategyName),
-			ContextWindowTokens:                  model.ContextWindowTokens,
-			DefaultOutputTokenReserve:            model.DefaultOutputTokenReserve,
-			MaxContextUtilization:                model.MaxContextUtilization,
-			PreferredContextUtilizationThreshold: model.PreferredContextUtilizationThreshold,
-			FacadeEnabled:                        model.FacadeEnabled,
-			FacadeSelectionPolicy:                normalizeImportedOptionalString(model.FacadeSelectionPolicy, true),
-			FacadeFallbackPolicy:                 normalizeImportedOptionalString(model.FacadeFallbackPolicy, true),
-			ContextOverflowPromotionTargetID:     normalizeImportedOptionalString(model.ContextOverflowPromotionTargetID, false),
-			ContextOverflowPromotionTargetSet:    model.ContextOverflowPromotionTargetID != nil,
-			OpenAIAcceptedFormat:                 normalizeImportedOptionalString(model.OpenAIAcceptedFormat, true),
-			IsEnabled:                            model.IsEnabled,
-			AccessTargets:                        normalizeImportedAccessTargets(model.AccessTargets),
+			APIFamily:               providercompat.NormalizeAPIFamily(model.APIFamily),
+			ModelID:                 strings.TrimSpace(model.ModelID),
+			DisplayName:             trimmedOptionalString(model.DisplayName),
+			LoadbalanceStrategyName: trimmedOptionalString(model.LoadbalanceStrategyName),
+			FacadeEnabled:           model.FacadeEnabled,
+			FacadeSelectionPolicy:   normalizeImportedOptionalString(model.FacadeSelectionPolicy, true),
+			FacadeFallbackPolicy:    normalizeImportedOptionalString(model.FacadeFallbackPolicy, true),
+			OpenAIAcceptedFormat:    normalizeImportedOptionalString(model.OpenAIAcceptedFormat, true),
+			IsEnabled:               model.IsEnabled,
+			AccessTargets:           normalizeImportedAccessTargets(model.AccessTargets),
 		})
 	}
 	return items
@@ -490,171 +465,12 @@ func normalizeImportedOptionalString(value *string, lower bool) *string {
 	return &trimmed
 }
 
-type importedPromotionTargetTerminalStats struct {
-	TerminalConnectionRefs map[string]struct{}
-}
-
-func (stats importedPromotionTargetTerminalStats) overlaps(other importedPromotionTargetTerminalStats) bool {
-	if len(stats.TerminalConnectionRefs) == 0 || len(other.TerminalConnectionRefs) == 0 {
-		return false
-	}
-	for connectionRef := range stats.TerminalConnectionRefs {
-		if _, ok := other.TerminalConnectionRefs[connectionRef]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func importedPromotionTargetIssuePath(modelIndex int) string {
-	return importedModelIssuePath(modelIndex, importPromotionTargetField)
-}
-
-func importedPromotionTargetValidationIssueError(modelIndex int, code string, detail string) error {
-	return routingPlanValidationIssueError(code, importedPromotionTargetIssuePath(modelIndex), detail)
-}
-
-func validateImportedPromotionTargets(models []modelExport, _ []connectionExport) error {
-	importedModels := normalizeImportedModels(models)
-	if len(importedModels) == 0 {
-		return nil
-	}
-	modelsByID := make(map[string]importedModelPayload, len(importedModels))
-	for _, model := range importedModels {
-		modelsByID[model.ModelID] = model
-	}
-	statsByModelID := map[string]importedPromotionTargetTerminalStats{}
-	for modelIndex, model := range importedModels {
-		if !model.ContextOverflowPromotionTargetSet {
-			continue
-		}
-		if model.ContextOverflowPromotionTargetID == nil {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an imported model")
-		}
-		target, err := validateImportedPromotionTargetLink(modelIndex, model, *model.ContextOverflowPromotionTargetID, modelsByID)
-		if err != nil {
-			return err
-		}
-		sourceStats := collectImportedPromotionTargetTerminalStats(model, modelsByID, statsByModelID)
-		if err := validateImportedPromotionTargetChain(modelIndex, model, target, sourceStats, modelsByID, statsByModelID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateImportedPromotionTargetLink(modelIndex int, source importedModelPayload, targetModelID string, modelsByID map[string]importedModelPayload) (importedModelPayload, error) {
-	target, ok := modelsByID[strings.TrimSpace(targetModelID)]
-	if !ok {
-		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeUnknown, "context_overflow_promotion_target_id must reference an imported model")
-	}
-	if target.ModelID == source.ModelID {
-		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeSelf, "context_overflow_promotion_target_id cannot reference the source model")
-	}
-	if !target.IsEnabled {
-		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeDisabled, "context_overflow_promotion_target_id must reference an enabled model")
-	}
-	if target.FacadeEnabled {
-		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeFacade, "context_overflow_promotion_target_id must reference a non-facade model")
-	}
-	if !modelrouting.SameAPIFamily(target.APIFamily, source.APIFamily) {
-		return importedModelPayload{}, importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeAPIFamilyMismatch, "context_overflow_promotion_target_id must reference a model with the same api_family")
-	}
-	return target, nil
-}
-
-func validateImportedPromotionTargetChain(modelIndex int, source importedModelPayload, target importedModelPayload, sourceStats importedPromotionTargetTerminalStats, modelsByID map[string]importedModelPayload, statsByModelID map[string]importedPromotionTargetTerminalStats) error {
-	visited := map[string]struct{}{source.ModelID: {}}
-	current := source
-	for depth := 1; ; depth++ {
-		if _, ok := visited[target.ModelID]; ok {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeCycle, "context_overflow_promotion_target_id must not introduce a promotion target cycle")
-		}
-		visited[target.ModelID] = struct{}{}
-		targetStats := collectImportedPromotionTargetTerminalStats(target, modelsByID, statsByModelID)
-		if sourceStats.overlaps(targetStats) {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeSameTerminal, "context_overflow_promotion_target_id must not resolve to the same terminal target as the source model")
-		}
-		nextTargetModelID := nullablePromotionTargetID(target.ContextOverflowPromotionTargetID)
-		if strings.TrimSpace(nextTargetModelID) == "" {
-			return nil
-		}
-		if depth == maxContextOverflowPromotionChainTransitions {
-			return importedPromotionTargetValidationIssueError(modelIndex, promotionTargetValidationCodeMaxDepth, "context_overflow_promotion_target_id promotion chain cannot exceed depth 3")
-		}
-		current = target
-		nextTarget, err := validateImportedPromotionTargetLink(modelIndex, current, nextTargetModelID, modelsByID)
-		if err != nil {
-			return err
-		}
-		target = nextTarget
-	}
-}
-
-func nullablePromotionTargetID(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func collectImportedPromotionTargetTerminalStats(model importedModelPayload, modelsByID map[string]importedModelPayload, statsByModelID map[string]importedPromotionTargetTerminalStats) importedPromotionTargetTerminalStats {
-	if stats, ok := statsByModelID[model.ModelID]; ok {
-		return stats
-	}
-	stats := importedPromotionTargetTerminalStats{TerminalConnectionRefs: map[string]struct{}{}}
-	for _, target := range model.AccessTargets {
-		if !target.IsEnabled {
-			continue
-		}
-		switch {
-		case modelrouting.IsTerminalTargetType(target.TargetType):
-			if target.ConnectionRef != nil {
-				stats.TerminalConnectionRefs[*target.ConnectionRef] = struct{}{}
-			}
-		case modelrouting.IsModelTargetType(target.TargetType):
-			if target.TargetModelID == nil {
-				continue
-			}
-			targetModel, ok := modelsByID[*target.TargetModelID]
-			if !ok || !targetModel.IsEnabled || targetModel.FacadeEnabled {
-				continue
-			}
-			targetStats := collectImportedPromotionTargetTerminalStats(targetModel, modelsByID, statsByModelID)
-			for connectionRef := range targetStats.TerminalConnectionRefs {
-				stats.TerminalConnectionRefs[connectionRef] = struct{}{}
-			}
-		}
-	}
-	statsByModelID[model.ModelID] = stats
-	return stats
-}
-
 func validateImportedModelStrategy(model importedModelPayload, strategyNames map[string]struct{}) error {
 	if model.LoadbalanceStrategyName == nil {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' must include loadbalance_strategy_name", model.ModelID)}
 	}
 	if _, ok := strategyNames[*model.LoadbalanceStrategyName]; !ok {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown loadbalance strategy '%s'", model.ModelID, *model.LoadbalanceStrategyName)}
-	}
-	return nil
-}
-
-func validateImportedModelContextCapabilities(model importedModelPayload) error {
-	if _, err := contextcapability.NormalizeContextWindowTokens(model.ContextWindowTokens); err != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' context_window_tokens %s", model.ModelID, err.Error())}
-	}
-	if model.DefaultOutputTokenReserve != nil {
-		if _, err := contextcapability.NormalizeOutputTokenReserve(model.DefaultOutputTokenReserve); err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' default_output_token_reserve %s", model.ModelID, err.Error())}
-		}
-	}
-	resolvedMaxContextUtilization, err := contextcapability.NormalizeMaxContextUtilization(model.MaxContextUtilization)
-	if err != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' max_context_utilization %s", model.ModelID, err.Error())}
-	}
-	if _, err := contextcapability.NormalizePreferredContextUtilizationThreshold(model.PreferredContextUtilizationThreshold, resolvedMaxContextUtilization); err != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' preferred_context_utilization_threshold %s", model.ModelID, err.Error())}
 	}
 	return nil
 }
@@ -1261,47 +1077,10 @@ func insertImportedStrategies(ctx context.Context, exec queryExecutor, profileID
 	return strategyIDsByName, len(strategies), nil
 }
 
-func buildImportedModelCapabilitySettings(models []importedModelPayload) (map[string]contextcapability.Settings, error) {
-	items := make(map[string]contextcapability.Settings, len(models))
-	for _, model := range models {
-		settings, err := contextcapability.NormalizeModelSettings(model.ContextWindowTokens, model.DefaultOutputTokenReserve, model.MaxContextUtilization, model.PreferredContextUtilizationThreshold)
-		if err != nil {
-			return nil, err
-		}
-		items[model.ModelID] = settings
-	}
-	return items, nil
-}
-
-func buildImportedConnectionOwnerSettings(models []importedModelPayload, modelSettingsByModelID map[string]contextcapability.Settings) map[string]contextcapability.Settings {
-	items := map[string]contextcapability.Settings{}
-	for _, model := range models {
-		ownerSettings, ok := modelSettingsByModelID[model.ModelID]
-		if !ok {
-			continue
-		}
-		for _, target := range model.AccessTargets {
-			if !modelrouting.IsTerminalTargetType(target.TargetType) || target.ConnectionRef == nil {
-				continue
-			}
-			items[*target.ConnectionRef] = ownerSettings
-		}
-	}
-	return items
-}
-
-func validateImportedConnectionPreferredContextThresholds(models []importedModelPayload, connections []connectionExport) error {
-	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(models)
-	if err != nil {
-		return err
-	}
-	connectionOwnerSettings := buildImportedConnectionOwnerSettings(models, modelSettingsByModelID)
+func validateImportedConnectionPreferredContextThresholds(connections []connectionExport) error {
 	for _, connection := range connections {
 		connectionRef := strings.TrimSpace(connection.Ref)
-		settings, hasOwnerSettings := connectionOwnerSettings[connectionRef]
-		if !hasOwnerSettings {
-			settings = contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
-		}
+		settings := contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
 		if _, err := contextcapability.NormalizeConnectionSettings(settings, connection.ContextWindowTokens, connection.DefaultOutputTokenReserve, connection.MaxContextUtilization, connection.PreferredContextUtilizationThreshold); err != nil {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' preferred_context_utilization_threshold %s", connectionRef, err.Error())}
 		}
@@ -1311,26 +1090,20 @@ func validateImportedConnectionPreferredContextThresholds(models []importedModel
 
 func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, connections []connectionExport, endpointIDsByName map[string]int, pricingIDsByName map[string]int, strategyIDsByName map[string]int, currentTime time.Time) (map[string]int, map[string]struct{}, int, error) {
 	importedModels := normalizeImportedModels(models)
-	modelSettingsByModelID, err := buildImportedModelCapabilitySettings(importedModels)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	connectionOwnerSettings := buildImportedConnectionOwnerSettings(importedModels, modelSettingsByModelID)
 	modelIDsByModelID := map[string]int{}
 	connectionIDsByRef := map[string]int{}
 	importedPairs := map[string]struct{}{}
 
 	for _, model := range importedModels {
-		settings := modelSettingsByModelID[model.ModelID]
 		strategyID := strategyIDsByName[*model.LoadbalanceStrategyName]
 		var modelConfigID int
-		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16) RETURNING id`, profileID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, nullableOptionalInt(settings.ContextWindowTokens), settings.DefaultOutputTokenReserve, settings.MaxContextUtilization, nullableOptionalFloat64(settings.PreferredContextUtilizationThreshold), model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), nullableString(model.ContextOverflowPromotionTargetID), nullableString(model.OpenAIAcceptedFormat), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11) RETURNING id`, profileID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), nullableString(model.OpenAIAcceptedFormat), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
 			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", model.ModelID, err)
 		}
 		modelIDsByModelID[model.ModelID] = modelConfigID
 	}
 
-	connectionsImported, err := insertImportedConnections(ctx, exec, profileID, connections, endpointIDsByName, pricingIDsByName, connectionOwnerSettings, connectionIDsByRef, currentTime)
+	connectionsImported, err := insertImportedConnections(ctx, exec, profileID, connections, endpointIDsByName, pricingIDsByName, connectionIDsByRef, currentTime)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -1340,7 +1113,7 @@ func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor,
 	return connectionIDsByRef, importedPairs, connectionsImported, nil
 }
 
-func insertImportedConnections(ctx context.Context, exec queryExecutor, profileID int, connections []connectionExport, endpointIDsByName map[string]int, pricingIDsByName map[string]int, connectionOwnerSettings map[string]contextcapability.Settings, connectionIDsByRef map[string]int, currentTime time.Time) (int, error) {
+func insertImportedConnections(ctx context.Context, exec queryExecutor, profileID int, connections []connectionExport, endpointIDsByName map[string]int, pricingIDsByName map[string]int, connectionIDsByRef map[string]int, currentTime time.Time) (int, error) {
 	for _, connection := range connections {
 		connectionRef := strings.TrimSpace(connection.Ref)
 		apiFamily := providercompat.NormalizeAPIFamily(connection.APIFamily)
@@ -1354,10 +1127,7 @@ func insertImportedConnections(ctx context.Context, exec queryExecutor, profileI
 		if err != nil {
 			return 0, err
 		}
-		settings, hasOwnerSettings := connectionOwnerSettings[connectionRef]
-		if !hasOwnerSettings {
-			settings = contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
-		}
+		settings := contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
 		resolvedSettings, err := contextcapability.NormalizeConnectionSettings(settings, connection.ContextWindowTokens, connection.DefaultOutputTokenReserve, connection.MaxContextUtilization, connection.PreferredContextUtilizationThreshold)
 		if err != nil {
 			return 0, fmt.Errorf("normalize imported connection %q capabilities: %w", connectionRef, err)

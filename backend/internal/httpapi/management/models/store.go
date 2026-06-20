@@ -22,24 +22,19 @@ type queryExecutor interface {
 }
 
 type modelRecord struct {
-	ID                                   int
-	ProfileID                            int
-	APIFamily                            string
-	ModelID                              string
-	DisplayName                          *string
-	LoadbalanceStrategyID                *int
-	ContextWindowTokens                  *int
-	DefaultOutputTokenReserve            int
-	MaxContextUtilization                float64
-	PreferredContextUtilizationThreshold *float64
-	FacadeEnabled                        bool
-	FacadeSelectionPolicy                *string
-	FacadeFallbackPolicy                 *string
-	ContextOverflowPromotionTargetID     *string
-	OpenAIAcceptedFormat                 *string
-	IsEnabled                            bool
-	CreatedAt                            time.Time
-	UpdatedAt                            time.Time
+	ID                    int
+	ProfileID             int
+	APIFamily             string
+	ModelID               string
+	DisplayName           *string
+	LoadbalanceStrategyID *int
+	FacadeEnabled         bool
+	FacadeSelectionPolicy *string
+	FacadeFallbackPolicy  *string
+	OpenAIAcceptedFormat  *string
+	IsEnabled             bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type accessTargetRecord struct {
@@ -105,7 +100,7 @@ type endpointModelConnectionRow struct {
 	ReachableModelData   modelRecord
 }
 
-const modelRecordSelectColumns = `model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.loadbalance_strategy_id, model_configs.context_window_tokens, model_configs.default_output_token_reserve, model_configs.max_context_utilization, model_configs.preferred_context_utilization_threshold, model_configs.facade_enabled, model_configs.facade_selection_policy, model_configs.facade_fallback_policy, model_configs.context_overflow_promotion_target_id, model_configs.openai_accepted_format, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at`
+const modelRecordSelectColumns = `model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.loadbalance_strategy_id, model_configs.facade_enabled, model_configs.facade_selection_policy, model_configs.facade_fallback_policy, model_configs.openai_accepted_format, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at`
 
 func listModelRecords(ctx context.Context, exec queryExecutor, profileID int) ([]modelRecord, error) {
 	rows, err := exec.Query(ctx, `SELECT `+modelRecordSelectColumns+` FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
@@ -283,7 +278,7 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 			AND (model_access_targets.target_connection_id IS NOT NULL OR (model_access_targets.target_model_config_id IS NOT NULL AND NOT model_access_targets.target_model_config_id = ANY(terminal_reachability.path)))
 	)
 	SELECT DISTINCT connections.endpoint_id, connections.id, connections.is_active,
-		source_models.id, source_models.profile_id, source_models.api_family, source_models.model_id, source_models.display_name, source_models.loadbalance_strategy_id, source_models.context_window_tokens, source_models.default_output_token_reserve, source_models.max_context_utilization, source_models.preferred_context_utilization_threshold, source_models.facade_enabled, source_models.facade_selection_policy, source_models.facade_fallback_policy, source_models.context_overflow_promotion_target_id, source_models.openai_accepted_format, source_models.is_enabled, source_models.created_at, source_models.updated_at
+		source_models.id, source_models.profile_id, source_models.api_family, source_models.model_id, source_models.display_name, source_models.loadbalance_strategy_id, source_models.facade_enabled, source_models.facade_selection_policy, source_models.facade_fallback_policy, source_models.openai_accepted_format, source_models.is_enabled, source_models.created_at, source_models.updated_at
 	FROM terminal_reachability
 	JOIN connections ON connections.id = terminal_reachability.terminal_connection_id AND connections.profile_id = $1
 	JOIN model_configs AS source_models ON source_models.id = terminal_reachability.root_model_config_id AND source_models.profile_id = $1
@@ -302,22 +297,16 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 		var row endpointModelConnectionRow
 		var displayName sql.NullString
 		var loadbalanceStrategyID sql.NullInt32
-		var contextWindowTokens sql.NullInt32
-		var preferredContextUtilizationThreshold sql.NullFloat64
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
-		var contextOverflowPromotionTargetID sql.NullString
 		var openAIAcceptedFormat sql.NullString
-		if err := rows.Scan(&row.EndpointID, &row.TerminalConnectionID, &row.ConnectionIsActive, &row.ReachableModelData.ID, &row.ReachableModelData.ProfileID, &row.ReachableModelData.APIFamily, &row.ReachableModelData.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &row.ReachableModelData.DefaultOutputTokenReserve, &row.ReachableModelData.MaxContextUtilization, &preferredContextUtilizationThreshold, &row.ReachableModelData.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &openAIAcceptedFormat, &row.ReachableModelData.IsEnabled, &row.ReachableModelData.CreatedAt, &row.ReachableModelData.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.EndpointID, &row.TerminalConnectionID, &row.ConnectionIsActive, &row.ReachableModelData.ID, &row.ReachableModelData.ProfileID, &row.ReachableModelData.APIFamily, &row.ReachableModelData.ModelID, &displayName, &loadbalanceStrategyID, &row.ReachableModelData.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &openAIAcceptedFormat, &row.ReachableModelData.IsEnabled, &row.ReachableModelData.CreatedAt, &row.ReachableModelData.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan reachable endpoint model row: %w", err)
 		}
 		row.ReachableModelData.DisplayName = nullableStringValue(displayName)
 		row.ReachableModelData.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
-		row.ReachableModelData.ContextWindowTokens = nullableInt32(contextWindowTokens)
-		row.ReachableModelData.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 		row.ReachableModelData.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
 		row.ReachableModelData.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
-		row.ReachableModelData.ContextOverflowPromotionTargetID = nullableStringValue(contextOverflowPromotionTargetID)
 		row.ReachableModelData.OpenAIAcceptedFormat = nullableStringValue(openAIAcceptedFormat)
 		row.ReachableModelID = row.ReachableModelData.ID
 		items = append(items, row)
@@ -390,7 +379,7 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 	for _, modelID := range modelIDs {
 		args = append(args, modelID)
 	}
-	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.context_window_tokens, target_models.default_output_token_reserve, target_models.max_context_utilization, target_models.preferred_context_utilization_threshold, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.context_overflow_promotion_target_id, target_models.openai_accepted_format, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.openai_accepted_format, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query model access targets for profile %d: %w", profileID, err)
@@ -404,22 +393,16 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 		target := modelRecord{}
 		var displayName sql.NullString
 		var loadbalanceStrategyID sql.NullInt32
-		var contextWindowTokens sql.NullInt32
-		var preferredContextUtilizationThreshold sql.NullFloat64
 		var facadeSelectionPolicy sql.NullString
 		var facadeFallbackPolicy sql.NullString
-		var contextOverflowPromotionTargetID sql.NullString
 		var openAIAcceptedFormat sql.NullString
-		if err := rows.Scan(&record.ID, &record.ProfileID, &record.SourceModelConfigID, &targetModelID, &record.Position, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt, &target.ID, &target.ProfileID, &target.APIFamily, &target.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &target.DefaultOutputTokenReserve, &target.MaxContextUtilization, &preferredContextUtilizationThreshold, &target.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &openAIAcceptedFormat, &target.IsEnabled, &target.CreatedAt, &target.UpdatedAt); err != nil {
+		if err := rows.Scan(&record.ID, &record.ProfileID, &record.SourceModelConfigID, &targetModelID, &record.Position, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt, &target.ID, &target.ProfileID, &target.APIFamily, &target.ModelID, &displayName, &loadbalanceStrategyID, &target.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &openAIAcceptedFormat, &target.IsEnabled, &target.CreatedAt, &target.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan model access target: %w", err)
 		}
 		target.DisplayName = nullableStringValue(displayName)
 		target.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
-		target.ContextWindowTokens = nullableInt32(contextWindowTokens)
-		target.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 		target.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
 		target.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
-		target.ContextOverflowPromotionTargetID = nullableStringValue(contextOverflowPromotionTargetID)
 		target.OpenAIAcceptedFormat = nullableStringValue(openAIAcceptedFormat)
 		record.TargetModelConfigID = intPtr(targetModelID)
 		record.TargetModel = &target
@@ -821,7 +804,7 @@ func deleteConnectionRow(ctx context.Context, exec queryExecutor, connectionID i
 
 func insertModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
 	var createdID int
-	if err := tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, facade_enabled, facade_selection_policy, facade_fallback_policy, context_overflow_promotion_target_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`, record.ProfileID, record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.ContextOverflowPromotionTargetID), nullableString(record.OpenAIAcceptedFormat), record.IsEnabled, record.CreatedAt, record.UpdatedAt).Scan(&createdID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`, record.ProfileID, record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.OpenAIAcceptedFormat), record.IsEnabled, record.CreatedAt, record.UpdatedAt).Scan(&createdID); err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
 		}
@@ -832,7 +815,7 @@ func insertModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecor
 }
 
 func updateModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
-	if _, err := tx.Exec(ctx, `UPDATE model_configs SET api_family = $2, model_id = $3, display_name = $4, loadbalance_strategy_id = $5, context_window_tokens = $6, default_output_token_reserve = $7, max_context_utilization = $8, preferred_context_utilization_threshold = $9, facade_enabled = $10, facade_selection_policy = $11, facade_fallback_policy = $12, context_overflow_promotion_target_id = $13, openai_accepted_format = $14, is_enabled = $15, updated_at = $16 WHERE id = $1`, record.ID, record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), nullableInt(record.ContextWindowTokens), record.DefaultOutputTokenReserve, record.MaxContextUtilization, nullableFloat64Value(record.PreferredContextUtilizationThreshold), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.ContextOverflowPromotionTargetID), nullableString(record.OpenAIAcceptedFormat), record.IsEnabled, record.UpdatedAt); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE model_configs SET api_family = $2, model_id = $3, display_name = $4, loadbalance_strategy_id = $5, facade_enabled = $6, facade_selection_policy = $7, facade_fallback_policy = $8, openai_accepted_format = $9, is_enabled = $10, updated_at = $11 WHERE id = $1`, record.ID, record.APIFamily, record.ModelID, nullableString(record.DisplayName), nullableInt(record.LoadbalanceStrategyID), record.FacadeEnabled, nullableString(record.FacadeSelectionPolicy), nullableString(record.FacadeFallbackPolicy), nullableString(record.OpenAIAcceptedFormat), record.IsEnabled, record.UpdatedAt); err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
 		}
@@ -858,23 +841,17 @@ func syncRenamedModelReferences(ctx context.Context, tx pgx.Tx, profileID int, o
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
 	var displayName sql.NullString
 	var loadbalanceStrategyID sql.NullInt32
-	var contextWindowTokens sql.NullInt32
-	var preferredContextUtilizationThreshold sql.NullFloat64
 	var facadeSelectionPolicy sql.NullString
 	var facadeFallbackPolicy sql.NullString
-	var contextOverflowPromotionTargetID sql.NullString
 	var openAIAcceptedFormat sql.NullString
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.APIFamily, &record.ModelID, &displayName, &loadbalanceStrategyID, &contextWindowTokens, &record.DefaultOutputTokenReserve, &record.MaxContextUtilization, &preferredContextUtilizationThreshold, &record.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &contextOverflowPromotionTargetID, &openAIAcceptedFormat, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.APIFamily, &record.ModelID, &displayName, &loadbalanceStrategyID, &record.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &openAIAcceptedFormat, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return modelRecord{}, err
 	}
 	record.DisplayName = nullableStringValue(displayName)
 	record.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
-	record.ContextWindowTokens = nullableInt32(contextWindowTokens)
-	record.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 	record.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
 	record.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
-	record.ContextOverflowPromotionTargetID = nullableStringValue(contextOverflowPromotionTargetID)
 	record.OpenAIAcceptedFormat = nullableStringValue(openAIAcceptedFormat)
 	return record, nil
 }
@@ -1014,7 +991,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 }
 
 func buildModelListResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, counts map[int]modelConnectionCounts, health map[string]modelHealthStats) modelConfigListResponse {
-	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: record.ContextOverflowPromotionTargetID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.LoadbalanceStrategyID != nil {
 		if strategy, ok := strategies[*record.LoadbalanceStrategyID]; ok {
 			response.LoadbalanceStrategy = strategySummaryFromRecord(strategy)
@@ -1032,7 +1009,7 @@ func buildModelListResponse(record modelRecord, strategies map[int]strategyRecor
 }
 
 func buildModelDetailResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord) modelConfigResponse {
-	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, ContextOverflowPromotionTargetID: record.ContextOverflowPromotionTargetID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.LoadbalanceStrategyID != nil {
 		if strategy, ok := strategies[*record.LoadbalanceStrategyID]; ok {
 			response.LoadbalanceStrategy = strategySummaryFromRecord(strategy)
@@ -1068,7 +1045,7 @@ func accessTargetResponsesFromRecords(records []accessTargetRecord) []modelAcces
 }
 
 func modelTargetSummaryFromRecord(record modelRecord) *modelTargetSummary {
-	return &modelTargetSummary{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, ContextWindowTokens: copyIntPtr(record.ContextWindowTokens), DefaultOutputTokenReserve: record.DefaultOutputTokenReserve, MaxContextUtilization: record.MaxContextUtilization, PreferredContextUtilizationThreshold: copyFloat64Ptr(record.PreferredContextUtilizationThreshold), FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, IsEnabled: record.IsEnabled}
+	return &modelTargetSummary{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, FacadeEnabled: record.FacadeEnabled, FacadeSelectionPolicy: record.FacadeSelectionPolicy, FacadeFallbackPolicy: record.FacadeFallbackPolicy, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, IsEnabled: record.IsEnabled}
 }
 
 func accessTargetRequestsFromRecords(records []accessTargetRecord) []modelAccessTargetRequest {

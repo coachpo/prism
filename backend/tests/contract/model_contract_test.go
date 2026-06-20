@@ -417,50 +417,21 @@ func TestModelFacadePoliciesAndTargetMetadata(t *testing.T) {
 	_ = nestedFacadeTargetID
 }
 
-func TestModelContextCapabilities(t *testing.T) {
+func TestModelContextCapabilitiesRejectModelOwnedFields(t *testing.T) {
 	harness := newModelContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Context Capability Strategy")
 	targetModelID := modelInsertModel(t, harness, profileID, nil, "openai", "context-capability-target", nil, &strategyID, true)
 	_ = targetModelID
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
 		"api_family":              "openai",
 		"model_id":                "context-capability-model",
 		"loadbalance_strategy_id": strategyID,
 		"context_window_tokens":   128000,
 		"access_targets":          []map[string]any{modelAccessTarget("model", "context-capability-target", nil, 0, true)},
 	}, modelHeader(profileID))
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
-	modelConfigID := jsonInt(t, created["id"])
-	if jsonInt(t, created["context_window_tokens"]) != 128000 || jsonInt(t, created["default_output_token_reserve"]) != 4096 || jsonFloat(t, created["max_context_utilization"]) != 0.9 {
-		t.Fatalf("expected created model context capability defaults, got %+v", created)
-	}
-	assertStoredModelContextCapabilities(t, harness, modelConfigID, intPtr(128000), 4096, 0.9)
-
-	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{
-		"context_window_tokens":        256000,
-		"default_output_token_reserve": 2048,
-		"max_context_utilization":      0.75,
-	}, modelHeader(profileID))
-	assertStatus(t, updateResponse, http.StatusOK)
-	var updated map[string]any
-	decodeJSONResponse(t, updateResponse, &updated)
-	if jsonInt(t, updated["context_window_tokens"]) != 256000 || jsonInt(t, updated["default_output_token_reserve"]) != 2048 || jsonFloat(t, updated["max_context_utilization"]) != 0.75 {
-		t.Fatalf("expected updated model context capability values, got %+v", updated)
-	}
-	assertStoredModelContextCapabilities(t, harness, modelConfigID, intPtr(256000), 2048, 0.75)
-
-	invalidContextWindow := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"api_family": "openai", "model_id": "invalid-context-window-model", "loadbalance_strategy_id": strategyID, "context_window_tokens": 0, "access_targets": []map[string]any{modelAccessTarget("model", "context-capability-target", nil, 0, true)}}, modelHeader(profileID))
-	assertErrorResponse(t, invalidContextWindow, http.StatusBadRequest, "context_window_tokens must be greater than or equal to 1 when provided")
-
-	invalidReserve := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"api_family": "openai", "model_id": "invalid-context-reserve-model", "loadbalance_strategy_id": strategyID, "default_output_token_reserve": 0, "access_targets": []map[string]any{modelAccessTarget("model", "context-capability-target", nil, 0, true)}}, modelHeader(profileID))
-	assertErrorResponse(t, invalidReserve, http.StatusBadRequest, "default_output_token_reserve must be greater than or equal to 1 when provided")
-
-	invalidUtilization := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{"api_family": "openai", "model_id": "invalid-context-utilization-model", "loadbalance_strategy_id": strategyID, "max_context_utilization": 1.1, "access_targets": []map[string]any{modelAccessTarget("model", "context-capability-target", nil, 0, true)}}, modelHeader(profileID))
-	assertErrorResponse(t, invalidUtilization, http.StatusBadRequest, "max_context_utilization must be greater than 0 and less than or equal to 1 when provided")
+	assertErrorResponse(t, response, http.StatusBadRequest, "Invalid request body")
 }
 
 func TestDeleteReferencedModel(t *testing.T) {
@@ -1059,26 +1030,6 @@ func modelLoadFXRateModelID(t *testing.T, harness *contractHarness, profileID in
 	return modelID
 }
 
-func assertStoredModelContextCapabilities(t *testing.T, harness *contractHarness, modelConfigID int, wantContextWindowTokens *int, wantDefaultOutputTokenReserve int, wantMaxContextUtilization float64) {
-	t.Helper()
-	var contextWindowTokens sql.NullInt32
-	var defaultOutputTokenReserve int
-	var maxContextUtilization float64
-	if err := harness.conn.QueryRow(context.Background(), `SELECT context_window_tokens, default_output_token_reserve, max_context_utilization FROM model_configs WHERE id = $1`, modelConfigID).Scan(&contextWindowTokens, &defaultOutputTokenReserve, &maxContextUtilization); err != nil {
-		t.Fatalf("load model %d context capabilities: %v", modelConfigID, err)
-	}
-	if wantContextWindowTokens == nil {
-		if contextWindowTokens.Valid {
-			t.Fatalf("expected model %d context_window_tokens to be NULL, got %d", modelConfigID, contextWindowTokens.Int32)
-		}
-	} else if !contextWindowTokens.Valid || int(contextWindowTokens.Int32) != *wantContextWindowTokens {
-		t.Fatalf("expected model %d context_window_tokens %d, got %+v", modelConfigID, *wantContextWindowTokens, contextWindowTokens)
-	}
-	if defaultOutputTokenReserve != wantDefaultOutputTokenReserve || maxContextUtilization != wantMaxContextUtilization {
-		t.Fatalf("expected model %d reserve/utilization %d/%0.2f, got %d/%0.2f", modelConfigID, wantDefaultOutputTokenReserve, wantMaxContextUtilization, defaultOutputTokenReserve, maxContextUtilization)
-	}
-}
-
 type expectedAccessTarget struct {
 	TargetType    string
 	TargetModelID string
@@ -1381,14 +1332,14 @@ func mustModelJSON(t *testing.T, value any) string {
 	return string(raw)
 }
 
-func TestModelPreferredContext(t *testing.T) {
+func TestModelPreferredContextRejectsModelOwnedField(t *testing.T) {
 	harness := newModelContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Preferred Context Strategy")
 	targetModelID := modelInsertModel(t, harness, profileID, nil, "openai", "preferred-context-target", nil, &strategyID, true)
 	_ = targetModelID
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
+	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
 		"api_family":                              "openai",
 		"model_id":                                "preferred-context-model",
 		"loadbalance_strategy_id":                 strategyID,
@@ -1396,82 +1347,5 @@ func TestModelPreferredContext(t *testing.T) {
 		"preferred_context_utilization_threshold": 0.70,
 		"access_targets":                          []map[string]any{modelAccessTarget("model", "preferred-context-target", nil, 0, true)},
 	}, modelHeader(profileID))
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
-	modelConfigID := jsonInt(t, created["id"])
-	if jsonFloat(t, created["preferred_context_utilization_threshold"]) != 0.7 {
-		t.Fatalf("expected created model preferred_context_utilization_threshold=0.7, got %+v", created)
-	}
-	assertStoredModelPreferredContextThreshold(t, harness, modelConfigID, modelFloat64Ptr(0.7))
-
-	clearResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{
-		"preferred_context_utilization_threshold": nil,
-		"max_context_utilization":                 0.80,
-	}, modelHeader(profileID))
-	assertStatus(t, clearResponse, http.StatusOK)
-	var cleared map[string]any
-	decodeJSONResponse(t, clearResponse, &cleared)
-	if cleared["preferred_context_utilization_threshold"] != nil {
-		t.Fatalf("expected cleared preferred_context_utilization_threshold to be null, got %+v", cleared)
-	}
-	assertStoredModelPreferredContextThreshold(t, harness, modelConfigID, nil)
-
-	invalidZero := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
-		"api_family":              "openai",
-		"model_id":                "preferred-context-invalid-zero",
-		"loadbalance_strategy_id": strategyID,
-		"preferred_context_utilization_threshold": 0,
-		"access_targets": []map[string]any{modelAccessTarget("model", "preferred-context-target", nil, 0, true)},
-	}, modelHeader(profileID))
-	assertErrorResponse(t, invalidZero, http.StatusBadRequest, "preferred_context_utilization_threshold must be greater than 0 and less than or equal to 1 when provided")
-
-	invalidHigh := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
-		"api_family":              "openai",
-		"model_id":                "preferred-context-invalid-high",
-		"loadbalance_strategy_id": strategyID,
-		"preferred_context_utilization_threshold": 1.1,
-		"access_targets": []map[string]any{modelAccessTarget("model", "preferred-context-target", nil, 0, true)},
-	}, modelHeader(profileID))
-	assertErrorResponse(t, invalidHigh, http.StatusBadRequest, "preferred_context_utilization_threshold must be greater than 0 and less than or equal to 1 when provided")
-
-	invalidCrossField := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
-		"api_family":                              "openai",
-		"model_id":                                "preferred-context-invalid-cross-field",
-		"loadbalance_strategy_id":                 strategyID,
-		"max_context_utilization":                 0.70,
-		"preferred_context_utilization_threshold": 0.75,
-		"access_targets":                          []map[string]any{modelAccessTarget("model", "preferred-context-target", nil, 0, true)},
-	}, modelHeader(profileID))
-	assertErrorResponse(t, invalidCrossField, http.StatusBadRequest, "preferred_context_utilization_threshold must be less than or equal to max_context_utilization when provided")
-
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET max_context_utilization = 0.75, preferred_context_utilization_threshold = 0.70 WHERE id = $1`, modelConfigID); err != nil {
-		t.Fatalf("reset model preferred context state: %v", err)
-	}
-	invalidLowerMax := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{
-		"max_context_utilization": 0.60,
-	}, modelHeader(profileID))
-	assertErrorResponse(t, invalidLowerMax, http.StatusBadRequest, "preferred_context_utilization_threshold must be less than or equal to max_context_utilization when provided")
-}
-
-func assertStoredModelPreferredContextThreshold(t *testing.T, harness *contractHarness, modelConfigID int, want *float64) {
-	t.Helper()
-	var preferred sql.NullFloat64
-	if err := harness.conn.QueryRow(context.Background(), `SELECT preferred_context_utilization_threshold FROM model_configs WHERE id = $1`, modelConfigID).Scan(&preferred); err != nil {
-		t.Fatalf("load model %d preferred_context_utilization_threshold: %v", modelConfigID, err)
-	}
-	if want == nil {
-		if preferred.Valid {
-			t.Fatalf("expected model %d preferred_context_utilization_threshold NULL, got %0.2f", modelConfigID, preferred.Float64)
-		}
-		return
-	}
-	if !preferred.Valid || preferred.Float64 != *want {
-		t.Fatalf("expected model %d preferred_context_utilization_threshold %0.2f, got %+v", modelConfigID, *want, preferred)
-	}
-}
-
-func modelFloat64Ptr(value float64) *float64 {
-	resolved := value
-	return &resolved
+	assertErrorResponse(t, response, http.StatusBadRequest, "Invalid request body")
 }

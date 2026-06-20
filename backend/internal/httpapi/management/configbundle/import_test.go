@@ -153,6 +153,40 @@ func TestProfileBundleV3RoundTrip(t *testing.T) {
 	}
 }
 
+func TestProfileBundleV3RejectsRemovedModelContextFields(t *testing.T) {
+	request := validProfileBundleV3Request()
+	raw, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal bundle: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal bundle map: %v", err)
+	}
+	models, ok := payload["models"].([]any)
+	if !ok || len(models) == 0 {
+		t.Fatalf("expected model payloads, got %+v", payload["models"])
+	}
+	model, ok := models[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first model object, got %+v", models[0])
+	}
+	model["context_overflow_promotion_target_id"] = "larger-model"
+	model["context_window_tokens"] = 8192
+	model["default_output_token_reserve"] = 4096
+	model["max_context_utilization"] = 0.9
+	model["preferred_context_utilization_threshold"] = 0.8
+	raw, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal bundle with removed fields: %v", err)
+	}
+
+	var imported profileImportRequest
+	if err := json.Unmarshal(raw, &imported); err == nil {
+		t.Fatal("expected removed model context fields to be rejected")
+	}
+}
+
 func TestConfigBundleImportPreservesOpenAIAcceptedFormat(t *testing.T) {
 	for _, format := range []string{"responses_only", "chat_completions_only", "dual_native"} {
 		t.Run(format, func(t *testing.T) {
@@ -169,13 +203,11 @@ func TestConfigBundleImportPreservesOpenAIAcceptedFormat(t *testing.T) {
 			}
 
 			exported, err := buildModelExport(modelRow{
-				APIFamily:                 "openai",
-				ModelID:                   request.Models[0].ModelID,
-				DisplayName:               request.Models[0].DisplayName,
-				DefaultOutputTokenReserve: 4096,
-				MaxContextUtilization:     1.0,
-				OpenAIAcceptedFormat:      importedModels[0].OpenAIAcceptedFormat,
-				IsEnabled:                 true,
+				APIFamily:            "openai",
+				ModelID:              request.Models[0].ModelID,
+				DisplayName:          request.Models[0].DisplayName,
+				OpenAIAcceptedFormat: importedModels[0].OpenAIAcceptedFormat,
+				IsEnabled:            true,
 			}, map[int]string{}, nil, map[int]string{})
 			if err != nil {
 				t.Fatalf("build exported model: %v", err)
@@ -189,13 +221,11 @@ func TestConfigBundleImportPreservesOpenAIAcceptedFormat(t *testing.T) {
 
 func TestConfigBundleExportIncludesOpenAIAcceptedFormat(t *testing.T) {
 	exported, err := buildModelExport(modelRow{
-		APIFamily:                 "openai",
-		ModelID:                   "gpt-4o-mini",
-		DisplayName:               stringPtr("GPT 4o Mini"),
-		DefaultOutputTokenReserve: 4096,
-		MaxContextUtilization:     1.0,
-		OpenAIAcceptedFormat:      stringPtr("dual_native"),
-		IsEnabled:                 true,
+		APIFamily:            "openai",
+		ModelID:              "gpt-4o-mini",
+		DisplayName:          stringPtr("GPT 4o Mini"),
+		OpenAIAcceptedFormat: stringPtr("dual_native"),
+		IsEnabled:            true,
 	}, map[int]string{}, nil, map[int]string{})
 	if err != nil {
 		t.Fatalf("build exported model: %v", err)

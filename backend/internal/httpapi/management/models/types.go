@@ -36,21 +36,16 @@ type modelAccessTargetMoveRequest struct {
 }
 
 type modelCreateRequest struct {
-	APIFamily                            string                     `json:"api_family"`
-	ModelID                              string                     `json:"model_id"`
-	DisplayName                          *string                    `json:"display_name"`
-	LoadbalanceStrategyID                *int                       `json:"loadbalance_strategy_id"`
-	ContextWindowTokens                  *int                       `json:"context_window_tokens"`
-	DefaultOutputTokenReserve            *int                       `json:"default_output_token_reserve"`
-	MaxContextUtilization                *float64                   `json:"max_context_utilization"`
-	PreferredContextUtilizationThreshold *float64                   `json:"preferred_context_utilization_threshold"`
-	FacadeEnabled                        *bool                      `json:"facade_enabled"`
-	FacadeSelectionPolicy                *string                    `json:"facade_selection_policy"`
-	FacadeFallbackPolicy                 *string                    `json:"facade_fallback_policy"`
-	ContextOverflowPromotionTargetID     *string                    `json:"context_overflow_promotion_target_id"`
-	OpenAIAcceptedFormat                 optionalString             `json:"openai_accepted_format"`
-	AccessTargets                        []modelAccessTargetRequest `json:"access_targets"`
-	IsEnabled                            *bool                      `json:"is_enabled"`
+	APIFamily             string                     `json:"api_family"`
+	ModelID               string                     `json:"model_id"`
+	DisplayName           *string                    `json:"display_name"`
+	LoadbalanceStrategyID *int                       `json:"loadbalance_strategy_id"`
+	FacadeEnabled         *bool                      `json:"facade_enabled"`
+	FacadeSelectionPolicy *string                    `json:"facade_selection_policy"`
+	FacadeFallbackPolicy  *string                    `json:"facade_fallback_policy"`
+	OpenAIAcceptedFormat  optionalString             `json:"openai_accepted_format"`
+	AccessTargets         []modelAccessTargetRequest `json:"access_targets"`
+	IsEnabled             *bool                      `json:"is_enabled"`
 }
 
 type optionalString struct {
@@ -144,21 +139,16 @@ func (value *optionalAccessTargets) UnmarshalJSON(data []byte) error {
 }
 
 type modelUpdateRequest struct {
-	APIFamily                            optionalString        `json:"api_family"`
-	ModelID                              optionalString        `json:"model_id"`
-	DisplayName                          optionalString        `json:"display_name"`
-	LoadbalanceStrategyID                optionalInt           `json:"loadbalance_strategy_id"`
-	ContextWindowTokens                  optionalInt           `json:"context_window_tokens"`
-	DefaultOutputTokenReserve            optionalInt           `json:"default_output_token_reserve"`
-	MaxContextUtilization                optionalFloat         `json:"max_context_utilization"`
-	PreferredContextUtilizationThreshold optionalFloat         `json:"preferred_context_utilization_threshold"`
-	FacadeEnabled                        optionalBool          `json:"facade_enabled"`
-	FacadeSelectionPolicy                optionalString        `json:"facade_selection_policy"`
-	FacadeFallbackPolicy                 optionalString        `json:"facade_fallback_policy"`
-	ContextOverflowPromotionTargetID     optionalString        `json:"context_overflow_promotion_target_id"`
-	OpenAIAcceptedFormat                 optionalString        `json:"openai_accepted_format"`
-	AccessTargets                        optionalAccessTargets `json:"access_targets"`
-	IsEnabled                            optionalBool          `json:"is_enabled"`
+	APIFamily             optionalString        `json:"api_family"`
+	ModelID               optionalString        `json:"model_id"`
+	DisplayName           optionalString        `json:"display_name"`
+	LoadbalanceStrategyID optionalInt           `json:"loadbalance_strategy_id"`
+	FacadeEnabled         optionalBool          `json:"facade_enabled"`
+	FacadeSelectionPolicy optionalString        `json:"facade_selection_policy"`
+	FacadeFallbackPolicy  optionalString        `json:"facade_fallback_policy"`
+	OpenAIAcceptedFormat  optionalString        `json:"openai_accepted_format"`
+	AccessTargets         optionalAccessTargets `json:"access_targets"`
+	IsEnabled             optionalBool          `json:"is_enabled"`
 }
 
 type loadbalanceStrategySummary struct {
@@ -237,21 +227,17 @@ type connectionTargetSummary struct {
 type terminalTargetSummary = connectionTargetSummary
 
 type modelTargetSummary struct {
-	ID                                   int      `json:"id"`
-	ProfileID                            int      `json:"profile_id"`
-	APIFamily                            string   `json:"api_family"`
-	ModelID                              string   `json:"model_id"`
-	DisplayName                          *string  `json:"display_name"`
-	LoadbalanceStrategyID                *int     `json:"loadbalance_strategy_id"`
-	ContextWindowTokens                  *int     `json:"context_window_tokens"`
-	DefaultOutputTokenReserve            int      `json:"default_output_token_reserve"`
-	MaxContextUtilization                float64  `json:"max_context_utilization"`
-	PreferredContextUtilizationThreshold *float64 `json:"preferred_context_utilization_threshold"`
-	FacadeEnabled                        bool     `json:"facade_enabled"`
-	FacadeSelectionPolicy                *string  `json:"facade_selection_policy"`
-	FacadeFallbackPolicy                 *string  `json:"facade_fallback_policy"`
-	OpenAIAcceptedFormat                 *string  `json:"openai_accepted_format"`
-	IsEnabled                            bool     `json:"is_enabled"`
+	ID                    int     `json:"id"`
+	ProfileID             int     `json:"profile_id"`
+	APIFamily             string  `json:"api_family"`
+	ModelID               string  `json:"model_id"`
+	DisplayName           *string `json:"display_name"`
+	LoadbalanceStrategyID *int    `json:"loadbalance_strategy_id"`
+	FacadeEnabled         bool    `json:"facade_enabled"`
+	FacadeSelectionPolicy *string `json:"facade_selection_policy"`
+	FacadeFallbackPolicy  *string `json:"facade_fallback_policy"`
+	OpenAIAcceptedFormat  *string `json:"openai_accepted_format"`
+	IsEnabled             bool    `json:"is_enabled"`
 }
 
 type modelAccessTargetResponse struct {
@@ -270,53 +256,43 @@ type modelAccessTargetResponse struct {
 }
 
 type modelConfigListResponse struct {
-	ID                                   int                         `json:"id"`
-	ProfileID                            int                         `json:"profile_id"`
-	APIFamily                            string                      `json:"api_family"`
-	ModelID                              string                      `json:"model_id"`
-	DisplayName                          *string                     `json:"display_name"`
-	LoadbalanceStrategyID                *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy                  *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	ContextWindowTokens                  *int                        `json:"context_window_tokens"`
-	DefaultOutputTokenReserve            int                         `json:"default_output_token_reserve"`
-	MaxContextUtilization                float64                     `json:"max_context_utilization"`
-	PreferredContextUtilizationThreshold *float64                    `json:"preferred_context_utilization_threshold"`
-	FacadeEnabled                        bool                        `json:"facade_enabled"`
-	FacadeSelectionPolicy                *string                     `json:"facade_selection_policy"`
-	FacadeFallbackPolicy                 *string                     `json:"facade_fallback_policy"`
-	ContextOverflowPromotionTargetID     *string                     `json:"context_overflow_promotion_target_id"`
-	OpenAIAcceptedFormat                 *string                     `json:"openai_accepted_format"`
-	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
-	IsEnabled                            bool                        `json:"is_enabled"`
-	ConnectionCount                      int                         `json:"connection_count"`
-	ActiveConnectionCount                int                         `json:"active_connection_count"`
-	HealthSuccessRate                    *float64                    `json:"health_success_rate"`
-	HealthTotalRequests                  int                         `json:"health_total_requests"`
-	CreatedAt                            time.Time                   `json:"created_at"`
-	UpdatedAt                            time.Time                   `json:"updated_at"`
+	ID                    int                         `json:"id"`
+	ProfileID             int                         `json:"profile_id"`
+	APIFamily             string                      `json:"api_family"`
+	ModelID               string                      `json:"model_id"`
+	DisplayName           *string                     `json:"display_name"`
+	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	FacadeEnabled         bool                        `json:"facade_enabled"`
+	FacadeSelectionPolicy *string                     `json:"facade_selection_policy"`
+	FacadeFallbackPolicy  *string                     `json:"facade_fallback_policy"`
+	OpenAIAcceptedFormat  *string                     `json:"openai_accepted_format"`
+	AccessTargets         []modelAccessTargetResponse `json:"access_targets"`
+	IsEnabled             bool                        `json:"is_enabled"`
+	ConnectionCount       int                         `json:"connection_count"`
+	ActiveConnectionCount int                         `json:"active_connection_count"`
+	HealthSuccessRate     *float64                    `json:"health_success_rate"`
+	HealthTotalRequests   int                         `json:"health_total_requests"`
+	CreatedAt             time.Time                   `json:"created_at"`
+	UpdatedAt             time.Time                   `json:"updated_at"`
 }
 
 type modelConfigResponse struct {
-	ID                                   int                         `json:"id"`
-	ProfileID                            int                         `json:"profile_id"`
-	APIFamily                            string                      `json:"api_family"`
-	ModelID                              string                      `json:"model_id"`
-	DisplayName                          *string                     `json:"display_name"`
-	LoadbalanceStrategyID                *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy                  *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	ContextWindowTokens                  *int                        `json:"context_window_tokens"`
-	DefaultOutputTokenReserve            int                         `json:"default_output_token_reserve"`
-	MaxContextUtilization                float64                     `json:"max_context_utilization"`
-	PreferredContextUtilizationThreshold *float64                    `json:"preferred_context_utilization_threshold"`
-	FacadeEnabled                        bool                        `json:"facade_enabled"`
-	FacadeSelectionPolicy                *string                     `json:"facade_selection_policy"`
-	FacadeFallbackPolicy                 *string                     `json:"facade_fallback_policy"`
-	ContextOverflowPromotionTargetID     *string                     `json:"context_overflow_promotion_target_id"`
-	OpenAIAcceptedFormat                 *string                     `json:"openai_accepted_format"`
-	AccessTargets                        []modelAccessTargetResponse `json:"access_targets"`
-	IsEnabled                            bool                        `json:"is_enabled"`
-	CreatedAt                            time.Time                   `json:"created_at"`
-	UpdatedAt                            time.Time                   `json:"updated_at"`
+	ID                    int                         `json:"id"`
+	ProfileID             int                         `json:"profile_id"`
+	APIFamily             string                      `json:"api_family"`
+	ModelID               string                      `json:"model_id"`
+	DisplayName           *string                     `json:"display_name"`
+	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	FacadeEnabled         bool                        `json:"facade_enabled"`
+	FacadeSelectionPolicy *string                     `json:"facade_selection_policy"`
+	FacadeFallbackPolicy  *string                     `json:"facade_fallback_policy"`
+	OpenAIAcceptedFormat  *string                     `json:"openai_accepted_format"`
+	AccessTargets         []modelAccessTargetResponse `json:"access_targets"`
+	IsEnabled             bool                        `json:"is_enabled"`
+	CreatedAt             time.Time                   `json:"created_at"`
+	UpdatedAt             time.Time                   `json:"updated_at"`
 }
 
 type endpointModelsBatchItem struct {
