@@ -45,6 +45,8 @@ function createModelListItem(
   modelId: string,
   displayName: string,
   apiFamily: "openai" | "anthropic" | "gemini" = "openai",
+  loadbalanceStrategyId: number | null = 11,
+  loadbalanceStrategy: ReturnType<typeof createStrategy> | null = createStrategy(),
 ) {
   return {
     id,
@@ -52,8 +54,8 @@ function createModelListItem(
     api_family: apiFamily,
     model_id: modelId,
     display_name: displayName,
-    loadbalance_strategy_id: 11,
-    loadbalance_strategy: createStrategy(),
+    loadbalance_strategy_id: loadbalanceStrategyId,
+    loadbalance_strategy: loadbalanceStrategy,
     access_targets: [],
     is_enabled: true,
     connection_count: 0,
@@ -65,18 +67,38 @@ function createModelListItem(
   };
 }
 
+function createDeferredDefaultsResponse() {
+  let resolveReady: (() => void) | null = null;
+  const ready = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+  return {
+    ready,
+    resolve: () => {
+      resolveReady?.();
+    },
+  };
+}
+
 async function mockModelRoutes(
   page: Page,
-  options: { strategies?: ReturnType<typeof createStrategy>[] } = {},
+  options: {
+    defaultsDelay?: Promise<void>;
+    defaultsResponse?: unknown;
+    defaultsStatus?: number;
+    models?: ReturnType<typeof createModelListItem>[];
+    strategies?: ReturnType<typeof createStrategy>[];
+  } = {},
 ) {
   const profile = createProfile();
   const strategies = options.strategies ?? [createStrategy()];
-  const models = [
+  const models = options.models ?? [
     createModelListItem(1, "target-alpha", "Target Alpha", "openai"),
     createModelListItem(2, "target-beta", "Target Beta", "openai"),
     createModelListItem(3, "claude-sonnet", "Claude Sonnet", "anthropic"),
   ];
   const createdPayloads: unknown[] = [];
+  const defaultsRequests: string[] = [];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -106,6 +128,19 @@ async function mockModelRoutes(
     }
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson(strategies);
+    }
+    if (pathname === "/api/loadbalance/strategies/defaults" && request.method() === "POST") {
+      defaultsRequests.push(pathname);
+      await options.defaultsDelay;
+      return fulfillJson(
+        options.defaultsResponse ?? {
+          items: [createStrategy()],
+          created_count: 1,
+          created_names: ["Default fill-first routing"],
+          existing_names: [],
+        },
+        options.defaultsStatus ?? 200,
+      );
     }
     if (pathname === "/api/endpoints/connections") {
       return fulfillJson({ items: [] });
@@ -144,6 +179,7 @@ async function mockModelRoutes(
 
   return {
     getCreatedPayloads: () => createdPayloads,
+    getDefaultsRequests: () => defaultsRequests,
   };
 }
 
@@ -166,6 +202,131 @@ test("main model dialog disables save when no loadbalance strategies exist", asy
 
   await page.getByRole("textbox", { name: "Display Name" }).press("Enter");
   expect(routes.getCreatedPayloads()).toHaveLength(0);
+
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Edit Model: Target Alpha" }).click();
+
+  const editDialog = page.getByRole("dialog", { name: "Edit Model" });
+  await expect(editDialog.getByText(noStrategiesCopy)).toBeVisible();
+  await expect(editDialog.getByRole("button", { name: "Create Defaults" })).toHaveCount(0);
+});
+
+test("main model dialog creates default strategy from empty loadbalance strategy state", async ({ page }) => {
+  const routes = await mockModelRoutes(page, { strategies: [] });
+
+  await page.goto("/models");
+  await page.getByRole("button", { name: "New Model" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "New Model" });
+  const saveButton = dialog.getByRole("button", { name: "Save" });
+  await expect(dialog.getByRole("button", { name: "Create Defaults" })).toBeVisible();
+  await expect(saveButton).toBeDisabled();
+
+  await dialog.getByRole("button", { name: "Create Defaults" }).click();
+
+  await expect(dialog.getByRole("button", { name: "Create Defaults" })).toHaveCount(0);
+  await expect(dialog.locator("#model-loadbalance-strategy")).toContainText("Default fill-first routing");
+  await expect(saveButton).toBeEnabled();
+
+  await page.getByRole("textbox", { name: "Model ID" }).fill("defaults-created-model");
+  await saveButton.click();
+  await expect(page.getByText("Model created")).toBeVisible();
+
+  expect(routes.getDefaultsRequests()).toHaveLength(1);
+  expect(routes.getCreatedPayloads()).toEqual([
+    {
+      api_family: "openai",
+      model_id: "defaults-created-model",
+      display_name: "defaults-created-model",
+      openai_accepted_format: "dual_native",
+      access_targets: [],
+      loadbalance_strategy_id: 11,
+      is_enabled: false,
+    },
+  ]);
+});
+
+test("main model dialog keeps empty strategy state when default creation fails", async ({ page }) => {
+  const routes = await mockModelRoutes(page, {
+    strategies: [],
+    defaultsStatus: 500,
+    defaultsResponse: { detail: { message: "Default creation failed" } },
+  });
+
+  await page.goto("/models");
+  await page.getByRole("button", { name: "New Model" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "New Model" });
+  const saveButton = dialog.getByRole("button", { name: "Save" });
+  await expect(dialog.getByRole("button", { name: "Create Defaults" })).toBeVisible();
+  await expect(saveButton).toBeDisabled();
+
+  await dialog.getByRole("button", { name: "Create Defaults" }).click();
+
+  await expect(page.getByText("Default creation failed")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Create Defaults" })).toBeVisible();
+  await expect(dialog.getByText("No loadbalance strategies are available for this profile. Create one on the Loadbalance Strategies page first.")).toBeVisible();
+  await expect(saveButton).toBeDisabled();
+
+  await page.getByRole("textbox", { name: "Model ID" }).fill("defaults-failed-model");
+  await page.getByRole("textbox", { name: "Display Name" }).press("Enter");
+
+  expect(routes.getDefaultsRequests()).toHaveLength(1);
+  expect(routes.getCreatedPayloads()).toHaveLength(0);
+});
+
+test("main model dialog does not apply delayed defaults response to edit dialog", async ({ page }) => {
+  const deferredDefaults = createDeferredDefaultsResponse();
+  const routes = await mockModelRoutes(page, {
+    strategies: [],
+    defaultsDelay: deferredDefaults.ready,
+    models: [createModelListItem(1, "edit-no-strategy", "Edit No Strategy", "openai", null, null)],
+  });
+
+  await page.goto("/models");
+  await page.getByRole("button", { name: "New Model" }).click();
+
+  const createDialog = page.getByRole("dialog", { name: "New Model" });
+  await createDialog.getByRole("button", { name: "Create Defaults" }).click();
+  expect(routes.getDefaultsRequests()).toHaveLength(1);
+  await createDialog.getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "Edit Model: Edit No Strategy" }).click();
+  const editDialog = page.getByRole("dialog", { name: "Edit Model" });
+  await expect(editDialog.getByText("No loadbalance strategies are available for this profile. Create one on the Loadbalance Strategies page first.")).toBeVisible();
+
+  deferredDefaults.resolve();
+
+  await expect(page.getByText("Default loadbalance strategies created")).toBeVisible();
+  await expect(editDialog.getByRole("button", { name: "Create Defaults" })).toHaveCount(0);
+  await expect(editDialog.locator("#model-loadbalance-strategy")).not.toContainText("Default fill-first routing");
+});
+
+test("main model dialog keeps save disabled when stale defaults response reaches reopened create dialog", async ({ page }) => {
+  const deferredDefaults = createDeferredDefaultsResponse();
+  const routes = await mockModelRoutes(page, {
+    strategies: [],
+    defaultsDelay: deferredDefaults.ready,
+  });
+
+  await page.goto("/models");
+  await page.getByRole("button", { name: "New Model" }).click();
+
+  const createDialog = page.getByRole("dialog", { name: "New Model" });
+  await createDialog.getByRole("button", { name: "Create Defaults" }).click();
+  expect(routes.getDefaultsRequests()).toHaveLength(1);
+  await createDialog.getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "New Model" }).click();
+  const reopenedDialog = page.getByRole("dialog", { name: "New Model" });
+  const saveButton = reopenedDialog.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeDisabled();
+
+  deferredDefaults.resolve();
+
+  await expect(page.getByText("Default loadbalance strategies created")).toBeVisible();
+  await expect(reopenedDialog.locator("#model-loadbalance-strategy")).not.toContainText("Default fill-first routing");
+  await expect(saveButton).toBeDisabled();
 });
 
 test("main model dialog saves targetless disabled drafts", async ({ page }) => {
