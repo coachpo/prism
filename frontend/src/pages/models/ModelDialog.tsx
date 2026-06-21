@@ -1,6 +1,7 @@
 import { ApiFamilySelect } from "@/components/ApiFamilySelect";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
+import { Loader2, Sparkles } from "lucide-react";
 import {
   Dialog,
   DialogBody,
@@ -42,9 +43,11 @@ type Props = {
   includeTerminalTargetConnectionOptions?: boolean;
   showModelIdInEditMode?: boolean;
   submitLabel?: string;
+  createLoadbalanceStrategyDefaultsPending?: boolean;
   setFormData: (value: ModelFormData | ((prev: ModelFormData) => ModelFormData)) => void;
   setIsDialogOpen: (open: boolean) => void;
   setLoadbalanceStrategyId: (value: number | null) => void;
+  onCreateLoadbalanceStrategyDefaults?: () => Promise<void>;
   onSubmit: (event: SubmitEventLike) => void;
 };
 
@@ -70,9 +73,11 @@ export function ModelDialog({
   includeTerminalTargetConnectionOptions = true,
   showModelIdInEditMode = false,
   submitLabel,
+  createLoadbalanceStrategyDefaultsPending = false,
   setFormData,
   setIsDialogOpen,
   setLoadbalanceStrategyId,
+  onCreateLoadbalanceStrategyDefaults,
   onSubmit,
 }: Props) {
   const { messages } = useLocale();
@@ -80,6 +85,7 @@ export function ModelDialog({
   const fieldCopy = messages.common;
   const copy = messages.modelsUi;
   const detailCopy = messages.modelDetail;
+  const loadbalanceTableCopy = messages.loadbalanceStrategiesTable;
 
   const getStrategyTypeLabel = (strategy: LoadbalanceStrategy) => getLoadbalanceStrategyTypeLabel(strategy, strategyCopy);
   const getStrategyOptionText = (strategy: LoadbalanceStrategy) => `${strategy.name} (${getStrategyTypeLabel(strategy)})`;
@@ -94,7 +100,7 @@ export function ModelDialog({
   const enabledDescription = editingModel
     ? copy.editModelEnabledDescription
     : copy.newModelEnabledDescription;
-  const saveDisabled = loadbalanceStrategies.length === 0;
+  const saveDisabled = !selectedLoadbalanceStrategy;
   const openAIAcceptedFormatValue = formData.openai_accepted_format || DEFAULT_OPENAI_ACCEPTED_FORMAT;
   const terminalTargetConnectionOptions = includeTerminalTargetConnectionOptions
     ? getEditModelConnectionOptions(editingModel)
@@ -193,7 +199,19 @@ export function ModelDialog({
                   <p className="text-sm text-muted-foreground">{copy.routingTypeDescription}</p>
                 </div>
                 {loadbalanceStrategies.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{detailCopy.noLoadbalanceStrategiesAvailable}</p>
+                  <div className="flex flex-col items-start gap-3">
+                    <p className="text-sm text-muted-foreground">{detailCopy.noLoadbalanceStrategiesAvailable}</p>
+                    {!editingModel && onCreateLoadbalanceStrategyDefaults ? (
+                      <Button type="button" disabled={createLoadbalanceStrategyDefaultsPending} onClick={() => { void onCreateLoadbalanceStrategyDefaults(); }}>
+                        {createLoadbalanceStrategyDefaultsPending ? (
+                          <Loader2 data-icon="inline-start" className="animate-spin" />
+                        ) : (
+                          <Sparkles data-icon="inline-start" />
+                        )}
+                        {loadbalanceTableCopy.createDefaults}
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : (
                   <Select value={loadbalanceStrategyValue} onValueChange={(value) => setLoadbalanceStrategyId(Number.parseInt(value, 10))}>
                     <SelectTrigger id="model-loadbalance-strategy" className="h-auto w-full min-w-0 max-w-full items-start py-2 text-left whitespace-normal">

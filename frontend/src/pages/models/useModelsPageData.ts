@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api/core";
 import type { ManagedModelConfigListItem } from "@/lib/api/management";
@@ -6,6 +6,7 @@ import { getStaticMessages } from "@/i18n/staticMessages";
 import {
   getSharedLoadbalanceStrategies,
   getSharedModels,
+  setSharedLoadbalanceStrategies,
   setSharedModels,
 } from "@/lib/referenceData";
 import type { LoadbalanceStrategy } from "@/lib/types";
@@ -103,6 +104,17 @@ function getModelSaveErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function sortStrategies(strategies: LoadbalanceStrategy[]) {
+  return [...strategies].sort((left, right) => {
+    const updatedAtDelta = new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+    return updatedAtDelta !== 0 ? updatedAtDelta : right.id - left.id;
+  });
+}
+
+type ModelDialogSession =
+  | { readonly mode: "closed" | "edit"; readonly createSession: null }
+  | { readonly mode: "create"; readonly createSession: number };
+
 export function useModelsPageData(revision: number) {
   const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([]);
   const [models, setModels] = useState<ManagedModelConfigListItem[]>([]);
@@ -113,6 +125,9 @@ export function useModelsPageData(revision: number) {
   const [search, setSearch] = useState("");
   const [formData, setFormData] = useState<ModelFormData>(DEFAULT_MODEL_FORM_DATA);
   const [formError, setFormError] = useState<string | null>(null);
+  const [loadbalanceStrategyDefaultsCreating, setLoadbalanceStrategyDefaultsCreating] = useState(false);
+  const modelDialogSessionRef = useRef<ModelDialogSession>({ mode: "closed", createSession: null });
+  const nextCreateDialogSessionRef = useRef(0);
   const { metricsLoading, modelMetrics24h, modelSpend30dMicros } = useModelMetrics24h(models);
 
   const applyBootstrapData = useCallback((data: {
@@ -169,8 +184,16 @@ export function useModelsPageData(revision: number) {
     });
   };
 
+  const handleSetIsDialogOpen = (open: boolean) => {
+    if (!open) {
+      modelDialogSessionRef.current = { mode: "closed", createSession: null };
+    }
+    setIsDialogOpen(open);
+  };
+
   const handleOpenDialog = async (model?: ManagedModelConfigListItem) => {
     if (model) {
+      modelDialogSessionRef.current = { mode: "edit", createSession: null };
       setEditingModel(model);
       setFormData(createEditModelFormData(model));
       setFormError(null);
@@ -178,6 +201,9 @@ export function useModelsPageData(revision: number) {
       return;
     }
 
+    const createSession = nextCreateDialogSessionRef.current + 1;
+    nextCreateDialogSessionRef.current = createSession;
+    modelDialogSessionRef.current = { mode: "create", createSession };
     setEditingModel(null);
     setFormData(createNewModelFormData(loadbalanceStrategies[0]?.id ?? null));
     setFormError(null);
@@ -236,7 +262,7 @@ export function useModelsPageData(revision: number) {
         commitModels((current) => [...current, toModelListItem(created)]);
         toast.success(messages.modelsData.created);
       }
-      setIsDialogOpen(false);
+      handleSetIsDialogOpen(false);
     } catch (error) {
       const message = getModelSaveErrorMessage(error, messages.modelsData.saveFailed);
       setFormError(message);
@@ -254,6 +280,28 @@ export function useModelsPageData(revision: number) {
       setDeleteTarget(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.modelsData.deleteFailed);
+    }
+  };
+
+  const handleCreateLoadbalanceStrategyDefaults = async () => {
+    const messages = getStaticMessages();
+    const createSession = modelDialogSessionRef.current.mode === "create"
+      ? modelDialogSessionRef.current.createSession
+      : null;
+    setLoadbalanceStrategyDefaultsCreating(true);
+    try {
+      const response = await api.loadbalanceStrategies.createDefaults();
+      const next = sortStrategies(response.items);
+      setLoadbalanceStrategies(next);
+      setSharedLoadbalanceStrategies(revision, next);
+      if (modelDialogSessionRef.current.mode === "create" && modelDialogSessionRef.current.createSession === createSession) {
+        setFormData((current) => setLoadbalanceStrategyIdOnForm(current, next[0]?.id ?? null));
+      }
+      toast.success(response.created_count > 0 ? messages.loadbalanceStrategiesData.defaultsCreated : messages.loadbalanceStrategiesData.defaultsAlreadyExisted);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : messages.loadbalanceStrategiesData.saveFailed);
+    } finally {
+      setLoadbalanceStrategyDefaultsCreating(false);
     }
   };
 
@@ -290,10 +338,12 @@ export function useModelsPageData(revision: number) {
     formData,
     formError,
     handleDelete,
+    handleCreateLoadbalanceStrategyDefaults,
     handleOpenDialog,
     handleSubmit,
     isDialogOpen,
     loadbalanceStrategies,
+    loadbalanceStrategyDefaultsCreating,
     loading,
     metricsLoading,
     modelMetrics24h,
@@ -303,7 +353,7 @@ export function useModelsPageData(revision: number) {
     search,
     setDeleteTarget,
     setFormData,
-    setIsDialogOpen,
+    setIsDialogOpen: handleSetIsDialogOpen,
     setLoadbalanceStrategyId,
     setSearch,
   };

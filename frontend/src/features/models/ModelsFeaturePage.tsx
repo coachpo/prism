@@ -112,9 +112,11 @@ export function ModelsFeaturePage() {
         isDialogOpen={data.isDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
         targetModelsForApiFamily={data.targetModelsForApiFamily}
+        createLoadbalanceStrategyDefaultsPending={data.loadbalanceStrategyDefaultsCreating}
         setFormData={data.setFormData}
         setIsDialogOpen={data.setIsDialogOpen}
         setLoadbalanceStrategyId={data.setLoadbalanceStrategyId}
+        onCreateLoadbalanceStrategyDefaults={data.handleCreateLoadbalanceStrategyDefaults}
         onSubmit={data.handleSubmit}
       />
       <DeleteModelDialog
