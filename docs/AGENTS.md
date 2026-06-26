@@ -24,7 +24,7 @@ docs/
 - Live execution evidence and LLM test-run records belong in `../.omo/evidence/`, not under `docs/`.
 
 ## WHERE TO LOOK
-- Launcher, release, and deploy facts: `../README.md`, `../start.sh`, `../release.sh`, `../deploy.sh`, `../frontend/.env.example`
+- Launcher and release facts: `../README.md`, `../start.sh`, `../release.sh`, `../frontend/.env.example`
 - Backend/frontend version surfaces: `../VERSION`, `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend container contract: `../backend/Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation contract, hook residency, rejected-route isolation, and `operation_name` persistence: `API_SPEC.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `../backend/internal/httpapi/runtime/AGENTS.md`, `../backend/internal/httpapi/runtime/operations.go`

@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/coachpo/prism/backend/internal/platform/bodylimits"
 )
 
 func managementBodyLimitMiddleware(next http.Handler) http.Handler {
@@ -15,14 +17,14 @@ func managementBodyLimitMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		LimitRequestBody(w, r, limitBytes)
+		bodylimits.LimitRequestBody(w, r, limitBytes)
 		exceeded := false
 		r.Body = &requestBodyLimitObserver{source: r.Body, exceeded: &exceeded}
 
 		buffered := newBodyLimitBufferedResponseWriter(w)
 		next.ServeHTTP(buffered, r)
 		if exceeded {
-			WriteRequestBodyTooLarge(w, limitBytes)
+			bodylimits.WriteRequestBodyTooLarge(w, limitBytes)
 			return
 		}
 		buffered.Flush()
@@ -40,18 +42,18 @@ func managementRequestBodyLimit(method string, rawPath string) (int64, bool) {
 	}
 
 	if segments[0] == "auth" {
-		return AuthRequestBodyLimitBytes, true
+		return bodylimits.AuthRequestBodyLimitBytes, true
 	}
 	if matchesSegments(segments, "config", "bootstrap") || matchesSegments(segments, "config", "bootstrap", "validate") {
-		return BootstrapRequestBodyLimitBytes, true
+		return bodylimits.BootstrapRequestBodyLimitBytes, true
 	}
 	if matchesSegments(segments, "config", "profile", "import") || matchesSegments(segments, "config", "profile", "import", "preview") {
-		return ConfigBundleRequestBodyLimitBytes, true
+		return bodylimits.ConfigBundleRequestBodyLimitBytes, true
 	}
 	if matchesSegments(segments, "config", "profile", "export", "with-secrets") {
 		return 0, false
 	}
-	return ManagementJSONRequestBodyLimitBytes, true
+	return bodylimits.ManagementJSONRequestBodyLimitBytes, true
 }
 
 type requestBodyLimitObserver struct {
@@ -61,7 +63,7 @@ type requestBodyLimitObserver struct {
 
 func (r *requestBodyLimitObserver) Read(payload []byte) (int, error) {
 	n, err := r.source.Read(payload)
-	if IsRequestBodyTooLarge(err) && r.exceeded != nil {
+	if bodylimits.IsRequestBodyTooLarge(err) && r.exceeded != nil {
 		*r.exceeded = true
 	}
 	return n, err

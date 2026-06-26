@@ -102,16 +102,4 @@ Example:
 - Error surfaces should be visually contained and use `role="alert"` where appropriate.
 - Empty states should explain what happened and provide the next useful action when one exists.
 
-## Deprecated Compatibility Wrappers
-
-The following old components are retained as compatibility shims, but product code should import the operator replacements directly. The current migration checkpoint has zero active product imports/usages of these wrappers:
-
-- `@/components/PageHeader`
-- `@/components/EmptyState`
-- `@/components/SemanticCallout`
-- `@/components/StatusBadge`
-- `@/components/MetricCard`
-- `@/components/CompactMetricTile`
-- `@/components/SwitchController`
-
-Use the operator components from `@/shared/design-system` instead.
+Product code should import operator components from `@/shared/design-system` directly instead of adding compatibility wrappers under `@/components`.

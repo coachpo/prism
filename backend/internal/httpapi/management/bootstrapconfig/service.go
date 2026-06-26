@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 )
@@ -97,30 +98,30 @@ func (s *Service) handleGetBootstrapConfig(w http.ResponseWriter, r *http.Reques
 	defer s.writeMu.Unlock()
 	snapshot, currentSettings, err := s.loadCurrentSnapshot()
 	if err != nil {
-		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
 	state := s.currentRuntimeState()
 	options, err := currentResponseOptions(state.liveSettings, currentSettings)
 	if err != nil {
-		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to classify bootstrap config effects")
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to classify bootstrap config effects")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.responseForSnapshot(snapshot, currentSettings, state, options))
+	responseutil.WriteJSON(w, http.StatusOK, s.responseForSnapshot(snapshot, currentSettings, state, options))
 }
 
 func (s *Service) handleValidateBootstrapConfig(w http.ResponseWriter, r *http.Request) {
 	corsSnapshot := s.corsSnapshot()
 	var requestBody config.BootstrapConfigUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, corsSnapshot, http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_, currentSettings, err := s.loadCurrentSnapshot()
 	if err != nil {
-		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
 	state := s.currentRuntimeState()
@@ -132,7 +133,7 @@ func (s *Service) handleValidateBootstrapConfig(w http.ResponseWriter, r *http.R
 	}
 	preparedSettings, err := settingsForPreparedUpdate(s.manager, prepared, currentSettings)
 	if err != nil {
-		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
 	plannedDiff, err := diffBootstrapResponseSettings(state.liveSettings, preparedSettings)
@@ -141,14 +142,14 @@ func (s *Service) handleValidateBootstrapConfig(w http.ResponseWriter, r *http.R
 		return
 	}
 	plannedChanges := config.BootstrapConfigPlannedChangesFromDiff(plannedDiff)
-	writeJSON(w, http.StatusOK, s.responseForSnapshot(prepared.Snapshot, preparedSettings, state, config.BootstrapConfigResponseOptions{PlannedChanges: &plannedChanges}))
+	responseutil.WriteJSON(w, http.StatusOK, s.responseForSnapshot(prepared.Snapshot, preparedSettings, state, config.BootstrapConfigResponseOptions{PlannedChanges: &plannedChanges}))
 }
 
 func (s *Service) handlePutBootstrapConfig(w http.ResponseWriter, r *http.Request) {
 	corsSnapshot := s.corsSnapshot()
 	var requestBody config.BootstrapConfigUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, corsSnapshot, http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	s.writeMu.Lock()
@@ -156,7 +157,7 @@ func (s *Service) handlePutBootstrapConfig(w http.ResponseWriter, r *http.Reques
 
 	_, currentSettings, err := s.loadCurrentSnapshot()
 	if err != nil {
-		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
 	state := s.currentRuntimeState()
@@ -167,7 +168,7 @@ func (s *Service) handlePutBootstrapConfig(w http.ResponseWriter, r *http.Reques
 	}
 	preparedSettings, err := settingsForPreparedUpdate(s.manager, prepared, currentSettings)
 	if err != nil {
-		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to load bootstrap config")
 		return
 	}
 	applyDiff, err := diffBootstrapResponseSettings(state.liveSettings, preparedSettings)
@@ -183,7 +184,7 @@ func (s *Service) handlePutBootstrapConfig(w http.ResponseWriter, r *http.Reques
 	}
 	snapshot, err := s.manager.WriteBootstrapConfigUpdate(s.configPath, prepared)
 	if err != nil {
-		writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to write bootstrap config")
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Failed to write bootstrap config")
 		return
 	}
 	if err := s.publishHotApply(hotApplySettings, applyDiff, &applyResult); err != nil {
@@ -195,7 +196,7 @@ func (s *Service) handlePutBootstrapConfig(w http.ResponseWriter, r *http.Reques
 	if len(applyResult.AppliedNowFields) > 0 || advanceLoadedMetadata {
 		responseState = s.setAppliedRuntimeState(hotApplySettings, snapshot, advanceLoadedMetadata)
 	}
-	writeJSON(w, http.StatusOK, s.responseForSnapshot(snapshot, preparedSettings, responseState, config.BootstrapConfigResponseOptions{ApplyResult: &applyResult}))
+	responseutil.WriteJSON(w, http.StatusOK, s.responseForSnapshot(snapshot, preparedSettings, responseState, config.BootstrapConfigResponseOptions{ApplyResult: &applyResult}))
 }
 
 func (s *Service) loadCurrentSnapshot() (config.BootstrapConfigSnapshot, config.Settings, error) {
@@ -318,7 +319,7 @@ type bootstrapConfigApplyFailureResponse struct {
 }
 
 func writeApplyFailure(w http.ResponseWriter, response config.BootstrapConfigResponse) {
-	writeJSON(w, http.StatusInternalServerError, bootstrapConfigApplyFailureResponse{
+	responseutil.WriteJSON(w, http.StatusInternalServerError, bootstrapConfigApplyFailureResponse{
 		BootstrapConfigResponse: response,
 		Detail: map[string]any{
 			"message":                 "Failed to apply bootstrap config",
@@ -349,7 +350,7 @@ func decodeJSONBody(request *http.Request, target any) error {
 func writePrepareError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var conflictErr *config.BootstrapConfigConflictError
 	if errors.As(err, &conflictErr) {
-		writeError(w, r, corsSnapshot, http.StatusConflict, map[string]any{
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusConflict, map[string]any{
 			"message":           conflictErr.Error(),
 			"expected_revision": conflictErr.ExpectedRevision,
 			"current_revision":  conflictErr.CurrentRevision,
@@ -361,7 +362,7 @@ func writePrepareError(w http.ResponseWriter, r *http.Request, corsSnapshot plat
 
 	var secretErr *config.BootstrapConfigSecretOperationError
 	if errors.As(err, &secretErr) {
-		writeError(w, r, corsSnapshot, http.StatusUnprocessableEntity, map[string]any{
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusUnprocessableEntity, map[string]any{
 			"message": secretErr.Error(),
 			"field":   secretErr.Field,
 			"action":  secretErr.Action,
@@ -372,25 +373,14 @@ func writePrepareError(w http.ResponseWriter, r *http.Request, corsSnapshot plat
 
 	var confirmationErr *config.BootstrapConfigMissingConfirmationsError
 	if errors.As(err, &confirmationErr) {
-		writeError(w, r, corsSnapshot, http.StatusUnprocessableEntity, map[string]any{
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusUnprocessableEntity, map[string]any{
 			"message":                confirmationErr.Error(),
 			"required_confirmations": confirmationErr.RequiredConfirmations,
 		})
 		return
 	}
 
-	writeError(w, r, corsSnapshot, http.StatusBadRequest, err.Error())
-}
-
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail any) {
-	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]any{"detail": detail})
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusBadRequest, err.Error())
 }
 
 func defaultWritable(path string) bool {

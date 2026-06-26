@@ -2,7 +2,6 @@ export const requiredShadcnPrimitives = [
   "sidebar",
   "table",
   "form",
-  "command",
   "chart",
   "dialog",
   "alert-dialog",
@@ -58,7 +57,7 @@ export const operatorTokenContract = {
     base: ["background", "foreground", "card", "popover", "primary", "secondary", "muted", "accent", "destructive"],
     status: ["success", "healthy", "warning", "downgrade", "info", "unhealthy"],
     charts: ["chart-1", "chart-2", "chart-3", "chart-4", "chart-5"],
-    shell: ["sidebar", "sidebar-accent", "operator-surface", "command"],
+    shell: ["sidebar", "sidebar-accent", "operator-surface"],
   },
   typography: {
     families: ["--operator-font-sans", "--operator-font-mono"],
@@ -82,7 +81,6 @@ export const operatorPrimitiveInventory: Record<RequiredShadcnPrimitive, "presen
   sidebar: "present",
   table: "present",
   form: "present",
-  command: "present",
   chart: "present",
   dialog: "present",
   "alert-dialog": "present",
@@ -104,7 +102,6 @@ export const operatorDesignFoundation = {
     defaultMode: "balanced" satisfies OperatorDensityMode,
     tableCellX: "var(--density-table-cell-px)",
     tableCellY: "var(--density-table-cell-py)",
-    commandInput: "var(--density-command-input-h)",
   },
   guardrails: [
     "material-admin-density-first",
@@ -114,12 +111,6 @@ export const operatorDesignFoundation = {
     "no-motion-gated-functionality",
     "shared-operator-components-before-page-local-patterns",
   ],
-} as const
-
-export const operatorCommandPaletteContract = {
-  triggerTestId: "command-palette-trigger",
-  titleRequired: true,
-  primitive: "@/components/ui/command",
 } as const
 
 export const operatorTableShellContract = {

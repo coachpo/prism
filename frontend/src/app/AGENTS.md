@@ -22,7 +22,7 @@ app/
 - Route contract tests and rewrite harness coverage: `../test/route-helpers.test.ts`, `../test/rewrite-harness.test.tsx`, `../../tests/lib/profile_scope_header_contract.test.mjs`
 
 ## CONVENTIONS
-- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid deprecated compatibility wrappers listed there.
+- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Treat `router/appRouter.tsx` and `router/rewriteRoutes.ts` as the route source of truth; frontend docs should not invent routes outside those files.
 - Keep public auth routes under `/auth/*`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect through the compatibility map.

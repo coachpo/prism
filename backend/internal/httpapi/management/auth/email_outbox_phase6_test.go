@@ -26,7 +26,7 @@ func TestAuthPasswordResetEnqueuesOutbox(t *testing.T) {
 
 func TestAuthPasswordResetEnumerationSafe(t *testing.T) {
 	raw := readAuthSource(t)
-	if !strings.Contains(raw, "writeJSON(w, http.StatusOK, successResponse{Success: true})") {
+	if !strings.Contains(raw, "http.StatusOK, successResponse{Success: true}") {
 		t.Fatal("expected password reset request to keep generic success response")
 	}
 	if strings.Contains(raw, "writeDomainError(w, r, s.allowedOrigins, &domainError{StatusCode: http.StatusNotFound") {

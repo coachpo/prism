@@ -2,13 +2,13 @@
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
-Prism is a self-hosted LLM proxy gateway. The repo root owns the local launcher, release and deploy helpers, CI wiring, durable docs, the `.omo/` planning workspace, and the checked-in `backend/` and `frontend/` trees.
+Prism is a self-hosted LLM proxy gateway. The repo root owns the local launcher, release helper, CI wiring, durable docs, the `.omo/` planning workspace, and the checked-in `backend/` and `frontend/` trees.
 
 ## STRUCTURE
 ```text
 prism/
 ├── README.md, VERSION
-├── start.sh, release.sh, deploy.sh
+├── start.sh, release.sh
 ├── Dockerfile, docker-compose.yml, docker/
 ├── backend/       # Go backend, migrations, backend image, Go tests
 ├── frontend/      # React/Vite dashboard, shadcn config, frontend tests
@@ -65,11 +65,10 @@ prism/
 - `.github/workflows/ci.yml` runs backend regression/build, frontend seam/server/build/lint, focused config E2E, blocking Go/frontend dependency scanners, and non-blocking local-image Trivy evidence uploads.
 - `.github/workflows/docker-images.yml` checks out the monorepo, builds backend and frontend GHCR images for `linux/arm64`, runs on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and can build one service or both.
 - `release.sh` keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes one root release.
-- `.github/workflows/cleanup.yml` handles cleanup only, retaining three workflow runs and pruning untagged backend/frontend container versions.
-- `deploy.sh` is a thin root forwarding helper that SSHes to `capy`, changes into `orange_work/curse`, and delegates to the remote `./deploy.sh`.
+- `.github/workflows/cleanup.yml` handles cleanup only, pruning untagged backend/frontend container versions.
 
 ## WHERE TO LOOK
-- Operator-facing launcher, release, deploy, and local bundle helpers: `README.md`, `start.sh`, `release.sh`, `deploy.sh`, `docker-compose.yml`, `Dockerfile`, `docker/`, `frontend/.env.example`
+- Operator-facing launcher, release, and local bundle helpers: `README.md`, `start.sh`, `release.sh`, `docker-compose.yml`, `Dockerfile`, `docker/`, `frontend/.env.example`
 - Active plans and retained execution evidence: `.omo/plans/`, `.omo/evidence/`
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Backend container contract: `backend/Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
@@ -114,7 +113,7 @@ cd frontend && pnpm run test:e2e
 - Keep repo-level version docs aligned with `release.sh` and the four version surfaces it updates.
 - Keep backend container docs aligned with `backend/Dockerfile`, especially non-root `prism:prism` ownership and `/app/config/config.json` defaults.
 - Keep partitioned log-retention docs aligned with the four managed tables, runtime partition ensuring, management retention jobs, and the low-priority platform worker.
-- Keep `README.md` aligned with the same launcher, release, and deploy facts.
+- Keep `README.md` aligned with the same launcher and release facts.
 - Keep active implementation plans and live execution artifacts out of `docs/`; store working plans under `.omo/plans/` and run evidence under `.omo/evidence/`.
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

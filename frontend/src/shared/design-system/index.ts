@@ -1,4 +1,3 @@
-export * from "./command-palette"
 export * from "./controls"
 export * from "./foundation"
 export * from "./metrics"

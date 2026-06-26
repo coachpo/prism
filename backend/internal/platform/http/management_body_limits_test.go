@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/coachpo/prism/backend/internal/platform/bodylimits"
 	"github.com/go-chi/chi/v5"
 
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
@@ -27,22 +28,22 @@ func TestManagementBodyLimitMiddlewareRejectsOversizedBodiesWithStableJSON(t *te
 			name:       "auth login",
 			method:     http.MethodPost,
 			path:       "/api/auth/login",
-			limitBytes: AuthRequestBodyLimitBytes,
-			body:       `{"username":"` + strings.Repeat("a", int(AuthRequestBodyLimitBytes)+1),
+			limitBytes: bodylimits.AuthRequestBodyLimitBytes,
+			body:       `{"username":"` + strings.Repeat("a", int(bodylimits.AuthRequestBodyLimitBytes)+1),
 		},
 		{
 			name:       "bootstrap config",
 			method:     http.MethodPut,
 			path:       "/api/config/bootstrap",
-			limitBytes: BootstrapRequestBodyLimitBytes,
-			body:       `{"values":{"padding":"` + strings.Repeat("a", int(BootstrapRequestBodyLimitBytes)+1),
+			limitBytes: bodylimits.BootstrapRequestBodyLimitBytes,
+			body:       `{"values":{"padding":"` + strings.Repeat("a", int(bodylimits.BootstrapRequestBodyLimitBytes)+1),
 		},
 		{
 			name:       "profile import preview",
 			method:     http.MethodPost,
 			path:       "/api/config/profile/import/preview",
-			limitBytes: ConfigBundleRequestBodyLimitBytes,
-			body:       `{"version":3,"bundle_kind":"profile_config","padding":"` + strings.Repeat("a", int(ConfigBundleRequestBodyLimitBytes)+1),
+			limitBytes: bodylimits.ConfigBundleRequestBodyLimitBytes,
+			body:       `{"version":3,"bundle_kind":"profile_config","padding":"` + strings.Repeat("a", int(bodylimits.ConfigBundleRequestBodyLimitBytes)+1),
 		},
 	}
 
@@ -66,10 +67,10 @@ func TestManagementRequestBodyLimitClassifiesExpectedCaps(t *testing.T) {
 		limitBytes int64
 		ok         bool
 	}{
-		{name: "auth", method: http.MethodPost, path: "/api/auth/login", limitBytes: AuthRequestBodyLimitBytes, ok: true},
-		{name: "bootstrap", method: http.MethodPut, path: "/api/config/bootstrap", limitBytes: BootstrapRequestBodyLimitBytes, ok: true},
-		{name: "config bundle", method: http.MethodPost, path: "/api/config/profile/import/preview", limitBytes: ConfigBundleRequestBodyLimitBytes, ok: true},
-		{name: "generic management", method: http.MethodPut, path: "/api/settings/costing", limitBytes: ManagementJSONRequestBodyLimitBytes, ok: true},
+		{name: "auth", method: http.MethodPost, path: "/api/auth/login", limitBytes: bodylimits.AuthRequestBodyLimitBytes, ok: true},
+		{name: "bootstrap", method: http.MethodPut, path: "/api/config/bootstrap", limitBytes: bodylimits.BootstrapRequestBodyLimitBytes, ok: true},
+		{name: "config bundle", method: http.MethodPost, path: "/api/config/profile/import/preview", limitBytes: bodylimits.ConfigBundleRequestBodyLimitBytes, ok: true},
+		{name: "generic management", method: http.MethodPut, path: "/api/settings/costing", limitBytes: bodylimits.ManagementJSONRequestBodyLimitBytes, ok: true},
 		{name: "profile export with secrets", method: http.MethodPost, path: "/api/config/profile/export/with-secrets", ok: false},
 		{name: "read route", method: http.MethodGet, path: "/api/settings/auth", ok: false},
 	}
@@ -121,8 +122,8 @@ func assertRequestBodyTooLargeResponse(t *testing.T, response *httptest.Response
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode oversized response: %v", err)
 	}
-	if payload.Error != RequestBodyTooLargeCode {
-		t.Fatalf("expected error %q, got %q", RequestBodyTooLargeCode, payload.Error)
+	if payload.Error != bodylimits.RequestBodyTooLargeCode {
+		t.Fatalf("expected error %q, got %q", bodylimits.RequestBodyTooLargeCode, payload.Error)
 	}
 	if payload.Message == "" {
 		t.Fatal("expected human-readable message")

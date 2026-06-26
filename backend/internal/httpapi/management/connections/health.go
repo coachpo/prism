@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
@@ -58,12 +59,12 @@ func (s *Service) handleConnectionHealthCheck(w http.ResponseWriter, r *http.Req
 func (s *Service) handleModelConnectionHealthCheck(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	connectionID, err := routeInt(r, "connection_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	value, err, _ := s.persistedHealthChecks.Do(fmt.Sprintf("model-connection:%d:%d", modelConfigID, connectionID), func() (any, error) {
@@ -78,7 +79,7 @@ func (s *Service) handleModelConnectionHealthCheck(w http.ResponseWriter, r *htt
 		writeDomainError(w, r, s.corsSnapshot(), fmt.Errorf("unexpected connection health result type"))
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) runPersistedConnectionHealthCheck(ctx context.Context, r *http.Request, connectionID int) (healthCheckResponse, error) {

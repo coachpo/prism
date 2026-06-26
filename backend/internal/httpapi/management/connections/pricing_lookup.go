@@ -3,6 +3,7 @@ package connections
 import (
 	"net/http"
 
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
 )
@@ -10,7 +11,7 @@ import (
 func (s *Service) handleListPricingTemplateConnections(w http.ResponseWriter, r *http.Request) {
 	templateID, err := routeInt(r, "template_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateConnectionsResponse, error) {
@@ -51,5 +52,5 @@ func (s *Service) handleListPricingTemplateConnections(w http.ResponseWriter, r 
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }

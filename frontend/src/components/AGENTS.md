@@ -8,15 +8,9 @@
 components/
 ├── AnimatedListItem.tsx                               # Shared animated list row used across route surfaces
 ├── ApiFamilyIcon.tsx + ApiFamilySelect.tsx            # Shared API-family icon and picker helpers
-├── CompactMetricTile.tsx                              # Shared compact metric tile
 ├── CopyButton.tsx                                     # Shared copy affordance
-├── EmptyState.tsx                                     # Shared empty-state shell
 ├── IconActionGroup.tsx                                # Shared icon action cluster
-├── MetricCard.tsx                                     # Shared metric summary card
-├── PageHeader.tsx                                     # Shared page header shell
-├── StatusBadge.tsx                                    # Shared status badge
 ├── SpendTrustIndicator.tsx                            # Shared spend trust and fallback note
-├── SwitchController.tsx                               # Shared switch wrapper and control row
 ├── WebSocketStatusIndicator.tsx                       # Shared realtime connection badge
 ├── layout/app-layout/AGENTS.md                        # Post-upgrade shell cluster behind the mounted page wrapper
 ├── loadbalance/AGENTS.md                              # Shared loadbalance renderers
@@ -28,7 +22,7 @@ components/
 - Shell chrome and layout handoff: `layout/page.tsx`
 - Shell state cluster, nav/version ownership, and profile-switcher behavior: `layout/app-layout/AGENTS.md`
 - Shared language/theme controls: `LanguageSwitcher.tsx`, `ThemeToggle.tsx`
-- Shared list, compact metric, copy, empty-state, icon action, metric, header, status badge, spend-trust note, and switch widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CompactMetricTile.tsx`, `CopyButton.tsx`, `EmptyState.tsx`, `IconActionGroup.tsx`, `MetricCard.tsx`, `PageHeader.tsx`, `StatusBadge.tsx`, `SpendTrustIndicator.tsx`, `SwitchController.tsx`
+- Shared list, copy, icon action, and spend-trust note widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`, `SpendTrustIndicator.tsx`
 - Shared realtime connection badge: `WebSocketStatusIndicator.tsx`
 - Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`
 - Shared statistics rendering: `statistics/TopSpendingCard.tsx`
@@ -42,7 +36,7 @@ components/
 - `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
 
 ## CONVENTIONS
-- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid deprecated compatibility wrappers listed there.
+- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.

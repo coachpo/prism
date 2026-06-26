@@ -28,12 +28,12 @@ const ownerScopedConnectionMutationDetail = "terminal target mutations must use 
 func (s *Service) handleListConnectionsBatch(w http.ResponseWriter, r *http.Request) {
 	var requestBody modelConnectionsBatchRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	normalizedModelIDs := dedupeIntValues(requestBody.ModelConfigIDs)
 	if len(normalizedModelIDs) == 0 {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "model_config_ids must contain at least one model config id")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "model_config_ids must contain at least one model config id")
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (modelConnectionsBatchResponse, error) {
@@ -62,13 +62,13 @@ func (s *Service) handleListConnectionsBatch(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleListModelConnections(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) ([]connectionResponse, error) {
@@ -89,7 +89,7 @@ func (s *Service) handleListModelConnections(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, withOwnerScopedConnectionOverrideMetadataList(response))
+	responseutil.WriteJSON(w, http.StatusOK, withOwnerScopedConnectionOverrideMetadataList(response))
 }
 
 func (s *Service) handleListConnections(w http.ResponseWriter, r *http.Request) {
@@ -104,13 +104,13 @@ func (s *Service) handleListConnections(w http.ResponseWriter, r *http.Request) 
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetConnection(w http.ResponseWriter, r *http.Request) {
 	connectionID, err := routeInt(r, "connection_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionResponse, error) {
@@ -131,22 +131,22 @@ func (s *Service) handleGetConnection(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody connectionCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if requestBody.Priority.Set {
-		writeError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "priority is not allowed on create")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "priority is not allowed on create")
 		return
 	}
 
@@ -259,7 +259,7 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, withOwnerScopedConnectionOverrideMetadata(response))
+	responseutil.WriteJSON(w, http.StatusCreated, withOwnerScopedConnectionOverrideMetadata(response))
 }
 
 func (s *Service) handleCreateConnection(w http.ResponseWriter, r *http.Request) {
@@ -273,21 +273,21 @@ func (s *Service) handleUpdateConnection(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleUpdateModelConnection(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	connectionID, err := routeInt(r, "connection_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody connectionUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if requestBody.Priority.Set {
-		writeError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "priority is not allowed on update")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "priority is not allowed on update")
 		return
 	}
 
@@ -338,7 +338,7 @@ func (s *Service) handleUpdateModelConnection(w http.ResponseWriter, r *http.Req
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, withOwnerScopedConnectionOverrideMetadata(response))
+	responseutil.WriteJSON(w, http.StatusOK, withOwnerScopedConnectionOverrideMetadata(response))
 }
 
 func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.Tx, profileID int, owner modelRecord, current connectionResponse, requestBody connectionUpdateRequest) (connectionResponse, error) {
@@ -509,12 +509,12 @@ func (s *Service) handleDeleteConnection(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleDeleteModelConnection(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	connectionID, err := routeInt(r, "connection_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (deletedResponse, error) {
@@ -564,7 +564,7 @@ func (s *Service) handleDeleteModelConnection(w http.ResponseWriter, r *http.Req
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func ensureOwnerConnectionDeleteAllowed(ctx context.Context, exec queryExecutor, profileID int, owner modelRecord, deletingTargetID int) error {
@@ -590,13 +590,13 @@ func (s *Service) handleLegacyModelConnectionNotFound(w http.ResponseWriter, r *
 }
 
 func (s *Service) writeConnectionMutationRouteError(w http.ResponseWriter, r *http.Request) {
-	writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, ownerScopedConnectionMutationDetail)
+	responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, ownerScopedConnectionMutationDetail)
 }
 
 func (s *Service) handleListConnectionReferences(w http.ResponseWriter, r *http.Request) {
 	connectionID, err := routeInt(r, "connection_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionReferencesResponse, error) {
@@ -619,7 +619,7 @@ func (s *Service) handleListConnectionReferences(w http.ResponseWriter, r *http.
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func resolveEffectiveProfile(ctx context.Context, tx pgx.Tx, r *http.Request) (profiledomain.Profile, error) {
@@ -933,16 +933,10 @@ func decodeJSONBody(request *http.Request, target any) error {
 	return json.NewDecoder(request.Body).Decode(target)
 }
 
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var connectionErr *domainError
 	if errors.As(err, &connectionErr) {
-		writeError(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail)
+		responseutil.WriteError(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail)
 		return
 	}
 	var profileErr *profiledomain.HTTPError
@@ -950,12 +944,7 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail any) {
-	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]any{"detail": detail})
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
 func routeInt(request *http.Request, name string) (int, error) {

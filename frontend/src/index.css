@@ -74,8 +74,6 @@
     --color-operator-surface-raised: var(--operator-surface-raised);
     --color-operator-grid: var(--operator-grid);
     --color-operator-glow: var(--operator-glow);
-    --color-command: var(--command);
-    --color-command-foreground: var(--command-foreground);
     --font-sans: var(--operator-font-sans);
     --font-mono: var(--operator-font-mono);
     --shadow-operator-panel: var(--shadow-operator-panel);
@@ -100,8 +98,6 @@
     --operator-surface-raised: var(--surface);
     --operator-grid: var(--outline-variant);
     --operator-glow: #1a73e8;
-    --command: var(--surface);
-    --command-foreground: #1f1f1f;
     --shadow-operator-panel: 0 1px 2px color-mix(in oklab, var(--foreground) 14%, transparent), 0 2px 8px -6px color-mix(in oklab, var(--foreground) 24%, transparent);
     --shadow-operator-glow: 0 0 0 1px color-mix(in oklab, var(--primary) 12%, transparent), 0 10px 32px -24px color-mix(in oklab, var(--primary) 38%, transparent);
     --background: #f8fafd;
@@ -168,8 +164,6 @@
     --operator-surface-raised: var(--surface-container);
     --operator-grid: var(--outline-variant);
     --operator-glow: #a8c7fa;
-    --command: var(--surface-container);
-    --command-foreground: #e3e3e3;
     --shadow-operator-panel: 0 1px 2px color-mix(in oklab, black 44%, transparent), 0 12px 32px -28px black;
     --shadow-operator-glow: 0 0 0 1px color-mix(in oklab, var(--primary) 18%, transparent), 0 16px 40px -28px color-mix(in oklab, var(--primary) 50%, transparent);
     --background: #111318;
@@ -242,8 +236,6 @@
         --density-control-h: 2.25rem;
         --density-control-h-sm: 2rem;
         --density-control-h-xs: 1.75rem;
-        --density-command-input-h: 2.75rem;
-        --density-command-item-py: 0.625rem;
         --density-table-head-h: 2.25rem;
         --density-table-cell-py: 0.5rem;
         --density-table-cell-px: 0.5rem;
@@ -352,15 +344,6 @@
         --density-table-head-h: 2.75rem;
         --density-table-cell-py: 0.75rem;
         --density-table-cell-px: 0.875rem;
-    }
-    .operator-command-surface {
-        background: var(--command);
-        color: var(--command-foreground);
-        box-shadow: var(--shadow-operator-glow);
-    }
-    .operator-command-trigger {
-        font-variant-numeric: tabular-nums;
-        letter-spacing: var(--tracking-operator);
     }
     .operator-page-transition {
         transition: opacity 180ms ease, transform 180ms ease;

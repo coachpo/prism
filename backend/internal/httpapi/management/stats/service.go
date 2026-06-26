@@ -235,7 +235,7 @@ func (s *Service) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, snapshot)
+	responseutil.WriteJSON(w, http.StatusOK, snapshot)
 }
 
 func (s *Service) handleDashboardRecentActivity(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +255,7 @@ func (s *Service) handleDashboardRecentActivity(w http.ResponseWriter, r *http.R
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
@@ -274,13 +274,13 @@ func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 	requestID, err := routeInt(r, "request_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (*statsdomain.RequestLogDetailResponse, error) {
@@ -295,10 +295,10 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if response == nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Request log not found")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusNotFound, "Request log not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
@@ -323,7 +323,7 @@ func (s *Service) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
 		if params.GroupBy != nil && strings.EqualFold(strings.TrimSpace(*params.GroupBy), "api_family") {
 			response = snapshot.APIFamilySummary24H
 		}
-		writeJSON(w, http.StatusOK, response)
+		responseutil.WriteJSON(w, http.StatusOK, response)
 		return
 	}
 	response, err := statsdomain.GetStatsSummary(r.Context(), s.pool, params)
@@ -331,13 +331,13 @@ func (s *Service) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleModelMetrics(w http.ResponseWriter, r *http.Request) {
 	body, err := decodeModelMetricsRequest(r)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.ModelMetricsBatchResponse, error) {
@@ -357,7 +357,7 @@ func (s *Service) handleModelMetrics(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleConnectionSuccessRates(w http.ResponseWriter, r *http.Request) {
@@ -380,7 +380,7 @@ func (s *Service) handleConnectionSuccessRates(w http.ResponseWriter, r *http.Re
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
@@ -425,7 +425,7 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 			writeDomainError(w, r, s.corsSnapshot(), snapshotErr)
 			return
 		}
-		writeJSON(w, http.StatusOK, snapshot.Throughput24H)
+		responseutil.WriteJSON(w, http.StatusOK, snapshot.Throughput24H)
 		return
 	}
 	response, err := statsdomain.GetThroughput(r.Context(), s.pool, params)
@@ -433,7 +433,7 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
@@ -476,7 +476,7 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -493,7 +493,7 @@ func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
 			writeDomainError(w, r, s.corsSnapshot(), snapshotErr)
 			return
 		}
-		writeJSON(w, http.StatusOK, snapshot.UsageSnapshotPreset1)
+		responseutil.WriteJSON(w, http.StatusOK, snapshot.UsageSnapshotPreset1)
 		return
 	}
 	response, err := statsdomain.GetUsageSnapshot(r.Context(), s.pool, profile.ID, preset, referenceNow)
@@ -501,13 +501,13 @@ func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.Request) {
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) ([]statsdomain.EndpointModelStatistic, error) {
@@ -530,7 +530,7 @@ func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.R
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.RequestLogListParams, error) {
@@ -707,15 +707,10 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 			writeStructuredError(w, r, corsSnapshot, statsErr)
 			return
 		}
-		writeError(w, r, corsSnapshot, statsErr.StatusCode, statsErr.Detail)
+		responseutil.WriteError(w, r, corsSnapshot, statsErr.StatusCode, statsErr.Detail)
 		return
 	}
-	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
-	writeCORSHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]string{"detail": detail})
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
 func writeStructuredError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err *statsdomain.HTTPError) {
@@ -724,15 +719,9 @@ func writeStructuredError(w http.ResponseWriter, r *http.Request, corsSnapshot p
 	if len(err.Details) > 0 {
 		payload["error"].(map[string]any)["details"] = err.Details
 	}
-	writeJSON(w, err.StatusCode, payload)
+	responseutil.WriteJSON(w, err.StatusCode, payload)
 }
 
 func writeCORSHeaders(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot) {
 	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-}
-
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
 }

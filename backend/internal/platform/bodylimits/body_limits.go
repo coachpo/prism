@@ -33,11 +33,9 @@ func LimitRequestBody(w http.ResponseWriter, r *http.Request, limitBytes int64) 
 }
 
 func MaxBytesError(err error) (*http.MaxBytesError, bool) {
-	for err != nil {
-		if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-			return maxBytesErr, true
-		}
-		err = errors.Unwrap(err)
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		return maxBytesErr, true
 	}
 	return nil, false
 }

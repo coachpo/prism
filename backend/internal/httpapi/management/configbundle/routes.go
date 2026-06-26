@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"time"
 
@@ -54,7 +53,7 @@ func (s *Service) exportProfileBundle(w http.ResponseWriter, r *http.Request, in
 func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Request) {
 	var requestBody profileImportRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := validateProfileBundleEnvelope(requestBody); err != nil {
@@ -94,13 +93,13 @@ func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleImportProfileBundle(w http.ResponseWriter, r *http.Request) {
 	var requestBody profileImportRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := validateProfileBundleEnvelope(requestBody); err != nil {
@@ -132,7 +131,7 @@ func (s *Service) handleImportProfileBundle(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func profileExportFilename(exportTime time.Time) string {
@@ -169,35 +168,14 @@ func writeDownloadJSON(w http.ResponseWriter, statusCode int, payload any, filen
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	if bundleErr, ok := errors.AsType[*domainError](err); ok {
-		writeErrorFields(w, r, corsSnapshot, bundleErr.StatusCode, bundleErr.Detail, bundleErr.Fields)
+		responseutil.WriteErrorFields(w, r, corsSnapshot, bundleErr.StatusCode, bundleErr.Detail, bundleErr.Fields)
 		return
 	}
 	if profileErr, ok := errors.AsType[*profiledomain.HTTPError](err); ok {
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
-	writeErrorFields(w, r, corsSnapshot, statusCode, detail, nil)
-}
-
-func writeErrorFields(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string, fields map[string]any) {
-	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	if len(fields) == 0 {
-		writeJSON(w, statusCode, map[string]string{"detail": detail})
-		return
-	}
-	payload := map[string]any{"detail": detail}
-	maps.Copy(payload, fields)
-	writeJSON(w, statusCode, payload)
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }

@@ -224,11 +224,8 @@ func loadStrategyRecordsByIDs(ctx context.Context, exec queryExecutor, profileID
 	if len(strategyIDs) == 0 {
 		return map[int]strategyRecord{}, nil
 	}
-	args := []any{profileID}
-	for _, strategyID := range strategyIDs {
-		args = append(args, strategyID)
-	}
-	query := fmt.Sprintf(`SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds FROM loadbalance_strategies WHERE profile_id = $1 AND id IN (%s) ORDER BY id ASC`, placeholders(2, len(strategyIDs)))
+	args := []any{profileID, int32ArrayArg(strategyIDs)}
+	query := `SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds FROM loadbalance_strategies WHERE profile_id = $1 AND id = ANY($2) ORDER BY id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query strategies by id for profile %d: %w", profileID, err)
@@ -253,11 +250,8 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 	if len(endpointIDs) == 0 {
 		return []endpointModelConnectionRow{}, nil
 	}
-	args := []any{profileID}
-	for _, endpointID := range endpointIDs {
-		args = append(args, endpointID)
-	}
-	query := fmt.Sprintf(`WITH RECURSIVE terminal_reachability AS (
+	args := []any{profileID, int32ArrayArg(endpointIDs)}
+	query := `WITH RECURSIVE terminal_reachability AS (
 		SELECT model_access_targets.source_model_config_id AS root_model_config_id,
 			model_access_targets.target_model_config_id AS next_model_config_id,
 			model_access_targets.target_connection_id AS terminal_connection_id,
@@ -283,9 +277,9 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 	JOIN connections ON connections.id = terminal_reachability.terminal_connection_id AND connections.profile_id = $1
 	JOIN model_configs AS source_models ON source_models.id = terminal_reachability.root_model_config_id AND source_models.profile_id = $1
 	WHERE terminal_reachability.terminal_connection_id IS NOT NULL
-		AND connections.endpoint_id IN (%s)
+		AND connections.endpoint_id = ANY($2)
 		AND source_models.is_enabled = TRUE
-	ORDER BY connections.endpoint_id ASC, source_models.model_id ASC, source_models.id ASC, connections.id ASC`, placeholders(2, len(endpointIDs)))
+	ORDER BY connections.endpoint_id ASC, source_models.model_id ASC, source_models.id ASC, connections.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query reachable endpoint model rows for profile %d: %w", profileID, err)
@@ -375,11 +369,8 @@ func loadAccessTargetsForModels(ctx context.Context, exec queryExecutor, profile
 }
 
 func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, profileID int, modelIDs []int) (map[int][]accessTargetRecord, error) {
-	args := []any{profileID}
-	for _, modelID := range modelIDs {
-		args = append(args, modelID)
-	}
-	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.openai_accepted_format, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	args := []any{profileID, int32ArrayArg(modelIDs)}
+	query := `SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_model_config_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, target_models.id, target_models.profile_id, target_models.api_family, target_models.model_id, target_models.display_name, target_models.loadbalance_strategy_id, target_models.facade_enabled, target_models.facade_selection_policy, target_models.facade_fallback_policy, target_models.openai_accepted_format, target_models.is_enabled, target_models.created_at, target_models.updated_at FROM model_access_targets JOIN model_configs AS target_models ON target_models.id = model_access_targets.target_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = ANY($2) AND model_access_targets.target_model_config_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query model access targets for profile %d: %w", profileID, err)
@@ -415,11 +406,8 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 }
 
 func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecutor, profileID int, modelIDs []int) (map[int][]accessTargetRecord, error) {
-	args := []any{profileID}
-	for _, modelID := range modelIDs {
-		args = append(args, modelID)
-	}
-	query := fmt.Sprintf(`SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.context_window_tokens_overridden, connections.default_output_token_reserve, connections.default_output_token_reserve_overridden, connections.max_context_utilization, connections.max_context_utilization_overridden, connections.preferred_context_utilization_threshold, connections.preferred_context_utilization_threshold_overridden, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`, placeholders(2, len(modelIDs)))
+	args := []any{profileID, int32ArrayArg(modelIDs)}
+	query := `SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.context_window_tokens_overridden, connections.default_output_token_reserve, connections.default_output_token_reserve_overridden, connections.max_context_utilization, connections.max_context_utilization_overridden, connections.preferred_context_utilization_threshold, connections.preferred_context_utilization_threshold_overridden, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = ANY($2) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query connection access targets for profile %d: %w", profileID, err)
@@ -544,12 +532,8 @@ func loadTargetModelRecordsByModelIDs(ctx context.Context, exec queryExecutor, p
 	if len(modelIDs) == 0 {
 		return map[string]modelRecord{}, nil
 	}
-	args := []any{profileID}
-	for _, modelID := range modelIDs {
-		args = append(args, modelID)
-	}
-	query := fmt.Sprintf(`SELECT `+modelRecordSelectColumns+` FROM model_configs WHERE profile_id = $1 AND model_id IN (%s) ORDER BY id ASC`, placeholders(2, len(modelIDs)))
-	rows, err := exec.Query(ctx, query, args...)
+	query := `SELECT ` + modelRecordSelectColumns + ` FROM model_configs WHERE profile_id = $1 AND model_id = ANY($2) ORDER BY id ASC`
+	rows, err := exec.Query(ctx, query, profileID, modelIDs)
 	if err != nil {
 		return nil, fmt.Errorf("query target models for profile %d: %w", profileID, err)
 	}
@@ -572,11 +556,8 @@ func loadConnectionSummariesByIDs(ctx context.Context, exec queryExecutor, profi
 	if len(connectionIDs) == 0 {
 		return map[int]connectionTargetSummary{}, nil
 	}
-	args := []any{profileID}
-	for _, connectionID := range connectionIDs {
-		args = append(args, connectionID)
-	}
-	query := fmt.Sprintf(`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.context_window_tokens_overridden, connections.default_output_token_reserve, connections.default_output_token_reserve_overridden, connections.max_context_utilization, connections.max_context_utilization_overridden, connections.preferred_context_utilization_threshold, connections.preferred_context_utilization_threshold_overridden, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.id IN (%s) ORDER BY connections.id ASC`, placeholders(2, len(connectionIDs)))
+	args := []any{profileID, int32ArrayArg(connectionIDs)}
+	query := `SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.context_window_tokens_overridden, connections.default_output_token_reserve, connections.default_output_token_reserve_overridden, connections.max_context_utilization, connections.max_context_utilization_overridden, connections.preferred_context_utilization_threshold, connections.preferred_context_utilization_threshold_overridden, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.id = ANY($2) ORDER BY connections.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query target connections for profile %d: %w", profileID, err)
@@ -1214,14 +1195,6 @@ func intSliceFromInt32(values []int32) []int {
 		items = append(items, int(value))
 	}
 	return items
-}
-
-func placeholders(start int, count int) string {
-	parts := make([]string, count)
-	for index := range count {
-		parts[index] = fmt.Sprintf("$%d", start+index)
-	}
-	return strings.Join(parts, ", ")
 }
 
 func nullableString(value *string) any {

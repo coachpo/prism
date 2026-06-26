@@ -45,13 +45,13 @@ func (s *Service) handleListHeaderBlocklistRules(w http.ResponseWriter, r *http.
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetHeaderBlocklistRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
@@ -72,13 +72,13 @@ func (s *Service) handleGetHeaderBlocklistRule(w http.ResponseWriter, r *http.Re
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateHeaderBlocklistRule(w http.ResponseWriter, r *http.Request) {
 	var requestBody headerBlocklistRuleCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateHeaderBlocklistCreate(&requestBody); err != nil {
@@ -107,18 +107,18 @@ func (s *Service) handleCreateHeaderBlocklistRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, response)
+	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
 func (s *Service) handleUpdateHeaderBlocklistRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody headerBlocklistRuleUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateHeaderBlocklistUpdate(&requestBody); err != nil {
@@ -186,13 +186,13 @@ func (s *Service) handleUpdateHeaderBlocklistRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleDeleteHeaderBlocklistRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (deletedResponse, error) {
@@ -219,7 +219,7 @@ func (s *Service) handleDeleteHeaderBlocklistRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleListUserAgentClientRules(w http.ResponseWriter, r *http.Request) {
@@ -247,13 +247,13 @@ func (s *Service) handleListUserAgentClientRules(w http.ResponseWriter, r *http.
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetUserAgentClientRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
@@ -274,13 +274,13 @@ func (s *Service) handleGetUserAgentClientRule(w http.ResponseWriter, r *http.Re
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateUserAgentClientRule(w http.ResponseWriter, r *http.Request) {
 	var requestBody userAgentClientRuleCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateUserAgentCreate(&requestBody); err != nil {
@@ -302,18 +302,18 @@ func (s *Service) handleCreateUserAgentClientRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, response)
+	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
 func (s *Service) handleUpdateUserAgentClientRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody userAgentClientRuleUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateUserAgentUpdate(&requestBody); err != nil {
@@ -365,13 +365,13 @@ func (s *Service) handleUpdateUserAgentClientRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleDeleteUserAgentClientRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (deletedResponse, error) {
@@ -398,7 +398,7 @@ func (s *Service) handleDeleteUserAgentClientRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func normalizeAndValidateHeaderBlocklistCreate(requestBody *headerBlocklistRuleCreateRequest) error {
@@ -485,16 +485,10 @@ func decodeJSONBody(request *http.Request, target any) error {
 	return json.NewDecoder(request.Body).Decode(target)
 }
 
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var configErr *domainError
 	if errors.As(err, &configErr) {
-		writeError(w, r, corsSnapshot, configErr.StatusCode, configErr.Detail)
+		responseutil.WriteError(w, r, corsSnapshot, configErr.StatusCode, configErr.Detail)
 		return
 	}
 	var profileErr *profiledomain.HTTPError
@@ -502,12 +496,7 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail any) {
-	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]any{"detail": detail})
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
 func routeInt(request *http.Request, name string) (int, error) {

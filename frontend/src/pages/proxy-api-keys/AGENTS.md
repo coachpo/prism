@@ -21,7 +21,7 @@ proxy-api-keys/
 - Create, edit, rotate, delete, and ledger presentation: `ProxyKeyIssuePanel.tsx`, `ProxyKeyDetailSheet.tsx`, `ProxyKeyDeleteAlertDialog.tsx`, `ProxyKeyLedgerCard.tsx`
 
 ## CONVENTIONS
-- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid deprecated compatibility wrappers listed there.
+- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Treat proxy API key management as a global auth-settings workflow, not a selected-profile feature.
 - Bootstrap auth settings and existing keys in parallel with `Promise.allSettled()` in the feature data hook.

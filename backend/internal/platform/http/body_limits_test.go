@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/coachpo/prism/backend/internal/platform/bodylimits"
 )
 
 type bodyLimitTestPayload struct {
@@ -24,14 +26,14 @@ func TestLimitRequestBodyDetectsOversizedValidJSON(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"value":"`+strings.Repeat("a", 64)+`"}`))
 	recorder := httptest.NewRecorder()
 
-	LimitRequestBody(recorder, request, limitBytes)
+	bodylimits.LimitRequestBody(recorder, request, limitBytes)
 
 	var payload bodyLimitTestPayload
 	err := json.NewDecoder(request.Body).Decode(&payload)
 	if err == nil {
 		t.Fatalf("expected oversized valid JSON to fail")
 	}
-	maxBytesErr, ok := MaxBytesError(err)
+	maxBytesErr, ok := bodylimits.MaxBytesError(err)
 	if !ok {
 		t.Fatalf("expected MaxBytesError, got %T: %v", err, err)
 	}
@@ -45,14 +47,14 @@ func TestLimitRequestBodyDetectsOversizedInvalidJSON(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"value":"`+strings.Repeat("a", 64)))
 	recorder := httptest.NewRecorder()
 
-	LimitRequestBody(recorder, request, limitBytes)
+	bodylimits.LimitRequestBody(recorder, request, limitBytes)
 
 	var payload bodyLimitTestPayload
 	err := json.NewDecoder(request.Body).Decode(&payload)
 	if err == nil {
 		t.Fatalf("expected oversized invalid JSON to fail")
 	}
-	maxBytesErr, ok := MaxBytesError(err)
+	maxBytesErr, ok := bodylimits.MaxBytesError(err)
 	if !ok {
 		t.Fatalf("expected MaxBytesError, got %T: %v", err, err)
 	}
@@ -66,7 +68,7 @@ func TestWriteMaxBytesErrorRespondsWithStableJSON(t *testing.T) {
 	err := fmt.Errorf("wrapped: %w", &http.MaxBytesError{Limit: limitBytes})
 	recorder := httptest.NewRecorder()
 
-	if !WriteMaxBytesError(recorder, err, 0) {
+	if !bodylimits.WriteMaxBytesError(recorder, err, 0) {
 		t.Fatalf("expected wrapped MaxBytesError to be handled")
 	}
 
@@ -83,8 +85,8 @@ func TestWriteMaxBytesErrorRespondsWithStableJSON(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Error != RequestBodyTooLargeCode {
-		t.Fatalf("expected error code %q, got %q", RequestBodyTooLargeCode, payload.Error)
+	if payload.Error != bodylimits.RequestBodyTooLargeCode {
+		t.Fatalf("expected error code %q, got %q", bodylimits.RequestBodyTooLargeCode, payload.Error)
 	}
 	if payload.Message == "" {
 		t.Fatalf("expected human-readable message")

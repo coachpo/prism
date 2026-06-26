@@ -205,7 +205,7 @@ func endpointsRouteRequireDetail(t *testing.T, response *httptest.ResponseRecord
 func endpointsRouteSeedConnectionUsage(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, endpointID int, now time.Time) (int, int) {
 	t.Helper()
 	var modelID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'endpoint-contract-model', 'Endpoint Contract Model', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&modelID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, openai_accepted_format, created_at, updated_at) VALUES ($1, 'openai', 'endpoint-contract-model', 'Endpoint Contract Model', NULL, TRUE, 'dual_native', $2, $2) RETURNING id`, profileID, now).Scan(&modelID); err != nil {
 		t.Fatalf("insert model: %v", err)
 	}
 	var connectionID int
@@ -238,7 +238,7 @@ func endpointsRouteSeedRichConnectionUsage(t *testing.T, ctx context.Context, co
 	t.Helper()
 	pricingID := endpointsRouteInsertPricingTemplate(t, ctx, conn, profileID, "Endpoint Boundary Pricing", now)
 	var modelID int
-	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'endpoint-boundary-model', 'Endpoint Boundary Model', NULL, TRUE, $2, $2) RETURNING id`, profileID, now).Scan(&modelID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, openai_accepted_format, created_at, updated_at) VALUES ($1, 'openai', 'endpoint-boundary-model', 'Endpoint Boundary Model', NULL, TRUE, 'dual_native', $2, $2) RETURNING id`, profileID, now).Scan(&modelID); err != nil {
 		t.Fatalf("insert boundary model: %v", err)
 	}
 	var connectionID int

@@ -46,13 +46,13 @@ func (s *Service) handleGetAuditSettings(w http.ResponseWriter, r *http.Request)
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handlePutAuditSettings(w http.ResponseWriter, r *http.Request) {
 	var requestBody auditSettingsUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateAuditSettingsRequest(&requestBody); err != nil {
@@ -77,7 +77,7 @@ func (s *Service) handlePutAuditSettings(w http.ResponseWriter, r *http.Request)
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetCostingSettings(w http.ResponseWriter, r *http.Request) {
@@ -100,13 +100,13 @@ func (s *Service) handleGetCostingSettings(w http.ResponseWriter, r *http.Reques
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handlePutCostingSettings(w http.ResponseWriter, r *http.Request) {
 	var requestBody costingSettingsUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateCostingRequest(&requestBody); err != nil {
@@ -141,7 +141,7 @@ func (s *Service) handlePutCostingSettings(w http.ResponseWriter, r *http.Reques
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetTimezonePreference(w http.ResponseWriter, r *http.Request) {
@@ -160,13 +160,13 @@ func (s *Service) handleGetTimezonePreference(w http.ResponseWriter, r *http.Req
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handlePutTimezonePreference(w http.ResponseWriter, r *http.Request) {
 	var requestBody timezonePreferenceUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateTimezoneRequest(&requestBody); err != nil {
@@ -193,7 +193,7 @@ func (s *Service) handlePutTimezonePreference(w http.ResponseWriter, r *http.Req
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetRetentionSettings(w http.ResponseWriter, r *http.Request) {
@@ -208,13 +208,13 @@ func (s *Service) handleGetRetentionSettings(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handlePutRetentionSettings(w http.ResponseWriter, r *http.Request) {
 	var requestBody retentionSettingsUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateRetentionRequest(&requestBody); err != nil {
@@ -240,13 +240,13 @@ func (s *Service) handlePutRetentionSettings(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateLogRetentionJob(w http.ResponseWriter, r *http.Request) {
 	var requestBody logRetentionJobRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	requestBody.Table = strings.TrimSpace(requestBody.Table)
@@ -278,7 +278,7 @@ func (s *Service) handleCreateLogRetentionJob(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.Header().Set("Location", "/api/management/jobs/"+job.ID)
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "state": job.State, "status_url": "/api/management/jobs/" + job.ID, "scope": job.Scope})
+	responseutil.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "state": job.State, "status_url": "/api/management/jobs/" + job.ID, "scope": job.Scope})
 }
 
 func retentionDaysForTable(settingsRow logRetentionSettingsRow, tableName string) *int {
@@ -518,25 +518,14 @@ func decodeJSONBody(request *http.Request, target any) error {
 	return json.NewDecoder(request.Body).Decode(target)
 }
 
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	if settingsErr, ok := errors.AsType[*domainError](err); ok {
-		writeError(w, r, corsSnapshot, settingsErr.StatusCode, settingsErr.Detail)
+		responseutil.WriteError(w, r, corsSnapshot, settingsErr.StatusCode, settingsErr.Detail)
 		return
 	}
 	if profileErr, ok := errors.AsType[*profiledomain.HTTPError](err); ok {
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail any) {
-	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]any{"detail": detail})
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }

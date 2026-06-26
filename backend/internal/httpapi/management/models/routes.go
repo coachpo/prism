@@ -71,13 +71,13 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelConfigResponse, error) {
@@ -102,7 +102,7 @@ func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
@@ -162,13 +162,13 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, response)
+	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
 func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	requestBody, err := decodeModelUpdateRequest(r)
@@ -298,13 +298,13 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (deletedResponse, error) {
@@ -341,7 +341,7 @@ func (s *Service) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 type accessTargetMutationItem struct {
@@ -352,7 +352,7 @@ type accessTargetMutationItem struct {
 func (s *Service) handleListModelTargets(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelAccessTargetResponse, error) {
@@ -373,13 +373,13 @@ func (s *Service) handleListModelTargets(w http.ResponseWriter, r *http.Request)
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateModelTarget(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	requestBody, err := decodeAccessTargetCreateRequest(r)
@@ -406,18 +406,18 @@ func (s *Service) handleCreateModelTarget(w http.ResponseWriter, r *http.Request
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, response)
+	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
 func (s *Service) handleUpdateModelTarget(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	targetID, err := routeInt(r, "target_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	requestBody, err := decodeAccessTargetUpdateRequest(r)
@@ -443,23 +443,23 @@ func (s *Service) handleUpdateModelTarget(w http.ResponseWriter, r *http.Request
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleMoveModelTargetPosition(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	targetID, err := routeInt(r, "target_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody modelAccessTargetMoveRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelAccessTargetResponse, error) {
@@ -477,18 +477,18 @@ func (s *Service) handleMoveModelTargetPosition(w http.ResponseWriter, r *http.R
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleDeleteModelTarget(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	targetID, err := routeInt(r, "target_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelAccessTargetResponse, error) {
@@ -513,7 +513,7 @@ func (s *Service) handleDeleteModelTarget(w http.ResponseWriter, r *http.Request
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) deletePrivateConnectionTargetFromMutationItems(ctx context.Context, tx pgx.Tx, profileID int, model modelRecord, targetID int, items []accessTargetMutationItem) (bool, error) {
@@ -945,7 +945,7 @@ func findAccessTargetMutationIndex(items []accessTargetMutationItem, targetID in
 func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request) {
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelConfigListResponse, error) {
@@ -975,13 +975,13 @@ func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request)
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request) {
 	var requestBody endpointModelsBatchRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (endpointModelsBatchResponse, error) {
@@ -1019,7 +1019,7 @@ func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func resolveEffectiveProfile(ctx context.Context, tx pgx.Tx, r *http.Request) (profiledomain.Profile, error) {
@@ -1590,19 +1590,13 @@ func writeDecodeError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 		writeDomainError(w, r, corsSnapshot, err)
 		return
 	}
-	writeError(w, r, corsSnapshot, http.StatusBadRequest, "Invalid request body")
-}
-
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusBadRequest, "Invalid request body")
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var modelErr *domainError
 	if errors.As(err, &modelErr) {
-		writeErrorFields(w, r, corsSnapshot, modelErr.StatusCode, modelErr.Detail, modelErr.Fields)
+		responseutil.WriteErrorFields(w, r, corsSnapshot, modelErr.StatusCode, modelErr.Detail, modelErr.Fields)
 		return
 	}
 	var profileErr *profiledomain.HTTPError
@@ -1610,24 +1604,7 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
-	writeErrorFields(w, r, corsSnapshot, statusCode, detail, nil)
-}
-
-func writeErrorFields(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string, fields map[string]any) {
-	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	if len(fields) == 0 {
-		writeJSON(w, statusCode, map[string]string{"detail": detail})
-		return
-	}
-	payload := map[string]any{"detail": detail}
-	for key, value := range fields {
-		payload[key] = value
-	}
-	writeJSON(w, statusCode, payload)
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
 func routeInt(request *http.Request, name string) (int, error) {

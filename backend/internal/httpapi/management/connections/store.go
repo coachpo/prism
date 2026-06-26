@@ -102,11 +102,8 @@ func ensureModelConfigIDsExist(ctx context.Context, exec queryExecutor, profileI
 	if len(modelConfigIDs) == 0 {
 		return &domainError{StatusCode: 400, Detail: "model_config_ids must contain at least one model config id"}
 	}
-	args := []any{profileID}
-	for _, modelConfigID := range modelConfigIDs {
-		args = append(args, modelConfigID)
-	}
-	query := fmt.Sprintf(`SELECT id FROM model_configs WHERE profile_id = $1 AND id IN (%s) ORDER BY id ASC`, placeholders(2, len(modelConfigIDs)))
+	args := []any{profileID, int32ArrayArg(modelConfigIDs)}
+	query := `SELECT id FROM model_configs WHERE profile_id = $1 AND id = ANY($2) ORDER BY id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("query model ids for profile %d: %w", profileID, err)
@@ -392,11 +389,8 @@ func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileI
 	if len(modelConfigIDs) == 0 {
 		return items, nil
 	}
-	args := []any{profileID}
-	for _, modelConfigID := range modelConfigIDs {
-		args = append(args, modelConfigID)
-	}
-	query := fmt.Sprintf(`%s WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id IN (%s) ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, connections.id ASC`, connectionSelectQuery, placeholders(2, len(modelConfigIDs)))
+	args := []any{profileID, int32ArrayArg(modelConfigIDs)}
+	query := connectionSelectQuery + ` WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = ANY($2) ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, connections.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query connection batch for profile %d: %w", profileID, err)
@@ -808,10 +802,10 @@ func parseCustomHeaders(value sql.NullString) map[string]string {
 	return parsed
 }
 
-func placeholders(start int, count int) string {
-	parts := make([]string, count)
-	for index := 0; index < count; index++ {
-		parts[index] = fmt.Sprintf("$%d", start+index)
+func int32ArrayArg(values []int) []int32 {
+	items := make([]int32, 0, len(values))
+	for _, value := range values {
+		items = append(items, int32(value))
 	}
-	return strings.Join(parts, ", ")
+	return items
 }

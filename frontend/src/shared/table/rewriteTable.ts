@@ -1,12 +1,15 @@
-import { type ColumnDef } from "@tanstack/react-table"
-
 export type RewriteTableRow = {
   id: string
   label: string
   scope: "global" | "selected-profile" | "runtime"
 }
 
-export const rewriteTableColumns: ColumnDef<RewriteTableRow>[] = [
+type RewriteTableColumn = {
+  accessorKey: keyof RewriteTableRow
+  header: string
+}
+
+export const rewriteTableColumns: RewriteTableColumn[] = [
   {
     accessorKey: "label",
     header: "Label",

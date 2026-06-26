@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
@@ -18,7 +19,7 @@ import (
 func (s *Service) handleListCurrentState(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := parseRequiredPositiveIntQuery(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalancedomain.CurrentStateListResponse, error) {
@@ -32,13 +33,13 @@ func (s *Service) handleListCurrentState(w http.ResponseWriter, r *http.Request)
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleResetCurrentState(w http.ResponseWriter, r *http.Request) {
 	connectionID, err := routeInt(r, "connection_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalancedomain.CurrentStateResetResponse, error) {
@@ -52,23 +53,23 @@ func (s *Service) handleResetCurrentState(w http.ResponseWriter, r *http.Request
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	modelID := strings.TrimSpace(r.URL.Query().Get("model_id"))
 	if modelID == "" {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "model_id is required")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "model_id is required")
 		return
 	}
 	limit, err := parsePositiveIntQueryWithDefault(r, "limit", 50)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	offset, err := parseNonNegativeIntQueryWithDefault(r, "offset", 0)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalancedomain.EventListResponse, error) {
@@ -82,13 +83,13 @@ func (s *Service) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 	eventID, err := routeInt64(r, "event_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (*loadbalancedomain.EventDetail, error) {
@@ -103,10 +104,10 @@ func (s *Service) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if response == nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Loadbalance event not found")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusNotFound, "Loadbalance event not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func parseRequiredPositiveIntQuery(r *http.Request, key string) (int, error) {

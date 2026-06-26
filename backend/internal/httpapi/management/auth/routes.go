@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
@@ -62,7 +63,7 @@ func (s *Service) managementMiddleware(next http.Handler) http.Handler {
 		snapshot, err := s.loadAppAuthSettingsSnapshot(r.Context())
 		if err != nil {
 			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "settings_error")
-			writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
+			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
 		if !snapshot.AuthEnabled {
@@ -79,7 +80,7 @@ func (s *Service) managementMiddleware(next http.Handler) http.Handler {
 		authSubject, ok := s.authSubjectFromAccessSnapshot(r, authConfig, snapshot)
 		if !ok {
 			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "unauthenticated")
-			writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Authentication required")
+			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Authentication required")
 			return
 		}
 		contextWithSubject := context.WithValue(r.Context(), authSubjectContextKey{}, authSubject)
@@ -99,11 +100,11 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 		if err != nil {
 			if isPublishedSnapshotUnavailable(err) {
 				recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "snapshot_unavailable")
-				writeError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
+				responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
 				return
 			}
 			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "settings_error")
-			writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
+			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
 		if !authSettings.AuthEnabled {
@@ -114,23 +115,23 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 		rawKey, _ := extractProxyAPIKey(r.Header)
 		if rawKey == "" {
 			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "missing_proxy_key")
-			writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
+			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
 			return
 		}
 		proxyKey, err := s.verifyProxyAPIKey(r.Context(), rawKey)
 		if err != nil {
 			if isPublishedSnapshotUnavailable(err) {
 				recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "snapshot_unavailable")
-				writeError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
+				responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
 				return
 			}
 			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "verify_error")
-			writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to verify proxy API key")
+			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to verify proxy API key")
 			return
 		}
 		if proxyKey == nil {
 			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "invalid_proxy_key")
-			writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Invalid proxy API key")
+			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Invalid proxy API key")
 			return
 		}
 		proxyKeySnapshot := requestcontext.RuntimeProxyKeySnapshot{
@@ -209,26 +210,26 @@ func (s *Service) authSubjectFromAccessSnapshot(request *http.Request, authConfi
 func (s *Service) handleGetAuthStatus(w http.ResponseWriter, r *http.Request) {
 	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, authStatusResponse{AuthEnabled: settingsRow.AuthEnabled})
+	responseutil.WriteJSON(w, http.StatusOK, authStatusResponse{AuthEnabled: settingsRow.AuthEnabled})
 }
 
 func (s *Service) handleGetPublicBootstrap(w http.ResponseWriter, r *http.Request) {
 	authConfig := s.runtimeAuthConfigSnapshot()
 	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 		return
 	}
 	if !settingsRow.AuthEnabled {
 		s.clearAuthCookies(w, authConfig)
-		writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: false, Username: nil})
+		responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: false, Username: nil})
 		return
 	}
 	if authSubject, ok := s.authSubjectFromAccessCookie(r, authConfig, settingsRow); ok {
-		writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: true, Username: stringPointer(authSubject.Username)})
+		responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: true, Username: stringPointer(authSubject.Username)})
 		return
 	}
 	bundle, err := s.withRefreshCookie(r.Context(), r, authConfig)
@@ -236,26 +237,26 @@ func (s *Service) handleGetPublicBootstrap(w http.ResponseWriter, r *http.Reques
 		var authErr *domainError
 		if errors.As(err, &authErr) && authErr.StatusCode == http.StatusUnauthorized {
 			s.clearAuthCookies(w, authConfig)
-			writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: true, Username: nil})
+			responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: true, Username: nil})
 			return
 		}
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	s.setAuthCookies(w, authConfig, bundle.AccessToken, bundle.RefreshToken, bundle.RefreshExpiresAt, bundle.SessionDuration)
-	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: true, Username: nullableString(bundle.SettingsRow.Username)})
+	responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: true, Username: nullableString(bundle.SettingsRow.Username)})
 }
 
 func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 	authConfig := s.runtimeAuthConfigSnapshot()
 	var requestBody loginRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	duration, err := normalizeSessionDuration(requestBody.SessionDuration)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid session duration")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid session duration")
 		return
 	}
 	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (loginAuthenticationResult, error) {
@@ -280,7 +281,7 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	bundle := result.Bundle
 	s.setAuthCookies(w, authConfig, bundle.AccessToken, bundle.RefreshToken, bundle.RefreshExpiresAt, bundle.SessionDuration)
-	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: bundle.SettingsRow.AuthEnabled, Username: nullableString(bundle.SettingsRow.Username)})
+	responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: bundle.SettingsRow.AuthEnabled, Username: nullableString(bundle.SettingsRow.Username)})
 }
 
 func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -302,7 +303,7 @@ func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 		return
 	}
 	if revokedSubjectID == nil {
@@ -315,7 +316,7 @@ func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: *revokedSubjectID})
 	}
 	s.clearAuthCookies(w, authConfig)
-	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: settingsRow.AuthEnabled, Username: nil})
+	responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: settingsRow.AuthEnabled, Username: nil})
 }
 
 func (s *Service) handleRefresh(w http.ResponseWriter, r *http.Request) {
@@ -325,14 +326,14 @@ func (s *Service) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		var authErr *domainError
 		if errors.As(err, &authErr) && authErr.StatusCode == http.StatusUnauthorized {
 			s.clearAuthCookies(w, authConfig)
-			writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: true, Username: nil})
+			responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: true, Username: nil})
 			return
 		}
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	s.setAuthCookies(w, authConfig, bundle.AccessToken, bundle.RefreshToken, bundle.RefreshExpiresAt, bundle.SessionDuration)
-	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: bundle.SettingsRow.AuthEnabled, Username: nullableString(bundle.SettingsRow.Username)})
+	responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: bundle.SettingsRow.AuthEnabled, Username: nullableString(bundle.SettingsRow.Username)})
 }
 
 func (s *Service) withRefreshCookie(ctx context.Context, request *http.Request, authConfig RuntimeAuthConfigSnapshot) (sessionBundle, error) {
@@ -348,26 +349,26 @@ func (s *Service) withRefreshCookie(ctx context.Context, request *http.Request, 
 func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	authSubject, ok := authSubjectFromRequest(r)
 	if !ok {
-		writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Authentication required")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Authentication required")
 		return
 	}
 	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 		return
 	}
 	username := authSubject.Username
 	if username == "" {
 		username = stringValue(settingsRow.Username)
 	}
-	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: settingsRow.AuthEnabled, Username: stringPointer(username)})
+	responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: settingsRow.AuthEnabled, Username: stringPointer(username)})
 }
 
 func (s *Service) handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
 	authConfig := s.runtimeAuthConfigSnapshot()
 	var requestBody passwordResetRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	identifier := strings.TrimSpace(requestBody.UsernameOrEmail)
@@ -433,14 +434,14 @@ func (s *Service) handlePasswordResetRequest(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	_ = result
-	writeJSON(w, http.StatusOK, successResponse{Success: true})
+	responseutil.WriteJSON(w, http.StatusOK, successResponse{Success: true})
 }
 
 func (s *Service) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
 	authConfig := s.runtimeAuthConfigSnapshot()
 	var requestBody passwordResetConfirmRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (appAuthSettingsRow, error) {
@@ -455,23 +456,23 @@ func (s *Service) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Requ
 		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: updatedRow.ID})
 	}
 	s.clearAuthCookies(w, authConfig)
-	writeJSON(w, http.StatusOK, successResponse{Success: true})
+	responseutil.WriteJSON(w, http.StatusOK, successResponse{Success: true})
 }
 
 func (s *Service) handleGetAuthSettings(w http.ResponseWriter, r *http.Request) {
 	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.buildAuthSettingsResponse(settingsRow))
+	responseutil.WriteJSON(w, http.StatusOK, s.buildAuthSettingsResponse(settingsRow))
 }
 
 func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) {
 	authConfig := s.runtimeAuthConfigSnapshot()
 	var requestBody authSettingsUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (authSettingsMutationResult, error) {
@@ -490,14 +491,14 @@ func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) 
 		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: result.Row.ID})
 		s.clearAuthCookies(w, authConfig)
 	}
-	writeJSON(w, http.StatusOK, s.buildAuthSettingsResponse(result.Row))
+	responseutil.WriteJSON(w, http.StatusOK, s.buildAuthSettingsResponse(result.Row))
 }
 
 func (s *Service) handleEmailVerificationRequest(w http.ResponseWriter, r *http.Request) {
 	authConfig := s.runtimeAuthConfigSnapshot()
 	var requestBody emailVerificationRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	email, err := validateEmail(requestBody.Email)
@@ -535,7 +536,7 @@ func (s *Service) handleEmailVerificationRequest(w http.ResponseWriter, r *http.
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.buildEmailVerificationResponse(updatedRow))
+	responseutil.WriteJSON(w, http.StatusOK, s.buildEmailVerificationResponse(updatedRow))
 }
 
 func (s *Service) enqueueAuthEmail(ctx context.Context, tx pgx.Tx, job outbox.Job) error {
@@ -551,7 +552,7 @@ func (s *Service) enqueueAuthEmail(ctx context.Context, tx pgx.Tx, job outbox.Jo
 func (s *Service) handleEmailVerificationConfirm(w http.ResponseWriter, r *http.Request) {
 	var requestBody emailVerificationConfirmRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (appAuthSettingsRow, error) {
@@ -565,26 +566,26 @@ func (s *Service) handleEmailVerificationConfirm(w http.ResponseWriter, r *http.
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.buildEmailVerificationResponse(updatedRow))
+	responseutil.WriteJSON(w, http.StatusOK, s.buildEmailVerificationResponse(updatedRow))
 }
 
 func (s *Service) handleListProxyKeys(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.listProxyAPIKeys(r.Context(), s.pool)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load proxy API keys")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load proxy API keys")
 		return
 	}
 	response := make([]proxyAPIKeyResponse, 0, len(rows))
 	for _, row := range rows {
 		response = append(response, s.serializeProxyAPIKey(row))
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateProxyKey(w http.ResponseWriter, r *http.Request) {
 	var requestBody proxyAPIKeyCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	name, err := validateProxyKeyName(requestBody.Name)
@@ -604,18 +605,18 @@ func (s *Service) handleCreateProxyKey(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, result)
+	responseutil.WriteJSON(w, http.StatusCreated, result)
 }
 
 func (s *Service) handleUpdateProxyKey(w http.ResponseWriter, r *http.Request) {
 	keyID, err := routeInt(r, "key_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody proxyAPIKeyUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	name, err := validateProxyKeyName(requestBody.Name)
@@ -631,13 +632,13 @@ func (s *Service) handleUpdateProxyKey(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.serializeProxyAPIKey(updatedRow))
+	responseutil.WriteJSON(w, http.StatusOK, s.serializeProxyAPIKey(updatedRow))
 }
 
 func (s *Service) handleRotateProxyKey(w http.ResponseWriter, r *http.Request) {
 	keyID, err := routeInt(r, "key_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
@@ -651,13 +652,13 @@ func (s *Service) handleRotateProxyKey(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	responseutil.WriteJSON(w, http.StatusOK, result)
 }
 
 func (s *Service) handleDeleteProxyKey(w http.ResponseWriter, r *http.Request) {
 	keyID, err := routeInt(r, "key_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
@@ -666,17 +667,17 @@ func (s *Service) handleDeleteProxyKey(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, deletedResponse{Deleted: true})
+	responseutil.WriteJSON(w, http.StatusOK, deletedResponse{Deleted: true})
 }
 
 func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
 	proxyKey, ok := runtimeProxyKeyFromRequest(r)
 	if !ok || proxyKey.ID <= 0 {
 		recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "missing_proxy_key")
-		writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
 		return
 	}
-	writeError(w, r, s.corsSnapshot(), http.StatusNotImplemented, "Runtime proxy unavailable without a runtime service")
+	responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusNotImplemented, "Runtime proxy unavailable without a runtime service")
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
@@ -685,24 +686,13 @@ func decodeJSONBody(request *http.Request, target any) error {
 	return decoder.Decode(target)
 }
 
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	if authErr, ok := errors.AsType[*domainError](err); ok {
-		writeError(w, r, corsSnapshot, authErr.StatusCode, authErr.Detail)
+		responseutil.WriteError(w, r, corsSnapshot, authErr.StatusCode, authErr.Detail)
 		return
 	}
 	slog.Error("auth handler internal error", "error", err)
-	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
-	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]string{"detail": detail})
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
 func routeInt(request *http.Request, name string) (int, error) {

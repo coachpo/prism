@@ -42,13 +42,13 @@ func (s *Service) handleListStrategies(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetStrategy(w http.ResponseWriter, r *http.Request) {
 	strategyID, err := routeInt(r, "strategy_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
@@ -69,13 +69,13 @@ func (s *Service) handleGetStrategy(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {
 	requestBody, err := decodeStrategyRequest(r)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	persisted, err := canonicalizeStrategyRequest(requestBody)
@@ -108,18 +108,18 @@ func (s *Service) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, response)
+	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
 func (s *Service) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 	strategyID, err := routeInt(r, "strategy_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	requestBody, err := decodeStrategyRequest(r)
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	persisted, err := canonicalizeStrategyRequest(requestBody)
@@ -163,13 +163,13 @@ func (s *Service) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleDeleteStrategy(w http.ResponseWriter, r *http.Request) {
 	strategyID, err := routeInt(r, "strategy_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (deletedResponse, error) {
@@ -196,7 +196,7 @@ func (s *Service) handleDeleteStrategy(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateStrategyDefaults(w http.ResponseWriter, r *http.Request) {
@@ -262,7 +262,7 @@ func (s *Service) handleCreateStrategyDefaults(w http.ResponseWriter, r *http.Re
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func decodeStrategyRequest(request *http.Request) (loadbalanceStrategyRequest, error) {
@@ -276,21 +276,15 @@ func decodeStrategyRequest(request *http.Request) (loadbalanceStrategyRequest, e
 	return requestBody, nil
 }
 
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var loadbalanceErr *domainError
 	if errors.As(err, &loadbalanceErr) {
-		writeError(w, r, corsSnapshot, loadbalanceErr.StatusCode, loadbalanceErr.Detail)
+		responseutil.WriteError(w, r, corsSnapshot, loadbalanceErr.StatusCode, loadbalanceErr.Detail)
 		return
 	}
 	var loadbalanceDomainErr *loadbalancedomain.HTTPError
 	if errors.As(err, &loadbalanceDomainErr) {
-		writeError(w, r, corsSnapshot, loadbalanceDomainErr.StatusCode, loadbalanceDomainErr.Detail)
+		responseutil.WriteError(w, r, corsSnapshot, loadbalanceDomainErr.StatusCode, loadbalanceDomainErr.Detail)
 		return
 	}
 	var profileErr *profiledomain.HTTPError
@@ -298,12 +292,7 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail any) {
-	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]any{"detail": detail})
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
 func routeInt(request *http.Request, name string) (int, error) {

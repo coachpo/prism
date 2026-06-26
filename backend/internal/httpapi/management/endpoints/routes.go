@@ -40,7 +40,7 @@ func (s *Service) handleListEndpoints(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleListEndpointConnections(w http.ResponseWriter, r *http.Request) {
@@ -59,23 +59,23 @@ func (s *Service) handleListEndpointConnections(w http.ResponseWriter, r *http.R
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	var requestBody endpointCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	endpointName := strings.TrimSpace(requestBody.Name)
 	if endpointName == "" {
-		writeError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "name must not be empty")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "name must not be empty")
 		return
 	}
 	normalizedURL := endpointdomain.NormalizeBaseURL(requestBody.BaseURL)
 	if warnings := endpointdomain.ValidateBaseURL(normalizedURL); len(warnings) > 0 {
-		writeError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, strings.Join(warnings, "; "))
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, strings.Join(warnings, "; "))
 		return
 	}
 
@@ -108,18 +108,18 @@ func (s *Service) handleCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, response)
+	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
 func (s *Service) handleUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody endpointUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -172,18 +172,18 @@ func (s *Service) handleUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleMoveEndpointPosition(w http.ResponseWriter, r *http.Request) {
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody endpointPositionMoveRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -237,13 +237,13 @@ func (s *Service) handleMoveEndpointPosition(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleDuplicateEndpoint(w http.ResponseWriter, r *http.Request) {
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) (endpointResponse, error) {
@@ -279,13 +279,13 @@ func (s *Service) handleDuplicateEndpoint(w http.ResponseWriter, r *http.Request
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, response)
+	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
 func (s *Service) handleDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) (deletedResponse, error) {
@@ -333,7 +333,7 @@ func (s *Service) handleDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func resolveEffectiveProfile(ctx context.Context, tx pgx.Tx, r *http.Request) (profiledomain.Profile, error) {
@@ -358,27 +358,16 @@ func decodeJSONBody(request *http.Request, target any) error {
 	return json.NewDecoder(request.Body).Decode(target)
 }
 
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	if endpointErr, ok := errors.AsType[*domainError](err); ok {
-		writeError(w, r, corsSnapshot, endpointErr.StatusCode, endpointErr.Detail)
+		responseutil.WriteError(w, r, corsSnapshot, endpointErr.StatusCode, endpointErr.Detail)
 		return
 	}
 	if profileErr, ok := errors.AsType[*profiledomain.HTTPError](err); ok {
 		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail any) {
-	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
-	writeJSON(w, statusCode, map[string]any{"detail": detail})
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
 func routeInt(request *http.Request, name string) (int, error) {
