@@ -10,7 +10,7 @@ import (
 func TestRuntimeCacheFromSharedKeepsSharedPointer(t *testing.T) {
 	t.Parallel()
 
-	shared := runtimeapi.NewSharedCache(0)
+	shared := runtimeapi.NewSharedCache()
 	cache := NewRuntimeCacheFromShared(shared)
 	if cache == nil {
 		t.Fatal("expected runtime cache wrapper to be created")
@@ -23,7 +23,7 @@ func TestRuntimeCacheFromSharedKeepsSharedPointer(t *testing.T) {
 func TestRuntimeCachePublishedSnapshotRequired(t *testing.T) {
 	t.Parallel()
 
-	cache := NewRuntimeCache(0)
+	cache := NewRuntimeCache()
 
 	settings, err := cache.LoadRuntimeAuthSettings()
 	if !isPublishedSnapshotUnavailable(err) {
@@ -39,7 +39,7 @@ func TestRuntimeCachePublishedSnapshotRequired(t *testing.T) {
 func TestRuntimeCacheInvalidateWithoutPublishedSnapshotIsSafe(t *testing.T) {
 	t.Parallel()
 
-	cache := NewRuntimeCache(0)
+	cache := NewRuntimeCache()
 	cache.Invalidate()
 	if got := cache.PublishedGeneration(); got != 0 {
 		t.Fatalf("expected invalidate on unpublished cache to leave generation at 0, got %d", got)

@@ -324,16 +324,15 @@ func TestTranslateOpenAIRequestRejectsUnsupportedShape(t *testing.T) {
 	}
 }
 
-func TestCodingAgentFormatBridgePlanRequestResponsesToChat(t *testing.T) {
+func TestPlanCodingAgentFormatRequestResponsesToChat(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
-	bridge := NewCodingAgentFormatBridge()
 	connection := runtimeConnection{
 		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
 		OpenAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 	}
 	rawBody := []byte(`{"model":"responses-public","input":"hello","max_output_tokens":24}`)
 
-	plan, translated, err := bridge.PlanRequest(operation, rawBody, "chat-target-model", connection)
+	plan, translated, err := planCodingAgentFormatRequest(operation, rawBody, "chat-target-model", connection)
 	if err != nil {
 		t.Fatalf("plan bridge responses-to-chat request: %v", err)
 	}
@@ -351,16 +350,15 @@ func TestCodingAgentFormatBridgePlanRequestResponsesToChat(t *testing.T) {
 	}
 }
 
-func TestCodingAgentFormatBridgeAllowsResponsesIncludeForChatOnlyTarget(t *testing.T) {
+func TestPlanCodingAgentFormatAllowsResponsesIncludeForChatOnlyTarget(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
-	bridge := NewCodingAgentFormatBridge()
 	connection := runtimeConnection{
 		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
 		OpenAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 	}
 	rawBody := []byte(`{"model":"responses-public","input":"hello","include":["file_search_call.results"]}`)
 
-	plan, translated, err := bridge.PlanRequest(operation, rawBody, "chat-target-model", connection)
+	plan, translated, err := planCodingAgentFormatRequest(operation, rawBody, "chat-target-model", connection)
 	if err != nil {
 		t.Fatalf("plan bridge responses include request: %v", err)
 	}
@@ -376,16 +374,15 @@ func TestCodingAgentFormatBridgeAllowsResponsesIncludeForChatOnlyTarget(t *testi
 	}
 }
 
-func TestCodingAgentFormatBridgePlanRequestChatToResponses(t *testing.T) {
+func TestPlanCodingAgentFormatRequestChatToResponses(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
-	bridge := NewCodingAgentFormatBridge()
 	connection := runtimeConnection{
 		OpenAIProbeEndpointVariant: stringPtr("responses_reasoning_none"),
 		OpenAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityResponsesOnly),
 	}
 	rawBody := []byte(`{"model":"chat-public","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":32}`)
 
-	plan, translated, err := bridge.PlanRequest(operation, rawBody, "responses-target-model", connection)
+	plan, translated, err := planCodingAgentFormatRequest(operation, rawBody, "responses-target-model", connection)
 	if err != nil {
 		t.Fatalf("plan bridge chat-to-responses request: %v", err)
 	}
@@ -403,16 +400,15 @@ func TestCodingAgentFormatBridgePlanRequestChatToResponses(t *testing.T) {
 	}
 }
 
-func TestCodingAgentFormatBridgePlanRequestRejectsUnsupportedShape(t *testing.T) {
+func TestPlanCodingAgentFormatRequestRejectsUnsupportedShape(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
-	bridge := NewCodingAgentFormatBridge()
 	connection := runtimeConnection{
 		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
 		OpenAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 	}
 	rawBody := []byte(`{"model":"responses-public","input":"hello","text":{"format":{"type":"text"}}}`)
 
-	_, translated, err := bridge.PlanRequest(operation, rawBody, "chat-target-model", connection)
+	_, translated, err := planCodingAgentFormatRequest(operation, rawBody, "chat-target-model", connection)
 	if !translated {
 		t.Fatal("expected bridge to identify translation target")
 	}

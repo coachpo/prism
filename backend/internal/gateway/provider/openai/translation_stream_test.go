@@ -8,7 +8,7 @@ import (
 )
 
 func TestChatStreamReasoningContentTranslatesToResponsesReasoning(t *testing.T) {
-	translator, err := NewStreamTranslator(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses-public")
+	translator, err := NewStreamTranslatorWithToolContext(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses-public", nil)
 	if err != nil {
 		t.Fatalf("new stream translator: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestChatStreamReasoningContentTranslatesToResponsesReasoning(t *testing.T) 
 }
 
 func TestChatStreamLeadingThinkTranslatesToReasoningAndVisibleText(t *testing.T) {
-	translator, err := NewStreamTranslator(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses-public")
+	translator, err := NewStreamTranslatorWithToolContext(provider.TranslationModeOpenAIResponsesToChatCompletions, "responses-public", nil)
 	if err != nil {
 		t.Fatalf("new stream translator: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestChatStreamLeadingThinkTranslatesToReasoningAndVisibleText(t *testing.T)
 }
 
 func TestResponsesStreamReasoningDeltaTranslatesToChatReasoningContent(t *testing.T) {
-	translator, err := NewStreamTranslator(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat-public")
+	translator, err := NewStreamTranslatorWithToolContext(provider.TranslationModeOpenAIChatCompletionsToResponses, "chat-public", nil)
 	if err != nil {
 		t.Fatalf("new stream translator: %v", err)
 	}

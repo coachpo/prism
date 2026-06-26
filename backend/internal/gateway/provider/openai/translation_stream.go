@@ -22,10 +22,6 @@ type StreamTranslator interface {
 	ConsumeDone() ([][]byte, error)
 }
 
-func NewStreamTranslator(mode provider.TranslationMode, requestedModelID string) (StreamTranslator, error) {
-	return NewStreamTranslatorWithToolContext(mode, requestedModelID, nil)
-}
-
 func NewStreamTranslatorWithToolContext(mode provider.TranslationMode, requestedModelID string, toolContext *ToolContext) (StreamTranslator, error) {
 	switch normalizedTranslationMode(mode) {
 	case provider.TranslationModeOpenAIResponsesToChatCompletions:

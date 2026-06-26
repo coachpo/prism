@@ -7,8 +7,8 @@ import type { Endpoint } from "@/lib/types"
 import { useProfileContext } from "@/context/ProfileContext"
 import { extractServerValidation } from "@/shared/forms/serverValidation"
 import { buildEndpointCreatePayload, buildEndpointUpdatePayload, hasEndpointReviewFilters, type EndpointFormValues } from "./endpointSchemas"
-import { useEndpointBootstrapData } from "./useEndpointBootstrapData"
-import { useEndpointReorder } from "./useEndpointReorder"
+import { useEndpointBootstrapData } from "@/pages/endpoints/useEndpointBootstrapData"
+import { useEndpointReorder } from "@/pages/endpoints/useEndpointReorder"
 
 export type ReviewFilter = "all" | "in-use" | "unused"
 

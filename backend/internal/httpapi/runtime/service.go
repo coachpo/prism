@@ -515,7 +515,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 					acceptedRowID = rowID
 					proxyWriter.Flush()
 				}
-				responseCapture, streamErr := s.codingAgentFormatBridge().ProxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBodies(plan.RuntimeOperation, finalResponseTranslation, plan.RawRequestBody, plan.UpstreamBody, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
+				responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBodies(plan.RuntimeOperation, finalResponseTranslation, plan.RawRequestBody, plan.UpstreamBody, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
 				if streamErr != nil {
 					runtimeTraceMarkError(responseSpan, "response_handle_failed")
 					slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
@@ -535,7 +535,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			}
 
 			var translatedStream bytes.Buffer
-			responseCapture, streamErr := s.codingAgentFormatBridge().ProxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBodies(plan.RuntimeOperation, finalResponseTranslation, plan.RawRequestBody, plan.UpstreamBody, r.Context(), &translatedStream, execution.Response.Body, s.nowUTC, captureAuditBody)
+			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBodies(plan.RuntimeOperation, finalResponseTranslation, plan.RawRequestBody, plan.UpstreamBody, r.Context(), &translatedStream, execution.Response.Body, s.nowUTC, captureAuditBody)
 			if streamErr != nil {
 				runtimeTraceMarkError(responseSpan, "response_handle_failed")
 				slog.Debug("runtime translated stream proxy failed", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
@@ -780,7 +780,7 @@ func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCom
 	}
 
 	var translatedBody bytes.Buffer
-	responseCapture, err := s.codingAgentFormatBridge().ProxyNonEventResponseAndCaptureForFinalAttemptWithRequestBody(finalResponseTranslation, plan.RawRequestBody, &translatedBody, bytes.NewReader(rawBody), s.nowUTC, captureAuditBody)
+	responseCapture, err := proxyNonEventResponseAndCaptureForFinalAttemptWithRequestBody(finalResponseTranslation, plan.RawRequestBody, &translatedBody, bytes.NewReader(rawBody), s.nowUTC, captureAuditBody)
 	if err != nil {
 		return runtimeResponseCapture{}, err
 	}

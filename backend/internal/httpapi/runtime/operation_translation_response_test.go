@@ -176,13 +176,12 @@ func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 
 func TestTranslateOpenAIChatToResponsesResponseWithToolContext(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
-	bridge := NewCodingAgentFormatBridge()
 	connection := runtimeConnection{
 		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
 		OpenAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 	}
 	rawRequest := []byte(`{"model":"responses-public","input":"use tools","tools":[{"type":"custom","name":"exec"},{"type":"tool_search"},{"type":"namespace","name":"mcp__apps__gmail","tools":[{"type":"function","name":"_search_emails","parameters":{"type":"object"}}]}]}`)
-	plan, translated, err := bridge.PlanRequest(operation, rawRequest, "chat-target", connection)
+	plan, translated, err := planCodingAgentFormatRequest(operation, rawRequest, "chat-target", connection)
 	if err != nil {
 		t.Fatalf("plan responses-to-chat tool request: %v", err)
 	}
@@ -193,7 +192,7 @@ func TestTranslateOpenAIChatToResponsesResponseWithToolContext(t *testing.T) {
 	upstreamRaw := []byte(fmt.Sprintf(`{"id":"chatcmpl_tools","created":1700000001,"model":"chat-target","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_custom","type":"function","function":{"name":"exec","arguments":%q}},{"id":"call_namespace","type":"function","function":{"name":%q,"arguments":%q}},{"id":"call_search","type":"function","function":{"name":"tool_search","arguments":%q}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}}`, `{"input":"ls -la"}`, namespaceChatName, `{"query":"from:alerts"}`, `{"query":"gmail","limit":3}`))
 	metadata := runtimeFinalResponseTranslationMetadata{RequestedModelID: "responses-public", ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient}
 	var forwarded bytes.Buffer
-	capture, err := bridge.ProxyNonEventResponseAndCaptureForFinalAttemptWithRequestBody(metadata, rawRequest, &forwarded, bytes.NewReader(upstreamRaw), fixedResponseHookTestNow, true)
+	capture, err := proxyNonEventResponseAndCaptureForFinalAttemptWithRequestBody(metadata, rawRequest, &forwarded, bytes.NewReader(upstreamRaw), fixedResponseHookTestNow, true)
 	if err != nil {
 		t.Fatalf("translate chat tool response with request context: %v", err)
 	}

@@ -370,7 +370,7 @@ func newResponsesToolsStreamServiceForModel(client *http.Client, modelID string)
 		ControlledHeaderNames: map[string]struct{}{"authorization": {}},
 	}
 	snapshot.TerminalTargetsByID[2_891] = connection
-	cache := NewSharedCache(0)
+	cache := NewSharedCache()
 	cache.published.Store(&publishedRuntimeSnapshot{
 		Generation:    1,
 		PublishedAt:   time.Unix(1_700_000_000, 0).UTC(),

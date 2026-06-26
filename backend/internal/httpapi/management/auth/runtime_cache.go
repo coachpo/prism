@@ -23,8 +23,8 @@ type RuntimeProxyKeyDecision struct {
 	ExpiresAt *time.Time
 }
 
-func NewRuntimeCache(ttl time.Duration) *RuntimeCache {
-	return NewRuntimeCacheFromShared(runtimeapi.NewSharedCache(ttl))
+func NewRuntimeCache() *RuntimeCache {
+	return NewRuntimeCacheFromShared(runtimeapi.NewSharedCache())
 }
 
 func NewRuntimeCacheFromShared(shared *runtimeapi.SharedCache) *RuntimeCache {

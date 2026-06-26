@@ -81,8 +81,7 @@ type publishedRuntimeAuthSnapshot struct {
 	ProxyKeysByPrefix map[string]RuntimeProxyKeyRecord
 }
 
-func NewSharedCache(ttl time.Duration) *SharedCache {
-	_ = ttl
+func NewSharedCache() *SharedCache {
 	return NewSharedCacheWithOptions(SharedCacheOptions{})
 }
 

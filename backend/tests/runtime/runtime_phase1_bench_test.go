@@ -49,7 +49,7 @@ func BenchmarkRuntimePublishedSnapshotHit(b *testing.B) {
 }
 
 func BenchmarkRuntimePublishedSnapshotRefreshStorm(b *testing.B) {
-	cache := runtimeapi.NewSharedCache(0)
+	cache := runtimeapi.NewSharedCache()
 	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{
 		RuntimeOptions:  runtimeapi.Options{Cache: cache},
 		SettingsMutator: useBenchmarkRuntimeTransportOverrides,

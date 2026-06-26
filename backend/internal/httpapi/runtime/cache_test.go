@@ -12,7 +12,7 @@ func TestSharedCachePublishedSnapshotsCloneProfilesAndProxyKeysButSharePlanningS
 	t.Parallel()
 
 	expiresAt := time.Unix(100, 0).UTC()
-	cache := NewSharedCache(0)
+	cache := NewSharedCache()
 	cache.published.Store(&publishedRuntimeSnapshot{
 		Generation:    1,
 		PublishedAt:   time.Unix(90, 0).UTC(),
@@ -110,7 +110,7 @@ func TestSharedCachePublishedCachePlanningSnapshotCarriesFacadeMetadata(t *testi
 
 	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
 	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
-	cache := NewSharedCache(0)
+	cache := NewSharedCache()
 	cache.published.Store(&publishedRuntimeSnapshot{
 		PlanningByProfileID: map[int]*planningSnapshot{
 			42: {
@@ -172,7 +172,7 @@ func TestSharedCachePublishedCacheRejectsInvalidFacadeMetadata(t *testing.T) {
 
 	invalidSelectionPolicy := "invalid"
 	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
-	cache := NewSharedCache(0)
+	cache := NewSharedCache()
 	cache.published.Store(&publishedRuntimeSnapshot{
 		PlanningByProfileID: map[int]*planningSnapshot{
 			42: {
@@ -198,7 +198,7 @@ func TestSharedCachePublishedCacheRejectsInvalidFacadeMetadata(t *testing.T) {
 func TestSharedCachePublishedGenerationTracksStores(t *testing.T) {
 	t.Parallel()
 
-	cache := NewSharedCache(0)
+	cache := NewSharedCache()
 	if got := cache.PublishedGeneration(); got != 0 {
 		t.Fatalf("expected empty cache generation 0, got %d", got)
 	}

@@ -1,28 +1,5 @@
 package core
 
-import "context"
-
-type Pipeline interface {
-	Execute(context.Context, RequestEnvelope) (ClientResponse, error)
-}
-
-type Phase[I any, O any] interface {
-	Run(context.Context, I) (O, error)
-}
-
-type RequestParser interface {
-	ParseRequest(context.Context, RequestEnvelope) (ProviderRequest, error)
-}
-
-type RoutePlanner interface {
-	Plan(context.Context, RequestEnvelope, ProviderRequest) (RoutePlan, error)
-}
-
-type AccountingSink interface {
-	RecordAttempt(context.Context, AccountingEvent) error
-	RecordFinal(context.Context, AccountingEvent) error
-}
-
 type ProviderRequest struct {
 	Envelope RequestEnvelope   `json:"envelope"`
 	Body     []byte            `json:"body,omitempty"`

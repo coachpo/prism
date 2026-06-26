@@ -2,8 +2,7 @@ package runtime
 
 import (
 	"net/http"
-
-	"github.com/coachpo/prism/backend/internal/gateway/registry"
+	"strings"
 )
 
 type RuntimeOperationModelBindingSource string
@@ -32,7 +31,10 @@ type RuntimeOperation struct {
 }
 
 type RuntimeOperationPathMatcher struct {
-	matcher registry.OperationPathMatcher
+	staticPath string
+	prefix     string
+	suffix     string
+	paramName  string
 }
 
 type RuntimeOperationMatch struct {
@@ -54,28 +56,21 @@ var runtimeOperationCatalog = []RuntimeOperation{
 	newRuntimeOperationWithHookCollection("gemini.count_tokens", "gemini", "/v1beta/models/{model}:countTokens", geminiRuntimeOperationPath(":countTokens"), false, RuntimeOperationModelBindingPath, runtimeHookCollectionGeminiCountTokens),
 }
 
-var runtimeOperationRegistry = registry.MustNewOperationRegistry(runtimeOperationDefinitions(runtimeOperationCatalog))
-
 func RuntimeOperationCatalog() []RuntimeOperation {
 	catalog := make([]RuntimeOperation, len(runtimeOperationCatalog))
 	copy(catalog, runtimeOperationCatalog)
 	return catalog
 }
 
-func RuntimeOperationRegistry() *registry.InMemoryOperationRegistry {
-	return runtimeOperationRegistry
-}
-
 func ResolveRuntimeOperation(method string, requestPath string) (RuntimeOperationMatch, bool) {
-	match, _, ok := runtimeOperationRegistry.ResolveMatch(method, requestPath)
-	if !ok {
-		return RuntimeOperationMatch{}, false
+	for _, operation := range runtimeOperationCatalog {
+		params, matchedPath := operation.PathMatcher.Match(requestPath)
+		if !matchedPath || method != operation.Method {
+			continue
+		}
+		return RuntimeOperationMatch{Operation: operation, PathParams: params}, true
 	}
-	operation, ok := runtimeOperationByName(match.Operation.Name)
-	if !ok {
-		return RuntimeOperationMatch{}, false
-	}
-	return RuntimeOperationMatch{Operation: operation, PathParams: match.PathParams}, true
+	return RuntimeOperationMatch{}, false
 }
 
 func newRuntimeOperation(name string, apiFamily string, pathTemplate string, matcher RuntimeOperationPathMatcher, streaming bool, modelBindingSource RuntimeOperationModelBindingSource) RuntimeOperation {
@@ -98,41 +93,26 @@ func newRuntimeOperationWithHookCollection(name string, apiFamily string, pathTe
 }
 
 func staticRuntimeOperationPath(path string) RuntimeOperationPathMatcher {
-	return RuntimeOperationPathMatcher{matcher: registry.StaticOperationPath(path)}
+	return RuntimeOperationPathMatcher{staticPath: strings.TrimSpace(path)}
 }
 
 func geminiRuntimeOperationPath(suffix string) RuntimeOperationPathMatcher {
-	return RuntimeOperationPathMatcher{matcher: registry.ParameterizedOperationPath("/v1beta/models/", suffix, "model")}
+	return RuntimeOperationPathMatcher{prefix: "/v1beta/models/", suffix: strings.TrimSpace(suffix), paramName: "model"}
 }
 
 func (matcher RuntimeOperationPathMatcher) Match(requestPath string) (map[string]string, bool) {
-	return matcher.matcher.Match(requestPath)
-}
-
-func runtimeOperationDefinitions(operations []RuntimeOperation) []registry.OperationDefinition {
-	definitions := make([]registry.OperationDefinition, 0, len(operations))
-	for _, operation := range operations {
-		definitions = append(definitions, registry.OperationDefinition{
-			Operation: registry.Operation{
-				Name:               operation.Name,
-				Method:             operation.Method,
-				APIFamily:          operation.APIFamily,
-				PathTemplate:       operation.PathTemplate,
-				Streaming:          operation.Streaming,
-				ModelBindingSource: registry.OperationModelBindingSource(operation.ModelBindingSource),
-				HookCollectionID:   operation.HookCollectionID,
-			},
-			PathMatcher: operation.PathMatcher.matcher,
-		})
+	if matcher.staticPath != "" {
+		return nil, requestPath == matcher.staticPath
 	}
-	return definitions
-}
-
-func runtimeOperationByName(name string) (RuntimeOperation, bool) {
-	for _, operation := range runtimeOperationCatalog {
-		if operation.Name == name {
-			return operation, true
-		}
+	if matcher.prefix == "" || matcher.suffix == "" || matcher.paramName == "" {
+		return nil, false
 	}
-	return RuntimeOperation{}, false
+	if !strings.HasPrefix(requestPath, matcher.prefix) || !strings.HasSuffix(requestPath, matcher.suffix) {
+		return nil, false
+	}
+	value := strings.TrimSuffix(strings.TrimPrefix(requestPath, matcher.prefix), matcher.suffix)
+	if value == "" || strings.ContainsAny(value, "/:") {
+		return nil, false
+	}
+	return map[string]string{matcher.paramName: value}, true
 }

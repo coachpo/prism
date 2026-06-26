@@ -130,7 +130,7 @@ func BenchmarkRuntimeLargeRequestBody(b *testing.B) {
 }
 
 func BenchmarkRuntimeCacheMissStorm(b *testing.B) {
-	cache := runtimeapi.NewSharedCache(time.Minute)
+	cache := runtimeapi.NewSharedCache()
 	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{
 		RuntimeOptions:  runtimeapi.Options{Cache: cache},
 		SettingsMutator: useBenchmarkRuntimeTransportOverrides,

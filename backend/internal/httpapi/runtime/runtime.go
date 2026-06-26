@@ -990,7 +990,7 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 			return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
 		}
 	default:
-		translatedPath, translatedBody, loss, err := defaultCodingAgentFormatBridge().TranslateRequestWithLoss(input.RawBody, attempt.TranslationMode, attempt.TargetModel.ModelID)
+		translatedPath, translatedBody, loss, err := translateOpenAIRequestWithLoss(input.RawBody, attempt.TranslationMode, attempt.TargetModel.ModelID)
 		if err != nil {
 			return plannedUpstreamRequest{}, err
 		}

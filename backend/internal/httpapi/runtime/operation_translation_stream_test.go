@@ -404,7 +404,7 @@ func TestTranslateOpenAIChatToResponsesStreamAcceptsToolDeltas(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	var forwarded bytes.Buffer
 	metadata := runtimeFinalResponseTranslationMetadata{RequestedModelID: "responses-public", ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient}
-	capture, err := NewCodingAgentFormatBridge().ProxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBody(operation, metadata, rawRequest, context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
+	capture, err := proxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBody(operation, metadata, rawRequest, context.Background(), &forwarded, strings.NewReader(stream), fixedResponseHookTestNow, true)
 	if err != nil {
 		t.Fatalf("translate chat stream tool deltas to responses: %v", err)
 	}

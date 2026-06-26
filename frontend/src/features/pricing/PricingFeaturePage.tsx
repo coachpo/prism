@@ -1,10 +1,10 @@
 import { useProfileContext } from "@/context/ProfileContext"
 import { useLocale } from "@/i18n/useLocale"
 import { OperatorCallout, OperatorPageHeader, OperatorPageShell, OperatorTypeBadge } from "@/shared/design-system"
-import { DeletePricingTemplateDialog } from "./DeletePricingTemplateDialog"
+import { DeletePricingTemplateDialog } from "@/pages/pricing-templates/DeletePricingTemplateDialog"
 import { PricingTemplateDialog } from "./PricingTemplateDialog"
 import { PricingTemplatesTable } from "./PricingTemplatesTable"
-import { PricingTemplateUsageDialog } from "./PricingTemplateUsageDialog"
+import { PricingTemplateUsageDialog } from "@/pages/pricing-templates/PricingTemplateUsageDialog"
 import { usePricingFeatureData } from "./usePricingFeatureData"
 
 export function PricingFeaturePage() {
