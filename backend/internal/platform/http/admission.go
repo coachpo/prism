@@ -151,6 +151,7 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "settings log retention write", method: http.MethodPut, pattern: "/settings/log-retention", tier: priority.ManagementTierM2},
 	{name: "stats requests list", method: http.MethodGet, pattern: "/stats/requests", tier: priority.ManagementTierM3},
 	{name: "dashboard stats", method: http.MethodGet, pattern: "/stats/dashboard", tier: priority.ManagementTierM3},
+	{name: "dashboard recent activity", method: http.MethodGet, pattern: "/stats/dashboard/recent-activity", tier: priority.ManagementTierM3},
 	{name: "stats request read", method: http.MethodGet, pattern: "/stats/requests/{request_id}", tier: priority.ManagementTierM3},
 	{name: "stats summary", method: http.MethodGet, pattern: "/stats/summary", tier: priority.ManagementTierM3},
 	{name: "stats model metrics", method: http.MethodPost, pattern: "/stats/models/metrics", tier: priority.ManagementTierM3},

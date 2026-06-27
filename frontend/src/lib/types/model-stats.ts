@@ -121,7 +121,6 @@ interface ModelConfigMutationBase {
   display_name?: string | null;
   openai_accepted_format?: OpenAIAcceptedFormat | null;
   loadbalance_strategy_id?: number;
-  access_targets?: ModelAccessTargetModelMutation[];
   is_enabled?: boolean;
 }
 
@@ -129,7 +128,6 @@ export interface ModelConfigCreate extends ModelConfigMutationBase {
   api_family: ApiFamily;
   model_id: string;
   loadbalance_strategy_id: number;
-  access_targets: ModelAccessTargetModelMutation[];
 }
 
 export type ModelConfigUpdate = ModelConfigMutationBase;

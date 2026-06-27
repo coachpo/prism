@@ -355,10 +355,7 @@ func newResponsesToolsStreamServiceForModel(client *http.Client, modelID string)
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: modelID})
 	model := snapshot.ModelsByID[modelID]
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
-	contextWindowTokens := 16_384
 	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_891, 9_891, 0, requestPlanConnectionTargetOptions{
-		contextWindowTokens:        &contextWindowTokens,
-		maxContextUtilization:      1.0,
 		openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
 		openAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 	})

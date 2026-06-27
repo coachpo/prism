@@ -105,7 +105,7 @@ func TestProfileBundleV3Contract(t *testing.T) {
 	assertErrorResponse(t, removedModeImport, http.StatusBadRequest, removedModeDetail)
 }
 
-func TestProfileBundleImportRejectsNonOpenAIFacadeModel(t *testing.T) {
+func TestProfileBundleImportRejectsRemovedFacadeFields(t *testing.T) {
 	harness := newConfigBundleV3ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	seedConfigBundleV3Graph(t, harness, profileID)
@@ -127,10 +127,10 @@ func TestProfileBundleImportRejectsNonOpenAIFacadeModel(t *testing.T) {
 	before := captureProfileImportState(t, harness, profileID)
 
 	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", payload, modelHeader(profileID))
-	assertErrorResponse(t, previewResponse, http.StatusBadRequest, "facade_enabled requires api_family 'openai'")
+	assertErrorResponse(t, previewResponse, http.StatusBadRequest, `json: unknown field "facade_enabled"`)
 
 	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", payload, modelHeader(profileID))
-	assertErrorResponse(t, importResponse, http.StatusBadRequest, "facade_enabled requires api_family 'openai'")
+	assertErrorResponse(t, importResponse, http.StatusBadRequest, `json: unknown field "facade_enabled"`)
 	assertProfileImportStateUnchanged(t, harness, profileID, before)
 }
 
@@ -582,7 +582,7 @@ func seedConfigBundleV3Graph(t *testing.T, harness *contractHarness, profileID i
 		t.Fatalf("insert model: %v", err)
 	}
 	var connectionID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, 200000, 2048, 0.85, $3, 60, 8, 4, 'responses_minimal', 'responses_only', TRUE, 0, 'Primary OpenAI connection', 'openai', $4, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, endpointID, pricingID, `{"X-Prism-Trace":"v3-contract"}`, now).Scan(&connectionID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, $3, 60, 8, 4, 'responses_minimal', 'responses_only', TRUE, 0, 'Primary OpenAI connection', 'openai', $4, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, endpointID, pricingID, `{"X-Prism-Trace":"v3-contract"}`, now).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection: %v", err)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, modelConfigID, connectionID, now); err != nil {
@@ -639,24 +639,6 @@ func seedConfigBundleOwnerCollision(t *testing.T, harness *contractHarness, prof
 	return connectionID
 }
 
-func seedConfigBundleFacadeRoutingModel(t *testing.T, harness *contractHarness, profileID int) {
-	t.Helper()
-	now := configBundleFixtureTime.Add(3 * time.Minute)
-
-	var strategyID int
-	var targetModelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT loadbalance_strategy_id, id FROM model_configs WHERE profile_id = $1 AND model_id = 'gpt-4o-mini' LIMIT 1`, profileID).Scan(&strategyID, &targetModelConfigID); err != nil {
-		t.Fatalf("load facade routing fixture references: %v", err)
-	}
-	var routerModelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES ($1, 'openai', 'gpt-4o-router', 'GPT 4o Router', $2, 'dual_native', TRUE, 'ordered_eligible_context', 'skip_ineligible_targets', TRUE, $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&routerModelConfigID); err != nil {
-		t.Fatalf("insert facade routing model: %v", err)
-	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, 0, TRUE, $4, $4)`, profileID, routerModelConfigID, targetModelConfigID, now); err != nil {
-		t.Fatalf("insert facade routing model target: %v", err)
-	}
-}
-
 func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	t.Helper()
 	if jsonInt(t, payload["version"]) != 3 || payload["bundle_kind"] != "profile_config" {
@@ -671,8 +653,10 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	if !strings.HasPrefix(connectionRef, "openai-primary-openai") || connection["api_family"] != "openai" || connection["endpoint_name"] != "Primary OpenAI" {
 		t.Fatalf("expected v3 standalone OpenAI connection export, got %+v", connection)
 	}
-	if jsonInt(t, connection["context_window_tokens"]) != 200000 || jsonInt(t, connection["default_output_token_reserve"]) != 2048 || jsonFloat(t, connection["max_context_utilization"]) != 0.85 {
-		t.Fatalf("expected v3 connection capability export, got %+v", connection)
+	for _, removedKey := range []string{"context_window_tokens", "context_window_tokens_overridden", "default_output_token_reserve", "default_output_token_reserve_overridden", "max_context_utilization", "max_context_utilization_overridden", "preferred_context_utilization_threshold", "preferred_context_utilization_threshold_overridden", "context_capability_overrides"} {
+		if _, ok := connection[removedKey]; ok {
+			t.Fatalf("connection export must not include removed capability field %q: %+v", removedKey, connection)
+		}
 	}
 	if connection["openai_probe_endpoint_variant"] != "responses_minimal" || connection["openai_text_capability"] != "responses_only" {
 		t.Fatalf("expected v3 connection export to keep probe variant and text capability, got %+v", connection)
@@ -697,7 +681,7 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 		t.Fatalf("expected one exported model, got %+v", models)
 	}
 	model := asMap(t, models[0])
-	for _, removedKey := range []string{"model_type", "proxy_selection_strategy", "proxy_targets", "connections"} {
+	for _, removedKey := range []string{"model_type", "proxy_selection_strategy", "proxy_targets", "connections", "facade_enabled", "facade_selection_policy", "facade_fallback_policy"} {
 		if _, ok := model[removedKey]; ok {
 			t.Fatalf("model export must not include removed key %q: %+v", removedKey, model)
 		}
@@ -986,65 +970,6 @@ func assertConfigBundleStoredAuditAPIFamilySettings(t *testing.T, harness *contr
 	}
 }
 
-func TestConfigBundlePreferredContext(t *testing.T) {
-	harness := newConfigBundleV3ContractHarness(t)
-	profileID := modelLoadDefaultProfileID(t, harness)
-	seedConfigBundleV3Graph(t, harness, profileID)
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET preferred_context_utilization_threshold = 0.65 WHERE profile_id = $1`, profileID); err != nil {
-		t.Fatalf("seed connection preferred_context_utilization_threshold: %v", err)
-	}
-
-	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
-	assertStatus(t, exportResponse, http.StatusOK)
-	var exported map[string]any
-	decodeJSONResponse(t, exportResponse, &exported)
-	connection := asMap(t, exported["connections"].([]any)[0])
-	if jsonFloat(t, connection["preferred_context_utilization_threshold"]) != 0.65 {
-		t.Fatalf("expected connection preferred_context_utilization_threshold export value, got %+v", connection)
-	}
-
-	roundTripPreview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", exported, modelHeader(profileID))
-	assertStatus(t, roundTripPreview, http.StatusOK)
-	var roundTripPreviewBody map[string]any
-	decodeJSONResponse(t, roundTripPreview, &roundTripPreviewBody)
-	roundTripHeaders := configBundleHeadersWithPreviewToken(modelHeader(profileID), roundTripPreviewBody["preview_token"].(string))
-	roundTripImport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", exported, roundTripHeaders)
-	assertStatus(t, roundTripImport, http.StatusOK)
-	assertConfigBundlePreferredContextStored(t, harness, profileID, 0.65)
-
-	roundTripExportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
-	assertStatus(t, roundTripExportResponse, http.StatusOK)
-	var roundTripExported map[string]any
-	decodeJSONResponse(t, roundTripExportResponse, &roundTripExported)
-	if jsonFloat(t, asMap(t, roundTripExported["connections"].([]any)[0])["preferred_context_utilization_threshold"]) != 0.65 {
-		t.Fatalf("expected non-null preferred_context_utilization_threshold to round-trip, got %+v", roundTripExported)
-	}
-
-	legacy := cloneProfileBundleV3Payload(t, exported)
-	delete(asMap(t, legacy["connections"].([]any)[0]), "preferred_context_utilization_threshold")
-	preview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", legacy, modelHeader(profileID))
-	assertStatus(t, preview, http.StatusOK)
-	var previewBody map[string]any
-	decodeJSONResponse(t, preview, &previewBody)
-	importHeaders := configBundleHeadersWithPreviewToken(modelHeader(profileID), previewBody["preview_token"].(string))
-	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", legacy, importHeaders)
-	assertStatus(t, importResponse, http.StatusOK)
-
-	reExportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
-	assertStatus(t, reExportResponse, http.StatusOK)
-	var reExported map[string]any
-	decodeJSONResponse(t, reExportResponse, &reExported)
-	if asMap(t, reExported["connections"].([]any)[0])["preferred_context_utilization_threshold"] != nil {
-		t.Fatalf("expected legacy import omission to re-export preferred_context_utilization_threshold as null, got %+v", reExported)
-	}
-
-	invalid := cloneProfileBundleV3Payload(t, exported)
-	asMap(t, invalid["connections"].([]any)[0])["max_context_utilization"] = 0.60
-	asMap(t, invalid["connections"].([]any)[0])["preferred_context_utilization_threshold"] = 0.70
-	invalidPreview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", invalid, modelHeader(profileID))
-	assertErrorResponse(t, invalidPreview, http.StatusBadRequest, "Connection 'openai-primary-openai' preferred_context_utilization_threshold must be less than or equal to max_context_utilization when provided")
-}
-
 func TestConfigBundleOpenAITextCapabilityAndProbeVariantRoundTrip(t *testing.T) {
 	harness := newConfigBundleV3ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -1087,50 +1012,7 @@ func TestConfigBundleOpenAITextCapabilityAndProbeVariantRoundTrip(t *testing.T) 
 	assertConfigBundleStoredConnectionTextCapability(t, harness, profileID, "dual_native")
 }
 
-func TestConfigBundleFacadeAndTargetMetadataRoundTrip(t *testing.T) {
-	harness := newConfigBundleV3ContractHarness(t)
-	profileID := modelLoadDefaultProfileID(t, harness)
-	seedConfigBundleV3Graph(t, harness, profileID)
-	seedConfigBundleFacadeRoutingModel(t, harness, profileID)
-
-	exported := exportProfileBundlePayload(t, harness, profileID)
-	facadeModel := findProfileBundleModelByID(t, exported, "gpt-4o-router")
-	if facadeModel["facade_enabled"] != true || facadeModel["facade_selection_policy"] != "ordered_eligible_context" || facadeModel["facade_fallback_policy"] != "skip_ineligible_targets" {
-		t.Fatalf("expected facade export fields on router model, got %+v", facadeModel)
-	}
-	targets := facadeModel["access_targets"].([]any)
-	if len(targets) != 1 {
-		t.Fatalf("expected one facade router access target, got %+v", facadeModel)
-	}
-	target := asMap(t, targets[0])
-	if target["target_type"] != "model" || target["target_model_id"] != "gpt-4o-mini" || jsonInt(t, target["position"]) != 0 || target["is_enabled"] != true {
-		t.Fatalf("expected flat ordered model target in export, got %+v", target)
-	}
-	if _, ok := target["weight"]; ok {
-		t.Fatalf("model target export must not include obsolete weight: %+v", target)
-	}
-	if _, ok := target["target_priority"]; ok {
-		t.Fatalf("model target export must not include obsolete target_priority: %+v", target)
-	}
-
-	previewPayload := previewProfileImportPayload(t, harness, profileID, exported)
-	importHeaders := configBundleHeadersWithPreviewToken(modelHeader(profileID), previewPayload["preview_token"].(string))
-	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", exported, importHeaders)
-	assertStatus(t, importResponse, http.StatusOK)
-
-	reExported := exportProfileBundlePayload(t, harness, profileID)
-	reExportedFacadeModel := findProfileBundleModelByID(t, reExported, "gpt-4o-router")
-	if reExportedFacadeModel["facade_enabled"] != true || reExportedFacadeModel["facade_selection_policy"] != "ordered_eligible_context" || reExportedFacadeModel["facade_fallback_policy"] != "skip_ineligible_targets" {
-		t.Fatalf("expected facade fields to round-trip, got %+v", reExportedFacadeModel)
-	}
-	reExportedTarget := asMap(t, reExportedFacadeModel["access_targets"].([]any)[0])
-	if reExportedTarget["target_type"] != "model" || reExportedTarget["target_model_id"] != "gpt-4o-mini" || jsonInt(t, reExportedTarget["position"]) != 0 || reExportedTarget["is_enabled"] != true {
-		t.Fatalf("expected flat ordered model target to round-trip, got %+v", reExportedTarget)
-	}
-	assertConfigBundleStoredFacadeModel(t, harness, profileID, "gpt-4o-router", true, "ordered_eligible_context", "skip_ineligible_targets")
-}
-
-func TestConfigBundleLegacyFacadeAndTargetMetadataDefaults(t *testing.T) {
+func TestConfigBundleModelTargetMetadataRoundTrip(t *testing.T) {
 	harness := newConfigBundleV3ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	seedConfigBundleV3Graph(t, harness, profileID)
@@ -1160,54 +1042,20 @@ func TestConfigBundleLegacyFacadeAndTargetMetadataDefaults(t *testing.T) {
 
 	reExported := exportProfileBundlePayload(t, harness, profileID)
 	routerModel := findProfileBundleModelByID(t, reExported, "gpt-4o-router")
-	if routerModel["facade_enabled"] != false || routerModel["facade_selection_policy"] != nil || routerModel["facade_fallback_policy"] != nil {
-		t.Fatalf("expected legacy missing facade fields to re-export as explicit disabled/null values, got %+v", routerModel)
+	for _, removedKey := range []string{"facade_enabled", "facade_selection_policy", "facade_fallback_policy"} {
+		if _, ok := routerModel[removedKey]; ok {
+			t.Fatalf("model target export must not include removed facade key %q: %+v", removedKey, routerModel)
+		}
 	}
 	routerTarget := asMap(t, routerModel["access_targets"].([]any)[0])
+	if routerTarget["target_type"] != "model" || routerTarget["target_model_id"] != "gpt-4o-mini" || jsonInt(t, routerTarget["position"]) != 0 || routerTarget["is_enabled"] != true {
+		t.Fatalf("expected flat ordered model target to round-trip, got %+v", routerTarget)
+	}
 	if _, ok := routerTarget["weight"]; ok {
-		t.Fatalf("legacy model target export must not include obsolete weight: %+v", routerTarget)
+		t.Fatalf("model target export must not include obsolete weight: %+v", routerTarget)
 	}
 	if _, ok := routerTarget["target_priority"]; ok {
-		t.Fatalf("legacy model target export must not include obsolete target_priority: %+v", routerTarget)
-	}
-	assertConfigBundleStoredFacadeModel(t, harness, profileID, "gpt-4o-router", false, "", "")
-}
-
-func assertConfigBundlePreferredContextStored(t *testing.T, harness *contractHarness, profileID int, wantConnection float64) {
-	t.Helper()
-	var connectionPreferred sql.NullFloat64
-	if err := harness.conn.QueryRow(context.Background(), `SELECT preferred_context_utilization_threshold FROM connections WHERE profile_id = $1 AND name = 'Primary OpenAI connection' LIMIT 1`, profileID).Scan(&connectionPreferred); err != nil {
-		t.Fatalf("load stored connection preferred_context_utilization_threshold: %v", err)
-	}
-	if !connectionPreferred.Valid || connectionPreferred.Float64 != wantConnection {
-		t.Fatalf("expected stored connection preferred_context_utilization_threshold %0.2f, got %+v", wantConnection, connectionPreferred)
-	}
-}
-
-func assertConfigBundleStoredFacadeModel(t *testing.T, harness *contractHarness, profileID int, modelID string, wantEnabled bool, wantSelectionPolicy string, wantFallbackPolicy string) {
-	t.Helper()
-	var facadeEnabled bool
-	var facadeSelectionPolicy sql.NullString
-	var facadeFallbackPolicy sql.NullString
-	if err := harness.conn.QueryRow(context.Background(), `SELECT facade_enabled, facade_selection_policy, facade_fallback_policy FROM model_configs WHERE profile_id = $1 AND model_id = $2 LIMIT 1`, profileID, modelID).Scan(&facadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy); err != nil {
-		t.Fatalf("load stored facade model %q: %v", modelID, err)
-	}
-	if facadeEnabled != wantEnabled {
-		t.Fatalf("expected stored facade_enabled=%v for model %q, got %v", wantEnabled, modelID, facadeEnabled)
-	}
-	if wantSelectionPolicy == "" {
-		if facadeSelectionPolicy.Valid {
-			t.Fatalf("expected stored facade_selection_policy NULL for model %q, got %+v", modelID, facadeSelectionPolicy)
-		}
-	} else if !facadeSelectionPolicy.Valid || facadeSelectionPolicy.String != wantSelectionPolicy {
-		t.Fatalf("expected stored facade_selection_policy=%q for model %q, got %+v", wantSelectionPolicy, modelID, facadeSelectionPolicy)
-	}
-	if wantFallbackPolicy == "" {
-		if facadeFallbackPolicy.Valid {
-			t.Fatalf("expected stored facade_fallback_policy NULL for model %q, got %+v", modelID, facadeFallbackPolicy)
-		}
-	} else if !facadeFallbackPolicy.Valid || facadeFallbackPolicy.String != wantFallbackPolicy {
-		t.Fatalf("expected stored facade_fallback_policy=%q for model %q, got %+v", wantFallbackPolicy, modelID, facadeFallbackPolicy)
+		t.Fatalf("model target export must not include obsolete target_priority: %+v", routerTarget)
 	}
 }
 

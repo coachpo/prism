@@ -28,7 +28,11 @@ test("models dialog no longer renders overflow promotion copy", () => {
   assert.equal(Object.hasOwn(zhCNMessages.modelsUi, "overflowPromotionTarget"), false);
 });
 
-test("models dialog model target copy avoids fallback wording", () => {
+test("models dialog no longer renders access target authoring", () => {
+  assert.doesNotMatch(modelDialogSource, /AccessTargetsEditor|accessTargets|targetModelsForApiFamily/);
+});
+
+test("model detail access target copy avoids fallback wording", () => {
   assert.equal(enMessages.modelsUi.modelFallbackTargets, "Model targets");
   assert.equal(enMessages.modelsUi.modelTarget, "Model target");
   assert.equal(enMessages.modelsUi.selectSameFamilyModel, "Select target model");

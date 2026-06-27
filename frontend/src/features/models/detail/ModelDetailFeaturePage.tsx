@@ -168,10 +168,8 @@ export function ModelDetailFeaturePage({
         formError={data.targetEditorError}
         isDialogOpen={data.isEditModelDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
-        targetModelsForApiFamily={data.targetModelsForApiFamily}
         dialogTitle={messages.modelDetail.modelSettingsTitle}
-        dialogDescription={messages.modelDetail.modelSettingsAccessTargetsDescription}
-        includeTerminalTargetConnectionOptions={false}
+        dialogDescription={messages.modelDetail.modelSettingsDescription}
         showModelIdInEditMode={true}
         submitLabel={messages.modelDetail.saveChanges}
         setFormData={data.setFormData}

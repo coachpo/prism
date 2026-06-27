@@ -14,7 +14,7 @@ management/
 ├── connections/     # private connections, health probes, pricing templates
 ├── endpoints/       # endpoint CRUD, encrypted keys, ordering, duplication
 ├── loadbalance/     # strategy CRUD, current-state reset, event reads
-├── models/          # model CRUD, access targets, exact facades
+├── models/          # model CRUD and access targets
 ├── profiles/        # selected-profile lifecycle
 ├── responseutil/    # shared profile/error response helpers
 ├── settings/        # costing, timezone, audit settings, global log-retention jobs
@@ -26,7 +26,7 @@ management/
 - Auth/session/proxy-key/runtime-auth cache/realtime auth-state seams: `auth/AGENTS.md`, `auth/`
 - File-backed startup config, hot/restart classification, safe secret responses: `bootstrapconfig/AGENTS.md`, `bootstrapconfig/service.go`
 - Profile bundle import/export and preview-token path: `configbundle/AGENTS.md`, `configbundle/import.go`, `configbundle/routes.go`
-- Model graph authoring and exact-facade validation: `models/AGENTS.md`, `models/routes.go`, `models/store.go`
+- Model graph authoring and validation: `models/AGENTS.md`, `models/routes.go`, `models/store.go`
 - Endpoint, connection, load-balance, and config-rule CRUD leaves: `endpoints/AGENTS.md`, `connections/AGENTS.md`, `loadbalance/AGENTS.md`, `configrules/AGENTS.md`
 - Product observability and retention-job APIs: `stats/AGENTS.md`, `audit/AGENTS.md`, `settings/AGENTS.md`
 - Shared profile/error response shaping used across leaves: `responseutil/profile_errors.go`

@@ -2,7 +2,6 @@ package contract_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"testing"
@@ -278,7 +277,7 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	standaloneEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Model Scoped Standalone Endpoint", 2)
 	standaloneConnectionID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", standaloneEndpointID, 0, true, nil)
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": ownerEndpointID, "openai_text_capability": "responses_only", "is_active": true, "name": "Owner Private Connection", "custom_headers": map[string]string{"x-owner": "1"}, "qps_limit": 2}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": ownerEndpointID, "openai_text_capability": "responses_only", "is_active": true, "name": "Owner Private Connection"}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
@@ -286,13 +285,13 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	if jsonInt(t, created["model_config_id"]) != ownerModelID || created["api_family"] != "openai" || jsonInt(t, created["endpoint_id"]) != ownerEndpointID || jsonInt(t, created["priority"]) != 0 || created["health_status"] != "unknown" {
 		t.Fatalf("expected owner-scoped created connection payload, got %+v", created)
 	}
-	if asMap(t, created["custom_headers"])["x-owner"] != "1" || jsonInt(t, asMap(t, created["endpoint"])["id"]) != ownerEndpointID || created["openai_probe_endpoint_variant"] != "responses_minimal" {
-		t.Fatalf("expected owner-scoped create to hydrate endpoint, headers, and OpenAI probe default, got %+v", created)
+	if jsonInt(t, asMap(t, created["endpoint"])["id"]) != ownerEndpointID || created["openai_probe_endpoint_variant"] != "responses_minimal" {
+		t.Fatalf("expected owner-scoped create to hydrate endpoint and OpenAI probe default, got %+v", created)
 	}
 	assertConnectionOwnerTarget(t, harness, ownerModelID, connectionID, 0, true)
 	assertStoredConnectionAPIFamily(t, harness, connectionID, "openai")
 
-	otherCreateResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", otherModelID), map[string]any{"api_family": "openai", "endpoint_id": otherEndpointID, "openai_text_capability": "responses_only", "name": "Other Private Connection"}, modelHeader(defaultProfileID))
+	otherCreateResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", otherModelID), map[string]any{"endpoint_id": otherEndpointID, "openai_text_capability": "responses_only", "name": "Other Private Connection"}, modelHeader(defaultProfileID))
 	assertStatus(t, otherCreateResponse, http.StatusCreated)
 	var otherCreated map[string]any
 	decodeJSONResponse(t, otherCreateResponse, &otherCreated)
@@ -305,122 +304,6 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	if len(listed) != 1 || jsonInt(t, listed[0]["id"]) != connectionID || jsonInt(t, listed[0]["model_config_id"]) != ownerModelID {
 		t.Fatalf("expected owner model list to contain only its private connection, excluding standalone %d and other-owned %d, got %+v", standaloneConnectionID, otherConnectionID, listed)
 	}
-}
-
-func TestModelConnectionContextCapabilityOverrides(t *testing.T) {
-	harness := newEndpointConnectionContractHarness(t)
-	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
-	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Connection Context Capability Strategy")
-	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "connection-context-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Context Capability Endpoint", 0)
-
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Default Capability Connection"}, modelHeader(defaultProfileID))
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
-	connectionID := jsonInt(t, created["id"])
-	if created["context_window_tokens"] != nil || jsonInt(t, created["default_output_token_reserve"]) != 4096 || jsonFloat(t, created["max_context_utilization"]) != 0.9 {
-		t.Fatalf("expected connection defaults to hydrate created connection, got %+v", created)
-	}
-	assertContextCapabilityOverridesPayload(t, created, nil, nil, nil)
-	assertStoredConnectionContextCapabilities(t, harness, connectionID, nil, false, 4096, false, 0.9, false)
-
-	sameAsOwnerOverrideResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"context_window_tokens": 128000, "default_output_token_reserve": 2048, "max_context_utilization": 0.80}, modelHeader(defaultProfileID))
-	assertStatus(t, sameAsOwnerOverrideResponse, http.StatusOK)
-	var sameAsOwnerOverride map[string]any
-	decodeJSONResponse(t, sameAsOwnerOverrideResponse, &sameAsOwnerOverride)
-	if jsonInt(t, sameAsOwnerOverride["context_window_tokens"]) != 128000 || jsonInt(t, sameAsOwnerOverride["default_output_token_reserve"]) != 2048 || jsonFloat(t, sameAsOwnerOverride["max_context_utilization"]) != 0.8 {
-		t.Fatalf("expected explicit overrides to set effective values, got %+v", sameAsOwnerOverride)
-	}
-	assertContextCapabilityOverridesPayload(t, sameAsOwnerOverride, intPtr(128000), intPtr(2048), float64Ptr(0.8))
-	assertStoredConnectionContextCapabilities(t, harness, connectionID, intPtr(128000), true, 2048, true, 0.8, true)
-
-	resetContextWindowResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"context_window_tokens": nil}, modelHeader(defaultProfileID))
-	assertStatus(t, resetContextWindowResponse, http.StatusOK)
-	var resetContextWindow map[string]any
-	decodeJSONResponse(t, resetContextWindowResponse, &resetContextWindow)
-	if resetContextWindow["context_window_tokens"] != nil || jsonInt(t, resetContextWindow["default_output_token_reserve"]) != 2048 || jsonFloat(t, resetContextWindow["max_context_utilization"]) != 0.8 {
-		t.Fatalf("expected reset-to-default to clear context window while preserving other overrides, got %+v", resetContextWindow)
-	}
-	assertContextCapabilityOverridesPayload(t, resetContextWindow, nil, intPtr(2048), float64Ptr(0.8))
-	assertStoredConnectionContextCapabilities(t, harness, connectionID, nil, false, 2048, true, 0.8, true)
-
-	unrelatedUpdateResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"name": "Default Capability Connection Renamed"}, modelHeader(defaultProfileID))
-	assertStatus(t, unrelatedUpdateResponse, http.StatusOK)
-	var unrelatedUpdate map[string]any
-	decodeJSONResponse(t, unrelatedUpdateResponse, &unrelatedUpdate)
-	assertContextCapabilityOverridesPayload(t, unrelatedUpdate, nil, intPtr(2048), float64Ptr(0.8))
-	assertStoredConnectionContextCapabilities(t, harness, connectionID, nil, false, 2048, true, 0.8, true)
-
-	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d/connections", ownerModelID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, listResponse, http.StatusOK)
-	var listed []map[string]any
-	decodeJSONResponse(t, listResponse, &listed)
-	if len(listed) != 1 || jsonInt(t, listed[0]["id"]) != connectionID {
-		t.Fatalf("expected owner-scoped connection list with one item, got %+v", listed)
-	}
-	assertContextCapabilityOverridesPayload(t, listed[0], nil, intPtr(2048), float64Ptr(0.8))
-
-	invalidReserve := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "default_output_token_reserve": 0}, modelHeader(defaultProfileID))
-	assertErrorResponse(t, invalidReserve, http.StatusUnprocessableEntity, "default_output_token_reserve must be greater than or equal to 1 when provided")
-
-	invalidUtilization := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "max_context_utilization": 1.1}, modelHeader(defaultProfileID))
-	assertErrorResponse(t, invalidUtilization, http.StatusUnprocessableEntity, "max_context_utilization must be greater than 0 and less than or equal to 1 when provided")
-}
-
-func TestModelDetailConnectionContextCapabilityResponses(t *testing.T) {
-	harness := newEndpointConnectionContractHarness(t)
-	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
-	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Model Detail Connection Capability Strategy")
-	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "model-detail-connection-context-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Model Detail Connection Capability Endpoint", 0)
-
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Detail Capability Connection", "context_window_tokens": 64000, "default_output_token_reserve": 1024}, modelHeader(defaultProfileID))
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
-	connectionID := jsonInt(t, created["id"])
-
-	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d", ownerModelID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, detailResponse, http.StatusOK)
-	var detail map[string]any
-	decodeJSONResponse(t, detailResponse, &detail)
-	accessTargets := detail["access_targets"].([]any)
-	if len(accessTargets) != 1 {
-		t.Fatalf("expected one model detail access target, got %+v", detail)
-	}
-	assertNestedConnectionContextCapabilityPayload(t, asMap(t, accessTargets[0]), connectionID, intPtr(64000), 1024, 0.9, intPtr(64000), intPtr(1024), nil)
-
-	targetsResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d/targets", ownerModelID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, targetsResponse, http.StatusOK)
-	var targets []map[string]any
-	decodeJSONResponse(t, targetsResponse, &targets)
-	if len(targets) != 1 {
-		t.Fatalf("expected one target-list access target, got %+v", targets)
-	}
-	assertNestedConnectionContextCapabilityPayload(t, targets[0], connectionID, intPtr(64000), 1024, 0.9, intPtr(64000), intPtr(1024), nil)
-
-	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models", nil, modelHeader(defaultProfileID))
-	assertStatus(t, listResponse, http.StatusOK)
-	var listed []map[string]any
-	decodeJSONResponse(t, listResponse, &listed)
-	var ownerItem map[string]any
-	for _, item := range listed {
-		if jsonInt(t, item["id"]) == ownerModelID {
-			ownerItem = item
-			break
-		}
-	}
-	if ownerItem == nil {
-		t.Fatalf("expected /api/models list to include owner model %d, got %+v", ownerModelID, listed)
-	}
-	listedTargets := ownerItem["access_targets"].([]any)
-	if len(listedTargets) != 1 {
-		t.Fatalf("expected one listed access target for owner model, got %+v", ownerItem)
-	}
-	assertNestedConnectionContextCapabilityPayload(t, asMap(t, listedTargets[0]), connectionID, intPtr(64000), 1024, 0.9, intPtr(64000), intPtr(1024), nil)
 }
 
 func TestModelScopedConnectionCreateRejectsConflictingAPIFamily(t *testing.T) {
@@ -603,108 +486,6 @@ func assertStoredModelAPIFamily(t *testing.T, harness *contractHarness, modelCon
 	}
 }
 
-func assertStoredConnectionContextCapabilities(t *testing.T, harness *contractHarness, connectionID int, wantContextWindowTokens *int, wantContextWindowTokensOverridden bool, wantDefaultOutputTokenReserve int, wantDefaultOutputTokenReserveOverridden bool, wantMaxContextUtilization float64, wantMaxContextUtilizationOverridden bool) {
-	t.Helper()
-	var contextWindowTokens sql.NullInt32
-	var contextWindowTokensOverridden bool
-	var defaultOutputTokenReserve int
-	var defaultOutputTokenReserveOverridden bool
-	var maxContextUtilization float64
-	var maxContextUtilizationOverridden bool
-	if err := harness.conn.QueryRow(context.Background(), `SELECT context_window_tokens, context_window_tokens_overridden, default_output_token_reserve, default_output_token_reserve_overridden, max_context_utilization, max_context_utilization_overridden FROM connections WHERE id = $1`, connectionID).Scan(&contextWindowTokens, &contextWindowTokensOverridden, &defaultOutputTokenReserve, &defaultOutputTokenReserveOverridden, &maxContextUtilization, &maxContextUtilizationOverridden); err != nil {
-		t.Fatalf("load connection %d context capabilities: %v", connectionID, err)
-	}
-	if wantContextWindowTokens == nil {
-		if contextWindowTokens.Valid {
-			t.Fatalf("expected connection %d context_window_tokens to be NULL, got %d", connectionID, contextWindowTokens.Int32)
-		}
-	} else if !contextWindowTokens.Valid || int(contextWindowTokens.Int32) != *wantContextWindowTokens {
-		t.Fatalf("expected connection %d context_window_tokens %d, got %+v", connectionID, *wantContextWindowTokens, contextWindowTokens)
-	}
-	if contextWindowTokensOverridden != wantContextWindowTokensOverridden {
-		t.Fatalf("expected connection %d context_window_tokens_overridden=%t, got %t", connectionID, wantContextWindowTokensOverridden, contextWindowTokensOverridden)
-	}
-	if defaultOutputTokenReserve != wantDefaultOutputTokenReserve || maxContextUtilization != wantMaxContextUtilization {
-		t.Fatalf("expected connection %d reserve/utilization %d/%0.2f, got %d/%0.2f", connectionID, wantDefaultOutputTokenReserve, wantMaxContextUtilization, defaultOutputTokenReserve, maxContextUtilization)
-	}
-	if defaultOutputTokenReserveOverridden != wantDefaultOutputTokenReserveOverridden {
-		t.Fatalf("expected connection %d default_output_token_reserve_overridden=%t, got %t", connectionID, wantDefaultOutputTokenReserveOverridden, defaultOutputTokenReserveOverridden)
-	}
-	if maxContextUtilizationOverridden != wantMaxContextUtilizationOverridden {
-		t.Fatalf("expected connection %d max_context_utilization_overridden=%t, got %t", connectionID, wantMaxContextUtilizationOverridden, maxContextUtilizationOverridden)
-	}
-}
-
-func assertContextCapabilityOverridesPayload(t *testing.T, payload map[string]any, wantContextWindowTokens *int, wantDefaultOutputTokenReserve *int, wantMaxContextUtilization *float64) {
-	t.Helper()
-	rawOverrides, ok := payload["context_capability_overrides"]
-	if !ok {
-		t.Fatalf("expected context_capability_overrides object, got %+v", payload)
-	}
-	overrides := asMap(t, rawOverrides)
-	assertOptionalOverrideIntField(t, overrides, "context_window_tokens", wantContextWindowTokens)
-	assertOptionalOverrideIntField(t, overrides, "default_output_token_reserve", wantDefaultOutputTokenReserve)
-	assertOptionalOverrideFloatField(t, overrides, "max_context_utilization", wantMaxContextUtilization)
-}
-
-func assertNestedConnectionContextCapabilityPayload(t *testing.T, target map[string]any, connectionID int, wantEffectiveContextWindowTokens *int, wantEffectiveDefaultOutputTokenReserve int, wantEffectiveMaxContextUtilization float64, wantContextWindowTokens *int, wantDefaultOutputTokenReserve *int, wantMaxContextUtilization *float64) {
-	t.Helper()
-	connection := asMap(t, target["connection"])
-	terminalTarget := asMap(t, target["terminal_target"])
-	if jsonInt(t, connection["id"]) != connectionID || jsonInt(t, terminalTarget["id"]) != connectionID {
-		t.Fatalf("expected nested connection and terminal_target id %d, got %+v", connectionID, target)
-	}
-	if wantEffectiveContextWindowTokens != nil {
-		if jsonInt(t, connection["context_window_tokens"]) != *wantEffectiveContextWindowTokens || jsonInt(t, terminalTarget["context_window_tokens"]) != *wantEffectiveContextWindowTokens {
-			t.Fatalf("expected effective context_window_tokens %d, got connection=%+v terminal_target=%+v", *wantEffectiveContextWindowTokens, connection, terminalTarget)
-		}
-	} else if connection["context_window_tokens"] != nil || terminalTarget["context_window_tokens"] != nil {
-		t.Fatalf("expected effective context_window_tokens to be null, got connection=%+v terminal_target=%+v", connection, terminalTarget)
-	}
-	if jsonInt(t, connection["default_output_token_reserve"]) != wantEffectiveDefaultOutputTokenReserve || jsonInt(t, terminalTarget["default_output_token_reserve"]) != wantEffectiveDefaultOutputTokenReserve {
-		t.Fatalf("expected effective default_output_token_reserve %d, got connection=%+v terminal_target=%+v", wantEffectiveDefaultOutputTokenReserve, connection, terminalTarget)
-	}
-	if jsonFloat(t, connection["max_context_utilization"]) != wantEffectiveMaxContextUtilization || jsonFloat(t, terminalTarget["max_context_utilization"]) != wantEffectiveMaxContextUtilization {
-		t.Fatalf("expected effective max_context_utilization %0.2f, got connection=%+v terminal_target=%+v", wantEffectiveMaxContextUtilization, connection, terminalTarget)
-	}
-	assertContextCapabilityOverridesPayload(t, connection, wantContextWindowTokens, wantDefaultOutputTokenReserve, wantMaxContextUtilization)
-	assertContextCapabilityOverridesPayload(t, terminalTarget, wantContextWindowTokens, wantDefaultOutputTokenReserve, wantMaxContextUtilization)
-}
-
-func assertOptionalOverrideIntField(t *testing.T, payload map[string]any, fieldName string, want *int) {
-	t.Helper()
-	value, ok := payload[fieldName]
-	if !ok {
-		t.Fatalf("expected override field %q in %+v", fieldName, payload)
-	}
-	if want == nil {
-		if value != nil {
-			t.Fatalf("expected override field %q to be null, got %+v", fieldName, value)
-		}
-		return
-	}
-	if jsonInt(t, value) != *want {
-		t.Fatalf("expected override field %q=%d, got %+v", fieldName, *want, value)
-	}
-}
-
-func assertOptionalOverrideFloatField(t *testing.T, payload map[string]any, fieldName string, want *float64) {
-	t.Helper()
-	value, ok := payload[fieldName]
-	if !ok {
-		t.Fatalf("expected override field %q in %+v", fieldName, payload)
-	}
-	if want == nil {
-		if value != nil {
-			t.Fatalf("expected override field %q to be null, got %+v", fieldName, value)
-		}
-		return
-	}
-	if jsonFloat(t, value) != *want {
-		t.Fatalf("expected override field %q=%0.2f, got %+v", fieldName, *want, value)
-	}
-}
-
 func assertConnectionNameCount(t *testing.T, harness *contractHarness, profileID int, name string, want int) {
 	t.Helper()
 	var count int
@@ -759,62 +540,7 @@ func assertPricingTemplateStoredPrices(t *testing.T, harness *contractHarness, p
 	}
 }
 
-func TestConnectionPreferredContext(t *testing.T) {
-	harness := newEndpointConnectionContractHarness(t)
-	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
-	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Preferred Connection Context Strategy")
-	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "preferred-connection-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Preferred Connection Endpoint", 0)
-
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "name": "Preferred Context Connection"}, modelHeader(defaultProfileID))
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
-	connectionID := jsonInt(t, created["id"])
-	if created["preferred_context_utilization_threshold"] != nil {
-		t.Fatalf("expected default preferred_context_utilization_threshold=null, got %+v", created)
-	}
-	assertOptionalOverrideFloatField(t, asMap(t, created["context_capability_overrides"]), "preferred_context_utilization_threshold", nil)
-	assertStoredConnectionPreferredContextThreshold(t, harness, connectionID, nil, false)
-
-	overrideResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"preferred_context_utilization_threshold": 0.70}, modelHeader(defaultProfileID))
-	assertStatus(t, overrideResponse, http.StatusOK)
-	var overridden map[string]any
-	decodeJSONResponse(t, overrideResponse, &overridden)
-	if jsonFloat(t, overridden["preferred_context_utilization_threshold"]) != 0.7 {
-		t.Fatalf("expected explicit same-as-owner preferred override to keep effective value, got %+v", overridden)
-	}
-	assertOptionalOverrideFloatField(t, asMap(t, overridden["context_capability_overrides"]), "preferred_context_utilization_threshold", float64Ptr(0.7))
-	assertStoredConnectionPreferredContextThreshold(t, harness, connectionID, float64Ptr(0.7), true)
-
-	resetResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"preferred_context_utilization_threshold": nil}, modelHeader(defaultProfileID))
-	assertStatus(t, resetResponse, http.StatusOK)
-	var reset map[string]any
-	decodeJSONResponse(t, resetResponse, &reset)
-	if reset["preferred_context_utilization_threshold"] != nil {
-		t.Fatalf("expected reset preferred_context_utilization_threshold to return to default null, got %+v", reset)
-	}
-	assertOptionalOverrideFloatField(t, asMap(t, reset["context_capability_overrides"]), "preferred_context_utilization_threshold", nil)
-	assertStoredConnectionPreferredContextThreshold(t, harness, connectionID, nil, false)
-
-	invalidZero := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "preferred_context_utilization_threshold": 0}, modelHeader(defaultProfileID))
-	assertErrorResponse(t, invalidZero, http.StatusUnprocessableEntity, "preferred_context_utilization_threshold must be greater than 0 and less than or equal to 1 when provided")
-
-	invalidHigh := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "preferred_context_utilization_threshold": 1.1}, modelHeader(defaultProfileID))
-	assertErrorResponse(t, invalidHigh, http.StatusUnprocessableEntity, "preferred_context_utilization_threshold must be greater than 0 and less than or equal to 1 when provided")
-
-	invalidCrossField := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "max_context_utilization": 0.60, "preferred_context_utilization_threshold": 0.70}, modelHeader(defaultProfileID))
-	assertErrorResponse(t, invalidCrossField, http.StatusUnprocessableEntity, "preferred_context_utilization_threshold must be less than or equal to max_context_utilization when provided")
-
-	setPreferredForLowerMax := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"preferred_context_utilization_threshold": 0.70}, modelHeader(defaultProfileID))
-	assertStatus(t, setPreferredForLowerMax, http.StatusOK)
-
-	invalidLowerMax := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"max_context_utilization": 0.60}, modelHeader(defaultProfileID))
-	assertErrorResponse(t, invalidLowerMax, http.StatusUnprocessableEntity, "preferred_context_utilization_threshold must be less than or equal to max_context_utilization when provided")
-}
-
-func TestConnectionCapabilitySnapshotsExposePreferredThresholdAndOpenAITextCapability(t *testing.T) {
+func TestConnectionCapabilitySnapshotsExposeOpenAITextCapability(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
@@ -830,8 +556,8 @@ func TestConnectionCapabilitySnapshotsExposePreferredThresholdAndOpenAITextCapab
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
 	connectionID := jsonInt(t, created["id"])
-	if created["preferred_context_utilization_threshold"] != nil || created["openai_probe_endpoint_variant"] != "responses_minimal" || created["openai_text_capability"] != "responses_only" {
-		t.Fatalf("expected created connection to expose default preferred threshold and explicit OpenAI text capability, got %+v", created)
+	if created["openai_probe_endpoint_variant"] != "responses_minimal" || created["openai_text_capability"] != "responses_only" {
+		t.Fatalf("expected created connection to expose explicit OpenAI text capability, got %+v", created)
 	}
 	if _, ok := created["openai_upstream_operation"]; ok {
 		t.Fatalf("created connection must not expose removed openai_upstream_operation, got %+v", created)
@@ -841,7 +567,7 @@ func TestConnectionCapabilitySnapshotsExposePreferredThresholdAndOpenAITextCapab
 	assertStatus(t, updateResponse, http.StatusOK)
 	var updated map[string]any
 	decodeJSONResponse(t, updateResponse, &updated)
-	if updated["preferred_context_utilization_threshold"] != nil || updated["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || updated["openai_text_capability"] != "responses_only" {
+	if updated["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || updated["openai_text_capability"] != "responses_only" {
 		t.Fatalf("expected updated connection to preserve text capability independently of probe variant, got %+v", updated)
 	}
 	if _, ok := updated["openai_upstream_operation"]; ok {
@@ -867,9 +593,6 @@ func TestConnectionCapabilitySnapshotsExposePreferredThresholdAndOpenAITextCapab
 		if jsonInt(t, nested.payload["id"]) != connectionID {
 			t.Fatalf("expected nested %s id %d, got %+v", nested.name, connectionID, nested.payload)
 		}
-		if nested.payload["preferred_context_utilization_threshold"] != nil {
-			t.Fatalf("expected nested %s preferred_context_utilization_threshold=null, got %+v", nested.name, nested.payload)
-		}
 		if nested.payload["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || nested.payload["openai_text_capability"] != "responses_only" {
 			t.Fatalf("expected nested %s to expose OpenAI text capability independently of probe variant, got %+v", nested.name, nested.payload)
 		}
@@ -889,23 +612,4 @@ func TestConnectionProbeEndpointVariantRejectsNonOpenAIFamily(t *testing.T) {
 
 	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "openai_probe_endpoint_variant": "responses_minimal"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, response, http.StatusUnprocessableEntity, "openai_probe_endpoint_variant is only supported for OpenAI-family connections")
-}
-
-func assertStoredConnectionPreferredContextThreshold(t *testing.T, harness *contractHarness, connectionID int, want *float64, wantOverridden bool) {
-	t.Helper()
-	var preferred sql.NullFloat64
-	var overridden bool
-	if err := harness.conn.QueryRow(context.Background(), `SELECT preferred_context_utilization_threshold, preferred_context_utilization_threshold_overridden FROM connections WHERE id = $1`, connectionID).Scan(&preferred, &overridden); err != nil {
-		t.Fatalf("load connection %d preferred_context_utilization_threshold: %v", connectionID, err)
-	}
-	if want == nil {
-		if preferred.Valid {
-			t.Fatalf("expected connection %d preferred_context_utilization_threshold NULL, got %0.2f", connectionID, preferred.Float64)
-		}
-	} else if !preferred.Valid || preferred.Float64 != *want {
-		t.Fatalf("expected connection %d preferred_context_utilization_threshold %0.2f, got %+v", connectionID, *want, preferred)
-	}
-	if overridden != wantOverridden {
-		t.Fatalf("expected connection %d preferred_context_utilization_threshold_overridden=%t, got %t", connectionID, wantOverridden, overridden)
-	}
 }

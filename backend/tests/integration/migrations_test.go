@@ -27,6 +27,7 @@ var expectedPrismMigrationVersions = []string{
 	"000004_endpoint_label_snapshot",
 	"000005_remove_access_target_weight_priority_add_audit_family_settings",
 	"000006_openai_accepted_format",
+	"000007_remove_context_capabilities_and_facades",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -57,9 +58,8 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertPartitionedLogSchemaContract(t, testContext, conn)
 	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
 	assertModelAccessTargetsRankingColumnsAbsent(t, testContext, conn)
-	assertFacadePolicyConstraintContract(t, testContext, conn)
+	assertContextCapabilityAndFacadeColumnsAbsent(t, testContext, conn)
 	assertProfileAPIFamilyAuditSettingsContract(t, testContext, conn)
-	assertContextCapabilityColumnContracts(t, testContext, conn)
 	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
 	assertOpenAIAcceptedFormatColumnContract(t, testContext, conn)
@@ -83,10 +83,10 @@ func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T)
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected access-target ranking removal migration to apply, got %q", result.Outcome)
 	}
-	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format"})
+	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertModelAccessTargetsRankingColumnsAbsent(t, testContext, conn)
-	assertFacadePolicyConstraintContract(t, testContext, conn)
+	assertContextCapabilityAndFacadeColumnsAbsent(t, testContext, conn)
 	assertProfileAPIFamilyAuditSettingsContract(t, testContext, conn)
 }
 
@@ -185,7 +185,7 @@ func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected endpoint label snapshot migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format"})
+	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
 	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
@@ -221,7 +221,7 @@ func TestMigrationBackfillsOpenAIAcceptedFormatToDualNative(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected openai accepted format migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format"})
+	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertOpenAIAcceptedFormatColumnContract(t, testContext, conn)
 	assertOpenAIAcceptedFormatBackfillRows(t, testContext, conn)
@@ -356,44 +356,6 @@ func TestTranslatedObservabilitySchemaGuardUpgradesStampedDatabase(t *testing.T)
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
 	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
 	assertEndpointLabelSnapshotBackfillRows(t, testContext, conn, fixture.expectedLabels)
-}
-
-func TestPreferredContextSchemaGuardUpgradesStampedDatabase(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "preferred_context_schema_guard")
-	defer func() { _ = conn.Close(testContext) }()
-
-	firstResult, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run baseline before preferred context guard check: %v", err)
-	}
-	if firstResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected first run to apply baseline, got %q", firstResult.Outcome)
-	}
-
-	if _, err := conn.Exec(testContext, `ALTER TABLE public.connections DROP CONSTRAINT IF EXISTS ck_connections_preferred_context_utilization_threshold`); err != nil {
-		t.Fatalf("drop preferred context constraint from connections: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `ALTER TABLE public.connections DROP COLUMN IF EXISTS preferred_context_utilization_threshold_overridden`); err != nil {
-		t.Fatalf("drop preferred context override column from connections: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `ALTER TABLE public.connections DROP COLUMN IF EXISTS preferred_context_utilization_threshold`); err != nil {
-		t.Fatalf("drop preferred context column from connections: %v", err)
-	}
-	guardResult, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("rerun baseline with stamped database missing preferred context schema: %v", err)
-	}
-	if guardResult.Outcome != migrate.OutcomeNoop {
-		t.Fatalf("expected guard rerun to noop, got %q", guardResult.Outcome)
-	}
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertContextCapabilityColumnContracts(t, testContext, conn)
-	assertConstraintDefinitionContains(t, testContext, conn, "ck_connections_preferred_context_utilization_threshold", "preferred_context_utilization_threshold", "<= max_context_utilization")
 }
 
 func TestModelPrivateConnectionOwnershipSchemaGuard(t *testing.T) {
@@ -703,17 +665,45 @@ func assertModelAccessTargetsRankingColumnsAbsent(t *testing.T, ctx context.Cont
 	assertConstraintDefinitionContains(t, ctx, conn, "chk_model_access_targets_one_target", "target_model_config_id", "target_connection_id")
 }
 
-func assertFacadePolicyConstraintContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+func assertContextCapabilityAndFacadeColumnsAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_model_configs_facade_policy_contract", "ordered_eligible_context", "skip_ineligible_targets")
-	var definition string
-	if err := conn.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_model_configs_facade_policy_contract'`).Scan(&definition); err != nil {
-		t.Fatalf("load facade policy constraint: %v", err)
+	removedColumns := map[string][]string{
+		"connections": {
+			"context_window_tokens",
+			"context_window_tokens_overridden",
+			"default_output_token_reserve",
+			"default_output_token_reserve_overridden",
+			"max_context_utilization",
+			"max_context_utilization_overridden",
+			"preferred_context_utilization_threshold",
+			"preferred_context_utilization_threshold_overridden",
+		},
+		"model_configs": {
+			"facade_enabled",
+			"facade_selection_policy",
+			"facade_fallback_policy",
+		},
 	}
-	for _, retired := range []string{"weighted_eligible_context", "redistribute_ineligible_weight"} {
-		if strings.Contains(definition, retired) {
-			t.Fatalf("expected facade policy constraint to reject retired policy %q, got %q", retired, definition)
+	for tableName, columnNames := range removedColumns {
+		for _, columnName := range columnNames {
+			assertColumnAbsent(t, ctx, conn, tableName, columnName)
 		}
+	}
+	assertConstraintPresence(t, ctx, conn, "model_configs", "ck_model_configs_facade_policy_contract", false)
+	assertConstraintPresence(t, ctx, conn, "connections", "ck_connections_context_window_tokens", false)
+	assertConstraintPresence(t, ctx, conn, "connections", "ck_connections_default_output_token_reserve", false)
+	assertConstraintPresence(t, ctx, conn, "connections", "ck_connections_max_context_utilization", false)
+	assertConstraintPresence(t, ctx, conn, "connections", "ck_connections_preferred_context_utilization_threshold", false)
+}
+
+func assertColumnAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string) {
+	t.Helper()
+	var exists bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2)`, tableName, columnName).Scan(&exists); err != nil {
+		t.Fatalf("check %s.%s absence: %v", tableName, columnName, err)
+	}
+	if exists {
+		t.Fatalf("expected %s.%s to be absent", tableName, columnName)
 	}
 }
 
@@ -794,7 +784,7 @@ func seedOpenAIAcceptedFormatProfile(t *testing.T, ctx context.Context, conn *pg
 func seedOpenAIAcceptedFormatModel(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, modelID string, apiFamily string) {
 	t.Helper()
 	now := time.Now().UTC()
-	if _, err := conn.Exec(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, facade_enabled, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $3, FALSE, FALSE, $4, $4)`, profileID, apiFamily, modelID, now); err != nil {
+	if _, err := conn.Exec(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $3, FALSE, $4, $4)`, profileID, apiFamily, modelID, now); err != nil {
 		t.Fatalf("seed accepted-format model %q: %v", modelID, err)
 	}
 }
@@ -872,7 +862,7 @@ func assertSQLConstraintError(t *testing.T, err error, constraintName string) {
 func assertConstraintPresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, constraintName string, wantExists bool) {
 	t.Helper()
 	var exists bool
-	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = $1::regclass AND conname = $2)`, "public."+tableName, constraintName).Scan(&exists); err != nil {
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass($1) AND conname = $2)`, "public."+tableName, constraintName).Scan(&exists); err != nil {
 		t.Fatalf("check constraint %s on %s: %v", constraintName, tableName, err)
 	}
 	if exists != wantExists {

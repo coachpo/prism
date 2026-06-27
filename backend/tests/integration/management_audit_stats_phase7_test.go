@@ -1840,3 +1840,8 @@ func phase7SourceBetween(source string, start string, end string) string {
 	}
 	return before
 }
+
+func intPtr(value int) *int {
+	resolved := value
+	return &resolved
+}

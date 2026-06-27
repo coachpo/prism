@@ -34,13 +34,9 @@ type routingPlanValidationIssue struct {
 }
 
 const (
-	facadeSelectionPolicyOrderedEligibleContext = "ordered_eligible_context"
-	facadeFallbackPolicySkipIneligibleTargets   = "skip_ineligible_targets"
-	facadeEnabledRequiresOpenAIDetail           = "facade_enabled requires api_family 'openai'"
-	nestedFacadesNotSupportedDetail             = "nested facades are not supported"
-	openAIAcceptedFormatResponsesOnly           = "responses_only"
-	openAIAcceptedFormatChatCompletionsOnly     = "chat_completions_only"
-	openAIAcceptedFormatDualNative              = "dual_native"
+	openAIAcceptedFormatResponsesOnly       = "responses_only"
+	openAIAcceptedFormatChatCompletionsOnly = "chat_completions_only"
+	openAIAcceptedFormatDualNative          = "dual_native"
 )
 
 func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
@@ -128,28 +124,12 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, err
 		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, FacadeEnabled: resolveFacadeEnabled(requestBody.FacadeEnabled), FacadeSelectionPolicy: requestBody.FacadeSelectionPolicy, FacadeFallbackPolicy: requestBody.FacadeFallbackPolicy, OpenAIAcceptedFormat: requestBody.OpenAIAcceptedFormat.Value, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
-		created, err := insertModel(r.Context(), tx, record)
-		if err != nil {
-			return modelConfigResponse{}, err
-		}
-		if err := lockProfileAccessTargetRows(r.Context(), tx, profile.ID); err != nil {
-			return modelConfigResponse{}, err
-		}
-		resolvedTargets, err := resolveAccessTargets(r.Context(), tx, profile.ID, &created.ID, created.ModelID, created.APIFamily, requestBody.AccessTargets)
-		if err != nil {
-			return modelConfigResponse{}, err
-		}
-		if err := validateFacadeWriteContract(r.Context(), tx, profile.ID, nil, created, resolvedTargets); err != nil {
-			return modelConfigResponse{}, err
-		}
-		if created.IsEnabled && !hasEnabledResolvedAccessTarget(resolvedTargets) {
+		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, OpenAIAcceptedFormat: requestBody.OpenAIAcceptedFormat.Value, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
+		if record.IsEnabled {
 			return modelConfigResponse{}, routingPlanValidationIssueError("model_no_enabled_targets", "access_targets", "enabled models must include at least one enabled access target")
 		}
-		if err := ensureAccessTargetGraphAcyclic(r.Context(), tx, profile.ID, created.ID, resolvedTargets); err != nil {
-			return modelConfigResponse{}, err
-		}
-		if err := replaceAccessTargets(r.Context(), tx, profile.ID, created.ID, resolvedTargets, now); err != nil {
+		created, err := insertModel(r.Context(), tx, record)
+		if err != nil {
 			return modelConfigResponse{}, err
 		}
 		strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{created})
@@ -211,15 +191,6 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if requestBody.DisplayName.Set {
 			next.DisplayName = resolvePersistedDisplayName(next.ModelID, requestBody.DisplayName.Value)
 		}
-		if requestBody.FacadeEnabled.Set {
-			next.FacadeEnabled = requestBody.FacadeEnabled.Value
-		}
-		if requestBody.FacadeSelectionPolicy.Set {
-			next.FacadeSelectionPolicy = requestBody.FacadeSelectionPolicy.Value
-		}
-		if requestBody.FacadeFallbackPolicy.Set {
-			next.FacadeFallbackPolicy = requestBody.FacadeFallbackPolicy.Value
-		}
 		if requestBody.OpenAIAcceptedFormat.Set {
 			next.OpenAIAcceptedFormat = requestBody.OpenAIAcceptedFormat.Value
 		} else if next.APIFamily != "openai" {
@@ -249,24 +220,13 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, err
 		}
 		currentAccessTargets := currentAccessTargetsByModel[current.ID]
-		targetInputs := accessTargetRequestsFromRecords(currentAccessTargets)
-		if requestBody.AccessTargets.Set {
-			targetInputs = requestBody.AccessTargets.Value
-		}
 		preservedConnectionTargets := preservedConnectionTargetsFromRecords(currentAccessTargets)
-		if requestBody.AccessTargets.Set {
-			targetInputs = placeModelTargetRequestsAroundPreservedConnections(targetInputs, preservedConnectionTargets)
-		} else {
-			targetInputs = modelAccessTargetRequestsFromRecords(currentAccessTargets)
-		}
+		targetInputs := modelAccessTargetRequestsFromRecords(currentAccessTargets)
 		if err := validateAccessTargetsForSourceModel(next.ModelID, targetInputs); err != nil {
 			return modelConfigResponse{}, err
 		}
 		resolvedTargets, err := resolveAccessTargets(r.Context(), tx, profile.ID, &current.ID, next.ModelID, next.APIFamily, targetInputs)
 		if err != nil {
-			return modelConfigResponse{}, err
-		}
-		if err := validateFacadeWriteContract(r.Context(), tx, profile.ID, &current.ID, next, resolvedTargets); err != nil {
 			return modelConfigResponse{}, err
 		}
 		if next.IsEnabled && !hasEnabledResolvedOrPreservedAccessTarget(resolvedTargets, preservedConnectionTargets) {
@@ -278,9 +238,6 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		next.UpdatedAt = s.nowUTC()
 		updated, err := updateModel(r.Context(), tx, next)
 		if err != nil {
-			return modelConfigResponse{}, err
-		}
-		if err := replaceAccessTargetsPreservingConnections(r.Context(), tx, profile.ID, updated.ID, resolvedTargets, preservedConnectionTargets, next.UpdatedAt); err != nil {
 			return modelConfigResponse{}, err
 		}
 		if updated.ModelID != originalModelID {
@@ -595,9 +552,6 @@ func (s *Service) replaceModelTargetsFromMutationItems(ctx context.Context, tx p
 	}
 	resolvedTargets, err := resolveAccessTargets(ctx, tx, profileID, &model.ID, model.ModelID, model.APIFamily, modelRequests)
 	if err != nil {
-		return nil, err
-	}
-	if err := validateFacadeWriteContract(ctx, tx, profileID, &model.ID, model, resolvedTargets); err != nil {
 		return nil, err
 	}
 	if model.IsEnabled && !hasEnabledResolvedOrPreservedAccessTarget(resolvedTargets, preservedConnectionTargets) {
@@ -1149,20 +1103,14 @@ func normalizeCreateRequest(requestBody *modelCreateRequest) {
 	requestBody.APIFamily = strings.ToLower(strings.TrimSpace(requestBody.APIFamily))
 	requestBody.ModelID = strings.TrimSpace(requestBody.ModelID)
 	requestBody.DisplayName = normalizeOptionalString(requestBody.DisplayName, false, true)
-	requestBody.FacadeSelectionPolicy = normalizeOptionalString(requestBody.FacadeSelectionPolicy, true, true)
-	requestBody.FacadeFallbackPolicy = normalizeOptionalString(requestBody.FacadeFallbackPolicy, true, true)
 	requestBody.OpenAIAcceptedFormat = optionalString{Set: requestBody.OpenAIAcceptedFormat.Set, Value: normalizeOptionalString(requestBody.OpenAIAcceptedFormat.Value, true, true)}
-	requestBody.AccessTargets = normalizeAccessTargets(requestBody.AccessTargets)
 }
 
 func normalizeUpdateRequest(requestBody *modelUpdateRequest) {
 	requestBody.APIFamily = optionalString{Set: requestBody.APIFamily.Set, Value: normalizeOptionalString(requestBody.APIFamily.Value, true, false)}
 	requestBody.ModelID = optionalString{Set: requestBody.ModelID.Set, Value: normalizeOptionalString(requestBody.ModelID.Value, false, false)}
 	requestBody.DisplayName = optionalString{Set: requestBody.DisplayName.Set, Value: normalizeOptionalString(requestBody.DisplayName.Value, false, true)}
-	requestBody.FacadeSelectionPolicy = optionalString{Set: requestBody.FacadeSelectionPolicy.Set, Value: normalizeOptionalString(requestBody.FacadeSelectionPolicy.Value, true, true)}
-	requestBody.FacadeFallbackPolicy = optionalString{Set: requestBody.FacadeFallbackPolicy.Set, Value: normalizeOptionalString(requestBody.FacadeFallbackPolicy.Value, true, true)}
 	requestBody.OpenAIAcceptedFormat = optionalString{Set: requestBody.OpenAIAcceptedFormat.Set, Value: normalizeOptionalString(requestBody.OpenAIAcceptedFormat.Value, true, true)}
-	requestBody.AccessTargets = optionalAccessTargets{Set: requestBody.AccessTargets.Set, Value: normalizeAccessTargets(requestBody.AccessTargets.Value)}
 }
 
 func normalizeOptionalString(value *string, lower bool, emptyToNil bool) *string {
@@ -1207,16 +1155,10 @@ func validateCreateRequest(requestBody modelCreateRequest) error {
 	if requestBody.LoadbalanceStrategyID == nil {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
 	}
-	if err := validateFacadePolicyValues(requestBody.FacadeSelectionPolicy, requestBody.FacadeFallbackPolicy); err != nil {
-		return err
-	}
 	if err := validateOpenAIAcceptedFormatForModel(requestBody.APIFamily, requestBody.OpenAIAcceptedFormat.Value, requestBody.OpenAIAcceptedFormat.Set); err != nil {
 		return err
 	}
-	if err := validatePublicAccessTargets(requestBody.AccessTargets); err != nil {
-		return err
-	}
-	return validateAccessTargetsForSourceModel(requestBody.ModelID, requestBody.AccessTargets)
+	return nil
 }
 
 func validateOpenAIAcceptedFormatForModel(apiFamily string, value *string, provided bool) error {
@@ -1255,70 +1197,6 @@ func validateUpdateRequest(requestBody modelUpdateRequest) error {
 	}
 	if requestBody.LoadbalanceStrategyID.Set && requestBody.LoadbalanceStrategyID.Value == nil {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
-	}
-	if err := validateFacadePolicyValues(requestBody.FacadeSelectionPolicy.Value, requestBody.FacadeFallbackPolicy.Value); err != nil {
-		return err
-	}
-	if requestBody.AccessTargets.Set {
-		return validatePublicAccessTargets(requestBody.AccessTargets.Value)
-	}
-	return nil
-}
-
-func validateFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
-	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyOrderedEligibleContext {
-		return routingPlanValidationIssueError("facade_selection_policy_invalid", "facade_selection_policy", "facade_selection_policy must be 'ordered_eligible_context'")
-	}
-	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicySkipIneligibleTargets {
-		return routingPlanValidationIssueError("facade_fallback_policy_invalid", "facade_fallback_policy", "facade_fallback_policy must be 'skip_ineligible_targets'")
-	}
-	return nil
-}
-
-func validateFacadeWriteContract(ctx context.Context, exec queryExecutor, profileID int, modelConfigID *int, record modelRecord, resolvedTargets []resolvedAccessTarget) error {
-	if err := validateFacadeConfiguration(record); err != nil {
-		return err
-	}
-	if err := ensureNoNestedFacadeTargets(resolvedTargets); err != nil {
-		return err
-	}
-	if !record.FacadeEnabled || modelConfigID == nil {
-		return nil
-	}
-	referrers, err := listAccessTargetReferrers(ctx, exec, profileID, *modelConfigID, nil)
-	if err != nil {
-		return err
-	}
-	if len(referrers) > 0 {
-		return routingPlanValidationIssueError("nested_facade_target", "facade_enabled", nestedFacadesNotSupportedDetail)
-	}
-	return nil
-}
-
-func validateFacadeConfiguration(record modelRecord) error {
-	if err := validateFacadePolicyValues(record.FacadeSelectionPolicy, record.FacadeFallbackPolicy); err != nil {
-		return err
-	}
-	if !record.FacadeEnabled {
-		return nil
-	}
-	if record.APIFamily != "openai" {
-		return routingPlanValidationIssueError("model_api_family_invalid", "api_family", facadeEnabledRequiresOpenAIDetail)
-	}
-	if record.FacadeSelectionPolicy == nil {
-		return routingPlanValidationIssueError("facade_selection_policy_missing", "facade_selection_policy", "facade_selection_policy is required when facade_enabled is true")
-	}
-	if record.FacadeFallbackPolicy == nil {
-		return routingPlanValidationIssueError("facade_fallback_policy_missing", "facade_fallback_policy", "facade_fallback_policy is required when facade_enabled is true")
-	}
-	return nil
-}
-
-func ensureNoNestedFacadeTargets(resolvedTargets []resolvedAccessTarget) error {
-	for _, target := range resolvedTargets {
-		if target.Model != nil && target.Model.FacadeEnabled {
-			return routingPlanValidationIssueError("nested_facade_target", accessTargetIssuePath(target.Position, "target_model_id"), nestedFacadesNotSupportedDetail)
-		}
 	}
 	return nil
 }
@@ -1445,13 +1323,6 @@ func resolvePersistedDisplayName(modelID string, displayName *string) *string {
 
 func resolveIsEnabled(value *bool) bool {
 	if value == nil {
-		return true
-	}
-	return *value
-}
-
-func resolveFacadeEnabled(value *bool) bool {
-	if value == nil {
 		return false
 	}
 	return *value
@@ -1482,9 +1353,6 @@ func decodeModelCreateRequest(request *http.Request) (modelCreateRequest, error)
 	if err != nil {
 		return modelCreateRequest{}, err
 	}
-	if err := rejectObsoleteModelAccessTargetFields(body); err != nil {
-		return modelCreateRequest{}, err
-	}
 	var target modelCreateRequest
 	if err := decodeJSONBytes(body, &target); err != nil {
 		return modelCreateRequest{}, err
@@ -1495,9 +1363,6 @@ func decodeModelCreateRequest(request *http.Request) (modelCreateRequest, error)
 func decodeModelUpdateRequest(request *http.Request) (modelUpdateRequest, error) {
 	body, err := readJSONBody(request)
 	if err != nil {
-		return modelUpdateRequest{}, err
-	}
-	if err := rejectObsoleteModelAccessTargetFields(body); err != nil {
 		return modelUpdateRequest{}, err
 	}
 	var target modelUpdateRequest
@@ -1550,21 +1415,6 @@ func decodeJSONBytes(body []byte, target any) error {
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return err
-	}
-	return nil
-}
-
-func rejectObsoleteModelAccessTargetFields(body []byte) error {
-	var payload struct {
-		AccessTargets []json.RawMessage `json:"access_targets"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return err
-	}
-	for index, rawTarget := range payload.AccessTargets {
-		if err := rejectObsoleteAccessTargetFields(rawTarget, fmt.Sprintf("access_targets[%d].", index)); err != nil {
-			return err
-		}
 	}
 	return nil
 }

@@ -1,9 +1,6 @@
 package runtime
 
-import (
-	"errors"
-	"net/http"
-)
+import "net/http"
 
 func (s *Service) buildRequestPlanFromSnapshotCore(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot) (requestPlan, error) {
 	routingPlan, err := snapshot.compiledRoutingPlan()
@@ -27,19 +24,9 @@ func (s *Service) buildRequestPlanFromSnapshotCore(request *http.Request, rawBod
 	if err != nil {
 		return requestPlan{}, err
 	}
-	contextEstimation, contextEstimationErr := estimatePreflightRequestContext(operation.Match.Operation, input.RawBody, requestedModel)
-	input.AllowMissingContextEstimation = allowContextEstimationUnavailablePassThrough(operation.Match.Operation, contextEstimationErr)
-	input.ContextEstimationUnavailableReason = contextEstimationUnavailableReasonFromError(contextEstimationErr)
-	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel, contextEstimation)
+	target, err := s.resolveRequestPlanTarget(input, operation, requestedModel)
 	if err != nil {
-		var runtimeErr *domainError
-		if contextEstimationErr != nil && !input.AllowMissingContextEstimation && (!errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode) {
-			return requestPlan{}, contextEstimationErr
-		}
 		return requestPlan{}, attachRuntimePlanningFailureTelemetry(err, input, operation, requestedModel)
 	}
-	if contextEstimationErr != nil && !input.AllowMissingContextEstimation {
-		return requestPlan{}, contextEstimationErr
-	}
-	return assembleRequestPlan(input, operation, target, contextEstimation)
+	return assembleRequestPlan(input, operation, target)
 }

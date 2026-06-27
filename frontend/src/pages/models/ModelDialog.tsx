@@ -17,11 +17,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem, OpenAIAcceptedFormat } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { OperatorCallout, OperatorInsetPanel, OperatorSwitchField } from "@/shared/design-system";
-import { AccessTargetsEditor } from "./AccessTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
 import {
   DEFAULT_OPENAI_ACCEPTED_FORMAT,
-  getEditModelConnectionOptions,
   OPENAI_ACCEPTED_FORMAT_OPTIONS,
   setApiFamilyOnForm,
   setDisplayNameOnForm,
@@ -37,10 +35,8 @@ type Props = {
   formError: string | null;
   isDialogOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
-  targetModelsForApiFamily: ModelConfigListItem[];
   dialogDescription?: string;
   dialogTitle?: string;
-  includeTerminalTargetConnectionOptions?: boolean;
   showModelIdInEditMode?: boolean;
   submitLabel?: string;
   createLoadbalanceStrategyDefaultsPending?: boolean;
@@ -67,10 +63,8 @@ export function ModelDialog({
   formError,
   isDialogOpen,
   loadbalanceStrategies,
-  targetModelsForApiFamily,
   dialogDescription: dialogDescriptionOverride,
   dialogTitle,
-  includeTerminalTargetConnectionOptions = true,
   showModelIdInEditMode = false,
   submitLabel,
   createLoadbalanceStrategyDefaultsPending = false,
@@ -102,9 +96,6 @@ export function ModelDialog({
     : copy.newModelEnabledDescription;
   const saveDisabled = !selectedLoadbalanceStrategy;
   const openAIAcceptedFormatValue = formData.openai_accepted_format || DEFAULT_OPENAI_ACCEPTED_FORMAT;
-  const terminalTargetConnectionOptions = includeTerminalTargetConnectionOptions
-    ? getEditModelConnectionOptions(editingModel)
-    : [];
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -231,15 +222,6 @@ export function ModelDialog({
                   </Select>
                 )}
               </OperatorInsetPanel>
-
-              <AccessTargetsEditor
-                apiFamilyLabel={formData.api_family}
-                accessTargets={formData.access_targets}
-                modelOptions={targetModelsForApiFamily}
-                connectionOptions={terminalTargetConnectionOptions}
-                error={formError}
-                onChange={(accessTargets) => setFormData((prev) => ({ ...prev, access_targets: accessTargets }))}
-              />
 
               <OperatorSwitchField
                 label={detailCopy.enabled}

@@ -15,8 +15,6 @@ import {
   createEditModelFormData,
   createNewModelFormData,
   DEFAULT_MODEL_FORM_DATA,
-  getAccessTargetModelsForApiFamily,
-  getAccessTargetOptionKeys,
   type ModelFormData,
   type ModelFormValidationError,
   setLoadbalanceStrategyIdOnForm,
@@ -214,10 +212,7 @@ export function useModelsPageData(revision: number) {
     const messages = getStaticMessages();
     event.preventDefault();
     setFormError(null);
-    const validationError = validateModelFormData(
-      formData,
-      getAccessTargetOptionKeys(targetModelsForApiFamily),
-    );
+    const validationError = validateModelFormData(formData);
 
     if (validationError === "api_family_required") {
       toast.error(messages.modelsData.selectApiFamily);
@@ -228,13 +223,6 @@ export function useModelsPageData(revision: number) {
       const message = loadbalanceStrategies.length === 0
         ? messages.modelDetail.noLoadbalanceStrategiesAvailable
         : messages.modelsData.selectLoadbalanceStrategy;
-      setFormError(message);
-      toast.error(message);
-      return;
-    }
-
-    if (validationError === "access_target_required") {
-      const message = messages.modelsData.enabledAccessTargetRequired;
       setFormError(message);
       toast.error(message);
       return;
@@ -305,12 +293,6 @@ export function useModelsPageData(revision: number) {
     }
   };
 
-  const targetModelsForApiFamily = getAccessTargetModelsForApiFamily(
-    models,
-    formData.api_family ?? "openai",
-    editingModel ? formData.model_id : undefined,
-  );
-
   const filtered = useMemo(
     () =>
       models.filter((model) => {
@@ -349,7 +331,6 @@ export function useModelsPageData(revision: number) {
     modelMetrics24h,
     modelSpend30dMicros,
     models,
-    targetModelsForApiFamily,
     search,
     setDeleteTarget,
     setFormData,

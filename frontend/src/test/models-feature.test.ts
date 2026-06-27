@@ -26,7 +26,6 @@ describe("models feature contracts", () => {
     const payload = toModelCreatePayload({
       ...baseForm,
       display_name: "GPT Entry",
-      access_targets: [{ target_type: "model", target_model_id: "gpt-large", position: 0, is_enabled: true }],
       is_enabled: true,
     })
 
@@ -36,19 +35,16 @@ describe("models feature contracts", () => {
       display_name: "GPT Entry",
       loadbalance_strategy_id: 11,
       openai_accepted_format: "dual_native",
-      access_targets: [{ target_type: "model", target_model_id: "gpt-large", position: 0, is_enabled: true }],
       is_enabled: true,
     })
-    expect(Object.prototype.hasOwnProperty.call(payload.access_targets[0], "weight")).toBe(false)
-    expect(Object.prototype.hasOwnProperty.call(payload.access_targets[0], "target_priority")).toBe(false)
+    expect(Object.prototype.hasOwnProperty.call(payload, "access_targets")).toBe(false)
   })
 
-  it("requires enabled models to have a valid same-family access target", () => {
+  it("allows enabled state through model CRUD validation without target payloads", () => {
     expect(validateModelAuthoringValues({
       ...baseForm,
       is_enabled: true,
-      access_targets: [],
-    })).toBe("access_target_required")
+    })).toBe(null)
   })
   it("exposes React Hook Form options backed by the Zod authoring schema", () => {
     const options = createModelAuthoringFormOptions(baseForm)

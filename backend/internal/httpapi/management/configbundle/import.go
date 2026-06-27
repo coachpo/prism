@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coachpo/prism/backend/internal/contextcapability"
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
@@ -21,12 +20,8 @@ import (
 )
 
 const (
-	canonicalProfileBundleVersion               = 3
-	canonicalProfileBundleKind                  = "profile_config"
-	facadeSelectionPolicyOrderedEligibleContext = "ordered_eligible_context"
-	facadeFallbackPolicySkipIneligibleTargets   = "skip_ineligible_targets"
-	facadeEnabledRequiresOpenAIDetail           = "facade_enabled requires api_family 'openai'"
-	nestedFacadesNotSupportedDetail             = "nested facades are not supported"
+	canonicalProfileBundleVersion = 3
+	canonicalProfileBundleKind    = "profile_config"
 )
 
 var importedPricingTemplateDecimalPattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
@@ -222,9 +217,6 @@ func validateProfileImportRequest(data profileImportRequest) error {
 	if err != nil {
 		return err
 	}
-	if err := validateImportedConnectionPreferredContextThresholds(data.Connections); err != nil {
-		return err
-	}
 	if err := validateImportedAccessTargetReferences(importedModels); err != nil {
 		return err
 	}
@@ -404,9 +396,6 @@ func validateImportedModels(models []modelExport, refs profileImportModelValidat
 		if err := validateImportedModelAcceptedFormat(modelIndex, model, models[modelIndex].OpenAIAcceptedFormat); err != nil {
 			return nil, nil, err
 		}
-		if err := validateImportedFacadeConfiguration(modelIndex, model); err != nil {
-			return nil, nil, err
-		}
 		owner := connectionOwnerRef{ModelID: modelID, DisplayName: model.DisplayName}
 		if err := validateImportedAccessTargets(modelIndex, modelID, model.APIFamily, owner, model.AccessTargets, connectionRefs, connectionOwners, importedConnectionPairs); err != nil {
 			return nil, nil, err
@@ -426,9 +415,6 @@ func normalizeImportedModels(models []modelExport) []importedModelPayload {
 			ModelID:                 strings.TrimSpace(model.ModelID),
 			DisplayName:             trimmedOptionalString(model.DisplayName),
 			LoadbalanceStrategyName: trimmedOptionalString(model.LoadbalanceStrategyName),
-			FacadeEnabled:           model.FacadeEnabled,
-			FacadeSelectionPolicy:   normalizeImportedOptionalString(model.FacadeSelectionPolicy, true),
-			FacadeFallbackPolicy:    normalizeImportedOptionalString(model.FacadeFallbackPolicy, true),
 			OpenAIAcceptedFormat:    normalizeImportedOptionalString(model.OpenAIAcceptedFormat, true),
 			IsEnabled:               model.IsEnabled,
 			AccessTargets:           normalizeImportedAccessTargets(model.AccessTargets),
@@ -487,52 +473,6 @@ func validateImportedModelAcceptedFormat(modelIndex int, model importedModelPayl
 		return routingPlanValidationIssueError("model_openai_accepted_format_missing", importedModelIssuePath(modelIndex, "openai_accepted_format"), "openai_accepted_format is required when api_family is 'openai'")
 	}
 	return routingPlanValidationIssueError("model_openai_accepted_format_invalid", importedModelIssuePath(modelIndex, "openai_accepted_format"), "openai_accepted_format has invalid value")
-}
-
-func validateImportedFacadePolicyValues(modelIndex int, selectionPolicy *string, fallbackPolicy *string) error {
-	if selectionPolicy != nil && *selectionPolicy != facadeSelectionPolicyOrderedEligibleContext {
-		return routingPlanValidationIssueError("facade_selection_policy_invalid", importedModelIssuePath(modelIndex, "facade_selection_policy"), "facade_selection_policy must be 'ordered_eligible_context'")
-	}
-	if fallbackPolicy != nil && *fallbackPolicy != facadeFallbackPolicySkipIneligibleTargets {
-		return routingPlanValidationIssueError("facade_fallback_policy_invalid", importedModelIssuePath(modelIndex, "facade_fallback_policy"), "facade_fallback_policy must be 'skip_ineligible_targets'")
-	}
-	return nil
-}
-
-func validateImportedFacadeConfiguration(modelIndex int, model importedModelPayload) error {
-	if err := validateImportedFacadePolicyValues(modelIndex, model.FacadeSelectionPolicy, model.FacadeFallbackPolicy); err != nil {
-		return err
-	}
-	if !model.FacadeEnabled {
-		return nil
-	}
-	if !providercompat.IsOpenAI(model.APIFamily) {
-		return routingPlanValidationIssueError("model_api_family_invalid", importedModelIssuePath(modelIndex, "api_family"), facadeEnabledRequiresOpenAIDetail)
-	}
-	if model.FacadeSelectionPolicy == nil {
-		return routingPlanValidationIssueError("facade_selection_policy_missing", importedModelIssuePath(modelIndex, "facade_selection_policy"), "facade_selection_policy is required when facade_enabled is true")
-	}
-	if model.FacadeFallbackPolicy == nil {
-		return routingPlanValidationIssueError("facade_fallback_policy_missing", importedModelIssuePath(modelIndex, "facade_fallback_policy"), "facade_fallback_policy is required when facade_enabled is true")
-	}
-	return nil
-}
-
-func validateImportedConnectionContextCapabilities(connection connectionExport, connectionRef string) error {
-	if _, err := contextcapability.NormalizeContextWindowTokens(connection.ContextWindowTokens); err != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' context_window_tokens %s", connectionRef, err.Error())}
-	}
-	if connection.DefaultOutputTokenReserve != nil {
-		if _, err := contextcapability.NormalizeOutputTokenReserve(connection.DefaultOutputTokenReserve); err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' default_output_token_reserve %s", connectionRef, err.Error())}
-		}
-	}
-	if connection.MaxContextUtilization != nil {
-		if _, err := contextcapability.NormalizeMaxContextUtilization(connection.MaxContextUtilization); err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' max_context_utilization %s", connectionRef, err.Error())}
-		}
-	}
-	return nil
 }
 
 type importedConnectionValidationRef struct {
@@ -653,9 +593,6 @@ func validateImportedConnections(connections []connectionExport, refs profileImp
 		if connection.MaxInFlightStream != nil && *connection.MaxInFlightStream < 1 {
 			return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' has invalid max_in_flight_stream '%d'", connectionRef, *connection.MaxInFlightStream)}
 		}
-		if err := validateImportedConnectionContextCapabilities(connection, connectionRef); err != nil {
-			return nil, err
-		}
 		if err := validateConnectionAuthType(connection.AuthType); err != nil {
 			return nil, err
 		}
@@ -699,9 +636,6 @@ func validateImportedAccessTargetReferences(models []importedModelPayload) error
 			if !modelrouting.SameAPIFamily(targetModel.APIFamily, model.APIFamily) {
 				detail := fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", model.ModelID, *target.TargetModelID)
 				return routingPlanValidationIssueError("target_api_family_mismatch", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), detail)
-			}
-			if targetModel.FacadeEnabled {
-				return routingPlanValidationIssueError("nested_facade_target", importedAccessTargetIssuePath(modelIndex, targetIndex, "target_model_id"), nestedFacadesNotSupportedDetail)
 			}
 			if target.IsEnabled {
 				referencedModels[*target.TargetModelID] = struct{}{}
@@ -1077,17 +1011,6 @@ func insertImportedStrategies(ctx context.Context, exec queryExecutor, profileID
 	return strategyIDsByName, len(strategies), nil
 }
 
-func validateImportedConnectionPreferredContextThresholds(connections []connectionExport) error {
-	for _, connection := range connections {
-		connectionRef := strings.TrimSpace(connection.Ref)
-		settings := contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
-		if _, err := contextcapability.NormalizeConnectionSettings(settings, connection.ContextWindowTokens, connection.DefaultOutputTokenReserve, connection.MaxContextUtilization, connection.PreferredContextUtilizationThreshold); err != nil {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Connection '%s' preferred_context_utilization_threshold %s", connectionRef, err.Error())}
-		}
-	}
-	return nil
-}
-
 func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor, profileID int, models []modelExport, connections []connectionExport, endpointIDsByName map[string]int, pricingIDsByName map[string]int, strategyIDsByName map[string]int, currentTime time.Time) (map[string]int, map[string]struct{}, int, error) {
 	importedModels := normalizeImportedModels(models)
 	modelIDsByModelID := map[string]int{}
@@ -1097,7 +1020,7 @@ func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor,
 	for _, model := range importedModels {
 		strategyID := strategyIDsByName[*model.LoadbalanceStrategyName]
 		var modelConfigID int
-		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11) RETURNING id`, profileID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, model.FacadeEnabled, nullableString(model.FacadeSelectionPolicy), nullableString(model.FacadeFallbackPolicy), nullableString(model.OpenAIAcceptedFormat), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING id`, profileID, model.APIFamily, model.ModelID, nullableString(model.DisplayName), strategyID, nullableString(model.OpenAIAcceptedFormat), model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
 			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", model.ModelID, err)
 		}
 		modelIDsByModelID[model.ModelID] = modelConfigID
@@ -1127,11 +1050,6 @@ func insertImportedConnections(ctx context.Context, exec queryExecutor, profileI
 		if err != nil {
 			return 0, err
 		}
-		settings := contextcapability.Settings{DefaultOutputTokenReserve: contextcapability.DefaultOutputTokenReserve, MaxContextUtilization: contextcapability.DefaultMaxContextUtilization}
-		resolvedSettings, err := contextcapability.NormalizeConnectionSettings(settings, connection.ContextWindowTokens, connection.DefaultOutputTokenReserve, connection.MaxContextUtilization, connection.PreferredContextUtilizationThreshold)
-		if err != nil {
-			return 0, fmt.Errorf("normalize imported connection %q capabilities: %w", connectionRef, err)
-		}
 		var customHeaders any
 		if len(connection.CustomHeaders) > 0 {
 			rawHeaders, marshalErr := json.Marshal(connection.CustomHeaders)
@@ -1141,7 +1059,7 @@ func insertImportedConnections(ctx context.Context, exec queryExecutor, profileI
 			customHeaders = string(rawHeaders)
 		}
 		var connectionID int
-		if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19, $20, $21, $22, $22) RETURNING id`, profileID, apiFamily, endpointIDsByName[endpointName], nullableOptionalInt(resolvedSettings.ContextWindowTokens), resolvedSettings.DefaultOutputTokenReserve, resolvedSettings.MaxContextUtilization, nullableOptionalFloat64(resolvedSettings.PreferredContextUtilizationThreshold), nullableInt(pricingIDsByName, pricingTemplateName), connection.QPSLimit, connection.MaxInFlightNonStream, connection.MaxInFlightStream, nullableString(probeVariant), nullableString(openAITextCapability), connection.IsActive, connection.Priority, nullableString(trimmedOptionalString(connection.Name)), nullableString(normalizedOptionalAuthType(connection.AuthType)), customHeaders, "unknown", nil, nil, currentTime).Scan(&connectionID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17, $18, $18) RETURNING id`, profileID, apiFamily, endpointIDsByName[endpointName], nullableInt(pricingIDsByName, pricingTemplateName), connection.QPSLimit, connection.MaxInFlightNonStream, connection.MaxInFlightStream, nullableString(probeVariant), nullableString(openAITextCapability), connection.IsActive, connection.Priority, nullableString(trimmedOptionalString(connection.Name)), nullableString(normalizedOptionalAuthType(connection.AuthType)), customHeaders, "unknown", nil, nil, currentTime).Scan(&connectionID); err != nil {
 			return 0, fmt.Errorf("insert imported connection %q: %w", connectionRef, err)
 		}
 		connectionIDsByRef[connectionRef] = connectionID

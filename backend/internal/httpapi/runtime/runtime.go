@@ -11,7 +11,6 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
-	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/gateway/provider"
 	gatewayrouting "github.com/coachpo/prism/backend/internal/gateway/routing"
@@ -29,13 +27,9 @@ import (
 )
 
 const (
-	openAIUpstreamOperationResponses                   = providercompat.OpenAIUpstreamOperationResponses
-	openAIUpstreamOperationChatCompletions             = providercompat.OpenAIUpstreamOperationChatCompletions
-	runtimeFacadeSelectionPolicyOrderedEligibleContext = "ordered_eligible_context"
-	runtimeFacadeFallbackPolicySkipIneligibleTargets   = "skip_ineligible_targets"
-	runtimeNestedFacadesNotSupportedDetail             = "nested facades are not supported"
-	runtimeFacadeTerminalTargetsNotSupportedDetail     = "facade models must use model targets only"
-	runtimeAdmissionExhaustedErrorCode                 = "admission_exhausted"
+	openAIUpstreamOperationResponses       = providercompat.OpenAIUpstreamOperationResponses
+	openAIUpstreamOperationChatCompletions = providercompat.OpenAIUpstreamOperationChatCompletions
+	runtimeAdmissionExhaustedErrorCode     = "admission_exhausted"
 )
 
 type runtimeFeedbackStore struct {
@@ -85,73 +79,7 @@ type runtimeModelRecord struct {
 	AuditEnabled          bool
 	AuditCaptureBodies    bool
 	LoadbalanceStrategyID *int
-	FacadeEnabled         bool
-	FacadeSelectionPolicy *string
-	FacadeFallbackPolicy  *string
 	OpenAIAcceptedFormat  *string
-}
-
-func validateRuntimePlanningSnapshotFacadePolicies(snapshot *planningSnapshot) error {
-	if snapshot == nil || len(snapshot.ModelsByID) == 0 {
-		return nil
-	}
-	modelIDs := make([]string, 0, len(snapshot.ModelsByID))
-	for modelID := range snapshot.ModelsByID {
-		modelIDs = append(modelIDs, modelID)
-	}
-	sort.Strings(modelIDs)
-	for _, modelID := range modelIDs {
-		if err := validateRuntimeModelFacadePolicies(snapshot.ModelsByID[modelID]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateRuntimeModelFacadePolicies(model runtimeModelRecord) error {
-	if err := validateRuntimeFacadePolicyValues(model.FacadeSelectionPolicy, model.FacadeFallbackPolicy); err != nil {
-		return invalidRuntimeFacadePolicyError(model.ModelID, err.Error())
-	}
-	if !model.FacadeEnabled {
-		return nil
-	}
-	if model.FacadeSelectionPolicy == nil {
-		return invalidRuntimeFacadePolicyError(model.ModelID, "facade_selection_policy is required when facade_enabled is true")
-	}
-	if model.FacadeFallbackPolicy == nil {
-		return invalidRuntimeFacadePolicyError(model.ModelID, "facade_fallback_policy is required when facade_enabled is true")
-	}
-	return nil
-}
-
-func validateRuntimeFacadePolicyValues(selectionPolicy *string, fallbackPolicy *string) error {
-	if selectionPolicy != nil && *selectionPolicy != runtimeFacadeSelectionPolicyOrderedEligibleContext {
-		return fmt.Errorf("facade_selection_policy must be '%s'", runtimeFacadeSelectionPolicyOrderedEligibleContext)
-	}
-	if fallbackPolicy != nil && *fallbackPolicy != runtimeFacadeFallbackPolicySkipIneligibleTargets {
-		return fmt.Errorf("facade_fallback_policy must be '%s'", runtimeFacadeFallbackPolicySkipIneligibleTargets)
-	}
-	return nil
-}
-
-func invalidRuntimeFacadePolicyError(modelID string, detail string) error {
-	return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Model '%s' has invalid persisted facade policy data: %s", modelID, detail)}
-}
-
-func isRuntimeExactOpenAIFacadeModel(model runtimeModelRecord) bool {
-	return model.FacadeEnabled && modelrouting.SameAPIFamily(model.APIFamily, "openai") && model.FacadeSelectionPolicy != nil && *model.FacadeSelectionPolicy == runtimeFacadeSelectionPolicyOrderedEligibleContext
-}
-
-func runtimeFacadeSelectionStrategy() loadbalance.RuntimeStrategy {
-	return loadbalance.RuntimeStrategy{LegacyStrategyType: stringPtr(runtimeFacadeSelectionPolicyOrderedEligibleContext)}
-}
-
-func nestedRuntimeFacadeTargetError() error {
-	return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: runtimeNestedFacadesNotSupportedDetail}
-}
-
-func runtimeFacadeTerminalTargetError() error {
-	return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: runtimeFacadeTerminalTargetsNotSupportedDetail}
 }
 
 type runtimeEndpoint struct {
@@ -191,59 +119,26 @@ type runtimeConnectionUpstreamAuthSnapshot struct {
 }
 
 type runtimeConnection struct {
-	ID                                   int
-	ProfileID                            int
-	APIFamily                            string
-	ModelConfigID                        int
-	EndpointID                           int
-	Priority                             int
-	QPSLimit                             *int
-	MaxInFlightNonStream                 *int
-	MaxInFlightStream                    *int
-	Name                                 *string
-	AuthType                             *string
-	EncryptedEndpointAPIKey              string
-	CustomHeaders                        map[string]any
-	PricingTemplateID                    *int
-	PricingTemplateSnapshot              *runtimePricingTemplateSnapshot
-	ContextWindowTokens                  *int
-	DefaultOutputTokenReserve            int
-	MaxContextUtilization                float64
-	PreferredContextUtilizationThreshold *float64
-	OpenAIProbeEndpointVariant           *string
-	OpenAITextCapability                 *string
-	EndpointFXSnapshot                   *runtimeEndpointFXSnapshot
-	UpstreamAuth                         *runtimeConnectionUpstreamAuthSnapshot
-	Endpoint                             runtimeEndpoint
-}
-
-const (
-	runtimeRoutingSkipReasonEstimatedContextExceedsUsableWindow = "estimated_context_exceeds_usable_window"
-	runtimeRoutingSkipReasonUsableContextWindowUnavailable      = "usable_context_window_unavailable"
-	runtimeContextBandPreferred                                 = "preferred"
-	runtimeContextBandDiscretionary                             = "discretionary"
-	runtimeContextBandIneligible                                = "ineligible"
-)
-
-type runtimeSkippedTerminalTarget struct {
-	TerminalTargetID            *int
-	EndpointID                  *int
-	ContextBand                 *string
-	Reason                      string
-	UsableContextWindowTokens   *int
-	EstimatedTotalContextTokens *int
-}
-
-type runtimeFacadeExclusionReason struct {
-	Reason string `json:"reason"`
-	Count  int    `json:"count"`
-}
-
-type runtimeFacadeSelectionDecision struct {
-	FacadeModelID         string                         `json:"facade_model_id"`
-	SelectedTargetModelID *string                        `json:"selected_target_model_id,omitempty"`
-	ExclusionReasons      []runtimeFacadeExclusionReason `json:"exclusion_reasons,omitempty"`
-	ExclusionSummary      *string                        `json:"exclusion_summary,omitempty"`
+	ID                         int
+	ProfileID                  int
+	APIFamily                  string
+	ModelConfigID              int
+	EndpointID                 int
+	Priority                   int
+	QPSLimit                   *int
+	MaxInFlightNonStream       *int
+	MaxInFlightStream          *int
+	Name                       *string
+	AuthType                   *string
+	EncryptedEndpointAPIKey    string
+	CustomHeaders              map[string]any
+	PricingTemplateID          *int
+	PricingTemplateSnapshot    *runtimePricingTemplateSnapshot
+	OpenAIProbeEndpointVariant *string
+	OpenAITextCapability       *string
+	EndpointFXSnapshot         *runtimeEndpointFXSnapshot
+	UpstreamAuth               *runtimeConnectionUpstreamAuthSnapshot
+	Endpoint                   runtimeEndpoint
 }
 
 type runtimeTranslationLossDecision struct {
@@ -305,33 +200,6 @@ func runtimeTranslationLossDirection(mode TranslationMode) string {
 	}
 }
 
-func cloneRuntimeFacadeSelectionDecision(source *runtimeFacadeSelectionDecision) *runtimeFacadeSelectionDecision {
-	if source == nil {
-		return nil
-	}
-	cloned := &runtimeFacadeSelectionDecision{
-		FacadeModelID:         source.FacadeModelID,
-		SelectedTargetModelID: cloneRuntimeStringPointer(source.SelectedTargetModelID),
-		ExclusionReasons:      cloneRuntimeFacadeExclusionReasons(source.ExclusionReasons),
-		ExclusionSummary:      cloneRuntimeStringPointer(source.ExclusionSummary),
-	}
-	if cloned.FacadeModelID == "" {
-		cloned.FacadeModelID = source.FacadeModelID
-	}
-	return cloned
-}
-
-func cloneRuntimeFacadeExclusionReasons(source []runtimeFacadeExclusionReason) []runtimeFacadeExclusionReason {
-	if len(source) == 0 {
-		return nil
-	}
-	cloned := make([]runtimeFacadeExclusionReason, 0, len(source))
-	for _, item := range source {
-		cloned = append(cloned, runtimeFacadeExclusionReason{Reason: item.Reason, Count: item.Count})
-	}
-	return cloned
-}
-
 func cloneRuntimeIntPointer(source *int) *int {
 	if source == nil {
 		return nil
@@ -351,19 +219,6 @@ func cloneRuntimeStringPointer(source *string) *string {
 		return nil
 	}
 	return stringPtr(*source)
-}
-
-func runtimeContextBandPointer(band runtimeContextEligibilityBand) *string {
-	switch band {
-	case runtimeContextEligibilityBandPreferred:
-		return stringPtr(runtimeContextBandPreferred)
-	case runtimeContextEligibilityBandDiscretionary:
-		return stringPtr(runtimeContextBandDiscretionary)
-	case runtimeContextEligibilityBandIneligible:
-		return stringPtr(runtimeContextBandIneligible)
-	default:
-		return nil
-	}
 }
 
 func normalizedRuntimeTranslationMode(mode TranslationMode) TranslationMode {
@@ -492,36 +347,34 @@ type headerBlocklistRule struct {
 }
 
 type requestPlan struct {
-	RequestedModelID                          string
-	ResolvedTargetModelID                     *string
-	ResolvedPricingModelID                    string
-	RequestedVendorID                         *int
-	RequestedVendorKey                        *string
-	RequestedVendorName                       *string
-	ProfileID                                 int
-	APIFamily                                 string
-	RuntimeOperation                          RuntimeOperation
-	RuntimeOperationPathParams                map[string]string
-	AuditEnabledAtRequest                     bool
-	AuditCaptureBodiesAtRequest               bool
-	ReportCurrencySnapshot                    runtimeReportCurrencySnapshot
-	EffectiveRequestPath                      string
-	RawRequestBody                            []byte
-	UpstreamBody                              []byte
-	IsStreamingRequest                        bool
-	SelectedTerminalTargetID                  *int
-	TerminalAttempts                          []runtimeTerminalAttempt
-	Connections                               []runtimeConnection
-	RuntimeStates                             map[int]loadbalance.RuntimeConnectionState
-	BlocklistRules                            []headerBlocklistRule
-	ClientHeaders                             map[string]string
-	FailoverStatusCodes                       []int
-	Strategy                                  loadbalance.RuntimeStrategy
-	RequestGenerationParams                   requestGenerationParamsSnapshot
-	RequestContextEstimation                  *requestContextEstimation
-	RequestContextEstimationUnavailableReason *string
-	RequestGenerationSnapshot                 func() requestGenerationParamsSnapshot
-	HTTPClient                                *http.Client
+	RequestedModelID            string
+	ResolvedTargetModelID       *string
+	ResolvedPricingModelID      string
+	RequestedVendorID           *int
+	RequestedVendorKey          *string
+	RequestedVendorName         *string
+	ProfileID                   int
+	APIFamily                   string
+	RuntimeOperation            RuntimeOperation
+	RuntimeOperationPathParams  map[string]string
+	AuditEnabledAtRequest       bool
+	AuditCaptureBodiesAtRequest bool
+	ReportCurrencySnapshot      runtimeReportCurrencySnapshot
+	EffectiveRequestPath        string
+	RawRequestBody              []byte
+	UpstreamBody                []byte
+	IsStreamingRequest          bool
+	SelectedTerminalTargetID    *int
+	TerminalAttempts            []runtimeTerminalAttempt
+	Connections                 []runtimeConnection
+	RuntimeStates               map[int]loadbalance.RuntimeConnectionState
+	BlocklistRules              []headerBlocklistRule
+	ClientHeaders               map[string]string
+	FailoverStatusCodes         []int
+	Strategy                    loadbalance.RuntimeStrategy
+	RequestGenerationParams     requestGenerationParamsSnapshot
+	RequestGenerationSnapshot   func() requestGenerationParamsSnapshot
+	HTTPClient                  *http.Client
 }
 
 func (plan requestPlan) requiresReplayableRequestBody() bool {
@@ -566,15 +419,13 @@ func (plan requestPlan) RequestGenerationParamsSnapshot() requestGenerationParam
 }
 
 type requestPlanningInput struct {
-	Request                            *http.Request
-	RawBody                            []byte
-	RuntimeConfig                      RuntimeProxyConfigSnapshot
-	OperationMatch                     RuntimeOperationMatch
-	ActiveProfileID                    int
-	Snapshot                           *planningSnapshot
-	RoutingPlan                        *runtimeRoutingPlan
-	AllowMissingContextEstimation      bool
-	ContextEstimationUnavailableReason *string
+	Request         *http.Request
+	RawBody         []byte
+	RuntimeConfig   RuntimeProxyConfigSnapshot
+	OperationMatch  RuntimeOperationMatch
+	ActiveProfileID int
+	Snapshot        *planningSnapshot
+	RoutingPlan     *runtimeRoutingPlan
 }
 
 func (input requestPlanningInput) compiledRoutingPlan() (*runtimeRoutingPlan, error) {
@@ -851,9 +702,6 @@ func resolveRequestedModel(input requestPlanningInput, operation resolvedRequest
 	if !found {
 		return runtimeModelRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", operation.RequestedModelID)}
 	}
-	if err := validateRuntimeModelFacadePolicies(requestedModel); err != nil {
-		return runtimeModelRecord{}, err
-	}
 	if err := validateOperationAPIFamily(operation.Match.Operation, requestedModel); err != nil {
 		return runtimeModelRecord{}, err
 	}
@@ -870,9 +718,6 @@ func resolveRequestedModelByID(input requestPlanningInput, operation resolvedReq
 	if !found {
 		return runtimeModelRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", trimmedRequestedModelID)}
 	}
-	if err := validateRuntimeModelFacadePolicies(requestedModel); err != nil {
-		return runtimeModelRecord{}, err
-	}
 	if err := validateOperationAPIFamily(operation.Match.Operation, requestedModel); err != nil {
 		return runtimeModelRecord{}, err
 	}
@@ -884,7 +729,7 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 	if !errors.As(err, &runtimeErr) || runtimeErr == nil {
 		return err
 	}
-	if runtimeErr.ErrorCode != contextWindowExceededErrorCode && runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
+	if runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
 		if runtimeErr.StatusCode != http.StatusServiceUnavailable {
 			return err
 		}
@@ -930,12 +775,12 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 	return err
 }
 
-func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation resolvedRequestOperation, requestedModel runtimeModelRecord, contextEstimation *requestContextEstimation) (resolvedExecutionTarget, error) {
+func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation resolvedRequestOperation, requestedModel runtimeModelRecord) (resolvedExecutionTarget, error) {
 	routingPlan, err := input.compiledRoutingPlan()
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
-	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, input.RawBody, contextEstimation, input.AllowMissingContextEstimation, s.nowUTC())
+	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, input.RawBody, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
@@ -1010,7 +855,7 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 	}, nil
 }
 
-func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOperation, target resolvedExecutionTarget, contextEstimation *requestContextEstimation) (requestPlan, error) {
+func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOperation, target resolvedExecutionTarget) (requestPlan, error) {
 	terminalAttempts, upstreamRequest, err := buildPlannedTerminalAttempts(input, operation, target.TerminalAttempts)
 	if err != nil {
 		return requestPlan{}, err
@@ -1018,35 +863,33 @@ func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOp
 	firstAttempt := terminalAttempts[0]
 	connections := connectionsFromTerminalAttempts(terminalAttempts)
 	return requestPlan{
-		RequestedModelID:                          operation.RequestedModelID,
-		ResolvedTargetModelID:                     stringPointerIfNotEmpty(firstAttempt.TargetModel.ModelID),
-		ResolvedPricingModelID:                    strings.TrimSpace(firstAttempt.TargetModel.ModelID),
-		RequestedVendorID:                         target.RequestedModel.VendorID,
-		RequestedVendorKey:                        target.RequestedModel.VendorKey,
-		RequestedVendorName:                       target.RequestedModel.VendorName,
-		ProfileID:                                 input.ActiveProfileID,
-		APIFamily:                                 firstAttempt.TargetModel.APIFamily,
-		RuntimeOperation:                          operation.Match.Operation,
-		RuntimeOperationPathParams:                cloneStringMap(operation.Match.PathParams),
-		AuditEnabledAtRequest:                     firstAttempt.AuditEnabledAtRequest,
-		AuditCaptureBodiesAtRequest:               firstAttempt.AuditCaptureBodiesRequest,
-		ReportCurrencySnapshot:                    input.Snapshot.ReportCurrency,
-		EffectiveRequestPath:                      upstreamRequest.EffectiveRequestPath,
-		RawRequestBody:                            upstreamRequest.RawRequestBody,
-		UpstreamBody:                              upstreamRequest.UpstreamBody,
-		IsStreamingRequest:                        upstreamRequest.IsStreamingRequest,
-		SelectedTerminalTargetID:                  cloneRuntimeIntPointer(target.SelectedTerminalTargetID),
-		TerminalAttempts:                          terminalAttempts,
-		Connections:                               connections,
-		RuntimeStates:                             target.RuntimeStates,
-		BlocklistRules:                            input.Snapshot.BlocklistRules,
-		ClientHeaders:                             upstreamRequest.ClientHeaders,
-		FailoverStatusCodes:                       firstAttempt.Strategy.FailoverStatusCodes(),
-		Strategy:                                  firstAttempt.Strategy,
-		RequestGenerationParams:                   upstreamRequest.RequestGenerationParams,
-		RequestContextEstimation:                  contextEstimation,
-		RequestContextEstimationUnavailableReason: cloneRuntimeStringPointer(input.ContextEstimationUnavailableReason),
-		HTTPClient:                                input.RuntimeConfig.HTTPClient,
+		RequestedModelID:            operation.RequestedModelID,
+		ResolvedTargetModelID:       stringPointerIfNotEmpty(firstAttempt.TargetModel.ModelID),
+		ResolvedPricingModelID:      strings.TrimSpace(firstAttempt.TargetModel.ModelID),
+		RequestedVendorID:           target.RequestedModel.VendorID,
+		RequestedVendorKey:          target.RequestedModel.VendorKey,
+		RequestedVendorName:         target.RequestedModel.VendorName,
+		ProfileID:                   input.ActiveProfileID,
+		APIFamily:                   firstAttempt.TargetModel.APIFamily,
+		RuntimeOperation:            operation.Match.Operation,
+		RuntimeOperationPathParams:  cloneStringMap(operation.Match.PathParams),
+		AuditEnabledAtRequest:       firstAttempt.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest: firstAttempt.AuditCaptureBodiesRequest,
+		ReportCurrencySnapshot:      input.Snapshot.ReportCurrency,
+		EffectiveRequestPath:        upstreamRequest.EffectiveRequestPath,
+		RawRequestBody:              upstreamRequest.RawRequestBody,
+		UpstreamBody:                upstreamRequest.UpstreamBody,
+		IsStreamingRequest:          upstreamRequest.IsStreamingRequest,
+		SelectedTerminalTargetID:    cloneRuntimeIntPointer(target.SelectedTerminalTargetID),
+		TerminalAttempts:            terminalAttempts,
+		Connections:                 connections,
+		RuntimeStates:               target.RuntimeStates,
+		BlocklistRules:              input.Snapshot.BlocklistRules,
+		ClientHeaders:               upstreamRequest.ClientHeaders,
+		FailoverStatusCodes:         firstAttempt.Strategy.FailoverStatusCodes(),
+		Strategy:                    firstAttempt.Strategy,
+		RequestGenerationParams:     upstreamRequest.RequestGenerationParams,
+		HTTPClient:                  input.RuntimeConfig.HTTPClient,
 	}, nil
 }
 

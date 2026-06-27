@@ -190,11 +190,8 @@ func migrationVersions(migrations []fileMigration) []string {
 }
 
 const modelAccessTargetsConnectionOwnerIndexName = "uq_model_access_targets_connection_owner"
-const connectionsPreferredContextConstraintName = "ck_connections_preferred_context_utilization_threshold"
 
 const modelAccessTargetsConnectionOwnerIndexSQL = `CREATE UNIQUE INDEX uq_model_access_targets_connection_owner ON public.model_access_targets USING btree (target_connection_id) WHERE (target_connection_id IS NOT NULL)`
-const ensureConnectionsPreferredContextColumnsSQL = `ALTER TABLE public.connections ADD COLUMN IF NOT EXISTS preferred_context_utilization_threshold double precision`
-const ensureConnectionsPreferredContextOverrideColumnSQL = `ALTER TABLE public.connections ADD COLUMN IF NOT EXISTS preferred_context_utilization_threshold_overridden boolean DEFAULT false NOT NULL`
 const ensureRequestLogsUpstreamOperationNameColumnSQL = `ALTER TABLE public.request_logs ADD COLUMN IF NOT EXISTS upstream_operation_name character varying(120)`
 const ensureRequestLogsOperationTranslationModeColumnSQL = `ALTER TABLE public.request_logs ADD COLUMN IF NOT EXISTS operation_translation_mode character varying(80)`
 const ensureRequestLogsUpstreamRequestPathColumnSQL = `ALTER TABLE public.request_logs ADD COLUMN IF NOT EXISTS upstream_request_path character varying(500)`
@@ -251,7 +248,6 @@ WHERE usage_events.created_at = backfill.created_at
   AND usage_events.id = backfill.id
   AND usage_events.endpoint_label_snapshot IS NULL`
 const ensureUsageEventsEndpointLabelSnapshotNotNullSQL = `ALTER TABLE public.usage_request_events ALTER COLUMN endpoint_label_snapshot SET NOT NULL`
-const connectionsPreferredContextConstraintSQL = `ALTER TABLE public.connections ADD CONSTRAINT ck_connections_preferred_context_utilization_threshold CHECK (((preferred_context_utilization_threshold IS NULL) OR (((preferred_context_utilization_threshold > (0)::double precision) AND (preferred_context_utilization_threshold <= (1)::double precision)) AND (preferred_context_utilization_threshold <= max_context_utilization))))`
 
 const duplicateModelAccessTargetConnectionOwnersSQL = `SELECT target_connection_id, COUNT(*) AS owner_count, ARRAY_AGG(source_model_config_id ORDER BY source_model_config_id) AS source_model_config_ids FROM model_access_targets WHERE target_connection_id IS NOT NULL GROUP BY target_connection_id HAVING COUNT(*) > 1`
 
@@ -262,26 +258,10 @@ type duplicateModelAccessTargetConnectionOwner struct {
 }
 
 func ensurePostBaselineSchemaGuards(ctx context.Context, conn *pgx.Conn) error {
-	if err := ensureConnectionContextCapabilitySchema(ctx, conn); err != nil {
-		return err
-	}
 	if err := ensureTranslatedObservabilitySchema(ctx, conn); err != nil {
 		return err
 	}
 	if err := ensureModelAccessTargetsConnectionOwnerIndex(ctx, conn); err != nil {
-		return err
-	}
-	return nil
-}
-
-func ensureConnectionContextCapabilitySchema(ctx context.Context, conn *pgx.Conn) error {
-	if _, err := conn.Exec(ctx, ensureConnectionsPreferredContextColumnsSQL); err != nil {
-		return fmt.Errorf("ensure connections preferred context column: %w", err)
-	}
-	if _, err := conn.Exec(ctx, ensureConnectionsPreferredContextOverrideColumnSQL); err != nil {
-		return fmt.Errorf("ensure connections preferred context override column: %w", err)
-	}
-	if err := recreateConstraint(ctx, conn, "connections", connectionsPreferredContextConstraintName, connectionsPreferredContextConstraintSQL); err != nil {
 		return err
 	}
 	return nil

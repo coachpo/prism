@@ -1284,13 +1284,7 @@ func TestRuntimeUsageEventEndpointLabelSnapshotForSelectedEndpoint(t *testing.T)
 	largeEndpointID := harness.seedEndpoint(t, profileID, "runtime-usage-label-unknown-large-"+suffix, harness.upstream.baseURL("/request-logs/usage-label/unknown/large"), "runtime-usage-label-unknown-large-key", 1)
 	smallConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, smallEndpointID, "runtime-usage-label-unknown-small-connection-"+suffix, nil, nil, 0)
 	largeConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, largeEndpointID, "runtime-usage-label-unknown-large-connection-"+suffix, nil, nil, 1)
-	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, smallConnectionID, 200, 4096, 1.0, now); err != nil {
-		t.Fatalf("update small no-fit connection capabilities: %v", err)
-	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, largeConnectionID, 400, 4096, 1.0, now); err != nil {
-		t.Fatalf("update large no-fit connection capabilities: %v", err)
-	}
+	_ = largeConnectionID
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{

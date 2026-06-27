@@ -413,7 +413,7 @@ func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileI
 
 func insertTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) (int, error) {
 	var terminalTargetID int
-	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, context_window_tokens_overridden, default_output_token_reserve, default_output_token_reserve_overridden, max_context_utilization, max_context_utilization_overridden, preferred_context_utilization_threshold, preferred_context_utilization_threshold_overridden, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.ContextWindowTokens), item.ContextWindowTokensOverridden, item.DefaultOutputTokenReserve, item.DefaultOutputTokenReserveOverridden, item.MaxContextUtilization, item.MaxContextUtilizationOverridden, nullableFloat64Value(item.PreferredContextUtilizationThreshold), item.PreferredContextUtilizationThresholdOverridden, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
+	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
 	if err != nil {
 		return 0, fmt.Errorf("insert terminal target: %w", err)
 	}
@@ -428,7 +428,7 @@ func insertOwnerTerminalTargetAccess(ctx context.Context, exec queryExecutor, pr
 }
 
 func updateTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) error {
-	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, context_window_tokens = $4, context_window_tokens_overridden = $5, default_output_token_reserve = $6, default_output_token_reserve_overridden = $7, max_context_utilization = $8, max_context_utilization_overridden = $9, preferred_context_utilization_threshold = $10, preferred_context_utilization_threshold_overridden = $11, pricing_template_id = $12, qps_limit = $13, max_in_flight_non_stream = $14, max_in_flight_stream = $15, openai_probe_endpoint_variant = $16, openai_text_capability = $17, is_active = $18, priority = $19, name = $20, auth_type = $21, custom_headers = $22, health_status = $23, health_detail = $24, last_health_check = $25, updated_at = $26 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.ContextWindowTokens), item.ContextWindowTokensOverridden, item.DefaultOutputTokenReserve, item.DefaultOutputTokenReserveOverridden, item.MaxContextUtilization, item.MaxContextUtilizationOverridden, nullableFloat64Value(item.PreferredContextUtilizationThreshold), item.PreferredContextUtilizationThresholdOverridden, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.UpdatedAt); err != nil {
+	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_probe_endpoint_variant = $8, openai_text_capability = $9, is_active = $10, priority = $11, name = $12, auth_type = $13, custom_headers = $14, health_status = $15, health_detail = $16, last_health_check = $17, updated_at = $18 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.UpdatedAt); err != nil {
 		return fmt.Errorf("update terminal target %d: %w", item.ID, err)
 	}
 	return nil
@@ -508,7 +508,7 @@ func persistConnectionPriorities(ctx context.Context, exec queryExecutor, items 
 	return nil
 }
 
-const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, connections.context_window_tokens, connections.context_window_tokens_overridden, connections.default_output_token_reserve, connections.default_output_token_reserve_overridden, connections.max_context_utilization, connections.max_context_utilization_overridden, connections.preferred_context_utilization_threshold, connections.preferred_context_utilization_threshold_overridden, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
+const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
 
 func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionResponse, error) {
 	items := make([]connectionResponse, 0)
@@ -551,8 +551,6 @@ func scanConnectionResponse(scanner interface{ Scan(...any) error }) (connection
 
 func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminaltarget.Record, error) {
 	var modelConfigID sql.NullInt32
-	var contextWindowTokens sql.NullInt32
-	var preferredContextUtilizationThreshold sql.NullFloat64
 	var joinedEndpointID sql.NullInt32
 	var endpointProfileID sql.NullInt32
 	var endpointName sql.NullString
@@ -578,12 +576,10 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var healthDetail sql.NullString
 	var lastHealthCheck sql.NullTime
 	record := terminaltarget.Record{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &contextWindowTokens, &record.ContextWindowTokensOverridden, &record.DefaultOutputTokenReserve, &record.DefaultOutputTokenReserveOverridden, &record.MaxContextUtilization, &record.MaxContextUtilizationOverridden, &preferredContextUtilizationThreshold, &record.PreferredContextUtilizationThresholdOverridden, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &openAIProbeEndpointVariant, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.HealthStatus, &healthDetail, &lastHealthCheck, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &openAIProbeEndpointVariant, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.HealthStatus, &healthDetail, &lastHealthCheck, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return terminaltarget.Record{}, err
 	}
 	record.OwnerModelConfigID = nullableInt32(modelConfigID)
-	record.ContextWindowTokens = nullableInt32(contextWindowTokens)
-	record.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 	record.Name = nullableStringValue(connectionName)
 	record.AuthType = nullableStringValue(authType)
 	record.CustomHeaders = parseCustomHeaders(customHeaders)
@@ -606,19 +602,11 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 
 func terminalTargetRecordFromConnectionResponse(item connectionResponse) terminaltarget.Record {
 	record := terminaltarget.Record{
-		ID:                                   item.ID,
-		ProfileID:                            item.ProfileID,
-		OwnerModelConfigID:                   item.ModelConfigID,
-		APIFamily:                            item.APIFamily,
-		EndpointID:                           item.EndpointID,
-		ContextWindowTokens:                  item.ContextWindowTokens,
-		ContextWindowTokensOverridden:        item.ContextWindowTokensOverridden,
-		DefaultOutputTokenReserve:            item.DefaultOutputTokenReserve,
-		DefaultOutputTokenReserveOverridden:  item.DefaultOutputTokenReserveOverridden,
-		MaxContextUtilization:                item.MaxContextUtilization,
-		MaxContextUtilizationOverridden:      item.MaxContextUtilizationOverridden,
-		PreferredContextUtilizationThreshold: item.PreferredContextUtilizationThreshold,
-		PreferredContextUtilizationThresholdOverridden: item.PreferredContextUtilizationThresholdOverridden,
+		ID:                         item.ID,
+		ProfileID:                  item.ProfileID,
+		OwnerModelConfigID:         item.ModelConfigID,
+		APIFamily:                  item.APIFamily,
+		EndpointID:                 item.EndpointID,
 		IsActive:                   item.IsActive,
 		Priority:                   item.Priority,
 		Name:                       item.Name,
@@ -647,19 +635,11 @@ func terminalTargetRecordFromConnectionResponse(item connectionResponse) termina
 
 func connectionResponseFromTerminalTargetRecord(record terminaltarget.Record) connectionResponse {
 	item := connectionResponse{
-		ID:                                   record.ID,
-		ProfileID:                            record.ProfileID,
-		ModelConfigID:                        record.OwnerModelConfigID,
-		APIFamily:                            record.APIFamily,
-		EndpointID:                           record.EndpointID,
-		ContextWindowTokens:                  record.ContextWindowTokens,
-		ContextWindowTokensOverridden:        record.ContextWindowTokensOverridden,
-		DefaultOutputTokenReserve:            record.DefaultOutputTokenReserve,
-		DefaultOutputTokenReserveOverridden:  record.DefaultOutputTokenReserveOverridden,
-		MaxContextUtilization:                record.MaxContextUtilization,
-		MaxContextUtilizationOverridden:      record.MaxContextUtilizationOverridden,
-		PreferredContextUtilizationThreshold: record.PreferredContextUtilizationThreshold,
-		PreferredContextUtilizationThresholdOverridden: record.PreferredContextUtilizationThresholdOverridden,
+		ID:                         record.ID,
+		ProfileID:                  record.ProfileID,
+		ModelConfigID:              record.OwnerModelConfigID,
+		APIFamily:                  record.APIFamily,
+		EndpointID:                 record.EndpointID,
 		IsActive:                   record.IsActive,
 		Priority:                   record.Priority,
 		Name:                       record.Name,
@@ -758,21 +738,6 @@ func nullableInt32(value sql.NullInt32) *int {
 	}
 	resolved := int(value.Int32)
 	return &resolved
-}
-
-func nullableFloat64(value sql.NullFloat64) *float64 {
-	if !value.Valid {
-		return nil
-	}
-	resolved := value.Float64
-	return &resolved
-}
-
-func nullableFloat64Value(value *float64) any {
-	if value == nil {
-		return nil
-	}
-	return *value
 }
 
 func nullableStringValue(value sql.NullString) *string {

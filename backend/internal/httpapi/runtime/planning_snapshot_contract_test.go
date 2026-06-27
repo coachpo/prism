@@ -74,8 +74,6 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	assertRuntimeStringPtr(t, connection.OpenAIProbeEndpointVariant, "chat_completions_reasoning_none", "OpenAI probe variant")
 	assertRuntimeStringPtr(t, connection.OpenAITextCapability, providercompat.OpenAITextCapabilityChatCompletionsOnly, "OpenAI text capability")
 	assertRuntimeIntPtr(t, connection.QPSLimit, 10, "qps limit")
-	assertRuntimeIntPtr(t, connection.ContextWindowTokens, 32000, "connection context window")
-
 	if connection.EncryptedEndpointAPIKey != "" || connection.UpstreamAuth == nil {
 		t.Fatalf("expected compiled connection to move decrypted auth into upstream auth, got %+v", connection)
 	}
@@ -115,7 +113,7 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 
 	switch {
 	case strings.Contains(query, "FROM model_configs") && strings.Contains(query, "model_configs.loadbalance_strategy_id"):
-		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, false, sql.NullString{}, sql.NullString{}, sql.NullString{String: "dual_native", Valid: true}, true, false}), nil
+		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, sql.NullString{String: "dual_native", Valid: true}, true, false}), nil
 	case strings.Contains(query, "FROM model_access_targets"):
 		return newRuntimePlanningRows([]any{501, 42, 11, runtimeAccessTargetTypeConnection, sql.NullInt32{}, sql.NullString{}, sql.NullInt32{}, sql.NullString{}, sql.NullBool{}, sql.NullInt32{Int32: 901, Valid: true}, sql.NullInt32{Int32: 42, Valid: true}, sql.NullString{String: "openai", Valid: true}, 2, true, sql.NullString{String: "router-openai", Valid: true}, sql.NullInt32{Int32: 801, Valid: true}, sql.NullString{String: "1.25", Valid: true}}), nil
 	case strings.Contains(query, "FROM loadbalance_strategies"):
@@ -135,7 +133,7 @@ func (tx *runtimePlanningSnapshotFakeTx) connectionRows() pgx.Rows {
 		901, 42, "openai", 801, 2,
 		sql.NullInt32{Int32: 10, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullInt32{Int32: 4, Valid: true},
 		sql.NullString{String: "primary terminal", Valid: true}, sql.NullString{String: "openai", Valid: true}, sql.NullString{String: `{"X-Custom":"allowed"}`, Valid: true}, sql.NullInt32{Int32: 701, Valid: true},
-		sql.NullInt32{Int32: 32000, Valid: true}, sql.NullInt32{Int32: 1024, Valid: true}, sql.NullFloat64{Float64: 0.80, Valid: true}, sql.NullFloat64{Float64: 0.65, Valid: true}, sql.NullString{String: "chat_completions_reasoning_none", Valid: true}, sql.NullString{String: providercompat.OpenAITextCapabilityChatCompletionsOnly, Valid: true},
+		sql.NullString{String: "chat_completions_reasoning_none", Valid: true}, sql.NullString{String: providercompat.OpenAITextCapabilityChatCompletionsOnly, Valid: true},
 		sql.NullInt32{Int32: 701, Valid: true}, sql.NullString{String: runtimePricingUnitPerMillion, Valid: true}, sql.NullString{String: "USD", Valid: true},
 		sql.NullString{String: "1", Valid: true}, sql.NullString{String: "2", Valid: true}, sql.NullString{String: "0.5", Valid: true}, sql.NullString{String: "0.25", Valid: true}, sql.NullString{String: "3", Valid: true}, sql.NullInt32{Int32: 3, Valid: true},
 

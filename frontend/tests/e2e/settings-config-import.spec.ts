@@ -1,16 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const fixedTimestamp = "2026-04-28T12:00:00Z";
-const connectionCapabilityDefaults = {
-  context_window_tokens: null,
-  default_output_token_reserve: 4_096,
-  max_context_utilization: 0.9,
-};
-const facadePolicyDefaults = {
-  facade_enabled: true,
-  facade_selection_policy: "ordered_eligible_context" as const,
-  facade_fallback_policy: "skip_ineligible_targets" as const,
-};
 const auditFamilySettingsDefaults = [
   { api_family: "openai" as const, audit_enabled: true, audit_capture_bodies: false },
   { api_family: "anthropic" as const, audit_enabled: false, audit_capture_bodies: false },
@@ -137,7 +127,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
           endpoint_name: "Alpha endpoint",
           api_family: "openai" as const,
           openai_text_capability: "dual_native" as const,
-          ...connectionCapabilityDefaults,
           pricing_template_name: null,
           is_active: true,
           name: "Alpha connection",
@@ -170,7 +159,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
           model_id: "alpha-model",
           display_name: "Alpha model",
           loadbalance_strategy_name: "Alpha legacy routing",
-          ...facadePolicyDefaults,
           openai_accepted_format: "dual_native" as const,
           is_enabled: true,
           access_targets: [
@@ -218,7 +206,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
       connections: [],
       loadbalance_strategies: [
         {
-          name: "Routing facade",
+          name: "Routing graph",
           legacy_strategy_type: "round-robin" as const,
           failure_status_codes: [429, 500],
           ban_mode: "off" as const,
@@ -236,7 +224,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
           api_family: "openai" as const,
           model_id: "router-model",
           display_name: "Router model",
-          loadbalance_strategy_name: "Routing facade",
+          loadbalance_strategy_name: "Routing graph",
           openai_accepted_format: "dual_native" as const,
           is_enabled: true,
           access_targets: [
@@ -252,7 +240,7 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
           api_family: "openai" as const,
           model_id: "leaf-model",
           display_name: "Leaf model",
-          loadbalance_strategy_name: "Routing facade",
+          loadbalance_strategy_name: "Routing graph",
           openai_accepted_format: "dual_native" as const,
           is_enabled: true,
           access_targets: [],
@@ -299,9 +287,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
         ref: "beta-connection-a",
         endpoint_name: "Beta endpoint A",
         api_family: "anthropic" as const,
-        context_window_tokens: 200_000,
-        default_output_token_reserve: 8_192,
-        max_context_utilization: 0.92,
         pricing_template_name: null,
         is_active: true,
         name: "Beta connection A",
@@ -316,7 +301,6 @@ function buildProfileImportBundle(variant: "alpha" | "beta" | "routing") {
         ref: "beta-connection-b",
         endpoint_name: "Beta endpoint B",
         api_family: "anthropic" as const,
-        ...connectionCapabilityDefaults,
         pricing_template_name: null,
         is_active: true,
         name: "Beta connection B",

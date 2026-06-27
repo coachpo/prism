@@ -15,22 +15,22 @@ const { ConfigImportSchema } = load(path.join(frontendDir, "src/lib/configImport
 const removedRetryAttemptsKey = ["retry", "max", "attempts"].join("_");
 const removedBanMode = ["man", "ual"].join("");
 const removedPromotionTargetField = ["context", "overflow", "promotion", "target", "id"].join("_");
-const connectionCapabilityDefaults = {
-  context_window_tokens: null,
-  default_output_token_reserve: 4096,
-  max_context_utilization: 0.9,
-  preferred_context_utilization_threshold: null,
-};
 const auditFamilySettingsDefaults = [
   { api_family: "openai", audit_enabled: true, audit_capture_bodies: false },
   { api_family: "anthropic", audit_enabled: false, audit_capture_bodies: false },
   { api_family: "gemini", audit_enabled: false, audit_capture_bodies: false },
 ];
-const facadePolicyDefaults = {
-  facade_enabled: true,
-  facade_selection_policy: "ordered_eligible_context",
-  facade_fallback_policy: "skip_ineligible_targets",
-};
+const removedConnectionContextFields = [
+  "context_window_tokens",
+  "default_output_token_reserve",
+  "max_context_utilization",
+  "preferred_context_utilization_threshold",
+];
+const removedModelFacadeFields = [
+  "facade_enabled",
+  "facade_selection_policy",
+  "facade_fallback_policy",
+];
 
 function buildValidConfigImport() {
   return {
@@ -38,7 +38,7 @@ function buildValidConfigImport() {
     bundle_kind: "profile_config",
     endpoints: [{ name: "OpenAI", base_url: "https://api.openai.com/v1", position: 0 }],
     pricing_templates: [{ name: "Default pricing", pricing_unit: "PER_1M", pricing_currency_code: "USD", input_price: "0", output_price: "0", cached_input_price: "0", cache_creation_price: "0", reasoning_price: "0", version: 1 }],
-    connections: [{ ref: "openai-primary", api_family: "openai", endpoint_name: "OpenAI", ...connectionCapabilityDefaults, openai_text_capability: "responses_only", pricing_template_name: "Default pricing", is_active: true, priority: 0 }],
+    connections: [{ ref: "openai-primary", api_family: "openai", endpoint_name: "OpenAI", openai_text_capability: "responses_only", pricing_template_name: "Default pricing", is_active: true, priority: 0 }],
     loadbalance_strategies: [{ name: "Default single", legacy_strategy_type: "single", failure_status_codes: [429, 500], ban_mode: "until_reset", retry_base_delay_ms: 60_000, retry_backoff_multiplier: 2, retry_jitter_ratio: 0.2, retry_max_delay_ms: 900_000, cycle_retry_attempt_limit: 2, ban_cumulative_retry_attempt_threshold: 4, ban_duration_seconds: 0 }],
     models: [{ api_family: "openai", model_id: "gpt-4o-mini", display_name: "GPT 4o Mini", loadbalance_strategy_name: "Default single", openai_accepted_format: "dual_native", is_enabled: true, access_targets: [{ position: 0, is_enabled: true, target_type: "connection", connection_ref: "openai-primary" }] }],
     profile_settings: { report_currency_code: "USD", report_currency_symbol: "$", endpoint_fx_mappings: [{ model_id: "gpt-4o-mini", connection_ref: "openai-primary", fx_rate: "1" }], audit_api_family_settings: [...auditFamilySettingsDefaults] },
@@ -59,12 +59,9 @@ test("config import schema accepts current profile bundle v3 Ban Policy payloads
   assert.equal(parsed.connections[0].ref, "openai-primary");
   assert.equal(parsed.connections[0].openai_text_capability, "responses_only");
   assert.equal(parsed.models[0].openai_accepted_format, "dual_native");
-  assert.deepEqual({
-    context_window_tokens: parsed.connections[0].context_window_tokens,
-    default_output_token_reserve: parsed.connections[0].default_output_token_reserve,
-    max_context_utilization: parsed.connections[0].max_context_utilization,
-    preferred_context_utilization_threshold: parsed.connections[0].preferred_context_utilization_threshold,
-  }, connectionCapabilityDefaults);
+  for (const field of removedConnectionContextFields) {
+    assert.equal(Object.hasOwn(parsed.connections[0], field), false);
+  }
   assert.equal(Object.hasOwn(parsed.models[0], "context_window_tokens"), false);
   assert.equal(Object.hasOwn(parsed.models[0], removedPromotionTargetField), false);
   assert.equal(parsed.models[0].access_targets[0].connection_ref, "openai-primary");
@@ -123,19 +120,19 @@ test("config import schema rejects removed cheapest eligible context loadbalance
   assert.throws(() => ConfigImportSchema.parse(payload), /legacy_strategy_type/);
 });
 
-test("config import schema accepts backend-exported facade model fields", () => {
-  const payload = buildValidConfigImport();
-  Object.assign(payload.models[0], facadePolicyDefaults);
+test("config import schema rejects removed connection context fields", () => {
+  for (const field of removedConnectionContextFields) {
+    const payload = buildValidConfigImport();
+    payload.connections[0][field] = 1;
 
-  const parsed = ConfigImportSchema.parse(payload);
-
-  assert.deepEqual({ facade_enabled: parsed.models[0].facade_enabled, facade_selection_policy: parsed.models[0].facade_selection_policy, facade_fallback_policy: parsed.models[0].facade_fallback_policy }, facadePolicyDefaults);
+    assert.throws(() => ConfigImportSchema.parse(payload), `${field} should be rejected on connections`);
+  }
 });
 
-test("config import schema rejects removed model-owned context fields", () => {
-  for (const field of ["context_window_tokens", "default_output_token_reserve", "max_context_utilization", "preferred_context_utilization_threshold", removedPromotionTargetField]) {
+test("config import schema rejects removed model context and facade fields", () => {
+  for (const field of [...removedConnectionContextFields, removedPromotionTargetField, ...removedModelFacadeFields]) {
     const payload = buildValidConfigImport();
-    payload.models[0][field] = field === removedPromotionTargetField ? "gpt-large" : 1;
+    payload.models[0][field] = field === removedPromotionTargetField ? "gpt-large" : field.endsWith("_policy") ? "ordered_eligible_context" : 1;
 
     assert.throws(() => ConfigImportSchema.parse(payload), `${field} should be rejected on models`);
   }
@@ -146,18 +143,22 @@ test("config bundle TypeScript DTOs expose flat access targets and audit setting
 
   assert.match(source, /interface ConfigConnectionExport \{[\s\S]*?openai_text_capability: OpenAITextCapability \| null;[\s\S]*?\n\}/);
   assert.match(source, /interface ConfigConnectionImport \{[\s\S]*?openai_text_capability\?: OpenAITextCapability \| null;[\s\S]*?\n\}/);
+  assert.doesNotMatch(source, /interface ConfigConnectionExport \{[\s\S]*?context_window_tokens:/);
+  assert.doesNotMatch(source, /interface ConfigConnectionImport \{[\s\S]*?context_window_tokens\?:/);
   assert.doesNotMatch(source, /interface ConfigModelExport \{[\s\S]*?context_window_tokens:/);
   assert.doesNotMatch(source, new RegExp(`interface ConfigModelExport \\{[\\s\\S]*?${removedPromotionTargetField}:`));
+  assert.doesNotMatch(source, /interface ConfigModelExport \{[\s\S]*?facade_enabled:/);
   assert.match(source, /interface ConfigModelExport \{[\s\S]*?openai_accepted_format: ConfigModelOpenAIAcceptedFormat \| null;[\s\S]*?\n\}/);
   assert.doesNotMatch(source, /interface ConfigModelImport \{[\s\S]*?context_window_tokens\?:/);
   assert.doesNotMatch(source, new RegExp(`interface ConfigModelImport \\{[\\s\\S]*?${removedPromotionTargetField}\\?:`));
+  assert.doesNotMatch(source, /interface ConfigModelImport \{[\s\S]*?facade_enabled\?:/);
   assert.match(source, /interface ConfigModelImport \{[\s\S]*?openai_accepted_format\?: ConfigModelOpenAIAcceptedFormat \| null;[\s\S]*?\n\}/);
   assert.match(source, /interface ConfigAccessTargetExport \{[\s\S]*?position: number;[\s\S]*?is_enabled: boolean;[\s\S]*?target_type: "model" \| "connection";[\s\S]*?connection_ref: string \| null;[\s\S]*?target_model_id: string \| null;[\s\S]*?\n\}/);
   assert.doesNotMatch(source, /weight\?: number \| null;/);
   assert.doesNotMatch(source, /target_priority\?: number \| null;/);
   assert.match(source, /interface AuditAPIFamilySetting \{[\s\S]*?api_family: ApiFamily;[\s\S]*?audit_enabled: boolean;[\s\S]*?audit_capture_bodies: boolean;[\s\S]*?\n\}/);
-  assert.match(source, /export type ConfigModelFacadeSelectionPolicy = "ordered_eligible_context";/);
-  assert.match(source, /export type ConfigModelFacadeFallbackPolicy = "skip_ineligible_targets";/);
+  assert.doesNotMatch(source, /ConfigModelFacadeSelectionPolicy/);
+  assert.doesNotMatch(source, /ConfigModelFacadeFallbackPolicy/);
 });
 
 test("config import schema rejects profile bundles before v3", () => {
@@ -261,14 +262,6 @@ test("config import schema rejects connection access targets without connection_
   delete payload.models[0].access_targets[0].connection_ref;
 
   assert.throws(() => ConfigImportSchema.parse(payload));
-});
-
-test("config import schema rejects preferred thresholds above max context utilization", () => {
-  const payload = buildValidConfigImport();
-  payload.connections[0].preferred_context_utilization_threshold = 0.95;
-  payload.connections[0].max_context_utilization = 0.9;
-
-  assert.throws(() => ConfigImportSchema.parse(payload), /preferred_context_utilization_threshold/);
 });
 
 test("config import schema rejects duplicate connection_ref ownership across models", () => {

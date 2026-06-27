@@ -126,7 +126,6 @@ func TestNormativeDocsParity(t *testing.T) {
 
 	dataModelPath := docsPath(t, "DATA_MODEL.md")
 	assertFileContains(t, dataModelPath, append([]string{
-		"preferred_context_utilization_threshold",
 		"operation_translation_mode",
 		"upstream_operation_name",
 		"upstream_request_path",

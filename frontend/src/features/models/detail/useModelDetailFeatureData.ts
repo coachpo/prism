@@ -179,7 +179,6 @@ export function useModelDetailFeatureData({
     setLoadbalanceStrategyId,
     handleEditModelSubmit,
   } = useModelDetailModelForm({
-    allModels,
     model,
     revision,
     setIsEditModelDialogOpenState,
@@ -187,9 +186,7 @@ export function useModelDetailFeatureData({
     setModel,
   })
 
-  const effectiveTargetApiFamily = isEditModelDialogOpen
-    ? formData.api_family
-    : model?.api_family ?? formData.api_family
+  const effectiveTargetApiFamily = model?.api_family ?? formData.api_family
   const targetModelsForApiFamily = useMemo(
     () => getAccessTargetModelsForApiFamily(allModels, effectiveTargetApiFamily, model?.model_id),
     [allModels, effectiveTargetApiFamily, model?.model_id],

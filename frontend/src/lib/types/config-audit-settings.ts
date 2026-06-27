@@ -1,8 +1,6 @@
 import type { ApiFamily } from "./vendor";
 import type { OpenAIProbeEndpointVariant, OpenAITextCapability, PricingComponentPrice } from "./routing";
 
-export type ConfigModelFacadeSelectionPolicy = "ordered_eligible_context";
-export type ConfigModelFacadeFallbackPolicy = "skip_ineligible_targets";
 export type ConfigModelOpenAIAcceptedFormat = "responses_only" | "chat_completions_only" | "dual_native";
 
 export interface ConfigEndpointExport {
@@ -69,10 +67,6 @@ export interface ConfigConnectionExport {
   ref: string;
   api_family: ApiFamily;
   endpoint_name: string;
-  context_window_tokens: number | null;
-  default_output_token_reserve: number;
-  max_context_utilization: number;
-  preferred_context_utilization_threshold: number | null;
   pricing_template_name: string | null;
   is_active: boolean;
   priority: number;
@@ -90,10 +84,6 @@ export interface ConfigConnectionImport {
   ref: string;
   api_family: ApiFamily;
   endpoint_name: string;
-  context_window_tokens?: number | null;
-  default_output_token_reserve?: number | null;
-  max_context_utilization?: number | null;
-  preferred_context_utilization_threshold?: number | null;
   pricing_template_name?: string | null;
   is_active?: boolean;
   priority?: number;
@@ -143,9 +133,6 @@ export interface ConfigModelExport {
   model_id: string;
   display_name: string | null;
   loadbalance_strategy_name: string | null;
-  facade_enabled: boolean;
-  facade_selection_policy: ConfigModelFacadeSelectionPolicy | null;
-  facade_fallback_policy: ConfigModelFacadeFallbackPolicy | null;
   openai_accepted_format: ConfigModelOpenAIAcceptedFormat | null;
   is_enabled: boolean;
   access_targets: ConfigAccessTargetExport[];
@@ -156,9 +143,6 @@ export interface ConfigModelImport {
   model_id: string;
   display_name?: string | null;
   loadbalance_strategy_name: string;
-  facade_enabled?: boolean;
-  facade_selection_policy?: ConfigModelFacadeSelectionPolicy | null;
-  facade_fallback_policy?: ConfigModelFacadeFallbackPolicy | null;
   openai_accepted_format?: ConfigModelOpenAIAcceptedFormat | null;
   is_enabled?: boolean;
   access_targets: ConfigAccessTargetImport[];

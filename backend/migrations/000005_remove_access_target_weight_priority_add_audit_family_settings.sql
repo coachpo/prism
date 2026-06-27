@@ -1,20 +1,3 @@
-ALTER TABLE public.model_configs
-    DROP CONSTRAINT IF EXISTS ck_model_configs_facade_policy_contract;
-
-ALTER TABLE public.model_configs
-    ADD CONSTRAINT ck_model_configs_facade_policy_contract CHECK (
-        (
-            NOT facade_enabled
-            AND (facade_selection_policy IS NULL OR facade_selection_policy = 'ordered_eligible_context')
-            AND (facade_fallback_policy IS NULL OR facade_fallback_policy = 'skip_ineligible_targets')
-        )
-        OR (
-            facade_enabled
-            AND facade_selection_policy = 'ordered_eligible_context'
-            AND facade_fallback_policy = 'skip_ineligible_targets'
-        )
-    );
-
 ALTER TABLE public.model_access_targets
     DROP CONSTRAINT IF EXISTS chk_model_access_targets_target_metadata;
 

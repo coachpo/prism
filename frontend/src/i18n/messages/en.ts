@@ -1144,9 +1144,6 @@ export interface Messages {
     connectionDialogDescription: string;
     connectionDisplayNamePlaceholder: string;
     connectionHealthy: string;
-    terminalTargetCapabilityOverrides: string;
-    terminalTargetCapabilityOverridesDescription: string;
-    usingDefaultCapability: (value: string) => string;
     connectionNameOptional: string;
     connectionNameSummaryLabel: string;
     connectionUnhealthy: string;
@@ -1224,9 +1221,7 @@ export interface Messages {
     modelConfigurationAndConnectionRouting: string;
     modelIdLabel: string;
     modelRoutingAccessTargetsAndTerminalTargets: string;
-    modelSettingsAccessTargetsDescription: string;
     modelSettingsDescription: string;
-    modelSettingsRoutingDescription: string;
     modelSettingsTitle: string;
     noConnectionsConfigured: string;
     noConnectionsMatchFilter: string;
@@ -1263,7 +1258,6 @@ export interface Messages {
     probeBehaviorDescription: string;
     probeBehaviorSummaryLabel: string;
     qpsLimit: string;
-    overrideSetting: string;
     removeHeader: string;
     retryWindowBlocked: string;
     retryWindowCounting: string;
@@ -1274,7 +1268,6 @@ export interface Messages {
     reasoningHandlingDisabledHint: string;
     resolvedProbeVariant: string;
     resetBanPolicyState: string;
-    resetToDefault: string;
     requests24h: string;
     requestsLabel: string;
     routingPriorityHint: string;
@@ -1328,19 +1321,13 @@ export interface Messages {
     modelFallbackTargets: string;
     modelFallbackTargetsDescription: string;
     connectionTarget: string;
-    contextWindowTokens: string;
-    contextWindowTokensHelper: string;
     currentApiFamily: (apiFamily: string) => string;
-    defaultOutputTokenReserve: string;
     deleteModel: string;
     deleteModelDescription: (name: string) => string;
     displayNameOptional: string;
     editModel: string;
     editModelEnabledDescription: string;
     enableAccessTarget: (value: string) => string;
-    maxContextUtilization: string;
-    preferredContextUtilizationThreshold: string;
-    preferredContextUtilizationThresholdHelper: string;
     modelId: string;
     modelIdPlaceholder: string;
     modelTarget: string;
@@ -1381,17 +1368,11 @@ export interface Messages {
     modelCount: (count: string) => string;
   };
   modelsData: {
-    contextWindowTokensInvalid: string;
     created: string;
-    defaultOutputTokenReserveInvalid: string;
     deleted: string;
     deleteFailed: string;
-    enabledAccessTargetRequired: string;
     fetchFailed: string;
-    maxContextUtilizationInvalid: string;
     openaiAcceptedFormatInvalid: string;
-    preferredContextUtilizationThresholdInvalid: string;
-    preferredContextUtilizationThresholdExceedsMaxContextUtilization: string;
     modelIdRequired: string;
     saveFailed: string;
     selectApiFamily: string;
@@ -1534,7 +1515,6 @@ export interface Messages {
     connectionDeleted: string;
     connectionTestFailed: string;
     connectionUpdated: string;
-    enabledAccessTargetRequired: string;
     fetchModelDetailsFailed: string;
     deleteConnectionFailed: string;
     fillEndpointFields: string;
@@ -3062,10 +3042,6 @@ export const enMessages: Messages = {
       "Configure where this model-private terminal target sends requests. Routing priority stays owned by drag-and-drop in the terminal-target list.",
     connectionDisplayNamePlaceholder: "Terminal Target Display Name",
     connectionHealthy: "Terminal Target Healthy",
-    terminalTargetCapabilityOverrides: "Terminal Target capability overrides",
-    terminalTargetCapabilityOverridesDescription:
-      "Choose per field whether this terminal target uses Terminal Target defaults when unset or stores an explicit override for this endpoint.",
-    usingDefaultCapability: (value) => `Using default capability: ${value}`,
     connectionNameOptional: "Terminal Target Name (Optional)",
     connectionNameSummaryLabel: "Resolved Terminal Target Name",
     connectionUnhealthy: "Terminal Target Unhealthy",
@@ -3145,10 +3121,8 @@ export const enMessages: Messages = {
     modelIdLabel: "Model ID",
     modelRoutingAccessTargetsAndTerminalTargets:
       "Entry-model routing spans grouped access targets, same-family model targets, and model-private terminal targets.",
-    modelSettingsAccessTargetsDescription: "",
     modelSettingsDescription:
       "Update the selected-profile entry model, its routing defaults, and the policy it uses to reach terminal targets.",
-    modelSettingsRoutingDescription: "",
     modelSettingsTitle: "Model Settings",
     noConnectionsConfigured: "No terminal targets configured",
     noConnectionsMatchFilter: "No terminal targets match your filter",
@@ -3191,12 +3165,10 @@ export const enMessages: Messages = {
       "Used for health checks only. It does not change runtime capability, routed model traffic, or terminal-target selection.",
     probeBehaviorSummaryLabel: "Health Probe Behavior",
     qpsLimit: "QPS Limit",
-    overrideSetting: "Override",
     removeHeader: "Remove header",
     retryWindowBlocked: "Retry Window Open",
     retryWindowCounting: "Ban Policy Counting",
     resetBanPolicyState: "Reset Ban Policy State",
-    resetToDefault: "Reset to default",
     requests24h: "Requests (24h)",
     requestsLabel: "Requests",
     routingPriorityHint:
@@ -3249,7 +3221,6 @@ export const enMessages: Messages = {
     connectionDeleted: "Terminal Target deleted",
     connectionTestFailed: "Terminal Target test failed",
     connectionUpdated: "Terminal Target updated",
-    enabledAccessTargetRequired: "Add at least one enabled same-family access target before saving an enabled model.",
     fetchModelDetailsFailed: "Failed to fetch model details",
     deleteConnectionFailed: "Failed to delete terminal target",
     fillEndpointFields: "Please fill in all endpoint fields",
@@ -3331,27 +3302,20 @@ export const enMessages: Messages = {
     modelFallbackTargets: "Model targets",
     modelFallbackTargetsDescription: "",
     connectionTarget: "Terminal target",
-    contextWindowTokens: "Context window tokens",
-    contextWindowTokensHelper: "Leave blank when the model context window is unknown.",
     currentApiFamily: (apiFamily) => `Current API family: ${apiFamily}`,
-    defaultOutputTokenReserve: "Default output token reserve",
     deleteModel: "Delete Model",
     deleteModelDescription: (name) => `Are you sure you want to delete "${name}"? This will also remove its owned Terminal Targets. Endpoints remain reusable.`,
     displayNameOptional: "Display Name",
     editModel: "Edit Model",
-    editModelEnabledDescription: "Enabled saves require at least one enabled access target. Turn this off while adjusting target attachments.",
+    editModelEnabledDescription: "Enable this entry model when it already has an enabled access target in Model Detail.",
     enableAccessTarget: (value) => `Enable access target ${value}`,
-    maxContextUtilization: "Max context utilization",
-    preferredContextUtilizationThreshold: "Preferred context utilization threshold",
-    preferredContextUtilizationThresholdHelper:
-      "Optional terminal-target context preference threshold. Leave blank to inherit the default behavior.",
     modelId: "Model ID",
     modelIdPlaceholder: "e.g. gpt-4o",
     modelTarget: "Model target",
     needsTarget: "Needs target",
     newConnection: "New terminal target",
     newModelDescription: "",
-    newModelEnabledDescription: "",
+    newModelEnabledDescription: "New models default to disabled so you can attach targets from Model Detail before enabling runtime traffic.",
     noAccessTargetsSelected: "No model targets selected.",
     noModelsMatchSearch: "No models match search",
     noModelsConfigured: "No models configured",
@@ -3385,17 +3349,11 @@ export const enMessages: Messages = {
     modelCount: (count) => `${count} ${count === "1" ? "model" : "models"}`,
   },
   modelsData: {
-    contextWindowTokensInvalid: "Context window tokens must be a positive integer or blank.",
     created: "Model created",
-    defaultOutputTokenReserveInvalid: "Default output token reserve must be a positive integer.",
     deleted: "Model deleted",
     deleteFailed: "Failed to delete model",
-    enabledAccessTargetRequired: "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.",
     fetchFailed: "Failed to fetch data",
-    maxContextUtilizationInvalid: "Max context utilization must be a decimal greater than 0 and less than or equal to 1.",
     openaiAcceptedFormatInvalid: "OpenAI accepted format must be Responses only, Chat Completions only, or Dual native.",
-    preferredContextUtilizationThresholdInvalid: "Preferred context utilization threshold must be a decimal greater than 0 and less than or equal to 1.",
-    preferredContextUtilizationThresholdExceedsMaxContextUtilization: "Preferred context utilization threshold must be less than or equal to max context utilization.",
     modelIdRequired: "Model ID is required.",
     saveFailed: "Failed to save model",
     selectApiFamily: "Please select an API family",

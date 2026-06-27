@@ -137,14 +137,6 @@ CREATE TABLE public.connections (
     profile_id integer NOT NULL,
     api_family character varying(50) NOT NULL,
     endpoint_id integer NOT NULL,
-    context_window_tokens integer,
-    context_window_tokens_overridden boolean DEFAULT false NOT NULL,
-    default_output_token_reserve integer DEFAULT 4096 NOT NULL,
-    default_output_token_reserve_overridden boolean DEFAULT false NOT NULL,
-    max_context_utilization double precision DEFAULT 0.90 NOT NULL,
-    max_context_utilization_overridden boolean DEFAULT false NOT NULL,
-    preferred_context_utilization_threshold double precision,
-    preferred_context_utilization_threshold_overridden boolean DEFAULT false NOT NULL,
     pricing_template_id integer,
     qps_limit integer,
     max_in_flight_non_stream integer,
@@ -161,10 +153,6 @@ CREATE TABLE public.connections (
     updated_at timestamp with time zone NOT NULL,
     openai_probe_endpoint_variant character varying(40),
     monitoring_probe_interval_seconds integer DEFAULT 300 NOT NULL,
-    CONSTRAINT ck_connections_context_window_tokens CHECK (((context_window_tokens IS NULL) OR (context_window_tokens >= 1))),
-    CONSTRAINT ck_connections_default_output_token_reserve CHECK ((default_output_token_reserve >= 1)),
-    CONSTRAINT ck_connections_max_context_utilization CHECK (((max_context_utilization > (0)::double precision) AND (max_context_utilization <= (1)::double precision))),
-    CONSTRAINT ck_connections_preferred_context_utilization_threshold CHECK (((preferred_context_utilization_threshold IS NULL) OR (((preferred_context_utilization_threshold > (0)::double precision) AND (preferred_context_utilization_threshold <= (1)::double precision)) AND (preferred_context_utilization_threshold <= max_context_utilization)))),
     CONSTRAINT ck_connections_openai_probe_endpoint_variant CHECK (((openai_probe_endpoint_variant IS NULL) OR ((openai_probe_endpoint_variant)::text = ANY ((ARRAY['responses_minimal'::character varying, 'responses_reasoning_none'::character varying, 'chat_completions_minimal'::character varying, 'chat_completions_reasoning_none'::character varying])::text[]))))
 );
 
@@ -645,13 +633,9 @@ CREATE TABLE public.model_configs (
     model_id character varying(200) NOT NULL,
     display_name character varying(200),
     loadbalance_strategy_id integer,
-    facade_enabled boolean DEFAULT false NOT NULL,
-    facade_selection_policy character varying(100),
-    facade_fallback_policy character varying(100),
     is_enabled boolean NOT NULL,
     created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT ck_model_configs_facade_policy_contract CHECK (((NOT facade_enabled) AND ((facade_selection_policy IS NULL) OR ((facade_selection_policy)::text = 'ordered_eligible_context'::text)) AND ((facade_fallback_policy IS NULL) OR ((facade_fallback_policy)::text = 'skip_ineligible_targets'::text))) OR (facade_enabled AND ((facade_selection_policy)::text = 'ordered_eligible_context'::text) AND ((facade_fallback_policy)::text = 'skip_ineligible_targets'::text)))
+    updated_at timestamp with time zone NOT NULL
 );
 
 

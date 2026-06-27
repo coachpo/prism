@@ -107,7 +107,7 @@ func validateRuntimeRoutingPlanStrategyIssues(issues []runtimeRoutingPlanValidat
 	}
 	strategyType := normalizedRuntimeLegacyStrategyType(compiled.Strategy)
 	switch strategyType {
-	case "single", "fill-first", "round-robin", runtimeFacadeSelectionPolicyOrderedEligibleContext:
+	case "single", "fill-first", "round-robin":
 	default:
 		issues = appendRuntimeRoutingPlanValidationIssue(issues, "strategy_type_invalid", path+".legacy_strategy_type", fmt.Sprintf("model %q strategy has unsupported legacy_strategy_type %q", compiled.Model.ModelID, strategyType))
 	}

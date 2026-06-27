@@ -50,7 +50,6 @@ test("new model defaults seed model CRUD fields only", () => {
   assert.equal(DEFAULT_MODEL_FORM_DATA.is_enabled, false);
   assert.equal(DEFAULT_MODEL_FORM_DATA.openai_accepted_format, "dual_native");
   assert.deepEqual(Object.keys(DEFAULT_MODEL_FORM_DATA).sort(), [
-    "access_targets",
     "api_family",
     "display_name",
     "is_enabled",
@@ -61,7 +60,6 @@ test("new model defaults seed model CRUD fields only", () => {
   ]);
   assert.equal(formData.is_enabled, false);
   assert.equal(formData.openai_accepted_format, "dual_native");
-  assert.deepEqual(formData.access_targets, []);
   assert.equal(formData.loadbalance_strategy_id, 42);
 });
 
@@ -121,7 +119,7 @@ test("edit model connection options preserve terminal target display names", () 
   );
 });
 
-test("edit hydration normalizes flat ordered model access targets", () => {
+test("edit hydration omits access targets from model CRUD form state", () => {
   const formData = createEditModelFormData({
     ...baseEditModel,
     access_targets: [
@@ -130,13 +128,10 @@ test("edit hydration normalizes flat ordered model access targets", () => {
     ],
   });
 
-  assert.deepEqual(formData.access_targets, [
-    { target_type: "model", target_model_id: "peer-model-a", position: 0, is_enabled: true },
-    { target_type: "model", target_model_id: "peer-model-b", position: 1, is_enabled: false },
-  ]);
+  assert.equal(Object.hasOwn(formData, "access_targets"), false);
 });
 
-test("disabled drafts validate with no access targets", () => {
+test("drafts validate without access target payloads", () => {
   assert.equal(validateModelFormData({ ...createNewModelFormData(9), model_id: "draft-model", display_name: "Draft Model" }), null);
 });
 
@@ -144,23 +139,21 @@ test("validation rejects blank model id before other form work proceeds", () => 
   assert.equal(validateModelFormData({ ...createNewModelFormData(9), model_id: "   ", display_name: "Draft Model" }), "model_id_required");
 });
 
-test("enabled models require at least one enabled valid access target", () => {
+test("enabled model state is validated by backend invariant, not model CRUD payloads", () => {
   const enabledDraft = { ...createNewModelFormData(9), model_id: "live-model", display_name: "Live Model", is_enabled: true };
 
-  assert.equal(validateModelFormData(enabledDraft), "access_target_required");
-  assert.equal(validateModelFormData({ ...enabledDraft, access_targets: [{ target_type: "model", target_model_id: "target-model", position: 0, is_enabled: false }] }, ["model:target-model"]), "access_target_required");
-  assert.equal(validateModelFormData({ ...enabledDraft, access_targets: [{ target_type: "model", target_model_id: "target-model", position: 0, is_enabled: true }] }, ["model:target-model"]), null);
+  assert.equal(validateModelFormData(enabledDraft), null);
 });
 
-test("changing api family clears incompatible access targets", () => {
+test("changing api family only normalizes OpenAI accepted format", () => {
   const formData = setApiFamilyOnForm(
-    { ...createNewModelFormData(17), model_id: "targeted-model", display_name: "Targeted Model", access_targets: [{ target_type: "connection", connection_id: 88, position: 0, is_enabled: true }] },
+    { ...createNewModelFormData(17), model_id: "targeted-model", display_name: "Targeted Model" },
     "anthropic",
   );
 
   assert.equal(formData.api_family, "anthropic");
   assert.equal(formData.openai_accepted_format, "");
-  assert.deepEqual(formData.access_targets, []);
+  assert.equal(Object.hasOwn(formData, "access_targets"), false);
 });
 
 test("access target filtering excludes obvious invalid local choices", () => {
@@ -168,20 +161,19 @@ test("access target filtering excludes obvious invalid local choices", () => {
     { id: 1, api_family: "openai", model_id: "current-model", is_enabled: true },
     { id: 2, api_family: "openai", model_id: "enabled-target", is_enabled: true },
     { id: 3, api_family: "openai", model_id: "disabled-target", is_enabled: false },
-    { id: 4, api_family: "openai", model_id: "facade-target", is_enabled: true, facade_enabled: true },
-    { id: 5, api_family: "openai", model_id: "legacy-facade-target", is_enabled: true, is_facade: true },
+    { id: 4, api_family: "openai", model_id: "second-enabled-target", is_enabled: true },
+    { id: 5, api_family: "openai", model_id: "third-enabled-target", is_enabled: true },
     { id: 6, api_family: "anthropic", model_id: "wrong-family", is_enabled: true },
   ];
 
   assert.deepEqual(
     getAccessTargetModelsForApiFamily(models, "openai", "current-model").map((model) => model.model_id),
-    ["enabled-target"],
+    ["enabled-target", "second-enabled-target", "third-enabled-target"],
   );
 });
 
-test("payload shaping preserves model CRUD and access target fields only", () => {
-  const formData = { ...createNewModelFormData(17), model_id: "live-model", display_name: "  Live Model  ", access_targets: [{ target_type: "connection", connection_id: 77, position: 4, is_enabled: true }, { target_type: "model", target_model_id: "target-model", position: 9, is_enabled: true }, { target_type: "model", target_model_id: "target-model", position: 10, is_enabled: false }], is_enabled: true };
-  const expectedAccessTargets = [{ target_type: "model", target_model_id: "target-model", position: 0, is_enabled: true }];
+test("payload shaping preserves model CRUD fields only", () => {
+  const formData = { ...createNewModelFormData(17), model_id: "live-model", display_name: "  Live Model  ", is_enabled: true };
 
   assert.deepEqual(toModelCreatePayload(formData), {
     api_family: "openai",
@@ -190,7 +182,6 @@ test("payload shaping preserves model CRUD and access target fields only", () =>
     is_enabled: true,
     openai_accepted_format: "dual_native",
     loadbalance_strategy_id: 17,
-    access_targets: expectedAccessTargets,
   });
   assert.deepEqual(toModelUpdatePayload(formData), {
     api_family: "openai",
@@ -199,7 +190,6 @@ test("payload shaping preserves model CRUD and access target fields only", () =>
     is_enabled: true,
     openai_accepted_format: "dual_native",
     loadbalance_strategy_id: 17,
-    access_targets: expectedAccessTargets,
   });
 });
 

@@ -205,8 +205,6 @@ func TestBuildRequestPlanFromSnapshotModelPeersPreserveStrategyOrder(t *testing.
 	snapshot.AccessTargetsBySourceModelID[1] = nil
 	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "low-priority-openai", 0)
 	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "high-priority-openai", 1)
-	setRequestPlanConnectionContextWindow(snapshot, 1_002, 16_384)
-	setRequestPlanConnectionContextWindow(snapshot, 1_003, 16_384)
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
@@ -237,9 +235,6 @@ func TestBuildRequestPlanFromSnapshotModelPeersExcludeIneligibleTargets(t *testi
 	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "eligible-first-openai", 0)
 	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "blocked-openai", 1)
 	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "eligible-second-openai", 2)
-	setRequestPlanConnectionContextWindow(snapshot, 1_002, 16_384)
-	setRequestPlanConnectionContextWindow(snapshot, 1_003, 16_384)
-	setRequestPlanConnectionContextWindow(snapshot, 1_004, 16_384)
 	blockedUntil := service.nowUTC().Add(time.Minute)
 	seededAt := service.nowUTC().Add(-time.Minute)
 	service.runtimeState.SeedConnectionState(requestPlanTestProfileID, 3, 1_003, loadbalance.RuntimeConnectionState{ConnectionID: 1_003, BanMode: "temporary", BannedUntilAt: &blockedUntil}, seededAt, seededAt)
@@ -285,12 +280,4 @@ func TestBuildRequestPlanFromSnapshotWeightedPeerFallsBackToTerminalOnlyWhenNoPe
 	if got := plan.TerminalAttempts[0].Connection.ID; got != 1_001 {
 		t.Fatalf("expected router terminal connection 1001, got %d", got)
 	}
-}
-
-func setRequestPlanConnectionContextWindow(snapshot *planningSnapshot, connectionID int, contextWindowTokens int) {
-	connection := snapshot.TerminalTargetsByID[connectionID]
-	connection.ContextWindowTokens = intPtr(contextWindowTokens)
-	connection.DefaultOutputTokenReserve = 1_024
-	connection.MaxContextUtilization = 1.0
-	snapshot.TerminalTargetsByID[connectionID] = connection
 }

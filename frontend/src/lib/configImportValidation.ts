@@ -151,41 +151,12 @@ const LoadbalanceStrategyImportSchema = z.strictObject({
   ban_duration_seconds: z.number().int().min(0).nullable(),
 });
 
-const ContextWindowTokensImportSchema = z.number().int().min(1).nullable().optional();
-const DefaultOutputTokenReserveImportSchema = z.number().int().min(1).nullable().optional();
-const MaxContextUtilizationImportSchema = z.number().gt(0).max(1).nullable().optional();
-const PreferredContextUtilizationThresholdImportSchema = z.number().gt(0).max(1).nullable().optional();
-const FacadeSelectionPolicyImportSchema = z.literal("ordered_eligible_context").nullable().optional();
-const FacadeFallbackPolicyImportSchema = z.literal("skip_ineligible_targets").nullable().optional();
 const auditApiFamilies = ["openai", "anthropic", "gemini"] as const;
-
-function addPreferredThresholdIssue(
-  context: z.RefinementCtx,
-  maxContextUtilization: number | null | undefined,
-  preferredContextUtilizationThreshold: number | null | undefined,
-  fieldPrefix: readonly (string | number)[] = [],
-) {
-  if (
-    typeof maxContextUtilization === "number"
-    && typeof preferredContextUtilizationThreshold === "number"
-    && preferredContextUtilizationThreshold > maxContextUtilization
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: [...fieldPrefix, "preferred_context_utilization_threshold"],
-      message: "preferred_context_utilization_threshold must be less than or equal to max_context_utilization",
-    });
-  }
-}
 
 const ConnectionImportSchema = z.strictObject({
   ref: z.string(),
   api_family: z.enum(["openai", "anthropic", "gemini"]),
   endpoint_name: z.string(),
-  context_window_tokens: ContextWindowTokensImportSchema,
-  default_output_token_reserve: DefaultOutputTokenReserveImportSchema,
-  max_context_utilization: MaxContextUtilizationImportSchema,
-  preferred_context_utilization_threshold: PreferredContextUtilizationThresholdImportSchema,
   pricing_template_name: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
   priority: z.number().int().min(0).optional(),
@@ -198,12 +169,6 @@ const ConnectionImportSchema = z.strictObject({
   max_in_flight_non_stream: z.number().int().min(1).nullable().optional(),
   max_in_flight_stream: z.number().int().min(1).nullable().optional(),
 }).superRefine((connection, context) => {
-  addPreferredThresholdIssue(
-    context,
-    connection.max_context_utilization,
-    connection.preferred_context_utilization_threshold,
-  );
-
   if (connection.api_family === "openai") {
     if (!connection.openai_text_capability) {
       context.addIssue({
@@ -245,9 +210,6 @@ const ModelImportSchema = z.strictObject({
   model_id: z.string(),
   display_name: z.string().nullable().optional(),
   loadbalance_strategy_name: z.string(),
-  facade_enabled: z.boolean().optional(),
-  facade_selection_policy: FacadeSelectionPolicyImportSchema,
-  facade_fallback_policy: FacadeFallbackPolicyImportSchema,
   openai_accepted_format: OpenAIAcceptedFormatImportSchema.nullable().optional(),
   is_enabled: z.boolean().optional(),
   access_targets: z.array(AccessTargetImportSchema),

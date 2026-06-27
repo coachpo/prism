@@ -26,13 +26,7 @@ func TestRuntimeFillFirstIgnoresContextFitAfterContextRoutingRemoval(t *testing.
 	largeEndpointID := harness.seedEndpoint(t, profileID, "cheapest-no-fit-large-"+suffix, harness.upstream.baseURL("/cheapest/no-fit/large"), "cheapest-no-fit-large-key", 1)
 	smallConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, smallEndpointID, "cheapest-no-fit-small-connection-"+suffix, nil, nil, 0)
 	largeConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, largeEndpointID, "cheapest-no-fit-large-connection-"+suffix, nil, nil, 1)
-	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, smallConnectionID, 200, 4096, 1.0, now); err != nil {
-		t.Fatalf("update small cheapest-context connection capabilities: %v", err)
-	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, largeConnectionID, 400, 4096, 1.0, now); err != nil {
-		t.Fatalf("update large cheapest-context connection capabilities: %v", err)
-	}
+	_ = largeConnectionID
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	seededAt := time.Now().UTC().Add(-time.Minute)
 	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: profileID, ConnectionID: smallConnectionID, CycleRetryAttempts: 2, CumulativeRetryAttempts: 5, BanMode: "off", UpdatedAt: seededAt, CreatedAt: seededAt})
@@ -226,66 +220,6 @@ func TestFacadeOrderedEligibleContextSkipsIneligibleTargets(t *testing.T) {
 	})
 }
 
-func TestFacadeOrderedEligibleContextDoesNotRetryAlternateTargetAfterUpstreamFailure(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	publicModelID := "facade-no-retry-public-" + suffix
-	primaryTargetModelID := "facade-no-retry-primary-" + suffix
-	alternateTargetModelID := "facade-no-retry-alternate-" + suffix
-	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "selected facade target failed"})
-	alternateUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "facade-no-retry-alternate"})
-	seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: primaryTargetModelID, EndpointBaseURL: primaryUpstream.baseURL("/facade/no-retry/primary"), EndpointAPIKey: "facade-no-retry-primary-key"},
-		{ModelID: alternateTargetModelID, EndpointBaseURL: alternateUpstream.baseURL("/facade/no-retry/alternate"), EndpointAPIKey: "facade-no-retry-alternate-key"},
-	})
-	harness.runtimeService.RuntimeState().ResetProfile(profileID)
-
-	response := performProxySelectorChatRequest(t, harness, publicModelID, "facade selected target failure should not retry sibling")
-	assertStatus(t, response, http.StatusServiceUnavailable)
-	primaryRequests := primaryUpstream.requestsSnapshot()
-	if len(primaryRequests) != 1 {
-		t.Fatalf("expected selected facade target to receive one upstream attempt, got %d", len(primaryRequests))
-	}
-	if got := requestModelID(t, primaryRequests[0].Body); got != primaryTargetModelID {
-		t.Fatalf("expected failed facade upstream request model %q, got %q", primaryTargetModelID, got)
-	}
-	if got := len(alternateUpstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected alternate facade target to remain unattempted after selected target failure, got %d requests", got)
-	}
-}
-
-func TestFacadeOrderedEligibleContextNoContextFitReturns413WithoutUpstreamAttempt(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	publicModelID := "gpt-5-facade-no-fit-public-" + suffix
-	route := seedOpenAIFacadeRoute(t, harness, profileID, publicModelID, []facadeTargetSeed{
-		{ModelID: "facade-no-fit-small-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/small"), EndpointAPIKey: "facade-no-fit-small-key"},
-		{ModelID: "facade-no-fit-large-" + suffix, EndpointBaseURL: harness.upstream.baseURL("/facade/no-fit/large"), EndpointAPIKey: "facade-no-fit-large-key"},
-	})
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[0], 200, 4_096, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, route.ConnectionIDs[1], 400, 4_096, 1.0)
-	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
-	harness.runtimeService.RuntimeState().ResetProfile(profileID)
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "oversized facade request"}}, "model": publicModelID, "max_completion_tokens": 600}, nil)
-	assertStatus(t, response, http.StatusRequestEntityTooLarge)
-	payload := runtimeResponsePayload(t, response)
-	if got, _ := payload["error"].(string); got != "context_window_exceeded" {
-		t.Fatalf("expected facade context_window_exceeded error, got %+v", payload)
-	}
-	if got, _ := payload["detail"].(string); got != "No configured target can fit the estimated request context." {
-		t.Fatalf("expected pinned facade 413 detail, got %+v", payload)
-	}
-	if got, ok := payload["largest_usable_context_window_tokens"].(float64); !ok || int(got) != 400 {
-		t.Fatalf("expected facade largest usable context window 400, got %+v", payload)
-	}
-	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
-		t.Fatalf("expected no upstream requests for facade planner-side 413, got %d", got)
-	}
-}
-
 func TestFacadeOrderedEligibleContextRejectsSelectedTranslatedChildWithoutNativeSiblingFallback(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -372,35 +306,35 @@ func TestProxySelectorTopologyCascadeShortTextSafeResponsesStayOnPrimaryChild(t 
 	assertNoScriptedUpstreamRequests(t, route.LaterNativeUpstream, "later native tier")
 }
 
-func TestProxySelectorTopologyCascadeOversizedCompatibleResponsesRouteToGPT54(t *testing.T) {
+func TestProxySelectorTopologyCascadeOversizedCompatibleResponsesStayOnPrimaryAfterContextRoutingRemoval(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	route := seedOpenAITopologyCascadeRoute(t, harness, profileID, "/proxy-selector/topology-cascade/gpt54")
 
 	response := performProxySelectorResponsesTextRequest(t, harness, route.PublicModelID, "oversized compatible request", 900)
 	assertStatus(t, response, http.StatusOK)
-	assertNoScriptedUpstreamRequests(t, route.PrimaryUpstream, "gpt-5.5 primary tier")
-	assertProxySelectorRequestSequence(t, route.GPT54Upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    route.GPT54PathPrefix + "/v1/responses",
-		ModelID: route.GPT54ModelID,
+	assertProxySelectorRequestSequence(t, route.PrimaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    route.PrimaryPathPrefix + "/v1/responses",
+		ModelID: route.PrimaryModelID,
 	}})
+	assertNoScriptedUpstreamRequests(t, route.GPT54Upstream, "gpt-5.4 long-context tier")
 	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek fallback tier")
 	assertNoScriptedUpstreamRequests(t, route.LaterNativeUpstream, "later native tier")
 }
 
-func TestProxySelectorTopologyCascadeTranslatesToChatOnlyTargetAfterEarlierTiersAreIneligible(t *testing.T) {
+func TestProxySelectorTopologyCascadeLargeResponsesStayOnPrimaryAfterContextRoutingRemoval(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	route := seedOpenAITopologyCascadeRoute(t, harness, profileID, "/proxy-selector/topology-cascade/deepseek")
 
 	response := performProxySelectorResponsesTextRequest(t, harness, route.PublicModelID, "large text-safe request", 1800)
 	assertStatus(t, response, http.StatusOK)
-	assertNoScriptedUpstreamRequests(t, route.PrimaryUpstream, "gpt-5.5 primary tier")
-	assertNoScriptedUpstreamRequests(t, route.GPT54Upstream, "gpt-5.4 long-context tier")
-	assertProxySelectorRequestSequence(t, route.DeepSeekUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    route.DeepSeekPathPrefix + "/v1/chat/completions",
-		ModelID: route.DeepSeekModelID,
+	assertProxySelectorRequestSequence(t, route.PrimaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    route.PrimaryPathPrefix + "/v1/responses",
+		ModelID: route.PrimaryModelID,
 	}})
+	assertNoScriptedUpstreamRequests(t, route.GPT54Upstream, "gpt-5.4 long-context tier")
+	assertNoScriptedUpstreamRequests(t, route.DeepSeekUpstream, "deepseek fallback tier")
 	assertNoScriptedUpstreamRequests(t, route.LaterNativeUpstream, "later native tier")
 }
 
@@ -434,13 +368,8 @@ func TestProxySelectorFillFirstKeepsEarlierContextFitCandidate(t *testing.T) {
 	discretionaryPricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "proxy-selector-preferred-band-cheap-"+suffix, "USD", "1", "1", "0", "0", "0")
 	attachRuntimeConnectionPricingTemplate(t, harness, preferredConnectionID, preferredPricingTemplateID)
 	attachRuntimeConnectionPricingTemplate(t, harness, discretionaryConnectionID, discretionaryPricingTemplateID)
-	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, preferredConnectionID, 1000, 4096, 1.0, 1.0, now); err != nil {
-		t.Fatalf("update preferred-band preferred connection capabilities: %v", err)
-	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, discretionaryConnectionID, 1000, 4096, 1.0, 0.10, now); err != nil {
-		t.Fatalf("update preferred-band discretionary connection capabilities: %v", err)
-	}
+	_ = preferredConnectionID
+	_ = discretionaryConnectionID
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "preferred band wins over cheaper discretionary"}}, "model": publicModelID, "max_completion_tokens": 256}, nil)
 	assertStatus(t, response, http.StatusOK)
@@ -465,13 +394,8 @@ func TestProxySelectorFillFirstSkipsEarlierContextIneligibleCandidate(t *testing
 	cheapPricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "proxy-selector-discretionary-fallback-cheap-pricing-"+suffix, "USD", "1", "1", "0", "0", "0")
 	attachRuntimeConnectionPricingTemplate(t, harness, expensiveConnectionID, expensivePricingTemplateID)
 	attachRuntimeConnectionPricingTemplate(t, harness, cheapConnectionID, cheapPricingTemplateID)
-	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, expensiveConnectionID, 200, 4096, 1.0, 0.10, now); err != nil {
-		t.Fatalf("update discretionary-fallback expensive connection capabilities: %v", err)
-	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, preferred_context_utilization_threshold = $5, updated_at = $6 WHERE id = $1`, cheapConnectionID, 1000, 4096, 1.0, 0.15, now); err != nil {
-		t.Fatalf("update discretionary-fallback cheap connection capabilities: %v", err)
-	}
+	_ = expensiveConnectionID
+	_ = cheapConnectionID
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "no preferred candidates still route"}}, "model": publicModelID, "max_completion_tokens": 256}, nil)
 	assertStatus(t, response, http.StatusOK)
@@ -516,13 +440,7 @@ func TestProxySelectorContextRankingTranslatedCandidateWinsByPolicyOrder(t *test
 	translatedVariant := "chat_completions_reasoning_none"
 	nativeVariant := "responses_reasoning_none"
 	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-context-ranking-translated-connection-"+suffix, nil, nil, 0, &translatedVariant, runtimeStringPtr("chat_completions_only"))
-	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-context-ranking-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("responses_only"))
-	now := time.Now().UTC()
-	for _, connectionID := range []int{translatedConnectionID, nativeConnectionID} {
-		if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, 16_384, 1_024, 1.0, now); err != nil {
-			t.Fatalf("update context-ranking connection %d context capabilities: %v", connectionID, err)
-		}
-	}
+	harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-context-ranking-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("responses_only"))
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
@@ -636,13 +554,7 @@ func TestProxySelectorContextRankingResponsesIncludeLossyFallback(t *testing.T) 
 	translatedVariant := "chat_completions_reasoning_none"
 	nativeVariant := "responses_reasoning_none"
 	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-context-ranking-include-translated-connection-"+suffix, nil, nil, 0, &translatedVariant, runtimeStringPtr("chat_completions_only"))
-	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-context-ranking-include-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("responses_only"))
-	now := time.Now().UTC()
-	for _, connectionID := range []int{translatedConnectionID, nativeConnectionID} {
-		if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, 16_384, 1_024, 1.0, now); err != nil {
-			t.Fatalf("update context-ranking include connection %d context capabilities: %v", connectionID, err)
-		}
-	}
+	harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-context-ranking-include-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("responses_only"))
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{
@@ -1178,18 +1090,17 @@ func seedOpenAITopologyCascadeRoute(t *testing.T, harness *runtimeHarness, profi
 
 func enableRuntimeHarnessFacadeModel(t *testing.T, harness *runtimeHarness, modelConfigID int) {
 	t.Helper()
-	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET facade_enabled = TRUE, facade_selection_policy = 'ordered_eligible_context', facade_fallback_policy = 'skip_ineligible_targets', updated_at = $2 WHERE id = $1`, modelConfigID, now); err != nil {
-		t.Fatalf("enable runtime facade model %d: %v", modelConfigID, err)
-	}
+	_ = harness
+	_ = modelConfigID
 }
 
 func setRuntimeHarnessConnectionContextCapabilities(t *testing.T, harness *runtimeHarness, connectionID int, contextWindowTokens int, defaultOutputTokenReserve int, maxContextUtilization float64) {
 	t.Helper()
-	now := time.Now().UTC()
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET context_window_tokens = $2, default_output_token_reserve = $3, max_context_utilization = $4, updated_at = $5 WHERE id = $1`, connectionID, contextWindowTokens, defaultOutputTokenReserve, maxContextUtilization, now); err != nil {
-		t.Fatalf("update runtime facade connection %d context capabilities: %v", connectionID, err)
-	}
+	_ = harness
+	_ = connectionID
+	_ = contextWindowTokens
+	_ = defaultOutputTokenReserve
+	_ = maxContextUtilization
 }
 
 func performProxySelectorChatRequest(t *testing.T, harness *runtimeHarness, modelID string, content string) *http.Response {

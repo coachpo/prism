@@ -43,10 +43,8 @@ import {
 import { normalizeConnectionHeaders } from "./useModelDetailDataSupport";
 import {
   createHeaderRow,
-  type ConnectionCapabilityFieldName,
   type ConnectionDialogForm,
   type HeaderRow,
-  type TerminalTargetCapabilityDefaults,
 } from "./useModelDetailDialogState";
 
 interface ConnectionDialogProps {
@@ -71,7 +69,6 @@ interface ConnectionDialogProps {
   clearDialogTestResult: () => void;
   handleDialogTestConnection: () => Promise<void>;
   endpointSourceDefaultName: string | null;
-  terminalTargetCapabilityDefaults?: Partial<TerminalTargetCapabilityDefaults>;
   pricingTemplates: PricingTemplate[];
 }
 
@@ -137,20 +134,6 @@ function ConnectionSummaryItem({ label, children }: { label: string; children: R
   );
 }
 
-interface ContextRoutingOverrideFieldConfig {
-  field: ConnectionCapabilityFieldName;
-  id: string;
-  label: string;
-  max?: string;
-  min: string;
-  rowTestId: string;
-  step: string;
-}
-
-function stringifyCapabilityValue(value: number | null | undefined): string {
-  return value == null ? "" : String(value);
-}
-
 export function ConnectionDialog({
   isOpen,
   onOpenChange,
@@ -173,12 +156,10 @@ export function ConnectionDialog({
   clearDialogTestResult,
   handleDialogTestConnection,
   endpointSourceDefaultName,
-  terminalTargetCapabilityDefaults,
   pricingTemplates,
 }: ConnectionDialogProps) {
   const { messages } = useLocale();
   const copy = messages.modelDetail;
-  const modelsUiCopy = messages.modelsUi;
   const isOpenAI = apiFamily === "openai";
   const selectedEndpoint = globalEndpoints.find((endpoint) => String(endpoint.id) === selectedEndpointId) ?? null;
   const resolvedProbeVariant = isOpenAI
@@ -212,43 +193,6 @@ export function ConnectionDialog({
   const selectedTextCapability = textCapabilityOptions.find(
     (option) => option.value === resolvedTextCapability,
   ) ?? textCapabilityOptions[0];
-  const contextRoutingOverrideFields: ContextRoutingOverrideFieldConfig[] = [
-    {
-      field: "context_window_tokens",
-      id: "conn-context-window-tokens",
-      label: modelsUiCopy.contextWindowTokens,
-      min: "1",
-      rowTestId: "conn-context-window-tokens-field",
-      step: "1",
-    },
-    {
-      field: "default_output_token_reserve",
-      id: "conn-default-output-token-reserve",
-      label: modelsUiCopy.defaultOutputTokenReserve,
-      min: "1",
-      rowTestId: "conn-default-output-token-reserve-field",
-      step: "1",
-    },
-    {
-      field: "max_context_utilization",
-      id: "conn-max-context-utilization",
-      label: modelsUiCopy.maxContextUtilization,
-      max: "1",
-      min: "0",
-      rowTestId: "conn-max-context-utilization-field",
-      step: "0.01",
-    },
-    {
-      field: "preferred_context_utilization_threshold",
-      id: "conn-preferred-context-utilization-threshold",
-      label: modelsUiCopy.preferredContextUtilizationThreshold,
-      max: "1",
-      min: "0",
-      rowTestId: "conn-preferred-context-utilization-threshold-field",
-      step: "0.01",
-    },
-  ];
-
   const limiterFields: Array<{
     field: "qps_limit" | "max_in_flight_non_stream" | "max_in_flight_stream";
     id: string;
@@ -318,46 +262,6 @@ export function ConnectionDialog({
   const updateHeaderRows = (nextRows: HeaderRow[]) => {
     clearDialogTestResult();
     setHeaderRows(nextRows);
-  };
-
-  const getDefaultCapabilityValue = (field: ConnectionCapabilityFieldName): number | null => {
-    const defaultValue = terminalTargetCapabilityDefaults?.[field];
-    return defaultValue == null ? null : defaultValue;
-  };
-
-  const updateContextCapabilityDraft = (
-    field: ConnectionCapabilityFieldName,
-    nextDraft: ConnectionDialogForm["context_capability_drafts"][ConnectionCapabilityFieldName],
-  ) => {
-    updateConnectionForm({
-      ...connectionForm,
-      context_capability_drafts: {
-        ...connectionForm.context_capability_drafts,
-        [field]: nextDraft,
-      },
-    });
-  };
-
-  const handleContextCapabilityOverride = (field: ConnectionCapabilityFieldName) => {
-    const currentDraft = connectionForm.context_capability_drafts[field];
-    updateContextCapabilityDraft(field, {
-      mode: "override",
-      value: currentDraft.value,
-    });
-  };
-
-  const handleContextCapabilityReset = (field: ConnectionCapabilityFieldName) => {
-    updateContextCapabilityDraft(field, {
-      mode: "default",
-      value: stringifyCapabilityValue(getDefaultCapabilityValue(field)),
-    });
-  };
-
-  const handleContextCapabilityValueChange = (field: ConnectionCapabilityFieldName, value: string) => {
-    updateContextCapabilityDraft(field, {
-      mode: "override",
-      value,
-    });
   };
 
   const handleLimiterChange = (
@@ -720,73 +624,6 @@ export function ConnectionDialog({
                         </div>
                       </ConnectionDialogSection>
                     ) : null}
-
-                    <ConnectionDialogSection
-                      title={copy.terminalTargetCapabilityOverrides}
-                      description={copy.terminalTargetCapabilityOverridesDescription}
-                      dataTestId="connection-dialog-terminal-target-capability-overrides-section"
-                    >
-                      <div className="flex flex-col gap-2">
-                        {contextRoutingOverrideFields.map((field) => {
-                          const draft = connectionForm.context_capability_drafts[field.field];
-                          const defaultValue = getDefaultCapabilityValue(field.field);
-                          const defaultLabel = copy.usingDefaultCapability(
-                            defaultValue == null ? copy.notSet : String(defaultValue),
-                          );
-
-                          return (
-                            <div
-                              key={field.field}
-                              className="grid gap-2 border-b pb-2 last:border-b-0 last:pb-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-start"
-                              data-testid={field.rowTestId}
-                            >
-                              <div className="flex min-w-0 flex-col gap-1.5">
-                                <Label htmlFor={field.id}>{field.label}</Label>
-                                {draft.mode === "default" ? (
-                                  <p className="text-xs text-muted-foreground">{defaultLabel}</p>
-                                ) : (
-                                  <Input
-                                    id={field.id}
-                                    name={field.field}
-                                    type="number"
-                                    autoComplete="off"
-                                    min={field.min}
-                                    max={field.max}
-                                    step={field.step}
-                                    value={draft.value}
-                                    onChange={(event) =>
-                                      handleContextCapabilityValueChange(field.field, event.target.value)
-                                    }
-                                  />
-                                )}
-                              </div>
-
-                              <div className="flex md:justify-end">
-                                {draft.mode === "default" ? (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleContextCapabilityOverride(field.field)}
-                                  >
-                                    {copy.overrideSetting}
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleContextCapabilityReset(field.field)}
-                                  >
-                                    {copy.resetToDefault}
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </ConnectionDialogSection>
 
                     <ConnectionDialogSection
                       title={copy.advancedRequestSettings}

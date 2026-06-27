@@ -458,18 +458,18 @@ func TestProfileScopeTopologyCascadeIgnoresXProfileId(t *testing.T) {
 		http.MethodPost,
 		"/v1/responses",
 		map[string]any{
-			"input":             "profile-scope cascade should use the active gpt-5.4 tier",
+			"input":             "profile-scope cascade should use the active primary tier",
 			"model":             activeRoute.PublicModelID,
 			"max_output_tokens": 900,
 		},
 		map[string]string{"X-Profile-Id": fmt.Sprintf("%d", inactiveProfileID)},
 	)
 	assertStatus(t, firstResponse, http.StatusOK)
-	assertNoScriptedUpstreamRequests(t, activeRoute.PrimaryUpstream, "active profile primary tier")
-	assertProxySelectorRequestSequence(t, activeRoute.GPT54Upstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    activeRoute.GPT54PathPrefix + "/v1/responses",
-		ModelID: activeRoute.GPT54ModelID,
+	assertProxySelectorRequestSequence(t, activeRoute.PrimaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    activeRoute.PrimaryPathPrefix + "/v1/responses",
+		ModelID: activeRoute.PrimaryModelID,
 	}})
+	assertNoScriptedUpstreamRequests(t, activeRoute.GPT54Upstream, "active profile gpt-5.4 tier")
 	assertNoScriptedUpstreamRequests(t, activeRoute.DeepSeekUpstream, "active profile deepseek tier")
 	assertNoScriptedUpstreamRequests(t, inactiveRoute.PrimaryUpstream, "inactive profile primary tier")
 	assertNoScriptedUpstreamRequests(t, inactiveRoute.GPT54Upstream, "inactive profile gpt-5.4 tier")
@@ -481,22 +481,22 @@ func TestProfileScopeTopologyCascadeIgnoresXProfileId(t *testing.T) {
 		http.MethodPost,
 		"/v1/responses",
 		map[string]any{
-			"input":             "profile-scope cascade should switch to the new active deepseek tier",
+			"input":             "profile-scope cascade should switch to the new active primary tier",
 			"model":             inactiveRoute.PublicModelID,
 			"max_output_tokens": 1800,
 		},
 		map[string]string{"X-Profile-Id": fmt.Sprintf("%d", activeProfileID)},
 	)
 	assertStatus(t, secondResponse, http.StatusOK)
-	if got := len(activeRoute.GPT54Upstream.requestsSnapshot()); got != 1 {
-		t.Fatalf("expected active profile gpt-5.4 tier to keep only the first request, got %d requests", got)
+	if got := len(activeRoute.PrimaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected old active profile primary tier to keep only the first request, got %d requests", got)
 	}
-	assertNoScriptedUpstreamRequests(t, inactiveRoute.PrimaryUpstream, "inactive profile primary tier before chat-only translation")
-	assertNoScriptedUpstreamRequests(t, inactiveRoute.GPT54Upstream, "inactive profile gpt-5.4 tier before chat-only translation")
-	assertProxySelectorRequestSequence(t, inactiveRoute.DeepSeekUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
-		Path:    inactiveRoute.DeepSeekPathPrefix + "/v1/chat/completions",
-		ModelID: inactiveRoute.DeepSeekModelID,
+	assertProxySelectorRequestSequence(t, inactiveRoute.PrimaryUpstream.requestsSnapshot(), []proxySelectorExpectedRequest{{
+		Path:    inactiveRoute.PrimaryPathPrefix + "/v1/responses",
+		ModelID: inactiveRoute.PrimaryModelID,
 	}})
+	assertNoScriptedUpstreamRequests(t, inactiveRoute.GPT54Upstream, "inactive profile gpt-5.4 tier before chat-only translation")
+	assertNoScriptedUpstreamRequests(t, inactiveRoute.DeepSeekUpstream, "inactive profile deepseek tier")
 }
 
 func TestProxyExecutionParity(t *testing.T) {

@@ -6,14 +6,12 @@ Scope: profile-isolated runtime and management model with pricing templates, pro
 
 ```
 model_configs (profile-scoped)
-model_configs (profile-scoped)
   id PK
   profile_id FK -> profiles.id
   api_family (fixed enum)
   model_id
   display_name
   loadbalance_strategy_id FK -> loadbalance_strategies.id
-  facade_enabled, facade_selection_policy, facade_fallback_policy,
   is_enabled
   created_at, updated_at
   UNIQUE(profile_id, model_id)
@@ -44,7 +42,6 @@ connections (profile-scoped private endpoint bindings)
   api_family
   endpoint_id FK -> endpoints.id
   pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
-  context_window_tokens, default_output_token_reserve, max_context_utilization
   qps_limit, max_in_flight_non_stream, max_in_flight_stream
   is_active, priority
   name, auth_type, custom_headers, openai_probe_endpoint_variant, openai_text_capability
@@ -284,9 +281,6 @@ Maps a model ID to fixed api family and routing behavior within one profile.
 | model_id | VARCHAR(200) | NOT NULL | Model identifier (scoped by profile) |
 | display_name | VARCHAR(200) | NULLABLE | Human-readable name |
 | loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Strategy used while planning this model's targets |
-| facade_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Enables Release 1 exact-ID OpenAI facade routing for this requested model |
-| facade_selection_policy | VARCHAR(64) | NULLABLE | Exact facade selection policy; when facade routing is enabled, Release 1 accepts only `ordered_eligible_context` |
-| facade_fallback_policy | VARCHAR(64) | NULLABLE | Exact facade ineligible-target policy; when facade routing is enabled, Release 1 accepts only `skip_ineligible_targets` |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -295,10 +289,7 @@ Constraints:
 - `UNIQUE(profile_id, model_id)`.
 - Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to Terminal Targets, Prism's product-facing model-private endpoint bindings.
 - Runtime compatibility is checked against `api_family`.
-- Release 1 exact facade routing is keyed by the requested model's exact `model_id`; there is no regex matcher or capability-metadata expansion in the persisted model contract.
-- `facade_enabled = true` is OpenAI-only and requires canonical `facade_selection_policy = ordered_eligible_context` plus `facade_fallback_policy = skip_ineligible_targets`.
-- Management and config-bundle validation reject nested facades: public model targets cannot point at facade-enabled target models, and enabling facade routing on a model with inbound model-target referrers is rejected.
-- Model-owned context capability and overflow-promotion authoring fields are retired. Terminal Target capability fields remain connection-owned.
+- Exact facade routing, model-owned context capability, and overflow-promotion authoring fields are retired.
 
 ### 2.3A `model_access_targets` (profile-scoped model access metadata)
 
@@ -320,8 +311,8 @@ Constraints:
 - Positions are normalized and validated as contiguous `0..N-1` in management contracts.
 - Position is an ordering key only, not priority, tier, or weight. Duplicate positions reject before write.
 - Obsolete public payload keys `weight` and `target_priority` reject in management model APIs and config-bundle import or preview. The fresh schema has no columns for those values.
-- Release 1 exact facade routing evaluates enabled same-family model targets by context eligibility, then flat `position` and stable IDs. Connection-owner targets remain terminal routing edges, not public facade candidates.
-- Go management and config-bundle import validation rejects self-reference, cross-profile targets, cross-api-family targets, cycles, and nested facades; these relationship semantics are not enforced by database triggers.
+- Runtime routing evaluates enabled same-family model targets by flat `position` and stable IDs. Connection-owner targets remain terminal routing edges, not public model-target candidates.
+- Go management and config-bundle import validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
 
 ### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
 
@@ -388,11 +379,6 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | api_family | VARCHAR(50) | NOT NULL | Runtime compatibility family used for same-family target validation |
 | endpoint_id | INTEGER | FK -> endpoints.id, NOT NULL | Referenced endpoint |
 | pricing_template_id | INTEGER | FK -> pricing_templates.id, NULLABLE, ON DELETE RESTRICT | Assigned pricing template |
-| context_window_tokens | INTEGER | NULLABLE | Optional Terminal Target context window; `NULL` leaves no explicit connection-owned context window |
-| default_output_token_reserve | INTEGER | NOT NULL, DEFAULT 4096 | Output reserve used when request output budget is omitted |
-| max_context_utilization | DOUBLE PRECISION | NOT NULL, DEFAULT 0.9 | Hard-fit usable-window multiplier for preflight routing |
-| preferred_context_utilization_threshold | DOUBLE PRECISION | NULLABLE | Optional connection-owned preferred-band multiplier; `NULL` means no preferred band |
-| preferred_context_utilization_threshold_overridden | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether the Terminal Target has an explicit preferred-band multiplier |
 | qps_limit | INTEGER | NULLABLE | Per-Terminal Target QPS cap; `NULL` means unlimited |
 | max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
 | max_in_flight_stream | INTEGER | NULLABLE | Concurrent stream request cap; `NULL` means unlimited |
@@ -419,7 +405,6 @@ Connection invariants:
 - Public model target authoring cannot attach Terminal Targets by ID. Model detail creates, updates, health-checks, and deletes Terminal Targets through model-scoped routes.
 - Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
-- `preferred_context_utilization_threshold` is connection-owned. Omitted or `NULL` values mean the Terminal Target has no preferred band, and a set value must stay less than or equal to the effective `max_context_utilization`.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Sibling translation can run only for adapter-approved text-only Chat Completions and Responses shapes when a terminal target is not native for the ingress operation.
 - `openai_probe_endpoint_variant` is health-probe-only metadata. It selects the lightweight OpenAI probe endpoint and payload variant, and it does not derive runtime capability or request shape.
 
@@ -544,10 +529,9 @@ Request-log semantics:
 - `ingress_request_id` groups the rows created by one incoming runtime request.
 - `attempt_number` preserves retry/failover ordering within that group.
 - `model_id` records the requested model ID while `resolved_target_model_id` records the final target model ID selected for that attempt.
-- Exact facade attempts keep that same top-level split: `model_id` stays the requested public facade ID, and `resolved_target_model_id` stays the selected child model ID.
 - `operation_name` and `request_path` remain ingress-led. `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` are additive upstream attribution for native or translated attempts.
 - `route_reason` uses the frozen gateway vocabulary from the route planning or retry phase, while `usage_source` uses the frozen usage provenance vocabulary from provider response capture.
-- `selected_terminal_target_id` can differ from `connection_id` when the planner selected one terminal target but execution later failed over to another attempt. Exact facade routing adds no sibling-target failover after child selection; any later retry remains inside the selected child model's own terminal strategy.
+- `selected_terminal_target_id` can differ from `connection_id` when the planner selected one terminal target but execution later failed over to another attempt.
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 - Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
@@ -591,7 +575,7 @@ Usage-event semantics:
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
 - `endpoint_label_snapshot` preserves the endpoint display label used by usage snapshots, spending, and Top Endpoints, even if the endpoint is later renamed or deleted. Public stats payloads expose this stored value as `endpoint_label`.
 - Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
-- Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, `route_reason`, `usage_source`, and additive ingress/upstream operation attribution. Exact facade events preserve the same top-level requested/resolved model split as request logs. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
+- Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, `route_reason`, `usage_source`, and additive ingress/upstream operation attribution. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
 - Explicit `"0"` pricing contributes zero-cost component micros on priced events. Rows with absent or invalid pricing snapshots, or missing FX data, remain unpriced with `MISSING_PRICE_DATA`.
 
 ### 2.12 `audit_logs` (partitioned immutable profile attribution)

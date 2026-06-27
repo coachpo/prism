@@ -22,7 +22,6 @@ export interface ModelFormData {
   display_name: string;
   openai_accepted_format: OpenAIAcceptedFormat | "";
   loadbalance_strategy_id: number | null;
-  access_targets: ModelAccessTargetMutation[];
   is_enabled: boolean;
   last_auto_display_name?: string | null;
 }
@@ -31,8 +30,7 @@ export type ModelFormValidationError =
   | "api_family_required"
   | "model_id_required"
   | "openai_accepted_format_invalid"
-  | "loadbalance_strategy_required"
-  | "access_target_required";
+  | "loadbalance_strategy_required";
 
 const DEFAULT_API_FAMILY: ApiFamily = "openai";
 export const DEFAULT_OPENAI_ACCEPTED_FORMAT: OpenAIAcceptedFormat = "dual_native";
@@ -48,7 +46,6 @@ export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   display_name: "",
   openai_accepted_format: DEFAULT_OPENAI_ACCEPTED_FORMAT,
   loadbalance_strategy_id: null,
-  access_targets: [],
   is_enabled: false,
   last_auto_display_name: "",
 };
@@ -233,7 +230,6 @@ type EditableModelFormSource = (
         | "display_name"
         | "openai_accepted_format"
         | "loadbalance_strategy_id"
-        | "access_targets"
         | "is_enabled"
     >
   | Pick<
@@ -244,7 +240,6 @@ type EditableModelFormSource = (
         | "display_name"
         | "openai_accepted_format"
         | "loadbalance_strategy_id"
-        | "access_targets"
         | "is_enabled"
     >
 );
@@ -275,9 +270,6 @@ export function createEditModelFormData(model: EditableModelFormSource): ModelFo
       model.openai_accepted_format,
     ),
     loadbalance_strategy_id: model.loadbalance_strategy_id,
-    access_targets: normalizeAccessTargetMutations(
-      model.access_targets.map(accessTargetToMutation).filter((target): target is ModelAccessTargetMutation => target !== null),
-    ),
     is_enabled: model.is_enabled,
     last_auto_display_name: displayName === model.model_id ? model.model_id : displayName,
   };
@@ -290,7 +282,6 @@ export function createNewModelFormData(loadbalanceStrategyId: number | null): Mo
     display_name: DEFAULT_MODEL_FORM_DATA.display_name,
     openai_accepted_format: DEFAULT_MODEL_FORM_DATA.openai_accepted_format,
     loadbalance_strategy_id: loadbalanceStrategyId,
-    access_targets: [...DEFAULT_MODEL_FORM_DATA.access_targets],
     is_enabled: DEFAULT_MODEL_FORM_DATA.is_enabled,
     last_auto_display_name: DEFAULT_MODEL_FORM_DATA.last_auto_display_name,
   };
@@ -304,7 +295,6 @@ export function getAccessTargetOptionKeys(
 
 export function validateModelFormData(
   formData: ModelFormData,
-  availableAccessTargetKeys?: Iterable<string>,
 ): ModelFormValidationError | null {
   if (!formData.api_family) {
     return "api_family_required";
@@ -323,22 +313,7 @@ export function validateModelFormData(
   if (formData.loadbalance_strategy_id === null) {
     return "loadbalance_strategy_required";
   }
-  const normalizedTargets = normalizeAccessTargetMutations(formData.access_targets);
-  const enabledTargets = normalizedTargets.filter((target) => target.is_enabled !== false);
-  if (formData.is_enabled && enabledTargets.length === 0) {
-    return "access_target_required";
-  }
-  if (!availableAccessTargetKeys) {
-    return null;
-  }
-  const validKeys = new Set(availableAccessTargetKeys);
-  return normalizedTargets.some((target) => {
-    if (target.target_type !== "model") {
-      return false;
-    }
-    const key = accessTargetKey(target);
-    return !key || !validKeys.has(key);
-  }) ? "access_target_required" : null;
+  return null;
 }
 
 function getRequiredLoadbalanceStrategyId(formData: ModelFormData): number {
@@ -359,7 +334,6 @@ export function normalizeModelAccessTargetMutations(
 function getNormalizedRoutingState(formData: ModelFormData) {
   return {
     loadbalance_strategy_id: getRequiredLoadbalanceStrategyId(formData),
-    access_targets: normalizeModelAccessTargetMutations(formData.access_targets),
   };
 }
 
@@ -418,7 +392,6 @@ export function setApiFamilyOnForm(formData: ModelFormData, apiFamily: ApiFamily
     ...formData,
     api_family: apiFamily,
     openai_accepted_format: openAIAcceptedFormat,
-    access_targets: [],
   };
 }
 
@@ -453,13 +426,7 @@ type ApiFamilyModelOption = {
   api_family: ApiFamily;
   model_id: string;
   is_enabled?: boolean;
-  facade_enabled?: boolean | null;
-  is_facade?: boolean | null;
 };
-
-function isFacadeModelOption(model: ApiFamilyModelOption): boolean {
-  return model.facade_enabled === true || model.is_facade === true;
-}
 
 export function getAccessTargetModelsForApiFamily<T extends ApiFamilyModelOption>(
   models: T[],
@@ -471,8 +438,7 @@ export function getAccessTargetModelsForApiFamily<T extends ApiFamilyModelOption
     (model) =>
       model.api_family === apiFamily
       && (normalizedExcludedModelId === "" || model.model_id !== normalizedExcludedModelId)
-      && model.is_enabled !== false
-      && !isFacadeModelOption(model),
+      && model.is_enabled !== false,
   );
 }
 

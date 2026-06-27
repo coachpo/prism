@@ -7,8 +7,6 @@ import type { ModelConfig, ModelConfigListItem } from "@/lib/types";
 import {
   createEditModelFormData,
   DEFAULT_MODEL_FORM_DATA,
-  getAccessTargetModelsForApiFamily,
-  getAccessTargetOptionKeys,
   setLoadbalanceStrategyIdOnForm,
   toModelUpdatePayload,
   type ModelFormData,
@@ -18,7 +16,6 @@ import {
 import { patchModelListItemFromDetail } from "./useModelDetailDataSupport";
 
 interface UseModelDetailModelFormInput {
-  allModels: ModelConfigListItem[];
   model: ModelConfig | null;
   revision: number;
   setIsEditModelDialogOpenState: (open: boolean) => void;
@@ -27,7 +24,6 @@ interface UseModelDetailModelFormInput {
 }
 
 export function useModelDetailModelForm({
-  allModels,
   model,
   revision,
   setIsEditModelDialogOpenState,
@@ -71,15 +67,7 @@ export function useModelDetailModelForm({
 
       const messages = getStaticMessages();
       setTargetEditorError(null);
-      const targetModelsForApiFamily = getAccessTargetModelsForApiFamily(
-        allModels,
-        formData.api_family,
-        model.model_id,
-      );
-      const validationError = validateModelFormData(
-        formData,
-        getAccessTargetOptionKeys(targetModelsForApiFamily),
-      );
+      const validationError = validateModelFormData(formData);
 
       if (validationError === "api_family_required") {
         toast.error(messages.modelDetailData.selectApiFamily);
@@ -96,13 +84,6 @@ export function useModelDetailModelForm({
         return;
       }
 
-      if (validationError === "access_target_required") {
-        const message = messages.modelDetailData.enabledAccessTargetRequired;
-        setTargetEditorError(message);
-        toast.error(message);
-        return;
-      }
-
       try {
         const updatedModel = await api.models.update(model.id, toModelUpdatePayload(formData));
         applyUpdatedModel(updatedModel);
@@ -114,7 +95,7 @@ export function useModelDetailModelForm({
         toast.error(message);
       }
     },
-    [allModels, applyUpdatedModel, formData, model, setIsEditModelDialogOpen],
+    [applyUpdatedModel, formData, model, setIsEditModelDialogOpen],
   );
 
   return {

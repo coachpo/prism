@@ -117,9 +117,6 @@ type importedModelPayload struct {
 	ModelID                 string
 	DisplayName             *string
 	LoadbalanceStrategyName *string
-	FacadeEnabled           bool
-	FacadeSelectionPolicy   *string
-	FacadeFallbackPolicy    *string
 	OpenAIAcceptedFormat    *string
 	IsEnabled               bool
 	AccessTargets           []importedAccessTargetPayload

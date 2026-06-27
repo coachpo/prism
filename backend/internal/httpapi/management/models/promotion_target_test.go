@@ -24,7 +24,7 @@ type modelRouteErrorResponse struct {
 	RoutingPlanIssues []routingPlanValidationIssue `json:"routing_plan_issues"`
 }
 
-func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
+func TestModelRoutesRejectAccessTargetsInCreateUpdateAndObsoleteTargetFields(t *testing.T) {
 	ctx, conn, dsn := createPromotionTargetTestDatabase(t, "model_routes_reject_obsolete_access_target_fields")
 	now := time.Date(2026, time.June, 5, 21, 0, 0, 0, time.UTC)
 	tx, err := conn.Begin(ctx)
@@ -52,7 +52,7 @@ func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
 			"weight":          1,
 		}},
 	})
-	assertObsoleteAccessTargetRouteError(t, createResponse, "access_targets[0].weight")
+	assertInvalidRequestBody(t, createResponse)
 
 	updateResponse := performPromotionTargetModelRequest(t, router, http.MethodPut, fmt.Sprintf("/models/%d", source.ID), profileID, map[string]any{
 		"access_targets": []map[string]any{{
@@ -62,7 +62,7 @@ func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
 			"target_priority": 0,
 		}},
 	})
-	assertObsoleteAccessTargetRouteError(t, updateResponse, "access_targets[0].target_priority")
+	assertInvalidRequestBody(t, updateResponse)
 
 	targetCreateResponse := performPromotionTargetModelRequest(t, router, http.MethodPost, fmt.Sprintf("/models/%d/targets", source.ID), profileID, map[string]any{
 		"target_type":     "model",
@@ -76,6 +76,18 @@ func TestModelRoutesRejectObsoleteAccessTargetFields(t *testing.T) {
 		"target_priority": 0,
 	})
 	assertObsoleteAccessTargetRouteError(t, targetPatchResponse, "target_priority")
+}
+
+func assertInvalidRequestBody(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid request body to fail with 400, got %d: %s", response.Code, response.Body.String())
+	}
+	var payload modelRouteErrorResponse
+	decodePromotionTargetJSON(t, response, &payload)
+	if payload.Detail != "Invalid request body" {
+		t.Fatalf("expected invalid request body error, got %+v", payload)
+	}
 }
 
 func assertObsoleteAccessTargetRouteError(t *testing.T, response *httptest.ResponseRecorder, path string) {
@@ -176,17 +188,16 @@ func findListedModelByID(t *testing.T, items []modelConfigListResponse, modelCon
 }
 
 type promotionModelSeed struct {
-	ModelID       string
-	APIFamily     string
-	IsEnabled     bool
-	FacadeEnabled bool
+	ModelID   string
+	APIFamily string
+	IsEnabled bool
 }
 
-func seedPromotionTerminalModel(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, strategyID int, now time.Time, seed promotionModelSeed, contextWindowTokens int, maxContextUtilization float64) (modelRecord, int) {
+func seedPromotionTerminalModel(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, strategyID int, now time.Time, seed promotionModelSeed, _ int, _ float64) (modelRecord, int) {
 	t.Helper()
 	model := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, seed)
 	endpointID := insertPromotionEndpoint(t, ctx, tx, profileID, seed.ModelID+"-endpoint", now)
-	connectionID := insertPromotionConnection(t, ctx, tx, profileID, endpointID, seed.APIFamily, seed.ModelID+"-connection", contextWindowTokens, maxContextUtilization, now)
+	connectionID := insertPromotionConnection(t, ctx, tx, profileID, endpointID, seed.APIFamily, seed.ModelID+"-connection", now)
 	insertPromotionConnectionTarget(t, ctx, tx, profileID, model.ID, connectionID, 0, true, now)
 	return model, connectionID
 }
@@ -216,21 +227,12 @@ func insertPromotionStrategy(t *testing.T, ctx context.Context, tx pgx.Tx, profi
 
 func insertPromotionModel(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, strategyID int, now time.Time, seed promotionModelSeed) modelRecord {
 	t.Helper()
-	selectionPolicy := (*string)(nil)
-	fallbackPolicy := (*string)(nil)
-	if seed.FacadeEnabled {
-		selectionPolicy = stringPtr(facadeSelectionPolicyOrderedEligibleContext)
-		fallbackPolicy = stringPtr(facadeFallbackPolicySkipIneligibleTargets)
-	}
 	record := modelRecord{
 		ProfileID:             profileID,
 		APIFamily:             seed.APIFamily,
 		ModelID:               seed.ModelID,
 		DisplayName:           stringPtr(seed.ModelID),
 		LoadbalanceStrategyID: intPtr(strategyID),
-		FacadeEnabled:         seed.FacadeEnabled,
-		FacadeSelectionPolicy: selectionPolicy,
-		FacadeFallbackPolicy:  fallbackPolicy,
 		IsEnabled:             seed.IsEnabled,
 		CreatedAt:             now,
 		UpdatedAt:             now,
@@ -250,14 +252,14 @@ func insertPromotionEndpoint(t *testing.T, ctx context.Context, tx pgx.Tx, profi
 	return endpointID
 }
 
-func insertPromotionConnection(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, endpointID int, apiFamily string, name string, contextWindowTokens int, maxContextUtilization float64, now time.Time) int {
+func insertPromotionConnection(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, endpointID int, apiFamily string, name string, now time.Time) int {
 	t.Helper()
 	var connectionID int
 	var openAITextCapability any
 	if apiFamily == "openai" {
 		openAITextCapability = "responses_only"
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, 4096, $5, NULL, NULL, NULL, NULL, NULL, $8, TRUE, 0, $6, NULL, NULL, 'healthy', NULL, NULL, $7, $7) RETURNING id`, profileID, apiFamily, endpointID, contextWindowTokens, maxContextUtilization, name, now, openAITextCapability).Scan(&connectionID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $6, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now, openAITextCapability).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection %q: %v", name, err)
 	}
 	return connectionID

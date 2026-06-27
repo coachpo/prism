@@ -65,9 +65,6 @@ type modelRow struct {
 	ModelID               string
 	DisplayName           *string
 	LoadbalanceStrategyID *int
-	FacadeEnabled         bool
-	FacadeSelectionPolicy *string
-	FacadeFallbackPolicy  *string
 	OpenAIAcceptedFormat  *string
 	IsEnabled             bool
 }
@@ -82,24 +79,20 @@ type accessTargetRow struct {
 }
 
 type connectionRow struct {
-	ID                                   int
-	APIFamily                            string
-	EndpointID                           int
-	ContextWindowTokens                  *int
-	DefaultOutputTokenReserve            int
-	MaxContextUtilization                float64
-	PreferredContextUtilizationThreshold *float64
-	PricingTemplateID                    *int
-	IsActive                             bool
-	Priority                             int
-	Name                                 *string
-	AuthType                             *string
-	CustomHeaders                        map[string]string
-	OpenAIProbeEndpointVariant           *string
-	OpenAITextCapability                 *string
-	QPSLimit                             *int
-	MaxInFlightNonStream                 *int
-	MaxInFlightStream                    *int
+	ID                         int
+	APIFamily                  string
+	EndpointID                 int
+	PricingTemplateID          *int
+	IsActive                   bool
+	Priority                   int
+	Name                       *string
+	AuthType                   *string
+	CustomHeaders              map[string]string
+	OpenAIProbeEndpointVariant *string
+	OpenAITextCapability       *string
+	QPSLimit                   *int
+	MaxInFlightNonStream       *int
+	MaxInFlightStream          *int
 }
 
 type userSettingsRow struct {
@@ -367,9 +360,6 @@ func buildModelExport(model modelRow, strategyNameByID map[int]string, accessTar
 		ModelID:                 model.ModelID,
 		DisplayName:             model.DisplayName,
 		LoadbalanceStrategyName: strategyName,
-		FacadeEnabled:           model.FacadeEnabled,
-		FacadeSelectionPolicy:   model.FacadeSelectionPolicy,
-		FacadeFallbackPolicy:    model.FacadeFallbackPolicy,
 		OpenAIAcceptedFormat:    model.OpenAIAcceptedFormat,
 		IsEnabled:               model.IsEnabled,
 		AccessTargets:           exportedTargets,
@@ -430,24 +420,20 @@ func buildConnectionExports(connections []connectionRow, endpointByID map[int]en
 		ref := connectionExportRef(connection, endpoint.Name, usedRefs)
 		connectionRefByID[connection.ID] = ref
 		exportedConnections = append(exportedConnections, connectionExport{
-			Ref:                                  ref,
-			APIFamily:                            connection.APIFamily,
-			EndpointName:                         endpoint.Name,
-			ContextWindowTokens:                  intPtrFromOptional(connection.ContextWindowTokens),
-			DefaultOutputTokenReserve:            intPtr(connection.DefaultOutputTokenReserve),
-			MaxContextUtilization:                float64Ptr(connection.MaxContextUtilization),
-			PreferredContextUtilizationThreshold: float64PtrFromOptional(connection.PreferredContextUtilizationThreshold),
-			PricingTemplateName:                  pricingTemplateName,
-			IsActive:                             connection.IsActive,
-			Priority:                             connection.Priority,
-			Name:                                 connection.Name,
-			AuthType:                             connection.AuthType,
-			CustomHeaders:                        connection.CustomHeaders,
-			OpenAIProbeEndpointVariant:           connection.OpenAIProbeEndpointVariant,
-			OpenAITextCapability:                 connection.OpenAITextCapability,
-			QPSLimit:                             connection.QPSLimit,
-			MaxInFlightNonStream:                 connection.MaxInFlightNonStream,
-			MaxInFlightStream:                    connection.MaxInFlightStream,
+			Ref:                        ref,
+			APIFamily:                  connection.APIFamily,
+			EndpointName:               endpoint.Name,
+			PricingTemplateName:        pricingTemplateName,
+			IsActive:                   connection.IsActive,
+			Priority:                   connection.Priority,
+			Name:                       connection.Name,
+			AuthType:                   connection.AuthType,
+			CustomHeaders:              connection.CustomHeaders,
+			OpenAIProbeEndpointVariant: connection.OpenAIProbeEndpointVariant,
+			OpenAITextCapability:       connection.OpenAITextCapability,
+			QPSLimit:                   connection.QPSLimit,
+			MaxInFlightNonStream:       connection.MaxInFlightNonStream,
+			MaxInFlightStream:          connection.MaxInFlightStream,
 		})
 	}
 	return exportedConnections, connectionRefByID, nil
@@ -619,7 +605,7 @@ func listStrategies(ctx context.Context, exec queryExecutor, profileID int) ([]s
 }
 
 func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]modelRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, api_family, model_id, display_name, loadbalance_strategy_id, facade_enabled, facade_selection_policy, facade_fallback_policy, openai_accepted_format, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, api_family, model_id, display_name, loadbalance_strategy_id, openai_accepted_format, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query models for profile %d: %w", profileID, err)
 	}
@@ -629,17 +615,13 @@ func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]model
 	for rows.Next() {
 		var displayName sql.NullString
 		var strategyID sql.NullInt32
-		var facadeSelectionPolicy sql.NullString
-		var facadeFallbackPolicy sql.NullString
 		var openAIAcceptedFormat sql.NullString
 		item := modelRow{}
-		if err := rows.Scan(&item.ID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &item.FacadeEnabled, &facadeSelectionPolicy, &facadeFallbackPolicy, &openAIAcceptedFormat, &item.IsEnabled); err != nil {
+		if err := rows.Scan(&item.ID, &item.APIFamily, &item.ModelID, &displayName, &strategyID, &openAIAcceptedFormat, &item.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan model row: %w", err)
 		}
 		item.DisplayName = nullableStringValue(displayName)
 		item.LoadbalanceStrategyID = nullableInt32(strategyID)
-		item.FacadeSelectionPolicy = nullableStringValue(facadeSelectionPolicy)
-		item.FacadeFallbackPolicy = nullableStringValue(facadeFallbackPolicy)
 		item.OpenAIAcceptedFormat = nullableStringValue(openAIAcceptedFormat)
 		items = append(items, item)
 	}
@@ -678,7 +660,7 @@ func listAccessTargetsByModelIDs(ctx context.Context, exec queryExecutor, modelI
 }
 
 func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]connectionRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, api_family, endpoint_id, context_window_tokens, default_output_token_reserve, max_context_utilization, preferred_context_utilization_threshold, pricing_template_id, is_active, priority, name, auth_type, custom_headers, openai_probe_endpoint_variant, openai_text_capability, qps_limit, max_in_flight_non_stream, max_in_flight_stream FROM connections WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, api_family, endpoint_id, pricing_template_id, is_active, priority, name, auth_type, custom_headers, openai_probe_endpoint_variant, openai_text_capability, qps_limit, max_in_flight_non_stream, max_in_flight_stream FROM connections WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query connections for profile %d: %w", profileID, err)
 	}
@@ -686,8 +668,6 @@ func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]
 
 	items := make([]connectionRow, 0)
 	for rows.Next() {
-		var contextWindowTokens sql.NullInt32
-		var preferredContextUtilizationThreshold sql.NullFloat64
 		var pricingTemplateID sql.NullInt32
 		var name sql.NullString
 		var authType sql.NullString
@@ -698,11 +678,9 @@ func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]
 		var maxNonStream sql.NullInt32
 		var maxStream sql.NullInt32
 		item := connectionRow{}
-		if err := rows.Scan(&item.ID, &item.APIFamily, &item.EndpointID, &contextWindowTokens, &item.DefaultOutputTokenReserve, &item.MaxContextUtilization, &preferredContextUtilizationThreshold, &pricingTemplateID, &item.IsActive, &item.Priority, &name, &authType, &customHeaders, &probeVariant, &openAITextCapability, &qpsLimit, &maxNonStream, &maxStream); err != nil {
+		if err := rows.Scan(&item.ID, &item.APIFamily, &item.EndpointID, &pricingTemplateID, &item.IsActive, &item.Priority, &name, &authType, &customHeaders, &probeVariant, &openAITextCapability, &qpsLimit, &maxNonStream, &maxStream); err != nil {
 			return nil, fmt.Errorf("scan connection row: %w", err)
 		}
-		item.ContextWindowTokens = nullableInt32(contextWindowTokens)
-		item.PreferredContextUtilizationThreshold = nullableFloat64(preferredContextUtilizationThreshold)
 		item.PricingTemplateID = nullableInt32(pricingTemplateID)
 		item.Name = nullableStringValue(name)
 		item.AuthType = nullableStringValue(authType)
@@ -866,31 +844,7 @@ func intPtr(value int) *int {
 	return &resolved
 }
 
-func intPtrFromOptional(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	resolved := *value
-	return &resolved
-}
-
 func float64Ptr(value float64) *float64 {
 	resolved := value
-	return &resolved
-}
-
-func float64PtrFromOptional(value *float64) *float64 {
-	if value == nil {
-		return nil
-	}
-	resolved := *value
-	return &resolved
-}
-
-func nullableFloat64(value sql.NullFloat64) *float64 {
-	if !value.Valid {
-		return nil
-	}
-	resolved := value.Float64
 	return &resolved
 }

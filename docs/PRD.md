@@ -53,7 +53,7 @@ Single operator (developer/power user) running the application locally or on a l
   - Each Terminal Target can optionally define `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited
   - Limiter state is persisted in PostgreSQL `UNLOGGED` tables and is intentionally ephemeral after crash or unclean shutdown
 - Proxy request forwarding may apply compatibility normalizations while preserving API-family-native response formats
-- Model-owned overflow replay has been removed. Exact facades keep their selected child restriction and never reopen siblings. After headers, flush, SSE, or any client-visible bytes commit downstream output, Prism does not switch upstreams for that stream.
+- Model-owned overflow replay and exact facade routing have been removed. After headers, flush, SSE, or any client-visible bytes commit downstream output, Prism does not switch upstreams for that stream.
 - All failover attempts (including failed ones) are logged to `request_logs` for observability. When a Terminal Target returns a failover-triggering status code (`403`, `429`, `500`, `502`, `503`, `529`) or encounters a connection/timeout error, the failed attempt is logged before trying the next Terminal Target.
 - Request-log detail preserves requested public model identity, final target identity, selected Terminal Target, endpoint, operation names, and translation mode through flat fields.
 - Failover, recovery, and probe-eligibility transitions are persisted as `loadbalance_events` for audit and observability.

@@ -7,17 +7,6 @@ const routeReadyTimeout = 15_000;
 const evidenceDir = resolve(process.cwd(), "../.omo/evidence/frontend-rewrite");
 const keyboardTracePath = resolve(evidenceDir, "task-17-keyboard-tables.zip");
 const cursorScreenshotPath = resolve(evidenceDir, "task-17-cursor-url.png");
-const connectionCapabilityDefaults = {
-  context_window_tokens: null,
-  default_output_token_reserve: 4096,
-  max_context_utilization: 0.9,
-  preferred_context_utilization_threshold: null,
-};
-const facadePolicyDefaults = {
-	facade_enabled: true,
-	facade_selection_policy: "ordered_eligible_context",
-	facade_fallback_policy: "skip_ineligible_targets",
-};
 
 test.beforeAll(() => {
   mkdirSync(evidenceDir, { recursive: true });
@@ -243,7 +232,6 @@ function profileBundleV3() {
       model_id: requestedModel.model_id,
       display_name: requestedModel.display_name,
       loadbalance_strategy_name: strategy.name,
-      ...facadePolicyDefaults,
       is_enabled: true,
       access_targets: [{ position: 0, is_enabled: true, target_type: "connection", connection_ref: "terminal-connection" }],
     }],

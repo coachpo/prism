@@ -1,7 +1,7 @@
 # BACKEND RUNTIME HTTPAPI KNOWLEDGE BASE
 
 ## OVERVIEW
-`runtime/` owns Prism's operation-registered runtime proxy contract behind the mounted `/v1` and `/v1beta` prefixes. It resolves exact supported operations at ingress, carries operation metadata through request planning, resolves requested models by exact `planningSnapshot.ModelsByID` lookup, routes provider-native differences through hook collections, persists `operation_name`, and keeps shared execution, telemetry, feedback, side effects, partition ensuring, and Release 1 exact-facade behavior inside one backend-owned runtime surface.
+`runtime/` owns Prism's operation-registered runtime proxy contract behind the mounted `/v1` and `/v1beta` prefixes. It resolves exact supported operations at ingress, carries operation metadata through request planning, resolves requested models by exact `planningSnapshot.ModelsByID` lookup, routes provider-native differences through hook collections, persists `operation_name`, and keeps shared execution, telemetry, feedback, side effects, and partition ensuring inside one backend-owned runtime surface.
 
 ## STRUCTURE
 ```text
@@ -33,7 +33,6 @@ runtime/
 - Exact supported operations, hook collection ids, streaming flags, and model-binding sources: `operations.go`
 - Ingress rejection before body reads, wrong-method handling, shared executor wiring, and response branching: `service.go`
 - Request planning, model binding, request path rewrites, unified access-target resolution, final-target attribution, exact `planningSnapshot.ModelsByID` requested-model lookup, and shared upstream execution: `runtime.go`, `runtime_planner.go`, `generations.go`, `planning_snapshot.go`, `proxy_selector_helpers.go`
-- Exact Release 1 facade planning, eligible-only flat ordering, and no-sibling retry after child selection: `planning_snapshot.go`, `proxy_selector_helpers.go`
 - Automatic generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
 - Non-stream response parsing for text generation, token count, and media operations: `operation_response_hooks.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
@@ -52,11 +51,10 @@ runtime/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `operations.go` as the single source of truth for supported runtime method/path pairs, hook collection ids, streaming flags, and model-binding sources.
 - Keep selected-profile management scope out of proxy traffic. Runtime request planning uses the active runtime state, not `X-Profile-Id` management headers.
-- Keep requested-model resolution exact. Release 1 facade routing starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly; do not add regex matching or capability-metadata expansion in this package.
+- Keep requested-model resolution exact. Runtime planning starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly, then follows ordinary access-target ordering; do not add regex matching or capability-metadata expansion in this package.
 - Keep unsupported or wrong-method requests rejecting before body reads, runtime admission, provider transport, telemetry, audit, feedback, or runtime side effects.
 - Keep the shared execution core in `service.go` and `runtime.go`; provider-native differences belong in request, response, stream, or media hooks instead of forked executors.
-- Keep exact facade routing backend-first: it activates only for canonical `facade_enabled=true` OpenAI models with `ordered_eligible_context` plus `skip_ineligible_targets`, evaluates eligible same-family model targets, follows flat `position`/ID ordering, and does not add sibling-target failover after child selection.
-- Keep facade planning backend-first and preserve requested/resolved model fields.
+- Keep retired exact-facade and context-fit preflight behavior out of runtime planning; preserve requested/resolved model observability through the ordinary target plan.
 - Keep token-count operations out of generation-only parsing and usage assumptions.
 - Keep media operations on dedicated media hooks instead of text-generation request/response heuristics.
 - Keep operation translation explicit and operation-scoped; do not turn Chat/Responses translation into a generic vendor compatibility layer.
@@ -72,8 +70,7 @@ runtime/
 - Do not describe mounted `/v1` and `/v1beta` prefixes as broad passthrough support.
 - Do not add generic OpenAI or vendor fallback behavior outside the allowlist in `operations.go`.
 - Do not inject management-only `X-Profile-Id` logic or auth-session state into runtime proxy handlers.
-- Do not turn Release 1 exact facades into regex, capability-driven, or frontend-authored routing from this package.
-- Do not add facade-level sibling-target provider-failure failover or response-body model rewriting; only the selected child model's own terminal strategy may continue after facade selection.
+- Do not reintroduce exact facades, context-window preflight filtering, or facade-level response-body model rewriting.
 - Do not reuse text-generation hooks for media or token-count operations.
 - Do not hide unsupported translation paths behind provider fallbacks or best-effort request rewrites.
 - Do not bypass the telemetry outbox, feedback pipeline, or runtime side-effect manager with inline writes or sends.

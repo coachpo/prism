@@ -172,8 +172,6 @@ func TestRouteInt(t *testing.T) {
 
 func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.T) {
 	modelConfigID := 7
-	contextTokens := 128000
-	preferredThreshold := 0.82
 	name := "primary"
 	authType := "openai"
 	variant := "chat_completions_minimal"
@@ -188,10 +186,6 @@ func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.
 
 	connection := connectionResponse{
 		ID: 42, ProfileID: 5, ModelConfigID: &modelConfigID, APIFamily: "openai", EndpointID: 9,
-		ContextWindowTokens: &contextTokens, ContextWindowTokensOverridden: true,
-		DefaultOutputTokenReserve: 512, DefaultOutputTokenReserveOverridden: true,
-		MaxContextUtilization: 0.9, MaxContextUtilizationOverridden: true,
-		PreferredContextUtilizationThreshold: &preferredThreshold, PreferredContextUtilizationThresholdOverridden: true,
 		IsActive: true, Priority: 2, Name: &name, AuthType: &authType,
 		CustomHeaders: map[string]string{"X-Test": "1"}, OpenAIProbeEndpointVariant: &variant,
 		OpenAITextCapability: &textCapability, PricingTemplateID: &pricingTemplateID,

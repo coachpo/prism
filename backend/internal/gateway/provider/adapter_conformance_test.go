@@ -180,7 +180,7 @@ func TestOpenAIAdapterRejectsUnsupportedTextConversionWithTypedError(t *testing.
 	if !errors.As(err, &adapterErr) {
 		t.Fatalf("expected provider adapter error, got %v", err)
 	}
-	if adapterErr.HTTPStatus != http.StatusBadRequest || adapterErr.Code != "openai_request_translation_unsupported" || adapterErr.Fields["unsupported_reason"] != "responses_text" {
+	if adapterErr.HTTPStatus != http.StatusBadRequest || adapterErr.Code != "openai_request_translation_unsupported" || adapterErr.Fields["unsupported_reason"] != "responses_text_format" {
 		t.Fatalf("expected typed unsupported conversion error, got %+v", adapterErr)
 	}
 }

@@ -134,9 +134,6 @@ func (plan *runtimeRoutingPlan) modelForAccessTarget(sourceModel runtimeModelRec
 	if childModel.ProfileID != sourceModel.ProfileID || !modelrouting.SameAPIFamily(childModel.APIFamily, sourceModel.APIFamily) {
 		return runtimeModelRecord{}, false, nil
 	}
-	if childModel.FacadeEnabled {
-		return runtimeModelRecord{}, false, nestedRuntimeFacadeTargetError()
-	}
 	return childModel, true, nil
 }
 

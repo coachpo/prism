@@ -105,24 +105,19 @@ func TestSharedCachePublishedSnapshotsCloneProfilesAndProxyKeysButSharePlanningS
 	}
 }
 
-func TestSharedCachePublishedCachePlanningSnapshotCarriesFacadeMetadata(t *testing.T) {
+func TestSharedCachePublishedCachePlanningSnapshotCarriesAccessTargets(t *testing.T) {
 	t.Parallel()
 
-	selectionPolicy := runtimeFacadeSelectionPolicyOrderedEligibleContext
-	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
 	cache := NewSharedCache()
 	cache.published.Store(&publishedRuntimeSnapshot{
 		PlanningByProfileID: map[int]*planningSnapshot{
 			42: {
 				ModelsByID: map[string]runtimeModelRecord{
 					"router-openai": {
-						ID:                    1,
-						ProfileID:             42,
-						APIFamily:             "openai",
-						ModelID:               "router-openai",
-						FacadeEnabled:         true,
-						FacadeSelectionPolicy: &selectionPolicy,
-						FacadeFallbackPolicy:  &fallbackPolicy,
+						ID:        1,
+						ProfileID: 42,
+						APIFamily: "openai",
+						ModelID:   "router-openai",
 					},
 					"child-openai": {
 						ID:        2,
@@ -154,10 +149,6 @@ func TestSharedCachePublishedCachePlanningSnapshotCarriesFacadeMetadata(t *testi
 	if err != nil {
 		t.Fatalf("load published planning snapshot: %v", err)
 	}
-	model := planning.ModelsByID["router-openai"]
-	if !model.FacadeEnabled || model.FacadeSelectionPolicy == nil || *model.FacadeSelectionPolicy != selectionPolicy || model.FacadeFallbackPolicy == nil || *model.FacadeFallbackPolicy != fallbackPolicy {
-		t.Fatalf("expected published model facade metadata to survive cache reads, got %+v", model)
-	}
 	targets := planning.AccessTargetsBySourceModelID[1]
 	if len(targets) != 1 {
 		t.Fatalf("expected one published model target, got %+v", targets)
@@ -165,34 +156,6 @@ func TestSharedCachePublishedCachePlanningSnapshotCarriesFacadeMetadata(t *testi
 	if targets[0].Position != 0 || targets[0].TargetModelID != "child-openai" || !targets[0].IsEnabled {
 		t.Fatalf("expected published flat model target, got %+v", targets[0])
 	}
-}
-
-func TestSharedCachePublishedCacheRejectsInvalidFacadeMetadata(t *testing.T) {
-	t.Parallel()
-
-	invalidSelectionPolicy := "invalid"
-	fallbackPolicy := runtimeFacadeFallbackPolicySkipIneligibleTargets
-	cache := NewSharedCache()
-	cache.published.Store(&publishedRuntimeSnapshot{
-		PlanningByProfileID: map[int]*planningSnapshot{
-			42: {
-				ModelsByID: map[string]runtimeModelRecord{
-					"router-openai": {
-						ID:                    1,
-						ProfileID:             42,
-						APIFamily:             "openai",
-						ModelID:               "router-openai",
-						FacadeEnabled:         true,
-						FacadeSelectionPolicy: &invalidSelectionPolicy,
-						FacadeFallbackPolicy:  &fallbackPolicy,
-					},
-				},
-			},
-		},
-	})
-
-	_, err := cache.LoadPublishedPlanningSnapshot(42)
-	assertPlanDomainError(t, err, 503, "facade_selection_policy must be 'ordered_eligible_context'")
 }
 
 func TestSharedCachePublishedGenerationTracksStores(t *testing.T) {

@@ -111,7 +111,6 @@ export function ModelsFeaturePage() {
         formError={data.formError}
         isDialogOpen={data.isDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
-        targetModelsForApiFamily={data.targetModelsForApiFamily}
         createLoadbalanceStrategyDefaultsPending={data.loadbalanceStrategyDefaultsCreating}
         setFormData={data.setFormData}
         setIsDialogOpen={data.setIsDialogOpen}

@@ -92,7 +92,6 @@ func testModelRecord(profileID int, modelID string, now time.Time) modelRecord {
 		APIFamily:            "openai",
 		ModelID:              modelID,
 		DisplayName:          stringPtr(strings.ToUpper(modelID)),
-		FacadeEnabled:        false,
 		OpenAIAcceptedFormat: stringPtr(openAIAcceptedFormatDualNative),
 		IsEnabled:            true,
 		CreatedAt:            now,

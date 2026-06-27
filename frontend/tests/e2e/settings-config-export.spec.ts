@@ -3,11 +3,6 @@ import { expect, test, type Download, type Page } from "@playwright/test";
 
 const fixedTimestamp = "2026-04-18T12:00:00Z";
 const fixedDate = "2026-04-18";
-const connectionCapabilityDefaults = {
-  context_window_tokens: null,
-  default_output_token_reserve: 4_096,
-  max_context_utilization: 0.9,
-};
 
 type DownloadCapture = {
   download: string;
@@ -115,7 +110,6 @@ function createExportConnection(overrides = {}) {
     ref: "default-connection",
     endpoint_name: "Default endpoint",
     api_family: "openai" as const,
-    ...connectionCapabilityDefaults,
     pricing_template_name: null,
     is_active: true,
     name: "Default connection",
@@ -214,9 +208,6 @@ function createDangerousExportBundle() {
     connections: [
       createExportConnection({
         ref: "dangerous-connection",
-        context_window_tokens: 200_000,
-        default_output_token_reserve: 8_192,
-        max_context_utilization: 0.92,
         name: "Dangerous connection",
       }),
     ],

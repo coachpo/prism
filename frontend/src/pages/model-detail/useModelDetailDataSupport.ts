@@ -41,29 +41,7 @@ type HeaderRowLike = {
   value: string;
 };
 
-type ConnectionCapabilityFieldName =
-  | "context_window_tokens"
-  | "default_output_token_reserve"
-  | "max_context_utilization"
-  | "preferred_context_utilization_threshold";
-
-type ConnectionCapabilityDraftLike = {
-  mode: "default" | "override";
-  value: string;
-};
-
-interface ConnectionDialogFormLike extends Omit<ConnectionCreate, ConnectionCapabilityFieldName> {
-  context_capability_drafts?: Record<ConnectionCapabilityFieldName, ConnectionCapabilityDraftLike>;
-}
-
-const CONNECTION_CAPABILITY_FIELDS: ConnectionCapabilityFieldName[] = [
-  "context_window_tokens",
-  "default_output_token_reserve",
-  "max_context_utilization",
-  "preferred_context_utilization_threshold",
-];
-
-type TerminalTargetCapabilityDefaultsLike = Partial<Record<ConnectionCapabilityFieldName, number | null>>;
+type ConnectionDialogFormLike = ConnectionCreate;
 
 interface BuildConnectionDraftPayloadInput {
   apiFamily: ApiFamily | null;
@@ -74,7 +52,6 @@ interface BuildConnectionDraftPayloadInput {
   headerRows: HeaderRowLike[];
   editingConnection: Connection | null;
   endpointSourceDefaultName: string | null;
-  terminalTargetCapabilityDefaults?: TerminalTargetCapabilityDefaultsLike;
 }
 
 export function normalizeConnectionHeaders(
@@ -96,7 +73,6 @@ export function buildConnectionDraftPayload({
   headerRows,
   editingConnection,
   endpointSourceDefaultName,
-  terminalTargetCapabilityDefaults,
 }: BuildConnectionDraftPayloadInput): {
   errorMessage: string | null;
   payload: ConnectionCreate | null;
@@ -111,17 +87,6 @@ export function buildConnectionDraftPayload({
       : !editingConnection
         ? endpointSourceDefaultName
         : null;
-
-  const parsedContextCapabilityValues = buildContextCapabilityPayload(
-    connectionForm,
-    terminalTargetCapabilityDefaults,
-  );
-  if (!parsedContextCapabilityValues.payload) {
-    return {
-      errorMessage: parsedContextCapabilityValues.errorMessage,
-      payload: null,
-    };
-  }
 
   const resolvedApiFamily = apiFamily ?? connectionForm.api_family;
   const payload: ConnectionCreate = {
@@ -141,7 +106,6 @@ export function buildConnectionDraftPayload({
     qps_limit: normalizeLimiterField(connectionForm.qps_limit),
     max_in_flight_non_stream: normalizeLimiterField(connectionForm.max_in_flight_non_stream),
     max_in_flight_stream: normalizeLimiterField(connectionForm.max_in_flight_stream),
-    ...parsedContextCapabilityValues.payload,
   };
 
   if (resolvedApiFamily !== "openai") {
@@ -172,100 +136,6 @@ export function buildConnectionDraftPayload({
   payload.endpoint_create = newEndpointForm;
   delete payload.endpoint_id;
   return { errorMessage: null, payload };
-}
-
-function getContextCapabilityInvalidMessage(field: ConnectionCapabilityFieldName): string {
-  const messages = getStaticMessages();
-
-  switch (field) {
-    case "context_window_tokens":
-      return messages.modelsData.contextWindowTokensInvalid;
-    case "default_output_token_reserve":
-      return messages.modelsData.defaultOutputTokenReserveInvalid;
-    case "max_context_utilization":
-      return messages.modelsData.maxContextUtilizationInvalid;
-    case "preferred_context_utilization_threshold":
-      return messages.modelsData.preferredContextUtilizationThresholdInvalid;
-    default:
-      return messages.modelDetailData.saveConnectionFailed;
-  }
-}
-
-function buildContextCapabilityPayload(
-  connectionForm: ConnectionDialogFormLike,
-  terminalTargetCapabilityDefaults?: TerminalTargetCapabilityDefaultsLike,
-): {
-  errorMessage: string | null;
-  payload: Pick<ConnectionCreate, ConnectionCapabilityFieldName> | null;
-} {
-  const parsedValues = {} as Pick<ConnectionCreate, ConnectionCapabilityFieldName>;
-  const effectiveValues = {} as Record<ConnectionCapabilityFieldName, number | null>;
-
-  for (const field of CONNECTION_CAPABILITY_FIELDS) {
-    const parsedValue = parseContextCapabilityDraftValue(
-      field,
-      connectionForm.context_capability_drafts?.[field] ?? { mode: "default", value: "" },
-    );
-
-    if (parsedValue === undefined) {
-      return {
-        errorMessage: getContextCapabilityInvalidMessage(field),
-        payload: null,
-      };
-    }
-
-    parsedValues[field] = parsedValue;
-    effectiveValues[field] = parsedValue ?? terminalTargetCapabilityDefaults?.[field] ?? null;
-  }
-
-  if (
-    typeof effectiveValues.preferred_context_utilization_threshold === "number"
-    && typeof effectiveValues.max_context_utilization === "number"
-    && effectiveValues.preferred_context_utilization_threshold > effectiveValues.max_context_utilization
-  ) {
-    return {
-      errorMessage: getStaticMessages().modelsData.preferredContextUtilizationThresholdExceedsMaxContextUtilization,
-      payload: null,
-    };
-  }
-
-  return {
-    errorMessage: null,
-    payload: parsedValues,
-  };
-}
-
-function parseContextCapabilityDraftValue(
-  field: ConnectionCapabilityFieldName,
-  draft: ConnectionCapabilityDraftLike,
-): number | null | undefined {
-  if (draft.mode === "default") {
-    return null;
-  }
-
-  const trimmedValue = draft.value.trim();
-  if (trimmedValue.length === 0) {
-    return null;
-  }
-
-  switch (field) {
-    case "context_window_tokens":
-    case "default_output_token_reserve": {
-      const parsedInteger = Number(trimmedValue);
-      return Number.isInteger(parsedInteger) && parsedInteger > 0 ? parsedInteger : undefined;
-    }
-    case "max_context_utilization":
-    case "preferred_context_utilization_threshold": {
-      const parsedUtilization = Number(trimmedValue);
-      return Number.isFinite(parsedUtilization)
-        && parsedUtilization > 0
-        && parsedUtilization <= 1
-        ? parsedUtilization
-        : undefined;
-    }
-    default:
-      return undefined;
-  }
 }
 
 function normalizeLimiterField(value: number | null | undefined): number | null {

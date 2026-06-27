@@ -15,12 +15,11 @@ const (
 )
 
 type ModelNode struct {
-	ConfigID      int
-	ProfileID     int
-	ModelID       string
-	APIFamily     string
-	IsEnabled     bool
-	FacadeEnabled bool
+	ConfigID  int
+	ProfileID int
+	ModelID   string
+	APIFamily string
+	IsEnabled bool
 }
 
 type TerminalTargetNode struct {

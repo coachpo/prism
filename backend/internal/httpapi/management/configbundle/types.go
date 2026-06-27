@@ -60,9 +60,6 @@ type modelExport struct {
 	ModelID                 string               `json:"model_id"`
 	DisplayName             *string              `json:"display_name"`
 	LoadbalanceStrategyName *string              `json:"loadbalance_strategy_name"`
-	FacadeEnabled           bool                 `json:"facade_enabled"`
-	FacadeSelectionPolicy   *string              `json:"facade_selection_policy"`
-	FacadeFallbackPolicy    *string              `json:"facade_fallback_policy"`
 	OpenAIAcceptedFormat    *string              `json:"openai_accepted_format"`
 	IsEnabled               bool                 `json:"is_enabled"`
 	AccessTargets           []accessTargetExport `json:"access_targets"`
@@ -77,25 +74,21 @@ type accessTargetExport struct {
 }
 
 type connectionExport struct {
-	Ref                                  string            `json:"ref"`
-	APIFamily                            string            `json:"api_family"`
-	EndpointName                         string            `json:"endpoint_name"`
-	ContextWindowTokens                  *int              `json:"context_window_tokens"`
-	DefaultOutputTokenReserve            *int              `json:"default_output_token_reserve"`
-	MaxContextUtilization                *float64          `json:"max_context_utilization"`
-	PreferredContextUtilizationThreshold *float64          `json:"preferred_context_utilization_threshold"`
-	PricingTemplateName                  *string           `json:"pricing_template_name"`
-	IsActive                             bool              `json:"is_active"`
-	Priority                             int               `json:"priority"`
-	Name                                 *string           `json:"name"`
-	AuthType                             *string           `json:"auth_type"`
-	CustomHeaders                        map[string]string `json:"custom_headers"`
-	OpenAIProbeEndpointVariant           *string           `json:"openai_probe_endpoint_variant,omitempty"`
-	OpenAITextCapability                 *string           `json:"openai_text_capability"`
-	OpenAITextCapabilitySet              bool              `json:"-"`
-	QPSLimit                             *int              `json:"qps_limit"`
-	MaxInFlightNonStream                 *int              `json:"max_in_flight_non_stream"`
-	MaxInFlightStream                    *int              `json:"max_in_flight_stream"`
+	Ref                        string            `json:"ref"`
+	APIFamily                  string            `json:"api_family"`
+	EndpointName               string            `json:"endpoint_name"`
+	PricingTemplateName        *string           `json:"pricing_template_name"`
+	IsActive                   bool              `json:"is_active"`
+	Priority                   int               `json:"priority"`
+	Name                       *string           `json:"name"`
+	AuthType                   *string           `json:"auth_type"`
+	CustomHeaders              map[string]string `json:"custom_headers"`
+	OpenAIProbeEndpointVariant *string           `json:"openai_probe_endpoint_variant,omitempty"`
+	OpenAITextCapability       *string           `json:"openai_text_capability"`
+	OpenAITextCapabilitySet    bool              `json:"-"`
+	QPSLimit                   *int              `json:"qps_limit"`
+	MaxInFlightNonStream       *int              `json:"max_in_flight_non_stream"`
+	MaxInFlightStream          *int              `json:"max_in_flight_stream"`
 }
 
 func (connection *connectionExport) UnmarshalJSON(data []byte) error {
