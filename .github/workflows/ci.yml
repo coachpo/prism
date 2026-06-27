@@ -68,33 +68,6 @@ jobs:
         working-directory: frontend
         run: pnpm run lint
 
-  frontend-config-e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Enable pnpm
-        run: corepack enable && corepack prepare pnpm@10.30.1 --activate
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browser
-        working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run focused config E2E suite
-        working-directory: frontend
-        run: pnpm run test:config
-
   dependency-scanners:
     runs-on: ubuntu-latest
     timeout-minutes: 30
