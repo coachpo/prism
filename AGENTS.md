@@ -1,4 +1,4 @@
-<!-- Generated: 2026-06-27 | branch: main | commit: d7e1ffa -->
+<!-- Generated: 2026-06-27 | branch: main | commit: 383ea79 -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -64,6 +64,7 @@ prism/
 - Backend database capacity is split into named lanes for runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs. Background or management work must not borrow protected proxy capacity.
 - Partitioned log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; runtime writers ensure daily partitions, and the low-priority platform worker maintains a 15-day horizon.
 - `backend/Dockerfile` runs the backend as `prism:prism` (`1000:1000`), owns `/app/config`, and defaults the container bootstrap path to `/app/config/config.json`.
+- Backend image builds use the repo root as Docker context (`docker build -f backend/Dockerfile .`), so root `.dockerignore` controls CI/backend image contents.
 - `.github/workflows/ci.yml` runs backend regression/build, frontend seam/server/build/lint, focused config E2E, blocking Go/frontend dependency scanners, and non-blocking local-image Trivy evidence uploads.
 - `.github/workflows/docker-images.yml` checks out the monorepo, builds backend and frontend GHCR images for `linux/arm64`, runs on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and can build one service or both.
 - `release.sh` keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes one root release.
