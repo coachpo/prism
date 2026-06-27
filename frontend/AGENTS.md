@@ -6,6 +6,7 @@
 ## STRUCTURE
 ```text
 frontend/
+├── src/AGENTS.md
 ├── src/{app,features,shared,pages,components,context,hooks,i18n,lib}/AGENTS.md
 ├── tests/AGENTS.md
 ├── components.json
@@ -20,6 +21,7 @@ frontend/
 
 ## HIERARCHY
 - `src/App.tsx` is the thin browser wrapper over the rewrite router, query client, browser router, auth provider, and TanStack `RouterProvider`.
+- `src/AGENTS.md`: source tree router for route shell, features, legacy page clusters, shared UI, contexts, hooks, i18n, API, websocket, and tests.
 - `src/app/AGENTS.md`: router construction, auth/public gates, rewrite metadata, legacy redirects, suspense, and QueryClient defaults.
 - `src/features/AGENTS.md`: active protected route modules, selected-profile features, global control pages, mixed settings, and observe surfaces.
 - `src/pages/AGENTS.md`: auth pages and oracle-compatible legacy route clusters still reused by feature routes and tests.
@@ -27,7 +29,7 @@ frontend/
 - `tests/AGENTS.md`: Playwright browser flows plus frontend seam-contract suites.
 
 ## WHERE TO LOOK
-- Mounted routes, auth/public split, protected shell mounts, rewrite route metadata, and legacy redirects: `src/app/AGENTS.md`, `src/app/router/appRouter.tsx`, `src/app/router/rewriteRoutes.ts`, `src/App.tsx`
+- Mounted routes, auth/public split, protected shell mounts, rewrite route metadata, and legacy redirects: `src/AGENTS.md`, `src/app/AGENTS.md`, `src/app/router/appRouter.tsx`, `src/app/router/rewriteRoutes.ts`, `src/App.tsx`
 - Active protected route modules and feature-local page/data handoffs: `src/features/AGENTS.md`
 - Shell chrome, sidebar entries, profile-prefixed navigation, version label, and profile switcher: `src/components/AGENTS.md`, `src/components/layout/app-layout/AGENTS.md`
 - Shared widgets, shell-safe controls, and design-system wrappers: `src/components/AGENTS.md`, `src/components/ui/AGENTS.md`

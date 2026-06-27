@@ -7,8 +7,8 @@
 ```text
 backend/
 ├── cmd/prism-backend/          # Go process entrypoint
-├── internal/{platform,gateway,httpapi}/AGENTS.md
-├── internal/domain/AGENTS.md
+├── internal/AGENTS.md           # Backend source ownership router
+├── internal/{platform,gateway,httpapi,domain}/AGENTS.md
 ├── internal/{endpointdomain,profiledomain,pgxutil}/
 ├── migrations/                 # Fresh-install SQL baseline
 ├── testdata/                   # Regression fixtures
@@ -18,6 +18,7 @@ backend/
 ```
 
 ## CHILD DOCS
+- `internal/AGENTS.md`: source tree router for platform, domain, gateway, HTTP API, and small compatibility packages.
 - `internal/platform/AGENTS.md`: lifecycle, hot bootstrap runtime, DB lanes, scheduler, migrations, log retention, and side effects.
 - `internal/domain/AGENTS.md`: audit, loadbalance runtime state, model routing, stats snapshots, and terminal-target helpers.
 - `internal/gateway/AGENTS.md`: preserved gateway contracts, hooks, records, adapters, routing, reservations, and accounting.
@@ -40,7 +41,7 @@ backend/
 - Bootstrap config v1 is plaintext and file-backed with backend-owned fresh defaults; valid existing files are preserved until manual reset. Enabled SMTP must validate at startup and must not silently fall back.
 
 ## WHERE TO LOOK
-- Process entrypoint and startup flow: `cmd/prism-backend/main.go`, `internal/platform/AGENTS.md`, `internal/platform/migrate/`
+- Process entrypoint and startup flow: `cmd/prism-backend/main.go`, `internal/AGENTS.md`, `internal/platform/AGENTS.md`, `internal/platform/migrate/`
 - Gateway and runtime contracts: `internal/gateway/AGENTS.md`, `internal/httpapi/runtime/AGENTS.md`, `internal/httpapi/runtime/operations.go`
 - HTTP mounting, realtime, management fanout, and request context: `internal/httpapi/AGENTS.md`, `internal/httpapi/realtime/AGENTS.md`, `internal/httpapi/management/AGENTS.md`, `internal/httpapi/management/*/AGENTS.md`
 - Stats, audit, loadbalance, transactions, partitions, and schema: `internal/domain/`, `internal/pgxutil/tx.go`, `migrations/`, `internal/platform/logretention/`
