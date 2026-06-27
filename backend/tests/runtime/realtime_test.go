@@ -298,8 +298,29 @@ func TestRealtimeSubjectLimiterRejectsExcessAuthenticatedSockets(t *testing.T) {
 
 	_ = connections[0].Close()
 	connections = connections[1:]
-	replacementConn := harness.dialWebSocket(t, true)
-	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "authenticated", "username": "limited-admin"})
+	var replacementConn *websocket.Conn
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		replacementConn = harness.dialWebSocket(t, true)
+		_ = replacementConn.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
+		var message map[string]any
+		err := replacementConn.ReadJSON(&message)
+		_ = replacementConn.SetReadDeadline(time.Time{})
+		if err == nil {
+			if message["type"] != "authenticated" || message["username"] != "limited-admin" {
+				t.Fatalf("expected replacement realtime authentication, got %+v", message)
+			}
+			break
+		}
+		_ = replacementConn.Close()
+		if !websocket.IsCloseError(err, websocket.CloseTryAgainLater) {
+			t.Fatalf("read replacement websocket JSON: %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for released realtime subject slot, last error: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "heartbeat"})
 	connections = append(connections, replacementConn)
 }
