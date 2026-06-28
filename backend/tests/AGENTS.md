@@ -8,6 +8,7 @@
 - Integration coverage for migrations, startup sequencing, launcher/bootstrap preservation, canonical seeding, partitioned log retention, runtime route-matrix forwarding, audit or stats persistence, and Dockerfile ownership.
 - Runtime coverage for operation route matrices, rejected-route isolation, hook residency, profile scoping, realtime delivery, request-log contracts, request-generation params, runtime-created log partitions, published runtime snapshots, cache invalidation, telemetry outboxes, streaming buffering, responses parity, and `operation_name` persistence.
 - Priority coverage for admission budgets, physical DB lane isolation, scheduler ownership, async side effects, outboxes, failure semantics, and no-inline-fallback regressions.
+- CI runs `go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...` plus `go build ./cmd/prism-backend`; internal package tests are separate local gates for `internal/...` changes.
 
 ## WHERE TO LOOK
 - Contract packages and bootstrap-config schema, observability, or partition-helper coverage: `contract/`, `contract/bootstrap_config_contract_test.go`, `contract/log_partition_helpers_test.go`
@@ -30,6 +31,7 @@
 - Keep Dockerfile contract tests aligned with non-root `prism:prism` execution, `/app/config` ownership, and `/app/config/config.json` defaults.
 - Keep bootstrap tests aligned with the plaintext v1 contract: required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, unsupported legacy encrypted files, metadata-only safe secret responses, apply-capability reporting, failed-hot-apply surfaces, and fail-fast enabled SMTP.
 - Keep runtime contract tests aligned with `internal/httpapi/runtime/operations.go`, hook residency, rejected-route isolation, streaming or non-streaming parity, and persisted `operation_name` fields.
+- When changing runtime upstream request/response logic, run both package-local runtime hook tests under `internal/httpapi/runtime` and the external `tests/runtime` suite.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

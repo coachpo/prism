@@ -1,7 +1,7 @@
 # BACKEND GATEWAY KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/internal/gateway/` owns the provider-agnostic runtime gateway contracts below `../httpapi/runtime/`: core request/response envelopes, hook phases, operation registry types, provider adapters, route planning, reservation limits, and accounting event normalization.
+`backend/internal/gateway/` owns the provider-agnostic runtime gateway contracts below `../httpapi/runtime/`: core request/response envelopes, hook phases, provider adapters, route planning, reservation limits, and accounting event normalization.
 
 ## STRUCTURE
 ```text
@@ -10,7 +10,6 @@ gateway/
 ├── accounting/     # Runtime accounting event normalization
 ├── core/           # Pipeline interfaces, envelopes, hook executor, route/accounting types
 ├── provider/       # Provider adapter contract plus OpenAI, Anthropic, Gemini adapters
-├── registry/       # Operation and routing record definitions plus validation
 └── routing/        # Candidate ordering, reservation checks, retry/redirect planning
 ```
 
@@ -22,16 +21,15 @@ gateway/
 - OpenAI Chat/Responses conversion, image operations, and overflow classification: `provider/openai/`
 - Anthropic Messages/count-token path rewriting, usage extraction, and stream terminal classification: `provider/anthropic/`
 - Gemini model-path rewriting, GenerateContent variants, token counting, and stream parsing: `provider/gemini/`
-- Operation registry matching, method allowlists, path-template validation, and route record validation: `registry/operations.go`, `registry/records.go`
 - Candidate ordering, reservation admission, retry-window policy, redirect narrowing, and route-reason canonicalization: `routing/planner.go`, `routing/reservation_manager.go`, `routing/retry_policy.go`, `routing/redirects.go`
 - Runtime integration and request-log/accounting use: `../httpapi/runtime/`, especially `runtime.go`, `service.go`, and `observability.go`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
-- Keep `httpapi/runtime/operations.go` as Prism's concrete runtime allowlist; gateway registry code stays generic and reusable.
+- Keep `httpapi/runtime/operations.go` as Prism's concrete runtime allowlist; gateway routing code stays generic and reusable.
 - Keep provider-native request/response/stream/media behavior inside provider adapters, not in route planning or accounting.
 - Keep hook payloads clone-safe and permission-gated. Do not leak body/header access beyond declared hook permissions.
-- Keep route reasons canonical across `core`, `registry`, `routing`, runtime observability, and accounting.
+- Keep route reasons canonical across `core`, `routing`, runtime observability, and accounting.
 - Keep reservation decisions in `routing/` and release owned reservations when runtime attempts end.
 - When gateway work touches upstream request or response logic, evaluate streaming and non-streaming coverage for OpenAI Chat/Responses, Anthropic, and Gemini.
 

@@ -7,7 +7,9 @@
 ```text
 platform/
 ├── admission/               # Admission budgets and protected lane policy
+├── asyncmetrics/            # Worker-side metric helpers
 ├── background/              # Scheduler, worker specs, coalescing, drain behavior
+├── bodylimits/              # Shared request body-size limits
 ├── config/                  # Plaintext bootstrap config, validation, hot-apply planning
 ├── cors/                    # Runtime CORS snapshot matching
 ├── db/                      # Named PostgreSQL pool lanes
@@ -20,14 +22,16 @@ platform/
 ├── migrate/                 # SQL migration runner and schema guards
 ├── priority/                # Priority metadata and context helpers
 ├── startup/                 # Startup sequencing, seeds, and secret normalization
+├── telemetry/               # OTLP provider setup and shutdown
 └── version/                 # Backend version loading
 ```
 
 ## WHERE TO LOOK
 - Production dependency graph, service registration, runtime cache bootstrap, scheduler start, and shutdown order: `lifecycle/production.go`, `lifecycle/app.go`
-- Router mounting, middleware, `/health`, `/api`, `/v1`, `/v1beta`, startup-JSON OTLP providers, and hot bootstrap runtime snapshots: `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/hot_bootstrap_runtime.go`, `telemetry/`, `db/telemetry.go`
+- Router mounting, middleware, `/health`, `/api`, `/v1`, `/v1beta`, startup-JSON OTLP providers, and hot bootstrap runtime snapshots: `http/AGENTS.md`, `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/hot_bootstrap_runtime.go`, `telemetry/`, `db/telemetry.go`
+- Shared body-size limits used by management/runtime HTTP: `bodylimits/`, `http/management_body_limits.go`
 - Management route profile-scope and runtime-cache invalidation contract: `http/management_route_contract.json`, consumed by frontend and backend drift tests
-- Plaintext bootstrap contract, restart-required fields, hot-apply publishing, and safe secret metadata: `config/`
+- Plaintext bootstrap contract, restart-required fields, hot-apply publishing, and safe secret metadata: `config/AGENTS.md`, `config/`
 - Startup migration and seed flow: `startup/`, `migrate/`, `../../migrations/`
 - DB lane budgets and pool handles: `db/`
 - Partitioned log retention, daily partition horizon, retention deletes, and low-priority maintenance worker: `logretention/`, `managementjobs/jobs.go`

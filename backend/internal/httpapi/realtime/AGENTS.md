@@ -7,6 +7,7 @@
 ```text
 realtime/
 ├── service.go                  # Websocket mount, auth gate, channel contract, publish entrypoints
+├── limiter.go                  # Global and per-subject websocket connection quotas
 ├── manager.go                  # Connection registry, subscribe or unsubscribe bookkeeping, broadcast fanout
 ├── publisher.go                # Dashboard snapshot and activity publication helpers
 ├── async_publisher.go          # Pending dashboard snapshot worker
@@ -16,7 +17,7 @@ realtime/
 ```
 
 ## WHERE TO LOOK
-- Mounted websocket route and auth gate: `service.go`
+- Mounted websocket route, auth gate, and connection quota checks: `service.go`, `limiter.go`
 - Connection lifecycle, channel subscriptions, and broadcast fanout: `manager.go`, `types.go`
 - Dashboard snapshot and activity publication paths: `publisher.go`, `async_publisher.go`
 - Analytics publication path and preset handling: `async_analytics_publisher.go`, `analytics_snapshot.go`

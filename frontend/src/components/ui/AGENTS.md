@@ -6,20 +6,25 @@
 ## STRUCTURE
 ```text
 ui/
+├── alert-dialog.tsx, alert.tsx, badge.tsx, breadcrumb.tsx
 ├── button.tsx
-├── dialog.tsx
-├── sidebar.tsx
+├── card.tsx, checkbox.tsx, collapsible.tsx, dialog.tsx
+├── dropdown-menu.tsx, empty.tsx, field.tsx, form.tsx
+├── input.tsx, label.tsx, popover.tsx, progress.tsx
+├── scroll-area.tsx, select.tsx, separator.tsx, sheet.tsx
+├── sidebar-context.ts, sidebar.tsx
+├── skeleton.tsx, sonner.tsx, spinner.tsx, status-dot.tsx
+├── switch.tsx, table.tsx, tabs.tsx, textarea.tsx, tooltip.tsx
 ├── chart.tsx
-├── spinner.tsx
-├── status-dot.tsx
 ├── topography.tsx
 └── ... other shadcn/ui primitives and local wrappers
 ```
 
 ## WHERE TO LOOK
-- Registry-backed primitive set and checked-in component inventory: `components.json`, files in `ui/`
+- Registry-backed primitive set and checked-in component inventory: `../../../components.json`, files in `ui/`
 - Recharts-aware chart helpers and i18n format hooks: `chart.tsx`
-- Responsive sidebar provider and shell-friendly sidebar pieces: `sidebar.tsx`
+- Responsive sidebar provider and shell-friendly sidebar pieces: `sidebar-context.ts`, `sidebar.tsx`
+- Empty, field, breadcrumb, alert-dialog, sonner, and table primitives: `empty.tsx`, `field.tsx`, `breadcrumb.tsx`, `alert-dialog.tsx`, `sonner.tsx`, `table.tsx`
 - Shared loading primitive: `spinner.tsx`
 - Intent-based status indicator styling: `status-dot.tsx`
 - Animated background wrapper used by local surfaces: `topography.tsx`

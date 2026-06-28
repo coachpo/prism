@@ -10,10 +10,15 @@ runtime/
 ├── service.go                   # Ingress rejection, shared executor wiring, transport, workers
 ├── runtime.go                   # Request planning, model binding, rewrite rules, upstream proxy flow
 ├── runtime_planner.go           # Final plan assembly
+├── routing_plan*.go             # Routing plan compilation and validation helpers
 ├── planning_snapshot.go         # Access-target snapshot assembly and resolution ordering helpers
+├── planning_snapshot_legacy.go  # Legacy snapshot compatibility helpers
 ├── proxy_selector_helpers.go    # Access-target ordering helpers used by request planning
 ├── cache.go                     # Shared runtime cache reads and snapshots
 ├── request_generation_params.go # Internal generation-param extraction orchestration
+├── *_adapter_bridge.go          # Runtime-to-gateway provider adapter bridge files
+├── gateway_*_bridge.go          # Gateway core and typed-hook bridge files
+├── provider_usage_conversion.go # Provider usage normalization bridge
 ├── operation_request_hooks.go   # Request hook registry and streaming-intent selection
 ├── operation_response_hooks.go  # Non-stream response parsing by operation
 ├── operation_stream_hooks.go    # SSE terminal and usage parsing by operation
@@ -32,7 +37,8 @@ runtime/
 ## WHERE TO LOOK
 - Exact supported operations, hook collection ids, streaming flags, and model-binding sources: `operations.go`
 - Ingress rejection before body reads, wrong-method handling, shared executor wiring, and response branching: `service.go`
-- Request planning, model binding, request path rewrites, unified access-target resolution, final-target attribution, exact `planningSnapshot.ModelsByID` requested-model lookup, and shared upstream execution: `runtime.go`, `runtime_planner.go`, `generations.go`, `planning_snapshot.go`, `proxy_selector_helpers.go`
+- Request planning, model binding, request path rewrites, unified access-target resolution, final-target attribution, exact `planningSnapshot.ModelsByID` requested-model lookup, and shared upstream execution: `runtime.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_snapshot_legacy.go`, `proxy_selector_helpers.go`
+- Runtime-to-gateway adapter seams and usage normalization: `*_adapter_bridge.go`, `gateway_core_bridge.go`, `gateway_typed_hooks_bridge.go`, `provider_usage_conversion.go`
 - Automatic generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
 - Non-stream response parsing for text generation, token count, and media operations: `operation_response_hooks.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
@@ -42,8 +48,8 @@ runtime/
 - Runtime trace attributes and runtime metric labels: `runtime_tracing.go`, `observability.go`, `runtime_metrics_test.go`
 - Telemetry, feedback, and runtime side-effect ownership: `telemetry_outbox.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
-- Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_media_hooks_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `runtime_test.go`
-- Route-matrix and rejected-route coverage: `../../../tests/runtime/operation_route_matrix_test.go`, `../../../tests/runtime/rejected_route_isolation_test.go`, `../../../tests/runtime/request_generation_params_contract_test.go`, `../../../tests/integration/runtime_route_matrix_test.go`
+- Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_media_hooks_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`
+- Route-matrix, translation, streaming, body-limit, and rejected-route coverage: `../../../tests/runtime/body_limits_test.go`, `../../../tests/runtime/operation_route_matrix_test.go`, `../../../tests/runtime/operation_route_matrix_translation_test.go`, `../../../tests/runtime/responses_translation_streaming_test.go`, `../../../tests/runtime/rejected_route_isolation_test.go`, `../../../tests/runtime/request_generation_params_contract_test.go`, `../../../tests/integration/runtime_route_matrix_test.go`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.

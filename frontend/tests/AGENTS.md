@@ -10,8 +10,10 @@
 - `../src/test/` holds Vitest/jsdom seams plus shared MSW setup; it is a separate frontend test layer outside this tree.
 
 ## CURRENT FACTS
-- `../package.json` exposes focused config regression entrypoints as `pnpm run test:lib` and `pnpm run test:config`, with the full browser regression entrypoint as `pnpm run test:e2e`.
-- `pnpm test` runs Vitest over `../src/**/*.test.{ts,tsx}` through `../vitest.config.ts`; `main/` and `loadbalance/` node-test suites are not separately script-exposed today.
+- `../package.json` exposes `pnpm run test:lib`, `pnpm run test:server`, focused config Playwright as `pnpm run test:config`, and the full browser regression entrypoint as `pnpm run test:e2e`.
+- CI runs frontend `test:lib`, `test:server`, `build`, and `lint`; it does not run `pnpm test`, `test:config`, or full `test:e2e`.
+- `pnpm test` runs Vitest over `../src/**/*.test.{ts,tsx}` through `../vitest.config.ts`; treat it as a separate local gate for `../src` changes.
+- Some `lib/*.test.mjs`, plus `main/` and `loadbalance/`, are not included in `test:lib`; run the specific node-test file when changing those seams.
 - Config import/export hardening follows a focused-to-broad order: backend configbundle/model tests, frontend seam tests, focused Playwright config/model specs, broadened backend Go suites, frontend `test:e2e`, frontend `build`, frontend `lint`, backend build.
 - `../playwright.config.ts` points Playwright at `./tests/e2e` and uses `http://127.0.0.1:15174` as the web server target.
 - Statistics and analytics realtime coverage lives in `e2e/shared-chart-statistics.spec.ts`, `e2e/statistics-ttft.spec.ts`, `e2e/statistics-token-rate.spec.ts`, `e2e/statistics-filtered-totals.spec.ts`, `e2e/statistics-proxy-api-key-label.spec.ts`, and `e2e/analytics-websocket-native.spec.ts`.
@@ -20,6 +22,7 @@
 - Model CRUD, access-target authoring, and profile config import coverage lives in `e2e/settings-config-import.spec.ts`, `lib/model_form_state_contract.test.mjs`, and `lib/config_import_validation_contract.test.mjs`.
 - Dashboard React Flow layout and renderer seam coverage lives in `lib/dashboard_routing_flow_layout_contract.test.mjs`, while browser shell behavior stays in `e2e/dashboard-routing-shell.spec.ts`.
 - Shared dashboard/statistics browser fixture data lives in `e2e/dashboard-aggregate-fixtures.ts`.
+- Browser coverage also includes auth session lifecycle, launcher same-origin realtime, proxy-key lifecycle, startup/settings export, reporting currency, startup tab, and user-agent client-rule flows under `e2e/`.
 
 ## WHERE TO LOOK
 - Statistics and analytics browser coverage: `e2e/shared-chart-statistics.spec.ts`, `e2e/statistics-ttft.spec.ts`, `e2e/statistics-token-rate.spec.ts`, `e2e/statistics-filtered-totals.spec.ts`, `e2e/statistics-proxy-api-key-label.spec.ts`, `e2e/analytics-websocket-native.spec.ts`
