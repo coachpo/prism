@@ -39,6 +39,9 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	if model.ID != 11 || model.ProfileID != profileID || model.APIFamily != "openai" {
 		t.Fatalf("unexpected model identity: %+v", model)
 	}
+	if !model.CreatedAt.Equal(time.Unix(2, 0).UTC()) {
+		t.Fatalf("expected model created_at to survive snapshot assembly, got %+v", model.CreatedAt)
+	}
 	assertRuntimeIntPtr(t, model.LoadbalanceStrategyID, 303, "model strategy")
 
 	strategy, ok := snapshot.StrategiesByModelID[model.ID]
@@ -113,7 +116,7 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 
 	switch {
 	case strings.Contains(query, "FROM model_configs") && strings.Contains(query, "model_configs.loadbalance_strategy_id"):
-		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, sql.NullString{String: "dual_native", Valid: true}, true, false}), nil
+		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, sql.NullString{String: "dual_native", Valid: true}, time.Unix(2, 0).UTC(), true, false}), nil
 	case strings.Contains(query, "FROM model_access_targets"):
 		return newRuntimePlanningRows([]any{501, 42, 11, runtimeAccessTargetTypeConnection, sql.NullInt32{}, sql.NullString{}, sql.NullInt32{}, sql.NullString{}, sql.NullBool{}, sql.NullInt32{Int32: 901, Valid: true}, sql.NullInt32{Int32: 42, Valid: true}, sql.NullString{String: "openai", Valid: true}, 2, true, sql.NullString{String: "router-openai", Valid: true}, sql.NullInt32{Int32: 801, Valid: true}, sql.NullString{String: "1.25", Valid: true}}), nil
 	case strings.Contains(query, "FROM loadbalance_strategies"):
@@ -255,6 +258,13 @@ func assignRuntimePlanningValue(destination any, value any) error {
 		resolved, ok := value.(float64)
 		if !ok {
 			return fmt.Errorf("expected float64, got %T", value)
+		}
+		*dest = resolved
+		return nil
+	case *time.Time:
+		resolved, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("expected time.Time, got %T", value)
 		}
 		*dest = resolved
 		return nil

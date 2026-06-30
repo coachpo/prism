@@ -369,6 +369,11 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	requestSpan.SetAttributes(runtimeTraceOperationAttributes(operationMatch.Operation)...)
 	resolveSpan.End()
 
+	if operationMatch.Operation.Name == runtimeOperationOpenAIModels {
+		s.handleOpenAIModelsList(w, r)
+		return
+	}
+
 	requestBodyLimit := runtimeRequestBodyLimitBytes(operationMatch.Operation, r.Header.Get("Content-Type"))
 	if !limitRuntimeRequestBody(w, r, requestBodyLimit) {
 		runtimeTraceMarkError(requestSpan, bodylimits.RequestBodyTooLargeCode)

@@ -76,15 +76,16 @@ func TestRejectedRouteIsolation_StaysOutsideTransportAdmissionSideEffectsAndPers
 		wantAllow  string
 	}{
 		{
-			name:   "unsupported OpenAI route",
+			name:   "wrong method OpenAI models route",
 			method: http.MethodPost,
 			path:   "/v1/models",
 			body: map[string]any{
 				"model":    openAIRoute.PublicModelID,
 				"messages": []map[string]any{},
 			},
-			wantStatus: http.StatusNotFound,
-			wantDetail: "Runtime operation not found",
+			wantStatus: http.StatusMethodNotAllowed,
+			wantDetail: "Method not allowed for runtime operation",
+			wantAllow:  http.MethodGet,
 		},
 		{
 			name:   "unsupported Anthropic route",

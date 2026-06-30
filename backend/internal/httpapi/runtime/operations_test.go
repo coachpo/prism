@@ -34,8 +34,12 @@ func TestResolveRuntimeOperation(t *testing.T) {
 
 	for _, want := range runtimeOperationExpectations() {
 		t.Run("wrong method "+want.name, func(t *testing.T) {
-			if match, ok := ResolveRuntimeOperation(http.MethodGet, want.samplePath); ok {
-				t.Fatalf("expected GET %s to be unsupported, got %+v", want.samplePath, match)
+			wrongMethod := http.MethodGet
+			if want.method == http.MethodGet {
+				wrongMethod = http.MethodPost
+			}
+			if match, ok := ResolveRuntimeOperation(wrongMethod, want.samplePath); ok {
+				t.Fatalf("expected %s %s to be unsupported, got %+v", wrongMethod, want.samplePath, match)
 			}
 		})
 	}
@@ -47,7 +51,7 @@ func TestResolveRuntimeOperation(t *testing.T) {
 	}{
 		{name: "lowercase method", method: "post", path: "/v1/responses"},
 		{name: "unknown openai path", method: http.MethodPost, path: "/v1/completions"},
-		{name: "generic openai v1 path", method: http.MethodPost, path: "/v1/models"},
+		{name: "openai models wrong method", method: http.MethodPost, path: "/v1/models"},
 		{name: "responses input tokens trailing slash", method: http.MethodPost, path: "/v1/responses/input_tokens/"},
 		{name: "responses compact nested path", method: http.MethodPost, path: "/v1/responses/compact/extra"},
 		{name: "chat completions trailing slash", method: http.MethodPost, path: "/v1/chat/completions/"},
@@ -237,6 +241,14 @@ func runtimeOperationExpectations() []runtimeOperationExpectation {
 			samplePath:         "/v1/images/edits",
 			modelBindingSource: RuntimeOperationModelBindingBody,
 			hookCollectionID:   runtimeHookCollectionOpenAIImagesEdit,
+		},
+		{
+			name:               "openai.models",
+			method:             http.MethodGet,
+			apiFamily:          "openai",
+			pathTemplate:       "/v1/models",
+			samplePath:         "/v1/models",
+			modelBindingSource: RuntimeOperationModelBindingSource("none"),
 		},
 		{
 			name:               "anthropic.messages",

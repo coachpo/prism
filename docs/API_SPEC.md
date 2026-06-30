@@ -1225,7 +1225,7 @@ The former CLIProxyAPI management control plane is not part of the current manag
 ## 2. Runtime Proxy API
 ## 2. Runtime Proxy API
 
-Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It forwards only the operations listed in this section through the active profile. Other vendor routes, including stored-object, list, retrieve, delete, cancel, compact, embedding, model-list, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
+Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It supports only the operations listed in this section through the active profile. Other vendor routes, including stored-object, retrieve, delete, cancel, embedding, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
 
 Runtime proxy routes ignore management `X-Profile-Id` overrides and always use the active runtime profile. Selected-profile management scope changes configuration reads and writes only; it does not switch proxy traffic.
 
@@ -1233,6 +1233,7 @@ Runtime proxy routes ignore management `X-Profile-Id` overrides and always use t
 
 | Operation | Canonical operation name | Supported request |
 |---|---|---|
+| OpenAI models list | `openai.models` | `GET /v1/models` |
 | OpenAI chat completions | `openai.chat_completions` | `POST /v1/chat/completions` |
 | OpenAI Responses | `openai.responses` | `POST /v1/responses` |
 | OpenAI Responses input tokens | `openai.responses.input_tokens` | `POST /v1/responses/input_tokens` |
@@ -1245,13 +1246,13 @@ Runtime proxy routes ignore management `X-Profile-Id` overrides and always use t
 | Gemini stream generate content | `gemini.stream_generate_content` | `POST /v1beta/models/{model}:streamGenerateContent` |
 | Gemini token count | `gemini.count_tokens` | `POST /v1beta/models/{model}:countTokens` |
 
-Each allowlisted row maps to one canonical operation name persisted as `operation_name` in runtime telemetry. Operation names are part of the runtime contract, not aliases for broader vendor route groups. The Gemini `{model}` path binding is one non-empty path segment. Nested Gemini model paths are not part of this runtime contract.
+Each allowlisted row maps to one canonical operation name. Provider-forwarded runtime operations persist that name as `operation_name` in runtime telemetry. Operation names are part of the runtime contract, not aliases for broader vendor route groups. The Gemini `{model}` path binding is one non-empty path segment. Nested Gemini model paths are not part of this runtime contract.
 
 ### 2.2 Unsupported Routes and Methods
 
 Unsupported runtime routes return a Prism JSON `404` response before Prism reads the request body, resolves a model, contacts a provider, creates runtime admission state, submits runtime side effects, or writes runtime persistence rows. The current error detail is `Runtime operation not found`.
 
-Wrong methods on supported runtime paths return a Prism JSON `405` response before the same downstream seams run. The response includes `Allow: POST`, and the current error detail is `Method not allowed for runtime operation`.
+Wrong methods on supported runtime paths return a Prism JSON `405` response before the same downstream seams run. The response includes the supported method in `Allow`, and the current error detail is `Method not allowed for runtime operation`.
 
 ### 2.2A Routing Failures
 
@@ -1300,6 +1301,12 @@ Exact OpenAI facade routing and its model fields are retired. Runtime planning u
 Model-scoped overflow replay and its authoring fields are retired. Runtime planning now uses the ordinary operation registry, access-target graph, sibling-operation translation checks, and the attached Ban Policy strategy. Public request-log and usage surfaces keep flat requested model, final target, Terminal Target, endpoint, and operation fields without nested retired routing metadata.
 
 ### 2.3 OpenAI Operations
+
+#### Models
+```
+GET /v1/models
+```
+Response: Local OpenAI-shaped list of enabled `api_family="openai"` models in the active runtime profile. Prism does not contact upstream providers for this operation.
 
 #### Chat Completions
 ```

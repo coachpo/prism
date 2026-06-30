@@ -78,11 +78,26 @@ func TestHandleStreamingProxyRejectsUnsupportedRoutes(t *testing.T) {
 		assertIngressNoProviderOrSideEffects(t, transport, sideEffectSubmits)
 	})
 
+	t.Run("OpenAI models list loads runtime snapshot without reading body", func(t *testing.T) {
+		transport := &ingressRoundTripRecorder{}
+		sideEffectSubmits := &atomic.Int32{}
+		service := newIngressTestService(transport, sideEffectSubmits)
+		body := newIngressTrackingBody(`{"ignored":true}`)
+		request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		request.Body = body
+
+		response := performIngressRequest(service, request)
+
+		assertRuntimeJSONError(t, response, http.StatusServiceUnavailable, "Runtime snapshot is unavailable. Retry later.")
+		assertIngressRejectedBeforeBodyRead(t, body)
+		assertIngressNoProviderOrSideEffects(t, transport, sideEffectSubmits)
+	})
+
 	tests := []struct {
 		name string
 		path string
 	}{
-		{name: "unknown OpenAI path", path: "/v1/models"},
+		{name: "unknown OpenAI path", path: "/v1/files"},
 		{name: "unsupported Gemini action", path: "/v1beta/models/gemini-2.5-pro:embedContent"},
 	}
 	for _, test := range tests {
@@ -105,11 +120,14 @@ func TestHandleStreamingProxyRejectsUnsupportedRoutes(t *testing.T) {
 
 func TestHandleStreamingProxyRejectsWrongMethod(t *testing.T) {
 	tests := []struct {
-		name string
-		path string
+		name      string
+		method    string
+		path      string
+		wantAllow string
 	}{
-		{name: "OpenAI chat completions GET", path: "/v1/chat/completions"},
-		{name: "Gemini generateContent GET", path: "/v1beta/models/gemini-2.5-pro:generateContent"},
+		{name: "OpenAI chat completions GET", method: http.MethodGet, path: "/v1/chat/completions", wantAllow: http.MethodPost},
+		{name: "OpenAI models POST", method: http.MethodPost, path: "/v1/models", wantAllow: http.MethodGet},
+		{name: "Gemini generateContent GET", method: http.MethodGet, path: "/v1beta/models/gemini-2.5-pro:generateContent", wantAllow: http.MethodPost},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -117,14 +135,14 @@ func TestHandleStreamingProxyRejectsWrongMethod(t *testing.T) {
 			sideEffectSubmits := &atomic.Int32{}
 			service := newIngressTestService(transport, sideEffectSubmits)
 			body := newIngressTrackingBody(`{"model":"gpt-4o"}`)
-			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request := httptest.NewRequest(test.method, test.path, nil)
 			request.Body = body
 
 			response := performIngressRequest(service, request)
 
 			assertRuntimeJSONError(t, response, http.StatusMethodNotAllowed, runtimeOperationMethodNotAllowedDetail)
-			if allow := response.Header.Get("Allow"); allow != http.MethodPost {
-				t.Fatalf("expected Allow header %q, got %q", http.MethodPost, allow)
+			if allow := response.Header.Get("Allow"); allow != test.wantAllow {
+				t.Fatalf("expected Allow header %q, got %q", test.wantAllow, allow)
 			}
 			assertIngressRejectedBeforeBodyRead(t, body)
 			assertIngressNoProviderOrSideEffects(t, transport, sideEffectSubmits)

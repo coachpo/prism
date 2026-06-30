@@ -105,7 +105,7 @@ func TestRuntimeNegativeRouteMatrixMountedThroughPlatform(t *testing.T) {
 		wantDetail string
 		wantAllow  string
 	}{
-		{name: "unsupported OpenAI route", method: http.MethodPost, path: "/v1/models", wantStatus: http.StatusNotFound, wantDetail: "Runtime operation not found"},
+		{name: "wrong method OpenAI models route", method: http.MethodPost, path: "/v1/models", wantStatus: http.StatusMethodNotAllowed, wantDetail: "Method not allowed for runtime operation", wantAllow: http.MethodGet},
 		{name: "unsupported Anthropic route", method: http.MethodPost, path: "/v1/messages/batches", wantStatus: http.StatusNotFound, wantDetail: "Runtime operation not found"},
 		{name: "unsupported Gemini action", method: http.MethodPost, path: "/v1beta/models/gemini-negative:embedContent", wantStatus: http.StatusNotFound, wantDetail: "Runtime operation not found"},
 		{name: "wrong method OpenAI route", method: http.MethodGet, path: "/v1/chat/completions", wantStatus: http.StatusMethodNotAllowed, wantDetail: "Method not allowed for runtime operation", wantAllow: http.MethodPost},

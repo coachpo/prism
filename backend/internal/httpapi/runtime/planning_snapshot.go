@@ -651,6 +651,7 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		ctx,
 		`SELECT model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id,
 			model_configs.loadbalance_strategy_id, model_configs.openai_accepted_format,
+			model_configs.created_at,
 			COALESCE(audit_settings.audit_enabled, FALSE),
 			COALESCE(audit_settings.audit_enabled, FALSE) AND COALESCE(audit_settings.audit_capture_bodies, FALSE)
 		FROM model_configs
@@ -670,7 +671,7 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		var strategyID sql.NullInt32
 		var openAIAcceptedFormat sql.NullString
 		item := runtimeModelRecord{}
-		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &strategyID, &openAIAcceptedFormat, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
+		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &strategyID, &openAIAcceptedFormat, &item.CreatedAt, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
 			return nil, fmt.Errorf("scan enabled model for profile %d: %w", profileID, err)
 		}
 		if _, exists := items[item.ModelID]; exists {

@@ -278,10 +278,20 @@ func assertStreamHookResidency(t *testing.T, operation RuntimeOperation, provide
 func assertAllRuntimeOperationsCoveredByHookResidency(t *testing.T, seen map[string]struct{}) {
 	t.Helper()
 	catalog := RuntimeOperationCatalog()
-	if len(seen) != len(catalog) {
-		t.Fatalf("expected hook-residency coverage for %d operations, got %d", len(catalog), len(seen))
+	want := 0
+	for _, operation := range catalog {
+		if operation.ModelBindingSource == RuntimeOperationModelBindingNone {
+			continue
+		}
+		want++
+	}
+	if len(seen) != want {
+		t.Fatalf("expected hook-residency coverage for %d provider operations, got %d", want, len(seen))
 	}
 	for _, operation := range catalog {
+		if operation.ModelBindingSource == RuntimeOperationModelBindingNone {
+			continue
+		}
 		if _, ok := seen[operation.Name]; !ok {
 			t.Fatalf("missing hook-residency coverage for %s", operation.Name)
 		}

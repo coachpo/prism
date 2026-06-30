@@ -80,6 +80,7 @@ type runtimeModelRecord struct {
 	AuditCaptureBodies    bool
 	LoadbalanceStrategyID *int
 	OpenAIAcceptedFormat  *string
+	CreatedAt             time.Time
 }
 
 type runtimeEndpoint struct {

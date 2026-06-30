@@ -8,11 +8,13 @@ import (
 type RuntimeOperationModelBindingSource string
 
 const (
+	RuntimeOperationModelBindingNone RuntimeOperationModelBindingSource = "none"
 	RuntimeOperationModelBindingBody RuntimeOperationModelBindingSource = "body"
 	RuntimeOperationModelBindingPath RuntimeOperationModelBindingSource = "path"
 )
 
 const (
+	runtimeOperationOpenAIModels                    = "openai.models"
 	runtimeHookCollectionOpenAIResponsesInputTokens = "token_count.openai_responses_input_tokens"
 	runtimeHookCollectionOpenAIResponsesCompact     = "openai.responses.compact"
 	runtimeHookCollectionAnthropicCountTokens       = "token_count.anthropic_messages"
@@ -49,6 +51,7 @@ var runtimeOperationCatalog = []RuntimeOperation{
 	newRuntimeOperationWithHookCollection("openai.responses.compact", "openai", "/v1/responses/compact", staticRuntimeOperationPath("/v1/responses/compact"), false, RuntimeOperationModelBindingBody, runtimeHookCollectionOpenAIResponsesCompact),
 	newRuntimeOperationWithHookCollection("openai.images.generations", "openai", "/v1/images/generations", staticRuntimeOperationPath("/v1/images/generations"), false, RuntimeOperationModelBindingBody, runtimeHookCollectionOpenAIImagesGeneration),
 	newRuntimeOperationWithHookCollection("openai.images.edits", "openai", "/v1/images/edits", staticRuntimeOperationPath("/v1/images/edits"), false, RuntimeOperationModelBindingBody, runtimeHookCollectionOpenAIImagesEdit),
+	{Name: runtimeOperationOpenAIModels, Method: http.MethodGet, APIFamily: "openai", PathTemplate: "/v1/models", PathMatcher: staticRuntimeOperationPath("/v1/models"), ModelBindingSource: RuntimeOperationModelBindingNone, HookCollectionID: runtimeOperationOpenAIModels},
 	newRuntimeOperation("anthropic.messages", "anthropic", "/v1/messages", staticRuntimeOperationPath("/v1/messages"), false, RuntimeOperationModelBindingBody),
 	newRuntimeOperationWithHookCollection("anthropic.count_tokens", "anthropic", "/v1/messages/count_tokens", staticRuntimeOperationPath("/v1/messages/count_tokens"), false, RuntimeOperationModelBindingBody, runtimeHookCollectionAnthropicCountTokens),
 	newRuntimeOperation("gemini.generate_content", "gemini", "/v1beta/models/{model}:generateContent", geminiRuntimeOperationPath(":generateContent"), false, RuntimeOperationModelBindingPath),
