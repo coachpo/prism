@@ -26,7 +26,7 @@ config/
 - Keep steady-state Prism settings in the plaintext bootstrap JSON; avoid adding env knobs except bootstrap-critical process wiring.
 - Keep backend canonical defaults here. Fresh seeds inherit these values; existing valid bootstrap files are preserved until manual reset.
 - Keep `runtime.transport.requestTimeout` hot-applicable through the runtime transport snapshot.
-- Keep listener, database URL, pool budgets, `runtime.sideEffects.attemptTimeout`, runtime secret encryption key, JWT signing key, and state-transfer bundle key restart-required.
+- Keep listener, database URL, pool budgets, `runtime.sideEffects.attemptTimeout`, runtime secret encryption key, and JWT signing key restart-required.
 - Keep safe secret responses metadata-only; never expose stored secrets, hashes, reset codes, verification tokens, or proxy-key hashes.
 - Keep enabled SMTP fail-fast. Invalid enabled mail config must not fall back to no-op delivery.
 
