@@ -1097,7 +1097,6 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 
 - Routine profile deletion (`DELETE /api/profiles/{id}`) is soft-delete of inactive profile (`deleted_at` set).
 - Active profile deletion is rejected.
-- Profile-scoped config entities are removable through explicit profile-targeted replace/purge workflows.
 - Historical telemetry/audit retention is independent; routine profile delete does not erase historical attribution rows.
 
 ## 6. Runtime Isolation Notes
@@ -1114,12 +1113,6 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 - Resetting current state deletes the row and therefore clears retry-window counters, next retry timing, and ban state together.
 - Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for active profile.
 
-## 7. Config Import/Export Versioning
-
-- OpenAI text capability is profile-scoped Terminal Target data, and startup config has no OpenAI text translation mode field.
-- Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
-
-
-## 8. Invariant Notes
+## 7. Invariant Notes
 
 - Runtime hot state remains profile-scoped and reset-on-crash by design.
