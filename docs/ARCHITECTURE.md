@@ -72,7 +72,7 @@ frontend/
 │   │   ├── pricing/           # `/route/pricing`
 │   │   ├── proxy-keys/        # `/control/proxy-keys`
 │   │   ├── request-logs/      # `/observe/requests` and dedicated audit adapter
-│   │   └── settings/          # `/system/settings` plus startup leaf
+│   │   └── settings/          # `/system/settings` profile and global settings
 │   └── pages/
 │       ├── LoginPage.tsx, ForgotPasswordPage.tsx, ResetPasswordPage.tsx
 │       ├── DashboardPage.tsx, RequestLogsPage.tsx, SettingsPage.tsx

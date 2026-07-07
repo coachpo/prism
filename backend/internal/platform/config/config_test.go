@@ -95,19 +95,19 @@ func TestTelemetryDefaults(t *testing.T) {
 	assertTelemetryDefaults(t, parsed.Telemetry)
 }
 
-func TestBootstrapConfigRejectsStaleOpenAITerminalTranslationMode(t *testing.T) {
+func TestBootstrapConfigAcceptsStaleOpenAITerminalTranslationMode(t *testing.T) {
 	var payload map[string]any
 	if err := json.Unmarshal(seededBootstrapPayload(t), &payload); err != nil {
 		t.Fatalf("decode seeded bootstrap payload: %v", err)
 	}
 	payload["runtime"].(map[string]any)["routing"] = map[string]any{"openaiTerminalTranslationMode": "safe_only"}
 
-	_, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
-	if err == nil {
-		t.Fatal("expected stale OpenAI terminal translation mode field to fail")
+	settings, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
+	if err != nil {
+		t.Fatalf("expected stale OpenAI terminal translation mode field to be ignored, got %v", err)
 	}
-	if !strings.Contains(err.Error(), `unknown field "openaiTerminalTranslationMode"`) {
-		t.Fatalf("expected unknown-field error for stale OpenAI terminal translation mode, got %v", err)
+	if settings.RuntimeTransportConfig.RequestTimeout != defaultRuntimeTransportRequestTimeout {
+		t.Fatalf("expected stale routing field to leave runtime settings unchanged, got %+v", settings.RuntimeTransportConfig)
 	}
 }
 

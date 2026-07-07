@@ -283,6 +283,24 @@ type bootstrapRuntimeSideEffects struct {
 
 type bootstrapRuntimeRouting struct{}
 
+func (r *bootstrapRuntimeRouting) UnmarshalJSON(raw []byte) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	for field := range fields {
+		// Legacy startup field kept only so existing config.json files continue to parse after removal.
+		if field == "openaiTerminalTranslationMode" {
+			continue
+		}
+		return fmt.Errorf("json: unknown field %q", field)
+	}
+	return nil
+}
+
 type bootstrapHTTP struct {
 	CORSAllowedOrigins *[]string `json:"corsAllowedOrigins"`
 }
