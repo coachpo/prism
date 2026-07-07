@@ -1,7 +1,7 @@
 # FRONTEND LIB KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, frontend-side import validation including obsolete access-target rejection, explicit Ban Policy loadbalance mirror, selected-profile keyed reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
+`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, explicit Ban Policy loadbalance mirror, selected-profile keyed reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
 
 ## STRUCTURE
 ```

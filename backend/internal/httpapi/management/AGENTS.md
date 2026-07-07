@@ -33,7 +33,7 @@ management/
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep `/api/*` management handlers here; server mounting, admission, runtime-cache invalidation middleware, telemetry middleware, and CORS snapshots stay in `../../../platform/http/`.
 - Keep selected-profile CRUD scoped through effective-profile resolution and `X-Profile-Id` only where the leaf contract says so; runtime proxy traffic never depends on selected-profile state.
-- Keep raw secrets, tokens, endpoint keys, SMTP passwords, and bundle secrets write-only or metadata-only in responses.
+- Keep raw secrets, tokens, endpoint keys, and SMTP passwords write-only or metadata-only in responses.
 - Keep startup bootstrap config file-backed in `bootstrapconfig/`; PostgreSQL-backed settings stay in their own leaves.
 - Keep request-path side effects on durable outboxes, scheduler workers, or platform mutation middleware. Handlers should not publish dashboards, send email, invalidate runtime caches, or run retention cleanup inline.
 - Keep shared profile/error response helpers in `responseutil/` instead of cloning profile error shaping across leaves.
@@ -44,7 +44,7 @@ management/
 
 ## ANTI-PATTERNS
 - Do not turn `settings/` into startup bootstrap ownership.
-- Do not let frontend-side validation become the source of truth for model graph, bundle, endpoint, or settings contracts.
+- Do not let frontend-side validation become the source of truth for model graph, endpoint, or settings contracts.
 - Do not duplicate cookie, token, proxy-key, profile-error, or request-context helpers inside individual leaves.
 - Do not expose stored plaintext secrets or hashes in management responses.
 - Do not run partition cleanup, dashboard materialization, cache invalidation, email delivery, or provider sends inline from management handlers.

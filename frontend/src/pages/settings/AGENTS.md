@@ -36,7 +36,7 @@ settings/
 ## WHERE TO LOOK
 
 - Thin route shell, tab split, startup-tab mount, section order, and dialog mounts: `../SettingsPage.tsx`, `SettingsStartupTab.tsx`
-- Startup tab field groups for secrets, named PostgreSQL pool lanes, runtime transport, telemetry exporter or auth or TLS settings, auth TTL/cookie settings, mail/SMTP, state-transfer secrets, planned changes, and dangerous confirmations: `../../features/settings/startup/`, `SettingsStartupTab.tsx`
+- Startup tab field groups for secrets, named PostgreSQL pool lanes, runtime transport, telemetry exporter or auth or TLS settings, auth TTL/cookie settings, mail/SMTP, planned changes, and dangerous confirmations: `../../features/settings/startup/`, `SettingsStartupTab.tsx`
 - Cross-section composition, selected-profile labeling, and shared save-state handoff: `useSettingsPageData.ts`
 - Active tab state, hash updates, scroll-driven focus, and section jump behavior: `useSettingsPageSectionState.ts`, `SettingsSectionsNav.tsx`
 - Stable helper constants and form-normalization utilities: `settingsPageHelpers.ts`
