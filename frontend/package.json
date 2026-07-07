@@ -13,7 +13,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
-    "test:lib": "node --test tests/lib/bootstrap_config_contract.test.mjs tests/lib/config_import_validation_contract.test.mjs tests/lib/config-import-pricing-template-normalization.test.mjs tests/lib/profile_scope_header_contract.test.mjs tests/lib/config_api_contract.test.mjs tests/lib/observability_api_contract.test.mjs tests/lib/management_api_model_targets_contract.test.mjs tests/lib/model_dialog_i18n_contract.test.mjs tests/lib/model_form_state_contract.test.mjs tests/lib/dashboard_contract.test.mjs tests/lib/dashboard_bootstrap_contract.test.mjs tests/lib/dashboard_realtime_reconnect_contract.test.mjs tests/lib/dashboard_routing_flow_layout_contract.test.mjs tests/lib/websocket_contract.test.mjs tests/model-detail/connection_probe_behavior_contract.test.mjs",
+    "test:lib": "node --test \"tests/lib/*.test.mjs\" \"tests/model-detail/*.test.mjs\"",
     "test:server": "node --test tests/server/server_health_entrypoint.test.mjs",
     "test:config": "playwright test tests/e2e/settings-config-export.spec.ts tests/e2e/settings-config-import.spec.ts",
     "test:e2e": "playwright test"

@@ -13,7 +13,7 @@ lib/
 
 ## WHERE TO LOOK
 - TypeScript module loader and `@/` alias support: `../helpers/loadTsModule.mjs`
-- Scripted `test:lib` allowlist: `../../package.json`
+- Scripted `test:lib` glob coverage: `../../package.json` runs `tests/lib/*.test.mjs` and `tests/model-detail/*.test.mjs`
 - Config/bootstrap/import contracts: `bootstrap_config_contract.test.mjs`, `config_api_contract.test.mjs`, `config_import_validation_contract.test.mjs`
 - Management and profile-scope contracts: `management_*.test.mjs`, `profile_*_contract.test.mjs`
 - Observability/request-log contracts: `observability_api_contract.test.mjs`, `request_log_*_contract.test.mjs`
@@ -22,7 +22,7 @@ lib/
 
 ## CONVENTIONS
 - Use `createTsModuleLoader()` for TS modules and inject narrow mocks for browser globals, API calls, websocket transports, or React-only imports.
-- Check `package.json` before assuming `pnpm run test:lib` covers a file; several contracts require explicit `node --test tests/lib/<file>.mjs`.
+- `pnpm run test:lib` covers every `*.test.mjs` directly under `tests/lib/` plus `tests/model-detail/`; run a specific `node --test` file only for narrow debugging.
 - Keep tests contract-shaped: input payload, exported function, expected server-aligned fields.
 - Preserve backend field names in assertions. These tests should catch accidental camelCase or route-scope drift.
 - Use Node `assert/strict`; avoid browser or React Testing Library here.
