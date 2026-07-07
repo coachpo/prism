@@ -1,8 +1,8 @@
 # API Specification: Prism
 
-Local `./start.sh` backend base URL follows the selected bootstrap file's `server.port`; with the checked-in `config.json`, that is `http://localhost:18000`
+Local `./start.sh` backend base URL follows the selected bootstrap file's `server.port`; with the checked-in `config.json`, that is `http://localhost:8000`
 
-Container and custom deployments use the listener configured in the plaintext bootstrap file; the manual Docker examples commonly publish `http://localhost:8000`.
+Container and custom deployments use the listener configured in the plaintext bootstrap file. The root single-image Docker bundle publishes Nginx on `http://localhost:8080` by default and proxies to the private backend upstream on port `8000`.
 
 Prism does not expose a backend-local `/metrics` operations endpoint. Configure OTLP metrics and traces in startup JSON, send them to an OpenTelemetry Collector or Grafana Alloy, and connect Prometheus/Grafana/Tempo or another backend from that collector layer. The retained `/api/stats/*` routes remain product-facing request-history and aggregate APIs.
 
@@ -12,8 +12,8 @@ Prism does not expose a backend-local `/metrics` operations endpoint. Configure 
   - Profile-scoped management routes, which require `X-Profile-Id` and resolve against the selected profile.
   - Runtime proxy routes, which always use the active profile and ignore management scope overrides.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
-- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `/api/config/bootstrap`, and `/api/config/bootstrap/validate`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
-- Profile-scoped management routes include `/api/config/profile/import`, `/api/settings/costing`, `/api/settings/timezone`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, `/api/connections/*`, and the other non-global `/api/config/profile/*` routes.
+- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
+- Profile-scoped management routes include `/api/config/profile/import`, `/api/config/header-blocklist-rules*`, `/api/config/user-agent-client-rules*`, `/api/settings/costing`, `/api/settings/timezone`, `/api/settings/audit`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, `/api/connections/*`, and the other non-global `/api/config/profile/*` routes.
 - Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
 
@@ -29,7 +29,7 @@ The startup bootstrap contract is a plaintext `config.json` management surface. 
 GET /api/config/bootstrap
 ```
 
-Response `200` returns safe metadata only. Raw secret values never appear in the payload. Safe bootstrap API values use snake_case for runtime fields, so the raw `runtime.transport.requestTimeout` file setting appears as `runtime.transport.request_timeout` in API payloads, and raw `runtime.sideEffects.attemptTimeout` appears as `runtime.side_effects.attempt_timeout`.
+Response `200` returns safe metadata only. Raw secret values never appear in the payload. Safe bootstrap API values use snake_case under `values.runtime`, so the raw `runtime.transport.requestTimeout` file setting appears as `values.runtime.transport.request_timeout`, and raw `runtime.sideEffects.attemptTimeout` appears as `values.runtime.side_effects.attempt_timeout`. The `apply_capabilities` registry uses canonical field paths such as `transport.request_timeout` and `side_effects.attempt_timeout`.
 
 GET is a read of the managed file plus the live applied baseline. Current responses always include `apply_capabilities`. They include `apply_result` only when file values differ from the live applied baseline, such as after a failed hot apply or an external file edit that changes a hot field. Current no-drift responses omit `planned_changes` and `apply_result`. `restart_required` is true only when the file contains restart-required drift from the live baseline. External edits to `config.json` are not watched automatically; operators must use the Startup tab or API PUT to publish hot-eligible file edits into the running process.
 ```json
@@ -46,8 +46,8 @@ GET is a read of the managed file plus the live applied baseline. Current respon
   "writable": true,
   "apply_capabilities": {
     "http.cors_allowed_origins": { "mode": "hot_apply" },
-    "runtime.transport.request_timeout": { "mode": "hot_apply" },
-    "runtime.side_effects.attempt_timeout": { "mode": "restart_required" },
+    "transport.request_timeout": { "mode": "hot_apply" },
+    "side_effects.attempt_timeout": { "mode": "restart_required" },
     "server.port": {
       "mode": "restart_required",
       "confirmation_token": "server-port-change"
@@ -197,9 +197,9 @@ Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `
 
 Safe bootstrap API values omit plaintext secrets and use snake_case for API fields, such as runtime `request_timeout`, `side_effects.attempt_timeout`, mail `reply_to`, `ehlo_hostname`, `password_file`, `tls_server_name`, telemetry `sampling_ratio`, `insecure_skip_verify`, and `ca_file`. `mail.smtp.password` and `telemetry.exporter.auth.authorizationHeader` appear only in `secrets` metadata and in `secret_updates`. To keep the current secret, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password or telemetry authorization-header value.
 
-The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `runtime.transport.max_idle_conns`, `runtime.transport.max_idle_conns_per_host`, `runtime.transport.max_conns_per_host`, `runtime.transport.idle_conn_timeout`, `runtime.transport.request_timeout`, `runtime.transport.response_header_timeout`, `runtime.transport.tls_handshake_timeout`, and `runtime.transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`. `runtime.side_effects.attempt_timeout` and all `telemetry.*` fields are intentionally absent from hot-apply fields.
+The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `transport.max_idle_conns`, `transport.max_idle_conns_per_host`, `transport.max_conns_per_host`, `transport.idle_conn_timeout`, `transport.request_timeout`, `transport.response_header_timeout`, `transport.tls_handshake_timeout`, and `transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`. `side_effects.attempt_timeout` and all `telemetry.*` fields are intentionally absent from hot-apply fields.
 
-Restart-required fields are listener fields `server.host` and `server.port`; `database.url`; PostgreSQL pool fields `database.pools.total_max_conns`, `database.pools.management.max_conns`, `database.pools.management.min_idle_conns`, `database.pools.runtime_execution.max_conns`, `database.pools.runtime_execution.min_idle_conns`, `database.pools.runtime_telemetry.max_conns`, `database.pools.runtime_telemetry.min_idle_conns`, `database.pools.runtime_feedback.max_conns`, `database.pools.runtime_feedback.min_idle_conns`, `database.pools.realtime.max_conns`, `database.pools.realtime.min_idle_conns`, `database.pools.cache_refresh.max_conns`, `database.pools.cache_refresh.min_idle_conns`, `database.pools.background_jobs.max_conns`, and `database.pools.background_jobs.min_idle_conns`; runtime field `runtime.side_effects.attempt_timeout`; telemetry fields `telemetry.enabled`, `telemetry.exporter.endpoint`, `telemetry.exporter.protocol`, `telemetry.exporter.compression`, `telemetry.exporter.timeout`, `telemetry.exporter.auth.mode`, `telemetry.exporter.auth.authorizationHeader`, `telemetry.exporter.tls.insecure_skip_verify`, `telemetry.exporter.tls.ca_file`, `telemetry.metrics.enabled`, `telemetry.traces.enabled`, and `telemetry.traces.sampling_ratio`; and secret fields `runtime.secretEncryptionKey`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey`. Confirmation tokens are required for `server.host`, `server.port`, `database.url`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey` changes. There is no hot apply for listener, database URL, pool budgets, telemetry provider settings, `runtime.side_effects.attempt_timeout`, JWT signing keys, state-transfer bundle keys, or the runtime secret encryption key.
+Restart-required fields are listener fields `server.host` and `server.port`; `database.url`; PostgreSQL pool fields `database.pools.total_max_conns`, `database.pools.management.max_conns`, `database.pools.management.min_idle_conns`, `database.pools.runtime_execution.max_conns`, `database.pools.runtime_execution.min_idle_conns`, `database.pools.runtime_telemetry.max_conns`, `database.pools.runtime_telemetry.min_idle_conns`, `database.pools.runtime_feedback.max_conns`, `database.pools.runtime_feedback.min_idle_conns`, `database.pools.realtime.max_conns`, `database.pools.realtime.min_idle_conns`, `database.pools.cache_refresh.max_conns`, `database.pools.cache_refresh.min_idle_conns`, `database.pools.background_jobs.max_conns`, and `database.pools.background_jobs.min_idle_conns`; runtime field `side_effects.attempt_timeout`; telemetry fields `telemetry.enabled`, `telemetry.exporter.endpoint`, `telemetry.exporter.protocol`, `telemetry.exporter.compression`, `telemetry.exporter.timeout`, `telemetry.exporter.auth.mode`, `telemetry.exporter.auth.authorizationHeader`, `telemetry.exporter.tls.insecure_skip_verify`, `telemetry.exporter.tls.ca_file`, `telemetry.metrics.enabled`, `telemetry.traces.enabled`, and `telemetry.traces.sampling_ratio`; and secret fields `runtime.secretEncryptionKey`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey`. Confirmation tokens are required for `server.host`, `server.port`, `database.url`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey` changes. There is no hot apply for listener, database URL, pool budgets, telemetry provider settings, `side_effects.attempt_timeout`, JWT signing keys, state-transfer bundle keys, or the runtime secret encryption key.
 
 #### Validate Bootstrap Config
 ```
@@ -364,13 +364,13 @@ Returns `400` if the target profile is currently active or is the default profil
 
 ---
 
-### 1.1 Catalog Management
+### 1.2 Catalog Management
 
 Prism no longer exposes a catalog management product surface. Model compatibility is carried by each model's required `api_family`, and profile configuration import does not create or translate catalog data.
 
 ---
 
-### 1.2 Model Configurations
+### 1.3 Model Configurations
 
 #### List Models
 ```
@@ -452,7 +452,7 @@ Response `200`: `{ "deleted": true }`. Returns `409` if other models still refer
 
 ---
 
-### 1.3 Endpoints (Profile-Scoped Credentials)
+### 1.4 Endpoints (Profile-Scoped Credentials)
 
 #### List Endpoints
 ```
@@ -526,7 +526,7 @@ Response `200`: `{ "deleted": true }`.
 Returns `409` if any connections still reference this endpoint.
 After a successful delete, later endpoints in the same profile are compacted so `position` remains contiguous.
 
-### 1.4 Terminal Targets and Model Access Targets
+### 1.5 Terminal Targets and Model Access Targets
 
 Terminal Targets are Prism's product term for model-private endpoint bindings within one profile. Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. A compatibility connection carries its owner model's `api_family`, endpoint reference or inline endpoint create payload, health metadata, pricing template, and optional admission limits. Endpoints remain reusable, so many Terminal Targets may point at the same endpoint. `model_access_targets.target_type="connection"` is an internal ownership and runtime routing edge, not a public assignment surface for connection IDs.
 
@@ -663,9 +663,9 @@ Response `200`:
 }
 ```
 API-family-specific health-check probes:
-- OpenAI: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on the persisted `openai_probe_endpoint_variant`; the specific variant also controls whether the probe uses the minimal payload shape or the `reasoning: none` payload shape.
-- Anthropic: `POST {base_url}/v1/messages` with a one-token user prompt.
-- Gemini: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload.
+- OpenAI: the endpoint base URL joined with `/v1/responses` or `/v1/chat/completions` based on the persisted `openai_probe_endpoint_variant`; the specific variant also controls whether the probe uses the minimal payload shape or the `reasoning: none` payload shape.
+- Anthropic: the endpoint base URL joined with `/v1/messages` with a one-token user prompt.
+- Gemini: the endpoint base URL joined with `/v1beta/models/{model}:generateContent` with minimal content payload.
 
 #### Model Target Routes
 ```
@@ -701,22 +701,31 @@ Target semantics:
 
 On endpoint create (`POST`) and update (`PUT`), the `base_url` is:
 1. **Normalized**: Trailing slashes are stripped (e.g., `https://api.example.com/` → `https://api.example.com`)
-2. **Validated**: Rejected with HTTP 422 if scheme/host is missing.
-3. **Version path is not allowed**: Rejected with HTTP 422 if `base_url` includes upstream API version segments such as `/v1` or `/v1beta`.
+2. **Validated**: Rejected with HTTP 422 if scheme/host is missing or the URL includes a query string or fragment.
+3. **Joined at runtime**: Path prefixes are allowed. Runtime appends the allowlisted operation path to the normalized endpoint path without version-segment de-duplication.
 
-Use host-root base URLs only:
+Valid examples:
 - ✅ `https://api.openai.com`
+- ✅ `https://api.openai.com/v1`
 - ✅ `https://generativelanguage.googleapis.com`
-- ❌ `https://api.openai.com/v1`
-- ❌ `https://generativelanguage.googleapis.com/v1beta`
+- ✅ `https://generativelanguage.googleapis.com/v1beta`
+- ❌ `https://api.openai.com/v1?timeout=30`
+- ❌ `https://api.openai.com/v1#runtime`
 
-### 1.5 Pricing Templates
+### 1.6 Pricing Templates
 
 #### List Pricing Templates
 ```
 GET /api/pricing-templates
 ```
 Response `200`: Array of pricing template list items in the effective profile scope.
+
+#### Get Pricing Template
+```
+GET /api/pricing-templates/{id}
+```
+Response `200`: Pricing template object in the effective profile scope.
+Returns `404` when the template does not exist in the effective profile.
 
 #### Create Pricing Template
 ```
@@ -760,7 +769,7 @@ GET /api/pricing-templates/{id}/connections
 Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`, `connection_name`, `model_config_id`, `model_id`, `endpoint_id`, `endpoint_name`).
 ---
 
-### 1.6 Config Export/Import
+### 1.7 Config Export/Import
 
 Prism uses one profile config-bundle ownership domain: `version: 3`, profile-scoped config only.
 
@@ -786,10 +795,11 @@ Response `200`:
   "loadbalance_strategies": [],
   "connections": [
     {
-      "connection_ref": "openai-primary",
+      "ref": "openai-primary",
       "endpoint_name": "Primary OpenAI",
       "api_family": "openai",
       "is_active": true,
+      "priority": 0,
       "name": "Primary production key",
       "auth_type": null,
       "custom_headers": {},
@@ -953,15 +963,14 @@ Profile import semantics:
 - Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and exact `target_model_id` values.
 - Exported/imported models carry ordered `access_targets` entries with model targets and internally owned Terminal Target compatibility entries plus `position` and `is_enabled` metadata.
-- Exported/imported Terminal Targets live at the top-level `connections` bundle key and include `api_family`, endpoint and pricing-template name references, OpenAI probe variant metadata, explicit `openai_text_capability`, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields. OpenAI connections require `openai_text_capability`; non-OpenAI connections must omit it or use `null`.
+- Exported/imported Terminal Targets live at the top-level `connections` bundle key. Each entry includes top-level `ref`, `api_family`, endpoint and pricing-template name references, `is_active`, `priority`, name/auth/custom-header fields, OpenAI probe variant metadata, explicit `openai_text_capability`, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields. OpenAI connections require `openai_text_capability`; non-OpenAI connections must omit it or use `null`. `connection_ref` remains the model access-target pointer to one of these top-level `ref` values.
 - Import rejects `connection_ref` values used by multiple models, duplicate Terminal Target ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
 - Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle v3 import normalizes missing, null, or blank pricing inputs for any of those fields to `"0"` before validation.
 - Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`, limited to `single`, `fill-first`, and `round-robin`.
 - Their explicit Ban Policy shape carries failure status codes, retry-window fields, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration. Import rejects removed keys and accepts only `off`, `temporary`, or `until_reset` for `ban_mode`.
 - Other profile config version numbers are unsupported.
 
-### 1.7 Settings API
-### 1.7 Settings API
+### 1.8 Settings API
 
 #### Get Auth Settings
 ```
@@ -1027,7 +1036,7 @@ Response `200`:
 }
 ```
 
-`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing` and `/api/settings/timezone` are profile-scoped and require `X-Profile-Id`.
+`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing`, `/api/settings/timezone`, and `/api/settings/audit` are profile-scoped and require `X-Profile-Id`.
 
 #### Update Costing Settings
 ```
@@ -1078,7 +1087,7 @@ There is no standalone `/api/settings/monitoring` route or `/api/monitoring/*` f
 
 ---
 
-### 1.8 User-Agent Client Rules (System Global + User Profile-Scoped)
+### 1.9 User-Agent Client Rules (System Global + User Profile-Scoped)
 
 #### List User-Agent Client Rules
 ```
@@ -1147,7 +1156,7 @@ Note: Delete is only available for effective-profile user rules. Attempting to d
 
 ---
 
-### 1.9 Header Blocklist Rules (System Global + User Profile-Scoped)
+### 1.10 Header Blocklist Rules (System Global + User Profile-Scoped)
 
 #### List Header Blocklist Rules
 ```
@@ -1216,13 +1225,12 @@ Note: Delete is only available for effective-profile user rules. Attempting to d
 
 ---
 
-### 1.10 Removed Management Surface
+### 1.11 Removed Management Surface
 
-The former CLIProxyAPI management control plane is not part of the current management API. CLIProxyAPI remains documented only for runtime context overflow promotion.
+The former CLIProxyAPI management control plane and runtime context-overflow promotion surfaces are not part of the current API.
 
 ---
 
-## 2. Runtime Proxy API
 ## 2. Runtime Proxy API
 
 Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It supports only the operations listed in this section through the active profile. Other vendor routes, including stored-object, retrieve, delete, cancel, embedding, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
@@ -1275,9 +1283,9 @@ Ingress observability remains stable: `operation_name` is always the client-visi
 #### 2.2B.1 Application capability matrix
 
 The following application-spec example assumes these OpenAI text capabilities:
-- `gpt-5.5`: `dual_native`, effective context window `272K`
-- `gpt-5.4`: `dual_native`, effective context window `1M`
-- `deepseek-v4-flash`: `chat_completions_only`, effective context window `1M`
+- `gpt-5.5`: `dual_native`
+- `gpt-5.4`: `dual_native`
+- `deepseek-v4-flash`: `chat_completions_only`
 
 Native request behavior:
 
@@ -1324,7 +1332,7 @@ Request (standard OpenAI format):
   "stream": false
 }
 ```
-Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.chat_completions`.
+Response: Native attempts are proxied from the upstream OpenAI-compatible endpoint. Translated sibling attempts are rewritten back to Chat Completions shape before the client sees them. Canonical operation name: `openai.chat_completions`.
 
 #### Responses
 ```
@@ -1338,7 +1346,7 @@ Request (OpenAI Responses generation format):
   "stream": false
 }
 ```
-Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses`.
+Response: Native attempts are proxied from the upstream OpenAI-compatible endpoint. Translated sibling attempts are rewritten back to Responses shape before the client sees them. Canonical operation name: `openai.responses`.
 
 #### Responses Input Tokens
 ```
@@ -1428,7 +1436,7 @@ Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonic
 
 ### 2.6 Streaming
 
-Streaming stays operation-native: `openai.chat_completions`, `openai.responses`, and `anthropic.messages` use their upstream-compatible request body flags, while `gemini.stream_generate_content` uses `POST /v1beta/models/{model}:streamGenerateContent`. Streaming responses are proxied directly from upstream.
+Streaming stays operation-native for native attempts: `openai.chat_completions`, `openai.responses`, and `anthropic.messages` use their upstream-compatible request body flags, while `gemini.stream_generate_content` uses `POST /v1beta/models/{model}:streamGenerateContent`. Native streaming responses are proxied from upstream; translated OpenAI sibling streams are rewritten back to the ingress operation's SSE shape.
 For Gemini, the `gemini.stream_generate_content` path is authoritative: `POST /v1beta/models/{model}:streamGenerateContent` is treated as streaming even when the request body omits `stream: true`. `gemini.generate_content` remains the non-stream generate-content operation.
 
 ### 2.7 Token Usage Extraction
@@ -1438,7 +1446,9 @@ The gateway extracts token usage from upstream responses and logs canonical disj
 **Non-streaming responses:**
 | Canonical operation name | Response format | Extraction path |
 |---|---|---|
-| `openai.chat_completions`, `openai.responses` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}}` plus detail objects when present | Base input and output subtract cached and reasoning detail counts; provider `total_tokens` stays authoritative |
+| `openai.chat_completions` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}}` plus detail objects when present | Base input and output subtract cached and reasoning detail counts; provider `total_tokens` stays authoritative |
+| `openai.responses`, `openai.responses.compact` | `{"usage": {"input_tokens": N, "output_tokens": N, "total_tokens": N}}` plus detail objects when present | Base input and output subtract cached and reasoning detail counts; provider `total_tokens` stays authoritative |
+| `openai.responses.input_tokens` | `{"input_tokens": N, "total_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
 | `anthropic.messages` | `{"usage": {"input_tokens": N, "cache_read_input_tokens": N, "cache_creation_input_tokens": N, "output_tokens": N}}` | Base input, cache-read input, cache-creation input, and base output stay separate; total is derived when upstream omits it |
 | `anthropic.count_tokens` | `{"input_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
 | `gemini.generate_content`, `gemini.stream_generate_content` when handled as non-stream JSON | `{"usageMetadata": {"promptTokenCount": N, "cachedContentTokenCount": N, "candidatesTokenCount": N, "thoughtsTokenCount": N, "totalTokenCount": N}}` | Base input subtracts cache-read input; base output subtracts reasoning output; provider `totalTokenCount` stays authoritative |
@@ -1636,7 +1646,7 @@ Recent activity links into request-log investigation by `request_log_id`. It doe
 ```
 GET /api/stats/usage-snapshot
 ```
-This is the REST analytics snapshot contract for API callers and debugging. The `/dashboard?tab=analytics` UI receives the same snapshot shape through `analytics.snapshot` WebSocket messages, but this REST endpoint remains supported and documented.
+This is the REST analytics snapshot contract for API callers and debugging. The `/observe?tab=analytics` UI receives the same snapshot shape through `analytics.snapshot` WebSocket messages, but this REST endpoint remains supported and documented.
 
 Query parameters:
 | Parameter | Type | Default | Description |
@@ -1645,7 +1655,7 @@ Query parameters:
 
 The snapshot is backed by `backend/internal/httpapi/management/stats/service.go` together with the aggregation types and query helpers in `backend/internal/domain/stats/snapshot.go` and `backend/internal/domain/stats/types.go`.
 
-The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` is the canonical overview aggregate that also includes the backend-computed Routing Health Map. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
+The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` is the canonical overview aggregate that also includes the backend-computed Routing Health Map. Exact request investigation remains on `/observe/requests`, while dashboard and other pages continue to use the shared stats routes below.
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 
@@ -1676,7 +1686,7 @@ Query parameters:
 | `endpoint_id` | integer | — | Filter by endpoint ID |
 | `client_rule_id` | integer | none | Filter by caller client, matched against `caller_user_agent` only through enabled User-Agent Client Rules |
 | `resolved_target_model_id` | string | none | Filter by final target model selected for the attempt |
-| `limit` | integer | 50 | Max results (1-500) |
+| `limit` | integer | 50 | Result limit; must be positive |
 | `offset` | integer | 0 | Pagination offset |
 
 Response `200`:
@@ -1745,7 +1755,7 @@ Response `200`:
 }
 ```
 
-The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown, `filter_options.models` for the requested-model dropdown, `filter_options.clients` for caller client filtering, and `filter_options.resolved_target_models` for final-target filtering. It includes requested-model labels, final-target labels, `stream_outcome`, and `stream_error_kind` for display. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This retained-history route is the operator drill-in surface for investigation, not a dashboard aggregate or an OTLP metrics endpoint.
+The list route is the slim browse contract used by `/observe/requests` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown, `filter_options.models` for the requested-model dropdown, `filter_options.clients` for caller client filtering, and `filter_options.resolved_target_models` for final-target filtering. It includes requested-model labels, final-target labels, `stream_outcome`, and `stream_error_kind` for display. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This retained-history route is the operator drill-in surface for investigation, not a dashboard aggregate or an OTLP metrics endpoint.
 
 `filter_options` always includes `endpoints`, `models`, `clients`, and `resolved_target_models`. `filter_options.models` is request-log scoped and contains `{ model_id, model_label }` entries. `filter_options.clients` contains `{ client_rule_id, client_label }` entries built from enabled User-Agent Client Rules. `client_rule_id` filtering is caller-only and matches `caller_user_agent`; it never matches `upstream_user_agent`. `filter_options.resolved_target_models` contains `{ resolved_target_model_id, model_label }` entries for final-target filtering. Empty option sets are returned as empty arrays instead of omitted fields. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. `model_id` stays the requested model and `resolved_target_model_id` captures the final target model for that attempt, while request-log row and detail payloads use `resolved_target_model_label` for the matching display label.
 
@@ -1849,7 +1859,7 @@ Response `404`: returned when the request ID is missing or out of scope for the 
 
 Stream telemetry values are stable strings. `stream_outcome` is one of `not_streaming`, `completed`, `provider_incomplete`, `client_disconnected`, `upstream_read_error`, `upstream_ended_without_terminal`, or `unknown`. `stream_error_kind` is nullable and, when present, is one of `client_write_failed`, `request_context_canceled`, `upstream_read_failed`, or `missing_terminal_event`. `stream_error_detail` appears only on exact request-log detail responses; it is sanitized diagnostic text, not provider content, headers, or secrets.
 
-The request-log sheet consumes this grouped detail contract. The frontend keeps audit loading separate and lazy: opening the `overview` tab uses only this response, while the `audit` tab resolves linked audit payloads on demand with `request_log_id` plus a UTC window derived from `summary.created_at`. The derived frontend window is `created_at` minus 12 hours through `created_at` plus 12 hours, serialized explicitly as canonical audit `from` and `to` query parameters.
+The request-log sheet consumes this grouped detail contract as overview-only data. Linked audit payload resolution is isolated to the dedicated `/observe/requests/{request_id}/audit` page, which uses `request_log_id` plus a UTC window derived from `summary.created_at`. The derived frontend window is `created_at` minus 12 hours through `created_at` plus 12 hours, serialized explicitly as canonical audit `from` and `to` query parameters.
 
 The request-history, spending, throughput, usage-snapshot, model-metrics, connection-success-rate, and dashboard aggregate APIs in this section remain product-facing PostgreSQL-backed surfaces. OTLP metrics and traces are exported through the startup-configured Collector/Alloy path and are not surfaced as a backend-local `/metrics` compatibility route.
 
@@ -1893,7 +1903,7 @@ Response `200`:
 }
 ```
 
-### 4.4 Model Metrics (Batch)
+### 4.5 Model Metrics (Batch)
 ```
 POST /api/stats/models/metrics
 ```
@@ -2044,9 +2054,9 @@ Query parameters:
 | `endpoint_id` | integer | — | Filter by endpoint ID |
 | `connection_id` | integer | — | Filter by connection ID |
 | `group_by` | string | `none` | Group by: `none`, `day`, `week`, `month`, `api_family`, `model`, `endpoint`, `model_endpoint` |
-| `limit` | integer | 50 | Max results (1-500) |
+| `limit` | integer | 50 | Result limit; must be positive |
 | `offset` | integer | 0 | Pagination offset |
-| `top_n` | integer | 5 | Number of top spenders to return (1-50) |
+| `top_n` | integer | 5 | Number of top spenders to return; must be positive |
 
 Response `200`:
 ```json
@@ -2298,7 +2308,7 @@ Request and response bodies are not header-redacted and may contain user-provide
 
 ### 5.5 Body Size Limits
 
-When body capture is enabled for the request, request and response bodies are truncated to 64KB before storage. A `[TRUNCATED]` marker is appended when truncation occurs.
+When body capture is enabled for the request, Prism stores the captured request and response body strings for the upstream attempt. Current storage does not define a documented truncation marker.
 
 ---
 
@@ -2329,7 +2339,15 @@ Response `200`:
       "profile_id": 3,
       "name": "Default fill-first routing",
       "legacy_strategy_type": "fill-first",
-      "ban_mode": "temporary"
+      "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
+      "ban_mode": "off",
+      "retry_base_delay_ms": 60000,
+      "retry_backoff_multiplier": 2.0,
+      "retry_jitter_ratio": 0.2,
+      "retry_max_delay_ms": 900000,
+      "cycle_retry_attempt_limit": 3,
+      "ban_cumulative_retry_attempt_threshold": 0,
+      "ban_duration_seconds": 0
     }
   ],
   "created_count": 1,
@@ -2367,9 +2385,9 @@ Response `201`: Created strategy object.
 Validation rules:
 - `name` must be unique within the effective profile scope.
 - `legacy_strategy_type` must be `single`, `fill-first`, or `round-robin`.
-- `failure_status_codes` must be a unique, sorted list of valid HTTP status integers (`100..599`).
+- `failure_status_codes` values must be unique valid HTTP status integers (`100..599`); the backend sorts them before persistence and response serialization.
 - Retry-window delay, backoff, jitter, max delay, and cycle retry attempt limit must stay within backend bounds.
-- `cycle_retry_attempt_limit` is required and valid from `1` to `50`.
+- `cycle_retry_attempt_limit` is optional; omitted create/update payloads default it to `3`. When provided, it must be from `1` to `50`.
 - `ban_mode` is `off`, `temporary`, or `until_reset`.
 - `ban_mode = "off"` requires `ban_cumulative_retry_attempt_threshold = 0` and `ban_duration_seconds = 0`.
 - `ban_mode = "temporary"` requires `ban_cumulative_retry_attempt_threshold` from `1` to `500`, `ban_cumulative_retry_attempt_threshold >= cycle_retry_attempt_limit`, and `ban_duration_seconds` from `1` to `86400`.
@@ -2378,7 +2396,14 @@ Validation rules:
 - Runtime banning is inclusive and explicit: `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`. Prism never derives the ban threshold from `cycle_retry_attempt_limit`.
 - Upstream request timing is controlled by the shared backend timeout settings rather than per-strategy fields.
 
-### 6.4 Update Loadbalance Strategy
+### 6.4 Get Loadbalance Strategy
+```
+GET /api/loadbalance/strategies/{strategy_id}
+```
+Response `200`: Strategy object in the effective profile scope.
+Returns `404` when the strategy does not exist in the effective profile.
+
+### 6.5 Update Loadbalance Strategy
 ```
 PUT /api/loadbalance/strategies/{strategy_id}
 ```
@@ -2408,14 +2433,14 @@ Strategy responses include the persisted explicit Ban Policy strategy document:
 }
 ```
 
-### 6.5 Delete Loadbalance Strategy
+### 6.6 Delete Loadbalance Strategy
 ```
 DELETE /api/loadbalance/strategies/{strategy_id}
 ```
 Response `200`: `{ "deleted": true }`.
 Returns `409` when the strategy is still attached to one or more models; the response detail includes `attached_model_count`.
 
-### 6.6 List Current Loadbalance State for a Model
+### 6.7 List Current Loadbalance State for a Model
 ```
 GET /api/loadbalance/current-state
 ```
@@ -2455,7 +2480,7 @@ Returns `404` when the model config does not exist in the effective profile.
 
 `state` is derived from the connection-global Ban Policy runtime state and is one of `available`, `retry_wait`, or `banned`. `until_reset` bans stay `banned` until the current-state reset endpoint clears them; temporary bans stay `banned` until `banned_until_at`; retry windows stay `retry_wait` until `next_retry_at`; otherwise the connection is `available`. Current-state items expose QPS and in-flight admission counters plus live retry-cycle counters for each private connection directly owned by the model. They intentionally omit `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` because current state is connection-global, while policy thresholds belong to the model strategy snapshot recorded on events.
 
-### 6.7 Reset Current Loadbalance State for a Connection
+### 6.8 Reset Current Loadbalance State for a Connection
 ```
 POST /api/loadbalance/current-state/{connection_id}/reset
 ```
@@ -2470,7 +2495,7 @@ Response `200`:
 `cleared=false` is returned when no persisted current-state row existed for that `(profile_id, connection_id)` pair.
 Reset clears retry-window counters, next retry timing, ban state, and the related round-robin cursor for an attached model when one exists.
 
-### 6.8 List Loadbalance Events
+### 6.9 List Loadbalance Events
 ```
 GET /api/loadbalance/events
 ```
@@ -2519,13 +2544,13 @@ Response `200`:
 
 Loadbalance event types are `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, and `admission_rejected`. They record retry-cycle attempts, cumulative attempts, next retry timing, last retry delay, optional ban metadata, optional success time, and the model, endpoint, and vendor snapshots for operator review. Events produced by Ban Policy evaluation also expose immutable policy snapshots as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold`, so historical event detail explains the threshold that was active when the event was written.
 
-### 6.8 Get Loadbalance Event Detail
+### 6.10 Get Loadbalance Event Detail
 ```
 GET /api/loadbalance/events/{id}
 ```
 Response `200`: Single event object with the same Ban Policy retry-window metadata, policy snapshot fields, and summary fields as the list item.
 
-### 6.9 Loadbalance Event Retention
+### 6.11 Loadbalance Event Retention
 
 Loadbalance event list and detail APIs remain selected-profile scoped. Normal cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "loadbalance_events"`, or the stored `loadbalance_events_retention_days` value from `/api/settings/log-retention`.
 
@@ -2699,7 +2724,7 @@ The frontend orders dashboard snapshots by lexicographic `snapshot.snapshot_revi
 
 ### 8.3 Analytics WebSocket Channel
 
-The analytics channel serves `/dashboard?tab=analytics`. A subscription is scoped by `{profile_id,preset}` in the message payload. Supported presets are `1h`, `6h`, `24h`, `7d`, `30d`, and `all`.
+The analytics channel serves `/observe?tab=analytics`. A subscription is scoped by `{profile_id,preset}` in the message payload. Supported presets are `1h`, `6h`, `24h`, `7d`, `30d`, and `all`.
 
 Client -> server messages:
 ```text

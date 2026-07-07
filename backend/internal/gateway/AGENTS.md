@@ -10,6 +10,7 @@ gateway/
 ├── accounting/     # Runtime accounting event normalization
 ├── core/           # Pipeline interfaces, envelopes, hook executor, route/accounting types
 ├── provider/       # Provider adapter contract plus OpenAI, Anthropic, Gemini adapters
+│   └── AGENTS.md   # Provider-native translation and adapter capability rules
 └── routing/        # Candidate ordering, reservation checks, retry/redirect planning
 ```
 
@@ -17,7 +18,7 @@ gateway/
 - Preserved runtime/gateway semantics, ingress rejection, and streaming safety: `CONTRACTS.md`
 - Pipeline seams and shared envelopes: `core/pipeline.go`, `core/envelope.go`, `core/routing.go`, `core/errors.go`
 - Hook phase ordering, permissions, payload cloning, rejection behavior, and execution records: `core/hooks.go`, `core/hooks_test.go`
-- Provider adapter interface, default behavior, token/media/conversion contracts, and hook-behavior declarations: `provider/adapter.go`, `provider/default_adapter.go`
+- Provider adapter interface, default behavior, token/media/conversion contracts, and hook-behavior declarations: `provider/AGENTS.md`, `provider/adapter.go`, `provider/default_adapter.go`
 - OpenAI Chat/Responses conversion, image operations, and overflow classification: `provider/openai/`
 - Anthropic Messages/count-token path rewriting, usage extraction, and stream terminal classification: `provider/anthropic/`
 - Gemini model-path rewriting, GenerateContent variants, token counting, and stream parsing: `provider/gemini/`

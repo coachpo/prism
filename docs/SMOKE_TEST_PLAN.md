@@ -54,9 +54,9 @@ This plan is synthesized from:
 
 ## 4. Environment Prerequisites
 
-- Go 1.26.2 toolchain, Node `24+`, pnpm `10.30.1`, Docker, and Docker Compose.
-- When using the checked-in launcher, backend available at `http://localhost:18000` from the checked-in `config.json` and frontend at `http://localhost:5173`.
-- `backend/docker-compose.yml` binds PostgreSQL on host port `15432` for local orchestration.
+- Go 1.26.4 toolchain, Node `24+`, pnpm `10.30.1`, Docker, and Docker Compose.
+- When using the checked-in launcher, backend available at `http://localhost:8000` from the checked-in `config.json` and frontend at `http://localhost:5173`.
+- The root launcher binds local PostgreSQL on host port `15432` for local orchestration.
 - Upstream behavior controlled by test doubles or known test endpoints.
 - At least one active model with enabled access targets for each runtime `api_family` under test.
 
@@ -129,11 +129,24 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/models/{model_config_id}/connections` | B16-B17, L01-L02, M03 |
 | `PATCH /api/models/{model_config_id}/connections/{connection_id}` | B19-B20, L03, L24, M03 |
 | `DELETE /api/models/{model_config_id}/connections/{connection_id}` | B21-B21A, M03 |
-| `GET/POST/PATCH/DELETE /api/models/{model_config_id}/targets` | B18A, B20A, M03 |
+| `GET /api/models/{model_config_id}/targets` | B18A, M03 |
+| `POST /api/models/{model_config_id}/targets` | B18A, M03 |
+| `PUT/PATCH /api/models/{model_config_id}/targets/{target_id}` | B20A, M03 |
+| `PATCH /api/models/{model_config_id}/targets/{target_id}/position` | B20A, M03 |
+| `DELETE /api/models/{model_config_id}/targets/{target_id}` | B20A, M03 |
 | `POST /api/models/{model_config_id}/connections/{connection_id}/health` | D01-D06 |
+| `GET /v1/models` | C15, M11-M13 |
 | `POST /v1/chat/completions` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/responses` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
+| `POST /v1/responses/input_tokens` | C16, E08, L08-L10, M11-M13 |
+| `POST /v1/responses/compact` | C17, E08, L08-L10, M11-M13 |
+| `POST /v1/images/generations` | C18, M11-M13 |
+| `POST /v1/images/edits` | C19, M11-M13 |
 | `POST /v1/messages` | C02, C04, E08, E10, L08-L10, M11-M13, M21 |
+| `POST /v1/messages/count_tokens` | C20, E08, L08-L10, M11-M13 |
+| `POST /v1beta/models/{model}:generateContent` | C03, E08, L08-L10, M11-M13 |
+| `POST /v1beta/models/{model}:streamGenerateContent` | C21, E08, L08-L10, M11-M13 |
+| `POST /v1beta/models/{model}:countTokens` | C22, E08, L08-L10, M11-M13 |
 | `GET /api/stats/requests` | E01-E04, M14 |
 | `GET /api/stats/endpoints/{endpoint_id}/models` | E16, M14 |
 | `GET /api/stats/summary` | E05-E06, M14 |
@@ -142,6 +155,8 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/stats/connection-success-rates` | E07 |
 | `GET /api/stats/throughput` | E15, M14 |
 | `GET /api/stats/spending` | L11-L13, L19-L20, M19 |
+| `GET /api/settings/audit` | L31, M19 |
+| `PUT /api/settings/audit` | L32, M19 |
 | `GET /api/settings/log-retention` | G01, M14 |
 | `PUT /api/settings/log-retention` | G01-G02, M14 |
 | `POST /api/maintenance/log-retention/jobs` | G03-G15, G20, M14-M15 |
@@ -199,6 +214,8 @@ Prepare seed state through API (not manual DB edits):
 | A04 | P0 | `GET /health` | `200`, JSON contains `status=ok` and a non-empty `version` string |
 | A05 | P1 | Backend-served API documentation surface | Not exposed by the backend |
 | A06 | P1 | CORS preflight | Local launcher traffic stays same-origin through the Vite proxy in `full` mode; explicit backend base URLs remain available for standalone frontend workflows |
+| A07 | P1 | Root Docker Compose bundle | `docker compose up --build` exposes the public Prism port, `GET /health` succeeds through Nginx, SPA fallback serves frontend assets, and `/api/realtime/ws` reaches the backend upgrade path |
+| A08 | P1 | Single-image `BUILD_FRONTEND=false` fallback | Root Dockerfile build with `BUILD_FRONTEND=false` serves the fallback page while `/health`, `/api/*`, `/v1`, and `/v1beta` proxy paths still reach the private backend upstream |
 
 ## B. Configuration CRUD and Validation
 
@@ -246,13 +263,21 @@ Prepare seed state through API (not manual DB edits):
 | C05 | P0 | Unknown/disabled model | `404` |
 | C06 | P0 | Fill-first routing order | Lowest-position eligible target wins when Ban Policy state is otherwise equal |
 | C07 | P0 | Ban Policy retry-window path | First transient failure increments retry counters without blocking; threshold hit opens a retry window with backoff and jitter; expired windows allow the Terminal Target to be selected again in normal order |
-| C08 | P0 | Failover on `403/429/500/502/503/529` | Next Terminal Target attempted; `403` follows the configured Ban Policy status-code rules |
+| C08 | P0 | Failover on configured Ban Policy status codes | Next Terminal Target attempted for the default set `403/422/429/500/502/503/504/529`, and status-code behavior follows the attached strategy |
 | C09 | P0 | Failover on connection error/timeout | Next Terminal Target attempted; failure kind classified (`connect_error` / `timeout`) for Ban Policy state |
 | C10 | P0 | Non-failover client error while Ban Policy state exists | Request returns upstream error; existing retry-window state is not force-cleared |
 | C11 | P0 | All failover attempts fail | `502` with last error detail |
 | C12 | P0 | No active Terminal Target compatibility edges | `503` |
-| C13 | P1 | Header merge order with custom override | Custom headers win over api-family/client headers |
+| C13 | P1 | Header merge order with custom override | Custom headers win over ordinary forwarded headers but cannot override proxy-controlled auth/version headers |
 | C14 | P1 | Terminal Target `custom_headers` override | Effective headers follow override |
+| C15 | P0 | OpenAI local models list | `GET /v1/models` returns an OpenAI-shaped list of enabled OpenAI models in the active profile without contacting upstream |
+| C16 | P0 | OpenAI Responses input-token operation | `POST /v1/responses/input_tokens` is allowlisted, routes only to responses-capable targets, and persists token-count usage |
+| C17 | P0 | OpenAI Responses compact operation | `POST /v1/responses/compact` is allowlisted, routes only to responses-capable targets, and extracts Responses usage |
+| C18 | P1 | OpenAI image generation operation | `POST /v1/images/generations` forwards the media operation without estimating token usage |
+| C19 | P1 | OpenAI image edit operation | `POST /v1/images/edits` supports JSON and multipart model binding and forwards without estimating token usage |
+| C20 | P0 | Anthropic token-count operation | `POST /v1/messages/count_tokens` is allowlisted and persists top-level `input_tokens` as token-count usage |
+| C21 | P0 | Gemini stream generate operation | `POST /v1beta/models/{model}:streamGenerateContent` is streaming by route even without `stream: true` in the body |
+| C22 | P0 | Gemini count tokens operation | `POST /v1beta/models/{model}:countTokens` is allowlisted and persists top-level token-count usage |
 ## D. Terminal Target Health Check and URL Failsafe
 
 | ID | Pri | Scenario | Expected Result |
@@ -263,7 +288,7 @@ Prepare seed state through API (not manual DB edits):
 | D04 | P0 | Health check with other non-2xx JSON error | `detail` includes extracted upstream message |
 | D05 | P0 | Health check connect error/timeout | `unhealthy` |
 | D06 | P1 | Health state persistence | `health_status`, `health_detail`, `last_health_check` updated |
-| D07 | P1 | Runtime `/vN/vN` path failsafe | URL auto-correct behavior verified |
+| D07 | P1 | Runtime endpoint path joining | Endpoint path prefixes are preserved, operation paths are appended, and no version-segment de-duplication is applied |
 
 ## E. Statistics and Token Extraction
 
@@ -280,7 +305,7 @@ Prepare seed state through API (not manual DB edits):
 | E09 | P1 | Unsupported/malformed usage fallback | Token fields null |
 | E10 | P0 | Stream token extraction | Token fields populated |
 | E11 | P1 | Streaming without usage fields | Token fields null |
-| E12 | P0 | Model health fields in `/api/models` | Weighted health and request totals correct |
+| E12 | P0 | Model health fields in `/api/models` | Success rate and request totals are grouped by requested `request_logs.model_id` |
 | E13 | P0 | Model metrics batch API | Returns metrics for multiple models |
 | E14 | P0 | Dashboard aggregate stats API | `GET /api/stats/dashboard` returns the canonical stats-only overview snapshot with `snapshot_revision`, diagnostic `source_watermark`, `metric_snapshot`, `api_family_rows`, top spending models, strategy-family counts, and backend-computed `routing_health_map`; recent activity is absent from this payload |
 | E14A | P0 | Dashboard recent activity API | `GET /api/stats/dashboard/recent-activity?limit=N` returns `{ generated_at, activity_watermark, items }`, defaults to 12 items, caps at 50, and orders by newest request history first |
@@ -299,7 +324,7 @@ Prepare seed state through API (not manual DB edits):
 | F06 | P0 | Redaction exact headers | Values redacted before storage |
 | F07 | P1 | Redaction by name pattern | Values redacted |
 | F08 | P1 | Non-sensitive headers | Preserved |
-| F09 | P0 | 64KB truncation | `[TRUNCATED]` appended |
+| F09 | P0 | Audit body capture storage | Captured request/response body strings are stored when body capture is enabled; no documented truncation marker is required |
 | F10 | P0 | Audit list API | Requires bounded `from`/`to` window, caps windows at 7 days, returns `request_body_preview` max 200 chars, and orders by `(created_at DESC, id DESC)` |
 | F11 | P0 | Audit detail API | Full row returned; unknown id is `404` |
 | F12 | P0 | Audit filters/pagination | Correct subsets, keyset `next_cursor`, `has_more`, and no audit `offset` or `total` response contract |
@@ -312,7 +337,7 @@ Prepare seed state through API (not manual DB edits):
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
 | G01 | P0 | Get global log-retention settings | `200`, returns day policies for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; no selected-profile scope |
-| G02 | P0 | Update global log-retention settings | `200`, persists nullable day policies for all retention tables; invalid day values return `422` |
+| G02 | P0 | Update global log-retention settings | `200`, persists nullable day policies for all retention tables; invalid day values return `400` |
 | G03 | P0 | Create retention job with missing table | `400` |
 | G04 | P0 | Request-log retention job with stored policy | `202`, returns `{ job_id, state, status_url, scope }` and a `Location` header; job scope is global |
 | G05 | P0 | Request-log retention preserves audit provenance | Audit rows may outlive request logs and retain weak `request_log_id`, `request_log_created_at`, and `ingress_request_id` metadata |
@@ -385,7 +410,7 @@ Prepare seed state through API (not manual DB edits):
 | I26 | P0 | Dashboard websocket data-push recent activity | New request appears in Recent Activity within 1s of a proxy request |
 | I27 | P0 | Request logs manual refresh and exact-request mode | Refresh reloads the current server slice; `request_id` mode fetches only the targeted request |
 | I28 | P0 | Loadbalance events tab REST refresh | Refresh or page revisit loads the latest failover and Ban Policy events for the model |
-| I29 | P0 | Requests audit drawer lazy fetch and retry | Opening the audit tab triggers linked-audit lookup, skips fetches when audit was disabled for that request, and retries empty/transient failures up to five times |
+| I29 | P0 | Dedicated request audit page lookup | Opening `/observe/requests/:requestId/audit` triggers linked-audit lookup, skips fetches when audit was disabled for that request, and reports empty, missing, list-error, or detail-error states without fetching audit payloads in the overview drawer |
 | I30 | P0 | Dashboard reconnect reconciliation | Dashboard refetches ground truth after websocket reconnect and resumes push updates |
 | I31 | P1 | Dashboard websocket payload split | `dashboard.snapshot` refreshes summary, api_family, spending, throughput, and routing data; `dashboard.activity` inserts one recent activity row without forcing a snapshot rebuild |
 | I32 | P1 | Recent activity insertion animations | New dashboard websocket-driven rows animate on insert, with reduced-motion fallback showing static highlight only |
@@ -393,7 +418,7 @@ Prepare seed state through API (not manual DB edits):
 | I34 | P1 | Request-log retained-filter state | Changing one retained filter preserves unrelated URL-backed filter state, resets pagination, and refreshes the server-backed slice without client-side refinement gating |
 | I35 | P0 | Frontend locale switch (public + protected) | Switching between `en` and `zh-CN` updates shell and page copy, persists across refresh, and updates `document.documentElement.lang` |
 | I36 | P0 | Locale-aware management formatting | Settings, statistics, request logs, and proxy-key metadata render numbers/timestamps in the selected locale |
-| I37 | P0 | Analytics websocket no-REST data path | `/dashboard?tab=analytics` subscribes with `{type:"subscribe", channel:"analytics", profile_id, preset}`, receives a full `analytics.snapshot` with `endpoint_model_statistics_by_endpoint_id`, manual refresh sends websocket `refresh`, and the browser makes no `/api/stats/*` requests for analytics rendering |
+| I37 | P0 | Analytics websocket primary path and REST fallback | `/observe?tab=analytics` subscribes with `{type:"subscribe", channel:"analytics", profile_id, preset}`, accepts full `analytics.snapshot` payloads with `endpoint_model_statistics_by_endpoint_id`, falls back to `GET /api/stats/usage-snapshot` when realtime data does not arrive, and uses endpoint model stats REST for endpoint drilldown |
 
 ## J. Non-Functional Smoke
 
@@ -410,12 +435,12 @@ Prepare seed state through API (not manual DB edits):
 Run these checks in both `en` and `zh-CN` after the frontend is up:
 
 1. Public auth route check
-   - Visit `/login`
+   - Visit `/auth/login`
    - Switch the language control
    - Confirm shell/auth copy changes immediately and survives a hard refresh
 
 2. Protected route check
-   - Visit one protected route such as `/dashboard` or `/settings`
+   - Visit one protected route such as `/observe` or `/system/settings`
    - Confirm the selected locale persists after a refresh
    - Confirm `document.documentElement.lang` matches the selected locale
 
@@ -423,7 +448,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
    - Verify at least one timestamp, one number, and one currency value on a protected route change formatting between `en` and `zh-CN`
 
 4. Management route spot-check
-   - Verify `/settings`, `/models`, `/endpoints`, `/loadbalance-strategies`, `/proxy-api-keys`, and `/pricing-templates` for obvious mixed-language regressions
+   - Verify `/system/settings`, `/models`, `/route/endpoints`, `/route/ban-policies`, `/control/proxy-keys`, and `/route/pricing` for obvious mixed-language regressions
 
 ## K. Header Blocklist
 
@@ -537,6 +562,9 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L24 | P0 | Clear Terminal Target pricing template assignment | `200`, `pricing_template_id=null` accepted |
 | L29 | P0 | GET `/api/settings/timezone` | Returns current preference |
 | L30 | P0 | PUT `/api/settings/timezone` | `200`, preference persists |
+| L31 | P0 | GET `/api/settings/audit` | Returns stable `openai`, `anthropic`, and `gemini` rows for the selected profile |
+| L32 | P0 | PUT `/api/settings/audit` | Full-family replacement persists selected-profile audit and body-capture policy |
+
 ## M. Profile Isolation and Context Semantics
 
 | ID | Pri | Scenario | Expected Result |
@@ -561,7 +589,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | M16 | P0 | Config export from selected profile | Output is profile-targeted `version=3`, `bundle_kind=profile_config`, top-level `connections` for Terminal Targets, ordered model access targets, and safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
 | M17 | P0 | Config import preview/apply binding | Apply only succeeds after preview returns a token and the same token is sent in `X-Prism-Preview-Token` |
 | M18 | P0 | Config import replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
-| M19 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
+| M18A | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | M19 | P0 | Costing/settings isolation | Updating currency/FX in A does not mutate B/C settings or spending results |
 | M20 | P0 | Header blocklist scope merge | Runtime uses global system rules + active profile user rules; management CRUD/list views stay on effective-profile scope |
 | M21 | P1 | Failover Ban Policy isolation by profile | Retry-window and ban state in profile A does not affect profile B |

@@ -12,6 +12,7 @@ model_configs (profile-scoped)
   model_id
   display_name
   loadbalance_strategy_id FK -> loadbalance_strategies.id
+  openai_accepted_format
   is_enabled
   created_at, updated_at
   UNIQUE(profile_id, model_id)
@@ -137,8 +138,9 @@ request_logs (partitioned immutable attribution)
   PK (created_at, id)
   profile_id FK -> profiles.id
   model_id, resolved_target_model_id, api_family
+  operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path
   ingress_request_id, attempt_number, provider_correlation_id
-  connection_id, endpoint_base_url, endpoint_description
+  endpoint_id, connection_id, endpoint_base_url, endpoint_description
   status_code, response_time_ms, is_stream
   stream_outcome, stream_error_kind, stream_error_detail
   usage token fields
@@ -149,8 +151,9 @@ request_logs (partitioned immutable attribution)
 usage_request_events (partitioned immutable usage attribution)
   PK (created_at, id)
   profile_id FK -> profiles.id
-  ingress_request_id UNIQUE per profile
+  ingress_request_id indexed grouping id
   model_id, resolved_target_model_id, api_family
+  operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path
   endpoint_id, connection_id
   proxy_api_key_id, proxy_api_key_name_snapshot
   status_code, success_flag
@@ -170,16 +173,6 @@ audit_logs (partitioned immutable attribution)
   is_stream, duration_ms
   created_at partition key
 
-  id PK
-  profile_id FK -> profiles.id
-  model_config_id FK -> model_configs.id
-  connection_id FK -> connections.id
-  endpoint_id
-  endpoint_ping_status, endpoint_ping_ms
-  conversation_status, conversation_delay_ms
-  failure_kind, detail
-  checked_at
-
 loadbalance_events (partitioned immutable attribution)
   PK (created_at, id)
   profile_id FK -> profiles.id
@@ -190,6 +183,23 @@ loadbalance_events (partitioned immutable attribution)
   next_retry_at, last_retry_delay_ms
   ban_mode, banned_until_at, last_success_at
   model_id, endpoint_id
+  created_at
+
+management_jobs (durable management work queue)
+  id PK
+  type (audit_delete|log_retention)
+  state (queued|running|cancel_requested|cancelled|succeeded|failed)
+  profile_id (profile-owned jobs or 0 for global jobs)
+  scope_json, reason
+  rows_deleted, batches_completed, progress_json
+  attempt/lease/error fields
+  created_at, updated_at
+      |
+      v
+management_job_events
+  id PK
+  job_id FK -> management_jobs.id ON DELETE CASCADE
+  event_type, message, rows_deleted
   created_at
 
 app_auth_settings (singleton)
@@ -241,12 +251,9 @@ webauthn_credentials
 
 ```
 
-## 2. Table Definitions```
-
 ## 2. Table Definitions
 
 ### 2.1 `profiles`
-### 2.2 `profiles`
 
 Profiles are isolated configuration namespaces. One profile is active for runtime routing at any time.
 
@@ -269,7 +276,7 @@ Constraints and lifecycle rules:
 - Routine delete is soft-delete (`deleted_at`) and only allowed for inactive profiles.
 - Capacity limit: maximum 10 non-deleted profiles (`deleted_at IS NULL`) enforced at application level.
 
-### 2.3 `model_configs` (profile-scoped)
+### 2.2 `model_configs` (profile-scoped)
 
 Maps a model ID to fixed api family and routing behavior within one profile.
 
@@ -281,32 +288,38 @@ Maps a model ID to fixed api family and routing behavior within one profile.
 | model_id | VARCHAR(200) | NOT NULL | Model identifier (scoped by profile) |
 | display_name | VARCHAR(200) | NULLABLE | Human-readable name |
 | loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Strategy used while planning this model's targets |
+| openai_accepted_format | TEXT | NULLABLE | OpenAI model ingress contract: `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI models persist `NULL` |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Constraints:
 - `UNIQUE(profile_id, model_id)`.
+- OpenAI models require `openai_accepted_format` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI models must keep it `NULL`.
 - Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to Terminal Targets, Prism's product-facing model-private endpoint bindings.
 - Runtime compatibility is checked against `api_family`.
 - Exact facade routing, model-owned context capability, and overflow-promotion authoring fields are retired.
 
-### 2.3A `model_access_targets` (profile-scoped model access metadata)
+### 2.3 `model_access_targets` (profile-scoped model access metadata)
 
 Ordered access targets. Public authoring creates same-family model targets only. Internal connection targets are terminal ownership and routing edges from one source model to one Terminal Target, while model targets may chain until a Terminal Target is reached.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | source_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Model owning the target list |
+| target_type | VARCHAR(20) | NOT NULL, CHECK IN (`model`, `connection`) | Target discriminator |
 | target_model_config_id | INTEGER | FK -> model_configs.id, NULLABLE, ON DELETE RESTRICT | Optional model target |
 | target_connection_id | INTEGER | FK -> connections.id, NULLABLE, ON DELETE RESTRICT | Optional Terminal Target ownership and routing edge |
 | position | INTEGER | NOT NULL, CHECK >= 0 | Zero-based contiguous authoring order |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether this ordered peer participates in routing |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Constraints:
 - `UNIQUE(source_model_config_id, position)`.
-- Each row references exactly one target model or target connection.
+- `target_type` is `model` or `connection`, and each row references exactly one matching target model or target connection.
 - Source and target rows must stay in the same profile and same `api_family`.
 - Positions are normalized and validated as contiguous `0..N-1` in management contracts.
 - Position is an ordering key only, not priority, tier, or weight. Duplicate positions reject before write.
@@ -368,7 +381,7 @@ Constraints and indexes:
 - Profile config export never emits plaintext `api_key`; the `version: 3` profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
 - Endpoints with no upstream credential export `api_key_secret_ref = null` and do not emit a bundle secret entry.
 
-### 2.5 `connections` (profile-scoped Terminal Target storage)
+### 2.6 `connections` (profile-scoped Terminal Target storage)
 
 Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. Each compatibility connection row is owned by exactly one model through `model_access_targets.target_connection_id`, while endpoints remain reusable across many Terminal Targets.
 
@@ -391,6 +404,7 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | health_detail | TEXT | NULLABLE | Last health-check detail |
 | last_health_check | DATETIME | NULLABLE | Last health-check timestamp |
 | openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | OpenAI-family probe target and payload variant; `responses_minimal` is the default for OpenAI Terminal Targets, while non-OpenAI Terminal Targets persist `NULL` |
+| openai_text_capability | TEXT | NULLABLE | OpenAI Terminal Target text runtime capability: `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets persist `NULL` |
 | monitoring_probe_interval_seconds | INTEGER | NOT NULL, DEFAULT 300 | Reserved monitoring cadence field |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -405,10 +419,11 @@ Connection invariants:
 - Public model target authoring cannot attach Terminal Targets by ID. Model detail creates, updates, health-checks, and deletes Terminal Targets through model-scoped routes.
 - Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
+- OpenAI Terminal Targets require `openai_text_capability` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets must keep it `NULL`.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Sibling translation can run only for adapter-approved text-only Chat Completions and Responses shapes when a terminal target is not native for the ingress operation.
 - `openai_probe_endpoint_variant` is health-probe-only metadata. It selects the lightweight OpenAI probe endpoint and payload variant, and it does not derive runtime capability or request shape.
 
-### 2.6 `pricing_templates` (profile-scoped reusable token pricing)
+### 2.7 `pricing_templates` (profile-scoped reusable token pricing)
 
 Reusable token pricing definitions that can be attached to many Terminal Targets within a profile.
 
@@ -436,7 +451,7 @@ Pricing templates use five concrete pricing strings in steady state. Management 
 Token costing consumes canonical disjoint token components: base input, cache-read input, cache-creation input, base output, reasoning output, and provider or derived total. `cached_tokens` is derived-only for aggregate and presentation surfaces from cache-read plus cache-creation input tokens.
 
 
-### 2.7 `header_blocklist_rules` (mixed scope)
+### 2.8 `header_blocklist_rules` (mixed scope)
 
 Header blocklist is split between global system rules and profile-scoped user rules.
 
@@ -457,7 +472,7 @@ Constraints:
 - User rule: `is_system = FALSE` implies `profile_id IS NOT NULL`.
 - User rule uniqueness: `UNIQUE(profile_id, match_type, pattern)`.
 
-### 2.8 `user_settings` (profile-scoped singleton)
+### 2.9 `user_settings` (profile-scoped singleton)
 
 Per-profile costing/report display preferences.
 
@@ -471,7 +486,7 @@ Per-profile costing/report display preferences.
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-### 2.9 `endpoint_fx_rate_settings` (profile-scoped)
+### 2.10 `endpoint_fx_rate_settings` (profile-scoped)
 
 Custom FX mappings used by costing within one profile.
 
@@ -487,42 +502,77 @@ Custom FX mappings used by costing within one profile.
 
 Constraint: `UNIQUE(profile_id, model_id, endpoint_id)`.
 
-### 2.10 `request_logs` (partitioned immutable profile attribution)
+### 2.11 `request_logs` (partitioned immutable profile attribution)
 
 Telemetry rows for every proxy attempt with immutable profile attribution captured at request start. The table is range-partitioned by UTC `created_at` day. The partition-compatible primary key is `(created_at, id)`, with `id` still sequence-backed for lookup convenience.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| id | BIGINT | NOT NULL, sequence-backed, part of PK `(created_at, id)` | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | model_id | VARCHAR(200) | NOT NULL | Model ID used for attempt |
 | resolved_target_model_id | VARCHAR(200) | NULLABLE | Final target model selected for the attempt |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | ingress_request_id | VARCHAR(36) | NULLABLE | Prism-generated incoming request grouping ID |
 | attempt_number | INTEGER | NULLABLE | Per-ingress attempt order, starting at 1 |
-| operation_name | VARCHAR(100) | NOT NULL | Ingress canonical operation name |
-| upstream_operation_name | VARCHAR(100) | NULLABLE | Provider-facing operation name used for the attempt |
-| operation_translation_mode | VARCHAR(80) | NOT NULL, DEFAULT `none` | `none`, `openai_responses_to_chat_completions`, or `openai_chat_completions_to_responses` |
+| operation_name | VARCHAR(120) | NULLABLE | Ingress canonical operation name; runtime writers populate it for supported operations |
+| upstream_operation_name | VARCHAR(120) | NULLABLE | Provider-facing operation name used for the attempt |
+| operation_translation_mode | VARCHAR(80) | NULLABLE | `none`, `openai_responses_to_chat_completions`, or `openai_chat_completions_to_responses` |
 | upstream_request_path | VARCHAR(500) | NULLABLE | Sanitized provider-facing operation path |
 | provider_correlation_id | VARCHAR(255) | NULLABLE | Best-effort provider-visible correlation ID |
+| endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target before execution or no-fit rejection |
-| route_reason | VARCHAR(80) | NULLABLE | Canonical route reason for this attempt, such as `direct_match`, `model_redirect`, `qps_overflow`, or retry/overflow policy outcomes |
-| usage_source | VARCHAR(80) | NULLABLE | Canonical usage source for this attempt: `provider`, `provider_stream_terminal`, `local_estimate`, or `missing` |
 | proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot used for the request |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Display-name snapshot for the proxy key at request time |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
 | endpoint_description | TEXT | NULLABLE | Endpoint description snapshot |
 | status_code | INTEGER | NOT NULL | Upstream status code |
 | response_time_ms | INTEGER | NOT NULL | Latency in ms |
-| is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Streaming flag |
+| is_stream | BOOLEAN | NOT NULL | Streaming flag |
+| input_tokens | INTEGER | NULLABLE | Base input tokens |
+| output_tokens | INTEGER | NULLABLE | Base output tokens |
+| total_tokens | INTEGER | NULLABLE | Provider total or derived total when available |
+| success_flag | BOOLEAN | NULLABLE | Success classification |
+| billable_flag | BOOLEAN | NULLABLE | Billing eligibility classification |
+| priced_flag | BOOLEAN | NULLABLE | Costing completeness flag |
+| unpriced_reason | VARCHAR(50) | NULLABLE | Missing price or token-usage reason |
+| reasoning_tokens | INTEGER | NULLABLE | Reasoning output tokens |
+| cache_read_input_tokens | INTEGER | NULLABLE | Cache-read input tokens |
+| cache_creation_input_tokens | INTEGER | NULLABLE | Cache-creation input tokens |
+| input_cost_micros | BIGINT | NULLABLE | Input component cost |
+| output_cost_micros | BIGINT | NULLABLE | Output component cost |
+| reasoning_cost_micros | BIGINT | NULLABLE | Reasoning component cost |
+| cache_read_input_cost_micros | BIGINT | NULLABLE | Cache-read component cost |
+| cache_creation_input_cost_micros | BIGINT | NULLABLE | Cache-creation component cost |
+| total_cost_original_micros | BIGINT | NULLABLE | Total cost in original pricing currency |
+| total_cost_user_currency_micros | BIGINT | NULLABLE | Total cost in reporting currency |
+| currency_code_original | VARCHAR(3) | NULLABLE | Pricing currency code |
+| report_currency_code | VARCHAR(3) | NULLABLE | Reporting currency code |
+| report_currency_symbol | VARCHAR(5) | NULLABLE | Reporting currency symbol |
+| fx_rate_used | VARCHAR(20) | NULLABLE | FX rate snapshot |
+| fx_rate_source | VARCHAR(30) | NULLABLE | FX rate source |
+| pricing_snapshot_unit | VARCHAR(10) | NULLABLE | Pricing unit snapshot |
+| pricing_snapshot_input | VARCHAR(20) | NULLABLE | Input price snapshot |
+| pricing_snapshot_output | VARCHAR(20) | NULLABLE | Output price snapshot |
+| pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE | Reasoning price snapshot |
+| pricing_snapshot_cache_read_input | VARCHAR(20) | NULLABLE | Cache-read price snapshot |
+| pricing_snapshot_cache_creation_input | VARCHAR(20) | NULLABLE | Cache-creation price snapshot |
+| pricing_config_version_used | INTEGER | NULLABLE | Pricing config version used for costing |
 | stream_outcome | VARCHAR(50) | NOT NULL, DEFAULT `not_streaming` | Stream classification: `not_streaming`, `completed`, `provider_incomplete`, `client_disconnected`, `upstream_read_error`, `upstream_ended_without_terminal`, or `unknown` |
 | stream_error_kind | VARCHAR(50) | NULLABLE | Stream diagnostic kind: `client_write_failed`, `request_context_canceled`, `upstream_read_failed`, or `missing_terminal_event` |
 | stream_error_detail | TEXT | NULLABLE | Sanitized request-log-detail-only diagnostic text for stream failures |
-| usage + costing snapshot fields | mixed | NULLABLE | Token/cost telemetry and pricing snapshots |
 | request_path | VARCHAR(500) | NOT NULL | Requested route path |
 | error_detail | TEXT | NULLABLE | Error details for failed attempts |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Attempt timestamp |
+| caller_user_agent | TEXT | NULLABLE | Original caller user agent |
+| upstream_user_agent | TEXT | NULLABLE | User-Agent sent upstream |
+| completion_duration_ms | INTEGER | NULLABLE | Completion duration after first token/byte when available |
+| ttft_ms | INTEGER | NULLABLE | Time to first token/byte when available |
+| audit_enabled_at_request | BOOLEAN | NOT NULL, DEFAULT FALSE | Request-time audit enablement snapshot |
+| audit_capture_bodies_at_request | BOOLEAN | NOT NULL, DEFAULT FALSE | Request-time body-capture snapshot |
+| request_generation_params | JSONB | NULLABLE | Captured request-generation parameter summary |
+| request_generation_params_status | VARCHAR(40) | NULLABLE | Generation-parameter capture status |
+| created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Attempt timestamp and partition key |
 
 Request-log semantics:
 - One row is written per upstream attempt, not per incoming runtime request.
@@ -530,44 +580,72 @@ Request-log semantics:
 - `attempt_number` preserves retry/failover ordering within that group.
 - `model_id` records the requested model ID while `resolved_target_model_id` records the final target model ID selected for that attempt.
 - `operation_name` and `request_path` remain ingress-led. `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` are additive upstream attribution for native or translated attempts.
-- `route_reason` uses the frozen gateway vocabulary from the route planning or retry phase, while `usage_source` uses the frozen usage provenance vocabulary from provider response capture.
 - `selected_terminal_target_id` can differ from `connection_id` when the planner selected one terminal target but execution later failed over to another attempt.
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 - Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
 - Pricing snapshots persist the five concrete pricing strings used for the attempt. Explicit `"0"` prices mean configured free pricing, while absent or invalid pricing snapshots and missing FX data stay unpriced with `MISSING_PRICE_DATA`.
 
-### 2.11 `usage_request_events` (partitioned immutable usage attribution)
+### 2.12 `usage_request_events` (partitioned immutable usage attribution)
 
 Usage-event rows are the finalized source for the unified statistics snapshot. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| id | BIGINT | NOT NULL, sequence-backed, part of PK `(created_at, id)` | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
-| ingress_request_id | VARCHAR(36) | NOT NULL, UNIQUE per profile | Incoming request grouping ID preserved for aggregate attribution and cross-table correlation |
+| ingress_request_id | VARCHAR(36) | NOT NULL, indexed with `profile_id` | Incoming request grouping ID preserved for aggregate attribution and cross-table correlation |
 | model_id | VARCHAR(200) | NOT NULL | Requested model ID |
 | resolved_target_model_id | VARCHAR(200) | NULLABLE | Final target model selected for the request |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
-| operation_name | VARCHAR(100) | NOT NULL | Ingress canonical operation name |
-| upstream_operation_name | VARCHAR(100) | NULLABLE | Provider-facing operation name for finalized attribution |
-| operation_translation_mode | VARCHAR(80) | NOT NULL, DEFAULT `none` | Translation mode copied from the finalized attempt |
+| operation_name | VARCHAR(120) | NULLABLE | Ingress canonical operation name; runtime writers populate it for supported operations |
+| upstream_operation_name | VARCHAR(120) | NULLABLE | Provider-facing operation name for finalized attribution |
+| operation_translation_mode | VARCHAR(80) | NULLABLE | Translation mode copied from the finalized attempt |
 | upstream_request_path | VARCHAR(500) | NULLABLE | Sanitized provider-facing operation path |
+| request_path | VARCHAR(500) | NOT NULL | Ingress route path that finalized the event |
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
 | endpoint_label_snapshot | TEXT | NOT NULL | Endpoint label captured at runtime for retained aggregate display |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target for the finalized request |
-| route_reason | VARCHAR(80) | NULLABLE | Canonical finalized route reason copied from the request-log attempt that supplied the final response |
-| usage_source | VARCHAR(80) | NULLABLE | Canonical finalized usage provenance: `provider`, `provider_stream_terminal`, `local_estimate`, or `missing` |
 | proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Proxy key name at event time |
-| attempt_count | INTEGER | NOT NULL | Number of upstream attempts that contributed to the finalized event |
+| attempt_count | INTEGER | NOT NULL, CHECK `attempt_count >= 1` | Number of upstream attempts that contributed to the finalized event |
 | status_code | INTEGER | NOT NULL | HTTP status code |
 | success_flag | BOOLEAN | NOT NULL | Success indicator |
+| billable_flag | BOOLEAN | NULLABLE | Billing eligibility classification |
+| priced_flag | BOOLEAN | NULLABLE | Costing completeness flag |
+| unpriced_reason | VARCHAR(50) | NULLABLE | Missing price or token-usage reason |
+| input_tokens | INTEGER | NULLABLE | Base input tokens |
+| output_tokens | INTEGER | NULLABLE | Base output tokens |
+| total_tokens | INTEGER | NULLABLE | Provider total or derived total when available |
+| cache_read_input_tokens | INTEGER | NULLABLE | Cache-read input tokens |
+| cache_creation_input_tokens | INTEGER | NULLABLE | Cache-creation input tokens |
+| reasoning_tokens | INTEGER | NULLABLE | Reasoning output tokens |
+| input_cost_micros | BIGINT | NULLABLE | Input component cost |
+| output_cost_micros | BIGINT | NULLABLE | Output component cost |
+| cache_read_input_cost_micros | BIGINT | NULLABLE | Cache-read component cost |
+| cache_creation_input_cost_micros | BIGINT | NULLABLE | Cache-creation component cost |
+| reasoning_cost_micros | BIGINT | NULLABLE | Reasoning component cost |
+| total_cost_original_micros | BIGINT | NULLABLE | Total cost in original pricing currency |
+| total_cost_user_currency_micros | BIGINT | NULLABLE | Total cost in reporting currency |
+| currency_code_original | VARCHAR(3) | NULLABLE | Pricing currency code |
+| report_currency_code | VARCHAR(3) | NULLABLE | Reporting currency code |
+| report_currency_symbol | VARCHAR(5) | NULLABLE | Reporting currency symbol |
+| fx_rate_used | VARCHAR(20) | NULLABLE | FX rate snapshot |
+| fx_rate_source | VARCHAR(30) | NULLABLE | FX rate source |
+| pricing_snapshot_unit | VARCHAR(10) | NULLABLE | Pricing unit snapshot |
+| pricing_snapshot_input | VARCHAR(20) | NULLABLE | Input price snapshot |
+| pricing_snapshot_output | VARCHAR(20) | NULLABLE | Output price snapshot |
+| pricing_snapshot_cache_read_input | VARCHAR(20) | NULLABLE | Cache-read price snapshot |
+| pricing_snapshot_cache_creation_input | VARCHAR(20) | NULLABLE | Cache-creation price snapshot |
+| pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE | Reasoning price snapshot |
+| pricing_config_version_used | INTEGER | NULLABLE | Pricing config version used for costing |
+| response_time_ms | INTEGER | NULLABLE | Final attempt latency in ms |
+| completion_duration_ms | INTEGER | NULLABLE | Completion duration after first token/byte when available |
+| ttft_ms | INTEGER | NULLABLE | Time to first token/byte when available |
 | stream_outcome | VARCHAR(50) | NOT NULL, DEFAULT `not_streaming` | Finalized stream classification copied from the contributing request-log attempt |
 | stream_error_kind | VARCHAR(50) | NULLABLE | Finalized stream diagnostic kind without detail text |
-| usage + costing snapshot fields | mixed | NULLABLE | Token and cost telemetry snapshots |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp |
+| created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Event timestamp and partition key |
 
 Usage-event semantics:
 - One row captures the finalized usage event that feeds the statistics snapshot.
@@ -575,33 +653,34 @@ Usage-event semantics:
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
 - `endpoint_label_snapshot` preserves the endpoint display label used by usage snapshots, spending, and Top Endpoints, even if the endpoint is later renamed or deleted. Public stats payloads expose this stored value as `endpoint_label`.
 - Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
-- Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, `route_reason`, `usage_source`, and additive ingress/upstream operation attribution. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
+- Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, and additive ingress/upstream operation attribution. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
 - Explicit `"0"` pricing contributes zero-cost component micros on priced events. Rows with absent or invalid pricing snapshots, or missing FX data, remain unpriced with `MISSING_PRICE_DATA`.
 
-### 2.12 `audit_logs` (partitioned immutable profile attribution)
+### 2.13 `audit_logs` (partitioned immutable profile attribution)
 
 Audit rows for upstream attempts with immutable profile attribution. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key. Audit-to-request linkage is weak so audit rows can outlive request-log partitions.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| id | BIGINT | NOT NULL, sequence-backed, part of PK `(created_at, id)` | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
-| request_log_id | INTEGER | NULLABLE | Weak request-log identifier retained for historical linking |
-| request_log_created_at | DATETIME | NULLABLE | Weak request-log partition key retained for historical linking |
+| request_log_id | BIGINT | NULLABLE | Weak request-log identifier retained for historical linking |
+| request_log_created_at | TIMESTAMPTZ | NULLABLE | Weak request-log partition key retained for historical linking |
 | ingress_request_id | VARCHAR(36) | NULLABLE | Weak incoming request grouping ID retained for correlation |
 | model_id | VARCHAR(200) | NOT NULL | Model ID |
+| endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
 | connection_id | INTEGER | NULLABLE | Connection snapshot |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
 | endpoint_description | TEXT | NULLABLE | Endpoint description snapshot |
 | request_method/request_url/request_headers/request_body | mixed | request fields | Upstream request snapshot |
 | response_status/response_headers/response_body | mixed | response fields | Upstream response snapshot |
-| audit_enabled_at_request | BOOLEAN | NOT NULL | Whether audit was enabled when the request started |
-| audit_capture_bodies_at_request | BOOLEAN | NOT NULL | Whether body capture was enabled when the request started |
-| request_body_stored | BOOLEAN | NOT NULL | Whether request body content was stored |
-| response_body_stored | BOOLEAN | NOT NULL | Whether response body content was stored |
-| is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Streaming flag |
+| audit_enabled_at_request | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether audit was enabled when the request started |
+| audit_capture_bodies_at_request | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether body capture was enabled when the request started |
+| request_body_stored | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether request body content was stored |
+| response_body_stored | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether response body content was stored |
+| is_stream | BOOLEAN | NOT NULL | Streaming flag |
 | duration_ms | INTEGER | NOT NULL | Request duration |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Audit timestamp and partition key |
+| created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Audit timestamp and partition key |
 
 Audit-link semantics:
 - `request_log_id`, `request_log_created_at`, and `ingress_request_id` are retained as weak metadata.
@@ -609,12 +688,13 @@ Audit-link semantics:
 - Audit retention and request-log retention are independent global jobs.
 - Translated OpenAI attempts store upstream-native request and response bodies when body capture is enabled. Audit rows do not store the translated client-facing body shape.
 
-### 2.12A `profile_api_family_audit_settings` (profile-scoped audit policy)
+### 2.14 `profile_api_family_audit_settings` (profile-scoped audit policy)
 
 One row per profile and API family controls whether runtime attempts create audit metadata and whether bodies may be stored.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL, ON DELETE CASCADE | Owning profile |
 | api_family | VARCHAR(50) | NOT NULL, CHECK IN (`openai`, `anthropic`, `gemini`) | Runtime compatibility family |
 | audit_enabled | BOOLEAN | NOT NULL | Whether attempts for this profile/family create audit rows |
@@ -629,13 +709,13 @@ Constraints:
 - Config bundles store this policy under `profile_settings.audit_api_family_settings` in stable `openai`, `anthropic`, `gemini` order and import it as a full replacement.
 - Runtime snapshots load policy by profile and model `api_family`; request-time booleans are copied into existing request-log and audit-log provenance fields.
 
-### 2.13 `loadbalance_events` (partitioned immutable profile attribution)
+### 2.15 `loadbalance_events` (partitioned immutable profile attribution)
 
 Persistent record of retry-window, ban, recovery, and admission transitions. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| id | BIGINT | PK, AUTOINCREMENT | Unique identifier |
+| id | BIGINT | NOT NULL, sequence-backed, part of PK `(created_at, id)` | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | connection_id | INTEGER | NOT NULL | Private connection ID |
 | event_type | VARCHAR(32) | NOT NULL | `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, `admission_rejected` |
@@ -644,14 +724,14 @@ Persistent record of retry-window, ban, recovery, and admission transitions. The
 | cumulative_retry_attempts | INTEGER | NOT NULL | Retry attempts accumulated for Ban Policy thresholding |
 | policy_cycle_retry_attempt_limit | INTEGER | NULLABLE | Strategy cycle limit snapshot for events produced by Ban Policy evaluation |
 | policy_ban_cumulative_retry_attempt_threshold | INTEGER | NULLABLE | Strategy cumulative ban threshold snapshot for events produced by Ban Policy evaluation |
-| next_retry_at | DATETIME | NULLABLE | Wall-clock time when the next retry cycle can run |
+| next_retry_at | TIMESTAMPTZ | NULLABLE | Wall-clock time when the next retry cycle can run |
 | last_retry_delay_ms | INTEGER | NOT NULL | Last resolved retry-window delay in milliseconds |
 | model_id | VARCHAR(200) | NULLABLE | Model ID snapshot |
 | endpoint_id | INTEGER | NULLABLE | Endpoint ID snapshot |
 | ban_mode | VARCHAR(20) | NULLABLE | `off`, `temporary`, or `until_reset` when relevant |
-| banned_until_at | DATETIME | NULLABLE | Temporary-ban expiry when relevant |
-| last_success_at | DATETIME | NULLABLE | Successful response time that cleared retry state when relevant |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp and partition key |
+| banned_until_at | TIMESTAMPTZ | NULLABLE | Temporary-ban expiry when relevant |
+| last_success_at | TIMESTAMPTZ | NULLABLE | Successful response time that cleared retry state when relevant |
+| created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Event timestamp and partition key |
 
 Event snapshot semantics:
 - Ban Policy event rows keep immutable SQL storage snapshots in `policy_cycle_retry_attempt_limit` and `policy_ban_cumulative_retry_attempt_threshold` from the strategy evaluated at event time.
@@ -659,7 +739,7 @@ Event snapshot semantics:
 - Current-state rows stay connection-global and do not store strategy threshold fields; policy thresholds belong to immutable event snapshots from the owner model's strategy.
 - Historical events can explain inclusive threshold behavior even after a strategy changes later.
 
-### 2.14 `log_retention_settings` (global singleton)
+### 2.16 `log_retention_settings` (global singleton)
 
 Global normal-retention policy for partitioned log tables.
 
@@ -724,7 +804,54 @@ When an operator performs manual bounded deletes on the cutoff-overlapping bound
 VACUUM (ANALYZE, PROCESS_TOAST TRUE) public.request_logs_pYYYYMMDD;
 ```
 
-### 2.15 `routing_connection_runtime_state`### 2.15 `routing_connection_runtime_state` (profile-scoped Ban Mode runtime state, `UNLOGGED`)
+### 2.17 `management_jobs` (durable management work queue)
+
+Durable queue for broad management operations. Audit-delete jobs are profile-scoped. Log-retention jobs are global and use `profile_id = 0`.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | TEXT | PK | Job identifier |
+| type | TEXT | NOT NULL, CHECK IN (`audit_delete`, `log_retention`) | Job kind |
+| state | TEXT | NOT NULL, CHECK IN (`queued`, `running`, `cancel_requested`, `cancelled`, `succeeded`, `failed`) | Job lifecycle state |
+| requested_by | TEXT | NOT NULL | Requesting principal or scope label |
+| requested_at | TIMESTAMPTZ | NOT NULL | Request timestamp |
+| started_at | TIMESTAMPTZ | NULLABLE | First worker start time |
+| finished_at | TIMESTAMPTZ | NULLABLE | Terminal-state timestamp |
+| priority | TEXT | NOT NULL, DEFAULT `maintenance` | Worker priority lane |
+| idempotency_key | TEXT | NULLABLE | Optional dedupe key with partial unique index by `type` and `requested_by` |
+| profile_id | INTEGER | NOT NULL | Owning profile for `audit_delete`; `0` sentinel for global `log_retention` |
+| scope_json | JSONB | NOT NULL | Job-specific delete or retention scope |
+| reason | TEXT | NOT NULL | Operator reason or default retention reason |
+| rows_matched_estimate | BIGINT | NULLABLE | Optional estimated matched rows |
+| rows_deleted | BIGINT | NOT NULL, DEFAULT 0 | Accumulated deleted rows |
+| batches_completed | BIGINT | NOT NULL, DEFAULT 0 | Completed worker batches |
+| progress_json | JSONB | NOT NULL, DEFAULT `{}` | Worker progress cursor/state |
+| cancel_requested | BOOLEAN | NOT NULL, DEFAULT FALSE | Cancellation flag |
+| attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Worker attempt count |
+| max_attempts | INTEGER | NOT NULL, DEFAULT 8 | Retry ceiling |
+| next_attempt_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW | Next claim time |
+| locked_by | TEXT | NULLABLE | Worker lease owner |
+| locked_until | TIMESTAMPTZ | NULLABLE | Worker lease expiry |
+| last_heartbeat_at | TIMESTAMPTZ | NULLABLE | Last worker heartbeat |
+| error_code | TEXT | NULLABLE | Terminal or retry error code |
+| error_message | TEXT | NULLABLE | Sanitized error detail |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+### 2.18 `management_job_events`
+
+Append-only event stream for management job status and progress.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | BIGINT | PK, sequence-backed | Unique identifier |
+| job_id | TEXT | FK -> management_jobs.id, NOT NULL, ON DELETE CASCADE | Owning job |
+| event_type | TEXT | NOT NULL | Event kind such as `created` or `cancel_requested` |
+| message | TEXT | NOT NULL, DEFAULT empty string | Safe operator-facing event message |
+| rows_deleted | BIGINT | NOT NULL, DEFAULT 0 | Rows deleted by the event batch |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW | Event timestamp |
+
+### 2.19 `routing_connection_runtime_state` (profile-scoped Ban Mode runtime state, `UNLOGGED`)
 
 Ephemeral hot-state row for per-connection admission counters and Ban Mode retry-cycle state. This table is intentionally `UNLOGGED`, so it resets after crash or unclean shutdown.
 
@@ -761,7 +888,7 @@ Ban Mode semantics:
 - `ban_mode="until_reset"` keeps the connection banned until reset. `ban_mode="temporary"` keeps it banned until `banned_until_at`; expired temporary bans are cleared on the next runtime attempt.
 - Successful upstream responses clear retry-window and ban state for the private connection.
 
-### 2.16 `routing_connection_runtime_leases` (profile-scoped runtime lease table, `UNLOGGED`)
+### 2.20 `routing_connection_runtime_leases` (profile-scoped runtime lease table, `UNLOGGED`)
 
 Ephemeral lease rows used for non-stream attempts and streaming heartbeats.
 
@@ -779,7 +906,7 @@ Ephemeral lease rows used for non-stream attempts and streaming heartbeats.
 Constraints:
 - `lease_kind` is restricted to `stream` or `non_stream`.
 
-### 2.17 `app_auth_settings` (singleton)
+### 2.21 `app_auth_settings` (singleton)
 
 Global operator authentication settings and credentials.
 
@@ -802,7 +929,7 @@ Global operator authentication settings and credentials.
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-### 2.18 `refresh_tokens`
+### 2.22 `refresh_tokens`
 
 Cookie-backed management sessions with family rotation and revocation.
 
@@ -820,7 +947,7 @@ Cookie-backed management sessions with family rotation and revocation.
 | ip_address | VARCHAR(100) | NULLABLE | Client IP snapshot |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 
-### 2.18 `proxy_api_keys`
+### 2.23 `proxy_api_keys`
 
 Runtime data-plane credentials.
 
@@ -845,7 +972,7 @@ Rotation and expiry semantics:
 - `rotated_from_id` preserves predecessor/successor lineage across key rotation instead of mutating one row in place.
 - Expired or retired keys remain as historical rows; runtime enforcement uses `is_active` plus `expires_at`, while management list views keep the rows for attribution and lineage.
 
-### 2.19 `password_reset_challenges`
+### 2.24 `password_reset_challenges`
 
 Password-reset OTP challenges for the singleton operator account.
 
@@ -860,7 +987,7 @@ Password-reset OTP challenges for the singleton operator account.
 | requested_ip | VARCHAR(100) | NULLABLE | Request origin IP |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 
-### 2.21 `webauthn_challenges`
+### 2.25 `webauthn_challenges`
 
 Retained internal challenge storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey ceremonies.
 
@@ -872,7 +999,7 @@ Retained internal challenge storage from the earlier passkey design. Prism's cur
 | expires_at | DATETIME | NOT NULL | Challenge expiry |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 
-### 2.22 `webauthn_credentials`
+### 2.26 `webauthn_credentials`
 
 Retained internal credential storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey credential management.
 
@@ -892,6 +1019,21 @@ Retained internal credential storage from the earlier passkey design. Prism's cu
 | last_used_ip | VARCHAR(45) | NULLABLE | Most recent assertion IP |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+### 2.27 Additional Live Platform Tables
+
+These live tables are internal platform state rather than primary product configuration surfaces. They remain part of the active schema and are owned by their platform packages.
+
+| Table | Scope | Key columns and purpose |
+|---|---|---|
+| `user_agent_client_rules` | system global or profile-scoped | `id`, nullable `profile_id`, `name`, `pattern`, `enabled`, `is_system`, timestamps; system rows have `profile_id IS NULL`, user rows have `profile_id IS NOT NULL`, and enabled rows drive caller User-Agent client labels and request-log filtering |
+| `login_throttle_ledger` | auth singleton support | Composite PK `(subject_key, remote_address)`, `failure_count`, failure timestamps, `locked_until`, timestamps; tracks login throttling state |
+| `email_outbox` | auth/mail background work | UUID `id`, `kind`, `recipient_email`, `template`, `payload_json`, optional encrypted email secret, unique `idempotency_key`, status `queued|sending|sent|dead`, attempt/lease timestamps, sent/dead-letter timestamps, `last_error`, timestamps |
+| `management_outbox` | management side effects | `id`, `operation_id`, `event_type`, aggregate identity/version, unique `dedupe_key`, `payload`, status `pending|processing|retry|succeeded|failed_permanent`, attempt/lock fields, actor/trace metadata, timestamps |
+| `runtime_telemetry_outbox` | profile-scoped runtime side-effect handoff | `id`, `profile_id`, `ingress_request_id`, `payload`, `created_at`; durable runtime telemetry handoff rows are materialized by background workers and then deleted |
+| `loadbalance_round_robin_state` | profile-scoped routing state | `id`, `profile_id`, `model_config_id`, `next_cursor`, timestamps; one cursor row per profile/model for round-robin routing |
+| `management_stat_buckets` | internal stats rollup helper | Composite PK `(bucket_start, bucket_size, metric, dimension_key, dimension_value)`, numeric `value`, `source_high_water_mark`, `generated_at`; retained for internal rollup helpers and tests, not the primary dashboard contract |
+| `management_stat_refresh_state` | internal stats rollup helper | PK `job_name`, `last_source_high_water_mark`, `last_success_at`, `last_error`, `updated_at`; tracks internal rollup refresh progress |
 
 ## 3. Indexes and Constraints (Profile Isolation)
 
@@ -921,6 +1063,8 @@ CREATE INDEX idx_connections_endpoint_id ON connections(endpoint_id);
 CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);
 CREATE INDEX idx_request_logs_profile_created_at ON request_logs(profile_id, created_at);
 CREATE INDEX idx_request_logs_ingress_request_id ON request_logs(ingress_request_id);
+CREATE INDEX idx_usage_request_events_profile_created_at ON usage_request_events(profile_id, created_at);
+CREATE INDEX idx_usage_request_events_profile_ingress_request ON usage_request_events(profile_id, ingress_request_id);
 CREATE INDEX idx_audit_logs_profile_created_at ON audit_logs(profile_id, created_at);
 CREATE INDEX idx_loadbalance_events_profile_created ON loadbalance_events(profile_id, created_at);
 CREATE INDEX idx_loadbalance_events_connection ON loadbalance_events(connection_id, created_at);
@@ -944,7 +1088,7 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 
 ## 4. Relationship and Ownership Rules
 
-- `profiles` own all scoped entities: `model_configs`, `endpoints`, `connections`, `user_settings`, `endpoint_fx_rate_settings`, user `header_blocklist_rules`.
+- Profile-scoped entities include `model_configs`, `model_access_targets`, `loadbalance_strategies`, `endpoints`, `connections`, `pricing_templates`, `user_settings`, `endpoint_fx_rate_settings`, `profile_api_family_audit_settings`, `routing_connection_runtime_state`, `routing_connection_runtime_leases`, `loadbalance_round_robin_state`, `runtime_telemetry_outbox`, profile-owned `management_jobs`, user `header_blocklist_rules`, and user `user_agent_client_rules`.
 - `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, and `password_reset_challenges`; retained `webauthn_credentials` rows remain schema-level historical state rather than an active supported workflow surface.
 - `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.

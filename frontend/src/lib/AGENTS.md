@@ -24,7 +24,9 @@ lib/
 ├── loadbalanceRoutingPolicy.ts   # Dual-family defaults and policy normalization
 ├── appVersion.ts                 # Browser-facing app version helper built from Vite-injected package metadata
 ├── reportingCurrency.ts          # Selected-profile keyed reporting-currency cache
-├── types.ts + types/             # Backend-aligned payload and domain types
+├── types.ts                      # Public type barrel
+├── types/AGENTS.md               # Backend-aligned payload and domain type rules
+├── types/                        # Backend-aligned payload and domain types
 ├── costing.ts                    # Shared cost formatting and usage-label helpers
 ├── timezone.ts                   # Timezone preference cache and formatting helpers used by hooks/pages
 ├── clipboard.ts                  # Browser clipboard helpers and UX-safe copy flow
@@ -44,12 +46,13 @@ lib/
 - Shared timezone preference lookup and formatting helpers consumed by `useTimezone()`: `timezone.ts`
 - Shared cost formatting and usage-label helpers layered over the active reporting currency: `costing.ts`
 - Browser clipboard helpers reused across route shells and detail views: `clipboard.ts`
-- Backend-aligned payload types: `types.ts`, `types/`
+- Backend-aligned payload types: `types.ts`, `types/AGENTS.md`, `types/`
 
 ## CHILD DOCS
 
 - `api/AGENTS.md`: `core.ts`, `profileScope.ts`, `authSettings.ts`, `management.ts`, and `observability.ts` ownership beneath the public `api.ts` barrel.
 - `websocket/AGENTS.md`: message helpers, subscription bookkeeping, and transport/reconnect rules beneath `websocket.ts`.
+- `types/AGENTS.md`: backend-aligned TypeScript contracts beneath the `types.ts` barrel.
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.

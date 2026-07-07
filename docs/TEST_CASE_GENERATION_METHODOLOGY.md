@@ -12,7 +12,7 @@ When generating test cases, use these sources in order:
 2. `docs/ARCHITECTURE.md` for route and component boundaries.
 3. `docs/PRD.md` for intended operator workflows and product expectations.
 4. `docs/SMOKE_TEST_PLAN.md` for existing manual smoke coverage.
-5. `frontend/src/App.tsx` for the mounted route surface.
+5. `frontend/src/app/router/appRouter.tsx` and `frontend/src/app/router/rewriteRoutes.ts` for the mounted route surface, canonical paths, and legacy redirects.
 6. the live Go backend surface for the mounted backend router surface and `/health`.
 7. Child AGENTS files under `frontend/` and `backend/` for local ownership boundaries inside the monorepo.
 8. Current repo-owned backend and frontend documentation for the live implementation surface. The checked-in regression trees remain present under `backend/tests/` and `frontend/tests/`; when grounding backend coverage, prefer the Go runtime under `backend/cmd/`, `backend/internal/`, `backend/migrations/`, and the Go regression packages under `backend/tests/{contract,integration,runtime,priority}`.
@@ -23,15 +23,15 @@ Do not generate cases for behavior that is not supported by those sources.
 
 The agent should always inventory Prism as these surfaces:
 
-- Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected management routes for observe, request logs, models, model detail, endpoints, Ban Policies, settings, proxy keys, and pricing templates
+- Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect there
+- Protected management routes for `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/system/settings`, `/control/proxy-keys`, and `/route/pricing`
 - Management APIs on `/api/*`, split between global and selected-profile route classes
 - Runtime proxy APIs on `/v1/*` and `/v1beta/*`
 - Dashboard realtime messages on `/api/realtime/ws`
 - The selected-profile versus active-profile split
 - Dense frontend management surfaces with forms, tables, dialogs, drawers, charts, and toasts
 
-High-value frontend surfaces include the dashboard analytics tab, models list, model detail, endpoints, loadbalance strategies, settings, proxy API keys, pricing templates, and request-log investigation flow. High-value backend surfaces include auth, profile lifecycle, config import or export, runtime proxy routing, failover, dashboard realtime messages, costing, audit logging, and observability queries.
+High-value frontend surfaces include the observe analytics tab, models list, model detail, endpoints, Ban Policies, settings, proxy API keys, pricing templates, and request-log investigation plus audit-page flow. High-value backend surfaces include auth, profile lifecycle, config import or export, runtime proxy routing, failover, realtime messages, costing, audit logging, and observability queries.
 
 ## 4. Coverage Classes
 

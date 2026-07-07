@@ -21,7 +21,7 @@
                     └──────────────────────────────────────────┘
 ```
 
-*Local `./start.sh` keeps frontend `5173` and PostgreSQL `15432` fixed, and follows the selected bootstrap file's backend port. Freshly seeded bootstrap files default that backend port to `8000`. Standalone frontend containers commonly expose `3000`.
+*Local `./start.sh` keeps frontend `5173` and PostgreSQL `15432` fixed, and follows the selected bootstrap file's backend port. The checked-in `config.json` and freshly seeded bootstrap files use backend port `8000`. Standalone frontend containers commonly expose `3000`.
 
 ## 2. Component Architecture
 
@@ -61,7 +61,8 @@ backend/
 frontend/
 ├── src/
 │   ├── main.tsx                # Entry point
-│   ├── App.tsx                 # BrowserRouter + public auth routes + protected Page shell routes
+│   ├── App.tsx                 # Query, BrowserRouter, auth-provider, and TanStack RouterProvider host
+│   ├── app/router/             # Canonical route tree, protected shell gates, search schemas, and legacy redirects
 │   ├── context/
 │   │   ├── ProfileContext.tsx  # Selected profile vs active profile state bootstrapped from /api/profiles/bootstrap
 │   │   └── AuthContext.tsx     # Operator auth bootstrap, refresh, and session state
@@ -73,7 +74,6 @@ frontend/
 │   │   ├── timezone.ts         # Shared timezone formatting helpers
 │   │   └── configImportValidation.ts # Config import validation for the current configuration format
 │   ├── hooks/
-│   │   ├── usePolling.ts       # Shared polling helper
 │   │   ├── useRealtimeData.ts  # WebSocket-backed live refresh helper
 │   │   └── useTimezone.ts      # Shared timezone formatting helper
 │   ├── components/
@@ -82,17 +82,19 @@ frontend/
 │   │   ├── loadbalance/        # Shared loadbalance renderers
 │   │   ├── statistics/         # Shared statistics renderers
 │   │   └── ui/                 # shadcn/ui components
+│   ├── features/
+│   │   ├── observe/           # `/observe` dashboard adapter
+│   │   ├── models/            # `/models` list and `/models/$modelId` detail adapter
+│   │   ├── endpoints/         # `/route/endpoints`
+│   │   ├── loadbalance/       # `/route/ban-policies`
+│   │   ├── pricing/           # `/route/pricing`
+│   │   ├── proxy-keys/        # `/control/proxy-keys`
+│   │   ├── request-logs/      # `/observe/requests` and dedicated audit adapter
+│   │   └── settings/          # `/system/settings` plus startup leaf
 │   └── pages/
-│       ├── DashboardPage.tsx
-│       ├── ModelsPage.tsx
-│       ├── ModelDetailPage.tsx     # Model detail shell + loadbalance events tab
-│       ├── EndpointsPage.tsx
-│       ├── dashboard/DashboardPage.tsx # Dashboard shell with analytics tab and shared statistics content
-│       ├── RequestLogsPage.tsx     # Request-log investigation with lazy audit lookup
-│       ├── ProxyApiKeysPage.tsx
-│       ├── SettingsPage.tsx        # Profile-scoped settings shell + global auth and startup management
-│       ├── PricingTemplatesPage.tsx
-│       └── LoadbalanceStrategiesPage.tsx
+│       ├── LoginPage.tsx, ForgotPasswordPage.tsx, ResetPasswordPage.tsx
+│       ├── DashboardPage.tsx, RequestLogsPage.tsx, SettingsPage.tsx
+│       └── */                 # Legacy/oracle page clusters reused by feature routes and tests
 
 ├── components.json             # shadcn config
 ├── package.json
@@ -107,14 +109,14 @@ frontend/
 - `./start.sh full` launches the frontend on `5173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at that effective backend port so browser traffic stays same-origin.
 - Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; backend-native fresh seeds default the database URL to `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, while `start.sh` sets `DATABASE_URL` to the local launcher PostgreSQL DSN on host port `15432` before seeding.
 - Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; encrypted bootstrap files must be replaced before boot. Missing files are seeded once, and the entrypoint has a narrow repair path for stale files rejected only because they still contain retired `docsEnabled`. Other invalid legacy shapes fail validation. Existing valid files are preserved until an operator resets manually by stopping Prism, removing or relocating the file, and restarting.
-- The backend image runs as `prism:prism`, UID/GID `1000:1000`. Container deployments that bind mount `/app/config` or any other `PRISM_CONFIG_PATH` parent must make that host directory writable by UID/GID `1000:1000`; new and existing root-owned mounts should be prepared once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
+- The root `Dockerfile` plus root `docker-compose.yml` are the default local/self-hosted bundle: Compose builds one Prism app image, runs PostgreSQL as a separate service, and the app image runs the Go backend behind Nginx with optional React assets. `backend/Dockerfile` is the separate backend-only image path used by backend image builds and GHCR workflows.
+- The backend-only image runs as `prism:prism`, UID/GID `1000:1000`. Container deployments that bind mount `/app/config` or any other `PRISM_CONFIG_PATH` parent must make that host directory writable by UID/GID `1000:1000`; new and existing root-owned mounts should be prepared once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
 - Operational telemetry is startup-JSON-owned: the top-level `telemetry` section configures OTLP endpoint, protocol, compression, timeout, auth, TLS, metrics, and traces. Prism does not use long-lived `OTEL_*` environment variables as the steady-state config source.
 - The primary ops path is OTLP to an OpenTelemetry Collector or Grafana Alloy, with Prometheus/Grafana/Tempo or another backend attached from that collector layer. The backend does not mount a local `/metrics` scrape endpoint.
 - Profile backup/restore, request-history APIs, and other settings-page state flows remain PostgreSQL-backed product state instead of bootstrap or OTLP ownership.
 - The current implementation keeps the profile bundle contract canonical: `profile_config` bundles use `version: 3`, and no older profile-bundle narrative survives.
-- `backend/Dockerfile` is the live Go backend image build path and copies the backend binary, version surface, and `migrations/` into the image.
-- `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
+- `.github/workflows/docker-images.yml` builds the separate backend and frontend GHCR images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
 ### 2.4 Priority Enforcement And Operator-Facing Failure Modes
 
@@ -219,7 +221,7 @@ Runtime compatibility and redirect checks use each model's required `api_family`
   - Profile-scoped management routes require `X-Profile-Id` and resolve against the selected profile.
   - Supported runtime operations under `/v1` and `/v1beta` ignore management overrides and always use the active profile.
 - Profile-scoped config bundle routes live under `/api/config/profile/*`, and `POST /api/config/profile/import/preview` is also profile-scoped and requires `X-Profile-Id`.
-- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, and the auth/email/proxy-key settings routes under `/api/settings/auth*`.
+- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, auth/email/proxy-key settings under `/api/settings/auth*`, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
 - Scope-control errors return stable `code` values plus human-readable `detail` text.
 - Supported runtime operations always use active profile and ignore override headers.
@@ -247,14 +249,14 @@ build_upstream_headers():
   2. Apply blocklist sanitization to client-supplied headers
   3. Add api-family auth headers
   4. Add api-family extra headers (e.g., anthropic-version)
-  5. Apply connection custom_headers (from `connections.custom_headers` JSON)
-     -> Same-name headers from earlier steps are overwritten
+  5. Apply connection custom_headers (from `connections.custom_headers` JSON), skipping proxy-controlled auth/version header names
+     -> Same-name ordinary headers from earlier steps are overwritten
   6. Apply final blocklist pass (with api-family auth/version headers protected)
      -> Blocked headers cannot be reintroduced by custom headers
   7. Return final header dict
 ```
 
-Custom headers are a power-user feature. While they can override most headers, they cannot be used to re-add headers that are blocked by the Header Blocklist. This is enforced by applying the blocklist last in the header construction pipeline.
+Custom headers are a power-user feature. They can override ordinary forwarded headers, but they cannot override Prism-controlled authentication or provider-version headers and cannot re-add headers blocked by the Header Blocklist. This is enforced by skipping proxy-controlled custom header names and applying the blocklist last in the header construction pipeline.
 
 ### 3.7 Realtime Dashboard And Analytics Updates
 
@@ -282,7 +284,7 @@ Dashboard analytics tab -> WebSocket connect /api/realtime/ws
   -> The frontend treats each `analytics.snapshot` as a full replacement for that scoped analytics view
 ```
 
-The realtime API has two supported channels. The dashboard channel emits `dashboard.snapshot` for stats-only aggregate snapshots and `dashboard.activity` for single request-history feed entries. Snapshot ordering uses lexicographic `snapshot_revision`; `source_watermark` is diagnostic. Activity uses `activity_watermark` and `request_log_id` for feed reconciliation and request-log drilldown only. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and powers the Analytics tab without requiring UI calls to `/api/stats/*`. The REST stats endpoints, including `GET /api/stats/dashboard`, `GET /api/stats/dashboard/recent-activity`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs; OTLP/Prometheus operations telemetry does not replace them.
+The realtime API has two supported channels. The dashboard channel emits `dashboard.snapshot` for stats-only aggregate snapshots and `dashboard.activity` for single request-history feed entries. Snapshot ordering uses lexicographic `snapshot_revision`; `source_watermark` is diagnostic. Activity uses `activity_watermark` and `request_log_id` for feed reconciliation and request-log drilldown only. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and is the Analytics tab's preferred data path; the current UI falls back to `GET /api/stats/usage-snapshot` when no realtime snapshot arrives, uses the same REST route for manual-refresh fallback, and uses endpoint model statistics REST calls for drilldown. The REST stats endpoints, including `GET /api/stats/dashboard`, `GET /api/stats/dashboard/recent-activity`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs; OTLP/Prometheus operations telemetry does not replace them.
 
 ## 4. Routing Strategies and Runtime Health Signals
 
@@ -357,9 +359,9 @@ Manual health checks use one lightweight probe runner so Terminal Target verific
 
 Health checks send api-family-specific lightweight requests using the Terminal Target's configured model ID and a simple prompt. This validates full-chain URL routing, authentication, and model availability using the same URL-building logic as the proxy engine.
 
-- **OpenAI**: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on the Terminal Target's persisted `openai_probe_endpoint_variant`; current variants are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. This is health-probe behavior only. Runtime OpenAI text capability comes from `openai_text_capability`, not probe results or probe variant.
-- **Anthropic**: `POST {base_url}/v1/messages` with `{"model":"{model_id}","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
-- **Gemini**: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload and `maxOutputTokens: 1`.
+- **OpenAI**: endpoint base URL joined with `/v1/responses` or `/v1/chat/completions` based on the Terminal Target's persisted `openai_probe_endpoint_variant`; current variants are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. This is health-probe behavior only. Runtime OpenAI text capability comes from `openai_text_capability`, not probe results or probe variant.
+- **Anthropic**: endpoint base URL joined with `/v1/messages` and `{"model":"{model_id}","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
+- **Gemini**: endpoint base URL joined with `/v1beta/models/{model}:generateContent` with minimal content payload and `maxOutputTokens: 1`.
 
 ### 6.3 Status Values
 
@@ -378,23 +380,22 @@ The primary visual health indicator for Terminal Targets is the **success rate b
 
 ### 6.5 Model Health Aggregation
 
-Model-level health is computed by aggregating Terminal Target success rates:
+Model-level health is computed from retained request-log rows grouped by the requested `request_logs.model_id` in the effective profile:
 
-- Weighted average across all Terminal Targets: `SUM(success_count) / SUM(total_requests) * 100`
+- Success rate = `COUNT(2xx for model_id) / COUNT(* for model_id) * 100`
+- Request count = total retained request-log rows for that requested model ID
 - Displayed on Dashboard and Models pages as a colored badge
 - Same color thresholds as Terminal Target badges
 
-### 6.4 Error Reporting
+### 6.6 Error Reporting
 
 When a health check fails, the upstream error message is extracted from the response body and stored in `health_detail`. This provides actionable diagnostics (e.g., "HTTP 503: No available channel for model X" instead of just "HTTP 503"). The detail is shown in the frontend tooltip on hover.
 
-### 6.5 URL Path Failsafe
+### 6.7 URL Path Joining
 
-To prevent the `/v1/v1` double-path bug (where endpoint `base_url` already contains `/v1` and the request path also starts with `/v1`):
+Endpoint `base_url` values may include an upstream path prefix such as `/v1` or `/v1beta`. On create and update, Prism strips trailing slashes, requires a scheme and host, and rejects query strings or fragments. Runtime joins the normalized endpoint path with the allowlisted operation path for the selected request.
 
-1. **Runtime auto-correction**: `build_upstream_url()` detects repeated version segments (e.g., `/v1/v1`, `/v2/v2`) via regex and auto-corrects them, logging a warning.
-2. **Input validation**: `validate_base_url()` rejects base URLs that already contain double version segments on endpoint create/update (HTTP 422).
-3. **Normalization**: `normalize_base_url()` strips trailing slashes from base URLs on create/update to ensure consistent path joining.
+Prism does not document or apply version-segment de-duplication. Operators should configure endpoint paths to match the operation path shape expected by that upstream.
 
 ## 7. Request Statistics
 
@@ -411,15 +412,15 @@ Client -> Operation registry -> Router / Planner -> Terminal target -> Endpoint 
                                                          ↓
                                               Return response to client
 
-                              Background best-effort logging (async):
-                                - Log request attempt to request_logs
-                                - If audit capture is enabled: log attempt to audit_logs
+                              Durable runtime telemetry handoff:
+                                - Persist request attempt to request_logs
+                                - If audit capture is enabled: persist attempt to audit_logs
 ```
 
 ### 7.3 Data Captured
 
 - Profile ID attribution, requested model ID, final target model ID, api family, terminal-target compatibility ID, endpoint base URL, and endpoint description
-- Prism `ingress_request_id`, per-request `attempt_number`, persisted ingress `operation_name`, additive `upstream_operation_name`, `operation_translation_mode`, `upstream_request_path`, and best-effort `upstream_correlation_id`
+- Prism `ingress_request_id`, per-request `attempt_number`, persisted ingress `operation_name`, additive `upstream_operation_name`, `operation_translation_mode`, `upstream_request_path`, and best-effort `provider_correlation_id`
 - HTTP status code, response time (ms)
 - Token usage (input, output, total), extracted by upstream operation response or stream hooks before any client-facing response translation
 - Flat final-target attribution, including requested model, resolved target model, selected terminal target, endpoint, operation, upstream operation, translation mode, and sanitized upstream request path.
@@ -435,7 +436,7 @@ Request-log semantics are per-attempt: one incoming runtime request can create m
 
 These query APIs intentionally remain product-facing retained-history surfaces for the UI and operators. Prometheus/Grafana should consume Prism operations data from the configured OTLP Collector or Alloy path instead of scraping Prism for local metrics.
 
-Runtime traces keep `prism.runtime.operation_name` as ingress-led. Additive trace attributes include sanitized `prism.runtime.upstream_operation_name`, `prism.runtime.operation_translation_mode`, `prism.runtime.upstream_request_path`, and `prism.runtime.selected_terminal_target_id`. The upstream path attribute is normalized through the operation registry so path-bound model IDs do not leak into spans.
+For operation attribution, runtime traces keep `prism.operation_name` as ingress-led. Additive upstream-attribution attributes include sanitized `prism.upstream_operation_name`, `prism.operation_translation_mode`, and `prism.upstream_request_path`; the upstream path value is normalized through the operation registry so path-bound model IDs do not leak into spans. Other runtime span attributes include `prism.api_family`, `prism.streaming`, `prism.status_class`, `prism.stream_outcome`, `prism.route_reason`, `prism.usage_source`, `prism.pricing_config_version_used`, `prism.body_mode`, `prism.attempt_result`, `prism.attempt_count`, `prism.feedback_kind`, `prism.enqueue_status`, OpenAI translation-loss diagnostics under `prism.runtime.translation_*`, `http.request.method`, and `http.response.status_code`.
 
 ## 8. Request Audit Logging
 
@@ -474,9 +475,9 @@ Applied at write time before INSERT:
 - Any header name containing `key`, `secret`, `token`, or `auth` has its value redacted
 - Body fields are not redacted and may contain sensitive user data, so body capture remains an explicit request-time setting
 
-### 8.5 Audit Detail Sheet
+### 8.5 Dedicated Audit Detail Page
 
-The audit detail view is reached from request investigation. It shows summary metadata, redacted request headers/body when stored, response status/headers/body when stored, and connection identity fields.
+The audit detail view is reached from request investigation at `/observe/requests/:requestId/audit`. It shows summary metadata, redacted request headers/body when stored, response status/headers/body when stored, and connection identity fields. The request-log side drawer remains overview-only and links to this page instead of loading audit payloads inline.
 
 ### 8.6 Conditional Decompression
 

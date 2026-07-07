@@ -1,14 +1,14 @@
 # Prism Workflows Reference
 
-This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the live Go backend API surface, and the markdown API reference.
+This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in `frontend/src/app/router/appRouter.tsx`, `frontend/src/app/router/rewriteRoutes.ts`, the live Go backend API surface, and the markdown API reference.
 
-Validated again against current repo surfaces on 2026-06-05:
-- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.4.0`, which is the current backend/frontend version surface.
+Validated again against current repo surfaces on 2026-07-07:
+- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.4.7`, which is the current backend/frontend version surface.
 - The protected frontend route shell mounts observe, request-log, model, route, settings, proxy-key, and pricing workflows; analytics lives under `/observe`.
 
 ## Evidence Sources
 
-- Frontend route surface: `frontend/src/App.tsx`
+- Frontend route surface: `frontend/src/app/router/appRouter.tsx` and `frontend/src/app/router/rewriteRoutes.ts`
 - Shell navigation and route scoping: `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`
 - Auth bootstrap and session flow: `frontend/src/context/AuthContext.tsx`
 - Selected-profile scoping: `frontend/src/context/ProfileContext.tsx`, `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
@@ -19,15 +19,15 @@ Validated again against current repo surfaces on 2026-06-05:
 ## Runtime URLs
 
 - Frontend: `http://localhost:5173`
-- Backend: `http://localhost:18000` with the checked-in `config.json`
-- Health: `http://localhost:18000/health` with the checked-in `config.json`
+- Backend: `http://localhost:8000` with the checked-in `config.json`
+- Health: `http://localhost:8000/health` with the checked-in `config.json`
 
 ## Shared Scope Rules
 
-- Public auth routes are `/login`, `/forgot-password`, and `/reset-password`.
-- Protected shell routes cover observe, request logs, models, model detail, endpoints, Ban Policies, settings, proxy keys, and pricing templates; analytics is under `/observe`.
+- Public auth routes are `/auth/login`, `/auth/forgot-password`, and `/auth/reset-password`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect there.
+- Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`.
 - `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
-- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, and `/api/realtime/ws`.
+- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
 
@@ -35,15 +35,15 @@ Validated again against current repo surfaces on 2026-06-05:
 
 **User entrypoints**
 
-- `/login`
-- `/forgot-password`
-- `/reset-password`
+- `/auth/login`
+- `/auth/forgot-password`
+- `/auth/reset-password`
 
 **Frontend flow**
 
 1. `AuthProvider` chooses public bootstrap mode for auth-only routes.
 2. The login page loads auth state before showing the form.
-3. Successful login redirects into the protected shell, usually `/dashboard`.
+3. Successful login redirects into the protected shell, usually `/observe`.
 4. Passive and proactive refresh keep the operator session alive while the tab stays active.
 
 **Backend touchpoints**
@@ -84,23 +84,24 @@ Validated again against current repo surfaces on 2026-06-05:
 
 **User entrypoints**
 
-- `/dashboard`
-- `/dashboard?tab=analytics`
+- `/observe`
+- `/observe?tab=analytics`
 
 **Frontend flow**
 
 1. Dashboard overview bootstrap loads KPI cards, spending summaries, throughput, and routing data from the stats-only aggregate snapshot.
 2. Dashboard overview bootstrap loads recent activity from the separate recent-activity feed.
 3. The dashboard subscribes to realtime `dashboard.snapshot` messages for aggregate reconciliation and `dashboard.activity` messages for feed reconciliation.
-4. Quick actions send operators into the analytics tab or `/request-logs` for deeper analysis.
+4. Quick actions send operators into the analytics tab or `/observe/requests` for deeper analysis.
 5. The analytics tab stays aggregate-focused and uses its own snapshot presets rather than request-level drill-down.
 
 **Backend touchpoints**
 
 - `GET /api/stats/dashboard` for the overview aggregate snapshot, including backend-computed Routing Health Map data
 - `GET /api/stats/dashboard/recent-activity` for bounded request-history-backed dashboard activity
-- `GET /api/stats/usage-snapshot` for the analytics tab snapshot presets
-- `WS /api/realtime/ws` for overview `dashboard.snapshot` and `dashboard.activity` reconciliation
+- `WS /api/realtime/ws` for overview `dashboard.snapshot` and `dashboard.activity` reconciliation, and for analytics `analytics.snapshot` payloads
+- `GET /api/stats/usage-snapshot` for API callers, debugging, analytics REST fallback, and manual-refresh fallback when realtime analytics has not supplied a current snapshot
+- `GET /api/stats/endpoints/{endpoint_id}/models` for analytics endpoint drilldown rows
 
 ## 4. Model Management And Model Detail
 
@@ -142,9 +143,9 @@ Validated again against current repo surfaces on 2026-06-05:
 
 **User entrypoints**
 
-- `/endpoints`
-- `/loadbalance-strategies`
-- `/pricing-templates`
+- `/route/endpoints`
+- `/route/ban-policies`
+- `/route/pricing`
 
 **Frontend flow**
 
@@ -182,8 +183,8 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 
 **User entrypoints**
 
-- `/request-logs`
-- Dashboard and model-detail deep links into `/request-logs`
+- `/observe/requests`
+- Dashboard and model-detail deep links into `/observe/requests`
 
 **Frontend flow**
 
@@ -192,7 +193,7 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 3. `ingress_request_id` groups all upstream attempts for one incoming proxy request.
 4. The request-log UI keeps the requested `model_id` separate from the final `resolved_target_model_id` so operators can see authoring intent and execution target at the same time.
 5. The Client filter sends `client_rule_id` to the backend and matches caller User-Agent Client Rules against `caller_user_agent` only.
-6. Audit payloads load lazily only when the audit tab is opened.
+6. Audit payloads load only on the dedicated `/observe/requests/:requestId/audit` page; the detail drawer remains overview-only.
 
 **Backend touchpoints**
 
@@ -200,7 +201,6 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 - `GET /api/stats/requests/{request_id}`
 - `GET /api/audit/logs`
 - `GET /api/audit/logs/{log_id}`
-- `GET /api/models`
 - `GET /api/settings/timezone`
 
 For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md`.
@@ -209,15 +209,15 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 
 **User entrypoints**
 
-- `/settings`
-- `/proxy-api-keys`
+- `/system/settings`
+- `/control/proxy-keys`
 
 **Frontend flow**
 
 1. Settings splits into Profile, Global, and Startup tabs.
-2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and retention/deletion actions. Rows with missing FX data remain pricing failures; explicit `"0"` component prices are configured free pricing and do not become `MISSING_PRICE_DATA`.
-3. Global settings cover operator authentication and log retention.
-4. The Startup tab edits the plaintext bootstrap file under `/settings#startup`, but backend-provided values and backend-owned canonical defaults remain the source of truth.
+2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and config rules. Rows with missing FX data remain pricing failures; explicit `"0"` component prices are configured free pricing and do not become `MISSING_PRICE_DATA`.
+3. Global settings cover operator authentication, log retention policies, and broad retention/deletion jobs.
+4. The Startup tab edits the plaintext bootstrap file under `/system/settings?tab=startup#startup`, but backend-provided values and backend-owned canonical defaults remain the source of truth.
 5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.
 
 Auth email delivery for password reset and recovery-email verification is transport-backed only when startup config has `mail.enabled=true`. Missing `mail` and `mail.enabled=false` mean disabled no-op delivery, so Prism starts without SMTP and does not dial SMTP. Enabled SMTP is strict: invalid host, port, mode, timeout, credential, or plaintext rules fail validation or startup instead of silently using no-op delivery.
@@ -229,7 +229,8 @@ OpenAI text sibling translation is not a startup-control lane. Operators set run
 The configuration-operations flow is explicit in both lanes:
 - profile export defaults to the safe redacted bundle at `GET /api/config/profile/export`
 - secret-bearing profile export uses `POST /api/config/profile/export/with-secrets` with `X-Prism-Dangerous-Confirm: profile-export`
-- profile import uses upload, preview, then apply with `X-Prism-Preview-Token`
+- profile import uses frontend local schema validation, upload, backend preview, then apply with `X-Prism-Preview-Token`
+- preview is invalidated when the selected profile or bundle changes, and apply requires the current selection/profile to still match the ready preview token
 - profile import replaces profile-scoped rows only, while other profiles and request logs remain untouched
 - profile import rejects `connection_ref` values used by multiple models because imported connections are model-private endpoint bindings
 - apply stays header-bound, and the raw bundle JSON is not rewritten in transit
@@ -240,6 +241,8 @@ The configuration-operations flow is explicit in both lanes:
 - `PUT /api/settings/costing`
 - `GET /api/settings/timezone`
 - `PUT /api/settings/timezone`
+- `GET /api/settings/audit`
+- `PUT /api/settings/audit`
 - `GET /api/config/profile/export`
 - `POST /api/config/profile/export/with-secrets`
 - `POST /api/config/profile/import/preview`
@@ -279,7 +282,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 
 **Runtime flow**
 
-1. The operation registry resolves an exact `POST` route before provider transport, telemetry, audit, feedback, or side effects.
+1. The operation registry resolves an exact allowlisted runtime route before provider transport, telemetry, audit, feedback, or side effects.
 2. Provider adapters parse provider-specific payloads, build upstream requests, adapt responses, classify streams, extract usage, and own pure OpenAI Chat/Responses conversion.
 3. Models resolve ordered access targets through same-family model links until a terminal private connection is reached.
 4. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
@@ -289,6 +292,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 
 **Backend touchpoints**
 
+- `GET /v1/models`
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
 - `POST /v1/responses/input_tokens`
@@ -301,7 +305,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 - `POST /v1beta/models/{model}:streamGenerateContent`
 - `POST /v1beta/models/{model}:countTokens`
 
-These 11 `POST` routes are allowlisted in `backend/internal/httpapi/runtime/operations.go` and are intentionally separate from `/api/*` management routes. Prism does not treat `/v1` or `/v1beta` as catch-all prefixes.
+These 12 allowlisted runtime routes are defined in `backend/internal/httpapi/runtime/operations.go` and are intentionally separate from `/api/*` management routes. Prism does not treat `/v1` or `/v1beta` as catch-all prefixes.
 
 ## 9. Priority Operations Runbook
 

@@ -1,13 +1,14 @@
 # FRONTEND SHARED KNOWLEDGE BASE
 
 ## OVERVIEW
-`frontend/src/shared/` owns rewrite-era cross-route helper modules that are not page, feature, or primitive-specific: API query keys/invalidation, server validation shaping, table row helpers, and design-system exports.
+`frontend/src/shared/` owns rewrite-era cross-route helper modules that are not page, feature, or primitive-specific: API query keys/invalidation, server validation shaping, table row helpers, and the reusable operator design-system layer.
 
 ## STRUCTURE
 ```text
 shared/
 ├── api/            # Query-key and mutation-invalidation helpers
-├── design-system/  # Shared design-system export barrel
+├── design-system/  # Reusable operator component layer
+│   └── AGENTS.md   # Page/section/control/table/status rules
 ├── forms/          # Backend/server validation issue shaping
 ├── table/          # Rewrite table column/row helpers
 └── index.ts        # Public shared export barrel
@@ -18,7 +19,7 @@ shared/
 - Rewrite query key types, profile-id scope, and invalidation scope helpers: `api/queryKeys.ts`, `api/queryInvalidation.ts`
 - Server validation extraction and field-error formatting: `forms/serverValidation.ts`
 - Table helper exports: `table/rewriteTable.ts`
-- Design-system barrel: `design-system/`
+- Reusable operator design-system components: `design-system/AGENTS.md`
 - Consumers in feature routes and seam tests: `../features/`, `../test/`, `../../tests/lib/`
 
 ## CONVENTIONS
