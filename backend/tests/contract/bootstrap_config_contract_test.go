@@ -146,13 +146,6 @@ func TestBootstrapConfigSchema(t *testing.T) {
 				},
 				wantErr: "auth.jwtSigningKeySecretRef",
 			},
-			{
-				name: "bundle encryption key secret ref rejected",
-				mutate: func(payload map[string]any) {
-					payload["stateTransfer"].(map[string]any)["bundleEncryptionKeySecretRef"] = "state-transfer:bundle-encryption-key"
-				},
-				wantErr: "stateTransfer.bundleEncryptionKeySecretRef",
-			},
 		}
 
 		for _, testCase := range tests {

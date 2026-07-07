@@ -39,7 +39,7 @@ import type {
 import {
   AUTH_FIELD_PATHS,
   MAIL_FIELD_PATHS,
-  STATE_TRANSFER_FIELD_PATHS,
+  RUNTIME_SECRET_FIELD_PATHS,
   getValidationStatusLabel,
   numberValue,
   textValue,
@@ -414,27 +414,15 @@ export function StartupMailSecretsSection({
         icon={<ShieldAlert />}
         title={(
           <span className="flex flex-wrap items-center gap-2">
-            {copy.stateTransferTitle}
-            {sectionEffect(STATE_TRANSFER_FIELD_PATHS)}
+            {copy.secrets}
+            {sectionEffect(RUNTIME_SECRET_FIELD_PATHS)}
           </span>
         )}
-        description={copy.stateTransferDescription}
+        description={copy.preserveOnlyInThisVersion}
       >
           <FieldSet disabled={controlsDisabled}>
             <FieldLegend>{copy.secrets}</FieldLegend>
             <FieldGroup>
-              <SecretReplacementField
-                id="startup-bundle-key"
-                label={copy.bundleEncryptionKey}
-                secretKey="stateTransfer.bundleEncryptionKey"
-                masked={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].masked}
-                configured={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].configured}
-                editable={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].editable && !controlsDisabled}
-                value={secretInputs["stateTransfer.bundleEncryptionKey"]}
-                copy={copy}
-                onChange={handleSecretInputChange}
-                onClear={clearSecretInput}
-              />
               <SecretReplacementField
                 id="startup-runtime-secret-key"
                 label={copy.runtimeSecretEncryptionKey}

@@ -2,7 +2,6 @@ export type BootstrapConfigSecretKey =
   | "database.url"
   | "runtime.secretEncryptionKey"
   | "auth.jwtSigningKey"
-  | "stateTransfer.bundleEncryptionKey"
   | "mail.smtp.password"
   | "telemetry.exporter.auth.authorizationHeader";
 
@@ -12,8 +11,7 @@ export type BootstrapConfigConfirmationToken =
   | "server-host-change"
   | "server-port-change"
   | "database-url-change"
-  | "auth-jwt-signing-key-change"
-  | "state-transfer-bundle-encryption-key-change";
+  | "auth-jwt-signing-key-change";
 
 export interface BootstrapConfigServerValues {
   host: string | null;

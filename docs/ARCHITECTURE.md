@@ -96,7 +96,7 @@ frontend/
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
 - Operational telemetry is startup-JSON-owned: the top-level `telemetry` section configures OTLP endpoint, protocol, compression, timeout, auth, TLS, metrics, and traces. Prism does not use long-lived `OTEL_*` environment variables as the steady-state config source.
 - The primary ops path is OTLP to an OpenTelemetry Collector or Grafana Alloy, with Prometheus/Grafana/Tempo or another backend attached from that collector layer. The backend does not mount a local `/metrics` scrape endpoint.
-- Profile backup/restore, request-history APIs, and other settings-page state flows remain PostgreSQL-backed product state instead of bootstrap or OTLP ownership.
+- Request-history APIs and settings-page state flows remain PostgreSQL-backed product state instead of bootstrap or OTLP ownership.
 - Disaster recovery is handled outside the dashboard with `pg_dump` plus a copy of the plaintext startup config.
 - `.github/workflows/docker-images.yml` builds the separate backend and frontend GHCR images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
@@ -193,7 +193,7 @@ Runtime upstream requests capture an immutable bootstrap runtime snapshot at req
 
 Hot bootstrap projection builds a new aggregate snapshot, validates it, then atomically publishes it for future work. CORS origin checks, auth TTL and cookie metadata, mail delivery settings, runtime transport, and M2/M3 management admission limits are hot-apply boundaries. New requests and new email sends read the current snapshot; in-flight proxy requests keep the HTTP client they captured, and a retired runtime transport only has idle connections closed.
 
-Restart-required boundaries are structural process resources: listener host and port, PostgreSQL URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and the state-transfer bundle key. Those values can be written through the bootstrap API, but they do not change the running process until Prism restarts.
+Restart-required boundaries are structural process resources: listener host and port, PostgreSQL URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, and auth JWT signing key. Those values can be written through the bootstrap API, but they do not change the running process until Prism restarts.
 
 Runtime compatibility and redirect checks use each model's required `api_family`. Model rows do not depend on catalog metadata for routing, validation, or display. The Models page renders each row's `api_family` metadata directly.
 
@@ -540,7 +540,7 @@ Partitioned retention manages the current log-table set only. Prism does not rew
 
 ### 9.6 Frontend Placement
 
-Log retention controls live on the Settings Global tab. Profile-scoped Settings sections still manage profile backup, costing, timezone, audit capture preferences, and other selected-profile state.
+Log retention controls live on the Settings Global tab. Profile-scoped Settings sections still manage costing, timezone, audit capture preferences, and other selected-profile state.
 
 ## 10. Database Design
 

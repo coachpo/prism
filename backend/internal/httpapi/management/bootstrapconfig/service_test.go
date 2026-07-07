@@ -317,9 +317,6 @@ func TestBootstrapConfigRoutePutWritesAndReturnsRestartRequired(t *testing.T) {
 	if writtenSettings.SecretEncryptionKey != originalSettings.SecretEncryptionKey {
 		t.Fatal("expected runtime secret preserve action to keep the original value")
 	}
-	if writtenSettings.StateTransferBundleEncryptionKey != originalSettings.StateTransferBundleEncryptionKey {
-		t.Fatal("expected bundle secret preserve action to keep the original value")
-	}
 }
 
 func TestBootstrapConfigRoutePutRestartOnlyDoesNotPublishHotRuntime(t *testing.T) {
@@ -1434,7 +1431,6 @@ func preserveBootstrapRouteSecrets() map[string]config.BootstrapConfigSecretUpda
 		config.BootstrapConfigSecretDatabaseURL:                  {Action: config.BootstrapConfigSecretActionPreserve},
 		config.BootstrapConfigSecretRuntimeSecretEncryptionKey:   {Action: config.BootstrapConfigSecretActionPreserve},
 		config.BootstrapConfigSecretAuthJWTSigningKey:            {Action: config.BootstrapConfigSecretActionPreserve},
-		config.BootstrapConfigSecretStateTransferBundleKey:       {Action: config.BootstrapConfigSecretActionPreserve},
 		config.BootstrapConfigSecretMailSMTPPassword:             {Action: config.BootstrapConfigSecretActionPreserve},
 		config.BootstrapConfigSecretTelemetryAuthorizationHeader: {Action: config.BootstrapConfigSecretActionPreserve},
 	}
@@ -1559,7 +1555,6 @@ func assertNoRouteSecrets(t *testing.T, body []byte, settings config.Settings, e
 		{label: "database SSL password", value: routeTestDatabaseSSLPassword},
 		{label: "runtime secret", value: settings.SecretEncryptionKey},
 		{label: "auth JWT secret", value: settings.AuthJWTSecret},
-		{label: "bundle secret", value: settings.StateTransferBundleEncryptionKey},
 		{label: "telemetry authorization header", value: settings.Telemetry.Exporter.Auth.AuthorizationHeader},
 	}
 	secrets = append(secrets, extraSecrets...)

@@ -206,7 +206,6 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsBackgroundJobsMinIdle, ""),
 	restartRequiredBootstrapField(BootstrapConfigSecretRuntimeSecretEncryptionKey, ""),
 	restartRequiredBootstrapField(BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigConfirmationAuthJWTSigningKeyChange),
-	restartRequiredBootstrapField(BootstrapConfigSecretStateTransferBundleKey, BootstrapConfigConfirmationStateTransferBundleKeyChange),
 }
 
 var bootstrapConfigFieldCapabilityByPath = bootstrapConfigFieldRegistryMap()
@@ -789,7 +788,6 @@ func bootstrapConfigSecretUpdatesForSettingsDiff(current Settings, requested Set
 		BootstrapConfigSecretDatabaseURL:                  {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretRuntimeSecretEncryptionKey:   {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretAuthJWTSigningKey:            {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretStateTransferBundleKey:       {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretMailSMTPPassword:             {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretTelemetryAuthorizationHeader: {Action: BootstrapConfigSecretActionPreserve},
 	}
@@ -808,7 +806,6 @@ func bootstrapConfigSecretUpdatesForSettingsDiff(current Settings, requested Set
 	markReplace(BootstrapConfigSecretDatabaseURL, current.DatabaseURL, requested.DatabaseURL)
 	markReplace(BootstrapConfigSecretRuntimeSecretEncryptionKey, current.SecretEncryptionKey, requested.SecretEncryptionKey)
 	markReplace(BootstrapConfigSecretAuthJWTSigningKey, current.AuthJWTSecret, requested.AuthJWTSecret)
-	markReplace(BootstrapConfigSecretStateTransferBundleKey, current.StateTransferBundleEncryptionKey, requested.StateTransferBundleEncryptionKey)
 	markReplace(BootstrapConfigSecretMailSMTPPassword, current.Mail.SMTP.Password, requested.Mail.SMTP.Password)
 	markReplace(BootstrapConfigSecretTelemetryAuthorizationHeader, current.Telemetry.Exporter.Auth.AuthorizationHeader, requested.Telemetry.Exporter.Auth.AuthorizationHeader)
 	return updates

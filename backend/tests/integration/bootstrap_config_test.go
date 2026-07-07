@@ -84,9 +84,6 @@ type bootstrapSeededFile struct {
 	Telemetry struct {
 		Enabled bool `json:"enabled"`
 	} `json:"telemetry"`
-	StateTransfer struct {
-		BundleEncryptionKey string `json:"bundleEncryptionKey"`
-	} `json:"stateTransfer"`
 }
 
 type bootstrapSeededDBPool struct {
@@ -383,8 +380,8 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 	if settings.DatabaseURL != wantDatabaseURL {
 		t.Fatalf("expected seeded database URL %q, got %q", wantDatabaseURL, settings.DatabaseURL)
 	}
-	if settings.SecretEncryptionKey != bootstrapFixtureSecretKey || settings.StateTransferBundleEncryptionKey != bootstrapFixtureBundleKey {
-		t.Fatalf("unexpected seeded plaintext settings: secret=%q bundle=%q", settings.SecretEncryptionKey, settings.StateTransferBundleEncryptionKey)
+	if settings.SecretEncryptionKey != bootstrapFixtureSecretKey || settings.StateTransferBundleEncryptionKey != "" {
+		t.Fatalf("unexpected seeded plaintext settings: secret=%q stateTransfer=%q", settings.SecretEncryptionKey, settings.StateTransferBundleEncryptionKey)
 	}
 	if settings.AuthJWTSecret != bootstrapFixtureJWTSecret {
 		t.Fatalf("unexpected seeded auth JWT secret: %q", settings.AuthJWTSecret)
@@ -427,7 +424,7 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 
 func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wantDatabaseURL string) {
 	t.Helper()
-	for _, secret := range []string{wantDatabaseURL, bootstrapFixtureJWTSecret, bootstrapFixtureSecretKey, bootstrapFixtureBundleKey} {
+	for _, secret := range []string{wantDatabaseURL, bootstrapFixtureJWTSecret, bootstrapFixtureSecretKey} {
 		if !bytes.Contains(raw, []byte(secret)) {
 			t.Fatalf("expected seeded bootstrap config to keep plaintext value %q", secret)
 		}
@@ -486,9 +483,6 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	}
 	if seeded.Telemetry.Enabled {
 		t.Fatalf("expected seeded telemetry payload to be disabled: %+v", seeded.Telemetry)
-	}
-	if seeded.StateTransfer.BundleEncryptionKey != bootstrapFixtureBundleKey {
-		t.Fatalf("unexpected seeded bundle key payload: %q", seeded.StateTransfer.BundleEncryptionKey)
 	}
 }
 
@@ -557,7 +551,7 @@ func assertBootstrapTopLevelKeys(t *testing.T, raw []byte) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatalf("decode bootstrap top-level JSON: %v", err)
 	}
-	required := []string{"meta", "server", "database", "runtime", "http", "auth", "mail", "telemetry", "stateTransfer"}
+	required := []string{"meta", "server", "database", "runtime", "http", "auth", "mail", "telemetry"}
 	if len(payload) != len(required) {
 		t.Fatalf("expected seeded bootstrap config top-level keys %v, got %v", required, keysFromPayload(payload))
 	}

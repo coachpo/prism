@@ -21,7 +21,6 @@ export const SECRET_KEYS: BootstrapConfigSecretKey[] = [
   "database.url",
   "runtime.secretEncryptionKey",
   "auth.jwtSigningKey",
-  "stateTransfer.bundleEncryptionKey",
   "mail.smtp.password",
   "telemetry.exporter.auth.authorizationHeader",
 ];
@@ -48,7 +47,6 @@ export const emptySecretInputs = (): SecretInputState => ({
   "database.url": "",
   "runtime.secretEncryptionKey": "",
   "auth.jwtSigningKey": "",
-  "stateTransfer.bundleEncryptionKey": "",
   "mail.smtp.password": "",
   "telemetry.exporter.auth.authorizationHeader": "",
 });
@@ -143,7 +141,6 @@ const FIELD_LABELS = {
   "mail.smtp.password": (copy) => copy.smtpPassword,
   "mail.smtp.timeout": (copy) => copy.smtpTimeout,
   "mail.smtp.tls_server_name": (copy) => copy.smtpTlsServerName,
-  "stateTransfer.bundleEncryptionKey": (copy) => copy.bundleEncryptionKey,
   "runtime.secretEncryptionKey": (copy) => copy.runtimeSecretEncryptionKey,
 } satisfies Record<string, FieldLabelResolver>;
 
@@ -222,7 +219,7 @@ export const MAIL_FIELD_PATHS = [
   "mail.smtp.tls_server_name",
 ];
 export const SECRET_FIELD_PATHS = new Set<string>(SECRET_KEYS);
-export const STATE_TRANSFER_FIELD_PATHS = ["stateTransfer.bundleEncryptionKey", "runtime.secretEncryptionKey"];
+export const RUNTIME_SECRET_FIELD_PATHS = ["runtime.secretEncryptionKey"];
 
 export const cloneValues = (values: BootstrapConfigValues): BootstrapConfigValues => structuredClone(values);
 
@@ -555,7 +552,6 @@ export function buildPreserveSecretUpdates(): BootstrapConfigSecretUpdates {
     "database.url": { action: "preserve" },
     "runtime.secretEncryptionKey": { action: "preserve" },
     "auth.jwtSigningKey": { action: "preserve" },
-    "stateTransfer.bundleEncryptionKey": { action: "preserve" },
     "mail.smtp.password": { action: "preserve" },
     "telemetry.exporter.auth.authorizationHeader": { action: "preserve" },
   };
@@ -669,9 +665,6 @@ export function getDangerousConfirmationLabel(copy: SettingsStartupCopy, token: 
   }
   if (token === "auth-jwt-signing-key-change") {
     return copy.jwtSigningKeyChangeLabel;
-  }
-  if (token === "state-transfer-bundle-encryption-key-change") {
-    return copy.bundleEncryptionKeyChangeLabel;
   }
   return copy.fieldRequiresConfirmation(getFieldLabel(copy, field));
 }

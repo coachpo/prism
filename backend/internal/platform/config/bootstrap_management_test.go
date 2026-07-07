@@ -16,7 +16,6 @@ const (
 	managementTestDatabaseURL                  = "postgres://prism:top-secret@db.internal:5432/prism?sslmode=disable&password=query-secret&sslpassword=ssl-password&passphrase=passphrase-secret&passwd=passwd-secret"
 	managementTestRuntimeSecret                = "runtime-secret-for-management-test"
 	managementTestJWTSecret                    = "jwt-secret-for-management-test"
-	managementTestBundleSecret                 = "bundle-secret-for-management-test"
 	managementTestSMTPPassword                 = "smtp-password-for-management-test"
 	managementTestTelemetryAuthorizationHeader = "Bearer telemetry-secret-for-management-test"
 )
@@ -605,12 +604,10 @@ func TestBootstrapConfigManagementSecretPreserveAndReplace(t *testing.T) {
 
 	values := cloneManagementValues(t, snapshot.Values)
 	nextDatabaseURL := "postgres://prism:next-password@db.next.internal:5432/prism?sslmode=disable"
-	nextBundleSecret := "replacement-bundle-encryption-key"
 	nextSMTPPassword := "replacement-smtp-password"
 	updates := preserveManagementSecretUpdates()
 	updates[BootstrapConfigSecretDatabaseURL] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace, Value: stringPointer(nextDatabaseURL)}
 
-	updates[BootstrapConfigSecretStateTransferBundleKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace, Value: stringPointer(nextBundleSecret)}
 	updates[BootstrapConfigSecretMailSMTPPassword] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace, Value: stringPointer(nextSMTPPassword)}
 	prepared, err := manager.PrepareBootstrapConfigUpdate(path, BootstrapConfigUpdateRequest{
 		ExpectedRevision: snapshot.FileRevision,
@@ -619,7 +616,6 @@ func TestBootstrapConfigManagementSecretPreserveAndReplace(t *testing.T) {
 		SecretUpdates:    updates,
 		Confirmations: []string{
 			BootstrapConfigConfirmationDatabaseURLChange,
-			BootstrapConfigConfirmationStateTransferBundleKeyChange,
 		},
 	})
 	if err != nil {
@@ -629,7 +625,7 @@ func TestBootstrapConfigManagementSecretPreserveAndReplace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse secret preserve and replace payload: %v", err)
 	}
-	if settings.DatabaseURL != nextDatabaseURL || settings.StateTransferBundleEncryptionKey != nextBundleSecret || settings.Mail.SMTP.Password != nextSMTPPassword {
+	if settings.DatabaseURL != nextDatabaseURL || settings.Mail.SMTP.Password != nextSMTPPassword {
 		t.Fatal("expected replace actions to update selected secrets")
 	}
 
@@ -638,7 +634,6 @@ func TestBootstrapConfigManagementSecretPreserveAndReplace(t *testing.T) {
 	}
 	safePayload := mustMarshalJSON(t, prepared.Snapshot)
 	assertNoSecretValue(t, safePayload, "replacement database password", "next-password")
-	assertNoSecretValue(t, safePayload, "replacement bundle secret", nextBundleSecret)
 	assertNoSecretValue(t, safePayload, "replacement SMTP password", nextSMTPPassword)
 }
 
@@ -1015,7 +1010,6 @@ func newManagementTestDocument(t *testing.T, createdAt time.Time) bootstrapConfi
 	settings := loadCanonicalDefaultSettings(managementTestDatabaseURL)
 	settings.SecretEncryptionKey = managementTestRuntimeSecret
 	settings.AuthJWTSecret = managementTestJWTSecret
-	settings.StateTransferBundleEncryptionKey = managementTestBundleSecret
 	document, err := buildSeededBootstrapDocument(settings, createdAt)
 	if err != nil {
 		t.Fatalf("build management test bootstrap document: %v", err)
@@ -1101,7 +1095,6 @@ func assertSafeManagementSnapshot(t *testing.T, payload []byte) {
 	assertNoSecretValue(t, payload, "database passwd", "passwd-secret")
 	assertNoSecretValue(t, payload, "runtime secret", managementTestRuntimeSecret)
 	assertNoSecretValue(t, payload, "JWT secret", managementTestJWTSecret)
-	assertNoSecretValue(t, payload, "bundle secret", managementTestBundleSecret)
 	assertNoSecretValue(t, payload, "SMTP password", managementTestSMTPPassword)
 	assertNoSecretValue(t, payload, "telemetry authorization header", managementTestTelemetryAuthorizationHeader)
 }
@@ -1196,7 +1189,6 @@ func preserveManagementSecretUpdates() map[string]BootstrapConfigSecretUpdate {
 		BootstrapConfigSecretDatabaseURL:                  {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretRuntimeSecretEncryptionKey:   {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretAuthJWTSigningKey:            {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretStateTransferBundleKey:       {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretMailSMTPPassword:             {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretTelemetryAuthorizationHeader: {Action: BootstrapConfigSecretActionPreserve},
 	}

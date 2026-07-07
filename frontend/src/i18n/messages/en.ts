@@ -382,8 +382,6 @@ export interface Messages {
     backendValidationFailed: string;
     backendValidationPassed: string;
     bootstrapConfigValidated: string;
-    bundleEncryptionKey: string;
-    bundleEncryptionKeyChangeLabel: string;
     clear: string;
     clientChecksPassed: string;
     completeDangerousChecklist: string;
@@ -582,8 +580,6 @@ export interface Messages {
     telemetryTracesSamplingRatioDescription: string;
     telemetryTracesSamplingRatioRange: string;
     state: string;
-    stateTransferDescription: string;
-    stateTransferTitle: string;
     status: string;
     startupBootstrapConfigTitle: string;
     startupBootstrapConfigDescription: string;
@@ -2234,8 +2230,6 @@ export const enMessages: Messages = {
     backendValidationFailed: "Backend validation failed",
     backendValidationPassed: "Backend validation passed. No file was written.",
     bootstrapConfigValidated: "Startup bootstrap config validated",
-    bundleEncryptionKey: "Bundle encryption key",
-    bundleEncryptionKeyChangeLabel: "State transfer encryption-key replacement is retained for config.json compatibility",
     clear: "Clear",
     clientChecksPassed: "Client-side checks passed.",
     completeDangerousChecklist: "Complete the dangerous-change checklist before saving.",
@@ -2434,8 +2428,6 @@ export const enMessages: Messages = {
     telemetryTracesSamplingRatioDescription: "Required only when trace export is enabled. Use a value from 0 to 1.",
     telemetryTracesSamplingRatioRange: "Trace sampling ratio must be between 0 and 1.",
     state: "State",
-    stateTransferDescription: "Retained state-transfer metadata and runtime secret storage.",
-    stateTransferTitle: "State transfer",
     status: "Status",
     startupBootstrapConfigTitle: "Startup bootstrap config",
     startupBootstrapConfigDescription: "Immediate settings apply on save; structural settings require restart.",

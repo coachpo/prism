@@ -37,17 +37,15 @@ type BootstrapConfigManager struct {
 }
 
 const (
-	BootstrapConfigSecretDatabaseURL                        = "database.url"
-	BootstrapConfigSecretRuntimeSecretEncryptionKey         = "runtime.secretEncryptionKey"
-	BootstrapConfigSecretAuthJWTSigningKey                  = "auth.jwtSigningKey"
-	BootstrapConfigSecretStateTransferBundleKey             = "stateTransfer.bundleEncryptionKey"
-	BootstrapConfigSecretMailSMTPPassword                   = "mail.smtp.password"
-	BootstrapConfigSecretTelemetryAuthorizationHeader       = "telemetry.exporter.auth.authorizationHeader"
-	BootstrapConfigConfirmationServerHostChange             = "server-host-change"
-	BootstrapConfigConfirmationServerPortChange             = "server-port-change"
-	BootstrapConfigConfirmationDatabaseURLChange            = "database-url-change"
-	BootstrapConfigConfirmationAuthJWTSigningKeyChange      = "auth-jwt-signing-key-change"
-	BootstrapConfigConfirmationStateTransferBundleKeyChange = "state-transfer-bundle-encryption-key-change"
+	BootstrapConfigSecretDatabaseURL                   = "database.url"
+	BootstrapConfigSecretRuntimeSecretEncryptionKey    = "runtime.secretEncryptionKey"
+	BootstrapConfigSecretAuthJWTSigningKey             = "auth.jwtSigningKey"
+	BootstrapConfigSecretMailSMTPPassword              = "mail.smtp.password"
+	BootstrapConfigSecretTelemetryAuthorizationHeader  = "telemetry.exporter.auth.authorizationHeader"
+	BootstrapConfigConfirmationServerHostChange        = "server-host-change"
+	BootstrapConfigConfirmationServerPortChange        = "server-port-change"
+	BootstrapConfigConfirmationDatabaseURLChange       = "database-url-change"
+	BootstrapConfigConfirmationAuthJWTSigningKeyChange = "auth-jwt-signing-key-change"
 )
 
 type BootstrapConfigSecretAction string
@@ -301,7 +299,7 @@ type bootstrapConfigDocument struct {
 	Auth          *bootstrapAuth          `json:"auth"`
 	Mail          *bootstrapMail          `json:"mail,omitempty"`
 	Telemetry     *bootstrapTelemetry     `json:"telemetry,omitempty"`
-	StateTransfer *bootstrapStateTransfer `json:"stateTransfer"`
+	StateTransfer *bootstrapStateTransfer `json:"stateTransfer,omitempty"`
 }
 
 type bootstrapMeta struct {
@@ -437,7 +435,7 @@ type bootstrapTelemetryTraces struct {
 }
 
 type bootstrapStateTransfer struct {
-	BundleEncryptionKey *string `json:"bundleEncryptionKey"`
+	BundleEncryptionKey *string `json:"bundleEncryptionKey"` // ponytail: parsed for live config.json compat; feature removed
 }
 
 func NewBootstrapConfigManager(options BootstrapConfigManagerOptions) BootstrapConfigManager {
@@ -901,11 +899,6 @@ func setBootstrapConfigSecret(document *bootstrapConfigDocument, field string, v
 			document.Auth = &bootstrapAuth{}
 		}
 		document.Auth.JWTSigningKey = stringPointer(value)
-	case BootstrapConfigSecretStateTransferBundleKey:
-		if document.StateTransfer == nil {
-			document.StateTransfer = &bootstrapStateTransfer{}
-		}
-		document.StateTransfer.BundleEncryptionKey = stringPointer(value)
 	case BootstrapConfigSecretMailSMTPPassword:
 		if document.Mail == nil {
 			document.Mail = &bootstrapMail{}
@@ -959,9 +952,6 @@ func missingBootstrapConfigConfirmations(current bootstrapConfigDocument, candid
 	if bootstrapStringValueChanged(current.Auth.JWTSigningKey, candidate.Auth.JWTSigningKey) {
 		required = append(required, BootstrapConfigConfirmationAuthJWTSigningKeyChange)
 	}
-	if bootstrapStringValueChanged(current.StateTransfer.BundleEncryptionKey, candidate.StateTransfer.BundleEncryptionKey) {
-		required = append(required, BootstrapConfigConfirmationStateTransferBundleKeyChange)
-	}
 	missing := make([]string, 0, len(required))
 	for _, confirmation := range required {
 		if _, ok := provided[confirmation]; !ok {
@@ -1010,7 +1000,6 @@ func bootstrapConfigSecretMetadata(document bootstrapConfigDocument) map[string]
 		BootstrapConfigSecretDatabaseURL:                  secretMetadata(document.Database.URL, true, maskBootstrapDatabaseURL),
 		BootstrapConfigSecretRuntimeSecretEncryptionKey:   secretMetadata(document.Runtime.SecretEncryptionKey, false, maskConfiguredBootstrapSecret),
 		BootstrapConfigSecretAuthJWTSigningKey:            secretMetadata(document.Auth.JWTSigningKey, true, maskConfiguredBootstrapSecret),
-		BootstrapConfigSecretStateTransferBundleKey:       secretMetadata(document.StateTransfer.BundleEncryptionKey, true, maskConfiguredBootstrapSecret),
 		BootstrapConfigSecretMailSMTPPassword:             secretMetadata(bootstrapMailSMTPPassword(document.Mail), true, maskConfiguredBootstrapSecret),
 		BootstrapConfigSecretTelemetryAuthorizationHeader: secretMetadata(bootstrapTelemetryAuthorizationHeader(document.Telemetry), true, maskConfiguredBootstrapSecret),
 	}
@@ -1347,7 +1336,6 @@ func orderedBootstrapConfigSecretFields() []string {
 		BootstrapConfigSecretDatabaseURL,
 		BootstrapConfigSecretRuntimeSecretEncryptionKey,
 		BootstrapConfigSecretAuthJWTSigningKey,
-		BootstrapConfigSecretStateTransferBundleKey,
 		BootstrapConfigSecretMailSMTPPassword,
 		BootstrapConfigSecretTelemetryAuthorizationHeader,
 	}
@@ -1355,7 +1343,7 @@ func orderedBootstrapConfigSecretFields() []string {
 
 func isKnownBootstrapConfigSecretField(field string) bool {
 	switch field {
-	case BootstrapConfigSecretDatabaseURL, BootstrapConfigSecretRuntimeSecretEncryptionKey, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigSecretStateTransferBundleKey, BootstrapConfigSecretMailSMTPPassword, BootstrapConfigSecretTelemetryAuthorizationHeader:
+	case BootstrapConfigSecretDatabaseURL, BootstrapConfigSecretRuntimeSecretEncryptionKey, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigSecretMailSMTPPassword, BootstrapConfigSecretTelemetryAuthorizationHeader:
 		return true
 	default:
 		return false
@@ -1813,9 +1801,6 @@ func (d bootstrapConfigDocument) validateSchema() error {
 	if d.Auth == nil {
 		return missingBootstrapFieldError("auth")
 	}
-	if d.StateTransfer == nil {
-		return missingBootstrapFieldError("stateTransfer")
-	}
 	if err := d.Meta.validate(); err != nil {
 		return err
 	}
@@ -1844,7 +1829,10 @@ func (d bootstrapConfigDocument) validateSchema() error {
 			return err
 		}
 	}
-	return d.StateTransfer.validate()
+	if d.StateTransfer != nil {
+		return d.StateTransfer.validate()
+	}
+	return nil
 }
 
 func (m bootstrapMeta) validate() error {
@@ -2180,8 +2168,7 @@ func (s bootstrapSMTP) validate(enabled bool) error {
 }
 
 func (s bootstrapStateTransfer) validate() error {
-	_, err := requiredTrimmedString("stateTransfer.bundleEncryptionKey", s.BundleEncryptionKey, 1, 0)
-	return err
+	return nil
 }
 
 func (d bootstrapConfigDocument) validateSemantics() error {
@@ -2253,9 +2240,9 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	bundleEncryptionKey, err := requiredTrimmedString("stateTransfer.bundleEncryptionKey", d.StateTransfer.BundleEncryptionKey, 1, 0)
-	if err != nil {
-		return Settings{}, err
+	bundleEncryptionKey := ""
+	if d.StateTransfer != nil && d.StateTransfer.BundleEncryptionKey != nil {
+		bundleEncryptionKey = strings.TrimSpace(*d.StateTransfer.BundleEncryptionKey)
 	}
 	accessTokenTTLSeconds, _ := requiredIntMin("auth.accessTokenTtlSeconds", d.Auth.AccessTokenTTLSeconds, 1)
 	refreshTokenTTLSeconds, _ := requiredIntMin("auth.refreshTokenTtlSeconds", d.Auth.RefreshTokenTTLSeconds, 1)
@@ -2667,10 +2654,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 	if authJWTSecret == "" {
 		return bootstrapConfigDocument{}, fmt.Errorf("seeded auth JWT signing key is empty")
 	}
-	bundleEncryptionKey := strings.TrimSpace(settings.StateTransferBundleEncryptionKey)
-	if bundleEncryptionKey == "" {
-		bundleEncryptionKey = runtimeSecretEncryptionKey
-	}
 	timestamp := now.UTC().Format(time.RFC3339)
 
 	return bootstrapConfigDocument{
@@ -2734,9 +2717,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 		},
 		Telemetry: &bootstrapTelemetry{
 			Enabled: boolPointer(false),
-		},
-		StateTransfer: &bootstrapStateTransfer{
-			BundleEncryptionKey: stringPointer(bundleEncryptionKey),
 		},
 	}, nil
 }
@@ -2999,7 +2979,6 @@ type bootstrapUnsupportedFieldProbe struct {
 	SecretPayload json.RawMessage            `json:"secretPayload"`
 	Database      map[string]json.RawMessage `json:"database"`
 	Auth          map[string]json.RawMessage `json:"auth"`
-	StateTransfer map[string]json.RawMessage `json:"stateTransfer"`
 }
 
 func detectUnsupportedBootstrapFormat(raw []byte) error {
@@ -3016,9 +2995,6 @@ func detectUnsupportedBootstrapFormat(raw []byte) error {
 	}
 	if hasBootstrapMapField(probe.Auth, "jwtSigningKeySecretRef") {
 		unsupportedFields = append(unsupportedFields, "auth.jwtSigningKeySecretRef")
-	}
-	if hasBootstrapMapField(probe.StateTransfer, "bundleEncryptionKeySecretRef") {
-		unsupportedFields = append(unsupportedFields, "stateTransfer.bundleEncryptionKeySecretRef")
 	}
 	if len(unsupportedFields) == 0 {
 		return nil

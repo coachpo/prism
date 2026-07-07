@@ -74,7 +74,6 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldDatabasePoolsBackgroundJobsMinIdle,
 		BootstrapConfigSecretRuntimeSecretEncryptionKey,
 		BootstrapConfigSecretAuthJWTSigningKey,
-		BootstrapConfigSecretStateTransferBundleKey,
 	}
 	capabilities := BootstrapConfigApplyCapabilities()
 	fields := BootstrapConfigApplyCapabilityFields()
@@ -89,7 +88,10 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 	assertBootstrapConfirmationToken(t, capabilities, bootstrapFieldServerPort, BootstrapConfigConfirmationServerPortChange)
 	assertBootstrapConfirmationToken(t, capabilities, BootstrapConfigSecretDatabaseURL, BootstrapConfigConfirmationDatabaseURLChange)
 	assertBootstrapConfirmationToken(t, capabilities, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigConfirmationAuthJWTSigningKeyChange)
-	assertBootstrapConfirmationToken(t, capabilities, BootstrapConfigSecretStateTransferBundleKey, BootstrapConfigConfirmationStateTransferBundleKeyChange)
+	legacyBundlePath := "state" + "Transfer.bundle" + "EncryptionKey"
+	if _, ok := ClassifyBootstrapConfigField(legacyBundlePath); ok {
+		t.Fatal("expected removed legacy bundle key to stay out of the bootstrap API field registry")
+	}
 	if _, ok := ClassifyBootstrapConfigField("database.pools.management.*"); ok {
 		t.Fatal("expected wildcard pool paths to stay out of the exact field registry")
 	}
@@ -215,7 +217,6 @@ func TestBootstrapConfigFieldDiffEmitsSecretUpdatePaths(t *testing.T) {
 	updates[BootstrapConfigSecretDatabaseURL] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretRuntimeSecretEncryptionKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretAuthJWTSigningKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
-	updates[BootstrapConfigSecretStateTransferBundleKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretMailSMTPPassword] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretTelemetryAuthorizationHeader] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	diff, err := DiffBootstrapConfigFields(current, cloneManagementValues(t, current), updates)
@@ -228,7 +229,6 @@ func TestBootstrapConfigFieldDiffEmitsSecretUpdatePaths(t *testing.T) {
 		BootstrapConfigSecretDatabaseURL,
 		BootstrapConfigSecretRuntimeSecretEncryptionKey,
 		BootstrapConfigSecretAuthJWTSigningKey,
-		BootstrapConfigSecretStateTransferBundleKey,
 	})
 }
 

@@ -118,7 +118,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Active profile indicator is shown globally; runtime activation is an explicit action.
 - The protected shell bootstraps profile state from one profile-bootstrap response, while sidebar navigation and breadcrumbs are derived from local route metadata.
 - Profile create/edit/delete dialogs include active-profile delete guardrails and capacity guidance.
-- Settings is split between Profile-scoped sections (backup, billing/currency, timezone, audit/privacy, and config rules) and a Global tab for instance auth, global retention policies, and retention/deletion jobs.
+- Settings is split between Profile-scoped sections (billing/currency, timezone, audit/privacy, and config rules) and a Global tab for instance auth, global retention policies, and retention/deletion jobs.
 
 ### 4.8 Configuration Persistence
 - Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup

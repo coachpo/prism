@@ -18,7 +18,7 @@ bootstrapconfig/
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
-- Keep bootstrap config file-backed and separate from `management/settings/`, profile/vendor bundle import/export, and sidecar control-plane state.
+- Keep bootstrap config file-backed and separate from `management/settings/` and sidecar control-plane state.
 - Keep steady-state startup settings on the managed bootstrap JSON; env vars stay limited to selecting the file or initial database seeding instead of growing into a second config channel.
 - Keep GET/validate/PUT behavior centered on loaded snapshot plus live settings comparison, planned changes, and apply results; do not reframe this package as a generic settings CRUD layer.
 - Keep hot-eligible changes and restart-required changes classified explicitly, including `failed_hot_apply_fields`.

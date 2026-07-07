@@ -214,7 +214,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 **Frontend flow**
 
 1. Settings splits into Profile, Global, and Startup tabs.
-2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and config rules. Rows with missing FX data remain pricing failures; explicit `"0"` component prices are configured free pricing and do not become `MISSING_PRICE_DATA`.
+2. Profile-scoped settings cover reporting currency and FX mappings, timezone, audit/privacy defaults, and config rules. Rows with missing FX data remain pricing failures; explicit `"0"` component prices are configured free pricing and do not become `MISSING_PRICE_DATA`.
 3. Global settings cover operator authentication, log retention policies, and broad retention/deletion jobs.
 4. The Startup tab edits the plaintext bootstrap file under `/system/settings?tab=startup#startup`, but backend-provided values and backend-owned canonical defaults remain the source of truth.
 5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.

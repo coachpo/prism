@@ -269,7 +269,6 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		ManagementDatabasePoolBudget:     defaultManagementDatabasePoolBudget(),
 		ManagementAdmissionControlBudget: ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent},
 		SecretEncryptionKey:              defaultSeedSecretEncryptionKey,
-		StateTransferBundleEncryptionKey: defaultSeedSecretEncryptionKey,
 		CORSAllowedOrigins:               defaultBootstrapCORSAllowedOrigins,
 		AuthJWTSecret:                    defaultAuthJWTSecret,
 		AuthAccessTokenTTLSeconds:        defaultAuthAccessTokenTTLSeconds,
