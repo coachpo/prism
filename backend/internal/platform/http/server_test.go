@@ -17,7 +17,6 @@ import (
 
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
-	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
@@ -342,13 +341,12 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 2, M3MaxConcurrent: 1},
 	}
 	handler, err := NewHandlerWithDependencies(settings, Dependencies{
-		Version:                "route-assembly-test",
-		DatabasePools:          &platformdb.DatabasePools{},
-		AuthService:            &managementauth.Service{},
-		BootstrapConfigService: &managementbootstrapconfig.Service{},
-		ProfilesService:        &managementprofiles.Service{},
-		RealtimeService:        &realtimeapi.Service{},
-		RuntimeService:         &runtimeapi.Service{},
+		Version:         "route-assembly-test",
+		DatabasePools:   &platformdb.DatabasePools{},
+		AuthService:     &managementauth.Service{},
+		ProfilesService: &managementprofiles.Service{},
+		RealtimeService: &realtimeapi.Service{},
+		RuntimeService:  &runtimeapi.Service{},
 	})
 	if err != nil {
 		t.Fatalf("create handler: %v", err)
@@ -365,7 +363,6 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 		{method: http.MethodGet, path: "/health"},
 		{method: http.MethodGet, path: "/api/auth/status"},
 		{method: http.MethodGet, path: "/api/profiles/active"},
-		{method: http.MethodGet, path: "/api/config/bootstrap"},
 		{method: http.MethodGet, path: "/api/realtime/ws"},
 		{method: http.MethodPost, path: "/v1/chat/completions"},
 		{method: http.MethodPost, path: "/v1/messages"},
@@ -398,7 +395,6 @@ func TestManagementRouteSpecsCoverMountedRoutes(t *testing.T) {
 	managementRouter, ok := NewManagementRouter(
 		&managementaudit.Service{},
 		&managementauth.Service{},
-		&managementbootstrapconfig.Service{},
 		&managementconfigrules.Service{},
 		&managementconnections.Service{},
 		&managementendpoints.Service{},

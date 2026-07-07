@@ -54,7 +54,7 @@ export const resetPasswordSearchSchema = z.object({
 })
 
 export const settingsSearchSchema = z.object({
-  tab: z.enum(["profile", "global", "startup"]).catch("profile"),
+  tab: z.enum(["profile", "global"]).catch("profile"),
   section: z.string().optional(),
 })
 

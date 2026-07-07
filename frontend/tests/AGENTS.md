@@ -22,7 +22,7 @@
 - Model CRUD and access-target authoring coverage lives in `lib/model_form_state_contract.test.mjs`.
 - Dashboard React Flow layout and renderer seam coverage lives in `lib/dashboard_routing_flow_layout_contract.test.mjs`, while browser shell behavior stays in `e2e/dashboard-routing-shell.spec.ts`.
 - Shared dashboard/statistics browser fixture data lives in `e2e/dashboard-aggregate-fixtures.ts`.
-- Browser coverage also includes auth session lifecycle, launcher same-origin realtime, proxy-key lifecycle, reporting currency, startup tab, and user-agent client-rule flows under `e2e/`.
+- Browser coverage also includes auth session lifecycle, launcher same-origin realtime, proxy-key lifecycle, reporting currency, and user-agent client-rule flows under `e2e/`.
 
 ## CHILD DOCS
 - `e2e/AGENTS.md`: Playwright route-flow conventions, browser fixtures, mocked backend ownership, and canonical route expectations.

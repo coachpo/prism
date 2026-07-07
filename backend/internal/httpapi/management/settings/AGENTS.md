@@ -28,7 +28,7 @@ settings/
 - Keep `/api/settings/audit` as exactly three rows (`openai`, `anthropic`, `gemini`) with full replacement PUT semantics. Body capture requires audit enabled.
 - Keep costing model choices aligned with unified model access; don't filter choices by retired model families.
 - Keep log-retention settings global and trigger cleanup through low-priority management jobs instead of request-path deletes.
-- Keep startup bootstrap config ownership separate; this package does not own `/api/config/bootstrap`.
+- Keep startup bootstrap config ownership separate; this package does not edit startup files.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

@@ -146,6 +146,10 @@ async function mockSettingsRoutes(
       return fulfillJson(createRetentionSettings());
     }
 
+    if (pathname === "/api/settings/audit") {
+      return fulfillJson({ profile_id: profile.id, settings: [] });
+    }
+
     if (pathname === "/api/models") {
       return fulfillJson([createModelListItem()]);
     }

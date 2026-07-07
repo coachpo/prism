@@ -27,7 +27,7 @@ Validated again against current repo surfaces on 2026-07-07:
 - Public auth routes are `/auth/login`, `/auth/forgot-password`, and `/auth/reset-password`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect there.
 - Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`.
 - `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
-- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
 
 ## 1. Sign In And Session Bootstrap
@@ -213,15 +213,15 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 
 **Frontend flow**
 
-1. Settings splits into Profile, Global, and Startup tabs.
+1. Settings splits into Profile and Global tabs.
 2. Profile-scoped settings cover reporting currency and FX mappings, timezone, audit/privacy defaults, and config rules. Rows with missing FX data remain pricing failures; explicit `"0"` component prices are configured free pricing and do not become `MISSING_PRICE_DATA`.
 3. Global settings cover operator authentication, log retention policies, and broad retention/deletion jobs.
-4. The Startup tab edits the plaintext bootstrap file under `/system/settings?tab=startup#startup`, but backend-provided values and backend-owned canonical defaults remain the source of truth.
+4. Startup settings remain in the plaintext bootstrap file selected by `PRISM_CONFIG_PATH`; edit `config.json` directly and restart Prism to apply changes.
 5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.
 
 Auth email delivery for password reset and recovery-email verification is transport-backed only when startup config has `mail.enabled=true`. Missing `mail` and `mail.enabled=false` mean disabled no-op delivery, so Prism starts without SMTP and does not dial SMTP. Enabled SMTP is strict: invalid host, port, mode, timeout, credential, or plaintext rules fail validation or startup instead of silently using no-op delivery.
 
-The Startup tab treats `mail.smtp.password` as a secret field. Safe bootstrap payloads show metadata only, and operators should either preserve or replace that secret through the bootstrap update flow or point `mail.smtp.passwordFile` at a local secret file. SMTP transport changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Request timeout is hot-applicable for future provider requests, while side-effects attempt timeout is restart-required. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT.
+`mail.smtp.password` is plaintext if stored inline; operators should prefer `mail.smtp.passwordFile` for deployed systems. SMTP transport changes apply after editing `config.json` and restarting Prism. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart. To roll back delivery, remove `mail` or set `mail.enabled=false`, then restart.
 
 OpenAI text sibling translation is not a startup-control lane. Operators set runtime OpenAI text support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`.
 

@@ -35,10 +35,8 @@ var (
 )
 
 type bootstrapStartupConfig struct {
-	Settings           config.Settings
-	ConfigPath         string
-	LoadedRevision     int
-	LoadedDocumentETag string
+	Settings   config.Settings
+	ConfigPath string
 }
 
 func main() {
@@ -121,11 +119,6 @@ func run(ctx context.Context) error {
 	)
 
 	app, server, err := newPlatformApp(ctx, settings, lifecycle.ProductionOptions{
-		BootstrapConfig: lifecycle.BootstrapConfigOptions{
-			ConfigPath:         bootstrapConfig.ConfigPath,
-			LoadedRevision:     bootstrapConfig.LoadedRevision,
-			LoadedDocumentETag: bootstrapConfig.LoadedDocumentETag,
-		},
 		TelemetryShutdown: telemetryProviders.Shutdown,
 	})
 	if err != nil {
@@ -169,15 +162,13 @@ func loadBootstrapSettings() (bootstrapStartupConfig, error) {
 	}
 
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
-	snapshot, settings, err := loadBootstrapConfigDocumentWithRepair(manager, bootstrapConfigPath)
+	_, settings, err := loadBootstrapConfigDocumentWithRepair(manager, bootstrapConfigPath)
 	if err != nil {
 		return bootstrapStartupConfig{}, err
 	}
 	return bootstrapStartupConfig{
-		Settings:           settings,
-		ConfigPath:         bootstrapConfigPath,
-		LoadedRevision:     snapshot.FileRevision,
-		LoadedDocumentETag: snapshot.DocumentETag,
+		Settings:   settings,
+		ConfigPath: bootstrapConfigPath,
 	}, nil
 }
 

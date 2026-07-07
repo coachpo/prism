@@ -11,7 +11,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
-	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
 )
 
 func TestManagementBodyLimitMiddlewareRejectsOversizedBodiesWithStableJSON(t *testing.T) {
@@ -29,13 +28,6 @@ func TestManagementBodyLimitMiddlewareRejectsOversizedBodiesWithStableJSON(t *te
 			path:       "/api/auth/login",
 			limitBytes: bodylimits.AuthRequestBodyLimitBytes,
 			body:       `{"username":"` + strings.Repeat("a", int(bodylimits.AuthRequestBodyLimitBytes)+1),
-		},
-		{
-			name:       "bootstrap config",
-			method:     http.MethodPut,
-			path:       "/api/config/bootstrap",
-			limitBytes: bodylimits.BootstrapRequestBodyLimitBytes,
-			body:       `{"values":{"padding":"` + strings.Repeat("a", int(bodylimits.BootstrapRequestBodyLimitBytes)+1),
 		},
 	}
 
@@ -60,7 +52,6 @@ func TestManagementRequestBodyLimitClassifiesExpectedCaps(t *testing.T) {
 		ok         bool
 	}{
 		{name: "auth", method: http.MethodPost, path: "/api/auth/login", limitBytes: bodylimits.AuthRequestBodyLimitBytes, ok: true},
-		{name: "bootstrap", method: http.MethodPut, path: "/api/config/bootstrap", limitBytes: bodylimits.BootstrapRequestBodyLimitBytes, ok: true},
 		{name: "generic management", method: http.MethodPut, path: "/api/settings/costing", limitBytes: bodylimits.ManagementJSONRequestBodyLimitBytes, ok: true},
 		{name: "read route", method: http.MethodGet, path: "/api/settings/auth", ok: false},
 	}
@@ -82,7 +73,6 @@ func newManagementBodyLimitTestHandler() http.Handler {
 	managementHandler := NewManagementRouter(
 		nil,
 		&managementauth.Service{},
-		&managementbootstrapconfig.Service{},
 		nil,
 		nil,
 		nil,

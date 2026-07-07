@@ -11,7 +11,6 @@ const (
 
 	AuthRequestBodyLimitBytes           int64 = 64 * 1024
 	ManagementJSONRequestBodyLimitBytes int64 = 1024 * 1024
-	BootstrapRequestBodyLimitBytes      int64 = 512 * 1024
 	RuntimeJSONRequestBodyLimitBytes    int64 = 20 * 1024 * 1024
 	RuntimeMediaRequestBodyLimitBytes   int64 = 100 * 1024 * 1024
 )

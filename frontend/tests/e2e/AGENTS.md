@@ -8,7 +8,7 @@
 e2e/
 ├── *dashboard*.spec.ts, *statistics*.spec.ts  # Overview and analytics route flows
 ├── request-log*.spec.ts, request-logs*.spec.ts # Request list/detail/audit flows
-├── settings-*.spec.ts                         # Settings, config, startup, retention
+├── settings-*.spec.ts                         # Settings, config, retention
 └── task-*.spec.ts                             # Feature milestone browser coverage
 ```
 
@@ -17,7 +17,7 @@ e2e/
 - Dashboard/statistics shared fixtures: `dashboard-aggregate-fixtures.ts`
 - Auth/profile shell flows: `auth-session-lifecycle.spec.ts`, `profile-scope-*.spec.ts`, `protected-shell-sidebar.spec.ts`
 - Request-log and audit page flows: `request-log-*.spec.ts`, `request-logs-*.spec.ts`
-- Settings/config/startup flows: `settings-*.spec.ts`
+- Settings/config/retention flows: `settings-*.spec.ts`
 - Model, endpoint, pricing, and Ban Policy flows: `model-*.spec.ts`, `models-*.spec.ts`, `task-*.spec.ts`, `loadbalance-*.spec.ts`, `pricing-*.spec.ts`
 - Realtime/analytics flows: `analytics-websocket-native.spec.ts`, `launcher-same-origin-realtime.spec.ts`
 

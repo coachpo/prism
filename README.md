@@ -22,7 +22,7 @@ Prism fronts multiple LLM API families through explicit runtime operations, lett
 - **Retained request history**: product-facing request logs, spending, usage snapshots, and dashboard aggregates remain in PostgreSQL for `/request-logs` and `/api/stats/*`
 - **Audit logging**: optional request/response body capture with header redaction
 - **Success-rate badges**: Terminal Target health based on recent request data
-- **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, restart-required OTLP telemetry fields, masked secret metadata, and explicit confirmation for dangerous structural changes
+- **Startup bootstrap config**: strict plaintext `config.json` startup loading; external edits require a Prism restart after R2
 - **Plain backup path**: disaster recovery uses `pg_dump` for PostgreSQL state plus a copy of the plaintext `config.json`
 - **Caller client filtering**: request logs filter caller clients through User-Agent Client Rules using `client_rule_id`, while final target filtering uses `resolved_target_model_id`
 
@@ -118,7 +118,7 @@ docker run --rm \
   prism-single
 ```
 
-Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`. Freshly seeded files use backend-owned canonical defaults, including `0.0.0.0:8000`, CORS for local development, `runtime.transport.requestTimeout` as `"300s"`, and `runtime.sideEffects.attemptTimeout` as `"10s"`. Existing valid bootstrap files are preserved, even when they contain older values. If a persisted file already contains a different database URL or backend port, update it through `/settings#startup` or reset the config volume intentionally.
+Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`. Freshly seeded files use backend-owned canonical defaults, including `0.0.0.0:8000`, CORS for local development, `runtime.transport.requestTimeout` as `"300s"`, and `runtime.sideEffects.attemptTimeout` as `"10s"`. Existing valid bootstrap files are preserved, even when they contain older values. If a persisted file already contains a different database URL or backend port, edit `config.json` directly and restart Prism, or reset the config volume intentionally.
 
 The application image runs as `prism:prism`, UID/GID `1000:1000`. Named Compose volumes work out of the box. If you use a host bind mount for `/app/config`, make the host directory writable by UID/GID `1000:1000`, for example with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 
@@ -213,13 +213,13 @@ Plaintext bootstrap startup uses the startup JSON as the steady-state source, wi
 - `PRISM_CONFIG_PATH` points at a plaintext bootstrap file such as `config.json`
 - `DATABASE_URL` is optional seed/startup input. Backend-native seeds default to `postgres://prism:prism@localhost:5432/prism?sslmode=disable`; `./start.sh` sets it to the local launcher PostgreSQL DSN on host port `15432`.
 
-The Startup tab at `/settings#startup` manages that plaintext file directly. GET returns masked metadata only, field-level apply capabilities, and pending apply state only when the file differs from the live applied baseline. PUT applies explicit preserve or replace secret actions with expected revision and etag checks, writes the file, and immediately publishes eligible hot fields. Dangerous host, port, database, and JWT signing key changes require confirmation tokens. `runtime.secretEncryptionKey` is preserve only in v1, and redacted placeholders are not persisted.
+The plaintext startup file is edited outside the dashboard. R2 removed the Startup settings tab and bootstrap management API, so external `config.json` edits always require a Prism restart before they affect the running process. `runtime.secretEncryptionKey`, JWT signing keys, database URLs, SMTP passwords, and telemetry authorization headers remain raw file secrets; use mounted secret files such as `mail.smtp.passwordFile` where possible.
 
-That bootstrap file owns startup values directly. Hot-eligible fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, and M2/M3 management admission limits. Runtime buffering is automatic and not user-configurable. Listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, JWT signing key changes, and all telemetry exporter/metrics/tracing settings still require restart. If an encrypted bootstrap file is still present, replace it before booting.
+That bootstrap file owns startup values directly. Runtime buffering is automatic and not user-configurable. If an encrypted bootstrap file is still present, replace it before booting.
 
 Operational telemetry is configured through the top-level `telemetry` section in the startup JSON, not through long-lived `OTEL_*` environment variables. Point Prism at an OTLP Collector or Grafana Alloy endpoint from that file, then let Collector/Alloy fan metrics and traces into Prometheus, Grafana, Tempo, or another backend. Prism no longer exposes a backend-local `/metrics` scrape endpoint; retained request-history, spending, usage, and dashboard aggregate APIs remain product-facing PostgreSQL-backed APIs under `/api/stats/*`.
 
-Plaintext bootstrap files must include `runtime.transport.requestTimeout`, seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout`, seeded as `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through the Startup tab or API. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
+Plaintext bootstrap files must include `runtime.transport.requestTimeout`, seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout`, seeded as `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget. Both values now change only after editing `config.json` and restarting Prism.
 
 Auth email delivery is disabled by default. Existing bootstrap files with no `mail` block still start and use no-op delivery with no SMTP network activity. Seeded local configs include the explicit disabled shape:
 
@@ -254,7 +254,7 @@ To send password-reset and recovery-email verification messages, set `mail.enabl
 }
 ```
 
-`mail.smtp.auth` may be `none` or `plain`. When it is `plain`, set `username` plus exactly one password source: `mail.smtp.password` or `mail.smtp.passwordFile`. Prefer `passwordFile` for deployed systems. If you store `mail.smtp.password` in the bootstrap file, the safe bootstrap API never returns the plaintext value; it reports secret metadata only and updates it through preserve or replace secret actions. SMTP changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT; direct external file edits are not watched automatically.
+`mail.smtp.auth` may be `none` or `plain`. When it is `plain`, set `username` plus exactly one password source: `mail.smtp.password` or `mail.smtp.passwordFile`. Prefer `passwordFile` for deployed systems. SMTP changes take effect after editing `config.json` and restarting Prism. To roll back delivery, remove `mail` or set `mail.enabled=false`, then restart.
 
 Other configuration notes:
 
@@ -266,7 +266,7 @@ Other configuration notes:
 - `./start.sh full` serves the browser through the launcher origin, with Vite proxying management traffic and supported runtime operation traffic to the backend so local browser traffic stays same-origin
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
 
-If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults plus the launcher-provided local PostgreSQL DSN on host port `15432`; fresh seeds still default backend port to `8000`. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Disaster recovery should back up PostgreSQL with `pg_dump` and copy the selected plaintext `config.json`.
+If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults plus the launcher-provided local PostgreSQL DSN on host port `15432`; fresh seeds still default backend port to `8000`. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. After R2, every external `config.json` edit requires a Prism restart. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Disaster recovery should back up PostgreSQL with `pg_dump` and copy the selected plaintext `config.json`.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./start.sh full` keeps management requests and supported runtime operation requests on the launcher origin through Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 

@@ -58,8 +58,7 @@ frontend/
 - Keep dashboard routing visualization on the React Flow-backed `src/pages/dashboard/routing-diagram/` leaf; `@xyflow/react` CSS is imported once from `src/main.tsx`.
 - Keep model CRUD, access-target authoring, accepted-format controls, and typed/import validation in their owning leaves without reintroducing deleted model-owned context routing fields.
 - Keep backend access on the typed `src/lib/api.ts` boundary and the modules it re-exports.
-- Keep backend startup configuration on the Startup tab and typed bootstrap API surface rather than inventing new frontend env-based settings channels. `VITE_API_BASE` plus launcher proxy envs are transport wiring only.
-- Keep startup bootstrap rendering dependent on backend-provided values. The frontend owns no canonical backend startup default table; fresh defaults are backend source of truth, including `8000`, `5173`, `15432`, `300s`, and `10s`.
+- Keep backend startup configuration out of the dashboard after R2. Operators edit `config.json` and restart; `VITE_API_BASE` plus launcher proxy envs are transport wiring only.
 - Keep reporting-currency provider state in `src/context/ReportingCurrencyContext.tsx` and shared cache, `prime()` or `refresh()` behavior, and normalization in `src/lib/reportingCurrency.ts` instead of duplicating settings-side currency bootstrap in pages.
 - Keep realtime ownership in `src/lib/websocket.ts`, prefer `useRealtimeData()` for shared websocket consumers, and avoid creating ad hoc clients.
 - Keep locale state, shared formatting, and non-hook static label lookups in `src/i18n/`, not in shell or page code.

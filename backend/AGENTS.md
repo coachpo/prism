@@ -25,7 +25,7 @@ backend/
 - `internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, proxy-key usage, retention jobs, and request context.
 - `internal/httpapi/{runtime,realtime}/AGENTS.md`: operation registry, hook residency, telemetry/feedback, partitions, websocket delivery, and publishers.
 - `internal/httpapi/management/AGENTS.md`: `/api/*` management fanout, selected-profile conventions, shared response helpers, and leaf-doc routing.
-- `internal/httpapi/management/*/AGENTS.md`: auth, bootstrap config, routing config, endpoints, models, profiles, settings, stats, audit.
+- `internal/httpapi/management/*/AGENTS.md`: auth, routing config, endpoints, models, profiles, settings, stats, audit.
 - `tests/AGENTS.md`: Go regression boundaries for route matrix, rejected routes, bootstrap config, Dockerfile, and pool priority.
 
 ## RUNTIME FACTS
@@ -33,7 +33,7 @@ backend/
 - `internal/platform/` owns lifecycle assembly, startup/migrations, hot bootstrap runtime, DB lanes, scheduler, retention, and side-effect workers.
 - `internal/platform/http/server.go` mounts `/health`, `/api`, `/v1`, and `/v1beta`; exact runtime operations are allowlisted later by `internal/httpapi/runtime/operations.go`.
 - `internal/platform/config/` owns the plaintext bootstrap contract; steady-state startup settings live there, while `PRISM_CONFIG_PATH` and optional `DATABASE_URL` remain bootstrap-only env exceptions.
-- `internal/httpapi/management/` fans out into auth, bootstrapconfig, configrules, connections, endpoints, loadbalance, models, profiles, settings, stats, and audit.
+- `internal/httpapi/management/` fans out into auth, configrules, connections, endpoints, loadbalance, models, profiles, settings, stats, and audit.
 - `internal/httpapi/runtime/` owns operation-registered ingress, model binding, hooks, telemetry outbox enqueue, request logging, `operation_name`, flat final-target attribution, and partition ensuring.
 - Stats and request-log ownership includes endpoint label snapshots, caller-only `client_rule_id` filtering, and final-target `resolved_target_model_id` filtering.
 - `internal/gateway/` owns provider-agnostic gateway contracts used by runtime execution: hook phases, envelopes, operation records, adapters, route planning, and reservations.
@@ -72,7 +72,7 @@ backend/
 - Do not point readers to retired backend runtime surfaces as current implementation paths.
 - Do not invent unsupported providers, routes, or CI jobs.
 - Do not describe mounted `/v1` and `/v1beta` prefixes as broad passthrough runtime support; the runtime allowlist lives in `internal/httpapi/runtime/operations.go`.
-- Do not describe all bootstrap writes as restart-only. Distinguish hot-eligible fields from restart-required fields.
+- Do not describe bootstrap file edits as hot-applied. External `config.json` edits require restart after R2.
 - Do not bypass `internal/platform/logretention/` with ad hoc log cleanup, retention SQL, or partition creation outside runtime partition ensuring.
 - Do not change container bootstrap defaults or writable ownership contracts without updating Dockerfile tests and docs.
 - Do not treat enabled-but-invalid SMTP as recoverable no-op delivery.

@@ -14,7 +14,6 @@ import (
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
-	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
@@ -36,10 +35,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/version"
 )
 
-type BootstrapConfigOptions = platformhttp.BootstrapConfigOptions
-
 type ProductionOptions struct {
-	BootstrapConfig   BootstrapConfigOptions
 	TelemetryShutdown ShutdownHook
 }
 
@@ -59,8 +55,7 @@ func NewProductionApp(ctx context.Context, settings config.Settings, options Pro
 		return nil, nil, err
 	}
 	server, err := platformhttp.NewServer(settings, platformhttp.ServerOptions{
-		BootstrapConfig: options.BootstrapConfig,
-		Dependencies:    resources.deps,
+		Dependencies: resources.deps,
 	})
 	if err != nil {
 		return nil, nil, errors.Join(err, resources.cleanupForSetupFailure(ctx))
@@ -117,19 +112,6 @@ func (resources *productionResources) configureHTTPAssembly(settings config.Sett
 	resources.deps.Version = loadedVersion
 	resources.deps.HotBootstrapConfigRuntime = hotBootstrapConfigRuntime
 	resources.deps.CORSOriginProvider = hotBootstrapConfigRuntime
-	if strings.TrimSpace(options.BootstrapConfig.ConfigPath) != "" {
-		bootstrapConfigService, bootstrapErr := managementbootstrapconfig.NewService(settings, managementbootstrapconfig.Options{
-			ConfigPath:         options.BootstrapConfig.ConfigPath,
-			LoadedRevision:     options.BootstrapConfig.LoadedRevision,
-			LoadedDocumentETag: options.BootstrapConfig.LoadedDocumentETag,
-			CORSOriginProvider: hotBootstrapConfigRuntime,
-			HotApplyRuntime:    hotBootstrapConfigRuntime,
-		})
-		if bootstrapErr != nil {
-			return bootstrapErr
-		}
-		resources.deps.BootstrapConfigService = bootstrapConfigService
-	}
 	return nil
 }
 

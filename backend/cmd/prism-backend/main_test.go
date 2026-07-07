@@ -352,12 +352,6 @@ func assertLoadedBootstrapSettings(t *testing.T, bootstrapConfig bootstrapStartu
 	if bootstrapConfig.Settings.DatabaseURL != wantDatabaseURL {
 		t.Fatalf("expected loaded database URL %q, got %q", wantDatabaseURL, bootstrapConfig.Settings.DatabaseURL)
 	}
-	if bootstrapConfig.LoadedRevision != 1 {
-		t.Fatalf("expected loaded bootstrap revision 1, got %d", bootstrapConfig.LoadedRevision)
-	}
-	if strings.TrimSpace(bootstrapConfig.LoadedDocumentETag) == "" {
-		t.Fatal("expected loaded bootstrap document ETag")
-	}
 }
 
 func assertLoadedBootstrapDocument(t *testing.T, snapshot config.BootstrapConfigSnapshot, settings config.Settings, wantDatabaseURL string) {

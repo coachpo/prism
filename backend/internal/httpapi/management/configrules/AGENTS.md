@@ -20,7 +20,7 @@ configrules/
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
-- Keep these routes under `/api/config/*`; startup bootstrap config belongs to `bootstrapconfig/`.
+- Keep these routes under `/api/config/*`; startup bootstrap config is file-owned under `platform/config/`.
 - Keep rules selected-profile scoped, while allowing system rules to appear where the store includes them.
 - Don't let system header-blocklist rules be deleted or reshaped through profile CRUD.
 
@@ -30,6 +30,6 @@ configrules/
 - When rule behavior affects upstream request headers or client attribution, check operation behavior across OpenAI, Anthropic, and Gemini shapes.
 
 ## ANTI-PATTERNS
-- Do not mix `/api/config/bootstrap` startup state into this package.
+- Do not mix startup file state into this package.
 - Do not make user-agent/client rules global unless the store and routes explicitly support that boundary.
 - Do not allow profile CRUD to delete or reshape system header-blocklist rules.

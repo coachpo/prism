@@ -76,7 +76,7 @@ prism/
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Backend container contract: `backend/Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/API_SPEC.md`, `docs/ARCHITECTURE.md`
-- Startup bootstrap contract and startup tab ownership: `backend/internal/httpapi/management/bootstrapconfig/`, `backend/internal/platform/config/`, `frontend/src/features/settings/startup/`
+- Startup bootstrap loading/parsing contract: `backend/internal/platform/config/`
 - Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000001_initial_schema.sql`
 - Runtime proxy planning, telemetry, request-log detail, final-target attribution, and partition ensuring: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `frontend/src/pages/request-logs/`
 - Model access-target authoring and exact-facade validation: `backend/internal/httpapi/management/models/`, `frontend/src/pages/models/`
@@ -110,7 +110,7 @@ cd frontend && pnpm run test:e2e
 - Keep launcher docs aligned with `start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, same-origin proxying, `PRISM_VITE_PROXY_ENABLED`, `PRISM_VITE_PROXY_TARGET`, and local CORS wiring.
 - Keep local/self-hosted deployment docs aligned with the root `docker-compose.yml`, root `Dockerfile`, and `docker/` Nginx/entrypoint contract.
 - Keep runtime docs aligned with the explicit operation registry, operation hook collections, rejected-route isolation, and `operation_name` persistence instead of broad `/v1` or `/v1beta` path-family wording.
-- Keep bootstrap docs aligned with the file-backed v1 contract: `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` required, `runtime.secretEncryptionKey` preserve-only in v1, safe secret responses metadata-only, apply-capability reporting, and enabled SMTP fail-fast.
+- Keep bootstrap docs aligned with the file-backed v1 contract: `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` required, `runtime.secretEncryptionKey` preserve-only in v1, metadata-only secret snapshots, restart-required external edits, and enabled SMTP fail-fast.
 - Keep repo-level version docs aligned with `release.sh` and the four version surfaces it updates.
 - Keep backend container docs aligned with `backend/Dockerfile`, especially non-root `prism:prism` ownership and `/app/config/config.json` defaults.
 - Keep partitioned log-retention docs aligned with the four managed tables, runtime partition ensuring, management retention jobs, and the low-priority platform worker.

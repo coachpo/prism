@@ -80,21 +80,20 @@ go build ./cmd/prism-backend
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 - The backend container image runs as `prism:prism`, UID/GID `1000:1000`. If `PRISM_CONFIG_PATH` points inside `/app/config`, bind mount the containing host directory, such as `/absolute/secure/path/prism-config:/app/config:rw`, and make that directory writable by UID/GID `1000:1000`.
 - Prepare new host config directories with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`. Use the same one-time remediation for existing root-owned bind mounts before starting the non-root backend image.
-- Bootstrap writes are file-durable. Eligible hot fields apply immediately when written through the Startup tab or `PUT /api/config/bootstrap`; structural fields remain pending until restart.
-- Hot fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, and M2/M3 management admission limits. Runtime buffering is internal and not exposed through bootstrap config.
-- Restart-required fields include listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and all telemetry exporter/metrics/tracing fields.
+- Bootstrap edits are file-durable and restart-applied after R2. Edit the selected `config.json`, then restart Prism.
+- Runtime buffering is internal and not exposed through bootstrap config.
+- Startup fields include listener host and port, CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, M2/M3 management admission limits, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and all telemetry exporter/metrics/tracing fields.
 - Telemetry startup fields include `telemetry.enabled`, exporter endpoint/protocol/compression/timeout/auth/TLS values, `telemetry.metrics.enabled`, `telemetry.traces.enabled`, and `telemetry.traces.samplingRatio`. Enabled telemetry exports through OTLP to a Collector or Grafana Alloy; Prism does not provide a backend-local `/metrics` compatibility endpoint.
-- External edits to the bootstrap file are not watched automatically. Use the Startup tab or `PUT /api/config/bootstrap` to publish hot-eligible file edits into the running process.
-- The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.
+- External edits to the bootstrap file are not watched automatically and require restart.
 - Raw bootstrap files require `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set `runtime.transport.requestTimeout` to `"300s"` and `runtime.sideEffects.attemptTimeout` to `"10s"`. Missing either required field fails startup validation by design.
-- `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through the Startup tab or API. `runtime.sideEffects.attemptTimeout` is restart-required and not hot-applied.
+- `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the runtime side-effect enqueue attempt budget. Both change only after editing `config.json` and restarting Prism.
 - Auth email delivery is disabled when `mail` is missing or `mail.enabled=false`; disabled mode uses no-op delivery and does not dial SMTP.
-- To enable SMTP, set `mail.enabled=true`, `mail.from`, and `mail.smtp` through the Startup tab or API PUT. Enabled-but-invalid SMTP config fails validation or startup instead of silently falling back to no-op delivery.
+- To enable SMTP, set `mail.enabled=true`, `mail.from`, and `mail.smtp` in `config.json`, then restart. Enabled-but-invalid SMTP config fails validation or startup instead of silently falling back to no-op delivery.
 - SMTP config fields are `mail.from`, `mail.replyTo`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehloHostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.passwordFile`, `mail.smtp.timeout`, and `mail.smtp.tlsServerName`.
 - Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is local or loopback only, and auth over non-local plaintext is forbidden.
 - `mail.smtp.auth` accepts `none` or `plain`. `plain` requires `username` plus exactly one of `password` or `passwordFile`; `passwordFile` is preferred for deployed secrets.
-- `mail.smtp.password` is secret-managed by the bootstrap API as `mail.smtp.password`. Safe responses return only metadata, and updates must use preserve or replace secret actions.
-- Roll back real delivery by removing `mail` or setting `mail.enabled=false` through the Startup tab or API PUT. Direct external file edits take effect only after restart unless they are later published through the API.
+- Prefer `mail.smtp.passwordFile` for deployed secrets; inline `mail.smtp.password` is stored in plaintext in the startup file.
+- Roll back real delivery by removing `mail` or setting `mail.enabled=false`, then restarting Prism.
 - Local and automated tests use fake or no-op SMTP only. Do not use external SMTP credentials in regression tests.
 
 Enabled SMTP bootstrap example:

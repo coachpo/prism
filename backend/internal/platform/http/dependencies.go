@@ -2,12 +2,10 @@ package platformhttp
 
 import (
 	"fmt"
-	"strings"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
-	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
@@ -31,7 +29,6 @@ type Dependencies struct {
 	AuditService              *managementaudit.Service
 	AuthService               *managementauth.Service
 	RuntimeAuthService        *managementauth.Service
-	BootstrapConfigService    *managementbootstrapconfig.Service
 	ConfigRulesService        *managementconfigrules.Service
 	ConnectionsService        *managementconnections.Service
 	EndpointsService          *managementendpoints.Service
@@ -48,14 +45,7 @@ type Dependencies struct {
 }
 
 type ServerOptions struct {
-	BootstrapConfig BootstrapConfigOptions
-	Dependencies    Dependencies
-}
-
-type BootstrapConfigOptions struct {
-	ConfigPath         string
-	LoadedRevision     int
-	LoadedDocumentETag string
+	Dependencies Dependencies
 }
 
 func completeDependencies(settings config.Settings, options ServerOptions) (Dependencies, error) {
@@ -75,19 +65,6 @@ func completeDependencies(settings config.Settings, options ServerOptions) (Depe
 	}
 	if deps.CORSOriginProvider == nil && deps.HotBootstrapConfigRuntime != nil {
 		deps.CORSOriginProvider = deps.HotBootstrapConfigRuntime
-	}
-	if deps.BootstrapConfigService == nil && strings.TrimSpace(options.BootstrapConfig.ConfigPath) != "" {
-		bootstrapConfigService, bootstrapErr := managementbootstrapconfig.NewService(settings, managementbootstrapconfig.Options{
-			ConfigPath:         options.BootstrapConfig.ConfigPath,
-			LoadedRevision:     options.BootstrapConfig.LoadedRevision,
-			LoadedDocumentETag: options.BootstrapConfig.LoadedDocumentETag,
-			CORSOriginProvider: deps.CORSOriginProvider,
-			HotApplyRuntime:    deps.HotBootstrapConfigRuntime,
-		})
-		if bootstrapErr != nil {
-			return Dependencies{}, bootstrapErr
-		}
-		deps.BootstrapConfigService = bootstrapConfigService
 	}
 	return deps, nil
 }

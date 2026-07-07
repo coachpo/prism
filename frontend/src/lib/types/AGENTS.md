@@ -7,7 +7,6 @@
 ```text
 types/
 ├── auth.ts
-├── bootstrap-config.ts
 ├── config-audit-settings.ts
 ├── loadbalance.ts
 ├── model-stats.ts
@@ -20,7 +19,6 @@ types/
 
 ## WHERE TO LOOK
 - Public barrel: `../types.ts`
-- Startup/bootstrap API shapes: `bootstrap-config.ts`
 - Profile and auth/session surfaces: `profile.ts`, `auth.ts`
 - Terminal Target, routing, vendor, and model stats contracts: `target-compatibility.ts`, `routing.ts`, `vendor.ts`, `model-stats.ts`
 - Usage, analytics, and proxy-key stats payloads: `usage-statistics.ts`

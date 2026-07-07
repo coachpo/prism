@@ -297,20 +297,6 @@ func DiffBootstrapConfigSettings(current Settings, requested Settings) (Bootstra
 	)
 }
 
-func BootstrapConfigPlannedChangesFromDiff(diff BootstrapConfigFieldDiff) BootstrapConfigPlannedChanges {
-	return BootstrapConfigPlannedChanges{ChangedFields: diff.ChangedFields(), RestartRequired: diff.RestartRequired()}
-}
-
-func BootstrapConfigApplyResultFromDiff(diff BootstrapConfigFieldDiff) BootstrapConfigApplyResult {
-	return BootstrapConfigApplyResult{
-		AppliedNowFields:      []string{},
-		RestartRequiredFields: cloneStringSlice(diff.ChangedRestartRequiredFields),
-		UnchangedFields:       cloneStringSlice(diff.UnchangedFields),
-		PendingHotApplyFields: cloneStringSlice(diff.ChangedHotApplyFields),
-		FailedHotApplyFields:  []string{},
-	}
-}
-
 func bootstrapConfigUnknownFieldPaths(current map[string]bootstrapConfigFieldValue, requested map[string]bootstrapConfigFieldValue, secretUpdates map[string]BootstrapConfigSecretUpdate) []string {
 	unknown := make(map[string]struct{})
 	for field := range current {

@@ -9,7 +9,6 @@ import { DeleteUserAgentClientRuleConfirmDialog } from "./settings/dialogs/Delet
 import { UserAgentClientRuleDialog } from "./settings/dialogs/UserAgentClientRuleDialog";
 import { SettingsProfileTab } from "./settings/SettingsProfileTab";
 import { SettingsGlobalTab } from "./settings/SettingsGlobalTab";
-import { SettingsStartupTab } from "@/features/settings/startup/SettingsStartupTab";
 import { useSettingsPageData } from "./settings/useSettingsPageData";
 import { useSettingsPageSectionState } from "./settings/useSettingsPageSectionState";
 import { SETTINGS_TABS } from "./settings/settingsPageHelpers";
@@ -53,7 +52,6 @@ export function SettingsPage() {
         <TabsList className="w-full justify-start overflow-x-auto rounded-lg border border-outline-variant bg-surface-container-low p-1 sm:w-fit">
           <TabsTrigger className="h-8" value={SETTINGS_TABS.profile}>{messages.settingsPage.profileTab}</TabsTrigger>
           <TabsTrigger className="h-8" value={SETTINGS_TABS.global}>{messages.settingsPage.globalTab}</TabsTrigger>
-          <TabsTrigger className="h-8" value={SETTINGS_TABS.startup}>{messages.settingsPage.startupTab}</TabsTrigger>
         </TabsList>
 
         <TabsContent className="mt-0" value={SETTINGS_TABS.profile}>
@@ -68,10 +66,6 @@ export function SettingsPage() {
 
         <TabsContent className="mt-0" value={SETTINGS_TABS.global}>
           <SettingsGlobalTab data={data} />
-        </TabsContent>
-
-        <TabsContent className="mt-0" value={SETTINGS_TABS.startup}>
-          <SettingsStartupTab />
         </TabsContent>
       </Tabs>
 

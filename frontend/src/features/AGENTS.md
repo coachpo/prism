@@ -14,12 +14,11 @@ features/
 ├── pricing/          # `/route/pricing` feature page and pricing-template flows
 ├── proxy-keys/       # `/control/proxy-keys` global proxy-key surface
 ├── request-logs/     # `/observe/requests` list and audit detail adapters
-├── settings/         # `/system/settings` feature adapter plus startup leaf
+├── settings/         # `/system/settings` feature adapter
 ```
 
 ## WHERE TO LOOK
 - Route mounting, route scopes, and search schemas: `../app/AGENTS.md`, `../app/router/appRouter.tsx`, `../app/router/rewriteRoutes.ts`
-- Startup tab implementation: `settings/startup/AGENTS.md`
 - Legacy/oracle page clusters and nested page docs still referenced by feature modules: `../pages/AGENTS.md`
 - Typed backend API, shared request plumbing, and selected-profile header rules: `../lib/AGENTS.md`, `../lib/api/AGENTS.md`
 - Cross-route query, invalidation, server-validation, table, and design-system helpers: `../shared/AGENTS.md`

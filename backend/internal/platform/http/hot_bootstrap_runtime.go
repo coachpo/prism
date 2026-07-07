@@ -61,6 +61,7 @@ func (r *HotBootstrapConfigRuntime) Validate(settings config.Settings) error {
 	return nil
 }
 
+// ponytail: publish has no management API caller after R2; keep it until the hot runtime interface is pruned.
 func (r *HotBootstrapConfigRuntime) Publish(settings config.Settings) (config.BootstrapConfigHotApplyRetiredResources, error) {
 	if r == nil {
 		return HotBootstrapConfigRetiredResources{}, fmt.Errorf("hot bootstrap config runtime is nil")

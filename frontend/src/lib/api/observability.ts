@@ -2,8 +2,6 @@ import type {
   AuditLogDetail,
   AuditLogListResponse,
   AuditLogParams,
-  BootstrapConfigResponse,
-  BootstrapConfigUpdateRequest,
   AuditAPIFamilySettingsResponse,
   AuditAPIFamilySettingsUpdate,
   ConnectionSuccessRate,
@@ -140,22 +138,7 @@ export const settingsRetention = {
     }),
 };
 
-const bootstrapConfigEndpoint = "/api/config/bootstrap";
-
 export const config = {
-  bootstrap: {
-    get: () => request<BootstrapConfigResponse>(bootstrapConfigEndpoint),
-    validate: (data: BootstrapConfigUpdateRequest) =>
-      request<BootstrapConfigResponse>(`${bootstrapConfigEndpoint}/validate`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    update: (data: BootstrapConfigUpdateRequest) =>
-      request<BootstrapConfigResponse>(bootstrapConfigEndpoint, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
-  },
   headerBlocklistRules: {
     list: (includeDisabled = true) =>
       request<HeaderBlocklistRule[]>(

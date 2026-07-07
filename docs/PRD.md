@@ -122,7 +122,7 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.8 Configuration Persistence
 - Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
-- Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file and managed through `/system/settings?tab=startup#startup`
+- Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file; external edits require a Prism restart after R2
 - The default profile exists from the first startup and remains editable after initialization
 - Database setup is managed by the Go backend runtime and applies the checked-in fresh-install baseline on startup
 ### 4.9 Request Statistics & Analytics
@@ -220,7 +220,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 ### 4.15 Profile Isolation & Management
 - Profiles are isolated configuration namespaces (for example A/B/C) with one globally active profile for runtime routing at any time
 - Selected profile controls management/API scope; active profile controls `/v1/*` and `/v1beta/*` runtime traffic
-- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes stay outside selected-profile scoping. Global routes include profiles, auth, realtime, auth-setting flows, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`
+- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes stay outside selected-profile scoping. Global routes include profiles, auth, realtime, auth-setting flows, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`
 - Profile lifecycle supports create/list/update/activate/delete where delete is soft-delete for inactive profiles (`deleted_at`)
 - Active profile deletion is rejected; activation uses an optimistic CAS guard (`expected_active_profile_id`) and returns `409` on conflict
 - Capacity is capped at 10 non-deleted profiles; creating an 11th profile is rejected until one profile is deleted

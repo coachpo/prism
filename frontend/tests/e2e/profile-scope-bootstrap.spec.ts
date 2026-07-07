@@ -149,6 +149,15 @@ async function mockProfileScopedSettingsRoutes(page: Page) {
       return fulfillJson({ timezone_preference: null, effective_timezone: "Europe/Helsinki" });
     }
 
+    if (pathname === "/api/settings/audit") {
+      const profileHeader = await readProfileHeader(request);
+      const profileId = Number.parseInt(profileHeader ?? "1", 10);
+      return fulfillJson({
+        profile_id: Number.isFinite(profileId) ? profileId : 1,
+        settings: [],
+      });
+    }
+
     if (pathname === "/api/models") {
       capturedHeaders.models.push(await readProfileHeader(request));
       return fulfillJson([]);

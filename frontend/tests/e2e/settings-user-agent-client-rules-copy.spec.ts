@@ -62,6 +62,9 @@ async function mockSettingsRoutes(page: Page) {
     if (pathname === "/api/settings/log-retention") {
       return fulfillJson({ request_logs_retention_days: 30, statistics_retention_days: 30, audit_logs_retention_days: 30, loadbalance_events_retention_days: 30 });
     }
+    if (pathname === "/api/settings/audit") {
+      return fulfillJson({ profile_id: profile.id, settings: [] });
+    }
     if (pathname === "/api/models") {
       return fulfillJson([]);
     }

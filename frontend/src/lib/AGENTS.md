@@ -13,7 +13,7 @@ lib/
 │   ├── profileScope.ts           # Profile-scoped management route matcher
 │   ├── authSettings.ts           # Auth bootstrap, session flows, and proxy keys
 │   ├── management.ts             # Profiles, models, endpoints, connections, pricing templates
-│   └── observability.ts          # Usage snapshot, stats, bootstrap config, audit, loadbalance, settings costing/timezone
+│   └── observability.ts          # Usage snapshot, stats, audit, loadbalance, settings costing/timezone
 ├── websocket.ts                  # Singleton WebSocket client with channel ref-counts and reconnects
 ├── websocket/AGENTS.md           # Helper split beneath the singleton client
 ├── websocket/                    # Protocol, subscription, transport/reconnect helpers

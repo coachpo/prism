@@ -1,7 +1,7 @@
 # BACKEND PLATFORM HTTP KNOWLEDGE BASE
 
 ## OVERVIEW
-`platform/http/` owns backend HTTP assembly: mux construction, `/health`, `/api`, `/v1`, `/v1beta`, management mutation middleware, body limits, hot bootstrap runtime snapshots, telemetry startup config, and runtime-cache invalidation wiring.
+`platform/http/` owns backend HTTP assembly: mux construction, `/health`, `/api`, `/v1`, `/v1beta`, management mutation middleware, body limits, startup runtime snapshots, telemetry startup config, and runtime-cache invalidation wiring.
 
 ## STRUCTURE
 ```text
@@ -19,7 +19,7 @@ http/
 
 ## WHERE TO LOOK
 - Server assembly and exact mounted branches: `server.go`, `management_branch.go`, `runtime_branch.go`
-- Hot bootstrap snapshots for CORS, auth, mail, runtime proxy transport, and admission: `hot_bootstrap_runtime.go`
+- Startup runtime snapshots for CORS, auth, mail, runtime proxy transport, and admission: `hot_bootstrap_runtime.go`
 - Runtime cache invalidation after management mutations: `runtime_cache_invalidation.go`, `management_route_contract.json`
 - Shared body-size enforcement: `management_body_limits.go`, `../bodylimits/`
 - Startup-config telemetry provider wiring: `telemetry.go`, `../telemetry/`
@@ -29,7 +29,7 @@ http/
 - Keep mounting here and handler behavior in `../../httpapi/`.
 - Keep `/v1` and `/v1beta` as mounted prefixes only; supported runtime operations remain allowlisted in `../../httpapi/runtime/operations.go`.
 - Keep management profile-scope and runtime-cache invalidation changes reflected in `management_route_contract.json`.
-- Keep hot-applied bootstrap state behind `HotBootstrapConfigRuntime`; direct file edits are not watched state.
+- Keep startup bootstrap state behind `HotBootstrapConfigRuntime`; direct file edits are not watched state and require restart.
 - Keep request body limits centralized through this package and `../bodylimits/`.
 
 ## ANTI-PATTERNS
