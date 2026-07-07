@@ -335,23 +335,6 @@ func TestModelTargetMetadataAndObsoleteFields(t *testing.T) {
 	assertConnectionTargetState(t, harness, sourceModelID, connectionTargetID, connectionID, 1, true)
 }
 
-func TestModelContextCapabilitiesRejectModelOwnedFields(t *testing.T) {
-	harness := newModelContractHarness(t)
-	profileID := modelLoadDefaultProfileID(t, harness)
-	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Context Capability Strategy")
-	targetModelID := modelInsertModel(t, harness, profileID, nil, "openai", "context-capability-target", nil, &strategyID, true)
-	_ = targetModelID
-
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models", map[string]any{
-		"api_family":              "openai",
-		"model_id":                "context-capability-model",
-		"openai_accepted_format":  "dual_native",
-		"loadbalance_strategy_id": strategyID,
-		"context_window_tokens":   128000,
-	}, modelHeader(profileID))
-	assertErrorResponse(t, response, http.StatusBadRequest, "Invalid request body")
-}
-
 func TestDeleteReferencedModel(t *testing.T) {
 	harness := newModelContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)

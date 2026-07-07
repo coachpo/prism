@@ -15,7 +15,7 @@ type proxySelectorExpectedRequest struct {
 	ModelID string
 }
 
-func TestRuntimeFillFirstIgnoresContextFitAfterContextRoutingRemoval(t *testing.T) {
+func TestRuntimeFillFirstIgnoresContextFit(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
@@ -103,7 +103,7 @@ func TestChatCompletionsEstimationUnavailablePassesThrough(t *testing.T) {
 	}
 }
 
-func TestContextWindowExceededNoFitRoutesAfterContextRoutingRemoval(t *testing.T) {
+func TestContextWindowExceededNoFitRoutes(t *testing.T) {
 	harnessFactories := []struct {
 		name    string
 		factory func(testing.TB) *runtimeHarness
@@ -122,10 +122,8 @@ func TestContextWindowExceededNoFitRoutesAfterContextRoutingRemoval(t *testing.T
 			publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
 			smallEndpointID := harness.seedEndpoint(t, profileID, "context-window-exceeded-small-"+suffix, harness.upstream.baseURL("/context-window-exceeded/small"), "context-window-exceeded-small-key", 0)
 			largeEndpointID := harness.seedEndpoint(t, profileID, "context-window-exceeded-large-"+suffix, harness.upstream.baseURL("/context-window-exceeded/large"), "context-window-exceeded-large-key", 1)
-			smallConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, smallEndpointID, "context-window-exceeded-small-connection-"+suffix, nil, nil, 0)
-			largeConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, largeEndpointID, "context-window-exceeded-large-connection-"+suffix, nil, nil, 1)
-			setRuntimeHarnessConnectionContextCapabilities(t, harness, smallConnectionID, 200, 4_096, 1.0)
-			setRuntimeHarnessConnectionContextCapabilities(t, harness, largeConnectionID, 400, 4_096, 1.0)
+			harness.seedConnection(t, profileID, publicModelConfigID, smallEndpointID, "context-window-exceeded-small-connection-"+suffix, nil, nil, 0)
+			harness.seedConnection(t, profileID, publicModelConfigID, largeEndpointID, "context-window-exceeded-large-connection-"+suffix, nil, nil, 1)
 			harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 			response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
@@ -164,7 +162,7 @@ func TestNonNativeOpenAITargetIsNotSelectedByGenericPlanner(t *testing.T) {
 	}})
 }
 
-func TestRuntimeFillFirstSelectsFirstNestedTerminalAfterContextRoutingRemoval(t *testing.T) {
+func TestRuntimeFillFirstSelectsFirstNestedTerminal(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
@@ -178,10 +176,8 @@ func TestRuntimeFillFirstSelectsFirstNestedTerminalAfterContextRoutingRemoval(t 
 	harness.seedProxyTargetAtPosition(t, publicModelConfigID, childModelConfigID, 0)
 	smallEndpointID := harness.seedEndpoint(t, profileID, "cheapest-nested-small-"+suffix, harness.upstream.baseURL("/cheapest/nested/small"), "cheapest-nested-small-key", 0)
 	largeEndpointID := harness.seedEndpoint(t, profileID, "cheapest-nested-large-"+suffix, harness.upstream.baseURL("/cheapest/nested/large"), "cheapest-nested-large-key", 1)
-	smallConnectionID := harness.seedConnection(t, profileID, childModelConfigID, smallEndpointID, "cheapest-nested-small-connection-"+suffix, nil, nil, 0)
-	largeConnectionID := harness.seedConnection(t, profileID, childModelConfigID, largeEndpointID, "cheapest-nested-large-connection-"+suffix, nil, nil, 1)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, smallConnectionID, 400, 4_096, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, largeConnectionID, 1_000, 4_096, 1.0)
+	harness.seedConnection(t, profileID, childModelConfigID, smallEndpointID, "cheapest-nested-small-connection-"+suffix, nil, nil, 0)
+	harness.seedConnection(t, profileID, childModelConfigID, largeEndpointID, "cheapest-nested-large-connection-"+suffix, nil, nil, 1)
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
@@ -306,7 +302,7 @@ func TestProxySelectorTopologyCascadeShortTextSafeResponsesStayOnPrimaryChild(t 
 	assertNoScriptedUpstreamRequests(t, route.LaterNativeUpstream, "later native tier")
 }
 
-func TestProxySelectorTopologyCascadeOversizedCompatibleResponsesStayOnPrimaryAfterContextRoutingRemoval(t *testing.T) {
+func TestProxySelectorTopologyCascadeOversizedCompatibleResponsesStayOnPrimary(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	route := seedOpenAITopologyCascadeRoute(t, harness, profileID, "/proxy-selector/topology-cascade/gpt54")
@@ -322,7 +318,7 @@ func TestProxySelectorTopologyCascadeOversizedCompatibleResponsesStayOnPrimaryAf
 	assertNoScriptedUpstreamRequests(t, route.LaterNativeUpstream, "later native tier")
 }
 
-func TestProxySelectorTopologyCascadeLargeResponsesStayOnPrimaryAfterContextRoutingRemoval(t *testing.T) {
+func TestProxySelectorTopologyCascadeLargeResponsesStayOnPrimary(t *testing.T) {
 	harness := newEnforcedRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	route := seedOpenAITopologyCascadeRoute(t, harness, profileID, "/proxy-selector/topology-cascade/deepseek")
@@ -496,10 +492,7 @@ func TestProxySelectorContextRankingChatTranslatedCandidateWinsByPolicyOrder(t *
 	translatedVariant := "responses_reasoning_none"
 	nativeVariant := "chat_completions_reasoning_none"
 	translatedConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, translatedEndpointID, "proxy-selector-context-ranking-chat-translated-connection-"+suffix, nil, nil, 0, &translatedVariant, runtimeStringPtr("responses_only"))
-	nativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-context-ranking-chat-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("chat_completions_only"))
-	for _, connectionID := range []int{translatedConnectionID, nativeConnectionID} {
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, connectionID, 16_384, 1_024, 1.0)
-	}
+	harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, modelConfigID, nativeEndpointID, "proxy-selector-context-ranking-chat-native-connection-"+suffix, nil, nil, 1, &nativeVariant, runtimeStringPtr("chat_completions_only"))
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
@@ -845,10 +838,8 @@ func TestRuntimeModelRedirectReentersLoadBalancingAndPersistsRouteReason(t *test
 	harness.seedProxyTargetAtPosition(t, publicModelConfigID, redirectedModelConfigID, 0)
 	firstEndpointID := harness.seedEndpoint(t, profileID, "redirect-model-first-"+suffix, firstUpstream.baseURL("/redirect/model/first"), "redirect-model-first-key", 0)
 	secondEndpointID := harness.seedEndpoint(t, profileID, "redirect-model-second-"+suffix, secondUpstream.baseURL("/redirect/model/second"), "redirect-model-second-key", 1)
-	firstConnectionID := harness.seedConnection(t, profileID, redirectedModelConfigID, firstEndpointID, "redirect-model-first-connection-"+suffix, nil, nil, 0)
-	secondConnectionID := harness.seedConnection(t, profileID, redirectedModelConfigID, secondEndpointID, "redirect-model-second-connection-"+suffix, nil, nil, 1)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, firstConnectionID, 16_384, 4_096, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, secondConnectionID, 16_384, 4_096, 1.0)
+	harness.seedConnection(t, profileID, redirectedModelConfigID, firstEndpointID, "redirect-model-first-connection-"+suffix, nil, nil, 0)
+	harness.seedConnection(t, profileID, redirectedModelConfigID, secondEndpointID, "redirect-model-second-connection-"+suffix, nil, nil, 1)
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
@@ -975,7 +966,6 @@ func seedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int,
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
 	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "facade-public-"+randomSuffix(), "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &publicStrategyID)
-	enableRuntimeHarnessFacadeModel(t, harness, publicModelConfigID)
 	route := seededFacadeRoute{PublicModelID: publicModelID, TargetModelIDs: make([]string, 0, len(targets)), ConnectionIDs: make([]int, 0, len(targets))}
 	for index, target := range targets {
 		targetStrategyID := harness.seedLegacyStrategy(t, profileID, "facade-target-"+randomSuffix(), "fill-first")
@@ -983,7 +973,6 @@ func seedOpenAIFacadeRoute(t *testing.T, harness *runtimeHarness, profileID int,
 		harness.seedProxyTargetAtPosition(t, publicModelConfigID, targetModelConfigID, index)
 		endpointID := harness.seedEndpoint(t, profileID, "facade-endpoint-"+target.ModelID, target.EndpointBaseURL, target.EndpointAPIKey, index)
 		connectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, targetModelConfigID, endpointID, "facade-connection-"+target.ModelID, nil, nil, 0, target.OpenAIProbeEndpointVariant, target.OpenAITextCapability)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, connectionID, 16_384, 1_024, 1.0)
 		route.TargetModelIDs = append(route.TargetModelIDs, target.ModelID)
 		route.ConnectionIDs = append(route.ConnectionIDs, connectionID)
 	}
@@ -997,7 +986,6 @@ func seedOpenAITopologyCascadeRoute(t *testing.T, harness *runtimeHarness, profi
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
 	publicStrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-public-"+randomSuffix(), "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", "gpt-5.5", "proxy", &publicStrategyID)
-	enableRuntimeHarnessFacadeModel(t, harness, publicModelConfigID)
 	primaryStrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-primary-"+randomSuffix(), "fill-first")
 	gpt54StrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-gpt54-"+randomSuffix(), "fill-first")
 	deepSeekStrategyID := harness.seedLegacyStrategy(t, profileID, "topology-cascade-deepseek-"+randomSuffix(), "fill-first")
@@ -1061,14 +1049,10 @@ func seedOpenAITopologyCascadeRoute(t *testing.T, harness *runtimeHarness, profi
 	gpt54EndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-gpt54-endpoint-"+randomSuffix(), gpt54Upstream.baseURL(gpt54PathPrefix), "topology-cascade-gpt54-key", 1)
 	deepSeekEndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-deepseek-endpoint-"+randomSuffix(), deepSeekUpstream.baseURL(deepSeekPathPrefix), "topology-cascade-deepseek-key", 2)
 	laterNativeEndpointID := harness.seedEndpoint(t, profileID, "topology-cascade-later-native-endpoint-"+randomSuffix(), laterNativeUpstream.baseURL(laterNativePathPrefix), "topology-cascade-later-native-key", 3)
-	primaryConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, primaryModelConfigID, primaryEndpointID, "topology-cascade-primary-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant, runtimeStringPtr("responses_only"))
-	gpt54ConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, gpt54ModelConfigID, gpt54EndpointID, "topology-cascade-gpt54-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant, runtimeStringPtr("responses_only"))
-	deepSeekConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, deepSeekModelConfigID, deepSeekEndpointID, "topology-cascade-deepseek-connection-"+randomSuffix(), nil, nil, 0, &chatOnlyVariant, runtimeStringPtr("chat_completions_only"))
-	laterNativeConnectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, laterNativeModelConfigID, laterNativeEndpointID, "topology-cascade-later-native-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant, runtimeStringPtr("responses_only"))
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 400, 64, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, gpt54ConnectionID, 1_400, 64, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, deepSeekConnectionID, 2_400, 64, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, laterNativeConnectionID, 3_200, 64, 1.0)
+	harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, primaryModelConfigID, primaryEndpointID, "topology-cascade-primary-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant, runtimeStringPtr("responses_only"))
+	harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, gpt54ModelConfigID, gpt54EndpointID, "topology-cascade-gpt54-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant, runtimeStringPtr("responses_only"))
+	harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, deepSeekModelConfigID, deepSeekEndpointID, "topology-cascade-deepseek-connection-"+randomSuffix(), nil, nil, 0, &chatOnlyVariant, runtimeStringPtr("chat_completions_only"))
+	harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, laterNativeModelConfigID, laterNativeEndpointID, "topology-cascade-later-native-connection-"+randomSuffix(), nil, nil, 0, &responsesVariant, runtimeStringPtr("responses_only"))
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return seededTopologyCascadeRoute{
@@ -1086,21 +1070,6 @@ func seedOpenAITopologyCascadeRoute(t *testing.T, harness *runtimeHarness, profi
 		DeepSeekUpstream:      deepSeekUpstream,
 		LaterNativeUpstream:   laterNativeUpstream,
 	}
-}
-
-func enableRuntimeHarnessFacadeModel(t *testing.T, harness *runtimeHarness, modelConfigID int) {
-	t.Helper()
-	_ = harness
-	_ = modelConfigID
-}
-
-func setRuntimeHarnessConnectionContextCapabilities(t *testing.T, harness *runtimeHarness, connectionID int, contextWindowTokens int, defaultOutputTokenReserve int, maxContextUtilization float64) {
-	t.Helper()
-	_ = harness
-	_ = connectionID
-	_ = contextWindowTokens
-	_ = defaultOutputTokenReserve
-	_ = maxContextUtilization
 }
 
 func performProxySelectorChatRequest(t *testing.T, harness *runtimeHarness, modelID string, content string) *http.Response {
@@ -1271,10 +1240,8 @@ func seedRetryPolicyNativeRoute(t *testing.T, harness *runtimeHarness, profileID
 	modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
 	primaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-primary-"+randomSuffix(), primaryBaseURL, "retry-policy-primary-key", 0)
 	secondaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-secondary-"+randomSuffix(), secondaryBaseURL, "retry-policy-secondary-key", 1)
-	primaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "retry-policy-primary-connection-"+randomSuffix(), nil, nil, 0)
-	secondaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "retry-policy-secondary-connection-"+randomSuffix(), nil, nil, 1)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 16_384, 1_024, 1.0)
-	setRuntimeHarnessConnectionContextCapabilities(t, harness, secondaryConnectionID, 16_384, 1_024, 1.0)
+	harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "retry-policy-primary-connection-"+randomSuffix(), nil, nil, 0)
+	harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "retry-policy-secondary-connection-"+randomSuffix(), nil, nil, 1)
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
@@ -1308,10 +1275,8 @@ func TestResolveModelAccessFromRoutingPlanFlatPoolPreservedForOrdinaryModels(t *
 		modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
 		primaryEndpointID := harness.seedEndpoint(t, profileID, "flat-single-primary-"+suffix, primaryUpstream.baseURL("/flat-preserved/single/primary"), "flat-single-primary-key", 0)
 		secondaryEndpointID := harness.seedEndpoint(t, profileID, "flat-single-secondary-"+suffix, secondaryUpstream.baseURL("/flat-preserved/single/secondary"), "flat-single-secondary-key", 1)
-		primaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "flat-single-primary-connection-"+suffix, nil, nil, 0)
-		secondaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "flat-single-secondary-connection-"+suffix, nil, nil, 1)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 16_384, 1_024, 1.0)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, secondaryConnectionID, 16_384, 1_024, 1.0)
+		harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "flat-single-primary-connection-"+suffix, nil, nil, 0)
+		harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "flat-single-secondary-connection-"+suffix, nil, nil, 1)
 		releaseRefresh()
 		harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 		response := performProxySelectorChatRequest(t, harness, modelID, "ordinary single keeps first terminal only")
@@ -1332,10 +1297,8 @@ func TestResolveModelAccessFromRoutingPlanFlatPoolPreservedForOrdinaryModels(t *
 		modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
 		primaryEndpointID := harness.seedEndpoint(t, profileID, "flat-fill-primary-"+suffix, primaryUpstream.baseURL("/flat-preserved/fill/primary"), "flat-fill-primary-key", 0)
 		secondaryEndpointID := harness.seedEndpoint(t, profileID, "flat-fill-secondary-"+suffix, secondaryUpstream.baseURL("/flat-preserved/fill/secondary"), "flat-fill-secondary-key", 1)
-		primaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "flat-fill-primary-connection-"+suffix, nil, nil, 0)
-		secondaryConnectionID := harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "flat-fill-secondary-connection-"+suffix, nil, nil, 1)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, primaryConnectionID, 16_384, 1_024, 1.0)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, secondaryConnectionID, 16_384, 1_024, 1.0)
+		harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "flat-fill-primary-connection-"+suffix, nil, nil, 0)
+		harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "flat-fill-secondary-connection-"+suffix, nil, nil, 1)
 		releaseRefresh()
 		harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 		response := performProxySelectorChatRequest(t, harness, modelID, "ordinary fill-first keeps flat retry pool")
@@ -1356,10 +1319,8 @@ func TestResolveModelAccessFromRoutingPlanFlatPoolPreservedForOrdinaryModels(t *
 		modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
 		firstEndpointID := harness.seedEndpoint(t, profileID, "flat-round-first-"+suffix, firstUpstream.baseURL("/flat-preserved/round/first"), "flat-round-first-key", 0)
 		secondEndpointID := harness.seedEndpoint(t, profileID, "flat-round-second-"+suffix, secondUpstream.baseURL("/flat-preserved/round/second"), "flat-round-second-key", 1)
-		firstConnectionID := harness.seedConnection(t, profileID, modelConfigID, firstEndpointID, "flat-round-first-connection-"+suffix, nil, nil, 0)
-		secondConnectionID := harness.seedConnection(t, profileID, modelConfigID, secondEndpointID, "flat-round-second-connection-"+suffix, nil, nil, 1)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, firstConnectionID, 16_384, 1_024, 1.0)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, secondConnectionID, 16_384, 1_024, 1.0)
+		harness.seedConnection(t, profileID, modelConfigID, firstEndpointID, "flat-round-first-connection-"+suffix, nil, nil, 0)
+		harness.seedConnection(t, profileID, modelConfigID, secondEndpointID, "flat-round-second-connection-"+suffix, nil, nil, 1)
 		releaseRefresh()
 		harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 		assertStatus(t, performProxySelectorChatRequest(t, harness, modelID, "ordinary round robin first"), http.StatusOK)
@@ -1380,10 +1341,8 @@ func TestResolveModelAccessFromRoutingPlanFlatPoolPreservedForOrdinaryModels(t *
 		modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
 		firstEndpointID := harness.seedEndpoint(t, profileID, "flat-fill-first-first-"+suffix, firstUpstream.baseURL("/flat-preserved/fill-first/first"), "flat-fill-first-first-key", 0)
 		secondEndpointID := harness.seedEndpoint(t, profileID, "flat-fill-first-second-"+suffix, secondUpstream.baseURL("/flat-preserved/fill-first/second"), "flat-fill-first-second-key", 1)
-		firstConnectionID := harness.seedConnection(t, profileID, modelConfigID, firstEndpointID, "flat-fill-first-first-connection-"+suffix, nil, nil, 0)
-		secondConnectionID := harness.seedConnection(t, profileID, modelConfigID, secondEndpointID, "flat-fill-first-second-connection-"+suffix, nil, nil, 1)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, firstConnectionID, 16_384, 1_024, 1.0)
-		setRuntimeHarnessConnectionContextCapabilities(t, harness, secondConnectionID, 16_384, 1_024, 1.0)
+		harness.seedConnection(t, profileID, modelConfigID, firstEndpointID, "flat-fill-first-first-connection-"+suffix, nil, nil, 0)
+		harness.seedConnection(t, profileID, modelConfigID, secondEndpointID, "flat-fill-first-second-connection-"+suffix, nil, nil, 1)
 		releaseRefresh()
 		harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 		response := performProxySelectorChatRequest(t, harness, modelID, "ordinary fill-first keeps policy ranking")

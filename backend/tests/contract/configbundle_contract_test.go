@@ -653,11 +653,6 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	if !strings.HasPrefix(connectionRef, "openai-primary-openai") || connection["api_family"] != "openai" || connection["endpoint_name"] != "Primary OpenAI" {
 		t.Fatalf("expected v3 standalone OpenAI connection export, got %+v", connection)
 	}
-	for _, removedKey := range []string{"context_window_tokens", "context_window_tokens_overridden", "default_output_token_reserve", "default_output_token_reserve_overridden", "max_context_utilization", "max_context_utilization_overridden", "preferred_context_utilization_threshold", "preferred_context_utilization_threshold_overridden", "context_capability_overrides"} {
-		if _, ok := connection[removedKey]; ok {
-			t.Fatalf("connection export must not include removed capability field %q: %+v", removedKey, connection)
-		}
-	}
 	if connection["openai_probe_endpoint_variant"] != "responses_minimal" || connection["openai_text_capability"] != "responses_only" {
 		t.Fatalf("expected v3 connection export to keep probe variant and text capability, got %+v", connection)
 	}
@@ -684,11 +679,6 @@ func assertProfileBundleV3Shape(t *testing.T, payload map[string]any) {
 	for _, removedKey := range []string{"model_type", "proxy_selection_strategy", "proxy_targets", "connections", "facade_enabled", "facade_selection_policy", "facade_fallback_policy"} {
 		if _, ok := model[removedKey]; ok {
 			t.Fatalf("model export must not include removed key %q: %+v", removedKey, model)
-		}
-	}
-	for _, removedKey := range []string{"context_window_tokens", "default_output_token_reserve", "max_context_utilization", "preferred_context_utilization_threshold"} {
-		if _, ok := model[removedKey]; ok {
-			t.Fatalf("model export must not include removed capability field %q: %+v", removedKey, model)
 		}
 	}
 	targets := model["access_targets"].([]any)

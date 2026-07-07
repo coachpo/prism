@@ -267,7 +267,7 @@ func TestRequestLogDetailContract(t *testing.T) {
 	if !ok || auditCaptureBodiesAtRequest {
 		t.Fatalf("expected request-log detail routing.audit_capture_bodies_at_request=false boolean, got %+v", routing)
 	}
-	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family", "context_routing"} {
+	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family"} {
 		if _, ok := routing[absent]; ok {
 			t.Fatalf("did not expect routing field %s in detail payload, got %+v", absent, routing)
 		}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"os/exec"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
@@ -29,22 +27,6 @@ var modelsStorePostgres struct {
 type modelsPostgresHarness struct {
 	containerName string
 	hostPort      string
-}
-
-func TestModelsStoreRejectsPromotionTargetOnTerminalRows(t *testing.T) {
-	ctx, conn := modelsMigratedConn(t, "models_promotion_target_terminal_rows")
-
-	_, err := conn.Exec(ctx, `UPDATE model_access_targets SET context_overflow_promotion_target_id = $1`, "gpt-5.4")
-	requireUndefinedColumnError(t, err, "context_overflow_promotion_target_id")
-	assertPromotionTargetColumnAbsent(t, ctx, conn, "model_access_targets")
-}
-
-func TestModelsStoreRejectsPromotionTargetOnConnections(t *testing.T) {
-	ctx, conn := modelsMigratedConn(t, "models_promotion_target_connections")
-
-	_, err := conn.Exec(ctx, `UPDATE connections SET context_overflow_promotion_target_id = $1`, "gpt-5.4")
-	requireUndefinedColumnError(t, err, "context_overflow_promotion_target_id")
-	assertPromotionTargetColumnAbsent(t, ctx, conn, "connections")
 }
 
 func TestModelsStoreUsesFlatAccessTargetsWithoutObsoleteColumns(t *testing.T) {
@@ -115,31 +97,6 @@ func findModelRecordByID(records []modelRecord, modelConfigID int) (modelRecord,
 		}
 	}
 	return modelRecord{}, false
-}
-
-func requireUndefinedColumnError(t *testing.T, err error, columnName string) {
-	t.Helper()
-	if err == nil {
-		t.Fatalf("expected undefined column error for %s", columnName)
-	}
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) {
-		t.Fatalf("expected pg error for %s, got %T: %v", columnName, err, err)
-	}
-	if pgErr.Code != "42703" || !strings.Contains(err.Error(), columnName) {
-		t.Fatalf("expected undefined column error for %s, got %v", columnName, err)
-	}
-}
-
-func assertPromotionTargetColumnAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string) {
-	t.Helper()
-	var count int
-	if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'context_overflow_promotion_target_id'`, tableName).Scan(&count); err != nil {
-		t.Fatalf("query %s columns: %v", tableName, err)
-	}
-	if count != 0 {
-		t.Fatalf("expected %s to reject promotion target ownership, but column exists", tableName)
-	}
 }
 
 func assertAccessTargetColumnAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn, columnName string) {
