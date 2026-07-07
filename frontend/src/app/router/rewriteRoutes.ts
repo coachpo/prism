@@ -91,24 +91,10 @@ export const prismDynamicRouteDefinitions = [
   { id: "model-detail", path: "/models/$modelId", scope: "protected-selected-profile" },
   { id: "observe-request-audit", path: "/observe/requests/$requestId/audit", scope: "protected-selected-profile" },
 ] as const
-export const rewriteCompatibilityRoutePaths = [
-  "/dashboard",
-  "/login",
-  "/forgot-password",
-  "/reset-password",
-  "/endpoints",
-  "/loadbalance-strategies",
-  "/settings",
-  "/proxy-api-keys",
-  "/pricing-templates",
-  "/request-logs",
-  "/request-logs/$requestId/audit",
-] as const
 
 export const rewriteRoutePaths = [
   ...prismRouteDefinitions.map((route) => route.path),
   ...prismDynamicRouteDefinitions.map((route) => route.path),
-  ...rewriteCompatibilityRoutePaths,
 ] as const
 
 export type RewriteRoutePath = (typeof rewriteRoutePaths)[number]
@@ -129,39 +115,10 @@ export const prismPathById = {
   "observe-request-audit": "/observe/requests/$requestId/audit",
 } as const satisfies Record<PrismRouteId, RewriteRoutePath>
 
-export const legacyRouteRedirects = {
-  "/": "/observe",
-  "/dashboard": "/observe",
-  "/login": "/auth/login",
-  "/forgot-password": "/auth/forgot-password",
-  "/reset-password": "/auth/reset-password",
-  "/endpoints": "/route/endpoints",
-  "/loadbalance-strategies": "/route/ban-policies",
-  "/settings": "/system/settings",
-  "/proxy-api-keys": "/control/proxy-keys",
-  "/pricing-templates": "/route/pricing",
-  "/request-logs": "/observe/requests",
-} as const
-
-export type LegacyRoutePath = keyof typeof legacyRouteRedirects
-
 export function buildModelDetailPath(modelId: string | number): string {
   return `/models/${encodeURIComponent(String(modelId))}`
 }
 
 export function buildRequestAuditPath(requestId: string | number): string {
   return `/observe/requests/${encodeURIComponent(String(requestId))}/audit`
-}
-
-export function buildLegacyRequestAuditRedirect(requestId: string | number): string {
-  return buildRequestAuditPath(requestId)
-}
-
-export function getLegacyRedirectPath(pathname: string): string | null {
-  if (pathname.startsWith("/request-logs/") && pathname.endsWith("/audit")) {
-    const requestId = pathname.slice("/request-logs/".length, -"/audit".length)
-    return requestId ? buildLegacyRequestAuditRedirect(decodeURIComponent(requestId)) : null
-  }
-
-  return legacyRouteRedirects[pathname as LegacyRoutePath] ?? null
 }

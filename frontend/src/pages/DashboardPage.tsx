@@ -53,12 +53,12 @@ function DashboardAggregateSection({
     pageState.setTab("analytics");
   }, [pageState]);
   const handleReviewRequests = useCallback(() => {
-    navigate("/request-logs");
+    navigate("/observe/requests");
   }, [navigate]);
   const handleSelectRecentActivity = useCallback(
     (requestLogId: number) => {
       const searchParams = new URLSearchParams({ request_id: String(requestLogId) });
-      navigate(`/request-logs?${searchParams.toString()}`);
+      navigate(`/observe/requests?${searchParams.toString()}`);
     },
     [navigate],
   );
@@ -80,7 +80,7 @@ function DashboardAggregateSection({
         searchParams.set("model_id", params.model_id);
       }
 
-      navigate(`/request-logs?${searchParams.toString()}`);
+      navigate(`/observe/requests?${searchParams.toString()}`);
     },
     [navigate],
   );

@@ -116,7 +116,7 @@ export function useAuthenticationSettingsData({
 
         if (!wasEnabled && saved.auth_enabled) {
           toast.success(messages.auth.signInToContinue);
-          navigate("/login", { replace: true });
+          navigate("/auth/login", { replace: true });
           return;
         }
 

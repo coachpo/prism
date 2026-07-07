@@ -23,7 +23,7 @@ export function ResetPasswordPage() {
     try {
       await api.auth.confirmPasswordReset({ otp_code: otpCode.trim(), new_password: newPassword });
       toast.success(messages.auth.passwordUpdated);
-      navigate("/login", { replace: true });
+      navigate("/auth/login", { replace: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.auth.resetPasswordError);
     } finally {
@@ -60,7 +60,7 @@ export function ResetPasswordPage() {
             />
           </Field>
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Button type="button" variant="link" className="justify-start px-0" onClick={() => navigate("/login")}>
+            <Button type="button" variant="link" className="justify-start px-0" onClick={() => navigate("/auth/login")}>
               {messages.auth.backToLogin}
             </Button>
             <Button type="submit" disabled={submitting}>

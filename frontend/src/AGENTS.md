@@ -21,7 +21,7 @@ src/
 
 ## WHERE TO LOOK
 - Browser entry and provider stack: `main.tsx`, `App.tsx`
-- Mounted routes, search schemas, protected/public split, legacy redirects, and route metadata: `app/AGENTS.md`
+- Mounted routes, search schemas, protected/public split, and route metadata: `app/AGENTS.md`
 - Active protected route modules and feature-local page/data handoffs: `features/AGENTS.md`
 - Legacy page clusters, dense request-log/settings/statistics/dashboard surfaces, and page-local child docs: `pages/AGENTS.md`
 - Shell chrome, shared widgets, generated primitives, and component-only ownership: `components/AGENTS.md`

@@ -4,7 +4,7 @@
 `src/pages/` holds auth pages plus oracle-compatible route-domain clusters still referenced by the feature-owned rewrite routes and tests. New protected route mounts live under `src/features/` and `src/app/router/`.
 
 ## ROUTE SURFACE
-- Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password` with legacy auth redirects from `/login`, `/forgot-password`, and `/reset-password`
+- Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`
 - Protected rewrite routes: `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, `/control/proxy-keys`
 - Root redirect: `/` -> `/observe`
 

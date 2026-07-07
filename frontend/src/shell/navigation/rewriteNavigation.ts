@@ -7,7 +7,7 @@ export type RewriteShellNavItem = {
 }
 
 export const rewriteShellNavItems = [
-  { path: "/dashboard", label: "Dashboard", scope: "selected-profile" },
+  { path: "/observe", label: "Dashboard", scope: "selected-profile" },
   { path: "/models", label: "Models", scope: "selected-profile" },
   { path: "/observe/requests", label: "Request Logs", scope: "selected-profile" },
 ] as const satisfies readonly RewriteShellNavItem[]

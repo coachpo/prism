@@ -37,7 +37,7 @@ statistics/
 - Keep usage-snapshot orchestration in `useUsageStatisticsPageData.ts`, not in section or table components.
 - Keep analytics websocket subscription and stale-sequence handling in `useUsageStatisticsRealtimeData.ts`, not in the dashboard shell.
 - Treat backend snapshot currency as the source of truth for rendered statistics money. The frontend reporting-currency layer controls selected-profile readiness and trust, but statistics components should not refetch costing settings or recompute backend stats.
-- Keep this area aggregate-focused. Request-log investigation belongs on `/request-logs`, not inside the statistics tables.
+- Keep this area aggregate-focused. Request-log investigation belongs on `/observe/requests`, not inside the statistics tables.
 - Keep analytics-shell and section copy on the shared locale boundary through `useLocale()`, and keep locale-aware formatting on the shared helpers rather than page-local string logic.
 - The dense `charts/`, `sections/`, and `tables/` subfolders stay parent-covered. Do not add extra AGENTS files for them.
 - Keep null-vs-zero rendering differences visible in helpers and copy, so missing data stays distinct from a true zero value.

@@ -25,7 +25,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (!loading && !authEnabled) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/observe" replace />;
   }
 
   if (!loading && authenticated) {
@@ -35,7 +35,7 @@ export function LoginPage() {
     const nextPath = fromLocation
       ? `${fromLocation.pathname ?? ""}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
       : null;
-    return <Navigate to={nextPath || "/dashboard"} replace />;
+    return <Navigate to={nextPath || "/observe"} replace />;
   }
 
   const handleSubmit = async (event: LoginFormSubmitEvent) => {
@@ -50,7 +50,7 @@ export function LoginPage() {
         : null;
 
       await login(username.trim(), password, sessionDuration);
-      navigate(nextPath || "/dashboard", { replace: true });
+      navigate(nextPath || "/observe", { replace: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.auth.loginFailed);
     } finally {
@@ -113,7 +113,7 @@ export function LoginPage() {
               type="button"
               variant="link"
               className="justify-start px-0 text-muted-foreground hover:text-foreground"
-              onClick={() => navigate("/forgot-password")}
+              onClick={() => navigate("/auth/forgot-password")}
             >
               {messages.auth.forgotPasswordQuestion}
             </Button>

@@ -275,7 +275,7 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
 }
 
 async function loginToProxyKeys(page: Page) {
-  await page.goto("/login");
+  await page.goto("/auth/login");
   await page.getByLabel("Username").fill("admin");
   await page.getByLabel("Password").fill("password123");
   await page.getByRole("button", { name: "Sign in" }).click();

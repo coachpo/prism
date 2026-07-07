@@ -16,20 +16,21 @@ frontend/
 ```
 
 ## ROUTE MAP
-- Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect there.
+- Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`.
 - `/` redirects to `/observe`.
+- Removed auth compatibility paths are unsupported: `/login`, `/forgot-password`, `/reset-password`.
 
 ## HIERARCHY
 - `src/App.tsx` is the thin browser wrapper over the rewrite router, query client, browser router, auth provider, and TanStack `RouterProvider`.
-- `src/AGENTS.md`: source tree router for route shell, features, legacy page clusters, shared UI, contexts, hooks, i18n, API, websocket, and tests.
-- `src/app/AGENTS.md`: router construction, auth/public gates, rewrite metadata, legacy redirects, suspense, and QueryClient defaults.
+- `src/AGENTS.md`: source tree router for route shell, features, page clusters, shared UI, contexts, hooks, i18n, API, websocket, and tests.
+- `src/app/AGENTS.md`: router construction, auth/public gates, rewrite metadata, suspense, and QueryClient defaults.
 - `src/features/AGENTS.md`: active protected route modules, selected-profile features, global control pages, mixed settings, and observe surfaces.
-- `src/pages/AGENTS.md`: auth pages and oracle-compatible legacy route clusters still reused by feature routes and tests.
+- `src/pages/AGENTS.md`: auth pages and oracle-compatible route clusters still reused by feature routes and tests.
 - `src/components/AGENTS.md`, `src/context/AGENTS.md`, `src/hooks/AGENTS.md`, `src/i18n/AGENTS.md`, `src/shared/AGENTS.md`, and `src/lib/AGENTS.md`: shared shell, providers, hooks, locale, rewrite helpers, API, websocket, and browser integration.
 - `tests/AGENTS.md`: Playwright browser flows plus frontend seam-contract suites.
 
 ## WHERE TO LOOK
-- Mounted routes, auth/public split, protected shell mounts, rewrite route metadata, and legacy redirects: `src/AGENTS.md`, `src/app/AGENTS.md`, `src/app/router/appRouter.tsx`, `src/app/router/rewriteRoutes.ts`, `src/App.tsx`
+- Mounted routes, auth/public split, protected shell mounts, and rewrite route metadata: `src/AGENTS.md`, `src/app/AGENTS.md`, `src/app/router/appRouter.tsx`, `src/app/router/rewriteRoutes.ts`, `src/App.tsx`
 - Active protected route modules and feature-local page/data handoffs: `src/features/AGENTS.md`
 - Shell chrome, sidebar entries, profile-prefixed navigation, version label, and profile switcher: `src/components/AGENTS.md`, `src/components/layout/app-layout/AGENTS.md`
 - Shared widgets, shell-safe controls, and design-system wrappers: `src/components/AGENTS.md`, `src/components/ui/AGENTS.md`
@@ -49,10 +50,10 @@ frontend/
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 
-- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve old shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test`, `test:lib`, `test:server`, `test:config`, and `test:e2e`.
-- Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, route scopes, and legacy redirects; `src/App.tsx` stays the thin wrapper.
+- Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, and route scopes; `src/App.tsx` stays the thin wrapper.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep dashboard routing visualization on the React Flow-backed `src/pages/dashboard/routing-diagram/` leaf; `@xyflow/react` CSS is imported once from `src/main.tsx`.
 - Keep model CRUD, access-target authoring, accepted-format controls, and typed/import validation in their owning leaves without reintroducing deleted model-owned context routing fields.

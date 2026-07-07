@@ -21,7 +21,6 @@ import { useLocale } from "@/i18n/useLocale"
 import { OperatorLoadingState } from "@/shared/design-system"
 import {
   emptySearchSchema,
-  getLegacyRedirectPath,
   observeSearchSchema,
   requestAuditSearchSchema,
   requestLogSearchSchema,
@@ -45,7 +44,7 @@ const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage").then((m
 const RequestLogsPage = lazy(() => import("@/features/request-logs/RequestLogsFeaturePage"))
 const RequestLogAuditPage = lazy(() => import("@/features/request-logs/RequestLogAuditFeaturePage"))
 
-export const PUBLIC_AUTH_PATHS = new Set(["/auth/login", "/auth/forgot-password", "/auth/reset-password", "/login", "/forgot-password", "/reset-password"])
+export const PUBLIC_AUTH_PATHS = new Set(["/auth/login", "/auth/forgot-password", "/auth/reset-password"])
 
 export function RouteFallback() {
   const { messages } = useLocale()
@@ -128,18 +127,8 @@ function LegacyRequestAuditCompat() {
   return (
     <Routes>
       <Route path="/observe/requests/:requestId/audit" element={withRouteSuspense(<RequestLogAuditPage />)} />
-      <Route path="/request-logs/:requestId/audit" element={withRouteSuspense(<RequestLogAuditPage />)} />
     </Routes>
   )
-}
-
-function LegacyRedirectRoute() {
-  const redirectTo = getLegacyRedirectPath(window.location.pathname)
-  if (!redirectTo) {
-    return <Navigate to="/observe" replace />
-  }
-
-  return <Navigate to={redirectTo} search={parsePlainSearch(window.location.search)} hash={window.location.hash} replace />
 }
 
 function PublicLoginRoute() {
@@ -237,7 +226,7 @@ const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFou
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: LegacyRedirectRoute,
+  component: () => <Navigate to="/observe" replace />,
 })
 const observeRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -317,17 +306,6 @@ const requestAuditRoute = createRoute({
   validateSearch: (search) => requestAuditSearchSchema.parse(search),
   component: ProtectedRequestAuditRoute,
 })
-const legacyLoginRoute = createRoute({ getParentRoute: () => rootRoute, path: "/login", component: LegacyRedirectRoute })
-const legacyForgotPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: "/forgot-password", component: LegacyRedirectRoute })
-const legacyResetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reset-password", component: LegacyRedirectRoute })
-const legacyDashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: "/dashboard", component: LegacyRedirectRoute })
-const legacyEndpointsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/endpoints", component: LegacyRedirectRoute })
-const legacyBanPoliciesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/loadbalance-strategies", component: LegacyRedirectRoute })
-const legacySettingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: LegacyRedirectRoute })
-const legacyProxyKeysRoute = createRoute({ getParentRoute: () => rootRoute, path: "/proxy-api-keys", component: LegacyRedirectRoute })
-const legacyPricingRoute = createRoute({ getParentRoute: () => rootRoute, path: "/pricing-templates", component: LegacyRedirectRoute })
-const legacyRequestLogsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/request-logs", component: LegacyRedirectRoute })
-const legacyRequestAuditRoute = createRoute({ getParentRoute: () => rootRoute, path: "/request-logs/$requestId/audit", component: LegacyRedirectRoute })
 // eslint-disable-next-line react-refresh/only-export-components
 export const prismRouteTree = rootRoute.addChildren([
   indexRoute,
@@ -344,17 +322,6 @@ export const prismRouteTree = rootRoute.addChildren([
   pricingRoute,
   requestLogsRoute,
   requestAuditRoute,
-  legacyLoginRoute,
-  legacyForgotPasswordRoute,
-  legacyResetPasswordRoute,
-  legacyDashboardRoute,
-  legacyEndpointsRoute,
-  legacyBanPoliciesRoute,
-  legacySettingsRoute,
-  legacyProxyKeysRoute,
-  legacyPricingRoute,
-  legacyRequestLogsRoute,
-  legacyRequestAuditRoute,
 ])
 
 function parsePlainSearch(search: string): Record<string, string> {

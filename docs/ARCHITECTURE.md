@@ -45,7 +45,7 @@ frontend/
 ├── src/
 │   ├── main.tsx                # Entry point
 │   ├── App.tsx                 # Query, BrowserRouter, auth-provider, and TanStack RouterProvider host
-│   ├── app/router/             # Canonical route tree, protected shell gates, search schemas, and legacy redirects
+│   ├── app/router/             # Canonical route tree, protected shell gates, and search schemas
 │   ├── context/
 │   │   ├── ProfileContext.tsx  # Selected profile vs active profile state bootstrapped from /api/profiles/bootstrap
 │   │   └── AuthContext.tsx     # Operator auth bootstrap, refresh, and session state

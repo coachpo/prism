@@ -422,7 +422,7 @@ async function mockCurrencyRoutes(
     }
 
     if (pathname === "/api/models") {
-      if (page.url().includes("/request-logs")) {
+      if (page.url().includes("/observe/requests")) {
         throw new Error(
           "Unexpected /api/models request during request-logs browse mode",
         );

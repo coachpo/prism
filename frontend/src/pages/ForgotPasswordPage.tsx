@@ -22,7 +22,7 @@ export function ForgotPasswordPage() {
     try {
       await api.auth.requestPasswordReset({ username_or_email: usernameOrEmail.trim() });
       toast.success(messages.auth.accountResetCodeSent);
-      navigate("/reset-password", { replace: true });
+      navigate("/auth/reset-password", { replace: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.auth.forgotPasswordError);
     } finally {
@@ -48,7 +48,7 @@ export function ForgotPasswordPage() {
             />
           </Field>
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Button type="button" variant="link" className="justify-start px-0" onClick={() => navigate("/login")}>
+            <Button type="button" variant="link" className="justify-start px-0" onClick={() => navigate("/auth/login")}>
               {messages.auth.backToLogin}
             </Button>
             <Button type="submit" disabled={submitting}>

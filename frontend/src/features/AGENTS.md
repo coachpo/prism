@@ -18,7 +18,7 @@ features/
 ```
 
 ## WHERE TO LOOK
-- Route mounting, route scopes, legacy redirects, and search schemas: `../app/AGENTS.md`, `../app/router/appRouter.tsx`, `../app/router/rewriteRoutes.ts`
+- Route mounting, route scopes, and search schemas: `../app/AGENTS.md`, `../app/router/appRouter.tsx`, `../app/router/rewriteRoutes.ts`
 - Startup tab implementation: `settings/startup/AGENTS.md`
 - Legacy/oracle page clusters and nested page docs still referenced by feature modules: `../pages/AGENTS.md`
 - Typed backend API, shared request plumbing, and selected-profile header rules: `../lib/AGENTS.md`, `../lib/api/AGENTS.md`

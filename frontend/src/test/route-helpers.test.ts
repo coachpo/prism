@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest"
 import {
   buildModelDetailPath,
   buildRequestAuditPath,
-  getLegacyRedirectPath,
-  legacyRouteRedirects,
   observeSearchSchema,
   prismPathById,
   requestAuditSearchSchema,
@@ -26,13 +24,6 @@ describe("rewrite route helpers", () => {
     expect(prismPathById["route-ban-policies"]).toBe("/route/ban-policies")
     expect(buildModelDetailPath("model/slash")).toBe("/models/model%2Fslash")
     expect(buildRequestAuditPath(123)).toBe("/observe/requests/123/audit")
-  })
-
-  it("maps legacy paths to target routes without changing selected-profile scope semantics", () => {
-    expect(legacyRouteRedirects["/dashboard"]).toBe("/observe")
-    expect(legacyRouteRedirects["/endpoints"]).toBe("/route/endpoints")
-    expect(legacyRouteRedirects["/proxy-api-keys"]).toBe("/control/proxy-keys")
-    expect(getLegacyRedirectPath("/request-logs/321/audit")).toBe("/observe/requests/321/audit")
   })
 
   it("validates and normalizes target route search params", () => {
