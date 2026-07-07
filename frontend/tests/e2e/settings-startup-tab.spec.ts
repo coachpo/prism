@@ -6,7 +6,6 @@ const fixedTimestamp = "2026-04-28T12:00:00Z";
 const maskedDatabaseUrl = "postgres://prism:***@db.local/prism?sslpassword=***";
 const maskedRuntimeKey = "runtime-secret-********";
 const maskedJwtKey = "jwt-signing-********";
-const maskedBundleKey = "bundle-key-********";
 const maskedSmtpPassword = "smtp-password-********";
 const maskedTelemetryAuthorizationHeader = "telemetry-authorization-********";
 const forbiddenSecretSentinel = "should-never-render-secret-sentinel";
@@ -135,7 +134,6 @@ function createApplyCapabilities() {
     ["telemetry.traces.sampling_ratio", ""],
     ["runtime.secretEncryptionKey", ""],
     ["auth.jwtSigningKey", "auth-jwt-signing-key-change"],
-    ["stateTransfer.bundleEncryptionKey", "state-transfer-bundle-encryption-key-change"],
   ] as const;
   return Object.fromEntries([
     ...hotFields.map((field) => [field, { mode: "hot_apply" }]),
@@ -259,7 +257,6 @@ function createBootstrapResponse() {
       "database.url": { configured: true, editable: true, masked: maskedDatabaseUrl },
       "runtime.secretEncryptionKey": { configured: true, editable: false, masked: maskedRuntimeKey },
       "auth.jwtSigningKey": { configured: true, editable: true, masked: maskedJwtKey },
-      "stateTransfer.bundleEncryptionKey": { configured: true, editable: true, masked: maskedBundleKey },
       "mail.smtp.password": { configured: true, editable: true, masked: maskedSmtpPassword },
       "telemetry.exporter.auth.authorizationHeader": { configured: false, editable: true, masked: "" },
     },
@@ -317,6 +314,15 @@ async function mockSettingsStartupRoutes(page: Page, options: MockOptions = {}) 
     }
     if (pathname === "/api/settings/costing") {
       return fulfillJson(createCostingSettings());
+    }
+    if (pathname === "/api/settings/audit") {
+      return fulfillJson({
+        settings: [
+          { api_family: "openai", audit_enabled: false, audit_capture_bodies: false },
+          { api_family: "anthropic", audit_enabled: false, audit_capture_bodies: false },
+          { api_family: "gemini", audit_enabled: false, audit_capture_bodies: false },
+        ],
+      });
     }
     if (pathname === "/api/settings/auth") {
       return fulfillJson(createAuthSettings());
@@ -419,7 +425,6 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByText(maskedDatabaseUrl)).toBeVisible();
   await expect(page.getByText(maskedRuntimeKey)).toBeVisible();
   await expect(page.getByText(maskedJwtKey)).toBeVisible();
-  await expect(page.getByText(maskedBundleKey)).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Database URL" })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "JWT signing key" })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "Server host" })).toHaveValue("0.0.0.0");
@@ -744,7 +749,7 @@ test("invalid settings hashes normalize and tab switches keep the URL in sync", 
   await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true");
 
   await page.getByRole("tab", { name: "Profile" }).click();
-  await expect(page).toHaveURL(/\/system\/settings\?tab=profile&section=backup#backup$/);
+  await expect(page).toHaveURL(/\/system\/settings\?tab=profile&section=billing-currency#billing-currency$/);
   await expect(page.getByRole("tab", { name: "Profile" })).toHaveAttribute("aria-selected", "true");
 });
 
