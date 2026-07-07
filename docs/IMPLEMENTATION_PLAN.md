@@ -18,7 +18,7 @@
 - **G2 启动配置 schema 只加不减：** 现网 `config.json` 包含 `mail`、`telemetry`、`stateTransfer.bundleEncryptionKey`、`database.pools.realtime` 等字段，且 bootstrap 解析**拒绝未知字段**。任何功能移除都**保留对应字段的解析**（parsed-but-unused，加 `// ponytail:` 注释标记），只删除消费行为。删字段 = 现网重启失败。
 - **G3 i18n 机制：** `frontend/src/i18n/messages/en.ts` 同时承载 `Messages` 类型块（约 1300–1900 行）与英文值块（约 3200 行起）；`zh-CN.ts:1` 从它导入类型。**任何 key 增删都是 3 处编辑**：en.ts 类型 + en.ts 值 + zh-CN.ts 值。删 key 时 en.ts 先行，否则 `pnpm run build`（tsc）报错。
 - **G4 路由契约：** 管理路由的增删必须与 `backend/internal/platform/http/management_route_contract.json` 同一提交修改；守卫测试为 `backend/internal/platform/http/server_test.go:460` 与 `backend/tests/contract/s11_management_contract_test.go:261`（两者运行时重读该 JSON）。
-- **G5 文档同 PR：** 每个任务同 PR 更新 `docs/API_SPEC.md`（及涉及的 ARCHITECTURE/DATA_MODEL）与被改动包的 AGENTS.md。`.omo/` 已废弃（P0-1 清理引用），一切计划/文档写 `docs/`。
+- **G5 文档同 PR：** 每个任务同 PR 更新 `docs/API_SPEC.md`（及涉及的 ARCHITECTURE/DATA_MODEL）与被改动包的 AGENTS.md。废弃的旧隐藏计划目录引用已清理，一切计划/文档写 `docs/`。
 - **G6 标准验证（下文各任务以「标准验证」指代）：**
 
   ```bash
@@ -60,14 +60,14 @@
 
 # 阶段 P0：半天快赢
 
-### Task 1: T7 — 文档修复（.omo 引用 + ARCHITECTURE 图）
+### Task 1: T7 — 文档修复（废弃目录引用 + ARCHITECTURE 图）
 
 **Files:**
-- Modify: `AGENTS.md`（根，:5,:16,:33,:52,:75,:90,:120 共 7 处 `.omo/` 引用）
+- Modify: `AGENTS.md`（根，:5,:16,:33,:52,:75,:90,:120 共 7 处废弃目录引用）
 - Modify: `docs/AGENTS.md`（:4,:23,:24,:41,:58 共 5 处）
 - Modify: `docs/ARCHITECTURE.md:5-22`（错乱的 ASCII 图）
 
-- [ ] **Step 1：** 删除/改写根 `AGENTS.md` 与 `docs/AGENTS.md` 的全部 12 处 `.omo/` 引用。改写口径：活动计划与长期文档一律放 `docs/`；不要创建 `.omo/` 目录（owner 已确认该目录废弃）。
+- [ ] **Step 1：** 删除/改写根 `AGENTS.md` 与 `docs/AGENTS.md` 的全部 12 处废弃目录引用。改写口径：活动计划与长期文档一律放 `docs/`；不要创建旧隐藏计划目录（owner 已确认该目录废弃）。
 - [ ] **Step 2：** 将 `docs/ARCHITECTURE.md:5-22` 整块 ASCII 图替换为一行文字（保留 :24 的脚注）：
 
   ```
@@ -75,8 +75,8 @@
   ```
 
   同文件 :64-65 提到 `BrowserRouter` 与 legacy redirects 的两行归 T2/T3 的 PR 管，此处不动。
-- [ ] **Step 3：** 验证：`rg -n "\.omo" AGENTS.md docs/` → 0 命中。
-- [ ] **Step 4：** 提交：`git commit -m "docs: remove stale .omo references and fix architecture diagram"`
+- [ ] **Step 3：** 验证：`rg -n "\\.[o]mo" AGENTS.md docs/` → 0 命中。
+- [ ] **Step 4：** 提交：`git commit -m "docs: remove stale .o""mo references and fix architecture diagram"`
 
 ### Task 2: E4a — 接通死参数 `to_time`
 

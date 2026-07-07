@@ -2,24 +2,7 @@
 
 ## 1. System Overview
 
-```
-┌─────────────┐     ┌──────────────────────────────────────────────┐     ┌──────────────┐
-│   Client    │     │                    Prism                     │     │   Providers  │
-│             │     │  ┌────────────┐  ┌──────────┐               │     │              │
-│ Port 5173*  │◀────│  │ Management │  │  Proxy   │          │◀────│  OpenAI API  │
-│             │     │  │   APIs     │  │  Engine  │          │     │  Anthropic   │
-│             │     │  └─────┬──────┘  └────┬─────┘          │     │  Gemini API  │
-└─────────────┘     │        │              │                │     └──────────────┘
-                    │  ┌─────▼──────────────▼─────┐          │
-                    │  │    PostgreSQL Database    │          │
-                    │  │ (profiles, models,        │          │
-                    │  │  endpoints, connections,  │          │
-                    │  │  settings, request_logs,  │          │
-                    │  │  audit_logs, usage events)    │          │
-                    │  └───────────────────────────┘          │
-                     │           Configured Port*              │
-                    └──────────────────────────────────────────┘
-```
+Client (5173) → Prism (Management APIs + Proxy Engine → PostgreSQL) → Providers (OpenAI / Anthropic / Gemini)
 
 *Local `./start.sh` keeps frontend `5173` and PostgreSQL `15432` fixed, and follows the selected bootstrap file's backend port. The checked-in `config.json` and freshly seeded bootstrap files use backend port `8000`. Standalone frontend containers commonly expose `3000`.
 

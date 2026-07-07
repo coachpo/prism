@@ -170,7 +170,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### T7. 文档修正
 
-- root `AGENTS.md:52,75,90` 与 `docs/AGENTS.md` 多处引用 `.omo/plans/`、`.omo/evidence/`——**该目录不存在**，改掉或建目录。
+- root `AGENTS.md:52,75,90` 与 `docs/AGENTS.md` 多处引用废弃的计划/证据目录——**该目录不存在**，应改写为 `docs/` 下的计划/文档口径并清理旧引用。
 - `ARCHITECTURE.md` 的 ASCII 架构图已错位，修复或删图留文字。
 - 其余文档新鲜度尚可（`API_SPEC.md` 2,817 行随 HEAD 更新）。§2 删除项落地时同步删对应章节即可。
 
@@ -182,7 +182,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 | 阶段 | 内容 | 预估规模 |
 |---|---|---|
-| **P0 快赢**（半天） | T1 的 test:e2e shim、stub 清理、absence 测试删除；T3 legacy 路由；T7 `.omo` 引用；E4 的 `to_time` 接线/删除；T4 的 test:lib glob 化 | 全是删除与一行修补 |
+| **P0 快赢**（半天） | T1 的 test:e2e shim、stub 清理、absence 测试删除；T3 legacy 路由；T7 废弃目录引用；E4 的 `to_time` 接线/删除；T4 的 test:lib glob 化 | 全是删除与一行修补 |
 | **P1 大减法**（1–2 周，按 R1→R2→R3→R4 顺序，每项独立成 PR） | configbundle → 启动标签页+bootstrapconfig → 认证链瘦身 → profiles 冻结；期间拍板 R5–R8 四个决策点并执行 | 净删 ~15k–20k LOC |
 | **P2 核心增强**（与 P1 可并行，1–2 周） | E1 故障转移可见性+webhook → E2 未定价下钻 → E4 日志页体验 → E3 价格导入 → E5 延迟趋势 | 每项 ≤ 数百 LOC 新增 |
 | **P3 结构债**（穿插进行） | T2 双路由器统一 → T5 统计读写修正 → T6 命名收尾 | 1 周内 |
