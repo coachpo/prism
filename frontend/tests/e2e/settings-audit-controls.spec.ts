@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test, type Page, type Request } from "@playwright/test";
 
 const timestamp = "2026-06-16T00:00:00Z";
-const evidenceDir = path.resolve(process.cwd(), "../.omo/evidence");
+const evidenceDir = path.resolve(process.cwd(), "../artifacts/evidence");
 const controlsEvidencePath = path.join(evidenceDir, "task-13-settings-audit-controls.playwright.png");
 const networkEvidencePath = path.join(evidenceDir, "task-13-settings-audit-network.playwright.json");
 

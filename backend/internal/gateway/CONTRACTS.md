@@ -4,8 +4,8 @@ This note freezes the external and runtime contracts captured in T01 before gate
 
 ## Evidence
 
-- Baseline suite receipt: `.omo/evidence/task-1-baseline.txt`
-- Focused route receipt: `.omo/evidence/task-1-responses-current.txt`
+- Baseline suite receipt: `artifacts/evidence/task-1-baseline.txt`
+- Focused route receipt: `artifacts/evidence/task-1-responses-current.txt`
 - Runtime operation source of truth today: `backend/internal/httpapi/runtime/operations.go`
 - Rejected-route isolation test: `backend/tests/runtime/rejected_route_isolation_test.go`
 - Route-matrix characterization: `backend/tests/runtime/operation_route_matrix_test.go`

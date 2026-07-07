@@ -2,7 +2,7 @@
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
-Prism is a self-hosted LLM proxy gateway. The repo root owns the local launcher, release helper, CI wiring, durable docs, the `.omo/` planning workspace, and the checked-in `backend/` and `frontend/` trees.
+Prism is a self-hosted LLM proxy gateway. The repo root owns the local launcher, release helper, CI wiring, durable docs, local run artifacts, and the checked-in `backend/` and `frontend/` trees.
 
 ## STRUCTURE
 ```text
@@ -13,7 +13,7 @@ prism/
 ├── backend/       # Go backend, migrations, backend image, Go tests
 ├── frontend/      # React/Vite dashboard, shadcn config, frontend tests
 ├── docs/          # Durable reference docs only
-├── .omo/          # Active plans and evidence
+├── artifacts/     # Ignored local run evidence and scratch plans
 └── .github/workflows/{ci,docker-images,cleanup}.yml
 ```
 
@@ -30,7 +30,7 @@ prism/
 - `frontend/src/AGENTS.md`: frontend source router for app, features, pages, components, context, hooks, i18n, shared, lib, shell, and tests.
 - `frontend/src/{app,features,pages,components,context,hooks,i18n,shared,lib}/AGENTS.md`: frontend route, shell, page, provider, hook, locale, API, websocket, and shared UI seams; `shared/design-system/AGENTS.md` and `lib/types/AGENTS.md` own high-centrality leaves.
 - `frontend/tests/AGENTS.md`: Playwright browser flows plus frontend seam/server/lib contract boundaries; `tests/e2e/AGENTS.md` and `tests/lib/AGENTS.md` own the large runner-specific leaves.
-- `docs/AGENTS.md`: durable docs ownership and `.omo/` handoff rules.
+- `docs/AGENTS.md`: durable docs ownership and local artifact handoff rules.
 
 ## CODE MAP
 | Surface | Location | Role |
@@ -49,7 +49,7 @@ prism/
 ## SHARED FACTS
 - `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend `5173` and PostgreSQL `15432`, and follows the selected bootstrap file's backend port; fresh seeds default that port to `8000`.
 - `start.sh` keeps a local launcher contract by using plaintext bootstrap ownership and the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at the effective backend port from the selected bootstrap file.
-- Active working plans and execution artifacts live under `.omo/`; current repo planning uses `.omo/plans/` plus `.omo/evidence/`.
+- Local scratch plans and execution artifacts live under ignored `artifacts/`; run evidence uses `artifacts/evidence/`.
 - The root `docker-compose.yml` is the default local/self-hosted bundle. It builds the root single-image app, runs PostgreSQL separately, publishes only the public Prism HTTP port, and persists `prism_postgres_data` plus `prism_config` volumes.
 - The root `Dockerfile` builds a single app image with the Go backend, backend migrations/version, optional React static assets, Nginx, and `docker/entrypoint.sh`; `BUILD_FRONTEND=false` keeps backend proxy paths and serves a fallback page.
 - The root Nginx template proxies `/health`, `/api`, `/api/realtime/ws`, `/v1`, and `/v1beta` to the private backend upstream and serves SPA assets from `/usr/share/nginx/html`.
@@ -72,7 +72,7 @@ prism/
 
 ## WHERE TO LOOK
 - Operator-facing launcher, release, and local bundle helpers: `README.md`, `start.sh`, `release.sh`, `docker-compose.yml`, `Dockerfile`, `docker/`, `frontend/.env.example`
-- Active plans and retained execution evidence: `.omo/plans/`, `.omo/evidence/`
+- Local scratch plans and retained execution evidence: `artifacts/plans/`, `artifacts/evidence/`
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Backend container contract: `backend/Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/API_SPEC.md`, `docs/ARCHITECTURE.md`
@@ -87,7 +87,7 @@ prism/
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
 - Backend ownership tree: `backend/AGENTS.md`, `backend/internal/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/domain/AGENTS.md`, `backend/internal/domain/stats/AGENTS.md`, `backend/internal/gateway/AGENTS.md`, `backend/internal/gateway/provider/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/management/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/realtime/AGENTS.md`, `backend/internal/httpapi/management/*/AGENTS.md`, `backend/tests/AGENTS.md`
 - Frontend ownership tree: `frontend/AGENTS.md`, `frontend/src/AGENTS.md`, `frontend/src/app/AGENTS.md`, `frontend/src/features/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/shared/AGENTS.md`, `frontend/src/shared/design-system/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/src/lib/types/AGENTS.md`, `frontend/tests/AGENTS.md`, `frontend/tests/e2e/AGENTS.md`, `frontend/tests/lib/AGENTS.md`
-- Docs provenance, active-plan handoff, and live evidence routing: `docs/AGENTS.md`, `.omo/plans/`, `.omo/evidence/`
+- Docs provenance, scratch-plan handoff, and live evidence routing: `docs/AGENTS.md`, `artifacts/plans/`, `artifacts/evidence/`
 
 ## COMMANDS
 ```bash
@@ -117,7 +117,7 @@ cd frontend && pnpm run test:e2e
 - Keep backend container docs aligned with `backend/Dockerfile`, especially non-root `prism:prism` ownership and `/app/config/config.json` defaults.
 - Keep partitioned log-retention docs aligned with the four managed tables, runtime partition ensuring, management retention jobs, and the low-priority platform worker.
 - Keep `README.md` aligned with the same launcher and release facts.
-- Keep active implementation plans and live execution artifacts out of `docs/`; store working plans under `.omo/plans/` and run evidence under `.omo/evidence/`.
+- Keep active implementation plans and live execution artifacts out of `docs/`; store local scratch plans under `artifacts/plans/` and run evidence under `artifacts/evidence/`.
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX

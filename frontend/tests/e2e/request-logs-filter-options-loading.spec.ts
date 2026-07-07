@@ -413,7 +413,7 @@ test.describe("request logs filter option loading", () => {
     await expect(page).toHaveURL(/resolved_target_model_id=terminal-model/);
     expect(targetRequestUrl.searchParams.get("resolved_target_model_id")).toBe("terminal-model");
     expect(requestUrls.some((url) => url.includes("client_scope"))).toBe(false);
-    await page.screenshot({ path: "../.omo/evidence/task-14-client-dropdown.png", fullPage: true });
+    await page.screenshot({ path: "../artifacts/evidence/task-14-client-dropdown.png", fullPage: true });
   });
 
   test("clear filters removes client and final target browse filters", async ({ page }) => {
@@ -450,6 +450,6 @@ test.describe("request logs filter option loading", () => {
 
     await expect(page).toHaveURL(/request_id=101/);
     expect(statsRequests).toEqual([]);
-    await page.screenshot({ path: "../.omo/evidence/task-14-exact-mode.png", fullPage: true });
+    await page.screenshot({ path: "../artifacts/evidence/task-14-exact-mode.png", fullPage: true });
   });
 });

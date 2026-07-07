@@ -29,7 +29,6 @@ frontend/node_modules/
 *.swo
 .DS_Store
 
-.omo/
 .sisyphus/
 
 # AI Agents

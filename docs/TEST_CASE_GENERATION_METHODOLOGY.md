@@ -173,16 +173,16 @@ Each executed case should be recorded with this shape:
 
 Executed cases must be preserved in two forms:
 
-1. **Run record:** save the executed cases to `.omo/evidence/YYYY-MM-DD-llm-test-run-<scope>.md`.
+1. **Run record:** save the executed cases to `artifacts/evidence/YYYY-MM-DD-llm-test-run-<scope>.md`.
 2. **Promotion target:** assign each stable case to the place where it should become a future regression.
 
 Promotion targets must follow Prism's current checked-in structure:
 
 - Manual or browser-only smoke coverage that is not yet automated -> `docs/SMOKE_TEST_PLAN.md`
-- Live run notes and evidence bundles -> `.omo/evidence/YYYY-MM-DD-llm-test-run-<scope>.md`
+- Live run notes and evidence bundles -> `artifacts/evidence/YYYY-MM-DD-llm-test-run-<scope>.md`
 - Future automated backend or frontend regressions -> define a fresh owner-aligned destination adjacent to the live implementation surface before checking the case in
 
-If a case is valuable but not yet ready for automation, it must still be preserved in the `.omo/evidence` run note with a clear promotion target.
+If a case is valuable but not yet ready for automation, it must still be preserved in the `artifacts/evidence` run note with a clear promotion target.
 
 ## 8. Prism-Specific Guardrails
 

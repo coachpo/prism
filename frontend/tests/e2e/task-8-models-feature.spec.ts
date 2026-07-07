@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 const timestamp = "2026-04-27T12:00:00Z"
-const evidenceDir = resolve(process.cwd(), "../.omo/evidence/frontend-rewrite")
+const evidenceDir = resolve(process.cwd(), "../artifacts/evidence/frontend-rewrite")
 const requestCapturePath = resolve(evidenceDir, "task-8-create-model.txt")
 const thresholdScreenshotPath = resolve(evidenceDir, "task-8-threshold-error.png")
 

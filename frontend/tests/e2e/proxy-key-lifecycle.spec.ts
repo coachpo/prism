@@ -271,7 +271,7 @@ test("proxy key lifecycle shows expiry, retirement, and rotation lineage without
   await expect(createdSecretDialog.getByTestId("proxy-key-secret")).toContainText("sk-live-created-200", {
     timeout: routeReadyTimeout,
   });
-  await createdSecretDialog.screenshot({ path: "../.omo/evidence/frontend-rewrite/task-15-secret-reveal.png" });
+  await createdSecretDialog.screenshot({ path: "../artifacts/evidence/frontend-rewrite/task-15-secret-reveal.png" });
   await createdSecretDialog.getByRole("button", { name: "Close" }).first().click();
   await expect(page.getByText("sk-live-created-200")).toHaveCount(0);
   await expect(page.getByText("Created with expiry")).toBeVisible({
@@ -324,7 +324,7 @@ test("proxy key lifecycle shows expiry, retirement, and rotation lineage without
   const deleteDialog = page.getByRole("alertdialog", { name: "Delete Proxy API Key" });
   await expect(deleteDialog.getByText("Live proxy traffic may be interrupted")).toBeVisible();
   await expect(deleteDialog.getByText("Rotation lineage warning")).toBeVisible();
-  await deleteDialog.screenshot({ path: "../.omo/evidence/frontend-rewrite/task-15-delete-warning.png" });
+  await deleteDialog.screenshot({ path: "../artifacts/evidence/frontend-rewrite/task-15-delete-warning.png" });
   await deleteDialog.getByRole("button", { name: "Cancel" }).click();
 
   expect(routes.getProxyKeyProfileHeaders().every((value) => value === null)).toBe(true);

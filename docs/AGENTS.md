@@ -1,7 +1,7 @@
 # DOCS REFERENCE MAP
 
 ## OVERVIEW
-`docs/` holds Prism's normative architecture, API, and data-model docs plus supporting references. Active working plans live outside `docs/` under `../.omo/plans/`; live execution artifacts belong in `../.omo/evidence/`; transient run notes never outrank live docs or owning code AGENTS files.
+`docs/` holds Prism's normative architecture, API, and data-model docs plus supporting references. Active working plans live outside `docs/` under `../artifacts/plans/`; live execution artifacts belong in `../artifacts/evidence/`; transient run notes never outrank live docs or owning code AGENTS files.
 
 ## STRUCTURE
 ```text
@@ -20,8 +20,8 @@ docs/
 ## OWNERSHIP
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source-of-truth trio.
 - `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
-- Active working plans belong in `../.omo/plans/`, not under `docs/`.
-- Live execution evidence and LLM test-run records belong in `../.omo/evidence/`, not under `docs/`.
+- Active working plans belong in `../artifacts/plans/`, not under `docs/`.
+- Live execution evidence and LLM test-run records belong in `../artifacts/evidence/`, not under `docs/`.
 
 ## WHERE TO LOOK
 - Launcher and release facts: `../README.md`, `../start.sh`, `../release.sh`, `../frontend/.env.example`
@@ -38,7 +38,7 @@ docs/
 - Endpoint label snapshots and request-log filter semantics: `API_SPEC.md`, `DATA_MODEL.md`, `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
 - Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
-- Active working plans and live execution evidence: `../.omo/plans/`, `../.omo/evidence/`
+- Active working plans and live execution evidence: `../artifacts/plans/`, `../artifacts/evidence/`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep docs focused on durable reference ownership instead of repeating design-system rules.
@@ -55,7 +55,7 @@ docs/
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
 - State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
-- Keep active plans and execution evidence out of `docs/`. Use `../.omo/plans/` plus `../.omo/evidence/` while work is in flight.
+- Keep active plans and execution evidence out of `docs/`. Use `../artifacts/plans/` plus `../artifacts/evidence/` while work is in flight.
 - Keep `REQUESTS_PAGE.md` subordinate to the live request-log route and tests. When request-log audit, clipboard, proxy-key usage, or reporting-currency behavior changes, refresh the page AGENTS and backend runtime tests before supporting prose.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.

@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const timestamp = "2026-05-28T12:00:00Z";
 const routeReadyTimeout = 15_000;
-const evidenceDir = resolve(process.cwd(), "../.omo/evidence/frontend-rewrite");
+const evidenceDir = resolve(process.cwd(), "../artifacts/evidence/frontend-rewrite");
 const keyboardTracePath = resolve(evidenceDir, "task-17-keyboard-tables.zip");
 const cursorScreenshotPath = resolve(evidenceDir, "task-17-cursor-url.png");
 

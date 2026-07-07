@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test"
 
 const timestamp = "2026-06-11T12:00:00Z"
 const modelConfigId = 910
-const evidenceDir = "../.omo/evidence/frontend-rewrite"
+const evidenceDir = "../artifacts/evidence/frontend-rewrite"
 
 type ReorderMode = "success" | "error"
 

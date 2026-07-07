@@ -232,8 +232,6 @@ func removedConceptRelPath(t *testing.T, repoRoot string, absolutePath string) s
 
 func removedConceptExcludedPath(rel string) bool {
 	switch {
-	case strings.HasPrefix(rel, ".omo/"):
-		return true
 	case strings.HasPrefix(rel, "docs/archive/"):
 		return true
 	case strings.HasPrefix(rel, "frontend/tests/"):

@@ -10,12 +10,12 @@ const maskedBundleKey = "bundle-key-********";
 const maskedSmtpPassword = "smtp-password-********";
 const maskedTelemetryAuthorizationHeader = "telemetry-authorization-********";
 const forbiddenSecretSentinel = "should-never-render-secret-sentinel";
-const task3EvidenceDir = fileURLToPath(new URL("../../../.omo/evidence/", import.meta.url));
-const frontendRewriteEvidenceDir = fileURLToPath(new URL("../../../.omo/evidence/frontend-rewrite/", import.meta.url));
-const task3StartupScreenshotPath = fileURLToPath(new URL("../../../.omo/evidence/task-3-startup-ui.png", import.meta.url));
-const task3StartupErrorPath = fileURLToPath(new URL("../../../.omo/evidence/task-3-startup-ui-error.json", import.meta.url));
-const task14HotTimeoutPath = fileURLToPath(new URL("../../../.omo/evidence/frontend-rewrite/task-14-hot-timeout.png", import.meta.url));
-const task14PortConfirmationPath = fileURLToPath(new URL("../../../.omo/evidence/frontend-rewrite/task-14-port-confirmation.md", import.meta.url));
+const task3EvidenceDir = fileURLToPath(new URL("../../../artifacts/evidence/", import.meta.url));
+const frontendRewriteEvidenceDir = fileURLToPath(new URL("../../../artifacts/evidence/frontend-rewrite/", import.meta.url));
+const task3StartupScreenshotPath = fileURLToPath(new URL("../../../artifacts/evidence/task-3-startup-ui.png", import.meta.url));
+const task3StartupErrorPath = fileURLToPath(new URL("../../../artifacts/evidence/task-3-startup-ui-error.json", import.meta.url));
+const task14HotTimeoutPath = fileURLToPath(new URL("../../../artifacts/evidence/frontend-rewrite/task-14-hot-timeout.png", import.meta.url));
+const task14PortConfirmationPath = fileURLToPath(new URL("../../../artifacts/evidence/frontend-rewrite/task-14-port-confirmation.md", import.meta.url));
 
 function writeTask3ErrorArtifact(errors: string[]) {
   mkdirSync(task3EvidenceDir, { recursive: true });

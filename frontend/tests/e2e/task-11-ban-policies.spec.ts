@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test"
 
 const timestamp = "2026-06-11T13:00:00Z"
-const evidenceDir = "../.omo/evidence/frontend-rewrite"
+const evidenceDir = "../artifacts/evidence/frontend-rewrite"
 
 type StrategyType = "single" | "fill-first" | "round-robin"
 type BanMode = "off" | "temporary" | "until_reset"

@@ -15,7 +15,7 @@ const evidenceDirectory = resolve(
   "..",
   "..",
   "..",
-  ".omo",
+  "artifacts",
   "evidence",
 );
 const networkEvidencePath = resolve(evidenceDirectory, "task-8-overview-network.json");

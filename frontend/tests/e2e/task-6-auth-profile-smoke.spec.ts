@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 const timestamp = "2026-04-28T12:00:00Z"
-const evidenceDir = path.resolve(process.cwd(), "../.omo/evidence/frontend-rewrite")
+const evidenceDir = path.resolve(process.cwd(), "../artifacts/evidence/frontend-rewrite")
 const profileConflictEvidencePath = path.join(evidenceDir, "task-6-profile-conflict.png")
 const refreshEvidencePath = path.join(evidenceDir, "task-6-refresh.txt")
 

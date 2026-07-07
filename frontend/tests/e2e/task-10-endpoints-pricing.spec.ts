@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
 const timestamp = "2026-06-11T12:00:00Z"
-const evidenceDir = "../.omo/evidence/frontend-rewrite"
+const evidenceDir = "../artifacts/evidence/frontend-rewrite"
 
 function createProfile() {
   return { id: 71, name: "Selected profile", description: null, is_active: true, is_default: true, is_editable: true, version: 1, created_at: timestamp, deleted_at: null, updated_at: timestamp }
