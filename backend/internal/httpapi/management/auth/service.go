@@ -14,19 +14,11 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
-	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
 )
-
-type Mailer interface {
-	SendEmailVerificationOTP(context.Context, string, string) error
-	SendPasswordResetEmail(context.Context, string, string) error
-}
 
 type Options struct {
 	CORSOriginProvider        platformcors.OriginProvider
 	AuthRuntimeConfigProvider RuntimeAuthConfigProvider
-	Mailer                    Mailer
-	EmailOutbox               *outbox.Store
 	Now                       func() time.Time
 	Pool                      *pgxpool.Pool
 	ProxyKeyUsagePool         *pgxpool.Pool
@@ -37,7 +29,6 @@ type Options struct {
 type Service struct {
 	pool                            *pgxpool.Pool
 	ownsPool                        bool
-	emailOutbox                     *outbox.Store
 	now                             func() time.Time
 	authJWTSecret                   string
 	staticAuthRuntimeConfig         RuntimeAuthConfigSnapshot
@@ -83,7 +74,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	service := &Service{
 		pool:                      pool,
 		ownsPool:                  ownsPool,
-		emailOutbox:               options.EmailOutbox,
 		now:                       now,
 		authJWTSecret:             settings.AuthJWTSecret,
 		staticAuthRuntimeConfig:   runtimeAuthConfigSnapshotFromSettings(settings),
@@ -247,15 +237,11 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 		router.Post("/logout", s.handleLogout)
 		router.Post("/refresh", s.handleRefresh)
 		router.Get("/session", s.handleGetSession)
-		router.Post("/password-reset/request", s.handlePasswordResetRequest)
-		router.Post("/password-reset/confirm", s.handlePasswordResetConfirm)
 	})
 
 	api.Route("/settings", func(router chi.Router) {
 		router.Get("/auth", s.handleGetAuthSettings)
 		router.Put("/auth", s.handlePutAuthSettings)
-		router.Post("/auth/email-verification/request", s.handleEmailVerificationRequest)
-		router.Post("/auth/email-verification/confirm", s.handleEmailVerificationConfirm)
 		router.Get("/auth/proxy-keys", s.handleListProxyKeys)
 		router.Post("/auth/proxy-keys", s.handleCreateProxyKey)
 		router.Patch("/auth/proxy-keys/{key_id}", s.handleUpdateProxyKey)

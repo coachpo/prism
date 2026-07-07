@@ -1615,8 +1615,7 @@ func (a bootstrapAuth) validate() error {
 }
 
 func (m bootstrapMail) validate() error {
-	enabled, err := requiredBool("mail.enabled", m.Enabled)
-	if err != nil {
+	if _, err := requiredBool("mail.enabled", m.Enabled); err != nil {
 		return err
 	}
 	if m.From != nil {
@@ -1629,35 +1628,13 @@ func (m bootstrapMail) validate() error {
 			return err
 		}
 	}
-	if enabled {
-		if _, err := requiredMailAddress("mail.from", m.From); err != nil {
-			return err
-		}
-		if m.SMTP == nil {
-			return missingBootstrapFieldError("mail.smtp")
-		}
-	}
 	if m.SMTP != nil {
-		return m.SMTP.validate(enabled)
+		return m.SMTP.validate()
 	}
 	return nil
 }
 
-func (s bootstrapSMTP) validate(enabled bool) error {
-	if enabled {
-		if _, err := requiredTrimmedString("mail.smtp.host", s.Host, 1, 255); err != nil {
-			return err
-		}
-		if _, err := requiredIntRange("mail.smtp.port", s.Port, 1, 65535); err != nil {
-			return err
-		}
-		if _, err := requiredEnumString("mail.smtp.mode", s.Mode, allowedMailSMTPModes()); err != nil {
-			return err
-		}
-		if _, err := parseDurationField("mail.smtp.timeout", s.Timeout); err != nil {
-			return err
-		}
-	}
+func (s bootstrapSMTP) validate() error {
 	if s.Host != nil {
 		if _, err := optionalTrimmedString("mail.smtp.host", s.Host, 255); err != nil {
 			return err
@@ -1705,23 +1682,6 @@ func (s bootstrapSMTP) validate(enabled bool) error {
 	}
 	if hasNonEmptyString(s.Password) && hasNonEmptyString(s.PasswordFile) {
 		return fmt.Errorf("bootstrap config fields mail.smtp.password and mail.smtp.passwordFile are mutually exclusive")
-	}
-	if enabled {
-		auth := normalizedMailSMTPAuth(s.Auth)
-		if auth == MailSMTPAuthPlain {
-			if _, err := requiredTrimmedString("mail.smtp.username", s.Username, 1, 320); err != nil {
-				return err
-			}
-			if !hasNonEmptyString(s.Password) && !hasNonEmptyString(s.PasswordFile) {
-				return fmt.Errorf("bootstrap config field mail.smtp.password or mail.smtp.passwordFile is required when mail.smtp.auth is plain")
-			}
-		}
-		mode := normalizedMailSMTPMode(s.Mode)
-		if mode == MailSMTPModePlaintextLocalOnly {
-			if !isLocalSMTPHost(strings.TrimSpace(*s.Host)) {
-				return fmt.Errorf("bootstrap config field mail.smtp.mode plaintext_local_only requires a localhost or loopback host")
-			}
-		}
 	}
 	return nil
 }
@@ -1857,13 +1817,6 @@ func (m *bootstrapMail) toMailConfig() (MailConfig, error) {
 	result.Enabled = enabled
 	if m.From != nil {
 		from, err := optionalMailAddress("mail.from", m.From)
-		if err != nil {
-			return MailConfig{}, err
-		}
-		result.From = from
-	}
-	if enabled {
-		from, err := requiredMailAddress("mail.from", m.From)
 		if err != nil {
 			return MailConfig{}, err
 		}

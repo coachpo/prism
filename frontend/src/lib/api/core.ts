@@ -55,8 +55,6 @@ const AUTH_REFRESH_EXEMPT_PATHS = new Set([
   "/api/auth/login",
   "/api/auth/logout",
   "/api/auth/refresh",
-  "/api/auth/password-reset/request",
-  "/api/auth/password-reset/confirm",
 ]);
 
 function shouldAttachProfileHeader(path: string): boolean {

@@ -2,12 +2,7 @@ import type {
   AuthSettings,
   AuthSettingsUpdate,
   AuthStatus,
-  EmailVerificationConfirmRequest,
-  EmailVerificationRequest,
-  EmailVerificationResponse,
   LoginRequest,
-  PasswordResetConfirmRequest,
-  PasswordResetRequest,
   ProxyApiKey,
   ProxyApiKeyCreate,
   ProxyApiKeyCreateResponse,
@@ -28,16 +23,6 @@ export const auth = {
   logout: () => request<SessionResponse>("/api/auth/logout", { method: "POST" }),
   refresh: () => request<SessionResponse>("/api/auth/refresh", { method: "POST" }),
   session: () => request<SessionResponse>("/api/auth/session"),
-  requestPasswordReset: (data: PasswordResetRequest) =>
-    request<{ success: boolean }>("/api/auth/password-reset/request", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  confirmPasswordReset: (data: PasswordResetConfirmRequest) =>
-    request<{ success: boolean }>("/api/auth/password-reset/confirm", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
 };
 
 export const settings = {
@@ -46,16 +31,6 @@ export const settings = {
     update: (data: AuthSettingsUpdate) =>
       request<AuthSettings>("/api/settings/auth", {
         method: "PUT",
-        body: JSON.stringify(data),
-      }),
-    requestEmailVerification: (data: EmailVerificationRequest) =>
-      request<EmailVerificationResponse>("/api/settings/auth/email-verification/request", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    confirmEmailVerification: (data: EmailVerificationConfirmRequest) =>
-      request<EmailVerificationResponse>("/api/settings/auth/email-verification/confirm", {
-        method: "POST",
         body: JSON.stringify(data),
       }),
     proxyKeys: {

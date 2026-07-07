@@ -6,8 +6,6 @@ export type PrismRouteScope = "public" | "protected-global" | "protected-selecte
 export type PrismRouteId =
   | "observe"
   | "auth-login"
-  | "auth-forgot-password"
-  | "auth-reset-password"
   | "models"
   | "model-detail"
   | "route-endpoints"
@@ -48,11 +46,6 @@ export const requestAuditSearchSchema = z.object({
   cursor: optionalSearchStringSchema.catch(undefined),
 })
 
-export const resetPasswordSearchSchema = z.object({
-  token: z.string().optional(),
-  code: z.string().optional(),
-})
-
 export const settingsSearchSchema = z.object({
   tab: z.enum(["profile", "global"]).catch("profile"),
   section: z.string().optional(),
@@ -63,21 +56,18 @@ export const emptySearchSchema = z.object({})
 export type ObserveSearch = z.input<typeof observeSearchSchema>
 export type RequestLogSearch = z.input<typeof requestLogSearchSchema>
 export type RequestAuditSearch = z.input<typeof requestAuditSearchSchema>
-export type ResetPasswordSearch = z.input<typeof resetPasswordSearchSchema>
 export type SettingsSearch = z.input<typeof settingsSearchSchema>
 export type ModelDetailRouteSearch = z.input<typeof modelDetailSearchSchema>
 interface StaticRouteDefinition {
   readonly id: Exclude<PrismRouteId, "model-detail" | "observe-request-audit">
   readonly path: string
   readonly scope: PrismRouteScope
-  readonly searchSchema: typeof emptySearchSchema | typeof observeSearchSchema | typeof requestLogSearchSchema | typeof resetPasswordSearchSchema | typeof settingsSearchSchema
+  readonly searchSchema: typeof emptySearchSchema | typeof observeSearchSchema | typeof requestLogSearchSchema | typeof settingsSearchSchema
 }
 
 export const prismRouteDefinitions = [
   { id: "observe", path: "/observe", scope: "mixed", searchSchema: observeSearchSchema },
   { id: "auth-login", path: "/auth/login", scope: "public", searchSchema: emptySearchSchema },
-  { id: "auth-forgot-password", path: "/auth/forgot-password", scope: "public", searchSchema: emptySearchSchema },
-  { id: "auth-reset-password", path: "/auth/reset-password", scope: "public", searchSchema: resetPasswordSearchSchema },
   { id: "models", path: "/models", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "route-endpoints", path: "/route/endpoints", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "route-ban-policies", path: "/route/ban-policies", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
@@ -102,8 +92,6 @@ export type RewriteRoutePath = (typeof rewriteRoutePaths)[number]
 export const prismPathById = {
   observe: "/observe",
   "auth-login": "/auth/login",
-  "auth-forgot-password": "/auth/forgot-password",
-  "auth-reset-password": "/auth/reset-password",
   models: "/models",
   "model-detail": "/models/$modelId",
   "route-endpoints": "/route/endpoints",

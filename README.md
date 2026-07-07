@@ -213,7 +213,7 @@ Plaintext bootstrap startup uses the startup JSON as the steady-state source, wi
 - `PRISM_CONFIG_PATH` points at a plaintext bootstrap file such as `config.json`
 - `DATABASE_URL` is optional seed/startup input. Backend-native seeds default to `postgres://prism:prism@localhost:5432/prism?sslmode=disable`; `./start.sh` sets it to the local launcher PostgreSQL DSN on host port `15432`.
 
-The plaintext startup file is edited outside the dashboard. R2 removed the Startup settings tab and bootstrap management API, so external `config.json` edits always require a Prism restart before they affect the running process. `runtime.secretEncryptionKey`, JWT signing keys, database URLs, SMTP passwords, and telemetry authorization headers remain raw file secrets; use mounted secret files such as `mail.smtp.passwordFile` where possible.
+The plaintext startup file is edited outside the dashboard. R2 removed the Startup settings tab and bootstrap management API, so external `config.json` edits always require a Prism restart before they affect the running process. `runtime.secretEncryptionKey`, JWT signing keys, database URLs, and telemetry authorization headers remain raw file secrets.
 
 That bootstrap file owns startup values directly. Runtime buffering is automatic and not user-configurable. If an encrypted bootstrap file is still present, replace it before booting.
 
@@ -221,7 +221,7 @@ Operational telemetry is configured through the top-level `telemetry` section in
 
 Plaintext bootstrap files must include `runtime.transport.requestTimeout`, seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout`, seeded as `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget. Both values now change only after editing `config.json` and restarting Prism.
 
-Auth email delivery is disabled by default. Existing bootstrap files with no `mail` block still start and use no-op delivery with no SMTP network activity. Seeded local configs include the explicit disabled shape:
+Mail delivery was removed. Existing bootstrap files with a `mail` block still parse for startup compatibility, and seeded local configs keep the explicit disabled shape:
 
 ```json
 {
@@ -230,31 +230,6 @@ Auth email delivery is disabled by default. Existing bootstrap files with no `ma
   }
 }
 ```
-
-To send password-reset and recovery-email verification messages, set `mail.enabled=true`, provide `mail.from`, and add SMTP settings. Prism validates enabled SMTP at startup, so missing or invalid enabled settings fail startup instead of falling back to no-op delivery. Supported SMTP modes are `starttls_required`, `implicit_tls`, and `plaintext_local_only`; `plaintext_local_only` is accepted only for localhost or loopback hosts, and auth over non-local plaintext is forbidden.
-
-```json
-{
-  "mail": {
-    "enabled": true,
-    "from": "Prism <noreply@example.com>",
-    "replyTo": "support@example.com",
-    "smtp": {
-      "host": "smtp.example.com",
-      "port": 587,
-      "mode": "starttls_required",
-      "ehloHostname": "prism.example.com",
-      "auth": "plain",
-      "username": "smtp-user",
-      "passwordFile": "/run/secrets/prism-smtp-password",
-      "timeout": "15s",
-      "tlsServerName": "smtp.example.com"
-    }
-  }
-}
-```
-
-`mail.smtp.auth` may be `none` or `plain`. When it is `plain`, set `username` plus exactly one password source: `mail.smtp.password` or `mail.smtp.passwordFile`. Prefer `passwordFile` for deployed systems. SMTP changes take effect after editing `config.json` and restarting Prism. To roll back delivery, remove `mail` or set `mail.enabled=false`, then restart.
 
 Other configuration notes:
 

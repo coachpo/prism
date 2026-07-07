@@ -13,10 +13,22 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldHTTPCORSAllowedOrigins,
 		bootstrapFieldAuthAccessTokenTTLSeconds,
 		bootstrapFieldAuthRefreshTokenTTLSeconds,
-		bootstrapFieldAuthResetCodeTTLSeconds,
 		bootstrapFieldAuthAccessCookieName,
 		bootstrapFieldAuthRefreshCookieName,
 		bootstrapFieldAuthCookieSecure,
+		bootstrapFieldRuntimeTransportMaxIdleConns,
+		bootstrapFieldRuntimeTransportMaxIdleConnsPerHost,
+		bootstrapFieldRuntimeTransportMaxConnsPerHost,
+		bootstrapFieldRuntimeTransportIdleConnTimeout,
+		bootstrapFieldRuntimeTransportRequestTimeout,
+		bootstrapFieldRuntimeTransportResponseHeaderTimeout,
+		bootstrapFieldRuntimeTransportTLSHandshakeTimeout,
+		bootstrapFieldRuntimeTransportExpectContinueTimeout,
+		bootstrapFieldDatabaseManagementAdmissionM2Max,
+		bootstrapFieldDatabaseManagementAdmissionM3Max,
+	}
+	restartFields := []string{
+		bootstrapFieldAuthResetCodeTTLSeconds,
 		bootstrapFieldMailEnabled,
 		bootstrapFieldMailFrom,
 		bootstrapFieldMailReplyTo,
@@ -30,18 +42,6 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldMailSMTPTimeout,
 		bootstrapFieldMailSMTPTLSServerName,
 		BootstrapConfigSecretMailSMTPPassword,
-		bootstrapFieldRuntimeTransportMaxIdleConns,
-		bootstrapFieldRuntimeTransportMaxIdleConnsPerHost,
-		bootstrapFieldRuntimeTransportMaxConnsPerHost,
-		bootstrapFieldRuntimeTransportIdleConnTimeout,
-		bootstrapFieldRuntimeTransportRequestTimeout,
-		bootstrapFieldRuntimeTransportResponseHeaderTimeout,
-		bootstrapFieldRuntimeTransportTLSHandshakeTimeout,
-		bootstrapFieldRuntimeTransportExpectContinueTimeout,
-		bootstrapFieldDatabaseManagementAdmissionM2Max,
-		bootstrapFieldDatabaseManagementAdmissionM3Max,
-	}
-	restartFields := []string{
 		bootstrapFieldRuntimeSideEffectsAttemptTimeout,
 		bootstrapFieldTelemetryEnabled,
 		bootstrapFieldTelemetryExporterEndpoint,
@@ -224,8 +224,9 @@ func TestBootstrapConfigFieldDiffEmitsSecretUpdatePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("diff secret update bootstrap fields: %v", err)
 	}
-	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, []string{BootstrapConfigSecretMailSMTPPassword})
+	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, nil)
 	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, []string{
+		BootstrapConfigSecretMailSMTPPassword,
 		BootstrapConfigSecretTelemetryAuthorizationHeader,
 		BootstrapConfigSecretDatabaseURL,
 		BootstrapConfigSecretRuntimeSecretEncryptionKey,

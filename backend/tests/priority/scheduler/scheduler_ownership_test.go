@@ -17,7 +17,6 @@ func TestSchedulerOwnsBackgroundWork(t *testing.T) {
 		"logRetentionStore.RegisterBackgroundWorker",
 		"asyncDashboardPublisher.RegisterBackgroundWorker",
 		"runtimeService.RegisterBackgroundWorkers",
-		"emailOutbox.RegisterBackgroundWorker",
 		"resources.scheduler.Start(ctx)",
 		"SchedulerStop:",
 		"resources.schedulerStopHook()",
@@ -72,11 +71,7 @@ func TestSchedulerOwnsBackgroundWork(t *testing.T) {
 		"handleScheduledDispatch",
 		"EventDashboardSnapshotInvalidate",
 	})
-	assertFileContainsAll(t, backendRoot, "internal/platform/email/outbox/outbox.go", []string{
-		"RegisterBackgroundWorker",
-		"email_outbox_worker",
-		"handleScheduledSend",
-	})
+
 	assertFileContainsAll(t, backendRoot, "internal/platform/logretention/maintenance.go", []string{
 		"RegisterBackgroundWorker",
 		"log_partition_maintenance",

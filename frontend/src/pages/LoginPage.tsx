@@ -108,24 +108,14 @@ export function LoginPage() {
             </Select>
           </Field>
 
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Button
-              type="button"
-              variant="link"
-              className="justify-start px-0 text-muted-foreground hover:text-foreground"
-              onClick={() => navigate("/auth/forgot-password")}
-            >
-              {messages.auth.forgotPasswordQuestion}
-            </Button>
-            <Button
-              type="submit"
-              className="min-w-28"
-              disabled={submitting || loading}
-            >
-              {submitting ? <Spinner data-icon="inline-start" /> : null}
-              {submitting ? messages.auth.signingIn : messages.auth.signIn}
-            </Button>
-          </div>
+          <Button
+            type="submit"
+            className="min-w-28 self-end"
+            disabled={submitting || loading}
+          >
+            {submitting ? <Spinner data-icon="inline-start" /> : null}
+            {submitting ? messages.auth.signingIn : messages.auth.signIn}
+          </Button>
         </FieldGroup>
       </form>
     </AuthPageShell>

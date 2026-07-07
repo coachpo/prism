@@ -1,7 +1,7 @@
 # BACKEND PLATFORM KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/internal/platform/` owns backend process infrastructure beneath `cmd/prism-backend`: config loading, startup runtime snapshots, lifecycle assembly, HTTP server wiring, migrations and startup seeding, DB lane ownership, scheduler-backed work, partitioned log retention, side-effect dispatch, email delivery, CORS, and version metadata.
+`backend/internal/platform/` owns backend process infrastructure beneath `cmd/prism-backend`: config loading, startup runtime snapshots, lifecycle assembly, HTTP server wiring, migrations and startup seeding, DB lane ownership, scheduler-backed work, partitioned log retention, side-effect dispatch, CORS, and version metadata.
 
 ## STRUCTURE
 ```text
@@ -13,7 +13,6 @@ platform/
 ├── config/                  # Plaintext bootstrap config, validation, restart field classification
 ├── cors/                    # Runtime CORS snapshot matching
 ├── db/                      # Named PostgreSQL pool lanes
-├── email/                   # Mailer construction and durable email outbox
 ├── http/                    # Server assembly, router mounting, hot bootstrap runtime
 ├── lifecycle/               # Production dependency assembly and shutdown order
 ├── logretention/            # Partitioned log horizon, retention, and maintenance worker
@@ -35,7 +34,7 @@ platform/
 - Startup migration and seed flow: `startup/`, `migrate/`, `../../migrations/`
 - DB lane budgets and pool handles: `db/`
 - Partitioned log retention, daily partition horizon, retention deletes, and low-priority maintenance worker: `logretention/`, `managementjobs/jobs.go`
-- Background worker contracts and side-effect stores: `background/`, `managementsideeffects/`, `managementjobs/`, `email/outbox/`
+- Background worker contracts and side-effect stores: `background/`, `managementsideeffects/`, `managementjobs/`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
@@ -44,8 +43,8 @@ platform/
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing surface is itself a shipped contract or guardrail.
 - Keep `lifecycle/` as the production composition boundary. Feature services are wired there, while handlers and domain packages stay outside platform.
 - Keep steady-state startup settings in the plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; `DATABASE_URL` is a bootstrap seeding override, not a general runtime config channel.
-- Keep bootstrap state behind `http.HotBootstrapConfigRuntime`; it provides CORS, auth, mail, runtime proxy transport, and admission snapshots seeded at startup. After R2, external file edits require restart to refresh that snapshot.
-- Keep listener, database URL, pool budgets, runtime transport, runtime side-effect attempt timeout, runtime secret encryption key, JWT signing key, mail, CORS, auth TTL/cookie metadata, management admission, and telemetry restart-applied.
+- Keep bootstrap state behind `http.HotBootstrapConfigRuntime`; it provides CORS, auth, runtime proxy transport, and admission snapshots seeded at startup. After R2, external file edits require restart to refresh that snapshot.
+- Keep listener, database URL, pool budgets, runtime transport, runtime side-effect attempt timeout, runtime secret encryption key, JWT signing key, CORS, auth TTL/cookie metadata, management admission, and telemetry restart-applied.
 - Keep backend canonical defaults as the source of truth for fresh bootstrap seeds: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS `5173`, PostgreSQL pool total `24`, split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`. Runtime buffering is automatic and internal.
 - Preserve existing valid bootstrap files during startup. To reset defaults, stop Prism, remove or relocate the bootstrap file, then restart so the missing-file seed path runs.
 - Keep database capacity lane-specific. Runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs must not borrow each other's protected budgets.
@@ -62,8 +61,7 @@ platform/
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
-- Do not put provider sends, cache invalidations, dashboard publishes, or email delivery inline on request paths.
+- Do not put provider sends, cache invalidations, or dashboard publishes inline on request paths.
 - Do not treat external bootstrap file edits as watched or hot-published state.
-- Do not make enabled-but-invalid SMTP recover into no-op delivery.
 - Do not run log cleanup, partition drops, or horizon creation outside `logretention/` and the scheduler/job ownership seams.
 - Do not collapse named database lanes into a single shared pool when changing runtime, realtime, management, or background work.

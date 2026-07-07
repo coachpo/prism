@@ -74,7 +74,7 @@ frontend/
 │   │   ├── request-logs/      # `/observe/requests` and dedicated audit adapter
 │   │   └── settings/          # `/system/settings` profile and global settings
 │   └── pages/
-│       ├── LoginPage.tsx, ForgotPasswordPage.tsx, ResetPasswordPage.tsx
+│       ├── LoginPage.tsx
 │       ├── DashboardPage.tsx, RequestLogsPage.tsx, SettingsPage.tsx
 │       └── */                 # Legacy/oracle page clusters reused by feature routes and tests
 

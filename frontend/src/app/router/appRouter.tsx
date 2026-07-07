@@ -24,7 +24,6 @@ import {
   observeSearchSchema,
   requestAuditSearchSchema,
   requestLogSearchSchema,
-  resetPasswordSearchSchema,
   settingsSearchSchema,
 } from "./rewriteRoutes"
 import { modelDetailSearchSchema } from "@/features/models/detail/modelDetailSchemas"
@@ -39,12 +38,10 @@ const PricingTemplatesPage = lazy(() => import("@/features/pricing/PricingFeatur
 const BanPoliciesFeaturePage = lazy(() => import("@/features/loadbalance/BanPoliciesFeaturePage"))
 const ProxyApiKeysPage = lazy(() => import("@/features/proxy-keys/ProxyKeysFeaturePage"))
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((module) => ({ default: module.LoginPage })))
-const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage").then((module) => ({ default: module.ForgotPasswordPage })))
-const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage").then((module) => ({ default: module.ResetPasswordPage })))
 const RequestLogsPage = lazy(() => import("@/features/request-logs/RequestLogsFeaturePage"))
 const RequestLogAuditPage = lazy(() => import("@/features/request-logs/RequestLogAuditFeaturePage"))
 
-export const PUBLIC_AUTH_PATHS = new Set(["/auth/login", "/auth/forgot-password", "/auth/reset-password"])
+export const PUBLIC_AUTH_PATHS = new Set(["/auth/login"])
 
 export function RouteFallback() {
   const { messages } = useLocale()
@@ -133,14 +130,6 @@ function LegacyRequestAuditCompat() {
 
 function PublicLoginRoute() {
   return <PublicOnlyRoute>{withRouteSuspense(<LoginPage />)}</PublicOnlyRoute>
-}
-
-function PublicForgotPasswordRoute() {
-  return <PublicOnlyRoute>{withRouteSuspense(<ForgotPasswordPage />)}</PublicOnlyRoute>
-}
-
-function PublicResetPasswordRoute() {
-  return <PublicOnlyRoute>{withRouteSuspense(<ResetPasswordPage />)}</PublicOnlyRoute>
 }
 
 function ProtectedObserveRoute() {
@@ -240,18 +229,6 @@ const authLoginRoute = createRoute({
   validateSearch: (search) => emptySearchSchema.parse(search),
   component: PublicLoginRoute,
 })
-const authForgotPasswordRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/auth/forgot-password",
-  validateSearch: (search) => emptySearchSchema.parse(search),
-  component: PublicForgotPasswordRoute,
-})
-const authResetPasswordRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/auth/reset-password",
-  validateSearch: (search) => resetPasswordSearchSchema.parse(search),
-  component: PublicResetPasswordRoute,
-})
 const modelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/models",
@@ -311,8 +288,6 @@ export const prismRouteTree = rootRoute.addChildren([
   indexRoute,
   observeRoute,
   authLoginRoute,
-  authForgotPasswordRoute,
-  authResetPasswordRoute,
   modelsRoute,
   modelDetailRoute,
   endpointsRoute,

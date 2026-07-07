@@ -16,7 +16,7 @@ frontend/
 ```
 
 ## ROUTE MAP
-- Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`.
+- Public auth route: `/auth/login`.
 - `/` redirects to `/observe`.
 - Removed auth compatibility paths are unsupported: `/login`, `/forgot-password`, `/reset-password`.
 

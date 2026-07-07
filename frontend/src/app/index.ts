@@ -11,7 +11,6 @@ export {
   prismPathById,
   prismRouteDefinitions,
   requestLogSearchSchema,
-  resetPasswordSearchSchema,
   rewriteRoutePaths,
 } from "./router/rewriteRoutes"
 export type { RewriteProfileScopeValues } from "./forms/rewriteProfileScopeForm"
@@ -21,6 +20,5 @@ export type {
   PrismRouteScope,
   RequestAuditSearch,
   RequestLogSearch,
-  ResetPasswordSearch,
   RewriteRoutePath,
 } from "./router/rewriteRoutes"

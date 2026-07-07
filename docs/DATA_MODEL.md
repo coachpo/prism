@@ -219,35 +219,12 @@ refresh_tokens
   user_agent, ip_address
   created_at
 
-password_reset_challenges
-  id PK
-  auth_subject_id FK -> app_auth_settings.id
-  otp_hash
-  expires_at, consumed_at, attempt_count
-  requested_ip
-  created_at
-
-webauthn_challenges
-  id PK
-  challenge_key UNIQUE
-  challenge
-  expires_at
-  created_at
-
 proxy_api_keys
   id PK
   name, key_prefix UNIQUE, key_hash, last_four
   is_active, expires_at, last_used_at, last_used_ip
   created_by_auth_subject_id FK -> app_auth_settings.id, notes, rotated_from_id
   created_at, updated_at
-
-webauthn_credentials
-  id PK
-  auth_subject_id FK -> app_auth_settings.id
-  credential_id UNIQUE, public_key, sign_count
-  device_name, aaguid, transports
-  backup_eligible, backup_state
-  last_used_at, last_used_ip, created_at, updated_at
 
 ```
 
@@ -913,14 +890,14 @@ Global operator authentication settings and credentials.
 | singleton_key | VARCHAR(20) | NOT NULL, UNIQUE | `app` |
 | auth_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Auth toggle |
 | username | VARCHAR(200) | NULLABLE | Operator username |
-| email | VARCHAR(320) | NULLABLE | Verified email |
-| pending_email | VARCHAR(320) | NULLABLE | Email awaiting OTP confirmation |
+| email | VARCHAR(320) | NULLABLE | Retained legacy email column, unused by current auth responses |
+| pending_email | VARCHAR(320) | NULLABLE | Retained legacy pending email column, unused by current auth responses |
 | password_hash | TEXT | NULLABLE | Argon2 password hash |
-| email_bound_at | DATETIME | NULLABLE | When the verified email was bound |
-| email_verification_code_hash | VARCHAR(64) | NULLABLE | Hashed OTP for email verification |
-| email_verification_expires_at | DATETIME | NULLABLE | Email verification expiry |
-| email_verification_attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Failed email-verification attempts |
-| must_change_password | BOOLEAN | NOT NULL, DEFAULT FALSE | First-login/reset follow-up flag |
+| email_bound_at | DATETIME | NULLABLE | Retained legacy email timestamp |
+| email_verification_code_hash | VARCHAR(64) | NULLABLE | Retained legacy email-code hash |
+| email_verification_expires_at | DATETIME | NULLABLE | Retained legacy email-code expiry |
+| email_verification_attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Retained legacy email-code attempt count |
+| must_change_password | BOOLEAN | NOT NULL, DEFAULT FALSE | First-login follow-up flag |
 | last_login_at | DATETIME | NULLABLE | Most recent successful login |
 | token_version | INTEGER | NOT NULL, DEFAULT 0 | Global token revocation version |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
@@ -969,55 +946,7 @@ Rotation and expiry semantics:
 - `rotated_from_id` preserves predecessor/successor lineage across key rotation instead of mutating one row in place.
 - Expired or retired keys remain as historical rows; runtime enforcement uses `is_active` plus `expires_at`, while management list views keep the rows for attribution and lineage.
 
-### 2.24 `password_reset_challenges`
-
-Password-reset OTP challenges for the singleton operator account.
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| auth_subject_id | INTEGER | FK -> app_auth_settings.id, NOT NULL | Operator auth subject |
-| otp_hash | VARCHAR(64) | NOT NULL | Hashed OTP |
-| expires_at | DATETIME | NOT NULL | Challenge expiry |
-| consumed_at | DATETIME | NULLABLE | Consumption timestamp |
-| attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Failed-attempt counter |
-| requested_ip | VARCHAR(100) | NULLABLE | Request origin IP |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-
-### 2.25 `webauthn_challenges`
-
-Retained internal challenge storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey ceremonies.
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| challenge_key | VARCHAR(100) | NOT NULL, UNIQUE | Lookup key |
-| challenge | BYTEA | NOT NULL | Raw challenge bytes |
-| expires_at | DATETIME | NOT NULL | Challenge expiry |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-
-### 2.26 `webauthn_credentials`
-
-Retained internal credential storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey credential management.
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| auth_subject_id | INTEGER | FK -> app_auth_settings.id, NOT NULL | Singleton operator auth subject |
-| credential_id | BYTEA | NOT NULL, UNIQUE | Raw credential ID |
-| public_key | BYTEA | NOT NULL | Credential public key |
-| sign_count | BIGINT | NOT NULL, DEFAULT 0 | Authenticator signature counter |
-| device_name | VARCHAR(200) | NULLABLE | Operator-provided device label |
-| aaguid | BYTEA | NULLABLE | Authenticator AAGUID |
-| transports | TEXT[] | NULLABLE | Reported authenticator transports |
-| backup_eligible | BOOLEAN | NULLABLE, DEFAULT FALSE | Backup eligibility flag |
-| backup_state | BOOLEAN | NULLABLE, DEFAULT FALSE | Current backup/sync state |
-| last_used_at | DATETIME | NULLABLE | Most recent assertion time |
-| last_used_ip | VARCHAR(45) | NULLABLE | Most recent assertion IP |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
-
-### 2.27 Additional Live Platform Tables
+### 2.24 Additional Live Platform Tables
 
 These live tables are internal platform state rather than primary product configuration surfaces. They remain part of the active schema and are owned by their platform packages.
 
@@ -1025,7 +954,6 @@ These live tables are internal platform state rather than primary product config
 |---|---|---|
 | `user_agent_client_rules` | system global or profile-scoped | `id`, nullable `profile_id`, `name`, `pattern`, `enabled`, `is_system`, timestamps; system rows have `profile_id IS NULL`, user rows have `profile_id IS NOT NULL`, and enabled rows drive caller User-Agent client labels and request-log filtering |
 | `login_throttle_ledger` | auth singleton support | Composite PK `(subject_key, remote_address)`, `failure_count`, failure timestamps, `locked_until`, timestamps; tracks login throttling state |
-| `email_outbox` | auth/mail background work | UUID `id`, `kind`, `recipient_email`, `template`, `payload_json`, optional encrypted email secret, unique `idempotency_key`, status `queued|sending|sent|dead`, attempt/lease timestamps, sent/dead-letter timestamps, `last_error`, timestamps |
 | `management_outbox` | management side effects | `id`, `operation_id`, `event_type`, aggregate identity/version, unique `dedupe_key`, `payload`, status `pending|processing|retry|succeeded|failed_permanent`, attempt/lock fields, actor/trace metadata, timestamps |
 | `runtime_telemetry_outbox` | profile-scoped runtime side-effect handoff | `id`, `profile_id`, `ingress_request_id`, `payload`, `created_at`; durable runtime telemetry handoff rows are materialized by background workers and then deleted |
 | `loadbalance_round_robin_state` | profile-scoped routing state | `id`, `profile_id`, `model_config_id`, `next_cursor`, timestamps; one cursor row per profile/model for round-robin routing |
@@ -1071,22 +999,16 @@ CREATE INDEX idx_routing_connection_runtime_leases_profile_connection ON routing
 CREATE INDEX idx_routing_connection_runtime_leases_expires_at ON routing_connection_runtime_leases(expires_at);
 CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
 
--- Auth and retained passkey-era tables
+-- Auth tables
 CREATE INDEX idx_refresh_tokens_revoked_at ON refresh_tokens(revoked_at);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
-CREATE INDEX idx_password_reset_challenges_expires_at ON password_reset_challenges(expires_at);
-CREATE INDEX idx_password_reset_challenges_consumed_at ON password_reset_challenges(consumed_at);
-CREATE INDEX idx_webauthn_challenges_expires_at ON webauthn_challenges(expires_at);
-CREATE INDEX idx_webauthn_challenges_challenge_key ON webauthn_challenges(challenge_key);
-CREATE INDEX idx_webauthn_credentials_auth_subject ON webauthn_credentials(auth_subject_id);
-CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_used_at);
 ```
 
 ## 4. Relationship and Ownership Rules
 
 - Profile-scoped entities include `model_configs`, `model_access_targets`, `loadbalance_strategies`, `endpoints`, `connections`, `pricing_templates`, `user_settings`, `endpoint_fx_rate_settings`, `profile_api_family_audit_settings`, `routing_connection_runtime_state`, `routing_connection_runtime_leases`, `loadbalance_round_robin_state`, `runtime_telemetry_outbox`, profile-owned `management_jobs`, user `header_blocklist_rules`, and user `user_agent_client_rules`.
-- `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, and `password_reset_challenges`; retained `webauthn_credentials` rows remain schema-level historical state rather than an active supported workflow surface.
+- `app_auth_settings` is the singleton auth root for `refresh_tokens` and `proxy_api_keys`.
 - `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
 - `routing_connection_runtime_state` and `routing_connection_runtime_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.

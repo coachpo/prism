@@ -17,13 +17,13 @@ sections/
 ├── BillingCurrencySection.tsx
 ├── RetentionDeletionSection.tsx
 ├── TimezoneSection.tsx
-├── authentication/                # Auth status, setup grid, and recovery-email auth UI cluster
+├── authentication/                # Auth status, setup grid,
 └── billing-currency/AGENTS.md     # Reporting currency and FX mapping leaf cluster
 ```
 
 ## WHERE TO LOOK
 
-- Auth setup and verified-email prerequisites: `AuthenticationSection.tsx`, `authentication/`
+- Auth setup: `AuthenticationSection.tsx`, `authentication/`
 - Audit and privacy API-family audit rows, header blocklist, user-agent or client rule management, and rules-panel rendering: `AuditConfigurationSection.tsx`, `AuditConfigurationAPIFamilyCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationUserAgentClientRulesCard.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
 - Billing and currency section shell that renders reporting currency and FX mapping UI, while staying separate from costing state: `BillingCurrencySection.tsx`, `billing-currency/AGENTS.md`
 - Retention and deletion section: `RetentionDeletionSection.tsx`

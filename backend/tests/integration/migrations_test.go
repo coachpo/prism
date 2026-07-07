@@ -28,6 +28,7 @@ var expectedPrismMigrationVersions = []string{
 	"000005_remove_access_target_weight_priority_add_audit_family_settings",
 	"000006_openai_accepted_format",
 	"000007_remove_context_capabilities_and_facades",
+	"000008_drop_dead_auth_tables",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {

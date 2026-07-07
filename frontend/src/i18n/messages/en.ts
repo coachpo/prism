@@ -1,39 +1,18 @@
 export interface Messages {
   auth: {
-    accountResetCodeSent: string;
     authenticating: string;
-    backToLogin: string;
-    browserNoPasskeys: string;
-    enterResetCode: string;
-    forgotPassword: string;
-    forgotPasswordDescription: string;
-    forgotPasswordError: string;
-    forgotPasswordQuestion: string;
     keepSignedInFor: string;
     loginFailed: string;
-    newPassword: string;
     orContinueWith: string;
     password: string;
-    passwordUpdated: string;
-    passkeyAuthenticationFailed: string;
-    resetCode: string;
-    resetPassword: string;
-    resetPasswordError: string;
-    resetPasswordTitle: string;
-    resetPasswordDescription: string;
-    resetting: string;
-    sendCode: string;
-    sending: string;
     session7Days: string;
     session30Days: string;
     sessionCurrent: string;
     signIn: string;
     signInDescription: string;
     signInToContinue: string;
-    signInWithPasskey: string;
     signingIn: string;
     username: string;
-    usernameOrEmail: string;
   };
   common: {
     apiFamily: string;
@@ -476,30 +455,15 @@ export interface Messages {
     passwordMinLength: (min: number) => string;
   };
   settingsAuthentication: {
-    addPasskey: string;
     authentication: string;
     authenticationDisabled: string;
     authenticationDisabledDescription: string;
     authenticationIsDisabled: string;
     authenticationStatus: string;
     authenticationToggleDescription: string;
-    backupCapable: string;
-    backupReady: string;
     continue: string;
     created: (date: string) => string;
-    deviceName: string;
-    deviceNamePlaceholder: string;
-    deviceBound: string;
-    emailAddress: string;
-    emailRequired: string;
-    emailVerificationFailed: string;
-    emailVerificationSucceeded: string;
     enableAuthenticationToEnforceKeys: string;
-    enableAuthenticationToManagePasskeys: string;
-    lastUsed: (value: string) => string;
-    noPasskeysRegistered: string;
-    noPasskeysRegisteredDescription: string;
-    notUsedYet: string;
     operatorAccount: string;
     operatorAccountDescription: string;
     password: string;
@@ -507,52 +471,12 @@ export interface Messages {
     passwordConfirmationHelp: string;
     passwordKeepCurrent: string;
     passwordsMustMatch: string;
-    passkeys: string;
-    passkeysRegistered: (count: string) => string;
     proxyKeyTrafficRequirement: string;
-    recoveryEmail: string;
-    recoveryEmailDescription: string;
-    recoveryEmailChangedRequiresVerification: string;
-    recoveryEmailPlaceholder: string;
-    resendCode: string;
     saveAccountChanges: string;
-    sendVerificationCode: string;
-    sendingCode: string;
-    synced: string;
-    syncedToAccount: string;
-    unknownDate: string;
-    unknownLastUse: string;
-    verificationCode: string;
-    verificationCodeRequired: string;
-    verificationCodeSent: string;
-    verificationCodeSentTo: (email: string) => string;
-    verificationCodePrompt: string;
-    verify: string;
-    verifyEmail: string;
-    verified: string;
-    verifiedEmail: string;
-    verifying: string;
-    verificationOtpPlaceholder: string;
-    registerPasskey: string;
-    registerPasskeyDescription: string;
-    registering: string;
-    passkeyFallbackName: (id: number | string) => string;
     removeItem: (name: string) => string;
-    removePasskey: string;
-    removePasskeyConfirmation: (name: string) => string;
-    removing: string;
-    unsupportedPasskeys: string;
     username: string;
     usernameHelper: string;
     usernamePlaceholder: string;
-  };
-  settingsPasskeysData: {
-    deviceNameRequired: string;
-    loadFailed: string;
-    registerFailed: string;
-    registered: string;
-    removeFailed: string;
-    removed: string;
   };
   settingsAudit: {
     anthropicFamily: string;
@@ -1117,10 +1041,10 @@ export interface Messages {
     keyLimitReached: string;
     keysPreparedDescription: string;
     keysProtectedDescription: string;
-    keysUsed: (used: string, limit: string) => string;
-    lastIp: string;
-    lineage: string;
-    lastUsed: string;
+	    keysUsed: (used: string, limit: string) => string;
+	    lastIp: string;
+	    lastUsed: string;
+	    lineage: string;
     listDescription: string;
     name: string;
     nameNote: string;
@@ -1561,41 +1485,19 @@ export interface Messages {
 
 export const enMessages: Messages = {
   auth: {
-    accountResetCodeSent: "If the account matches, a reset code has been sent.",
     authenticating: "Authenticating...",
-    backToLogin: "Back to login",
-    browserNoPasskeys:
-      "Your browser does not support Passkeys. Please use a modern browser or try another login method.",
-    enterResetCode: "Enter reset code",
-    forgotPassword: "Forgot password?",
-    forgotPasswordDescription: "Enter the bound username or email to receive a reset code.",
-    forgotPasswordError: "Failed to request password reset",
-    forgotPasswordQuestion: "Forgot password?",
     keepSignedInFor: "Keep me signed in for",
     loginFailed: "Login failed",
-    newPassword: "New password",
     orContinueWith: "Or continue with",
     password: "Password",
-    passwordUpdated: "Password updated. Sign in with your new password.",
-    passkeyAuthenticationFailed: "Passkey authentication failed",
-    resetCode: "Reset code",
-    resetPassword: "Reset password",
-    resetPasswordDescription: "Use the emailed OTP and choose a new password.",
-    resetPasswordError: "Failed to reset password",
-    resetPasswordTitle: "Reset password",
-    resetting: "Resetting...",
-    sendCode: "Send code",
-    sending: "Sending...",
     session7Days: "7 days",
     session30Days: "30 days",
     sessionCurrent: "Current browser session",
     signIn: "Sign in",
     signInDescription: "Sign in to manage Prism settings, profiles, and routing.",
     signInToContinue: "Authentication enabled. Sign in to continue.",
-    signInWithPasskey: "Sign in with Passkey",
     signingIn: "Signing in...",
     username: "Username",
-    usernameOrEmail: "Username or email",
   },
   common: {
     apiFamily: "API Family",
@@ -2061,31 +1963,15 @@ export const enMessages: Messages = {
     passwordMinLength: (min) => `Password must be at least ${min} characters`,
   },
   settingsAuthentication: {
-    addPasskey: "Add passkey",
     authentication: "Authentication",
     authenticationDisabled: "Authentication disabled",
-    authenticationDisabledDescription: "Configure operator sign-in and recovery email.",
+    authenticationDisabledDescription: "Configure operator sign-in.",
     authenticationIsDisabled: "Authentication is disabled",
     authenticationStatus: "Authentication status",
-    authenticationToggleDescription: "Sign-in can only be enabled after the operator account and recovery email are fully configured.",
-    backupCapable: "Backup capable",
-    backupReady: "Backup ready",
+    authenticationToggleDescription: "Sign-in can only be enabled after the operator account is configured.",
     continue: "Continue",
     created: (date) => `Created ${date}`,
-    deviceName: "Device Name",
-    deviceNamePlaceholder: "e.g., My MacBook Pro",
-    deviceBound: "Device-bound",
-    emailAddress: "Email address",
-    emailRequired: "Email is required",
-    emailVerificationFailed: "Failed to verify email",
-    emailVerificationSucceeded: "Email verified",
     enableAuthenticationToEnforceKeys: "Enable authentication in Settings when you are ready to enforce these keys.",
-    enableAuthenticationToManagePasskeys: "Enable authentication to manage operator access.",
-    lastUsed: (value) => `Last used ${value}`,
-    noPasskeysRegistered: "No passkeys registered",
-    noPasskeysRegisteredDescription:
-      "Add a passkey to sign in with biometrics or your device lock screen instead of typing a password every time.",
-    notUsedYet: "Not used yet",
     operatorAccount: "Operator account",
     operatorAccountDescription: "Configure the single local operator identity used to sign in.",
     password: "Password",
@@ -2093,54 +1979,12 @@ export const enMessages: Messages = {
     passwordConfirmationHelp: "Repeat the password exactly to confirm it.",
     passwordKeepCurrent: "Leave blank to keep the current password.",
     passwordsMustMatch: "Passwords must match before you can continue.",
-    passkeys: "Passkeys",
-    passkeysRegistered: (count) => `${count} registered`,
-    passkeyFallbackName: (id) => `Passkey #${id}`,
     proxyKeyTrafficRequirement: "Runtime requests require a valid key.",
-    recoveryEmail: "Recovery email",
-    recoveryEmailDescription: "Verify a recovery email before authentication can be turned on.",
-    recoveryEmailChangedRequiresVerification:
-      "If you change the recovery email, you must verify the new address with OTP.",
-    recoveryEmailPlaceholder: "operator@example.com",
-    resendCode: "Resend code",
     saveAccountChanges: "Save account changes",
-    sendVerificationCode: "Send verification code",
-    sendingCode: "Sending code...",
-    synced: "Synced",
-    syncedToAccount: "Synced to your account",
-    unknownDate: "Unknown date",
-    unknownLastUse: "Unknown last use",
-    verificationCode: "Verification code",
-    verificationCodeRequired: "Verification code is required",
-    verificationCodeSent: "Verification code sent",
-    verificationCodeSentTo: (email) => `A verification code was sent to ${email}. Enter it below to confirm.`,
-    verificationCodePrompt: "Send a verification code after changing the email address.",
-    verify: "Verify",
-    verifyEmail: "Verify email",
-    verified: "Verified",
-    verifiedEmail: "Verified email",
-    verifying: "Verifying...",
-    verificationOtpPlaceholder: "OTP",
-    registerPasskey: "Register Passkey",
-    registerPasskeyDescription: "Give this device a name to help you identify it later.",
-    registering: "Registering...",
     removeItem: (name) => `Remove ${name}`,
-    removePasskey: "Remove Passkey",
-    removePasskeyConfirmation: (name) =>
-      `Are you sure you want to remove the passkey "${name}"? You will no longer be able to use this device to sign in.`,
-    removing: "Removing...",
-    unsupportedPasskeys: "Your browser or device does not support Passkeys (WebAuthn).",
     username: "Username",
     usernameHelper: "This will be the only local sign-in name for this Prism instance.",
     usernamePlaceholder: "admin",
-  },
-  settingsPasskeysData: {
-    deviceNameRequired: "Device name is required",
-    loadFailed: "Failed to load passkeys",
-    registerFailed: "Failed to register passkey",
-    registered: "Passkey registered successfully",
-    removeFailed: "Failed to remove passkey",
-    removed: "Passkey removed successfully",
   },
   settingsAudit: {
     anthropicFamily: "Anthropic",

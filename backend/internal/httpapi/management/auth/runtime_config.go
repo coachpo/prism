@@ -10,7 +10,6 @@ import (
 type RuntimeAuthConfigSnapshot struct {
 	AccessTokenTTL    time.Duration
 	RefreshTokenTTL   time.Duration
-	ResetCodeTTL      time.Duration
 	AccessCookieName  string
 	RefreshCookieName string
 	CookieSecure      bool
@@ -24,7 +23,6 @@ func runtimeAuthConfigSnapshotFromSettings(settings config.Settings) RuntimeAuth
 	return RuntimeAuthConfigSnapshot{
 		AccessTokenTTL:    time.Duration(settings.AuthAccessTokenTTLSeconds) * time.Second,
 		RefreshTokenTTL:   time.Duration(settings.AuthRefreshTokenTTLSeconds) * time.Second,
-		ResetCodeTTL:      time.Duration(settings.AuthResetCodeTTLSeconds) * time.Second,
 		AccessCookieName:  strings.TrimSpace(settings.AuthCookieName),
 		RefreshCookieName: strings.TrimSpace(settings.AuthRefreshCookieName),
 		CookieSecure:      settings.AuthCookieSecure,

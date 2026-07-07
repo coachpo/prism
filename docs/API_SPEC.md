@@ -547,7 +547,7 @@ Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`,
 ```
 GET /api/settings/auth
 ```
-Response `200`: Global operator-auth settings (`auth_enabled`, `username`, `email`, `pending_email`, `email_verification_required`, `has_password`, `proxy_key_limit`).
+Response `200`: Global operator-auth settings (`auth_enabled`, `username`, `has_password`, `proxy_key_limit`).
 
 #### Update Auth Settings
 ```
@@ -562,18 +562,6 @@ Lifecycle contract:
 - Disabling auth clears the current browser cookies in the response and invalidates stale management sessions immediately.
 - Changing the operator username or password invalidates stale management sessions immediately, even when auth remains enabled.
 - After invalidation, `GET /api/auth/session` returns `401`, while `GET /api/auth/status` continues to report the live global auth mode.
-
-#### Request Email Verification
-```
-POST /api/settings/auth/email-verification/request
-```
-
-When auth email delivery is disabled, this workflow remains no-op-compatible. When SMTP is enabled, delivery uses the configured transport. Recovery-email verification send failures return a generic error and roll back the pending email state.
-
-#### Confirm Email Verification
-```
-POST /api/settings/auth/email-verification/confirm
-```
 
 #### Proxy API Keys
 - `GET /api/settings/auth/proxy-keys`
@@ -2182,11 +2170,6 @@ Uses the `refresh_token` cookie to issue a new session. Implements token family 
 GET /api/auth/session
 ```
 Returns the current authenticated session state.
-
-### 7.7 Password Reset
-- `POST /api/auth/password-reset/request`: Request a reset email.
-- `POST /api/auth/password-reset/confirm`: Confirm reset with OTP and new password.
-
 
 ---
 

@@ -3,21 +3,17 @@ package platformhttp
 import (
 	"net/http"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
-	"github.com/coachpo/prism/backend/internal/platform/email"
 )
 
 func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T) {
 	t.Parallel()
 
 	settings := hotBootstrapRuntimeTestSettings()
-	settings.Mail = validSMTPMailConfig()
-
 	runtime, err := NewHotBootstrapConfigRuntime(settings)
 	if err != nil {
 		t.Fatalf("create hot bootstrap runtime: %v", err)
@@ -31,23 +27,12 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 		t.Fatal("expected trimmed CORS origin to be allowed")
 	}
 	auth := snapshot.Auth()
-	if auth.AccessTokenTTL != 17*time.Second || auth.RefreshTokenTTL != 29*time.Second || auth.ResetCodeTTL != 31*time.Second {
+	if auth.AccessTokenTTL != 17*time.Second || auth.RefreshTokenTTL != 29*time.Second {
 		t.Fatalf("unexpected auth TTLs: %+v", auth)
 	}
 	if auth.AccessCookieName != "access_cookie" || auth.RefreshCookieName != "refresh_cookie" || !auth.CookieSecure {
 		t.Fatalf("unexpected auth cookies: %+v", auth)
 	}
-	mail := snapshot.Mail()
-	if !mail.DeliveryEnabled() {
-		t.Fatal("expected enabled SMTP mail snapshot")
-	}
-	if _, ok := mail.Mailer().(*email.SMTPMailer); !ok {
-		t.Fatalf("expected SMTP mailer, got %T", mail.Mailer())
-	}
-	if mail.Config().SMTP.Host != "127.0.0.1" {
-		t.Fatalf("unexpected mail config host: %q", mail.Config().SMTP.Host)
-	}
-
 	proxy := snapshot.RuntimeProxy()
 	transportConfig := proxy.TransportConfig()
 	if transportConfig.RequestTimeout != 17*time.Second || transportConfig.MaxIdleConns != 25 || transportConfig.MaxIdleConnsPerHost != 5 || transportConfig.MaxConnsPerHost != 9 {
@@ -111,11 +96,6 @@ func TestHotBootstrapConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 		t.Fatal("caller mutated CORS origin set")
 	}
 
-	mailConfig := snapshot.Mail().Config()
-	mailConfig.SMTP.Host = "mutated"
-	if snapshot.Mail().Config().SMTP.Host == "mutated" {
-		t.Fatal("caller mutated mail config")
-	}
 	transportConfig := snapshot.RuntimeProxy().TransportConfig()
 	transportConfig.RequestTimeout = 99 * time.Second
 	if transportConfig.RequestTimeout != 99*time.Second {
@@ -158,9 +138,6 @@ func TestHotBootstrapConfigRuntimePublishUpdatesAtomicallyAndKeepsOldSnapshotSta
 	if got := newSnapshot.Auth().AccessTokenTTL; got != 41*time.Second {
 		t.Fatalf("new auth access TTL = %s", got)
 	}
-	if !newSnapshot.Mail().DeliveryEnabled() {
-		t.Fatal("expected updated mail snapshot to enable delivery")
-	}
 	if got := newSnapshot.RuntimeProxy().TransportConfig().RequestTimeout; got != 23*time.Second {
 		t.Fatalf("new runtime request timeout = %s", got)
 	}
@@ -173,9 +150,6 @@ func TestHotBootstrapConfigRuntimePublishUpdatesAtomicallyAndKeepsOldSnapshotSta
 	}
 	if got := oldSnapshot.Auth().AccessTokenTTL; got != 17*time.Second {
 		t.Fatalf("old auth access TTL changed: %s", got)
-	}
-	if oldSnapshot.Mail().DeliveryEnabled() {
-		t.Fatal("old mail snapshot changed")
 	}
 	if got := oldSnapshot.RuntimeProxy().TransportConfig().RequestTimeout; got != 17*time.Second {
 		t.Fatalf("old runtime request timeout changed: %s", got)
@@ -190,60 +164,17 @@ func TestHotBootstrapConfigRuntimePublishUpdatesAtomicallyAndKeepsOldSnapshotSta
 	}
 }
 
-func TestHotBootstrapConfigRuntimeRejectsInvalidMailerBeforePublishing(t *testing.T) {
-	t.Parallel()
-
-	initial := hotBootstrapRuntimeTestSettings()
-	runtime, err := NewHotBootstrapConfigRuntime(initial)
-	if err != nil {
-		t.Fatalf("create hot bootstrap runtime: %v", err)
-	}
-
-	invalid := hotBootstrapRuntimeUpdatedSettings()
-	invalid.Mail.From = "not an address"
-	validateErr := runtime.Validate(invalid)
-	if validateErr == nil || !strings.Contains(validateErr.Error(), "create hot mailer") {
-		t.Fatalf("expected hot mailer validation error, got %v", validateErr)
-	}
-	if _, err := runtime.Publish(invalid); err == nil {
-		t.Fatal("expected invalid mailer publish to fail")
-	}
-
-	snapshot := runtime.Snapshot()
-	if got := snapshot.Auth().AccessTokenTTL; got != 17*time.Second {
-		t.Fatalf("failed publish changed auth snapshot: %s", got)
-	}
-	if snapshot.Mail().DeliveryEnabled() {
-		t.Fatal("failed publish changed mail snapshot")
-	}
-	if got := snapshot.RuntimeProxy().TransportConfig().RequestTimeout; got != 17*time.Second {
-		t.Fatalf("failed publish changed runtime snapshot: %s", got)
-	}
-}
-
 func hotBootstrapRuntimeTestSettings() config.Settings {
 	return config.Settings{
 		CORSAllowedOrigins:               "http://localhost:5173, http://127.0.0.1:5173",
 		AuthAccessTokenTTLSeconds:        17,
 		AuthRefreshTokenTTLSeconds:       29,
-		AuthResetCodeTTLSeconds:          31,
 		AuthCookieName:                   " access_cookie ",
 		AuthRefreshCookieName:            " refresh_cookie ",
 		AuthCookieSecure:                 true,
 		RuntimeTransportConfig:           hotBootstrapRuntimeTransportConfig(17 * time.Second),
 		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 7},
 		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 3, M3MaxConcurrent: 2},
-		Mail: config.MailConfig{
-			Enabled: false,
-			From:    "not an address",
-			SMTP: config.MailSMTPConfig{
-				Host:     "192.0.2.1",
-				Port:     587,
-				Mode:     config.MailSMTPModeStartTLSRequired,
-				Auth:     config.MailSMTPAuthPlain,
-				Username: "smtp-user",
-			},
-		},
 	}
 }
 
@@ -252,14 +183,12 @@ func hotBootstrapRuntimeUpdatedSettings() config.Settings {
 	settings.CORSAllowedOrigins = "https://app.example.test"
 	settings.AuthAccessTokenTTLSeconds = 41
 	settings.AuthRefreshTokenTTLSeconds = 43
-	settings.AuthResetCodeTTLSeconds = 47
 	settings.AuthCookieName = "new_access_cookie"
 	settings.AuthRefreshCookieName = "new_refresh_cookie"
 	settings.AuthCookieSecure = false
 	settings.RuntimeTransportConfig = hotBootstrapRuntimeTransportConfig(23 * time.Second)
 	settings.ManagementDatabasePoolBudget = config.DatabasePoolBudget{MaxConns: 9}
 	settings.ManagementAdmissionControlBudget = config.ManagementAdmissionBudget{M2MaxConcurrent: 5, M3MaxConcurrent: 4}
-	settings.Mail = validSMTPMailConfig()
 	return settings
 }
 

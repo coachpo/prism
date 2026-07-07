@@ -22,10 +22,7 @@ export function AuthenticationSection({
   const passwordReady = authSettings?.has_password
     ? !passwordError && !passwordMismatch
     : Boolean(password) && !passwordError && !passwordMismatch;
-  const emailReady = Boolean(
-    authSettings?.email && authSettings.email_bound_at && !authSettings.pending_email
-  );
-  const setupReady = usernameReady && emailReady && passwordReady;
+  const setupReady = usernameReady && passwordReady;
   const statusDescription = authEnabled
     ? copy.proxyKeyTrafficRequirement
     : copy.authenticationDisabledDescription;

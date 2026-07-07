@@ -48,7 +48,7 @@ settings/
 
 - `sections/AGENTS.md`: authentication-adjacent section UI, audit and privacy, billing and currency, retention, timezone, and the nested `authentication/` and `billing-currency/` clusters.
 - `sections/billing-currency/AGENTS.md`: reporting currency and FX-mapping rendering leaf.
-- `sections/authentication/AGENTS.md`: operator account and recovery email verification surface.
+- `sections/authentication/AGENTS.md`: operator account surface.
 - `dialogs/AGENTS.md`: delete confirmations and audit-rule editors mounted by `../SettingsPage.tsx`.
 - `costing/AGENTS.md`: costing bootstrap, dirty-state derivation, FX mapping CRUD, save flows, and the split between costing hooks and billing-currency section UI.
 

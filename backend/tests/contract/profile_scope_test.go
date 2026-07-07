@@ -429,7 +429,7 @@ func newProfileContractHarness(t *testing.T) *contractHarness {
 	}
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: nil, server: server, service: authService, url: server.URL}
+	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, server: server, service: authService, url: server.URL}
 }
 
 func scopeProbeRequest(t *testing.T, rawURL string, headerValue *string) *http.Response {

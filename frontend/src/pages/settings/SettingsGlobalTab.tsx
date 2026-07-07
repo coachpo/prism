@@ -14,20 +14,12 @@ export function SettingsGlobalTab({ data }: SettingsGlobalTabProps) {
         authEnabled={data.authEnabledInput}
         username={data.authUsername}
         setUsername={data.setAuthUsername}
-        email={data.authEmail}
-        setEmail={data.setAuthEmail}
         password={data.authPassword}
         passwordError={data.authPasswordError}
         setPassword={data.setAuthPassword}
         passwordConfirm={data.authPasswordConfirm}
         passwordMismatch={data.authPasswordMismatch}
         setPasswordConfirm={data.setAuthPasswordConfirm}
-        emailVerificationOtp={data.emailVerificationOtp}
-        setEmailVerificationOtp={data.setEmailVerificationOtp}
-        sendingEmailVerification={data.sendingEmailVerification}
-        confirmingEmailVerification={data.confirmingEmailVerification}
-        onRequestEmailVerification={data.handleRequestEmailVerification}
-        onConfirmEmailVerification={data.handleConfirmEmailVerification}
         authSaving={data.authSaving}
         onSaveAuthSettings={data.handleSaveAuthSettings}
       />

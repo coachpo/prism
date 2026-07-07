@@ -200,6 +200,7 @@ type RuntimeSideEffectsConfig struct {
 }
 
 type MailConfig struct {
+	// ponytail: mail config parsed for live config.json compat; delivery removed
 	Enabled bool
 	From    string
 	ReplyTo string

@@ -4,12 +4,12 @@
 `src/pages/` holds auth pages plus oracle-compatible route-domain clusters still referenced by the feature-owned rewrite routes and tests. New protected route mounts live under `src/features/` and `src/app/router/`.
 
 ## ROUTE SURFACE
-- Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`
+- Public auth route: `/auth/login`
 - Protected rewrite routes: `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, `/control/proxy-keys`
 - Root redirect: `/` -> `/observe`
 
 ## DOMAINS
-- Auth entry and recovery: `LoginPage.tsx`, `ForgotPasswordPage.tsx`, `ResetPasswordPage.tsx`
+- Auth entry: `LoginPage.tsx`
 - Feature oracle clusters: dashboard, model detail, endpoints, models, pricing templates, request logs, settings, and statistics helpers still imported by current rewrite feature modules or contract tests
 - Settings shell oracle: `SettingsPage.tsx` with Profile and Global tabs, plus `settings/sections/`, `settings/dialogs/`, and `settings/costing/`.
 

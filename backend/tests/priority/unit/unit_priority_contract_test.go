@@ -102,7 +102,6 @@ func TestPriorityUnitContract(t *testing.T) {
 
 	t.Run("source contracts cover hooks outboxes bounded aggregation and cache races", func(t *testing.T) {
 		assertContains(t, "internal/pgxutil/tx.go", "hook(ctx, tx)", "tx.Commit(ctx)")
-		assertContains(t, "internal/platform/email/outbox/outbox.go", "ON CONFLICT (idempotency_key)", "status = \"dead\"", "sanitizeError")
 		assertContains(t, "internal/platform/managementsideeffects/outbox.go", "AfterCommit(context.Background(), dispatcher.Wake", "failed_permanent", "FOR UPDATE SKIP LOCKED")
 		assertContains(t, "internal/httpapi/management/stats/service.go", "EventDashboardSnapshotInvalidate", "RegisterHandler", "handleDashboardSnapshotInvalidation")
 		assertNotContains(t, "internal/httpapi/management/stats/service.go", "managementsideeffects.InsertTx", "router.Delete(", "DELETE FROM request_logs", "DELETE FROM usage_request_events")

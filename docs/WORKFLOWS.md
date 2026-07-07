@@ -53,8 +53,6 @@ Validated again against current repo surfaces on 2026-07-07:
 - `POST /api/auth/logout`
 - `POST /api/auth/refresh`
 - `GET /api/auth/session`
-- `POST /api/auth/password-reset/request`
-- `POST /api/auth/password-reset/confirm`
 
 ## 2. Shell Bootstrap And Profile Selection
 
@@ -219,9 +217,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 4. Startup settings remain in the plaintext bootstrap file selected by `PRISM_CONFIG_PATH`; edit `config.json` directly and restart Prism to apply changes.
 5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.
 
-Auth email delivery for password reset and recovery-email verification is transport-backed only when startup config has `mail.enabled=true`. Missing `mail` and `mail.enabled=false` mean disabled no-op delivery, so Prism starts without SMTP and does not dial SMTP. Enabled SMTP is strict: invalid host, port, mode, timeout, credential, or plaintext rules fail validation or startup instead of silently using no-op delivery.
-
-`mail.smtp.password` is plaintext if stored inline; operators should prefer `mail.smtp.passwordFile` for deployed systems. SMTP transport changes apply after editing `config.json` and restarting Prism. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart. To roll back delivery, remove `mail` or set `mail.enabled=false`, then restart.
+Mail bootstrap fields remain parse-compatible for existing `config.json` files, but Prism no longer sends mail. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart.
 
 OpenAI text sibling translation is not a startup-control lane. Operators set runtime OpenAI text support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`.
 
@@ -243,8 +239,6 @@ OpenAI text sibling translation is not a startup-control lane. Operators set run
 - `DELETE /api/config/user-agent-client-rules/{rule_id}`
 - `GET /api/settings/auth`
 - `PUT /api/settings/auth`
-- `POST /api/settings/auth/email-verification/request`
-- `POST /api/settings/auth/email-verification/confirm`
 - `GET /api/settings/auth/proxy-keys`
 - `POST /api/settings/auth/proxy-keys`
 - `PATCH /api/settings/auth/proxy-keys/{key_id}`

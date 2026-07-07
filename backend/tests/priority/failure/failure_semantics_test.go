@@ -34,20 +34,6 @@ func TestPriorityFailureSemantics(t *testing.T) {
 		}
 	})
 
-	t.Run("email provider failures retry dead-letter and redact secrets", func(t *testing.T) {
-		source := readBackendFile(t, "internal/platform/email/outbox/outbox.go")
-		for _, want := range []string{"TransientError", "status = \"dead\"", "backoffForAttempt", "sanitizeError", "email_secret_ciphertext = NULL", "FOR UPDATE SKIP LOCKED"} {
-			if !strings.Contains(source, want) {
-				t.Fatalf("email outbox source missing failure semantic %q", want)
-			}
-		}
-		for _, forbidden := range []string{"SendEmailVerificationOTP(context.Background()", "SendPasswordResetEmail(context.Background()"} {
-			if strings.Contains(source, forbidden) {
-				t.Fatalf("email outbox contains inline provider fallback %q", forbidden)
-			}
-		}
-	})
-
 	t.Run("telemetry is durable while feedback is lossy under pressure", func(t *testing.T) {
 		sideEffects := readBackendFile(t, "internal/httpapi/runtime/runtime_side_effects.go")
 		for _, want := range []string{"RuntimeSideEffectAccepted", "RetryPolicy", "terminalFailure", "ForcedAbandoned", "outbox.Enqueue"} {

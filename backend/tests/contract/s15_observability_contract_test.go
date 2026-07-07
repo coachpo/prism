@@ -1489,7 +1489,7 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 	}
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: nil, server: server, service: nil, runtimeService: runtimeService, runtimeCache: runtimeCache, url: server.URL}
+	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, server: server, service: nil, runtimeService: runtimeService, runtimeCache: runtimeCache, url: server.URL}
 }
 
 type usageEventSeed struct {

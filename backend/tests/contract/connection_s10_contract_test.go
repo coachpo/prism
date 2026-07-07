@@ -376,7 +376,7 @@ func newConnectionHealthContractHarness(t *testing.T, upstream *scriptedUpstream
 
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: nil, server: server, service: nil, url: server.URL}
+	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, server: server, service: nil, url: server.URL}
 }
 
 func insertContractEndpointWithBaseURL(t *testing.T, harness *contractHarness, profileID int, name string, baseURL string, apiKey string, position int) int {

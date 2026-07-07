@@ -27,7 +27,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
-	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/logretention"
 	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
@@ -158,9 +157,8 @@ type runtimePlanningServices struct {
 }
 
 type authServices struct {
-	emailOutbox *outbox.Store
-	management  *managementauth.Service
-	runtime     *managementauth.Service
+	management *managementauth.Service
+	runtime    *managementauth.Service
 }
 
 type managementServices struct {
@@ -256,9 +254,8 @@ func (resources *productionResources) buildAuthServices(settings config.Settings
 	backgroundJobsPool := lanes.backgroundJobs
 	runtimeAuthCache := planning.authCache
 	backgroundScheduler := backgroundServices.scheduler
-	emailOutbox := outbox.NewStore(outbox.Options{Pool: backgroundJobsPool, MailerProvider: resources.deps.HotBootstrapConfigRuntime, SecretEncryptionKey: settings.SecretEncryptionKey, Scheduler: backgroundScheduler})
-	services := authServices{emailOutbox: emailOutbox}
-	managementAuthService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, AuthRuntimeConfigProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, ProxyKeyUsagePool: backgroundJobsPool, EmailOutbox: emailOutbox, Scheduler: backgroundScheduler})
+	services := authServices{}
+	managementAuthService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, AuthRuntimeConfigProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, ProxyKeyUsagePool: backgroundJobsPool, Scheduler: backgroundScheduler})
 	if err != nil {
 		return services, err
 	}
@@ -393,7 +390,6 @@ func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServ
 	backgroundScheduler := backgroundServices.scheduler
 	runtimePlanningCache := planning.cache
 	managementAuthService := auth.management
-	emailOutbox := auth.emailOutbox
 	managementJobs := backgroundServices.managementJobs
 	managementSideEffects := backgroundServices.managementSideEffects
 	logRetentionStore := backgroundServices.logRetention
@@ -402,7 +398,6 @@ func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServ
 	for _, register := range []func(*background.Scheduler) error{
 		runtimePlanningCache.RegisterBackgroundWorker,
 		managementAuthService.RegisterBackgroundWorkers,
-		emailOutbox.RegisterBackgroundWorker,
 		managementJobs.RegisterBackgroundWorker,
 		managementSideEffects.RegisterBackgroundWorker,
 		logRetentionStore.RegisterBackgroundWorker,
