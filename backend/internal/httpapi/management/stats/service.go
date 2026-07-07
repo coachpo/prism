@@ -538,6 +538,10 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
+	toTime, err := parseOptionalTime(r, "to_time")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
 	endpointID, err := parseOptionalInt(r, "endpoint_id")
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
@@ -562,7 +566,7 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 		normalized := strings.ToLower(strings.TrimSpace(*statusFamily))
 		statusFamily = &normalized
 	}
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, FromTime: fromTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
+	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
 }
 
 func parseDashboardRecentActivityLimit(r *http.Request) (int, error) {

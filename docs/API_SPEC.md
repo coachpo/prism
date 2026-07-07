@@ -1683,6 +1683,7 @@ Query parameters:
 | `model_id` | string | — | Filter by model ID |
 | `status_family` | string | — | Filter by status family (`4xx` or `5xx`) |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
+| `to_time` | datetime | — | End of time range (ISO 8601) |
 | `endpoint_id` | integer | — | Filter by endpoint ID |
 | `client_rule_id` | integer | none | Filter by caller client, matched against `caller_user_agent` only through enabled User-Agent Client Rules |
 | `resolved_target_model_id` | string | none | Filter by final target model selected for the attempt |

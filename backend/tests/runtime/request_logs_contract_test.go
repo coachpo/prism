@@ -217,6 +217,29 @@ func TestRequestLogsResolvedTargetModelFilterComposesWithRequestedModel(t *testi
 	}
 }
 
+func TestRequestLogListTimeWindowHonorsToTime(t *testing.T) {
+	harness := newRequestLogContractHarness(t)
+	profileID := loadRuntimeDefaultProfileID(t, harness)
+	seedRequestLogEndpoints(t, harness, profileID)
+	start := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
+	seedSimpleRequestLog(t, harness, profileID, 231, 12, nil, start, false)
+	seedSimpleRequestLog(t, harness, profileID, 232, 12, nil, start.Add(time.Hour), false)
+
+	from := url.QueryEscape(start.Format(time.RFC3339))
+	to := url.QueryEscape(start.Add(30 * time.Minute).Format(time.RFC3339))
+	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?from_time="+from+"&to_time="+to+"&limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	items := payload["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected to_time to exclude rows after the window, got %+v", payload)
+	}
+	if got := jsonInt(t, asMapRuntime(t, items[0])["id"]); got != 231 {
+		t.Fatalf("expected request log 231 inside the time window, got %+v", items[0])
+	}
+}
+
 func TestRequestLogDetailContract(t *testing.T) {
 	harness := newRequestLogContractHarness(t)
 	profileID := loadRuntimeDefaultProfileID(t, harness)
