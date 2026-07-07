@@ -10,7 +10,7 @@ This smoke test plan validates all documented workflows and core function paths 
 - Statistics and token extraction
 - Audit logging and redaction
 - Header blocklist and sanitization
-- Configuration export/import
+- Disaster recovery backup guidance
 - Batch data deletion semantics
 - Frontend management flows
 - Token costing and spending reports
@@ -353,22 +353,13 @@ Prepare seed state through API (not manual DB edits):
 | G19 | P0 | Reset current loadbalance state for a connection | `200`, returns `{ connection_id, cleared }`; idempotent when no row exists |
 | G20 | P0 | Statistics retention for usage events | `202`, creates a global retention job for `usage_request_events` with job metadata and status URL |
 
-## H. Config Export and Import
+## H. Disaster Recovery Backup Guidance
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01A | P0 | Export includes endpoint position | Endpoints are ordered by `position` and each endpoint includes `position` |
-| H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
-| H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
-| H05 | P0 | Valid import replace (target profile only) | Only effective profile config replaced; other profiles unchanged |
-| H05E | P0 | Import preview with selected-profile header | Preview requires `X-Profile-Id`, reports readiness or blocking errors, and does not mutate profile state |
-| H05A | P0 | Import with endpoint position hints | Imported endpoint order follows provided `position` values and is normalized contiguously |
-| H05B | P0 | Import payload without endpoint position | Imported endpoint order follows file order and remains valid |
-| H05C | P0 | Import with duplicate/gapped access-target positions | Imported model targets are normalized to contiguous `0..N-1` while preserving relative order by imported position then payload order |
-| H06 | P0 | Import failure rollback | Prior config remains intact |
-| H07 | P0 | Validation matrix | Correct `400` errors |
-| H08 | P1 | Settings UI export filename | `prism-profile-config-v3-YYYY-MM-DD.json` |
-| H09 | P1 | Settings UI import error paths | Parse/backend errors surfaced in toast |
+| H01 | P0 | PostgreSQL backup command documented | Operator docs point to `pg_dump` for PostgreSQL-backed state |
+| H02 | P0 | Startup config backup documented | Operator docs include copying the selected plaintext `config.json` |
+| H03 | P1 | Dashboard omits removed backup workflow | Settings UI no longer offers a configuration transfer section |
 
 ## I. Frontend Workflow Smoke
 
@@ -486,12 +477,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | K23 | P0 | Health-check also applies blocklist rules | Blocked headers excluded |
 | K24 | P1 | Disable all rules | Metadata headers flow through |
 
-### K.4 Config Export/Import Integration
-
-| ID | Pri | Scenario | Expected Result |
-|---|---|---|---|
-
-### K.5 Frontend UI (Settings Page)
+### K.4 Frontend UI (Settings Page)
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
@@ -636,7 +622,7 @@ Notes:
 
 - Time cutoff tests use server UTC (`cutoff` semantics).
 - `delete_all=true` mode deletes all records without a time cutoff.
-- Destructive tests (`import`, `delete`) must run against isolated smoke DB.
+- Destructive data deletion tests must run against an isolated smoke DB.
 - Streaming token extraction tests should include both usage-present and usage-missing streams.
 - Failover tests must verify per-attempt logging in both `request_logs` and `audit_logs` (when enabled).
 - Header blocklist rules are resolved from DB per request (no in-memory cache).
