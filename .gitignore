@@ -36,7 +36,7 @@ frontend/node_modules/
 .playwright-mcp
 */test-results/
 .claude/
-
+.superpowers
 
 # Binary
 backend/prism-backend
