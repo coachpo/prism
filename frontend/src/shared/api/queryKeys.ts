@@ -39,7 +39,6 @@ export const rewriteQueryKeys = {
       requestAudit: (requestId: number | string, search: unknown) => [...profile, "audit", "request-log", String(requestId), search] as const,
       costing: () => [...profile, "settings", "costing"] as const,
       timezone: () => [...profile, "settings", "timezone"] as const,
-      profileConfig: () => [...profile, "config", "profile"] as const,
       configRules: () => [...profile, "config", "rules"] as const,
     }
   },

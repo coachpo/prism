@@ -2286,7 +2286,7 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		ManagementDatabasePoolBudget:     postgresPoolsBudget.Management,
 		ManagementAdmissionControlBudget: ManagementAdmissionBudget{M2MaxConcurrent: int64(m2MaxConcurrent), M3MaxConcurrent: int64(m3MaxConcurrent)},
 		SecretEncryptionKey:              runtimeSecretEncryptionKey,
-		ConfigBundleEncryptionKey:        bundleEncryptionKey,
+		StateTransferBundleEncryptionKey: bundleEncryptionKey,
 		CORSAllowedOrigins:               strings.Join(corsAllowedOrigins, ","),
 		AuthJWTSecret:                    jwtSigningKey,
 		AuthAccessTokenTTLSeconds:        accessTokenTTLSeconds,
@@ -2667,7 +2667,7 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 	if authJWTSecret == "" {
 		return bootstrapConfigDocument{}, fmt.Errorf("seeded auth JWT signing key is empty")
 	}
-	bundleEncryptionKey := strings.TrimSpace(settings.ConfigBundleEncryptionKey)
+	bundleEncryptionKey := strings.TrimSpace(settings.StateTransferBundleEncryptionKey)
 	if bundleEncryptionKey == "" {
 		bundleEncryptionKey = runtimeSecretEncryptionKey
 	}

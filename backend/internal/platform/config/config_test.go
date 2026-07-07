@@ -52,8 +52,8 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 	if reservedM1 := int64(settings.ManagementDatabaseBudget().MaxConns) - admission.M2MaxConcurrent; reservedM1 != 1 {
 		t.Fatalf("expected management lane to leave M1 reservation of 1, got %d", reservedM1)
 	}
-	if settings.SecretEncryptionKey != defaultSeedSecretEncryptionKey || settings.ConfigBundleEncryptionKey != defaultSeedSecretEncryptionKey || settings.AuthJWTSecret != defaultAuthJWTSecret {
-		t.Fatalf("unexpected canonical secret defaults: runtime=%q bundle=%q jwt=%q", settings.SecretEncryptionKey, settings.ConfigBundleEncryptionKey, settings.AuthJWTSecret)
+	if settings.SecretEncryptionKey != defaultSeedSecretEncryptionKey || settings.StateTransferBundleEncryptionKey != defaultSeedSecretEncryptionKey || settings.AuthJWTSecret != defaultAuthJWTSecret {
+		t.Fatalf("unexpected canonical secret defaults: runtime=%q bundle=%q jwt=%q", settings.SecretEncryptionKey, settings.StateTransferBundleEncryptionKey, settings.AuthJWTSecret)
 	}
 	if settings.Mail.Enabled || settings.Mail.SMTP.Timeout != defaultMailSMTPTimeout {
 		t.Fatalf("unexpected canonical disabled mail defaults: %+v", settings.Mail)

@@ -77,10 +77,9 @@ prism/
 - Backend container contract: `backend/Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/API_SPEC.md`, `docs/ARCHITECTURE.md`
 - Startup bootstrap contract and startup tab ownership: `backend/internal/httpapi/management/bootstrapconfig/`, `backend/internal/platform/config/`, `frontend/src/features/settings/startup/`
-- Config-bundle export/import and preview-token flow: `backend/internal/httpapi/management/configbundle/`, `frontend/src/pages/settings/`, `frontend/src/pages/settings/useConfigBackupData.ts`
 - Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000001_initial_schema.sql`
 - Runtime proxy planning, telemetry, request-log detail, final-target attribution, and partition ensuring: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `frontend/src/pages/request-logs/`
-- Model access-target authoring, exact-facade validation, and profile bundle import/export validation: `backend/internal/httpapi/management/models/`, `backend/internal/httpapi/management/configbundle/`, `frontend/src/pages/models/`, `frontend/src/lib/configImportValidation.ts`
+- Model access-target authoring and exact-facade validation: `backend/internal/httpapi/management/models/`, `frontend/src/pages/models/`
 - Management settings and retention jobs: `backend/internal/httpapi/management/settings/`, `frontend/src/pages/settings/`, `docs/WORKFLOWS.md`
 - Frontend toolchain, shadcn registry config, and React Flow routing-diagram dependency: `frontend/package.json`, `frontend/components.json`, `frontend/src/index.css`, `frontend/src/main.tsx`, `frontend/src/pages/dashboard/routing-diagram/`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
@@ -97,7 +96,6 @@ docker compose up --build
 cd backend && go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
 cd backend && go build ./cmd/prism-backend
 cd frontend && pnpm run test && pnpm run test:lib && pnpm run test:server
-cd frontend && pnpm run test:config
 cd frontend && pnpm run build
 cd frontend && pnpm run lint
 cd frontend && pnpm run test:e2e

@@ -13,14 +13,12 @@ lib/
 │   ├── profileScope.ts           # Profile-scoped management route matcher
 │   ├── authSettings.ts           # Auth bootstrap, session flows, and proxy keys
 │   ├── management.ts             # Profiles, models, endpoints, connections, pricing templates
-│   └── observability.ts          # Usage snapshot, stats, bootstrap config, config import/export, audit, loadbalance, settings costing/timezone
+│   └── observability.ts          # Usage snapshot, stats, bootstrap config, audit, loadbalance, settings costing/timezone
 ├── websocket.ts                  # Singleton WebSocket client with channel ref-counts and reconnects
 ├── websocket/AGENTS.md           # Helper split beneath the singleton client
 ├── websocket/                    # Protocol, subscription, transport/reconnect helpers
 ├── referenceData.ts              # Shared reference-data cache keyed by profile revision
 ├── referenceDataRegistry.ts      # Registry of shared reference-data datasets
-├── configImportValidation.ts     # Frontend-side mirrored config import checks
-├── configImportValidationReferences.ts
 ├── loadbalanceRoutingPolicy.ts   # Dual-family defaults and policy normalization
 ├── appVersion.ts                 # Browser-facing app version helper built from Vite-injected package metadata
 ├── reportingCurrency.ts          # Selected-profile keyed reporting-currency cache
@@ -38,7 +36,6 @@ lib/
 - Public import boundary: `api.ts`
 - Typed `/api/*` client split, grouped surfaces, `api/core.ts` request rules, and profile-scope matcher: `api/AGENTS.md`
 - Shared lookup cache, request dedupe, and dataset registry: `referenceData.ts`, `referenceDataRegistry.ts`
-- Frontend-side config import reference validation: `configImportValidation.ts`, `configImportValidationReferences.ts`
 - Shared dual-family load-balance defaults and policy normalization: `loadbalanceRoutingPolicy.ts`
 - Browser app version label formatting and Vite-injected package metadata: `appVersion.ts`
 - Shared reporting-currency cache, normalization, active-currency sync, `prime()` and `refresh()` support, and fail-open default used by `ReportingCurrencyContext.tsx`: `reportingCurrency.ts`
@@ -66,7 +63,6 @@ lib/
 - `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
 - Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
 - `referenceData.ts` and `referenceDataRegistry.ts` own shared cache reuse, request dedupe, and revision-keyed lookup invalidation.
-- `configImportValidation.ts` owns frontend-side mirrored validation of config import contracts, including config-bundle v3 top-level connections, flat ordered model access targets, obsolete `weight` / `target_priority` rejection, `profile_settings.audit_api_family_settings`, and explicit Ban Policy strategy data, instead of leaving that logic in page components.
 - `loadbalanceRoutingPolicy.ts` owns explicit Ban Policy defaults, retry-window labels, and normalized failure-status or ban-policy handling.
 - `appVersion.ts` owns the browser-facing frontend version contract so shell chrome reads the synced `frontend/package.json` version through Vite instead of hard-coded literals.
 - `reportingCurrency.ts` owns selected-profile keyed cache reuse, active-currency sync, `prime()` or `refresh()` support, fail-open defaults, and normalization of `report_currency_code` or `report_currency_symbol` used by `ReportingCurrencyContext.tsx`, settings, and costing.
@@ -87,7 +83,6 @@ lib/
 - Do not bypass `api/core.ts` or `api/profileScope.ts` for Prism backend requests or selected-profile header rules.
 - Do not create ad hoc websocket clients or duplicate subscribe/unsubscribe bookkeeping outside `websocket.ts` and `websocket/`.
 - Do not add a parallel reference-data cache when `referenceData.ts` already owns the shared lookup datasets.
-- Do not duplicate config import validation in page or dialog code when `configImportValidation.ts` already mirrors that contract.
 - Do not duplicate reporting-currency cache or normalization in settings, costing, or page code when `reportingCurrency.ts` already owns that seam.
 - Do not duplicate timezone or cost helper logic in page folders when `timezone.ts` and `costing.ts` already own those seams.
 - Do not camelCase backend response fields in the shared type layer.

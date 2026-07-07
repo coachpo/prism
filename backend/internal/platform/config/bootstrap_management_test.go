@@ -629,7 +629,7 @@ func TestBootstrapConfigManagementSecretPreserveAndReplace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse secret preserve and replace payload: %v", err)
 	}
-	if settings.DatabaseURL != nextDatabaseURL || settings.ConfigBundleEncryptionKey != nextBundleSecret || settings.Mail.SMTP.Password != nextSMTPPassword {
+	if settings.DatabaseURL != nextDatabaseURL || settings.StateTransferBundleEncryptionKey != nextBundleSecret || settings.Mail.SMTP.Password != nextSMTPPassword {
 		t.Fatal("expected replace actions to update selected secrets")
 	}
 
@@ -1015,7 +1015,7 @@ func newManagementTestDocument(t *testing.T, createdAt time.Time) bootstrapConfi
 	settings := loadCanonicalDefaultSettings(managementTestDatabaseURL)
 	settings.SecretEncryptionKey = managementTestRuntimeSecret
 	settings.AuthJWTSecret = managementTestJWTSecret
-	settings.ConfigBundleEncryptionKey = managementTestBundleSecret
+	settings.StateTransferBundleEncryptionKey = managementTestBundleSecret
 	document, err := buildSeededBootstrapDocument(settings, createdAt)
 	if err != nil {
 		t.Fatalf("build management test bootstrap document: %v", err)

@@ -15,12 +15,11 @@ settings/
 ├── SettingsProfileTab.tsx          # Profile-tab body and section layout
 ├── SettingsGlobalTab.tsx           # Global-tab body for auth plus retention and deletion
 ├── SettingsStartupTab.tsx         # Startup-tab body for plaintext bootstrap config
-├── useSettingsPageData.ts          # Top-level page composition across backup, auth, costing, audit, retention
+├── useSettingsPageData.ts          # Top-level page composition across auth, costing, audit, retention
 ├── useSettingsPageSectionState.ts  # Active tab, hash, scroll focus, and section jumps
 ├── useAuthenticationSettingsData.ts
 ├── useCostingSettingsData.ts
 ├── useAuditConfigurationData.ts
-├── useConfigBackupData.ts
 ├── useRetentionDeletionData.ts
 ├── sectionSaveState.tsx           # Shared dirty, saving, and recently-saved rendering
 ├── settingsPageHelpers.ts         # Tab ids, section ids, default costing form, shared validation helpers
@@ -30,7 +29,7 @@ settings/
 ## SHELL CONTRACT
 
 - `SettingsPage.tsx` renders three tabs: `Profile`, `Global`, and `Startup`.
-- The Profile tab owns selected-profile section navigation and mounts config-bundle v3 backup/import, billing and currency, timezone, and audit and privacy.
+- The Profile tab owns selected-profile section navigation and mounts billing and currency, timezone, and audit and privacy.
 - The Global tab mounts instance-wide authentication plus retention and deletion. The Startup tab mounts the instance bootstrap config and telemetry surface through `SettingsStartupTab.tsx`, while the dense field registry and section cluster live under `../../features/settings/startup/`.
 - `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
@@ -44,12 +43,12 @@ settings/
 - Shared save-state badges and render helpers: `sectionSaveState.tsx`, `settingsSaveTypes.ts`
 - Section implementation boundary: `sections/AGENTS.md`
 - Costing bootstrap, derived state, FX mapping CRUD, and save boundary: `costing/AGENTS.md`
-- Local dialog ownership for destructive actions, vendor CRUD, audit-rule editing, and config-bundle v3 import/export summaries: `dialogs/AGENTS.md`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`, `useConfigBackupData.ts`
-- E2E seams for startup hash/apply behavior, reporting-currency save, config import/export, and retention flows: `../../../tests/e2e/settings-startup-tab.spec.ts`, `../../../tests/e2e/settings-reporting-currency-save.spec.ts`, `../../../tests/e2e/settings-config-import.spec.ts`, `../../../tests/e2e/settings-config-export.spec.ts`, `../../../tests/e2e/settings-log-retention.spec.ts`
+- Local dialog ownership for destructive actions, vendor CRUD, and audit-rule editing: `dialogs/AGENTS.md`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`
+- E2E seams for startup hash/apply behavior, reporting-currency save, and retention flows: `../../../tests/e2e/settings-startup-tab.spec.ts`, `../../../tests/e2e/settings-reporting-currency-save.spec.ts`, `../../../tests/e2e/settings-log-retention.spec.ts`
 
 ## CHILD DOCS
 
-- `sections/AGENTS.md`: authentication-adjacent section UI, audit and privacy, billing and currency, backup, retention, timezone, and the nested `authentication/` and `billing-currency/` clusters.
+- `sections/AGENTS.md`: authentication-adjacent section UI, audit and privacy, billing and currency, retention, timezone, and the nested `authentication/` and `billing-currency/` clusters.
 - `sections/billing-currency/AGENTS.md`: reporting currency and FX-mapping rendering leaf.
 - `sections/authentication/AGENTS.md`: operator account and recovery email verification surface.
 - `dialogs/AGENTS.md`: delete confirmations and audit-rule editors mounted by `../SettingsPage.tsx`.
@@ -65,7 +64,7 @@ settings/
 - Keep startup bootstrap field metadata and field-effect rendering under `../../features/settings/startup/`.
 - Hash navigation is part of the settings UX contract. New profile-tab sections need stable ids and must participate in jump and active-section logic.
 - Save-state feedback belongs in `sectionSaveState.tsx` and related helper types, not in ad hoc spinners or toast-only status.
-- Keep the scope split clear in copy and behavior: authentication and retention are global, while config-bundle v3 backup, billing and currency, timezone, and audit and privacy stay profile-scoped. Audit and privacy loads and saves `/api/settings/audit` as a full three-family replacement.
+- Keep the scope split clear in copy and behavior: authentication and retention are global, while billing and currency, timezone, and audit and privacy stay profile-scoped. Audit and privacy loads and saves `/api/settings/audit` as a full three-family replacement.
 - `SettingsProfileTab.tsx` and `SettingsGlobalTab.tsx` own the tab bodies, while the shell hook keeps their section state synchronized.
 - Billing, reporting currency, timezone preference, and FX mappings cross the `sections/` and `costing/` boundary. Let this parent doc describe the split, then send readers down instead of repeating local details.
 - Keep dialogs local to `pages/settings/dialogs/` when they support audit-rule edits, audit-rule edits or destructive confirmation flows, and let `dialogs/AGENTS.md` own the per-file split.

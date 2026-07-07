@@ -12,7 +12,6 @@ import (
 
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
-	managementconfigbundle "github.com/coachpo/prism/backend/internal/httpapi/management/configbundle"
 )
 
 func TestManagementBodyLimitMiddlewareRejectsOversizedBodiesWithStableJSON(t *testing.T) {
@@ -38,13 +37,6 @@ func TestManagementBodyLimitMiddlewareRejectsOversizedBodiesWithStableJSON(t *te
 			limitBytes: bodylimits.BootstrapRequestBodyLimitBytes,
 			body:       `{"values":{"padding":"` + strings.Repeat("a", int(bodylimits.BootstrapRequestBodyLimitBytes)+1),
 		},
-		{
-			name:       "profile import preview",
-			method:     http.MethodPost,
-			path:       "/api/config/profile/import/preview",
-			limitBytes: bodylimits.ConfigBundleRequestBodyLimitBytes,
-			body:       `{"version":3,"bundle_kind":"profile_config","padding":"` + strings.Repeat("a", int(bodylimits.ConfigBundleRequestBodyLimitBytes)+1),
-		},
 	}
 
 	for _, testCase := range tests {
@@ -69,9 +61,7 @@ func TestManagementRequestBodyLimitClassifiesExpectedCaps(t *testing.T) {
 	}{
 		{name: "auth", method: http.MethodPost, path: "/api/auth/login", limitBytes: bodylimits.AuthRequestBodyLimitBytes, ok: true},
 		{name: "bootstrap", method: http.MethodPut, path: "/api/config/bootstrap", limitBytes: bodylimits.BootstrapRequestBodyLimitBytes, ok: true},
-		{name: "config bundle", method: http.MethodPost, path: "/api/config/profile/import/preview", limitBytes: bodylimits.ConfigBundleRequestBodyLimitBytes, ok: true},
 		{name: "generic management", method: http.MethodPut, path: "/api/settings/costing", limitBytes: bodylimits.ManagementJSONRequestBodyLimitBytes, ok: true},
-		{name: "profile export with secrets", method: http.MethodPost, path: "/api/config/profile/export/with-secrets", ok: false},
 		{name: "read route", method: http.MethodGet, path: "/api/settings/auth", ok: false},
 	}
 
@@ -93,7 +83,6 @@ func newManagementBodyLimitTestHandler() http.Handler {
 		nil,
 		&managementauth.Service{},
 		&managementbootstrapconfig.Service{},
-		&managementconfigbundle.Service{},
 		nil,
 		nil,
 		nil,

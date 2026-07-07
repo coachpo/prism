@@ -383,8 +383,8 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 	if settings.DatabaseURL != wantDatabaseURL {
 		t.Fatalf("expected seeded database URL %q, got %q", wantDatabaseURL, settings.DatabaseURL)
 	}
-	if settings.SecretEncryptionKey != bootstrapFixtureSecretKey || settings.ConfigBundleEncryptionKey != bootstrapFixtureBundleKey {
-		t.Fatalf("unexpected seeded plaintext settings: secret=%q bundle=%q", settings.SecretEncryptionKey, settings.ConfigBundleEncryptionKey)
+	if settings.SecretEncryptionKey != bootstrapFixtureSecretKey || settings.StateTransferBundleEncryptionKey != bootstrapFixtureBundleKey {
+		t.Fatalf("unexpected seeded plaintext settings: secret=%q bundle=%q", settings.SecretEncryptionKey, settings.StateTransferBundleEncryptionKey)
 	}
 	if settings.AuthJWTSecret != bootstrapFixtureJWTSecret {
 		t.Fatalf("unexpected seeded auth JWT secret: %q", settings.AuthJWTSecret)

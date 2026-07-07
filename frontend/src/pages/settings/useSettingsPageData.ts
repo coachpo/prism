@@ -9,7 +9,6 @@ import type { SettingsSaveSection } from "./settingsSaveTypes";
 import { SETTINGS_TABS, type SettingsTab } from "./settingsPageHelpers";
 import { useAuditConfigurationData } from "./useAuditConfigurationData";
 import { useAuthenticationSettingsData } from "./useAuthenticationSettingsData";
-import { useConfigBackupData } from "./useConfigBackupData";
 import { useCostingSettingsData } from "./useCostingSettingsData";
 import { useRetentionDeletionData } from "./useRetentionDeletionData";
 
@@ -25,10 +24,6 @@ export function useSettingsPageData(activeTab: SettingsTab) {
 
   const [recentlySavedSection, setRecentlySavedSection] = useState<SettingsSaveSection | null>(null);
 
-  const backup = useConfigBackupData({
-    bumpRevision,
-    selectedProfileId: selectedProfile?.id ?? null,
-  });
   const isProfileTabActive = activeTab === SETTINGS_TABS.profile;
   const isGlobalTabActive = activeTab === SETTINGS_TABS.global;
   const auth = useAuthenticationSettingsData({
@@ -77,7 +72,6 @@ export function useSettingsPageData(activeTab: SettingsTab) {
     recentlySavedSection,
     renderSaveStateForSection,
     selectedProfileLabel,
-    ...backup,
     ...auth,
     ...costing,
     ...audit,

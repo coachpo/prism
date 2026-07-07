@@ -31,7 +31,7 @@ bootstrapconfig/
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
-- Do not mix `/api/config/bootstrap` with `management/settings/` or `management/configbundle/`.
+- Do not mix `/api/config/bootstrap` with `management/settings/`.
 - Do not treat bootstrap writes as DB-backed state.
 - Do not swallow hot-apply failures or hide `failed_hot_apply_fields`.
 - Do not move bootstrap document ownership into the frontend or the broader settings package.

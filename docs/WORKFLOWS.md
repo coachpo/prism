@@ -28,7 +28,6 @@ Validated again against current repo surfaces on 2026-07-07:
 - Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`.
 - `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
 - Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
-- `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
 
 ## 1. Sign In And Session Bootstrap
@@ -224,16 +223,7 @@ Auth email delivery for password reset and recovery-email verification is transp
 
 The Startup tab treats `mail.smtp.password` as a secret field. Safe bootstrap payloads show metadata only, and operators should either preserve or replace that secret through the bootstrap update flow or point `mail.smtp.passwordFile` at a local secret file. SMTP transport changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Request timeout is hot-applicable for future provider requests, while side-effects attempt timeout is restart-required. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT.
 
-OpenAI text sibling translation is not a startup-control lane. Operators set runtime OpenAI text support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`. Profile bundle export/import remains on `version: 3` and carries that Terminal Target capability with the profile-scoped connection data.
-
-The configuration-operations flow is explicit in both lanes:
-- profile export defaults to the safe redacted bundle at `GET /api/config/profile/export`
-- secret-bearing profile export uses `POST /api/config/profile/export/with-secrets` with `X-Prism-Dangerous-Confirm: profile-export`
-- profile import uses frontend local schema validation, upload, backend preview, then apply with `X-Prism-Preview-Token`
-- preview is invalidated when the selected profile or bundle changes, and apply requires the current selection/profile to still match the ready preview token
-- profile import replaces profile-scoped rows only, while other profiles and request logs remain untouched
-- profile import rejects `connection_ref` values used by multiple models because imported connections are model-private endpoint bindings
-- apply stays header-bound, and the raw bundle JSON is not rewritten in transit
+OpenAI text sibling translation is not a startup-control lane. Operators set runtime OpenAI text support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`.
 
 **Backend touchpoints**
 
@@ -243,10 +233,6 @@ The configuration-operations flow is explicit in both lanes:
 - `PUT /api/settings/timezone`
 - `GET /api/settings/audit`
 - `PUT /api/settings/audit`
-- `GET /api/config/profile/export`
-- `POST /api/config/profile/export/with-secrets`
-- `POST /api/config/profile/import/preview`
-- `POST /api/config/profile/import`
 - `GET /api/config/header-blocklist-rules`
 - `PATCH /api/config/header-blocklist-rules/{rule_id}`
 - `DELETE /api/config/header-blocklist-rules/{rule_id}`
@@ -269,8 +255,6 @@ The configuration-operations flow is explicit in both lanes:
 - `POST /api/maintenance/log-retention/jobs`
 
 Global log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
-
-Profile export and import stay selected-profile scoped. `POST /api/config/profile/import/preview` is a profile-scoped config readiness route and requires `X-Profile-Id`.
 
 ## 8. Runtime Proxy Traffic
 

@@ -31,7 +31,7 @@ The agent should always inventory Prism as these surfaces:
 - The selected-profile versus active-profile split
 - Dense frontend management surfaces with forms, tables, dialogs, drawers, charts, and toasts
 
-High-value frontend surfaces include the observe analytics tab, models list, model detail, endpoints, Ban Policies, settings, proxy API keys, pricing templates, and request-log investigation plus audit-page flow. High-value backend surfaces include auth, profile lifecycle, config import or export, runtime proxy routing, failover, realtime messages, costing, audit logging, and observability queries.
+High-value frontend surfaces include the observe analytics tab, models list, model detail, endpoints, Ban Policies, settings, proxy API keys, pricing templates, and request-log investigation plus audit-page flow. High-value backend surfaces include auth, profile lifecycle, runtime proxy routing, failover, realtime messages, costing, audit logging, and observability queries.
 
 ## 4. Coverage Classes
 
@@ -46,7 +46,7 @@ Smoke cases should prove the system is viable, not exhaustively validated. Each 
 - one runtime request per supported API family under test
 - one realtime connection or subscription check
 - one profile activation or scope check
-- one config export or import sanity check
+- one profile-scoped settings sanity check
 
 ### 4.2 Functional coverage
 
@@ -58,7 +58,7 @@ Functional cases should exercise detailed contracts and boundary conditions, inc
 - unified model access-target invariants
 - loadbalance, failover, and health-check behavior
 - request-log, audit, costing, and statistics contracts
-- config import validation and dependency checks
+- selected-profile settings validation and dependency checks
 
 ### 4.3 UI or UX coverage
 
@@ -91,10 +91,10 @@ Always include invalid or conflicting inputs for:
 - pricing decimal fields
 - FX mappings and timezone settings
 - auth password limits
-- config import payload shape and reference validation
+- selected-profile settings payload shape and reference validation
 - request-log and statistics filters
 
-`frontend/src/features/models/modelSchemas.ts`, `frontend/src/features/loadbalance/banPolicySchemas.ts`, `frontend/src/features/pricing/pricingSchemas.ts`, `frontend/src/pages/settings/settingsPageHelpers.ts`, and `frontend/src/lib/configImportValidation.ts` are primary frontend seams for illegal-input case generation.
+`frontend/src/features/models/modelSchemas.ts`, `frontend/src/features/loadbalance/banPolicySchemas.ts`, `frontend/src/features/pricing/pricingSchemas.ts`, and `frontend/src/pages/settings/settingsPageHelpers.ts` are primary frontend seams for illegal-input case generation.
 
 ## 5. Generation Workflow
 

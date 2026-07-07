@@ -180,14 +180,14 @@
   - `management_body_limits.go:50-51` 的 `ConfigBundleRequestBodyLimitBytes` 分支；`bodylimits/body_limits.go:15` 常量。
   - 措辞修订（代码保留）：`providercompat/doc.go:5,9`、`domain/modelrouting/doc.go:5` 中提及 configbundle 的注释。
 - [ ] **Step 3：** 前端接线：`useSettingsPageData.ts` :12/:28/:80 三处、`SettingsProfileTab.tsx` :5/:35-53、`settingsPageHelpers.ts:21` 的 `{ id: "backup" }`、`lib/api/observability.ts:163-179` 的四个 bundle 客户端方法、`lib/types/config-audit-settings.ts` 只删 bundle 四类型（audit-settings 类型保留）、`package.json` 删 `test:config` 脚本（:18）——若 Task 5 已 glob 化 test:lib 则无清单可改，直接 `git rm` 两个 lib 测试文件即可。
-- [ ] **Step 4：** 路由契约：`management_route_contract.json:54-57` 删 4 行（`/api/config/profile/export`、`export/with-secrets`、`import/preview`、`import`）。同提交，G4 的守卫测试自愈。
+- [ ] **Step 4：** 路由契约：`management_route_contract.json:54-57` 删 4 条配置包导出/导入路由。同提交，G4 的守卫测试自愈。
 - [ ] **Step 5：** i18n（G3，en.ts 类型+值、zh-CN 值三处齐删）：`backup`（en :362/:2290，zh :366）、`settingsBackup`（en :881/:2815，zh :885）、`settingsBackupData` + `settingsBackupValidation`（en :930/:941 + 值块，zh :934/:945）。**注意** `backupCapable`/`backupReady`（en :757-758/:2688-2689）属另一命名空间，先 `rg -l 'backupCapable|backupReady' frontend/src` 确认消费者再决定。
 - [ ] **Step 6：** 文档同 PR：`docs/API_SPEC.md`（:778-960 四个端点段 + :15-16 scoping 列表）、`docs/WORKFLOWS.md:230-249,273`、`docs/ARCHITECTURE.md:223,235`、`docs/DATA_MODEL.md`（:3,:326,:328,:381-382,:449,:709,:1122-1124 的 "version: 3 bundle" 表述）、`docs/PRD.md:226`、根 `README.md:26,270`、`frontend/README.md:16`，以及涉及的各 AGENTS.md（management、httpapi、backend、根、frontend lib/api/settings/sections、tests、docs）。README 处补一句替代方案：灾备用 `pg_dump`。
 - [ ] **Step 7：** 验证：
 
   ```bash
   rg -il configbundle backend/ frontend/src frontend/tests docs/API_SPEC.md docs/DATA_MODEL.md docs/ARCHITECTURE.md README.md   # 0 命中（DEVELOPMENT_DIRECTION.md 历史除外）
-  rg -l "config/profile/export|config/profile/import" backend frontend docs README.md                                            # 0 命中
+  rg -l "config/profile/(export|import)" backend frontend docs README.md                                                        # 0 命中
   ```
 
   标准验证全绿；契约 JSON 从 62 行降到 58。

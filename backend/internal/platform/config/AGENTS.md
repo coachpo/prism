@@ -32,5 +32,5 @@ config/
 
 ## ANTI-PATTERNS
 - Do not make external file edits behave like watched hot state.
-- Do not move profile bundle import/export or PostgreSQL-backed profile settings into bootstrap config.
+- Do not move PostgreSQL-backed profile settings into bootstrap config.
 - Do not preserve retired encrypted bootstrap formats as live compatibility layers.

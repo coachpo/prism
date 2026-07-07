@@ -462,8 +462,8 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 		if settings.SecretEncryptionKey != bootstrapContractSecretKey {
 			t.Fatalf("expected secret encryption key %q, got %q", bootstrapContractSecretKey, settings.SecretEncryptionKey)
 		}
-		if settings.ConfigBundleEncryptionKey != bootstrapContractBundleKey {
-			t.Fatalf("expected bundle encryption key %q, got %q", bootstrapContractBundleKey, settings.ConfigBundleEncryptionKey)
+		if settings.StateTransferBundleEncryptionKey != bootstrapContractBundleKey {
+			t.Fatalf("expected bundle encryption key %q, got %q", bootstrapContractBundleKey, settings.StateTransferBundleEncryptionKey)
 		}
 		if settings.AuthJWTSecret != bootstrapContractJWTSecret {
 			t.Fatalf("expected JWT secret %q, got %q", bootstrapContractJWTSecret, settings.AuthJWTSecret)

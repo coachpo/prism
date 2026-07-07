@@ -23,7 +23,7 @@ Prism fronts multiple LLM API families through explicit runtime operations, lett
 - **Audit logging**: optional request/response body capture with header redaction
 - **Success-rate badges**: Terminal Target health based on recent request data
 - **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, restart-required OTLP telemetry fields, masked secret metadata, and explicit confirmation for dangerous structural changes
-- **Config export/import**: PostgreSQL-backed profile bundles with profile-scoped replace-mode import
+- **Plain backup path**: disaster recovery uses `pg_dump` for PostgreSQL state plus a copy of the plaintext `config.json`
 - **Caller client filtering**: request logs filter caller clients through User-Agent Client Rules using `client_rule_id`, while final target filtering uses `resolved_target_model_id`
 
 ### Architecture
@@ -266,7 +266,7 @@ Other configuration notes:
 - `./start.sh full` serves the browser through the launcher origin, with Vite proxying management traffic and supported runtime operation traffic to the backend so local browser traffic stays same-origin
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
 
-If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults plus the launcher-provided local PostgreSQL DSN on host port `15432`; fresh seeds still default backend port to `8000`. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Profile backup/restore and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
+If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults plus the launcher-provided local PostgreSQL DSN on host port `15432`; fresh seeds still default backend port to `8000`. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Disaster recovery should back up PostgreSQL with `pg_dump` and copy the selected plaintext `config.json`.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./start.sh full` keeps management requests and supported runtime operation requests on the launcher origin through Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 

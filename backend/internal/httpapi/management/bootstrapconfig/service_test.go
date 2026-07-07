@@ -317,7 +317,7 @@ func TestBootstrapConfigRoutePutWritesAndReturnsRestartRequired(t *testing.T) {
 	if writtenSettings.SecretEncryptionKey != originalSettings.SecretEncryptionKey {
 		t.Fatal("expected runtime secret preserve action to keep the original value")
 	}
-	if writtenSettings.ConfigBundleEncryptionKey != originalSettings.ConfigBundleEncryptionKey {
+	if writtenSettings.StateTransferBundleEncryptionKey != originalSettings.StateTransferBundleEncryptionKey {
 		t.Fatal("expected bundle secret preserve action to keep the original value")
 	}
 }
@@ -1559,7 +1559,7 @@ func assertNoRouteSecrets(t *testing.T, body []byte, settings config.Settings, e
 		{label: "database SSL password", value: routeTestDatabaseSSLPassword},
 		{label: "runtime secret", value: settings.SecretEncryptionKey},
 		{label: "auth JWT secret", value: settings.AuthJWTSecret},
-		{label: "bundle secret", value: settings.ConfigBundleEncryptionKey},
+		{label: "bundle secret", value: settings.StateTransferBundleEncryptionKey},
 		{label: "telemetry authorization header", value: settings.Telemetry.Exporter.Auth.AuthorizationHeader},
 	}
 	secrets = append(secrets, extraSecrets...)

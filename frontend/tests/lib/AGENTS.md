@@ -1,20 +1,19 @@
 # FRONTEND LIB TEST KNOWLEDGE BASE
 
 ## OVERVIEW
-`frontend/tests/lib/` owns Node `--test` seam contracts for API clients, config import validation, route/profile scope helpers, websocket protocol, dashboard snapshots, and shared page state.
+`frontend/tests/lib/` owns Node `--test` seam contracts for API clients, route/profile scope helpers, websocket protocol, dashboard snapshots, and shared page state.
 
 ## STRUCTURE
 ```text
 lib/
 ├── *_contract.test.mjs       # Contract seams loaded through Node test
-├── config-*.test.mjs         # Config import/export edge checks
 └── pricing-*.test.mjs        # Pricing form normalization checks
 ```
 
 ## WHERE TO LOOK
 - TypeScript module loader and `@/` alias support: `../helpers/loadTsModule.mjs`
 - Scripted `test:lib` glob coverage: `../../package.json` runs `tests/lib/*.test.mjs` and `tests/model-detail/*.test.mjs`
-- Config/bootstrap/import contracts: `bootstrap_config_contract.test.mjs`, `config_api_contract.test.mjs`, `config_import_validation_contract.test.mjs`
+- Bootstrap contracts: `bootstrap_config_contract.test.mjs`
 - Management and profile-scope contracts: `management_*.test.mjs`, `profile_*_contract.test.mjs`
 - Observability/request-log contracts: `observability_api_contract.test.mjs`, `request_log_*_contract.test.mjs`
 - Dashboard/statistics/realtime contracts: `dashboard_*.test.mjs`, `analytics_websocket_contract.test.mjs`, `websocket_contract.test.mjs`

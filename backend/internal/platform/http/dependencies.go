@@ -8,7 +8,6 @@ import (
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
-	managementconfigbundle "github.com/coachpo/prism/backend/internal/httpapi/management/configbundle"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
@@ -33,7 +32,6 @@ type Dependencies struct {
 	AuthService               *managementauth.Service
 	RuntimeAuthService        *managementauth.Service
 	BootstrapConfigService    *managementbootstrapconfig.Service
-	ConfigBundleService       *managementconfigbundle.Service
 	ConfigRulesService        *managementconfigrules.Service
 	ConnectionsService        *managementconnections.Service
 	EndpointsService          *managementendpoints.Service

@@ -27,7 +27,7 @@ src/
 - Shell chrome, shared widgets, generated primitives, and component-only ownership: `components/AGENTS.md`
 - Auth, selected-profile headers, active-runtime separation, and reporting-currency readiness: `context/AGENTS.md`
 - Realtime consumers and shared hooks: `hooks/AGENTS.md`, `lib/websocket/AGENTS.md`
-- Typed API, websocket singleton, reference data, config import validation, and request plumbing: `lib/AGENTS.md`
+- Typed API, websocket singleton, reference data, and request plumbing: `lib/AGENTS.md`
 - Shared design-system wrappers, table/form helpers, and cross-route utilities: `shared/AGENTS.md`
 - Locale state and non-hook static labels: `i18n/AGENTS.md`
 - Vitest/jsdom setup and MSW handlers: `test/`

@@ -14,7 +14,6 @@ type ShellBreadcrumbLeafId =
   | "request-logs-request"
   | "settings-audit-configuration"
   | "settings-authentication"
-  | "settings-backup"
   | "settings-billing-currency"
   | "settings-retention-deletion"
   | "settings-timezone";
@@ -51,10 +50,6 @@ const SETTINGS_HASH_BREADCRUMBS: Record<
   authentication: {
     id: "settings-authentication",
     label: (messages) => messages.settingsAuthentication.authentication,
-  },
-  backup: {
-    id: "settings-backup",
-    label: (messages) => messages.settingsPage.backup,
   },
   "billing-currency": {
     id: "settings-billing-currency",

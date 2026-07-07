@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime and management model with pricing templates, profile-scoped explicit Ban Policy routing, UNLOGGED routing hot state, endpoint label snapshots, user-agent client rules, and the current `version: 3` profile bundle format.
+Scope: profile-isolated runtime and management model with pricing templates, profile-scoped explicit Ban Policy routing, UNLOGGED routing hot state, endpoint label snapshots, and user-agent client rules.
 
 ## 1. Entity Relationship Diagram
 
@@ -323,9 +323,9 @@ Constraints:
 - Source and target rows must stay in the same profile and same `api_family`.
 - Positions are normalized and validated as contiguous `0..N-1` in management contracts.
 - Position is an ordering key only, not priority, tier, or weight. Duplicate positions reject before write.
-- Obsolete public payload keys `weight` and `target_priority` reject in management model APIs and config-bundle import or preview. The fresh schema has no columns for those values.
+- Obsolete public payload keys `weight` and `target_priority` reject in management model APIs. The fresh schema has no columns for those values.
 - Runtime routing evaluates enabled same-family model targets by flat `position` and stable IDs. Connection-owner targets remain terminal routing edges, not public model-target candidates.
-- Go management and config-bundle import validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
+- Go management validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
 
 ### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
 
@@ -378,8 +378,6 @@ Reusable credential objects scoped to one profile.
 Constraints and indexes:
 - `UNIQUE(profile_id, name)`.
 - `INDEX(profile_id, position)` for ordered reads.
-- Profile config export never emits plaintext `api_key`; the `version: 3` profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
-- Endpoints with no upstream credential export `api_key_secret_ref = null` and do not emit a bundle secret entry.
 
 ### 2.6 `connections` (profile-scoped Terminal Target storage)
 
@@ -446,7 +444,7 @@ Reusable token pricing definitions that can be attached to many Terminal Targets
 
 Constraint: `UNIQUE(profile_id, name)`.
 
-Pricing templates use five concrete pricing strings in steady state. Management API writes and profile bundle v3 import normalize missing, null, or blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
+Pricing templates use five concrete pricing strings in steady state. Management API writes normalize missing, null, or blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
 
 Token costing consumes canonical disjoint token components: base input, cache-read input, cache-creation input, base output, reasoning output, and provider or derived total. `cached_tokens` is derived-only for aggregate and presentation surfaces from cache-read plus cache-creation input tokens.
 
@@ -706,7 +704,6 @@ Constraints:
 - `UNIQUE(profile_id, api_family)`.
 - `audit_capture_bodies` requires `audit_enabled`.
 - Management `PUT /api/settings/audit` full-replaces the three supported family rows for the selected profile.
-- Config bundles store this policy under `profile_settings.audit_api_family_settings` in stable `openai`, `anthropic`, `gemini` order and import it as a full replacement.
 - Runtime snapshots load policy by profile and model `api_family`; request-time booleans are copied into existing request-log and audit-log provenance fields.
 
 ### 2.15 `loadbalance_events` (partitioned immutable profile attribution)
@@ -1119,9 +1116,7 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 
 ## 7. Config Import/Export Versioning
 
-- OpenAI text capability is profile-scoped Terminal Target data. Profile bundle v3 carries `connections[].openai_text_capability`, and startup config has no OpenAI text translation mode field.
-- Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
-- Persisted rows created by import always receive fresh database IDs; the version-3 profile bundle contract omits internal IDs entirely and relies on name-based references.
+- OpenAI text capability is profile-scoped Terminal Target data, and startup config has no OpenAI text translation mode field.
 - Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
 
 

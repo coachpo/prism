@@ -169,10 +169,6 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/loadbalance/current-state/{connection_id}/reset` | G19, M14 |
 | `GET /api/loadbalance/events` | G16, M14 |
 | `GET /api/loadbalance/events/{id}` | G17, M14 |
-| `GET /api/config/profile/export` | H01-H04, L14, M16 |
-| `POST /api/config/profile/export/with-secrets` | H01A |
-| `POST /api/config/profile/import/preview` | H05-H07, L15-L16, M17-M18 |
-| `POST /api/config/profile/import` | H05-H07, L15-L16, M17-M18 |
 | `GET /api/config/header-blocklist-rules` | K01, M20 |
 | `GET /api/config/header-blocklist-rules/{id}` | K05-K06, M20 |
 | `POST /api/config/header-blocklist-rules` | K02-K04, K12-K15, M20 |
@@ -361,7 +357,6 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=3`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `profile_settings`, encrypted `secret_payload`, `loadbalance_strategies`, top-level private `connections`, ordered model `access_targets`, required `api_family`, and strategy-name model references |
 | H01A | P0 | Export includes endpoint position | Endpoints are ordered by `position` and each endpoint includes `position` |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
@@ -495,11 +490,6 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON |
-| K26 | P0 | Config import with rules omitted | Preserves existing rules |
-| K27 | P0 | Config import with rules provided | Replaces user rules, applies system states |
-| K28 | P0 | Config import with unknown system pattern | `400` rejection |
-| K29 | P1 | Config import roundtrip preserves rule state | Identical rules after roundtrip |
 
 ### K.5 Frontend UI (Settings Page)
 
@@ -545,9 +535,6 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export current format | Safe GET export returns `version: 3`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, top-level `connections` for Terminal Targets, ordered model access targets, pricing templates, and profile-scoped `profile_settings.audit_api_family_settings` in `openai`, `anthropic`, `gemini` order |
-| L15 | P0 | Config export with secrets | Dangerous POST export returns the full secret-bearing bundle and requires the dangerous-confirm header |
-| L17 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | L18 | P1 | FX conversion with custom rate | Correct converted cost |
 | L19 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
 | L20 | P1 | Spending report pagination | `limit`/`offset` respected |
@@ -586,10 +573,6 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | M13 | P0 | Access target exists only in another profile | Target resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=3`, `bundle_kind=profile_config`, top-level `connections` for Terminal Targets, ordered model access targets, and safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
-| M17 | P0 | Config import preview/apply binding | Apply only succeeds after preview returns a token and the same token is sent in `X-Prism-Preview-Token` |
-| M18 | P0 | Config import replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
-| M18A | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | M19 | P0 | Costing/settings isolation | Updating currency/FX in A does not mutate B/C settings or spending results |
 | M20 | P0 | Header blocklist scope merge | Runtime uses global system rules + active profile user rules; management CRUD/list views stay on effective-profile scope |
 | M21 | P1 | Failover Ban Policy isolation by profile | Retry-window and ban state in profile A does not affect profile B |

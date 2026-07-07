@@ -22,7 +22,7 @@ e2e/
 - Realtime/analytics flows: `analytics-websocket-native.spec.ts`, `launcher-same-origin-realtime.spec.ts`
 
 ## CONVENTIONS
-- Run through `pnpm run test:e2e -- <playwright args>`; focused config coverage uses `pnpm run test:config`.
+- Run through `pnpm run test:e2e -- <playwright args>`.
 - Default browser target is `http://127.0.0.1:15174`; override with `PLAYWRIGHT_BASE_URL` or disable the web server with `PLAYWRIGHT_DISABLE_WEBSERVER=1`.
 - Mock backend traffic with `page.route("**/*")`, fulfill known `/api`, `/v1`, `/v1beta`, `/health`, and websocket paths, and fail unexpected API calls.
 - Seed locale/profile/session state explicitly in browser storage when a flow depends on it.

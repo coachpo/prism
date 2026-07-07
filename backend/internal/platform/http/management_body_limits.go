@@ -47,12 +47,6 @@ func managementRequestBodyLimit(method string, rawPath string) (int64, bool) {
 	if matchesSegments(segments, "config", "bootstrap") || matchesSegments(segments, "config", "bootstrap", "validate") {
 		return bodylimits.BootstrapRequestBodyLimitBytes, true
 	}
-	if matchesSegments(segments, "config", "profile", "import") || matchesSegments(segments, "config", "profile", "import", "preview") {
-		return bodylimits.ConfigBundleRequestBodyLimitBytes, true
-	}
-	if matchesSegments(segments, "config", "profile", "export", "with-secrets") {
-		return 0, false
-	}
 	return bodylimits.ManagementJSONRequestBodyLimitBytes, true
 }
 

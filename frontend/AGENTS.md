@@ -52,7 +52,7 @@ frontend/
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve old shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test`, `test:lib`, `test:server`, `test:config`, and `test:e2e`.
+- Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test`, `test:lib`, `test:server`, and `test:e2e`.
 - Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, and route scopes; `src/App.tsx` stays the thin wrapper.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep dashboard routing visualization on the React Flow-backed `src/pages/dashboard/routing-diagram/` leaf; `@xyflow/react` CSS is imported once from `src/main.tsx`.

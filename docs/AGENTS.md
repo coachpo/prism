@@ -30,7 +30,6 @@ docs/
 - Runtime operation contract, hook residency, rejected-route isolation, and `operation_name` persistence: `API_SPEC.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `../backend/internal/httpapi/runtime/AGENTS.md`, `../backend/internal/httpapi/runtime/operations.go`
 - OpenAI sibling-operation translation coverage: `../backend/internal/httpapi/runtime/operation_translation_request_test.go`, `../backend/internal/httpapi/runtime/operation_translation_stream_test.go`, `../backend/internal/httpapi/runtime/operation_translation_golden_test.go`
 - Startup bootstrap contract, hot-apply effect reporting, and startup-tab ownership: `../backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `../backend/internal/platform/config/`, `../frontend/src/features/settings/startup/`
-- Config bundle export/import ownership: `../backend/internal/httpapi/management/configbundle/AGENTS.md`, `../frontend/src/pages/settings/`, `../frontend/src/pages/settings/useConfigBackupData.ts`
 - Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000001_initial_schema.sql`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../backend/internal/httpapi/AGENTS.md`, `../backend/internal/httpapi/management/`, `../frontend/AGENTS.md`
 - Backend management child ownership: `../backend/internal/httpapi/management/audit/AGENTS.md`, `../backend/internal/httpapi/management/connections/AGENTS.md`, `../backend/internal/httpapi/management/configrules/AGENTS.md`, `../backend/internal/httpapi/management/endpoints/AGENTS.md`, `../backend/internal/httpapi/management/loadbalance/AGENTS.md`, `../backend/internal/httpapi/management/models/AGENTS.md`, `../backend/internal/httpapi/management/profiles/AGENTS.md`, `../backend/internal/httpapi/management/stats/AGENTS.md`, `../backend/internal/httpapi/`
@@ -69,5 +68,5 @@ docs/
 - Do not reintroduce any live-plan sink under `docs/`.
 - Do not treat transient run notes as the source of truth when a live doc or child AGENTS file already owns the topic.
 - Do not leave active implementation details stranded only in `docs/` when the owning backend or frontend AGENTS tree should carry the implementation map.
-- Do not describe bootstrap config as DB-backed, encrypted, hot-reloaded, or merged with PostgreSQL profile bundle import.
+- Do not describe bootstrap config as DB-backed, encrypted, or hot-reloaded.
 - Do not document log retention as a generic cleanup query; it is partitioned-log ownership across runtime writers, management jobs, and platform maintenance.

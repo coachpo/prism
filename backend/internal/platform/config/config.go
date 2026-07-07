@@ -233,7 +233,7 @@ type Settings struct {
 	ManagementDatabasePoolBudget     DatabasePoolBudget
 	ManagementAdmissionControlBudget ManagementAdmissionBudget
 	SecretEncryptionKey              string
-	ConfigBundleEncryptionKey        string
+	StateTransferBundleEncryptionKey string // ponytail: parsed for live config.json compat; feature removed
 	CORSAllowedOrigins               string
 	AuthJWTSecret                    string
 	AuthAccessTokenTTLSeconds        int
@@ -269,7 +269,7 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		ManagementDatabasePoolBudget:     defaultManagementDatabasePoolBudget(),
 		ManagementAdmissionControlBudget: ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent},
 		SecretEncryptionKey:              defaultSeedSecretEncryptionKey,
-		ConfigBundleEncryptionKey:        defaultSeedSecretEncryptionKey,
+		StateTransferBundleEncryptionKey: defaultSeedSecretEncryptionKey,
 		CORSAllowedOrigins:               defaultBootstrapCORSAllowedOrigins,
 		AuthJWTSecret:                    defaultAuthJWTSecret,
 		AuthAccessTokenTTLSeconds:        defaultAuthAccessTokenTTLSeconds,

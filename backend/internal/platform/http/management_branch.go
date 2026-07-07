@@ -9,7 +9,6 @@ import (
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
-	managementconfigbundle "github.com/coachpo/prism/backend/internal/httpapi/management/configbundle"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
@@ -33,7 +32,7 @@ type healthResponse struct {
 func mountManagementBranch(router chi.Router, deps Dependencies, admissionController *admission.Controller, admissionProvider hotAdmissionProvider) {
 	router.Get("/health", healthHandler(deps.Version))
 
-	managementHandler := NewManagementRouter(deps.AuditService, deps.AuthService, deps.BootstrapConfigService, deps.ConfigBundleService, deps.ConfigRulesService, deps.ConnectionsService, deps.EndpointsService, deps.LoadbalanceService, deps.ModelsService, deps.ProfilesService, deps.RealtimeService, deps.SettingsService, deps.StatsService)
+	managementHandler := NewManagementRouter(deps.AuditService, deps.AuthService, deps.BootstrapConfigService, deps.ConfigRulesService, deps.ConnectionsService, deps.EndpointsService, deps.LoadbalanceService, deps.ModelsService, deps.ProfilesService, deps.RealtimeService, deps.SettingsService, deps.StatsService)
 	if deps.AuthService != nil {
 		managementHandler = deps.AuthService.ManagementMiddleware(managementHandler)
 	}
@@ -44,7 +43,7 @@ func mountManagementBranch(router chi.Router, deps Dependencies, admissionContro
 	router.Mount("/api", managementHandler)
 }
 
-func NewManagementRouter(auditService *managementaudit.Service, authService *managementauth.Service, bootstrapConfigService *managementbootstrapconfig.Service, configBundleService *managementconfigbundle.Service, configRulesService *managementconfigrules.Service, connectionsService *managementconnections.Service, endpointsService *managementendpoints.Service, loadbalanceService *managementloadbalance.Service, modelsService *managementmodels.Service, profilesService *managementprofiles.Service, realtimeService *realtimeapi.Service, settingsService *managementsettings.Service, statsService *managementstats.Service) http.Handler {
+func NewManagementRouter(auditService *managementaudit.Service, authService *managementauth.Service, bootstrapConfigService *managementbootstrapconfig.Service, configRulesService *managementconfigrules.Service, connectionsService *managementconnections.Service, endpointsService *managementendpoints.Service, loadbalanceService *managementloadbalance.Service, modelsService *managementmodels.Service, profilesService *managementprofiles.Service, realtimeService *realtimeapi.Service, settingsService *managementsettings.Service, statsService *managementstats.Service) http.Handler {
 	router := chi.NewRouter()
 	if auditService != nil {
 		auditService.MountManagementRoutes(router)
@@ -54,9 +53,6 @@ func NewManagementRouter(auditService *managementaudit.Service, authService *man
 	}
 	if bootstrapConfigService != nil {
 		bootstrapConfigService.MountManagementRoutes(router)
-	}
-	if configBundleService != nil {
-		configBundleService.MountManagementRoutes(router)
 	}
 	if configRulesService != nil {
 		configRulesService.MountManagementRoutes(router)

@@ -4,10 +4,6 @@ import type {
   AuditLogParams,
   BootstrapConfigResponse,
   BootstrapConfigUpdateRequest,
-  ConfigExportResponse,
-  ConfigImportPreviewResponse,
-  ConfigImportRequest,
-  ConfigImportResponse,
   AuditAPIFamilySettingsResponse,
   AuditAPIFamilySettingsUpdate,
   ConnectionSuccessRate,
@@ -160,27 +156,6 @@ export const config = {
         body: JSON.stringify(data),
       }),
   },
-  export: () => request<ConfigExportResponse>("/api/config/profile/export"),
-  exportWithSecrets: () =>
-    request<ConfigExportResponse>("/api/config/profile/export/with-secrets", {
-      method: "POST",
-      headers: {
-        "X-Prism-Dangerous-Confirm": "profile-export",
-      },
-    }),
-  previewImport: (data: ConfigImportRequest) =>
-    request<ConfigImportPreviewResponse>("/api/config/profile/import/preview", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  import: (data: ConfigImportRequest, previewToken: string) =>
-    request<ConfigImportResponse>("/api/config/profile/import", {
-      method: "POST",
-      headers: {
-        "X-Prism-Preview-Token": previewToken,
-      },
-      body: JSON.stringify(data),
-    }),
   headerBlocklistRules: {
     list: (includeDisabled = true) =>
       request<HeaderBlocklistRule[]>(

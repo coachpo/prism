@@ -359,7 +359,6 @@ export interface Messages {
   };
   settingsPage: {
     auditPrivacy: string;
-    backup: string;
     billingCurrency: string;
     globalTab: string;
     profileScopedSettings: string;
@@ -877,81 +876,6 @@ export interface Messages {
     userAgentClientRuleCreated: string;
     userAgentClientRuleDeleted: string;
     userAgentClientRuleUpdated: string;
-  };
-  settingsBackup: {
-    acknowledgement: string;
-    applyImport: string;
-    dangerous: string;
-    dangerousExportDescription: string;
-    export: string;
-    exportDescription: string;
-    exportInProgress: string;
-    exportRestoreSnapshots: (profileLabel: string) => string;
-    exportWithSecrets: string;
-    exportWithSecretsDescription: string;
-    exportWithoutSecrets: string;
-    exportWithoutSecretsDescription: string;
-    import: string;
-    importDescription: string;
-    importInProgress: string;
-    loadedSummary: (fileName: string, endpoints: string, strategies: string, models: string, connections: string) => string;
-    previewAction: string;
-    previewBlockingErrors: string;
-    previewDescription: string;
-    previewInProgress: string;
-    previewReady: string;
-    previewReadyBoundToProfile: (profileLabel: string) => string;
-    previewReplacementScope: string;
-    previewRequiresRefresh: string;
-    previewRequiresRefreshAfterProfileChange: (profileLabel: string) => string;
-    previewSecretSummary: string;
-    previewUntouchedScope: string;
-    previewWarnings: string;
-    safeDefault: string;
-    scopeConnections: string;
-    scopeDecryptableSecretRefs: string;
-    scopeEndpointSecretRefs: string;
-    scopeEndpoints: string;
-    scopeHeaderBlocklistRules: string;
-    scopeModels: string;
-    scopeOtherProfiles: string;
-    scopePricingTemplates: string;
-    scopeProfileSettings: string;
-    scopeRequestLogs: string;
-    scopeSecretPayloadEntries: string;
-    scopeStrategies: string;
-    scopeUserAgentClientRules: string;
-    statusAffected: string;
-    statusIncluded: string;
-    statusNotIncluded: string;
-    statusUntouched: string;
-    title: string;
-  };
-  settingsBackupData: {
-    acknowledgeSecretsBeforeExport: string;
-    exportFailed: string;
-    exportSucceeded: string;
-    importFailed: string;
-    importSucceeded: (endpoints: string, strategies: string, models: string, connections: string) => string;
-    invalidConfigPayload: (errors: string) => string;
-    invalidJsonFile: string;
-    previewFailed: string;
-    previewRequiredBeforeImport: string;
-  };
-  settingsBackupValidation: {
-    duplicateFxMapping: (modelId: string, endpointName: string) => string;
-    duplicateReferenceName: (referenceLabel: string, normalizedName: string) => string;
-    fxMappingMustReferenceImportedPair: (modelId: string, endpointName: string) => string;
-    missingEndpointName: string;
-    missingReferenceName: string;
-    referenceLabelEndpoint: string;
-    referenceLabelLoadbalanceStrategy: string;
-    referenceLabelPricingTemplate: string;
-    referenceNameEmpty: (referenceLabel: string) => string;
-    statusCodesUnique: string;
-    unknownEndpointName: (endpointName: string) => string;
-    unknownLoadbalanceStrategy: (strategyName: string) => string;
-    unknownPricingTemplateName: (templateName: string) => string;
   };
   costingUi: {
     default1To1: string;
@@ -2287,7 +2211,6 @@ export const enMessages: Messages = {
   },
   settingsPage: {
     auditPrivacy: "Audit & Privacy",
-    backup: "Backup",
     billingCurrency: "Billing & Currency",
     globalTab: "Global",
     profileScopedSettings: "Profile-scoped settings",
@@ -2312,7 +2235,7 @@ export const enMessages: Messages = {
     backendValidationPassed: "Backend validation passed. No file was written.",
     bootstrapConfigValidated: "Startup bootstrap config validated",
     bundleEncryptionKey: "Bundle encryption key",
-    bundleEncryptionKeyChangeLabel: "State transfer encryption-key replacement affects future config bundles",
+    bundleEncryptionKeyChangeLabel: "State transfer encryption-key replacement is retained for config.json compatibility",
     clear: "Clear",
     clientChecksPassed: "Client-side checks passed.",
     completeDangerousChecklist: "Complete the dangerous-change checklist before saving.",
@@ -2511,7 +2434,7 @@ export const enMessages: Messages = {
     telemetryTracesSamplingRatioDescription: "Required only when trace export is enabled. Use a value from 0 to 1.",
     telemetryTracesSamplingRatioRange: "Trace sampling ratio must be between 0 and 1.",
     state: "State",
-    stateTransferDescription: "Bundle encryption metadata and runtime secret storage.",
+    stateTransferDescription: "Retained state-transfer metadata and runtime secret storage.",
     stateTransferTitle: "State transfer",
     status: "Status",
     startupBootstrapConfigTitle: "Startup bootstrap config",
@@ -2811,88 +2734,6 @@ export const enMessages: Messages = {
     userAgentClientRuleCreated: "User-agent client rule created successfully",
     userAgentClientRuleDeleted: "User-agent client rule deleted successfully",
     userAgentClientRuleUpdated: "User-agent client rule updated successfully",
-  },
-  settingsBackup: {
-    acknowledgement: "I understand this export includes endpoint secrets and should be handled like a disaster-recovery bundle.",
-    applyImport: "Apply previewed import",
-    dangerous: "Dangerous",
-    dangerousExportDescription: "This path returns the full secret-bearing profile bundle, including encrypted secret payload entries and reusable endpoint secret refs. Use it only for disaster recovery.",
-    export: "Profile export",
-    exportDescription: "Choose the safe redacted bundle for routine sharing, or explicitly acknowledge the secret-bearing export path for disaster recovery.",
-    exportInProgress: "Exporting...",
-    exportRestoreSnapshots: (profileLabel) => `Export or restore profile bundle operations for ${profileLabel}.`,
-    exportWithSecrets: "Export with secrets",
-    exportWithSecretsDescription: "Returns the dangerous full secret-bearing bundle for a complete round-trip.",
-    exportWithoutSecrets: "Export without secrets",
-    exportWithoutSecretsDescription: "Returns the safe redacted bundle, which stays import-compatible for preview and apply.",
-    import: "Profile import",
-    importDescription: "Upload a version 3 profile bundle with top-level connections, preview the exact replacement scope for this selected profile, and apply only with the current preview token.",
-    importInProgress: "Applying import...",
-    loadedSummary: (fileName, endpoints, strategies, models, connections) =>
-      `Loaded ${fileName}: ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} top-level connections.`,
-    previewAction: "Preview import impact",
-    previewBlockingErrors: "Blocking errors",
-    previewDescription: "Preview is required before apply so you can inspect replacement scope, untouched scope, and secret readiness.",
-    previewInProgress: "Generating preview...",
-    previewReady: "Preview status",
-    previewReadyBoundToProfile: (profileLabel) => `This preview token is bound to ${profileLabel}. Changing the file or selected profile requires a fresh preview before apply.`,
-    previewReplacementScope: "Replacement scope",
-    previewRequiresRefresh: "Run preview to bind a fresh token for the currently loaded bundle before applying it.",
-    previewRequiresRefreshAfterProfileChange: (profileLabel) => `The selected profile changed to ${profileLabel}. Run preview again before apply so the import token matches this profile.`,
-    previewSecretSummary: "Secret summary",
-    previewUntouchedScope: "Untouched scope",
-    previewWarnings: "Warnings",
-    safeDefault: "Safe default",
-    scopeConnections: "Top-level Connections",
-    scopeDecryptableSecretRefs: "Decryptable secret refs",
-    scopeEndpointSecretRefs: "Endpoint secret refs",
-    scopeEndpoints: "Endpoints",
-    scopeHeaderBlocklistRules: "Header blocklist rules",
-    scopeModels: "Models",
-    scopeOtherProfiles: "Other profiles",
-    scopePricingTemplates: "Pricing templates",
-    scopeProfileSettings: "Profile settings",
-    scopeRequestLogs: "Request logs",
-    scopeSecretPayloadEntries: "Secret payload entries",
-    scopeStrategies: "Load-balance strategies",
-    scopeUserAgentClientRules: "User-agent client rules",
-    statusAffected: "Affected",
-    statusIncluded: "Included",
-    statusNotIncluded: "Not included",
-    statusUntouched: "Untouched",
-    title: "Configuration operations",
-  },
-  settingsBackupData: {
-    acknowledgeSecretsBeforeExport: "Acknowledge the dangerous secret-bearing export before continuing.",
-    exportFailed: "Export failed",
-    exportSucceeded: "Configuration exported successfully",
-    importFailed: "Import failed",
-    importSucceeded: (endpoints, strategies, models, connections) => `Imported ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} top-level connections`,
-    invalidConfigPayload: (errors) => `Invalid configuration payload: ${errors}`,
-    invalidJsonFile: "Invalid JSON file",
-    previewFailed: "Preview failed",
-    previewRequiredBeforeImport: "Generate a fresh preview before applying this profile import.",
-  },
-  settingsBackupValidation: {
-    duplicateFxMapping: (modelId, endpointName) =>
-      `Duplicate FX mapping for model_id='${modelId}', endpoint_name='${endpointName}'`,
-    duplicateReferenceName: (referenceLabel, normalizedName) =>
-      `Duplicate ${referenceLabel} name '${normalizedName}'`,
-    fxMappingMustReferenceImportedPair: (modelId, endpointName) =>
-      `FX mapping must reference an imported model/endpoint pair: model_id='${modelId}', endpoint_name='${endpointName}'`,
-    missingEndpointName: "Must include endpoint_name",
-    missingReferenceName: "Must include a reference name",
-    referenceLabelEndpoint: "endpoint",
-    referenceLabelLoadbalanceStrategy: "loadbalance strategy",
-    referenceLabelPricingTemplate: "pricing template",
-    referenceNameEmpty: (referenceLabel) => `${referenceLabel} name must not be empty`,
-    statusCodesUnique: "Failover status codes must be unique",
-    unknownEndpointName: (endpointName) =>
-      `Unknown endpoint_name '${endpointName}' in import payload`,
-    unknownLoadbalanceStrategy: (strategyName) =>
-      `Unknown loadbalance strategy '${strategyName}' in import payload`,
-    unknownPricingTemplateName: (templateName) =>
-      `Unknown pricing_template_name '${templateName}' in import payload`,
   },
   costingUi: {
     default1To1: "Default (1:1)",

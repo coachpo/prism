@@ -4,7 +4,7 @@
 `backend/tests/` is Prism's top-level Go regression surface. It holds contract, integration, runtime, and priority checks around management APIs, operation-registered proxy behavior, startup sequencing, bootstrap config, launcher behavior, request-log contracts, partitioned log retention, container ownership, persistence semantics, DB lane isolation, and durable side-effect ownership.
 
 ## COVERAGE CLUSTERS
-- Contract coverage for auth, bootstrap config, config bundles, endpoints, models, profiles, observability, and partitioned-log helper contracts.
+- Contract coverage for auth, bootstrap config, endpoints, models, profiles, observability, and partitioned-log helper contracts.
 - Integration coverage for migrations, startup sequencing, launcher/bootstrap preservation, canonical seeding, partitioned log retention, runtime route-matrix forwarding, audit or stats persistence, and Dockerfile ownership.
 - Runtime coverage for operation route matrices, rejected-route isolation, hook residency, profile scoping, realtime delivery, request-log contracts, request-generation params, runtime-created log partitions, published runtime snapshots, cache invalidation, telemetry outboxes, streaming buffering, responses parity, and `operation_name` persistence.
 - Priority coverage for admission budgets, physical DB lane isolation, scheduler ownership, async side effects, outboxes, failure semantics, and no-inline-fallback regressions.
@@ -16,7 +16,7 @@
 - Internal runtime suites for hook residency, ingress rejection, observability, tracing, metrics, cache, response parsing, and generation behavior: `../internal/httpapi/runtime/operations_test.go`, `../internal/httpapi/runtime/service_ingress_test.go`, `../internal/httpapi/runtime/request_generation_params_test.go`, `../internal/httpapi/runtime/operation_hook_residency_test.go`, `../internal/httpapi/runtime/operation_media_hooks_test.go`, `../internal/httpapi/runtime/operation_response_hooks_test.go`, `../internal/httpapi/runtime/observability_test.go`, `../internal/httpapi/runtime/runtime_metrics_test.go`, `../internal/httpapi/runtime/runtime_tracing_test.go`, `../internal/httpapi/runtime/generations_test.go`, `../internal/httpapi/runtime/cache_test.go`
 - Priority packages for concurrency and side-effect isolation, usually run with `go test ./tests/priority/...`: `priority/unit/`, `priority/db/`, `priority/integration/`, `priority/admission/`, `priority/scheduler/`, `priority/sideeffects/`, `priority/outbox/`, `priority/failure/`, `priority/cache/`, `priority/load/`, `priority/async/`, `priority/auditstats/`
 - Request-log and audit contract fixtures: `../testdata/requests/`, `runtime/request_logs_contract_test.go`, `../internal/httpapi/proxykeyusage/record.go`
-- Bootstrap and bundle fixtures: `../testdata/bootstrap/`, `../testdata/bundles/`
+- Bootstrap fixtures: `../testdata/bootstrap/`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
@@ -27,7 +27,7 @@
 - Keep regression notes grounded in current Go package boundaries and live backend ownership docs.
 - Treat `tests/priority/` as the guardrail for no-inline side effects, scheduler-owned background work, and DB lane isolation.
 - Keep partitioned log tests aligned with `internal/platform/logretention/`, runtime partition ensuring, and the baseline migration `000001_initial_schema.sql`.
-- Keep hard-delete guardrail tests aligned with model CRUD validation, config-bundle import/export validation, runtime request-log final-target attribution, and the live baseline migration.
+- Keep hard-delete guardrail tests aligned with model CRUD validation, runtime request-log final-target attribution, and the live baseline migration.
 - Keep Dockerfile contract tests aligned with non-root `prism:prism` execution, `/app/config` ownership, and `/app/config/config.json` defaults.
 - Keep bootstrap tests aligned with the plaintext v1 contract: required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, unsupported legacy encrypted files, metadata-only safe secret responses, apply-capability reporting, failed-hot-apply surfaces, and fail-fast enabled SMTP.
 - Keep runtime contract tests aligned with `internal/httpapi/runtime/operations.go`, hook residency, rejected-route isolation, streaming or non-streaming parity, and persisted `operation_name` fields.

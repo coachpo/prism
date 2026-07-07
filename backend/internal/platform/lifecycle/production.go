@@ -15,7 +15,6 @@ import (
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
-	managementconfigbundle "github.com/coachpo/prism/backend/internal/httpapi/management/configbundle"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
@@ -193,7 +192,6 @@ type managementServices struct {
 	audit              *managementaudit.Service
 	stats              *managementstats.Service
 	configRules        *managementconfigrules.Service
-	configBundle       *managementconfigbundle.Service
 }
 
 type realtimeServices struct {
@@ -364,12 +362,6 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	}
 	services.configRules = configRulesService
 	resources.registerServiceClose(closeFuncHook(configRulesService.Close))
-	configBundleService, err := managementconfigbundle.NewService(settings, managementconfigbundle.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
-	if err != nil {
-		return services, err
-	}
-	services.configBundle = configBundleService
-	resources.registerServiceClose(closeFuncHook(configBundleService.Close))
 	return services, nil
 }
 
@@ -447,7 +439,6 @@ func (resources *productionResources) publishDatabaseBackedDependencies(auth aut
 	resources.deps.AuditService = management.audit
 	resources.deps.AuthService = auth.management
 	resources.deps.RuntimeAuthService = auth.runtime
-	resources.deps.ConfigBundleService = management.configBundle
 	resources.deps.ConfigRulesService = management.configRules
 	resources.deps.ConnectionsService = management.connections
 	resources.deps.EndpointsService = management.endpoints

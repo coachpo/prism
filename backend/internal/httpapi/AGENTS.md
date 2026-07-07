@@ -15,8 +15,8 @@ httpapi/
 
 ## WHERE TO LOOK
 - Management fanout, shared conventions, and response helpers: `management/AGENTS.md`, `management/responseutil/`
-- Management subpackages: `management/auth/`, `management/audit/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/responseutil/`, `management/settings/`, `management/stats/`
-- Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/auth/AGENTS.md`, `management/bootstrapconfig/AGENTS.md`, `management/configbundle/AGENTS.md`, `management/configrules/AGENTS.md`, `management/connections/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/settings/AGENTS.md`, `management/stats/AGENTS.md`
+- Management subpackages: `management/auth/`, `management/audit/`, `management/bootstrapconfig/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/responseutil/`, `management/settings/`, `management/stats/`
+- Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/auth/AGENTS.md`, `management/bootstrapconfig/AGENTS.md`, `management/configrules/AGENTS.md`, `management/connections/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/settings/AGENTS.md`, `management/stats/AGENTS.md`
 - Startup bootstrap ownership: `management/bootstrapconfig/AGENTS.md`, `management/bootstrapconfig/service.go`
 - Model CRUD and access-target authoring: `management/models/AGENTS.md`, `management/models/routes.go`, `management/models/store.go`
 - Management auth status/session/bootstrap, password-reset or verification delivery, proxy-key, realtime auth-state, and runtime-cache seams: `management/auth/AGENTS.md`
@@ -34,7 +34,7 @@ httpapi/
 - Keep runtime proxy routes under `runtime/`; they are served from mounted `/v1` and `/v1beta` prefixes, but the exact supported operations live only in `runtime/operations.go`.
 - Keep realtime websocket delivery under `realtime/`; do not mix it into runtime or unrelated management packages.
 - Keep `api_family` as runtime compatibility truth. No catalog metadata participates in runtime compatibility.
-- Keep startup bootstrap and config-bundle behavior in their own management subpackages instead of folding them into `settings/` or other CRUD surfaces.
+- Keep startup bootstrap behavior in its own management subpackage instead of folding it into `settings/` or other CRUD surfaces.
 - Do not invent backend-local generated docs artifacts; keep durable API reference updates in the markdown docs.
 - Keep request-log and dashboard materialization off the hot request path by using runtime telemetry outboxes and realtime publishers.
 - Keep runtime partition creation on `runtime/log_partitions.go` and `platform/logretention.Store`; handlers should not create or drop partitions directly.

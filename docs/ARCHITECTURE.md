@@ -31,7 +31,7 @@ backend/
 │   ├── endpointdomain/         # endpoint and connection helpers
 │   ├── profiledomain/          # selected vs active profile helpers
 ├── migrations/                 # Fresh-install SQL baseline applied at startup
-├── testdata/                   # bundle, request, bootstrap, and realtime fixtures
+├── testdata/                   # request, bootstrap, and realtime fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
 ├── Dockerfile                  # live Go backend image build
 ├── docker-compose.yml          # local PostgreSQL helper on host port 15432
@@ -55,7 +55,6 @@ frontend/
 │   │   ├── costing.ts          # Micros and currency formatting helpers
 │   │   ├── reportingCurrency.ts # Shared reporting-currency cache and normalization
 │   │   ├── timezone.ts         # Shared timezone formatting helpers
-│   │   └── configImportValidation.ts # Config import validation for the current configuration format
 │   ├── hooks/
 │   │   ├── useRealtimeData.ts  # WebSocket-backed live refresh helper
 │   │   └── useTimezone.ts      # Shared timezone formatting helper
@@ -98,7 +97,7 @@ frontend/
 - Operational telemetry is startup-JSON-owned: the top-level `telemetry` section configures OTLP endpoint, protocol, compression, timeout, auth, TLS, metrics, and traces. Prism does not use long-lived `OTEL_*` environment variables as the steady-state config source.
 - The primary ops path is OTLP to an OpenTelemetry Collector or Grafana Alloy, with Prometheus/Grafana/Tempo or another backend attached from that collector layer. The backend does not mount a local `/metrics` scrape endpoint.
 - Profile backup/restore, request-history APIs, and other settings-page state flows remain PostgreSQL-backed product state instead of bootstrap or OTLP ownership.
-- The current implementation keeps the profile bundle contract canonical: `profile_config` bundles use `version: 3`, and no older profile-bundle narrative survives.
+- Disaster recovery is handled outside the dashboard with `pg_dump` plus a copy of the plaintext startup config.
 - `.github/workflows/docker-images.yml` builds the separate backend and frontend GHCR images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
 ### 2.4 Priority Enforcement And Operator-Facing Failure Modes
@@ -203,7 +202,6 @@ Runtime compatibility and redirect checks use each model's required `api_family`
   - Global management routes omit `X-Profile-Id`.
   - Profile-scoped management routes require `X-Profile-Id` and resolve against the selected profile.
   - Supported runtime operations under `/v1` and `/v1beta` ignore management overrides and always use the active profile.
-- Profile-scoped config bundle routes live under `/api/config/profile/*`, and `POST /api/config/profile/import/preview` is also profile-scoped and requires `X-Profile-Id`.
 - Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, auth/email/proxy-key settings under `/api/settings/auth*`, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
 - Scope-control errors return stable `code` values plus human-readable `detail` text.
@@ -211,16 +209,7 @@ Runtime compatibility and redirect checks use each model's required `api_family`
 
 The protected frontend shell now boots profile state from `GET /api/profiles/bootstrap`, derives sidebar destinations and breadcrumbs from the route metadata registry in `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
 
-The Settings shell mirrors that split: the Profile tab keeps backup, billing and currency, timezone, audit and privacy flows scoped to the selected profile, while the Global tab owns instance-wide authentication and global log retention. Normal log retention applies across all profiles; list and detail APIs still filter by the selected profile.
-
-The current split-bundle config workflow also mirrors that ownership split:
-- profile export/import uses `bundle_kind = profile_config` and is authoritative only for profile-scoped rows
-- `GET /api/config/profile/export` returns the safe redacted bundle, while `POST /api/config/profile/export/with-secrets` returns the dangerous full secret-bearing bundle
-- profile bundles never export plaintext endpoint API keys; safe exports null reusable endpoint secret refs and omit `secret_payload.entries[]`
-- dangerous profile exports include `secret_payload.entries[]` and reusable endpoint secret refs
-- profile import replaces profile-scoped rows only, while other profiles and request logs remain untouched
-- apply is header-bound with `X-Prism-Preview-Token`, and the raw bundle JSON stays unchanged in transit
-- these bundle and backup flows remain PostgreSQL-backed state transport and do not seed or replace the startup bootstrap JSON
+The Settings shell mirrors that split: the Profile tab keeps billing and currency, timezone, audit and privacy flows scoped to the selected profile, while the Global tab owns instance-wide authentication and global log retention. Normal log retention applies across all profiles; list and detail APIs still filter by the selected profile.
 
 ### 3.6 Custom Header Injection
 
