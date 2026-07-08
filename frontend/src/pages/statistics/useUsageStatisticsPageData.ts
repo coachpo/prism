@@ -289,9 +289,7 @@ export function useUsageStatisticsPageData({
 
       acceptedSnapshotMetaRef.current = nextMeta;
       setSnapshotState({ scopeKey: activeScopeKey, snapshot: source.snapshot });
-      if (Object.keys(source.endpointModelStatisticsByEndpointId).length > 0) {
-        setEndpointModelStatisticsByEndpointId(source.endpointModelStatisticsByEndpointId);
-      }
+      setEndpointModelStatisticsByEndpointId(source.endpointModelStatisticsByEndpointId);
       setEndpointModelStatisticsErrors({});
       setEndpointModelStatisticsLoading({});
       setErrorState(null);
@@ -405,7 +403,9 @@ export function useUsageStatisticsPageData({
   const activeEndpointModelStatisticsLoading = snapshot
     ? endpointModelStatisticsLoading
     : EMPTY_ENDPOINT_MODEL_STATISTICS_LOADING;
-  const activeEndpointModelStatisticsScopeKey = activeScopeKey;
+  const activeEndpointModelStatisticsScopeKey = snapshot
+    ? `${activeScopeKey}:${snapshot.generated_at}`
+    : activeScopeKey;
   const error = errorState?.scopeKey === activeScopeKey ? errorState.message : null;
   const isLoading = selectedProfileId !== null && error === null && (loading || !snapshot);
 

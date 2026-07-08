@@ -31,3 +31,25 @@ Verification:
 Concerns:
 - Backend Docker-backed suites could not run to assertions in this environment because the local Postgres harness did not become ready or did not publish the expected port.
 - The full priority suite still has an unrelated cache guard mismatch around `LoadFreshActiveRuntimePlan`; focused DB/scheduler/unit priority checks for this task pass.
+
+---
+
+STATUS: FIXED_TASK_12_REVIEW
+
+Changes:
+- Cleared cached endpoint-model drilldowns on every accepted usage snapshot and keyed the endpoint table reset by snapshot `generated_at`, so REST polling cannot leave stale drilldown rows cached across snapshot refreshes.
+- Added a focused Vitest hook regression covering the poll path, cache invalidation, table reset key change, and reload of a previously loaded endpoint drilldown.
+- Updated `docs/DEVELOPMENT_DIRECTION.md` so R7 is resolved as D2 websocket retirement and E1 alerting is webhook-via-outbox, not websocket reuse.
+
+Verification:
+- RED: `cd frontend && pnpm exec vitest run src/pages/statistics/useUsageStatisticsPageData.test.tsx` failed before the production fix because endpoint 10 still returned the stale cached model after polling.
+- PASS: `cd frontend && pnpm exec vitest run src/pages/statistics/useUsageStatisticsPageData.test.tsx`.
+- PASS: `cd frontend && pnpm run test -- --run`.
+- PASS: `cd frontend && pnpm run test:lib`.
+- PASS: `cd frontend && pnpm run lint`.
+- PASS: `cd frontend && pnpm run build` (existing Vite large chunk warnings only).
+- PASS: `rg -n "R7 方案|方案 B|保留 websocket|与告警增强 E1 绑定|WebSocket（决策点|实时推送.*保留" docs/DEVELOPMENT_DIRECTION.md` returned no matches.
+- Checked: `rg -in "realtime|websocket" backend/internal frontend/src --glob '!**/AGENTS.md'` only returns the existing parsed-but-ignored stale `database.pools.realtime` compatibility fields/tests under `backend/internal/platform/config`.
+
+Concerns:
+- None.
