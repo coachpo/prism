@@ -62,6 +62,19 @@ cd backend && go test ./tests/contract -run 'TestEndpointModelStatistics|TestObs
 # FAIL: postgres container on port 33873 did not become ready in time
 ```
 
+Follow-up verification after pruning stale Prism test containers and unused Docker volumes:
+
+```bash
+cd backend && go test ./tests/integration -run 'TestSingleBaselineAppliesToFreshDatabase|TestBaselineSecondRunNoop|TestStatsWriteCoherenceMigrationBackfillsHistoricalRows' -count=1
+# PASS
+
+cd backend && go test ./tests/runtime -run 'TestRequestLogListContract|TestRequestLogListPricingFilters|TestRuntimeRequestLogPreservesUnpricedPricingPathways|TestRuntimeRequestLogDegradesInvalidUsedConcreteComponentPrice' -count=1
+# PASS
+
+cd backend && go test ./tests/contract -run 'TestEndpointModelStatistics|TestObservabilityTreatsSuccessfulMissingCostRowsAsUnpriced' -count=1
+# PASS
+```
+
 Earlier targeted Docker-backed red/green runs passed before the local Postgres harness started failing readiness:
 
 ```bash
@@ -97,5 +110,5 @@ cd backend && go test ./tests/contract -run 'TestEndpointModelStatistics|TestObs
 
 ## Concerns
 
-- The local Docker/Postgres harness is currently unstable, with multiple fresh Postgres containers failing readiness. This blocked fresh final execution of the migration/runtime/contract database-backed test commands.
+- The local Docker/Postgres harness readiness issue was resolved by pruning stale Prism test containers and unused Docker volumes; the focused migration/runtime/contract database-backed commands now pass.
 - No production `pg_dump` or production dry-run impact SELECT was run from this local task environment; that remains an operator preflight before applying `000009_stats_write_coherence.sql` to live data.
