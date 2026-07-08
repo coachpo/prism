@@ -1333,7 +1333,7 @@ func TestLoadbalanceEventsPersistPolicySnapshotsFromRuntimeFailure(t *testing.T)
 	if transition.CurrentState.BanMode != "until_reset" || transition.CurrentState.CumulativeRetryAttempts != 4 {
 		t.Fatalf("expected runtime policy evaluation to ban at threshold, got %+v", transition.CurrentState)
 	}
-	if err := loadbalancedomain.InsertRuntimeFailureEvent(context.Background(), harness.conn, s15LoadbalancePartitionEnsurer{harness: harness}, profileID, modelConfigID, connectionID, transition, strategy, "connect_error", fixedS15Now.Add(4*time.Second)); err != nil {
+	if _, _, err := loadbalancedomain.InsertRuntimeFailureEvent(context.Background(), harness.conn, s15LoadbalancePartitionEnsurer{harness: harness}, profileID, modelConfigID, connectionID, transition, strategy, "connect_error", fixedS15Now.Add(4*time.Second)); err != nil {
 		t.Fatalf("insert runtime failure loadbalance event: %v", err)
 	}
 

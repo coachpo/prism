@@ -94,6 +94,29 @@ func TestTelemetryDefaults(t *testing.T) {
 	assertTelemetryDefaults(t, parsed.Telemetry)
 }
 
+func TestAlertingWebhookURLDefaultsParsesAndValidates(t *testing.T) {
+	settings := loadCanonicalDefaultSettings("")
+	if settings.Alerting.WebhookURL != "" {
+		t.Fatalf("expected alerting webhook URL to default empty, got %q", settings.Alerting.WebhookURL)
+	}
+
+	document := seededBootstrapDocument(t)
+	document.Alerting = &bootstrapAlerting{WebhookURL: stringPointer(" https://alerts.example.test/hook ")}
+	parsed, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(marshalBootstrapDocument(t, document))
+	if err != nil {
+		t.Fatalf("parse valid alerting webhook URL: %v", err)
+	}
+	if parsed.Alerting.WebhookURL != "https://alerts.example.test/hook" {
+		t.Fatalf("unexpected alerting webhook URL: %q", parsed.Alerting.WebhookURL)
+	}
+
+	document.Alerting.WebhookURL = stringPointer("ftp://alerts.example.test/hook")
+	_, err = NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(marshalBootstrapDocument(t, document))
+	if err == nil || !strings.Contains(err.Error(), "alerting.webhookUrl must use http or https") {
+		t.Fatalf("expected invalid alerting webhook URL to fail, got %v", err)
+	}
+}
+
 func TestBootstrapConfigAcceptsStaleOpenAITerminalTranslationMode(t *testing.T) {
 	var payload map[string]any
 	if err := json.Unmarshal(seededBootstrapPayload(t), &payload); err != nil {

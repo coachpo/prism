@@ -70,6 +70,7 @@ type BootstrapConfigValues struct {
 	Runtime   *BootstrapConfigRuntimeValues   `json:"runtime"`
 	HTTP      *BootstrapConfigHTTPValues      `json:"http"`
 	Auth      *BootstrapConfigAuthValues      `json:"auth"`
+	Alerting  *BootstrapConfigAlertingValues  `json:"alerting"`
 	Mail      *BootstrapConfigMailValues      `json:"mail,omitempty"`
 	Telemetry *BootstrapConfigTelemetryValues `json:"telemetry,omitempty"`
 }
@@ -139,6 +140,10 @@ type BootstrapConfigAuthValues struct {
 	AccessCookieName       *string `json:"access_cookie_name"`
 	RefreshCookieName      *string `json:"refresh_cookie_name"`
 	CookieSecure           *bool   `json:"cookie_secure"`
+}
+
+type BootstrapConfigAlertingValues struct {
+	WebhookURL *string `json:"webhook_url"`
 }
 
 type BootstrapConfigMailValues struct {
@@ -212,6 +217,7 @@ type bootstrapConfigDocument struct {
 	Runtime       *bootstrapRuntime       `json:"runtime"`
 	HTTP          *bootstrapHTTP          `json:"http"`
 	Auth          *bootstrapAuth          `json:"auth"`
+	Alerting      *bootstrapAlerting      `json:"alerting,omitempty"`
 	Mail          *bootstrapMail          `json:"mail,omitempty"`
 	Telemetry     *bootstrapTelemetry     `json:"telemetry,omitempty"`
 	StateTransfer *bootstrapStateTransfer `json:"stateTransfer,omitempty"`
@@ -310,6 +316,10 @@ type bootstrapAuth struct {
 	AccessCookieName       *string `json:"accessCookieName"`
 	RefreshCookieName      *string `json:"refreshCookieName"`
 	CookieSecure           *bool   `json:"cookieSecure"`
+}
+
+type bootstrapAlerting struct {
+	WebhookURL *string `json:"webhookUrl"`
 }
 
 type bootstrapMail struct {
@@ -590,6 +600,7 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 			RefreshCookieName:      cloneStringPointer(document.Auth.RefreshCookieName),
 			CookieSecure:           cloneBoolPointer(document.Auth.CookieSecure),
 		},
+		Alerting:  safeBootstrapAlertingValues(document.Alerting),
 		Mail:      safeBootstrapMailValues(document.Mail),
 		Telemetry: safeBootstrapTelemetryValues(document.Telemetry),
 	}
@@ -768,6 +779,13 @@ func bootstrapAuthFromSafeValues(values *BootstrapConfigAuthValues, jwtSigningKe
 	}
 }
 
+func bootstrapAlertingFromSafeValues(values *BootstrapConfigAlertingValues) *bootstrapAlerting {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapAlerting{WebhookURL: cloneStringPointer(values.WebhookURL)}
+}
+
 func bootstrapMailFromSafeValues(values *BootstrapConfigMailValues) *bootstrapMail {
 	if values == nil || values.Enabled == nil || !*values.Enabled {
 		return canonicalDisabledBootstrapMailDocument()
@@ -943,6 +961,7 @@ func cloneBootstrapConfigDocument(document bootstrapConfigDocument) bootstrapCon
 	clone.Runtime = bootstrapRuntimeFromSafeValues(safeBootstrapRuntimeValues(document.Runtime), currentBootstrapRuntimeSecret(&document))
 	clone.HTTP = bootstrapHTTPFromSafeValues(safeBootstrapHTTPValues(document.HTTP))
 	clone.Auth = bootstrapAuthFromSafeValues(safeBootstrapAuthValues(document.Auth), currentBootstrapAuthJWTSigningKey(&document))
+	clone.Alerting = bootstrapAlertingFromSafeValues(safeBootstrapAlertingValues(document.Alerting))
 	clone.Mail = bootstrapMailFromSafeValues(safeBootstrapMailValues(document.Mail))
 	clone.Telemetry = cloneBootstrapTelemetry(document.Telemetry)
 	if document.StateTransfer != nil {
@@ -1091,6 +1110,13 @@ func safeBootstrapAuthValues(auth *bootstrapAuth) *BootstrapConfigAuthValues {
 		RefreshCookieName:      cloneStringPointer(auth.RefreshCookieName),
 		CookieSecure:           cloneBoolPointer(auth.CookieSecure),
 	}
+}
+
+func safeBootstrapAlertingValues(alerting *bootstrapAlerting) *BootstrapConfigAlertingValues {
+	if alerting == nil {
+		return &BootstrapConfigAlertingValues{WebhookURL: stringPointer("")}
+	}
+	return &BootstrapConfigAlertingValues{WebhookURL: cloneStringPointer(alerting.WebhookURL)}
 }
 
 func safeBootstrapMailValues(mailConfig *bootstrapMail) *BootstrapConfigMailValues {
@@ -1355,6 +1381,11 @@ func (d bootstrapConfigDocument) validateSchema() error {
 	if err := d.Auth.validate(); err != nil {
 		return err
 	}
+	if d.Alerting != nil {
+		if err := d.Alerting.validate(); err != nil {
+			return err
+		}
+	}
 	if d.Telemetry != nil {
 		if err := d.Telemetry.validate(); err != nil {
 			return err
@@ -1580,6 +1611,11 @@ func (a bootstrapAuth) validate() error {
 	return err
 }
 
+func (a bootstrapAlerting) validate() error {
+	_, err := a.toAlertingConfig()
+	return err
+}
+
 func (s bootstrapStateTransfer) validate() error {
 	return nil
 }
@@ -1663,6 +1699,10 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	alertingConfig, err := d.Alerting.toAlertingConfig()
+	if err != nil {
+		return Settings{}, err
+	}
 
 	return Settings{
 		Host:                             host,
@@ -1687,8 +1727,27 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		AuthCookieName:                   accessCookieName,
 		AuthRefreshCookieName:            refreshCookieName,
 		AuthCookieSecure:                 cookieSecure,
+		Alerting:                         alertingConfig,
 		Mail:                             defaultMailConfig(),
 	}, nil
+}
+
+func (a *bootstrapAlerting) toAlertingConfig() (AlertingConfig, error) {
+	if a == nil || a.WebhookURL == nil {
+		return AlertingConfig{}, nil
+	}
+	webhookURL, err := optionalTrimmedString("alerting.webhookUrl", a.WebhookURL, 4096)
+	if err != nil {
+		return AlertingConfig{}, err
+	}
+	if webhookURL == "" {
+		return AlertingConfig{}, nil
+	}
+	parsed, err := url.Parse(webhookURL)
+	if err != nil || strings.TrimSpace(parsed.Host) == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return AlertingConfig{}, fmt.Errorf("bootstrap config field alerting.webhookUrl must use http or https")
+	}
+	return AlertingConfig{WebhookURL: webhookURL}, nil
 }
 
 func (t *bootstrapTelemetry) validate() error {
@@ -2019,6 +2078,9 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 			AccessCookieName:       stringPointer(strings.TrimSpace(settings.AuthCookieName)),
 			RefreshCookieName:      stringPointer(strings.TrimSpace(settings.AuthRefreshCookieName)),
 			CookieSecure:           boolPointer(settings.AuthCookieSecure),
+		},
+		Alerting: &bootstrapAlerting{
+			WebhookURL: stringPointer(strings.TrimSpace(settings.Alerting.WebhookURL)),
 		},
 		Mail: &bootstrapMail{
 			Enabled: boolPointer(false),

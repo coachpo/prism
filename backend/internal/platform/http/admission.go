@@ -104,6 +104,7 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "loadbalance strategy delete", method: http.MethodDelete, pattern: "/loadbalance/strategies/{strategy_id}", tier: priority.ManagementTierM2},
 	{name: "loadbalance current-state list", method: http.MethodGet, pattern: "/loadbalance/current-state", tier: priority.ManagementTierM3},
 	{name: "loadbalance current-state reset", method: http.MethodPost, pattern: "/loadbalance/current-state/{connection_id}/reset", tier: priority.ManagementTierM2},
+	{name: "loadbalance incidents list", method: http.MethodGet, pattern: "/loadbalance/incidents", tier: priority.ManagementTierM3},
 	{name: "loadbalance events list", method: http.MethodGet, pattern: "/loadbalance/events", tier: priority.ManagementTierM3},
 	{name: "loadbalance event read", method: http.MethodGet, pattern: "/loadbalance/events/{event_id}", tier: priority.ManagementTierM3},
 	{name: "models by endpoints", method: http.MethodPost, pattern: "/models/by-endpoints", tier: priority.ManagementTierM2},

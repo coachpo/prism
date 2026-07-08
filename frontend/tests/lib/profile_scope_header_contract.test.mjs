@@ -36,7 +36,7 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   const scopedRows = routeContract.filter((row) => row.profile_scoped);
   const scopedNonInvalidatingRows = scopedRows.filter(isNonInvalidating);
 
-  assert.equal(routeContract.length, 55, "manifest row count should stay locked");
+  assert.equal(routeContract.length, 56, "manifest row count should stay locked");
   assert.ok(scopedRows.length > 0, "manifest should include profile-scoped rows");
   assert.ok(
     scopedNonInvalidatingRows.length > 0,

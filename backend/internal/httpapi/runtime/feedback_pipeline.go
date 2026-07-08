@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	"github.com/coachpo/prism/backend/internal/platform/alerting"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
@@ -26,6 +28,7 @@ type RuntimeFeedbackPipelineOptions struct {
 	WorkerCount   int
 	WriteTimeout  time.Duration
 	Hooks         *RuntimeFeedbackPipelineHooks
+	AlertOutbox   *alerting.Store
 }
 
 type RuntimeFeedbackPipelineHooks struct {
@@ -69,6 +72,8 @@ type runtimeFeedbackEvent struct {
 	ProfileID      int
 	ConnectionID   int
 	ModelConfigID  int
+	EndpointID     int
+	ModelID        string
 	APIFamily      string
 	TraceContext   runtimeTraceContext
 	Strategy       loadbalance.RuntimeStrategy
@@ -84,6 +89,7 @@ type runtimeFeedbackPipeline struct {
 	store         *runtimeFeedbackStore
 	runtimeState  *loadbalance.LocalRuntimeStateStore
 	logPartitions *runtimeLogPartitionCache
+	alertOutbox   *alerting.Store
 	options       RuntimeFeedbackPipelineOptions
 	scheduler     *background.Scheduler
 	mu            sync.Mutex
@@ -91,7 +97,7 @@ type runtimeFeedbackPipeline struct {
 }
 
 func newRuntimeFeedbackPipeline(store *runtimeFeedbackStore, runtimeState *loadbalance.LocalRuntimeStateStore, logPartitions *runtimeLogPartitionCache, options RuntimeFeedbackPipelineOptions) *runtimeFeedbackPipeline {
-	return &runtimeFeedbackPipeline{store: store, runtimeState: runtimeState, logPartitions: logPartitions, options: normalizeRuntimeFeedbackPipelineOptions(options)}
+	return &runtimeFeedbackPipeline{store: store, runtimeState: runtimeState, logPartitions: logPartitions, alertOutbox: options.AlertOutbox, options: normalizeRuntimeFeedbackPipelineOptions(options)}
 }
 
 func (p *runtimeFeedbackPipeline) RegisterBackgroundWorker(scheduler *background.Scheduler) error {
@@ -175,22 +181,43 @@ func (p *runtimeFeedbackPipeline) persist(ctx context.Context, event runtimeFeed
 			return err
 		}
 	}
+	enqueuedAlert := false
 	_, err := pgxutil.InTxValue(ctx, p.store.pool, "runtime_feedback", func(tx pgx.Tx) (bool, error) {
+		alertOutbox := p.alertOutbox
+		enqueueIncidentAlert := func(incident loadbalance.RuntimeIncidentEvent, ok bool, err error) (bool, error) {
+			if err != nil || !ok || alertOutbox == nil {
+				return true, err
+			}
+			payload, payloadOK := runtimeIncidentAlertPayloadFromDomain(incident)
+			if !payloadOK {
+				return true, nil
+			}
+			if err := alertOutbox.EnqueueTx(ctx, tx, payload); err != nil {
+				return false, err
+			}
+			enqueuedAlert = true
+			return true, nil
+		}
 		switch event.Kind {
 		case runtimeFeedbackAdmissionRejected:
 			return true, loadbalance.InsertRuntimeAdmissionRejectedEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.State, event.ObservedAt)
 		case runtimeFeedbackUnbanned:
-			return true, loadbalance.InsertRuntimeUnbannedEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.State, event.ObservedAt)
+			return enqueueIncidentAlert(loadbalance.InsertRuntimeUnbannedEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.State, event.ObservedAt))
 		case runtimeFeedbackSuccessRecovery:
-			return true, loadbalance.InsertRuntimeRecoveryEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.CompletedAt)
+			return enqueueIncidentAlert(loadbalance.InsertRuntimeRecoveryEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.CompletedAt))
 		case runtimeFeedbackFailoverHTTP, runtimeFeedbackTransportFailure:
-			return true, loadbalance.InsertRuntimeFailureEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.FailureKind, event.CompletedAt)
+			return enqueueIncidentAlert(loadbalance.InsertRuntimeFailureEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.FailureKind, event.CompletedAt))
 		default:
 			return false, fmt.Errorf("unsupported runtime feedback kind %q", event.Kind)
 		}
 	})
 	if err != nil {
 		return fmt.Errorf("persist runtime feedback: %w", err)
+	}
+	if enqueuedAlert && p.alertOutbox != nil {
+		if err := p.alertOutbox.Wake(context.Background()); err != nil {
+			slog.Warn("alert webhook worker wake failed", "error", err)
+		}
 	}
 	return nil
 }
@@ -248,4 +275,47 @@ func normalizeRuntimeFeedbackPipelineOptions(options RuntimeFeedbackPipelineOpti
 		options.WriteTimeout = defaultRuntimeFeedbackWriteTimeout
 	}
 	return options
+}
+
+func runtimeIncidentAlertPayload(event runtimeFeedbackEvent, eventType string, bannedUntilAt *time.Time) (alerting.IncidentPayload, bool) {
+	if eventType != "banned" && eventType != "unbanned" && eventType != "recovered" {
+		return alerting.IncidentPayload{}, false
+	}
+	modelID := strings.TrimSpace(event.ModelID)
+	if event.ConnectionID <= 0 || event.EndpointID <= 0 || modelID == "" {
+		return alerting.IncidentPayload{}, false
+	}
+	occurredAt := event.CompletedAt
+	if occurredAt.IsZero() {
+		occurredAt = event.ObservedAt
+	}
+	if occurredAt.IsZero() {
+		return alerting.IncidentPayload{}, false
+	}
+	var bannedUntil *time.Time
+	if bannedUntilAt != nil {
+		resolved := bannedUntilAt.UTC()
+		bannedUntil = &resolved
+	}
+	return alerting.IncidentPayload{
+		EventType:     eventType,
+		ConnectionID:  event.ConnectionID,
+		EndpointID:    event.EndpointID,
+		ModelID:       modelID,
+		BannedUntilAt: bannedUntil,
+		OccurredAt:    occurredAt.UTC(),
+	}, true
+}
+
+func runtimeIncidentAlertPayloadFromDomain(incident loadbalance.RuntimeIncidentEvent) (alerting.IncidentPayload, bool) {
+	if incident.EndpointID == nil || incident.ModelID == nil {
+		return alerting.IncidentPayload{}, false
+	}
+	event := runtimeFeedbackEvent{
+		ConnectionID: incident.ConnectionID,
+		EndpointID:   *incident.EndpointID,
+		ModelID:      *incident.ModelID,
+		CompletedAt:  incident.OccurredAt,
+	}
+	return runtimeIncidentAlertPayload(event, incident.EventType, incident.BannedUntilAt)
 }

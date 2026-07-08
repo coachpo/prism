@@ -131,6 +131,49 @@ func TestLoadbalanceRoutesCRUDDefaultsCurrentStateAndProtections(t *testing.T) {
 	}
 }
 
+func TestLoadbalanceIncidentsRouteReturnsActiveBansAndRecentEvents(t *testing.T) {
+	ctx, conn, dsn := loadbalanceRouteMigratedDatabase(t, "loadbalance_incidents_route")
+	now := time.Date(2026, time.June, 7, 15, 30, 0, 0, time.UTC)
+	profileID := loadbalanceRouteInsertProfile(t, ctx, conn, "Loadbalance incidents profile", now)
+	runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
+	router := loadbalanceRouteRouter(t, ctx, dsn, now, runtimeState)
+
+	strategyResponse := loadbalanceRouteRequest(t, router, http.MethodPost, "/loadbalance/strategies", profileID, map[string]any{
+		"name": "Incident Strategy", "legacy_strategy_type": "round-robin", "failure_status_codes": []int{503}, "ban_mode": "temporary", "cycle_retry_attempt_limit": 2, "ban_cumulative_retry_attempt_threshold": 2, "ban_duration_seconds": 60,
+	})
+	loadbalanceRouteRequireStatus(t, strategyResponse, http.StatusCreated)
+	var strategy loadbalanceStrategyResponse
+	loadbalanceRouteDecode(t, strategyResponse, &strategy)
+	modelID, connectionID := loadbalanceRouteSeedRuntimeStateModel(t, ctx, conn, profileID, strategy.ID, now)
+	loadbalanceRouteEnsureLoadbalancePartition(t, ctx, conn, now)
+	loadbalanceRouteInsertLoadbalanceEvent(t, ctx, conn, profileID, connectionID, "banned", now.Add(-time.Hour), "loadbalance-contract-model")
+	loadbalanceRouteInsertLoadbalanceEvent(t, ctx, conn, profileID, connectionID, "recovered", now.Add(-30*time.Minute), "loadbalance-contract-model")
+	loadbalanceRouteInsertLoadbalanceEvent(t, ctx, conn, profileID, connectionID, "retry_scheduled", now.Add(-10*time.Minute), "loadbalance-contract-model")
+
+	bannedUntil := now.Add(15 * time.Minute)
+	runtimeState.SeedConnectionState(profileID, modelID, connectionID, loadbalancedomain.RuntimeConnectionState{ConnectionID: connectionID, BanMode: "temporary", BannedUntilAt: &bannedUntil, CumulativeRetryAttempts: 7, CycleRetryAttempts: 2}, now.Add(-time.Hour), now)
+
+	response := loadbalanceRouteRequest(t, router, http.MethodGet, "/loadbalance/incidents?since_hours=24&limit=10", profileID, nil)
+	loadbalanceRouteRequireStatus(t, response, http.StatusOK)
+	var body map[string]any
+	loadbalanceRouteDecode(t, response, &body)
+	activeBans := body["active_bans"].([]any)
+	if len(activeBans) != 1 || jsonIntFromAny(t, activeBans[0].(map[string]any)["connection_id"]) != connectionID {
+		t.Fatalf("unexpected active bans: %+v", activeBans)
+	}
+	recentEvents := body["recent_events"].([]any)
+	if len(recentEvents) != 2 {
+		t.Fatalf("expected only incident event types, got %+v", recentEvents)
+	}
+	eventTypes := []string{recentEvents[0].(map[string]any)["event_type"].(string), recentEvents[1].(map[string]any)["event_type"].(string)}
+	if !reflect.DeepEqual(eventTypes, []string{"recovered", "banned"}) {
+		t.Fatalf("unexpected incident event order/types: %+v", eventTypes)
+	}
+	if body["generated_at"] == "" {
+		t.Fatalf("expected generated_at in incidents response: %+v", body)
+	}
+}
+
 func loadbalanceRouteRouter(t *testing.T, ctx context.Context, dsn string, now time.Time, runtimeState *loadbalancedomain.LocalRuntimeStateStore) http.Handler {
 	t.Helper()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -208,6 +251,24 @@ func loadbalanceRouteSeedRuntimeStateModel(t *testing.T, ctx context.Context, co
 		t.Fatalf("insert access target: %v", err)
 	}
 	return modelID, connectionID
+}
+
+func loadbalanceRouteEnsureLoadbalancePartition(t *testing.T, ctx context.Context, conn *pgx.Conn, createdAt time.Time) {
+	t.Helper()
+	start := time.Date(createdAt.UTC().Year(), createdAt.UTC().Month(), createdAt.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 1)
+	name := fmt.Sprintf("loadbalance_events_%s", start.Format("20060102"))
+	_, err := conn.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s PARTITION OF loadbalance_events FOR VALUES FROM ('%s') TO ('%s')`, loadbalanceRouteQuoteIdentifier(name), start.Format(time.RFC3339), end.Format(time.RFC3339)))
+	if err != nil {
+		t.Fatalf("create loadbalance_events partition: %v", err)
+	}
+}
+
+func loadbalanceRouteInsertLoadbalanceEvent(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, connectionID int, eventType string, createdAt time.Time, modelID string) {
+	t.Helper()
+	if _, err := conn.Exec(ctx, `INSERT INTO loadbalance_events (profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, created_at) VALUES ($1, $2, $3, 'transient_http', 2, 7, NULL, 0, $4, 1, 'temporary', 2, 2, $5)`, profileID, connectionID, eventType, modelID, createdAt.UTC()); err != nil {
+		t.Fatalf("insert loadbalance event %s: %v", eventType, err)
+	}
 }
 
 func loadbalanceRouteInsertProfile(t *testing.T, ctx context.Context, conn *pgx.Conn, name string, now time.Time) int {
@@ -336,4 +397,13 @@ func loadbalanceRouteRandomSuffix(t *testing.T) string {
 
 func loadbalanceRouteQuoteIdentifier(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+}
+
+func jsonIntFromAny(t *testing.T, value any) int {
+	t.Helper()
+	asFloat, ok := value.(float64)
+	if !ok {
+		t.Fatalf("expected JSON number, got %T %[1]v", value)
+	}
+	return int(asFloat)
 }

@@ -29,6 +29,7 @@ var expectedPrismMigrationVersions = []string{
 	"000006_openai_accepted_format",
 	"000007_remove_context_capabilities_and_facades",
 	"000008_drop_dead_auth_tables",
+	"000011_alert_webhook_outbox",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -64,6 +65,7 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
 	assertOpenAIAcceptedFormatColumnContract(t, testContext, conn)
+	assertAlertWebhookOutboxContract(t, testContext, conn)
 }
 
 func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T) {
@@ -84,7 +86,7 @@ func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T)
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected access-target ranking removal migration to apply, got %q", result.Outcome)
 	}
-	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables"})
+	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables", "000011_alert_webhook_outbox"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertModelAccessTargetsRankingColumnsAbsent(t, testContext, conn)
 	assertContextCapabilityAndFacadeColumnsAbsent(t, testContext, conn)
@@ -186,7 +188,7 @@ func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected endpoint label snapshot migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables"})
+	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables", "000011_alert_webhook_outbox"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
 	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
@@ -222,7 +224,7 @@ func TestMigrationBackfillsOpenAIAcceptedFormatToDualNative(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected openai accepted format migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables"})
+	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables", "000011_alert_webhook_outbox"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertOpenAIAcceptedFormatColumnContract(t, testContext, conn)
 	assertOpenAIAcceptedFormatBackfillRows(t, testContext, conn)
@@ -770,6 +772,45 @@ func assertOpenAIAcceptedFormatColumnContract(t *testing.T, ctx context.Context,
 	}
 	assertColumnContract(t, columns, "openai_accepted_format", "text", 0, "YES")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_model_configs_openai_accepted_format", "responses_only", "chat_completions_only", "dual_native")
+}
+
+func assertAlertWebhookOutboxContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `
+		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'alert_webhook_outbox'`)
+	if err != nil {
+		t.Fatalf("load alert_webhook_outbox columns: %v", err)
+	}
+	defer rows.Close()
+	columns := map[string]partitionedLogColumnContract{}
+	for rows.Next() {
+		var name string
+		var contract partitionedLogColumnContract
+		if err := rows.Scan(&name, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
+			t.Fatalf("scan alert_webhook_outbox column: %v", err)
+		}
+		columns[name] = contract
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate alert_webhook_outbox columns: %v", err)
+	}
+	assertColumnContract(t, columns, "id", "uuid", 0, "NO")
+	assertColumnContract(t, columns, "event_type", "text", 0, "NO")
+	assertColumnContract(t, columns, "payload_json", "jsonb", 0, "NO")
+	assertColumnContract(t, columns, "idempotency_key", "text", 0, "NO")
+	assertColumnContract(t, columns, "status", "text", 0, "NO")
+	assertColumnContract(t, columns, "attempt_count", "integer", 0, "NO")
+	assertColumnContract(t, columns, "next_attempt_at", "timestamp with time zone", 0, "NO")
+	assertConstraintPresence(t, ctx, conn, "alert_webhook_outbox", "alert_webhook_outbox_pkey", true)
+	assertConstraintDefinitionContains(t, ctx, conn, "alert_webhook_outbox_status_check", "queued", "sending", "sent", "dead")
+	assertConstraintDefinitionContains(t, ctx, conn, "alert_webhook_outbox_attempts_check", "attempt_count", "max_attempts")
+	assertIndexPresence(t, ctx, conn, "alert_webhook_outbox", "idx_alert_webhook_outbox_idempotency_key", true)
+	assertIndexPresence(t, ctx, conn, "alert_webhook_outbox", "idx_alert_webhook_outbox_due", true)
+	assertIndexPresence(t, ctx, conn, "alert_webhook_outbox", "idx_alert_webhook_outbox_stale_locks", true)
+	assertIndexPresence(t, ctx, conn, "alert_webhook_outbox", "idx_alert_webhook_outbox_dead_letters", true)
 }
 
 func seedOpenAIAcceptedFormatProfile(t *testing.T, ctx context.Context, conn *pgx.Conn) int {

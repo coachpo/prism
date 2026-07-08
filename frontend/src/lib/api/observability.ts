@@ -18,6 +18,7 @@ import type {
   LoadbalanceCurrentStateResetResponse,
   LoadbalanceEventDetail,
   LoadbalanceEventListResponse,
+  LoadbalanceIncidentListResponse,
   LogRetentionJobRequest,
   LogRetentionJobResponse,
   RequestLogListResponse,
@@ -214,6 +215,10 @@ export const loadbalance = {
   }) => {
     const query = buildQuery(params);
     return request<LoadbalanceEventListResponse>(`/api/loadbalance/events${query ? `?${query}` : ""}`);
+  },
+  listIncidents: (params?: { limit?: number; since_hours?: number }) => {
+    const query = buildQuery(params);
+    return request<LoadbalanceIncidentListResponse>(`/api/loadbalance/incidents${query ? `?${query}` : ""}`);
   },
   getEvent: (eventId: number) => request<LoadbalanceEventDetail>(`/api/loadbalance/events/${eventId}`),
 };

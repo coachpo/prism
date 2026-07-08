@@ -335,6 +335,32 @@ func TestPricingTemplateImportRouteContractInvalidatesPlanning(t *testing.T) {
 	t.Fatal("/api/pricing-templates/import route contract entry not found")
 }
 
+func TestLoadbalanceIncidentsRouteContractProfileScopedReadOnly(t *testing.T) {
+	raw, err := os.ReadFile("../../internal/platform/http/management_route_contract.json")
+	if err != nil {
+		t.Fatalf("read management route contract: %v", err)
+	}
+	var rows []struct {
+		RoutePattern        string   `json:"route_pattern"`
+		Methods             []string `json:"methods"`
+		ProfileScoped       bool     `json:"profile_scoped"`
+		InvalidatesPlanning bool     `json:"invalidates_planning"`
+	}
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatalf("parse management route contract: %v", err)
+	}
+	for _, row := range rows {
+		if row.RoutePattern != "/api/loadbalance/incidents" {
+			continue
+		}
+		if !row.ProfileScoped || row.InvalidatesPlanning || !stringSetEqual(row.Methods, []string{http.MethodGet}) {
+			t.Fatalf("unexpected loadbalance incidents route contract: %+v", row)
+		}
+		return
+	}
+	t.Fatal("/api/loadbalance/incidents route contract entry not found")
+}
+
 func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)

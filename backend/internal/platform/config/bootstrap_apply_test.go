@@ -26,6 +26,7 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldRuntimeTransportExpectContinueTimeout,
 		bootstrapFieldDatabaseManagementAdmissionM2Max,
 		bootstrapFieldDatabaseManagementAdmissionM3Max,
+		bootstrapFieldAlertingWebhookURL,
 	}
 	restartFields := []string{
 		bootstrapFieldRuntimeSideEffectsAttemptTimeout,
@@ -156,6 +157,21 @@ func TestTelemetryFieldsAreRestartRequired(t *testing.T) {
 		bootstrapFieldTelemetryTracesSamplingRatio,
 	}
 	assertBootstrapFieldModes(t, capabilities, telemetryFields, BootstrapConfigApplyModeRestartRequired)
+}
+
+func TestBootstrapConfigFieldDiffDetectsAlertingWebhookURLHotApply(t *testing.T) {
+	current := bootstrapApplyTestValues(t)
+	requested := cloneManagementValues(t, current)
+	requested.Alerting.WebhookURL = stringPointer("https://alerts.example.test/hook")
+	diff, err := DiffBootstrapConfigFields(current, requested, preserveManagementSecretUpdates())
+	if err != nil {
+		t.Fatalf("diff alerting webhook URL bootstrap field: %v", err)
+	}
+	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, []string{bootstrapFieldAlertingWebhookURL})
+	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, nil)
+	if diff.RestartRequired() {
+		t.Fatal("expected alerting webhook URL diff to hot apply")
+	}
 }
 
 func TestBootstrapConfigFieldDiffDetectsRuntimeSideEffectsAttemptTimeoutRestartOnly(t *testing.T) {

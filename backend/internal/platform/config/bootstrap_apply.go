@@ -83,6 +83,7 @@ const (
 	bootstrapFieldAuthAccessCookieName                   = "auth.access_cookie_name"
 	bootstrapFieldAuthRefreshCookieName                  = "auth.refresh_cookie_name"
 	bootstrapFieldAuthCookieSecure                       = "auth.cookie_secure"
+	bootstrapFieldAlertingWebhookURL                     = "alerting.webhookUrl"
 	bootstrapFieldRuntimeTransportMaxIdleConns           = "transport.max_idle_conns"
 	bootstrapFieldRuntimeTransportMaxIdleConnsPerHost    = "transport.max_idle_conns_per_host"
 	bootstrapFieldRuntimeTransportMaxConnsPerHost        = "transport.max_conns_per_host"
@@ -144,6 +145,7 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	hotApplyBootstrapField(bootstrapFieldRuntimeTransportExpectContinueTimeout),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM2Max),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM3Max),
+	hotApplyBootstrapField(bootstrapFieldAlertingWebhookURL),
 	restartRequiredBootstrapField(bootstrapFieldRuntimeSideEffectsAttemptTimeout, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryEnabled, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterEndpoint, ""),
@@ -307,6 +309,7 @@ func bootstrapConfigSafeFieldValues(values BootstrapConfigValues) map[string]boo
 	addBootstrapRuntimeFieldValues(fields, values.Runtime)
 	addBootstrapHTTPFieldValues(fields, values.HTTP)
 	addBootstrapAuthFieldValues(fields, values.Auth)
+	addBootstrapAlertingFieldValues(fields, values.Alerting)
 	addBootstrapTelemetryFieldValues(fields, values.Telemetry)
 	return fields
 }
@@ -435,6 +438,14 @@ func addBootstrapAuthFieldValues(fields map[string]bootstrapConfigFieldValue, va
 	fields[bootstrapFieldAuthAccessCookieName] = bootstrapStringFieldValue(values.AccessCookieName)
 	fields[bootstrapFieldAuthRefreshCookieName] = bootstrapStringFieldValue(values.RefreshCookieName)
 	fields[bootstrapFieldAuthCookieSecure] = bootstrapBoolFieldValue(values.CookieSecure)
+}
+
+func addBootstrapAlertingFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigAlertingValues) {
+	if values == nil {
+		fields[bootstrapFieldAlertingWebhookURL] = bootstrapOptionalStringFieldValue(nil)
+		return
+	}
+	fields[bootstrapFieldAlertingWebhookURL] = bootstrapOptionalStringFieldValue(values.WebhookURL)
 }
 
 func addBootstrapTelemetryFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigTelemetryValues) {
@@ -630,6 +641,7 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 			RefreshCookieName:      stringPointer(strings.TrimSpace(settings.AuthRefreshCookieName)),
 			CookieSecure:           boolPointer(settings.AuthCookieSecure),
 		},
+		Alerting:  &BootstrapConfigAlertingValues{WebhookURL: stringPointer(strings.TrimSpace(settings.Alerting.WebhookURL))},
 		Telemetry: bootstrapConfigTelemetryValuesFromSettings(settings.Telemetry),
 	}
 }

@@ -122,3 +122,9 @@ export interface LoadbalanceEventListResponse {
   limit: number;
   offset: number;
 }
+
+export interface LoadbalanceIncidentListResponse {
+  active_bans: LoadbalanceCurrentStateItem[];
+  recent_events: LoadbalanceEvent[];
+  generated_at: string;
+}

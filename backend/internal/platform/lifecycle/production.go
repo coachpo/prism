@@ -22,6 +22,7 @@ import (
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
+	"github.com/coachpo/prism/backend/internal/platform/alerting"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
@@ -135,6 +136,7 @@ type databaseBackgroundServices struct {
 	managementSideEffects *managementsideeffects.Dispatcher
 	logRetention          *logretention.Store
 	managementJobs        *managementjobs.Store
+	alertWebhookOutbox    *alerting.Store
 }
 
 type runtimePlanningServices struct {
@@ -196,11 +198,13 @@ func (resources *productionResources) buildDatabaseBackgroundServices(ctx contex
 	managementSideEffects := managementsideeffects.NewDispatcher(managementsideeffects.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler})
 	logRetentionStore := logretention.NewStore(logretention.Options{Pool: backgroundJobsPool})
 	managementJobs := managementjobs.NewStore(managementjobs.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler, LogRetention: logRetentionStore})
+	alertWebhookOutbox := alerting.NewStore(alerting.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler, WebhookURLProvider: resources.deps.HotBootstrapConfigRuntime})
 	services := databaseBackgroundServices{
 		scheduler:             backgroundScheduler,
 		managementSideEffects: managementSideEffects,
 		logRetention:          logRetentionStore,
 		managementJobs:        managementJobs,
+		alertWebhookOutbox:    alertWebhookOutbox,
 	}
 	if err := logRetentionStore.EnsurePartitionHorizon(ctx); err != nil {
 		return services, fmt.Errorf("bootstrap log partition horizon: %w", err)
@@ -319,9 +323,10 @@ func (resources *productionResources) buildRuntimeService(settings config.Settin
 	runtimeFeedbackPool := lanes.runtimeFeedback
 	backgroundScheduler := backgroundServices.scheduler
 	logRetentionStore := backgroundServices.logRetention
+	alertWebhookOutbox := backgroundServices.alertWebhookOutbox
 	runtimePlanningCache := planning.cache
 	runtimeState := planning.state
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, Cache: runtimePlanningCache, RuntimeState: runtimeState, LogPartitionEnsurer: logRetentionStore, AssumeLogPartitionHorizon: true, Scheduler: backgroundScheduler, SideEffects: runtimeSideEffectOptions(settings)})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, Cache: runtimePlanningCache, RuntimeState: runtimeState, LogPartitionEnsurer: logRetentionStore, AssumeLogPartitionHorizon: true, Scheduler: backgroundScheduler, FeedbackPipeline: runtimeapi.RuntimeFeedbackPipelineOptions{AlertOutbox: alertWebhookOutbox}, SideEffects: runtimeSideEffectOptions(settings)})
 	if err != nil {
 		return nil, err
 	}
@@ -336,12 +341,14 @@ func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServ
 	managementAuthService := auth.management
 	managementJobs := backgroundServices.managementJobs
 	managementSideEffects := backgroundServices.managementSideEffects
+	alertWebhookOutbox := backgroundServices.alertWebhookOutbox
 	logRetentionStore := backgroundServices.logRetention
 	for _, register := range []func(*background.Scheduler) error{
 		runtimePlanningCache.RegisterBackgroundWorker,
 		managementAuthService.RegisterBackgroundWorkers,
 		managementJobs.RegisterBackgroundWorker,
 		managementSideEffects.RegisterBackgroundWorker,
+		alertWebhookOutbox.RegisterBackgroundWorker,
 		logRetentionStore.RegisterBackgroundWorker,
 		runtimeService.RegisterBackgroundWorkers,
 	} {

@@ -955,6 +955,7 @@ These live tables are internal platform state rather than primary product config
 | `login_throttle_ledger` | auth singleton support | Composite PK `(subject_key, remote_address)`, `failure_count`, failure timestamps, `locked_until`, timestamps; tracks login throttling state |
 | `management_outbox` | management side effects | `id`, `operation_id`, `event_type`, aggregate identity/version, unique `dedupe_key`, `payload`, status `pending|processing|retry|succeeded|failed_permanent`, attempt/lock fields, actor/trace metadata, timestamps |
 | `runtime_telemetry_outbox` | profile-scoped runtime side-effect handoff | `id`, `profile_id`, `ingress_request_id`, `payload`, `created_at`; durable runtime telemetry handoff rows are materialized by background workers and then deleted |
+| `alert_webhook_outbox` | durable failover incident webhook delivery | `id`, `event_type`, `payload_json`, unique `idempotency_key`, status `queued|sending|sent|dead`, attempt count, max attempts, next attempt, lock fields, sent/dead-letter timestamps, last error, timestamps; payloads carry `event_type`, `connection_id`, `endpoint_id`, `model_id`, optional `banned_until_at`, and `occurred_at` |
 | `loadbalance_round_robin_state` | profile-scoped routing state | `id`, `profile_id`, `model_config_id`, `next_cursor`, timestamps; one cursor row per profile/model for round-robin routing |
 | `management_stat_buckets` | internal stats rollup helper | Composite PK `(bucket_start, bucket_size, metric, dimension_key, dimension_value)`, numeric `value`, `source_high_water_mark`, `generated_at`; retained for internal rollup helpers and tests, not the primary dashboard contract |
 | `management_stat_refresh_state` | internal stats rollup helper | PK `job_name`, `last_source_high_water_mark`, `last_success_at`, `last_error`, `updated_at`; tracks internal rollup refresh progress |
@@ -993,6 +994,10 @@ CREATE INDEX idx_audit_logs_profile_created_at ON audit_logs(profile_id, created
 CREATE INDEX idx_loadbalance_events_profile_created ON loadbalance_events(profile_id, created_at);
 CREATE INDEX idx_loadbalance_events_connection ON loadbalance_events(connection_id, created_at);
 CREATE INDEX idx_loadbalance_events_event_type ON loadbalance_events(event_type);
+CREATE UNIQUE INDEX idx_alert_webhook_outbox_idempotency_key ON alert_webhook_outbox(idempotency_key);
+CREATE INDEX idx_alert_webhook_outbox_due ON alert_webhook_outbox(next_attempt_at, created_at, id) WHERE status = 'queued';
+CREATE INDEX idx_alert_webhook_outbox_stale_locks ON alert_webhook_outbox(locked_until) WHERE status = 'sending';
+CREATE INDEX idx_alert_webhook_outbox_dead_letters ON alert_webhook_outbox(dead_lettered_at DESC) WHERE status = 'dead';
 CREATE INDEX idx_routing_connection_runtime_state_profile_connection ON routing_connection_runtime_state(profile_id, connection_id);
 CREATE INDEX idx_routing_connection_runtime_leases_profile_connection ON routing_connection_runtime_leases(profile_id, connection_id);
 CREATE INDEX idx_routing_connection_runtime_leases_expires_at ON routing_connection_runtime_leases(expires_at);

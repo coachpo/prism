@@ -15,12 +15,20 @@ const pageDataSource = readFileSync(
   path.join(frontendDir, "src/pages/dashboard/useDashboardPageData.ts"),
   "utf8",
 );
+const bootstrapDataSource = readFileSync(
+  path.join(frontendDir, "src/pages/dashboard/useDashboardBootstrapData.ts"),
+  "utf8",
+);
 const recentActivityCardSource = readFileSync(
   path.join(frontendDir, "src/pages/dashboard/RecentActivityCard.tsx"),
   "utf8",
 );
 const metricsGridSource = readFileSync(
   path.join(frontendDir, "src/pages/dashboard/DashboardMetricsGrid.tsx"),
+  "utf8",
+);
+const overviewTabSource = readFileSync(
+  path.join(frontendDir, "src/pages/dashboard/DashboardOverviewTab.tsx"),
   "utf8",
 );
 
@@ -93,4 +101,14 @@ test("dashboard unpriced spend detail links to filtered request logs", () => {
   assert.match(metricsGridSource, /to="\/observe\/requests"/);
   assert.match(metricsGridSource, /priced: "false"/);
   assert.match(metricsGridSource, /time_range: "30d"/);
+});
+
+test("dashboard overview fetches incidents and renders failover banner before metrics", () => {
+  assert.match(bootstrapDataSource, /api\.loadbalance\.listIncidents/);
+  assert.match(pageDataSource, /incidents: LoadbalanceIncidentListResponse \| null;/);
+  assert.match(overviewTabSource, /IncidentBannerCard/);
+  assert.ok(
+    overviewTabSource.indexOf("<IncidentBannerCard") < overviewTabSource.indexOf("<DashboardMetricsGrid"),
+    "expected incident banner to render before metrics grid",
+  );
 });

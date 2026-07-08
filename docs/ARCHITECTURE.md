@@ -108,7 +108,7 @@ Management overload is reported as typed admission failure with retry metadata. 
 
 Scheduler lag means background workers are queued, coalesced, delayed, retried, or dropped according to their worker policy. Lag can delay dashboard materialization, telemetry materialization, management side-effect dispatch, cache warming, and proxy-key usage flushing, but it must not make request-path handlers borrow direct goroutines, direct DB handles, or unmanaged timers.
 
-Durable outboxes expose failure as queued, retry, sent/succeeded, dead-letter, or permanent-failure state depending on the store. Management side-effect dispatch failures retry or become visibly permanent failures without rolling back the already committed primary management mutation.
+Durable outboxes expose failure as queued, retry, sent/succeeded, dead-letter, or permanent-failure state depending on the store. Management side-effect dispatch failures retry or become visibly permanent failures without rolling back the already committed primary management mutation. Failover incident webhook alerts use `alert_webhook_outbox` and the `alert_webhook_worker`; runtime feedback writes enqueue alert payloads in the same transaction as the loadbalance event, and webhook HTTP POSTs run only in background work.
 
 Runtime telemetry and runtime feedback have different loss semantics. Accepted runtime activity intents are required-durable background work until the telemetry outbox transaction commits, terminal validation fails, or shutdown prevents completion. Runtime feedback is intentionally lossy under pressure; queue-full, invalid, closed, or store-failure cases drop feedback with accounting and never block proxy responses.
 

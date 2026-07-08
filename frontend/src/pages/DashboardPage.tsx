@@ -52,6 +52,9 @@ function DashboardAggregateSection({
   const handleReviewRequests = useCallback(() => {
     navigate("/observe/requests");
   }, [navigate]);
+  const handleViewLoadbalanceEvents = useCallback(() => {
+    navigate("/route/ban-policies");
+  }, [navigate]);
   const handleSelectRecentActivity = useCallback(
     (requestLogId: number) => {
       const searchParams = new URLSearchParams({ request_id: String(requestLogId) });
@@ -113,6 +116,7 @@ function DashboardAggregateSection({
           onOpenAnalytics={openAnalyticsTab}
           onInspectSpending={openAnalyticsTab}
           onReviewRequests={handleReviewRequests}
+          onViewLoadbalanceEvents={handleViewLoadbalanceEvents}
           onSelectRecentActivity={handleSelectRecentActivity}
         />
       ) : (

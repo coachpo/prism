@@ -38,6 +38,10 @@ export interface Messages {
     avgLatency: string;
     errorRate: string;
     inspectSpendingBreakdown: string;
+    incidentActiveBans: (count: string) => string;
+    incidentBannerTitle: string;
+    incidentRecentFailovers: (count: string) => string;
+    incidentViewEvents: string;
     dashboardDescription: string;
     dashboardTitle: string;
     noApiFamilyActivity: string;
@@ -1449,6 +1453,10 @@ export const enMessages: Messages = {
     dashboardTitle: "Dashboard",
     errorRate: "Error Rate",
     inspectSpendingBreakdown: "Inspect Spending Breakdown",
+    incidentActiveBans: (count) => `${count} active ban${count === "1" ? "" : "s"}`,
+    incidentBannerTitle: "Failover Incidents",
+    incidentRecentFailovers: (count) => `${count} recent failover signal${count === "1" ? "" : "s"}`,
+    incidentViewEvents: "View Events",
     noRecentActivity: "No recent activity",
     noRecentActivityDescription: "Requests will appear here once processed.",
     noSpendingData: "No spending data",

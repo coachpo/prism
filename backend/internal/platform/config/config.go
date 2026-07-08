@@ -197,6 +197,10 @@ type RuntimeSideEffectsConfig struct {
 	AttemptTimeout time.Duration
 }
 
+type AlertingConfig struct {
+	WebhookURL string
+}
+
 type MailConfig struct {
 	// ponytail: mail config parsed for live config.json compat; delivery removed
 	Enabled bool
@@ -241,6 +245,7 @@ type Settings struct {
 	AuthCookieName                   string
 	AuthRefreshCookieName            string
 	AuthCookieSecure                 bool
+	Alerting                         AlertingConfig
 	Mail                             MailConfig
 }
 
@@ -276,6 +281,7 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		AuthCookieName:                   defaultAuthCookieName,
 		AuthRefreshCookieName:            defaultAuthRefreshCookieName,
 		AuthCookieSecure:                 false,
+		Alerting:                         AlertingConfig{},
 		Mail:                             defaultMailConfig(),
 	}
 }

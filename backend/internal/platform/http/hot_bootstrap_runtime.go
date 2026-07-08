@@ -31,6 +31,7 @@ type hotBootstrapConfigRuntimeSnapshot struct {
 	auth         HotAuthRuntimeSnapshot
 	runtimeProxy HotRuntimeProxySnapshot
 	admission    HotAdmissionSnapshot
+	alerting     HotAlertingSnapshot
 }
 
 func NewHotBootstrapConfigRuntime(settings config.Settings) (*HotBootstrapConfigRuntime, error) {
@@ -97,6 +98,14 @@ func (r *HotBootstrapConfigRuntime) AdmissionSnapshot() HotAdmissionSnapshot {
 	return r.Snapshot().Admission()
 }
 
+func (r *HotBootstrapConfigRuntime) AlertingSnapshot() HotAlertingSnapshot {
+	return r.Snapshot().Alerting()
+}
+
+func (r *HotBootstrapConfigRuntime) AlertingWebhookURL() string {
+	return r.AlertingSnapshot().WebhookURL()
+}
+
 func (r HotBootstrapConfigRetiredResources) CloseIdleConnections() {
 	if r.snapshot == nil {
 		return
@@ -132,6 +141,13 @@ func (s HotBootstrapConfigSnapshot) Admission() HotAdmissionSnapshot {
 	return s.snapshot.admission
 }
 
+func (s HotBootstrapConfigSnapshot) Alerting() HotAlertingSnapshot {
+	if s.snapshot == nil {
+		return HotAlertingSnapshot{}
+	}
+	return s.snapshot.alerting
+}
+
 func (s *hotBootstrapConfigRuntimeSnapshot) closeIdleConnections() {
 	if s == nil {
 		return
@@ -145,6 +161,7 @@ func buildHotBootstrapConfigRuntimeSnapshot(settings config.Settings) (*hotBoots
 		auth:         buildHotAuthRuntimeSnapshot(settings),
 		runtimeProxy: buildHotRuntimeProxySnapshot(settings),
 		admission:    buildHotAdmissionSnapshot(settings),
+		alerting:     buildHotAlertingSnapshot(settings),
 	}, nil
 }
 
@@ -248,4 +265,16 @@ func (s HotAdmissionSnapshot) Limits() admission.Limits {
 
 func (s HotAdmissionSnapshot) Controller() *admission.Controller {
 	return s.controller
+}
+
+type HotAlertingSnapshot struct {
+	webhookURL string
+}
+
+func buildHotAlertingSnapshot(settings config.Settings) HotAlertingSnapshot {
+	return HotAlertingSnapshot{webhookURL: strings.TrimSpace(settings.Alerting.WebhookURL)}
+}
+
+func (s HotAlertingSnapshot) WebhookURL() string {
+	return strings.TrimSpace(s.webhookURL)
 }

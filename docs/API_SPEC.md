@@ -1994,13 +1994,62 @@ Response `200`:
 
 Loadbalance event types are `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, and `admission_rejected`. They record retry-cycle attempts, cumulative attempts, next retry timing, last retry delay, optional ban metadata, optional success time, and the model, endpoint, and vendor snapshots for operator review. Events produced by Ban Policy evaluation also expose immutable policy snapshots as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold`, so historical event detail explains the threshold that was active when the event was written.
 
-### 6.10 Get Loadbalance Event Detail
+### 6.10 List Loadbalance Incidents
+```
+GET /api/loadbalance/incidents
+```
+
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `limit` | integer | 50 | Max recent incident events |
+| `since_hours` | integer | 24 | Recent event lookback window |
+
+Response `200`:
+```json
+{
+  "active_bans": [
+    {
+      "connection_id": 3,
+      "ban_mode": "temporary",
+      "banned_until_at": "2026-03-30T08:30:00Z",
+      "cumulative_retry_attempts": 7,
+      "next_retry_at": null,
+      "state": "banned",
+      "created_at": "2026-03-30T08:00:00Z",
+      "updated_at": "2026-03-30T08:01:00Z"
+    }
+  ],
+  "recent_events": [
+    {
+      "id": 22,
+      "profile_id": 1,
+      "connection_id": 3,
+      "event_type": "banned",
+      "model_id": "gpt-4o",
+      "endpoint_id": 12,
+      "summary": {
+        "event": "Connection was banned",
+        "reason": "The retryable HTTP failure pushed cumulative retry attempts to 7.",
+        "operation": "Prism removed this model-private connection from routing until the ban expires or an operator resets it.",
+        "cooldown": "1 minute"
+      },
+      "created_at": "2026-03-30T08:01:00Z"
+    }
+  ],
+  "generated_at": "2026-03-30T08:05:00Z"
+}
+```
+
+`active_bans` is the current in-memory Ban Policy state for the effective profile. `recent_events` uses the loadbalance event item shape and includes recent `banned`, `unbanned`, `recovered`, and `retry_exhausted` rows without requiring a `model_id` filter.
+
+### 6.11 Get Loadbalance Event Detail
 ```
 GET /api/loadbalance/events/{id}
 ```
 Response `200`: Single event object with the same Ban Policy retry-window metadata, policy snapshot fields, and summary fields as the list item.
 
-### 6.11 Loadbalance Event Retention
+### 6.12 Loadbalance Event Retention
 
 Loadbalance event list and detail APIs remain pinned to Default profile id `1`. Normal cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "loadbalance_events"`, or the stored `loadbalance_events_retention_days` value from `/api/settings/log-retention`.
 

@@ -3,6 +3,7 @@ import type {
   DashboardRecentActivityItem,
   DashboardRecentActivityResponse,
   DashboardSnapshot,
+  LoadbalanceIncidentListResponse,
   SpendingTopModel,
   StatGroup,
 } from "@/lib/types";
@@ -35,6 +36,7 @@ export interface DashboardOverviewData {
   apiFamilyRows: StatGroup[];
   metricSnapshot: DashboardMetricSnapshot;
   modelDisplayNames: Map<string, string>;
+  incidents: LoadbalanceIncidentListResponse | null;
   recentActivity: DashboardRecentActivityResponse | null;
   recentActivityItems: DashboardRecentActivityItem[];
   routingDiagramData: RoutingDiagramData | null;
@@ -112,6 +114,7 @@ function buildModelDisplayNames(
 
 function toDashboardOverviewData(
   snapshot: DashboardSnapshot | null,
+  incidents: LoadbalanceIncidentListResponse | null,
   recentActivity: DashboardRecentActivityResponse | null,
   recentActivityItems: DashboardRecentActivityItem[],
   routingDiagramError: string | null,
@@ -123,6 +126,7 @@ function toDashboardOverviewData(
     ),
     metricSnapshot: toDashboardMetricSnapshot(snapshot),
     modelDisplayNames: buildModelDisplayNames(snapshot, recentActivityItems),
+    incidents,
     recentActivity,
     recentActivityItems,
     routingDiagramData: snapshot?.topology_graph ?? null,
@@ -139,6 +143,7 @@ export function useDashboardPageData({
   const {
     dashboardRecentActivity,
     dashboardRecentActivityItems,
+    dashboardIncidents,
     dashboardSnapshot,
     fetchDashboardData,
     loading,
@@ -166,6 +171,7 @@ export function useDashboardPageData({
   const overviewData = useMemo<DashboardOverviewData>(() => {
     return toDashboardOverviewData(
       dashboardSnapshot,
+      dashboardIncidents,
       dashboardRecentActivity,
       dashboardRecentActivityItems,
       routingDiagramError,
@@ -174,6 +180,7 @@ export function useDashboardPageData({
   }, [
     dashboardRecentActivity,
     dashboardRecentActivityItems,
+    dashboardIncidents,
     dashboardSnapshot,
     routingDiagramError,
     routingDiagramLoading,
