@@ -21,14 +21,16 @@ export function buildSubscribeMessage(
   channel: RealtimeChannel,
   scope?: RealtimeSubscriptionScope,
 ) {
+  void profileId
+
   if (channel === "analytics") {
     return {
       ...buildScopedChannelMessage("subscribe", channel, scope),
-      profile_id: profileId,
+      profile_id: 1,
     } as const;
   }
 
-  return { type: "subscribe" as const, profile_id: profileId, channel };
+  return { type: "subscribe" as const, profile_id: 1, channel };
 }
 
 export function buildUnsubscribeChannelMessage(
@@ -43,14 +45,16 @@ export function buildRefreshMessage(
   channel: RealtimeChannel,
   scope?: RealtimeSubscriptionScope,
 ) {
+  void profileId
+
   if (channel === "analytics") {
     return {
       ...buildScopedChannelMessage("refresh", channel, scope),
-      profile_id: profileId,
+      profile_id: 1,
     } as const;
   }
 
-  return { type: "refresh" as const, profile_id: profileId, channel };
+  return { type: "refresh" as const, profile_id: 1, channel };
 }
 
 export function buildUnsubscribeAllMessage() {

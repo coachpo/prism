@@ -125,7 +125,7 @@ test("websocket protocol builders include analytics preset scope only for analyt
 
   assert.deepEqual(protocol.buildSubscribeMessage(7, "dashboard"), {
     type: "subscribe",
-    profile_id: 7,
+    profile_id: 1,
     channel: "dashboard",
   });
   assert.deepEqual(protocol.buildUnsubscribeChannelMessage("dashboard"), {
@@ -134,7 +134,7 @@ test("websocket protocol builders include analytics preset scope only for analyt
   });
   assert.deepEqual(protocol.buildSubscribeMessage(7, "analytics", { preset: "24h" }), {
     type: "subscribe",
-    profile_id: 7,
+    profile_id: 1,
     channel: "analytics",
     preset: "24h",
   });
@@ -145,7 +145,7 @@ test("websocket protocol builders include analytics preset scope only for analyt
   });
   assert.deepEqual(protocol.buildRefreshMessage(7, "analytics", { preset: "30d" }), {
     type: "refresh",
-    profile_id: 7,
+    profile_id: 1,
     channel: "analytics",
     preset: "30d",
   });

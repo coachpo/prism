@@ -3,7 +3,7 @@ import { type UseFormProps } from "react-hook-form"
 import { z } from "zod"
 
 export const rewriteProfileScopeSchema = z.object({
-  profileId: z.uuid(),
+  profileId: z.literal(1),
   reason: z.string().min(1),
 })
 

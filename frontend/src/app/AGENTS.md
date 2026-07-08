@@ -18,7 +18,7 @@ app/
 - Static route ids, route scopes, search schemas, and path builders: `router/rewriteRoutes.ts`
 - Public/protected auth redirect rules and return-state preservation: `router/authGates.ts`
 - React Query defaults for rewrite routes and tests: `providers/queryClient.ts`
-- Rewrite profile-scope form schema and options: `forms/rewriteProfileScopeForm.ts`
+- Frozen Default-profile scope form schema and options: `forms/rewriteProfileScopeForm.ts` (`profileId: 1` only)
 - Route contract tests and rewrite harness coverage: `../test/route-helpers.test.ts`, `../test/rewrite-harness.test.tsx`, `../../tests/lib/profile_scope_header_contract.test.mjs`
 
 ## CONVENTIONS
@@ -33,4 +33,5 @@ app/
 ## ANTI-PATTERNS
 - Do not put feature data fetching or UI state in `src/app/`; route modules own first handoff, and shared API/cache helpers live in `src/lib` or `src/shared`.
 - Do not add deprecated compatibility routes back without updating route tests and frontend docs.
+- Do not reintroduce arbitrary profile-scoped rewrite form contracts; `rewriteProfileScopeForm.ts` stays pinned to Default id `1`.
 - Do not bypass the auth gate helpers with ad hoc redirect code in feature pages.

@@ -239,6 +239,29 @@ Verification:
 Concerns:
 - Docker-backed runtime regression coverage is still blocked by the local Postgres harness port publication issue before the assertions run.
 
+## Task 9 R4 Final Review Fix
+
+STATUS: DONE
+
+Commit:
+- `fix: finish frozen profile protocol cleanup`
+
+Fixes:
+- Froze frontend realtime subscribe and refresh builders to emit `profile_id: 1` regardless of caller input, and updated the websocket contract assertions to expect the frozen Default profile id.
+- Pinned the reporting-currency request-log fixtures to Default profile id `1` instead of a non-default fixture id.
+- Updated the loadbalance strategy API example to `profile_id: 1`.
+- Froze `rewriteProfileScopeSchema` to Default profile id `1`, removed the stale selected-profile nav assertion from the rewrite harness, and updated the app AGENTS wording to match the frozen contract.
+
+Verification:
+- `rg -n 'profile_id.: (2|3|42)|profile_id.*(2|3|42)|buildSubscribeMessage\\(7|buildRefreshMessage\\(7|rewriteProfileScopeSchema|selected-profile nav|selected-profile routing|profileId: crypto|profileId.*42' frontend/src/lib/websocket/protocol.ts frontend/tests/lib/websocket_contract.test.mjs frontend/tests/e2e/models-request-logs-reporting-currency.spec.ts docs/API_SPEC.md frontend/src/app/AGENTS.md frontend/src/app/forms/rewriteProfileScopeForm.ts frontend/src/test/rewrite-harness.test.tsx`
+  - Remaining matches are the intentional `buildSubscribeMessage(7, ...)` / `buildRefreshMessage(7, ...)` test call sites plus the frozen `rewriteProfileScopeSchema` contract at `profileId: 1`.
+- `cd frontend && pnpm run test:lib` -> passed, 105/105.
+- `cd frontend && pnpm exec vitest run src/test/rewrite-harness.test.tsx` -> passed.
+- `cd frontend && pnpm run build` -> passed with the existing Vite chunk-size warning.
+
+Concerns:
+- None beyond the pre-existing unrelated dirty/untracked docs that were left untouched per instruction.
+
 ## Task 9 Realtime Freeze Review Fix
 
 STATUS: DONE

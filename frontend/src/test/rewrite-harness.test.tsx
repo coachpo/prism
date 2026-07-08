@@ -3,7 +3,6 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 import { createRewriteQueryClient, rewriteProfileScopeSchema, rewriteRoutePaths } from "@/app/index"
-import { rewriteShellNavItems } from "@/shell"
 import { rewriteQueryKeys, rewriteTableColumns } from "@/shared"
 
 function HarnessProbe() {
@@ -38,8 +37,7 @@ describe("rewrite Vitest harness", () => {
     await userEvent.click(button)
 
     expect(rewriteRoutePaths).toContain("/models")
-    expect(rewriteShellNavItems.some((item) => item.path === "/models" && item.scope === "selected-profile")).toBe(true)
-    expect(rewriteProfileScopeSchema.safeParse({ profileId: crypto.randomUUID(), reason: "contract" }).success).toBe(true)
+    expect(rewriteProfileScopeSchema.safeParse({ profileId: 1, reason: "contract" }).success).toBe(true)
     expect(rewriteTableColumns[0].header).toBe("Label")
   })
 })

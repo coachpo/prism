@@ -14,7 +14,7 @@ const canonicalCurrency = {
 function createModelListItem() {
   return {
     id: 1,
-    profile_id: 42,
+    profile_id: 1,
     api_family: "openai" as const,
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
@@ -170,7 +170,7 @@ function createRequestLogDetail({
       error_detail: null,
     },
     routing: {
-      profile_id: 42,
+      profile_id: 1,
       endpoint_label: "Primary endpoint",
       endpoint_id: 1,
       connection_id: null,

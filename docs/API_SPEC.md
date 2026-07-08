@@ -1869,7 +1869,7 @@ Strategy responses include the persisted explicit Ban Policy strategy document:
 ```json
 {
   "id": 12,
-  "profile_id": 3,
+  "profile_id": 1,
   "name": "round-robin-primary",
   "legacy_strategy_type": "round-robin",
   "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
