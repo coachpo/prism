@@ -228,7 +228,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 | Backend | Go 1.26.4, chi, pgx |
 | HTTP Client | Go `net/http` streaming transport |
 | Database | PostgreSQL via pgx |
-| Frontend | React 19, Vite 8, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router, React Router 7 compatibility |
+| Frontend | React 19, Vite 8, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router |
 | API Contract | `docs/API_SPEC.md` markdown reference |
 | Communication | REST API with JSON and SSE for streaming proxy responses |
 

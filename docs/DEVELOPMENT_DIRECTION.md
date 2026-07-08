@@ -141,8 +141,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### T2. 双路由器统一
 
-- `react-router-dom` 与 `@tanstack/react-router` **同时挂载**（`App.tsx:13-15`）；TanStack 已拥有完整路由树 + zod search schema（`appRouter.tsx:236-397`），react-router 残存于 ~23 个文件（`useNavigate`×7、`Link`×5、`useSearchParams`×3、`useLocation`×3、`CompatNavigate` 及嵌套 `Routes`）。
-- 机械迁移量 1–2 天，删依赖后每次页面加载少 ~40kB min+gz；先做 T3 会更顺（legacy 路由删除同时移除 `matchPath`/`Navigate` 用法）。
+- 已完成：前端路由统一由 TanStack Router 承担，路由树和 zod search schema 继续归 `appRouter.tsx` 管理。
 
 ### T3. 11 条 legacy 重定向路由删除
 

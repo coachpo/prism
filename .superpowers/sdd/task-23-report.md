@@ -56,3 +56,13 @@
 ## Concerns
 - Full Playwright e2e was not run; only the request-log filter file was rerun after the fix.
 - Known unrelated dirty/untracked files were left unstaged: Task 9/12 reports, `docs/IMPLEMENTATION_PLAN.md`, and `docs/TEST_REDUCTION_*.md`.
+
+## Reviewer Docs Follow-up
+
+### Summary
+- Removed stale active-doc frontend stack wording that still named the old router compatibility layer.
+- Replaced the active development-direction note that described both routers as mounted with a completed-state TanStack Router note.
+- Left `docs/IMPLEMENTATION_PLAN.md` planning references untouched.
+
+### Verification
+- `rg -n "react-router-dom|React Router|BrowserRouter" docs frontend/AGENTS.md frontend/src -S`: only `docs/IMPLEMENTATION_PLAN.md` planning references remain.
