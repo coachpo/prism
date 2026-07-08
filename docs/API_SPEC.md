@@ -1095,6 +1095,8 @@ Query parameters:
 | `status_family` | string | — | Filter by status family (`2xx`, `4xx`, or `5xx`) |
 | `status_code` | integer | — | Exact response status-code filter |
 | `error_text` | string | — | Case-insensitive substring match against `error_detail` |
+| `priced` | boolean | — | Filter by retained request-log `priced_flag` (`true` or `false`) |
+| `unpriced_reason` | string | — | Exact unpriced reason filter: `PRICING_DISABLED`, `MISSING_TOKEN_USAGE`, `STREAM_USAGE_UNAVAILABLE`, or `MISSING_PRICE_DATA` |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
 | `endpoint_id` | integer | — | Filter by endpoint ID |

@@ -368,6 +368,14 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 		args = append(args, "%"+strings.TrimSpace(*params.ErrorText)+"%")
 		clauses = append(clauses, fmt.Sprintf("error_detail ILIKE $%d", len(args)))
 	}
+	if params.PricedFlag != nil {
+		args = append(args, *params.PricedFlag)
+		clauses = append(clauses, fmt.Sprintf("priced_flag = $%d", len(args)))
+	}
+	if params.UnpricedReason != nil && strings.TrimSpace(*params.UnpricedReason) != "" {
+		args = append(args, strings.TrimSpace(*params.UnpricedReason))
+		clauses = append(clauses, fmt.Sprintf("unpriced_reason = $%d", len(args)))
+	}
 	if params.FromTime != nil {
 		args = append(args, params.FromTime.UTC())
 		clauses = append(clauses, fmt.Sprintf("created_at >= $%d", len(args)))

@@ -570,7 +570,40 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
+	pricedFlag, err := parseOptionalBool(r, "priced")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	unpricedReason, err := parseOptionalUnpricedReason(r, "unpriced_reason")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricedFlag: pricedFlag, UnpricedReason: unpricedReason, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
+}
+
+func parseOptionalBool(r *http.Request, key string) (*bool, error) {
+	value := strings.TrimSpace(r.URL.Query().Get(key))
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return nil, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid " + key}
+	}
+	return &parsed, nil
+}
+
+func parseOptionalUnpricedReason(r *http.Request, key string) (*string, error) {
+	value := strings.TrimSpace(r.URL.Query().Get(key))
+	if value == "" {
+		return nil, nil
+	}
+	switch value {
+	case "PRICING_DISABLED", "MISSING_TOKEN_USAGE", "STREAM_USAGE_UNAVAILABLE", "MISSING_PRICE_DATA":
+		return &value, nil
+	default:
+		return nil, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid " + key}
+	}
 }
 
 func parseDashboardRecentActivityLimit(r *http.Request) (int, error) {

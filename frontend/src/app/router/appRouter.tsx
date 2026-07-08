@@ -304,6 +304,7 @@ function parsePlainSearch(search: string): Record<string, string> {
 function isDefaultSearchValue(key: string, value: unknown): boolean {
   if ((key === "cursor" || key === "offset") && value === 0) return true
   if (key === "limit" && value === 100) return true
+  if (key === "priced" && value === "all") return true
   if ((key === "status" || key === "status_family") && value === "all") return true
   if (key === "time_range" && value === "24h") return true
   return false

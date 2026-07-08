@@ -11,8 +11,8 @@ import {
 } from "@/components/ui/select";
 import type { FilterOptions } from "./useRequestLogsPageData";
 import type { RequestLogPageActions } from "./useRequestLogPageState";
-import { STATUS_FAMILY_OPTIONS, TIME_RANGE_OPTIONS } from "./queryParams";
-import { getTimeLabel } from "./FiltersBar.constants";
+import { PRICED_OPTIONS, STATUS_FAMILY_OPTIONS, TIME_RANGE_OPTIONS, UNPRICED_REASON_OPTIONS } from "./queryParams";
+import { getTimeLabel, getUnpricedReasonLabel } from "./FiltersBar.constants";
 
 interface FiltersBarPrimaryFiltersProps {
   actions: Pick<
@@ -26,6 +26,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "setStatusFamily"
     | "setStatusCode"
     | "setErrorText"
+    | "setPriced"
+    | "setUnpricedReason"
     | "setTimeRange"
   >;
   filterOptions: FilterOptions;
@@ -40,6 +42,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "status_family"
     | "status_code"
     | "error_text"
+    | "priced"
+    | "unpriced_reason"
     | "time_range"
   >;
 }
@@ -71,7 +75,7 @@ export function FiltersBarPrimaryFilters({
   };
 
   return (
-    <div className="grid gap-3 xl:grid-cols-10">
+    <div className="grid gap-3 xl:grid-cols-12">
       <div className="min-w-0">
         <ToolbarLabel>{messages.requestLogs.requestId}</ToolbarLabel>
         <Input
@@ -214,6 +218,50 @@ export function FiltersBarPrimaryFilters({
                     : statusFamily === "4xx"
                     ? messages.requestLogs.fourHundredsOnly
                     : messages.requestLogs.fiveHundredsOnly}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-w-0">
+        <ToolbarLabel>{messages.requestLogs.pricedFilterLabel}</ToolbarLabel>
+        <Select
+          value={state.priced}
+          onValueChange={(value) => actions.setPriced(value as typeof state.priced)}
+        >
+          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-outline-variant bg-surface text-xs">
+            <SelectValue className="min-w-0" />
+          </SelectTrigger>
+          <SelectContent>
+            {PRICED_OPTIONS.map((priced) => (
+              <SelectItem key={priced} value={priced}>
+                {priced === "all"
+                  ? messages.requestLogs.any
+                  : priced === "true"
+                    ? messages.requestLogs.pricedOnly
+                    : messages.requestLogs.unpricedOnly}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-w-0 xl:col-span-2">
+        <ToolbarLabel>{messages.requestLogs.unpricedReasonLabel}</ToolbarLabel>
+        <Select
+          value={state.unpriced_reason || "__all__"}
+          onValueChange={(value) => actions.setUnpricedReason(value === "__all__" ? "" : value)}
+          disabled={state.priced !== "false"}
+        >
+          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-outline-variant bg-surface text-xs">
+            <SelectValue className="min-w-0" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{messages.requestLogs.any}</SelectItem>
+            {UNPRICED_REASON_OPTIONS.map((reason) => (
+              <SelectItem key={reason} value={reason}>
+                {getUnpricedReasonLabel(reason)}
               </SelectItem>
             ))}
           </SelectContent>

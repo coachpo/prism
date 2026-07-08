@@ -7,6 +7,17 @@ export type StatusFamilyFilter = (typeof STATUS_FAMILY_OPTIONS)[number];
 export const STATUS_ALIAS_OPTIONS = ["all", "success", "client_error", "error"] as const;
 export type StatusAliasFilter = (typeof STATUS_ALIAS_OPTIONS)[number];
 
+export const PRICED_OPTIONS = ["all", "true", "false"] as const;
+export type PricedFilter = (typeof PRICED_OPTIONS)[number];
+
+export const UNPRICED_REASON_OPTIONS = [
+  "PRICING_DISABLED",
+  "MISSING_TOKEN_USAGE",
+  "STREAM_USAGE_UNAVAILABLE",
+  "MISSING_PRICE_DATA",
+] as const;
+export type UnpricedReasonFilter = (typeof UNPRICED_REASON_OPTIONS)[number];
+
 export const PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
 
 export const DEFAULTS = {
@@ -15,6 +26,8 @@ export const DEFAULTS = {
   // ponytail: fixed 24h default, no per-user persistence for request logs - localStorage only if 24h still annoys.
   time_range: "24h" as TimeRange,
   status_family: "all" as StatusFamilyFilter,
+  priced: "all" as PricedFilter,
+  unpriced_reason: "",
 } as const;
 
 export function statusAliasToFamily(value: StatusAliasFilter | string | null): StatusFamilyFilter {
@@ -39,6 +52,8 @@ export interface RequestLogPageState {
   resolved_target_model_id: string;
   status_code: string;
   error_text: string;
+  priced: PricedFilter;
+  unpriced_reason: string;
   time_range: TimeRange;
   status_family: StatusFamilyFilter;
   limit: number;
@@ -99,6 +114,8 @@ export function parsePageState(params: URLSearchParams): RequestLogPageState {
     resolved_target_model_id: normalizeSearchString(params.get("resolved_target_model_id")),
     status_code: normalizeSearchString(params.get("status_code")),
     error_text: normalizeSearchString(params.get("error_text")),
+    priced: parseEnum(normalizeSearchString(params.get("priced")), PRICED_OPTIONS, DEFAULTS.priced),
+    unpriced_reason: normalizeSearchString(params.get("unpriced_reason")),
     time_range: parseEnum(normalizeSearchString(params.get("time_range")), TIME_RANGE_OPTIONS, DEFAULTS.time_range),
     status_family: statusParam
       ? statusAliasToFamily(parseEnum(statusParam, STATUS_ALIAS_OPTIONS, "all"))
@@ -119,6 +136,8 @@ export function stateToParams(state: RequestLogPageState): URLSearchParams {
   if (state.resolved_target_model_id) p.set("resolved_target_model_id", state.resolved_target_model_id);
   if (state.status_code) p.set("status_code", state.status_code);
   if (state.error_text) p.set("error_text", state.error_text);
+  if (state.priced !== DEFAULTS.priced) p.set("priced", state.priced);
+  if (state.priced === "false" && state.unpriced_reason) p.set("unpriced_reason", state.unpriced_reason);
   if (state.time_range !== DEFAULTS.time_range) p.set("time_range", state.time_range);
   if (state.status_family !== DEFAULTS.status_family) p.set("status", statusFamilyToAlias(state.status_family));
   if (state.limit !== DEFAULTS.limit) p.set("limit", String(state.limit));

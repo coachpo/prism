@@ -19,6 +19,10 @@ const recentActivityCardSource = readFileSync(
   path.join(frontendDir, "src/pages/dashboard/RecentActivityCard.tsx"),
   "utf8",
 );
+const metricsGridSource = readFileSync(
+  path.join(frontendDir, "src/pages/dashboard/DashboardMetricsGrid.tsx"),
+  "utf8",
+);
 
 function extractInterface(name) {
   const match = typeSource.match(new RegExp(`export interface ${name} \\{([\\s\\S]*?)\\n\\}`));
@@ -83,4 +87,10 @@ test("dashboard contracts stay REST-only after websocket retirement", () => {
   assert.doesNotMatch(typeSource, /dashboard\.update/);
   assert.doesNotMatch(typeSource, /dashboard\.snapshot/);
   assert.doesNotMatch(typeSource, /dashboard\.activity/);
+});
+
+test("dashboard unpriced spend detail links to filtered request logs", () => {
+  assert.match(metricsGridSource, /to="\/observe\/requests"/);
+  assert.match(metricsGridSource, /priced: "false"/);
+  assert.match(metricsGridSource, /time_range: "30d"/);
 });

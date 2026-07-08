@@ -39,6 +39,8 @@ export const requestLogSearchSchema = z.object({
   status: z.enum(["all", "success", "client_error", "error"]).catch("all"),
   status_code: searchStringSchema.catch(""),
   error_text: searchStringSchema.catch(""),
+  priced: z.enum(["all", "true", "false"]).catch("all"),
+  unpriced_reason: searchStringSchema.catch(""),
   status_family: z.enum(["all", "2xx", "4xx", "5xx"]).catch("all"),
   time_range: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).catch("24h"),
 })

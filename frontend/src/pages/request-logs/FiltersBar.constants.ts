@@ -53,3 +53,19 @@ export function getStatusFamilyLabel(value: string) {
       return value;
   }
 }
+
+export function getUnpricedReasonLabel(value: string) {
+  const copy = getStaticMessages().requestLogs;
+  switch (value) {
+    case "PRICING_DISABLED":
+      return copy.reasonPricingDisabled;
+    case "MISSING_TOKEN_USAGE":
+      return copy.reasonMissingTokenUsage;
+    case "STREAM_USAGE_UNAVAILABLE":
+      return copy.reasonStreamUsageUnavailable;
+    case "MISSING_PRICE_DATA":
+      return copy.reasonMissingPriceData;
+    default:
+      return value;
+  }
+}

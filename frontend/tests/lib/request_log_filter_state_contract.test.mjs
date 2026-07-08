@@ -47,6 +47,16 @@ test("request-log filter state round-trips caller client and final target model 
   assert.equal(params.get("selected_request_id"), "202");
   assert.equal(params.has("clientRuleId"), false);
 });
+test("request-log filter state round-trips pricing filters", () => {
+  const state = parsePageState(new URLSearchParams("priced=false&unpriced_reason=MISSING_PRICE_DATA"));
+
+  assert.equal(state.priced, "false");
+  assert.equal(state.unpriced_reason, "MISSING_PRICE_DATA");
+
+  const params = stateToParams(state);
+  assert.equal(params.get("priced"), "false");
+  assert.equal(params.get("unpriced_reason"), "MISSING_PRICE_DATA");
+});
 test("request-log filter state omits empty browse filters but keeps exact anchors", () => {
   const params = stateToParams({
     ingress_request_id: "",
@@ -56,6 +66,8 @@ test("request-log filter state omits empty browse filters but keeps exact anchor
     resolved_target_model_id: "",
     status_code: "",
     error_text: "",
+    priced: "all",
+    unpriced_reason: "",
     time_range: "24h",
     status_family: "all",
     limit: 100,

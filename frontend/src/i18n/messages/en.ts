@@ -1062,7 +1062,14 @@ export interface Messages {
     nonStreaming: string;
     outcome: string;
     overview: string;
+    pricedFilterLabel: string;
     pricedOnly: string;
+    unpricedOnly: string;
+    unpricedReasonLabel: string;
+    reasonPricingDisabled: string;
+    reasonMissingTokenUsage: string;
+    reasonStreamUsageUnavailable: string;
+    reasonMissingPriceData: string;
     payloadRawJson: string;
     payloadRendered: string;
     reasoning: string;
@@ -2488,7 +2495,14 @@ export const enMessages: Messages = {
     nonStreaming: "Non-streaming",
     outcome: "Outcome",
     overview: "Overview",
+    pricedFilterLabel: "Pricing",
     pricedOnly: "Priced only",
+    unpricedOnly: "Unpriced only",
+    unpricedReasonLabel: "Unpriced reason",
+    reasonPricingDisabled: "Pricing disabled",
+    reasonMissingTokenUsage: "Missing token usage",
+    reasonStreamUsageUnavailable: "Stream usage unavailable",
+    reasonMissingPriceData: "Missing price data",
     payloadRawJson: "Raw JSON",
     payloadRendered: "Rendered",
     reasoning: "Reasoning",

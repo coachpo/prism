@@ -402,6 +402,8 @@ export interface StatsRequestParams {
   status_family?: RequestStatusFamily;
   status_code?: number;
   error_text?: string;
+  priced?: boolean;
+  unpriced_reason?: string;
   from_time?: string;
   endpoint_id?: number;
   limit?: number;

@@ -47,10 +47,11 @@ request-logs/
 - Keep request-log browse defaults on the URL contract: `time_range=24h` is the page default and is omitted from generated default URLs.
 - Keep status URL aliases and backend filters aligned: `status=success` round-trips to `status_family=2xx`, while `status=client_error` and `status=error` map to `4xx` and `5xx`.
 - Keep `status_code` as an exact numeric status filter and `error_text` as the backend `error_detail ILIKE` substring filter.
+- Keep `priced` as the request-log pricing-state filter (`all|true|false`) and `unpriced_reason` aligned with backend reason codes: `PRICING_DISABLED`, `MISSING_TOKEN_USAGE`, `STREAM_USAGE_UNAVAILABLE`, and `MISSING_PRICE_DATA`.
 - Keep CSV export client-only and scoped to currently loaded table rows; page sizes are capped by `PAGE_SIZE_OPTIONS`, so full-range export needs a backend endpoint first.
 - Keep audit payload fetching isolated to the dedicated full audit page. The overview drawer must not fetch audit payloads.
 - Use exact-request mode (`request_id`) to switch from paginated browsing to a single-request investigation workflow, and keep that mode local to the request-logs page.
-- Keep retained browse filtering on `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`, `status_family`, `status_code`, `error_text`, and `time_range`.
+- Keep retained browse filtering on `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`, `status_family`, `status_code`, `error_text`, `priced`, `unpriced_reason`, and `time_range`.
 - Keep user-facing copy on the shared locale boundary through `useLocale()`, while timestamp formatting continues to flow through `useTimezone()`.
 - Keep audit capture mode and detail-state helpers in `requestLogAuditState.ts` instead of re-deriving them inside detail tabs or fetch hooks.
 - Derive audit visibility from request-time provenance: disabled audit means no linked-audit fetch; enabled without body capture is metadata-only; body presence alone is not the contract.

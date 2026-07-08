@@ -13,6 +13,8 @@ type RequestLogListParams struct {
 	StatusFamily          *string
 	StatusCode            *int
 	ErrorText             *string
+	PricedFlag            *bool
+	UnpricedReason        *string
 	FromTime              *time.Time
 	ToTime                *time.Time
 	EndpointID            *int

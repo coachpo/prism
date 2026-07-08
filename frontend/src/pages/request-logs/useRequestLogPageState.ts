@@ -4,6 +4,7 @@ import {
   DEFAULTS,
   normalizeRequestId,
   parsePageState,
+  type PricedFilter,
   type StatusFamilyFilter,
   stateToParams,
   type RequestLogPageState,
@@ -43,6 +44,8 @@ export function useRequestLogPageState() {
   const setResolvedTargetModelId = useCallback((v: string) => update({ resolved_target_model_id: v }), [update]);
   const setStatusCode = useCallback((v: string) => update({ status_code: v }), [update]);
   const setErrorText = useCallback((v: string) => update({ error_text: v }), [update]);
+  const setPriced = useCallback((v: PricedFilter) => update({ priced: v, unpriced_reason: v === "false" ? state.unpriced_reason : "" }), [state.unpriced_reason, update]);
+  const setUnpricedReason = useCallback((v: string) => update({ unpriced_reason: v }), [update]);
   const setTimeRange = useCallback((v: TimeRange) => update({ time_range: v }), [update]);
   const setStatusFamily = useCallback((v: StatusFamilyFilter) => update({ status_family: v }), [update]);
   const setLimit = useCallback((v: number) => update({ limit: v, offset: DEFAULTS.offset }), [update]);
@@ -96,6 +99,8 @@ export function useRequestLogPageState() {
     state.resolved_target_model_id ||
     state.status_code ||
     state.error_text ||
+    state.priced !== DEFAULTS.priced ||
+    state.unpriced_reason ||
     state.time_range !== DEFAULTS.time_range ||
     state.status_family !== DEFAULTS.status_family
   );
@@ -111,6 +116,8 @@ export function useRequestLogPageState() {
     setResolvedTargetModelId,
     setStatusCode,
     setErrorText,
+    setPriced,
+    setUnpricedReason,
     setTimeRange,
     setStatusFamily,
     setLimit,

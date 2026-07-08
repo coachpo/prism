@@ -275,6 +275,49 @@ func TestRequestLogListStatusAndErrorFilters(t *testing.T) {
 	}
 }
 
+func TestRequestLogListPricingFilters(t *testing.T) {
+	harness := newRequestLogContractHarness(t)
+	profileID := loadRuntimeDefaultProfileID(t, harness)
+	seedRequestLogEndpoints(t, harness, profileID)
+	baseTime := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
+	seedPricingFilteredRequestLog(t, harness, profileID, 251, true, nil, baseTime)
+	seedPricingFilteredRequestLog(t, harness, profileID, 252, false, runtimeStringPtr("MISSING_PRICE_DATA"), baseTime.Add(time.Minute))
+	seedPricingFilteredRequestLog(t, harness, profileID, 253, false, runtimeStringPtr("MISSING_TOKEN_USAGE"), baseTime.Add(2*time.Minute))
+
+	tests := []struct {
+		name    string
+		query   string
+		status  int
+		wantIDs []int
+	}{
+		{name: "unpriced only", query: "priced=false", status: http.StatusOK, wantIDs: []int{253, 252}},
+		{name: "priced only", query: "priced=true", status: http.StatusOK, wantIDs: []int{251}},
+		{name: "specific unpriced reason", query: "unpriced_reason=MISSING_PRICE_DATA", status: http.StatusOK, wantIDs: []int{252}},
+		{name: "invalid priced", query: "priced=notabool", status: http.StatusBadRequest},
+		{name: "invalid unpriced reason", query: "unpriced_reason=NOPE", status: http.StatusBadRequest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?"+test.query+"&limit=50&offset=0", nil, runtimeModelHeader(profileID))
+			assertStatus(t, response, test.status)
+			if test.status != http.StatusOK {
+				return
+			}
+			var payload map[string]any
+			decodeJSONResponse(t, response, &payload)
+			items := payload["items"].([]any)
+			if len(items) != len(test.wantIDs) {
+				t.Fatalf("expected %s to return ids %v, got %+v", test.query, test.wantIDs, payload)
+			}
+			for index, wantID := range test.wantIDs {
+				if got := jsonInt(t, asMapRuntime(t, items[index])["id"]); got != wantID {
+					t.Fatalf("expected %s result %d to be request log %d, got %+v", test.query, index, wantID, items[index])
+				}
+			}
+		})
+	}
+}
+
 func TestRequestLogDetailContract(t *testing.T) {
 	harness := newRequestLogContractHarness(t)
 	profileID := loadRuntimeDefaultProfileID(t, harness)
@@ -2559,6 +2602,18 @@ func seedFilteredRequestLog(t *testing.T, harness *requestLogContractHarness, pr
 	success := statusCode >= 200 && statusCode < 300
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, error_detail, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', 12, NULL, $3, 1, 'https://api.openai.com', $4, 120, FALSE, $5, TRUE, TRUE, '/v1/chat/completions', $6, $7, FALSE, FALSE)`, id, profileID, fmt.Sprintf("filtered-req-%d", id), statusCode, success, nullableTestString(errorDetail), createdAt); err != nil {
 		t.Fatalf("seed filtered request log %d: %v", id, err)
+	}
+}
+
+func seedPricingFilteredRequestLog(t *testing.T, harness *requestLogContractHarness, profileID int, id int, priced bool, unpricedReason *string, createdAt time.Time) {
+	t.Helper()
+	ensureRuntimeTestLogPartitions(t, harness.databaseName, runtimeTestLogPartitionFor("request_logs", createdAt))
+	var cost any
+	if priced {
+		cost = int64(1000)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, unpriced_reason, total_cost_user_currency_micros, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', 12, NULL, $3, 1, 'https://api.openai.com', 200, 120, FALSE, TRUE, TRUE, $4, $5, $6, '/v1/chat/completions', $7, FALSE, FALSE)`, id, profileID, fmt.Sprintf("pricing-filtered-req-%d", id), priced, nullableTestString(unpricedReason), cost, createdAt); err != nil {
+		t.Fatalf("seed pricing-filtered request log %d: %v", id, err)
 	}
 }
 
