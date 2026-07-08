@@ -314,17 +314,11 @@ Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Prof
 
 `GET /api/stats/dashboard` includes a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from Default-profile configuration and final-attributed telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
 
-## 6. Terminal Target Request Health
+## 6. Request-Derived Routing Health
 
-### 6.1 Status Values
+Prism no longer exposes manual Terminal Target probe routes or probe-backed health fields. Live operator health indicators are derived from retained runtime request data.
 
-- `unknown` — Never checked (default)
-- `healthy` — Last check succeeded (2xx or 429)
-- `unhealthy` — Last check failed (401/403, connection error, timeout, other errors)
-
-These retained compatibility status fields are no longer updated by a manual Terminal Target probe route. Live operator health indicators are derived from actual request data.
-
-### 6.2 Terminal Target Success Rate Badge
+### 6.1 Terminal Target Success Rate Badge
 
 The primary visual health indicator for Terminal Targets is the **success rate badge**, computed from `request_logs` data and stored with compatibility `connection_id` attribution.
 
@@ -332,7 +326,7 @@ The primary visual health indicator for Terminal Targets is the **success rate b
 - Badge colors: ≥98% green, 75-98% yellow, <75% red, N/A gray (no data)
 - Displayed in the Terminal Targets list on the Model Detail page
 
-### 6.3 Model Health Aggregation
+### 6.2 Model Health Aggregation
 
 Model-level health is computed from retained request-log rows grouped by the requested `request_logs.model_id` in the effective profile:
 
@@ -341,7 +335,7 @@ Model-level health is computed from retained request-log rows grouped by the req
 - Displayed on Dashboard and Models pages as a colored badge
 - Same color thresholds as Terminal Target badges
 
-### 6.4 URL Path Joining
+### 6.3 URL Path Joining
 
 Endpoint `base_url` values may include an upstream path prefix such as `/v1` or `/v1beta`. On create and update, Prism strips trailing slashes, requires a scheme and host, and rejects query strings or fragments. Runtime joins the normalized endpoint path with the allowlisted operation path for the selected request.
 

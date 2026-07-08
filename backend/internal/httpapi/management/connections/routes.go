@@ -495,10 +495,6 @@ func (s *Service) handleRejectModelConnectionLegacyMutation(w http.ResponseWrite
 	s.writeConnectionMutationRouteError(w, r)
 }
 
-func (s *Service) handleLegacyModelConnectionNotFound(w http.ResponseWriter, r *http.Request) {
-	http.NotFound(w, r)
-}
-
 func (s *Service) writeConnectionMutationRouteError(w http.ResponseWriter, r *http.Request) {
 	responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, ownerScopedConnectionMutationDetail)
 }

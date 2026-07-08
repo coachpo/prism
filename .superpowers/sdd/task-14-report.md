@@ -118,3 +118,25 @@ Tests and commands:
 Concerns:
 - Retained migration/schema history still contains the legacy DB columns, and the connection insert keeps the minimum `health_status='unknown'` write required by the current NOT NULL column; no live management response or frontend type exposes it.
 - Existing unrelated dirty files were left untouched except this appended report: `.superpowers/sdd/task-12-report.md`, `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, and untracked `docs/TEST_REDUCTION_*.md`.
+
+---
+
+STATUS: REVIEW_FINDINGS_FIXED_WITH_CONCERNS
+
+Fix summary:
+- Removed the stale deleted `runtime/runtime_phase4_health_check_test.go` and “phase-4 health checks” references from `backend/tests/AGENTS.md`.
+- Replaced the probe-era `unknown`/`healthy`/`unhealthy` architecture section with request-log-derived routing health semantics in `docs/ARCHITECTURE.md`.
+- Removed unused `handleLegacyModelConnectionNotFound` after confirming no route mount references it.
+
+Tests and commands:
+- PASS: scoped grep for the requested stale terms across `backend/tests/AGENTS.md`, `docs/ARCHITECTURE.md`, and `backend/internal/httpapi/management/connections/routes.go` returned 0.
+- PASS before report append: repo-wide grep for `phase-4 health`, `Never checked`, `Last check`, and the removed legacy handler name returned 0.
+- PASS: `go test -count=1 ./internal/httpapi/management/connections`.
+- PASS: `go build ./cmd/prism-backend`.
+- PASS: `go test -count=1 ./internal/platform/http -run 'TestNewHandlerWithDependenciesMountsBaselineRoutes|TestCORSMiddlewareUsesPublishedRuntimeOrigins'`.
+- PASS: `git diff --check -- backend/tests/AGENTS.md docs/ARCHITECTURE.md backend/internal/httpapi/management/connections/routes.go`.
+- FAIL before assertions: `go test ./tests/contract -list 'Health|S2'` did not complete because the local Postgres harness container on port 33275 did not become ready in time.
+
+Concerns:
+- Pre-report repo-wide grep for the deleted runtime health-check filename also reported pre-existing dirty/untracked planning docs: `docs/IMPLEMENTATION_PLAN.md` and `docs/TEST_SUITE_REDUCTION.md`; left untouched per instruction.
+- Pre-report repo-wide grep for the old architecture heading also reported `docs/PRD.md`, whose section already states manual tests are removed and request-log data drives health indicators.
