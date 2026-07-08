@@ -212,9 +212,6 @@ async function expectShellChrome(
     });
   }
 
-  await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0, {
-    timeout: routeReadyTimeout,
-  });
 }
 
 async function mockProtectedShellRoutes(
@@ -322,7 +319,6 @@ test.describe("protected shell sidebar regression", () => {
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
     await expect(page.getByTestId("shell-breadcrumb")).toHaveCount(0);
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveCount(0);
-    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
 
     await page.waitForTimeout(200);
     expect(requestCounts.models).toBe(0);
@@ -386,25 +382,20 @@ test.describe("protected shell sidebar regression", () => {
 
     await expect(page.getByTestId("shell-breadcrumb")).toBeVisible();
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard");
-    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
 
     await sidebarToggle.click();
     await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
 
     await page.getByTestId("shell-sidebar").getByRole("link", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/system\/settings$/);
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Settings");
-    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
 
     await sidebarToggle.click();
     await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
 
     await page.locator('[data-slot="sheet-overlay"]').click({ position: { x: 380, y: 20 } });
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
-    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
   });
 });

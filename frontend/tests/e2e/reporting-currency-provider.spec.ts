@@ -292,7 +292,6 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
-    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
     await expect.poll(getLastCostingProfileHeader).toBe("1");
     await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
     expect(requestCounts.usageSnapshotByProfile["2"] ?? 0).toBe(0);

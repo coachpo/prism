@@ -209,7 +209,7 @@ test("analytics extractor preserves snapshot shape and ignores non-analytics mes
   const payload = hookModule.CHANNEL_PAYLOAD_EXTRACTORS.analytics({
     type: "analytics.snapshot",
     channel: "analytics",
-    profile_id: 7,
+    profile_id: 1,
     preset: "24h",
     sequence: 12,
     generated_at: "2026-05-04T00:00:00Z",
@@ -219,7 +219,7 @@ test("analytics extractor preserves snapshot shape and ignores non-analytics mes
 
   assert.deepEqual(payload, {
     channel: "analytics",
-    profile_id: 7,
+    profile_id: 1,
     preset: "24h",
     sequence: 12,
     generated_at: "2026-05-04T00:00:00Z",
@@ -267,19 +267,19 @@ test("dashboard extractor accepts split snapshot and single activity payloads on
   assert.deepEqual(
     hookModule.CHANNEL_PAYLOAD_EXTRACTORS.dashboard({
       type: "dashboard.snapshot",
-      profile_id: 7,
+      profile_id: 1,
       snapshot,
     }),
     {
       type: "dashboard.snapshot",
-      profile_id: 7,
+      profile_id: 1,
       snapshot,
     },
   );
   assert.deepEqual(
     hookModule.CHANNEL_PAYLOAD_EXTRACTORS.dashboard({
       type: "dashboard.activity",
-      profile_id: 7,
+      profile_id: 1,
       activity_watermark: {
         latest_request_log_created_at: "2026-05-04T00:00:01Z",
         latest_request_log_id: 101,
@@ -288,7 +288,7 @@ test("dashboard extractor accepts split snapshot and single activity payloads on
     }),
     {
       type: "dashboard.activity",
-      profile_id: 7,
+      profile_id: 1,
       activity_watermark: {
         latest_request_log_created_at: "2026-05-04T00:00:01Z",
         latest_request_log_id: 101,
@@ -303,12 +303,12 @@ test("dashboard extractor accepts split snapshot and single activity payloads on
   );
 });
 
-test("hook analytics scope filter requires matching profile and preset", () => {
+test("hook analytics scope filter matches frozen Default profile id 1", () => {
   const hookModule = loadHookModuleWithClient({});
   const baseMessage = {
     type: "analytics.snapshot",
     channel: "analytics",
-    profile_id: 7,
+    profile_id: 1,
     preset: "24h",
     sequence: 12,
     generated_at: "2026-05-04T00:00:00Z",
@@ -328,7 +328,7 @@ test("hook analytics scope filter requires matching profile and preset", () => {
   assert.equal(
     hookModule.matchesRealtimeDataScope({
       channel: "analytics",
-      message: { ...baseMessage, profile_id: 8 },
+      message: { ...baseMessage, profile_id: 2 },
       profileId: 7,
       scope: { preset: "24h" },
     }),
@@ -346,7 +346,7 @@ test("hook analytics scope filter requires matching profile and preset", () => {
   assert.equal(
     hookModule.matchesRealtimeDataScope({
       channel: "dashboard",
-      message: { type: "dashboard.snapshot", profile_id: 7, snapshot: {} },
+      message: { type: "dashboard.snapshot", profile_id: 1, snapshot: {} },
       profileId: 7,
     }),
     true,
@@ -354,7 +354,7 @@ test("hook analytics scope filter requires matching profile and preset", () => {
   assert.equal(
     hookModule.matchesRealtimeDataScope({
       channel: "dashboard",
-      message: { type: "dashboard.snapshot", profile_id: 8, snapshot: {} },
+      message: { type: "dashboard.snapshot", profile_id: 2, snapshot: {} },
       profileId: 7,
     }),
     false,
@@ -378,14 +378,14 @@ test("websocket client sends one analytics subscribe per preset ref-count", () =
   sockets[0].open();
   client.subscribeChannel(1, "analytics", { preset: "24h" });
   client.subscribeChannel(1, "analytics", { preset: "24h" });
-  client.subscribeChannel(1, "analytics", { preset: "7d" });
+  client.subscribeChannel(1, "analytics", { preset: "30d" });
 
   assert.deepEqual(sentMessages, [
     { type: "subscribe", profile_id: 1, channel: "analytics", preset: "24h" },
-    { type: "subscribe", profile_id: 1, channel: "analytics", preset: "7d" },
+    { type: "subscribe", profile_id: 1, channel: "analytics", preset: "30d" },
   ]);
   assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "24h" }), true);
-  assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "7d" }), true);
+  assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "30d" }), true);
 
   client.unsubscribeChannel("analytics", { preset: "24h" });
   assert.equal(sentMessages.length, 2);
@@ -398,7 +398,7 @@ test("websocket client sends one analytics subscribe per preset ref-count", () =
     preset: "24h",
   });
   assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "24h" }), false);
-  assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "7d" }), true);
+  assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "30d" }), true);
   client.disconnect();
 });
 

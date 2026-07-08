@@ -351,3 +351,26 @@ Verification:
 
 Concerns:
 - The targeted e2e run still has unrelated model-dialog failures that predate this realtime/copy freeze work.
+
+## Task 9 R4 Final Review Issues Fix
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `fix: finish frozen realtime hook cleanup`
+
+Fixes:
+- Normalized `useRealtimeData()` message filtering and subscribed-state matching to the frozen Default profile id `1`, so stale callers passing `7` still accept realtime messages with `profile_id: 1`.
+- Updated the websocket contract test coverage to assert frozen Default-profile behavior instead of the old `7`/`8` profile filtering.
+- Removed the retained `shell-profile-switcher` assertions from the protected shell sidebar, dashboard reporting currency, and reporting-currency-provider e2e specs.
+
+Verification:
+- `rg -n 'shell-profile-switcher|profileId.*7|profileId.*8|profile_id.*7|profile_id.*8|profile 7|profile 8' frontend/src/hooks/useRealtimeData.ts frontend/tests/lib/websocket_contract.test.mjs frontend/tests/e2e/protected-shell-sidebar.spec.ts frontend/tests/e2e/dashboard-reporting-currency.spec.ts frontend/tests/e2e/reporting-currency-provider.spec.ts`
+- `node --test frontend/tests/lib/websocket_contract.test.mjs`
+- `cd frontend && pnpm run test:lib`
+- `cd frontend && pnpm run build`
+- `cd frontend && pnpm run test:e2e -- frontend/tests/e2e/protected-shell-sidebar.spec.ts frontend/tests/e2e/dashboard-reporting-currency.spec.ts frontend/tests/e2e/reporting-currency-provider.spec.ts`
+
+Concerns:
+- `rg` still reports the six intentionally stale `profileId: 7` assertions in `frontend/tests/lib/websocket_contract.test.mjs`; the deleted switcher checks are gone.
+- The touched lib and e2e verification commands passed, and the build stayed clean aside from the existing Vite chunk-size warning.

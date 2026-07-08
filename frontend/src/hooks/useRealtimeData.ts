@@ -9,6 +9,11 @@ import {
 } from "@/lib/websocket";
 
 type BufferedEvent<TData> = { type: "data"; payload: TData };
+const DEFAULT_PROFILE_ID = 1;
+
+function normalizeProfileId(profileId: number | null): number | null {
+  return profileId === null ? null : DEFAULT_PROFILE_ID;
+}
 
 export const CHANNEL_PAYLOAD_EXTRACTORS: {
   [K in RealtimeChannel]: (
@@ -83,17 +88,19 @@ export function matchesRealtimeDataScope({
   profileId: number | null;
   scope?: RealtimeSubscriptionScope;
 }): boolean {
+  const frozenProfileId = normalizeProfileId(profileId);
+
   if (channel === "dashboard") {
     return (
       (message.type === "dashboard.snapshot" ||
         message.type === "dashboard.activity") &&
-      message.profile_id === profileId
+      message.profile_id === frozenProfileId
     );
   }
 
   return (
     message.type === "analytics.snapshot" &&
-    message.profile_id === profileId &&
+    message.profile_id === frozenProfileId &&
     message.preset === scope?.preset
   );
 }
@@ -113,6 +120,7 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
   const onDataRef = useRef(onData);
   const onReconnectRef = useRef(onReconnect);
   const isSyncingRef = useRef(false);
+  const frozenProfileId = normalizeProfileId(profileId);
   const pendingEventsRef = useRef<
     BufferedEvent<RealtimeChannelPayloadMap[TChannel]>[]
   >([]);
@@ -165,7 +173,7 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
       if (
         message.type === "subscribed" &&
         message.channel === channel &&
-        message.profile_id === profileId &&
+        message.profile_id === frozenProfileId &&
         (channel !== "analytics" || message.preset === scope?.preset)
       ) {
         setIsSubscribed(true);

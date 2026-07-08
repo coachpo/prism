@@ -125,7 +125,6 @@ test.describe("dashboard reporting currency", () => {
     await expect(page.getByText("¥0.25 CNY")).toHaveCount(2, {
       timeout: reportingCurrencyExpectationTimeout,
     });
-    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
     await expect.poll(getLastProfileHeader).toBe("1");
   });
 });
