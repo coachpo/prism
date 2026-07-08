@@ -150,7 +150,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### T4. 测试地基修整
 
-- `frontend/tests/lib/` 23 个文件中 **9 个没接进 `test:lib`**（已核实清单：`analytics_websocket_contract`、`costing_reporting_currency_contract`、`log_retention_api_contract`、`management_contract`、`pricing-template-form-state-normalization`、`profile_selection_contract`、`reporting_currency_contract`、`request_log_audit_state_contract`、`request_log_filter_state_contract`）——逐个决定接入或删除，并把 `test:lib` 从手写文件枚举改成 glob。
+- `frontend/package.json` 的 `test:lib` 已改为 glob，覆盖 `frontend/tests/lib/*.test.mjs` 与 `frontend/tests/model-detail/*.test.mjs`；websocket lib 测试已随 R7 删除。剩余未接入脚本的 .mjs 只在 `frontend/tests/loadbalance/` 与 `frontend/tests/main/`，按测试精简批次决定接入或删除。
 - Playwright e2e ~17.5k LOC 不在 CI：按 §2 的删减自动缩水后，把存活的核心流（请求日志、模型配置）挑 3–5 条进 CI，其余删；顺带清掉 plan 编号命名（`task-6/8/9/10/11/17-*.spec.ts`）。
 - 后端 ~49% 测试占比集中在将被冻结/删除的功能上（profile_scope 3,571 行、auth 控制面 2,000 行），随功能一起退役。
 
@@ -180,7 +180,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 | 阶段 | 内容 | 预估规模 |
 |---|---|---|
-| **P0 快赢**（半天） | T1 的 test:e2e shim、stub 清理、absence 测试删除；T3 legacy 路由；T7 废弃目录引用；E4 的 `to_time` 接线/删除；T4 的 test:lib glob 化 | 全是删除与一行修补 |
+| **P0 快赢**（半天） | T1 的 test:e2e shim、stub 清理、absence 测试删除；T3 legacy 路由；T7 废弃目录引用；E4 的 `to_time` 接线/删除；T4 的剩余孤儿 .mjs 处置 | 全是删除与一行修补 |
 | **P1 大减法**（1–2 周，按 R1→R2→R3→R4 顺序，每项独立成 PR） | configbundle → 启动标签页+bootstrapconfig → 认证链瘦身 → profiles 冻结；期间拍板 R5–R8 四个决策点并执行 | 净删 ~15k–20k LOC |
 | **P2 核心增强**（与 P1 可并行，1–2 周） | E1 故障转移可见性+webhook → E2 未定价下钻 → E4 日志页体验 → E3 价格导入 → E5 延迟趋势 | 每项 ≤ 数百 LOC 新增 |
 | **P3 结构债**（穿插进行） | T2 双路由器统一 → T5 统计读写修正 → T6 命名收尾 | 1 周内 |
