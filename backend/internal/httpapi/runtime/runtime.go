@@ -119,26 +119,25 @@ type runtimeConnectionUpstreamAuthSnapshot struct {
 }
 
 type runtimeConnection struct {
-	ID                         int
-	ProfileID                  int
-	APIFamily                  string
-	ModelConfigID              int
-	EndpointID                 int
-	Priority                   int
-	QPSLimit                   *int
-	MaxInFlightNonStream       *int
-	MaxInFlightStream          *int
-	Name                       *string
-	AuthType                   *string
-	EncryptedEndpointAPIKey    string
-	CustomHeaders              map[string]any
-	PricingTemplateID          *int
-	PricingTemplateSnapshot    *runtimePricingTemplateSnapshot
-	OpenAIProbeEndpointVariant *string
-	OpenAITextCapability       *string
-	EndpointFXSnapshot         *runtimeEndpointFXSnapshot
-	UpstreamAuth               *runtimeConnectionUpstreamAuthSnapshot
-	Endpoint                   runtimeEndpoint
+	ID                      int
+	ProfileID               int
+	APIFamily               string
+	ModelConfigID           int
+	EndpointID              int
+	Priority                int
+	QPSLimit                *int
+	MaxInFlightNonStream    *int
+	MaxInFlightStream       *int
+	Name                    *string
+	AuthType                *string
+	EncryptedEndpointAPIKey string
+	CustomHeaders           map[string]any
+	PricingTemplateID       *int
+	PricingTemplateSnapshot *runtimePricingTemplateSnapshot
+	OpenAITextCapability    *string
+	EndpointFXSnapshot      *runtimeEndpointFXSnapshot
+	UpstreamAuth            *runtimeConnectionUpstreamAuthSnapshot
+	Endpoint                runtimeEndpoint
 }
 
 type runtimeTranslationLossDecision struct {

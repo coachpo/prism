@@ -27,7 +27,7 @@ const routingInspectorMessages = {
     routing24hSuccessRate: "24h success rate",
     routingLegendNoData: "No data",
     routing24hTotalRequests: "24h total requests",
-    routing24hHealth: "24h health",
+    routing24hStatus: "24h status",
     routing24hSuccessfulRequests: "24h successful requests",
     routing24hErrors: "24h errors",
     routingActionOpenModelDetail: "Open model detail",
@@ -47,9 +47,6 @@ const routingInspectorMessages = {
     active: "Active",
     connections: "Terminal Targets",
     disabled: "Disabled",
-    healthHealthy: "Healthy",
-    healthUnknown: "Unknown",
-    healthUnhealthy: "Unhealthy",
     inactive: "Inactive",
     viewRequestLogs: "View Request Logs",
   },
@@ -232,6 +229,14 @@ test("normalizes topology graph into renderer-agnostic graph", () => {
   assert.equal(terminalBinding.activeTerminalTargetCount, 1);
   assert.equal(terminalBinding.requestCount24h, 42);
 
+  const terminalTarget = nodeById.get("terminal-target-501");
+  assert.ok(terminalTarget);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(terminalTarget, "healthStatus"),
+    false,
+    "terminal target nodes should not expose probe-era health status",
+  );
+
   for (const node of graph.nodes) {
     assert.equal(Object.prototype.hasOwnProperty.call(node, "value"), false, `${node.id} should not expose Sankey node value`);
   }
@@ -371,7 +376,7 @@ test("renders edge inspector content from explicit graph edge input", () => {
 
   assert.match(markup, /Primary Target/);
   assert.match(markup, /Endpoint A/);
-  assert.match(markup, /24h health/);
+  assert.match(markup, /24h status/);
   assert.match(markup, /Degraded/);
   assert.match(markup, /24h success rate/);
   assert.match(markup, /97\.62%/);
@@ -433,7 +438,6 @@ function createTopologyGraph() {
         terminal_target_id: 501,
         connection_id: 501,
         active: true,
-        health_status: "healthy",
         recent_request_count: 42,
         recent_success_rate: 97.6,
         last_request_at: "2026-04-10T12:34:56Z",
@@ -448,7 +452,6 @@ function createTopologyGraph() {
         terminal_target_id: 502,
         connection_id: 502,
         active: false,
-        health_status: "unknown",
         recent_request_count: 0,
         recent_success_rate: null,
         last_request_at: null,
@@ -556,7 +559,6 @@ function createTopologyGraphWithInvalidEdge() {
         terminal_target_id: 501,
         connection_id: 501,
         active: true,
-        health_status: "healthy",
         recent_request_count: 7,
         recent_success_rate: 100,
         last_request_at: "2026-04-10T12:34:56Z",

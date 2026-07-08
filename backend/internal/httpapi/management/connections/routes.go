@@ -183,10 +183,6 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err := validateLimiter("max_in_flight_stream", requestBody.MaxInFlightStream); err != nil {
 			return connectionResponse{}, err
 		}
-		openAIProbeVariant, err := resolveOpenAIProbeEndpointVariant(owner.APIFamily, requestBody.OpenAIProbeEndpointVariant)
-		if err != nil {
-			return connectionResponse{}, err
-		}
 		openAITextCapability, err := resolveOpenAITextCapabilityCreate(owner.APIFamily, requestBody.OpenAITextCapability)
 		if err != nil {
 			return connectionResponse{}, err
@@ -205,23 +201,22 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		}
 		now := s.nowUTC()
 		item := connectionResponse{
-			ProfileID:                  profile.ID,
-			APIFamily:                  owner.APIFamily,
-			EndpointID:                 endpoint.ID,
-			IsActive:                   resolvedBool(requestBody.IsActive, true),
-			Priority:                   position,
-			Name:                       normalizeOptionalString(requestBody.Name),
-			AuthType:                   authType,
-			CustomHeaders:              normalizeHeaders(requestBody.CustomHeaders),
-			OpenAIProbeEndpointVariant: openAIProbeVariant,
-			OpenAITextCapability:       openAITextCapability,
-			PricingTemplateID:          pricingTemplateID,
-			QPSLimit:                   requestBody.QPSLimit,
-			MaxInFlightNonStream:       requestBody.MaxInFlightNonStream,
-			MaxInFlightStream:          requestBody.MaxInFlightStream,
-			HealthStatus:               "unknown",
-			CreatedAt:                  now,
-			UpdatedAt:                  now,
+			ProfileID:            profile.ID,
+			APIFamily:            owner.APIFamily,
+			EndpointID:           endpoint.ID,
+			IsActive:             resolvedBool(requestBody.IsActive, true),
+			Priority:             position,
+			Name:                 normalizeOptionalString(requestBody.Name),
+			AuthType:             authType,
+			CustomHeaders:        normalizeHeaders(requestBody.CustomHeaders),
+			OpenAITextCapability: openAITextCapability,
+			PricingTemplateID:    pricingTemplateID,
+			QPSLimit:             requestBody.QPSLimit,
+			MaxInFlightNonStream: requestBody.MaxInFlightNonStream,
+			MaxInFlightStream:    requestBody.MaxInFlightStream,
+			HealthStatus:         "unknown",
+			CreatedAt:            now,
+			UpdatedAt:            now,
 		}
 		connectionID, err := insertTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(item))
 		if err != nil {
@@ -346,9 +341,6 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	if !providercompat.SameAPIFamily(next.APIFamily, owner.APIFamily) {
 		return connectionResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection api_family must match owner model api_family"}
 	}
-	if !providercompat.IsOpenAI(next.APIFamily) {
-		next.OpenAIProbeEndpointVariant = nil
-	}
 	openAITextCapability, err := resolveOpenAITextCapabilityUpdate(current.APIFamily, next.APIFamily, current.OpenAITextCapability, requestBody.OpenAITextCapability)
 	if err != nil {
 		return connectionResponse{}, err
@@ -387,13 +379,6 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	}
 	if requestBody.CustomHeaders.Set {
 		next.CustomHeaders = normalizeHeaders(requestBody.CustomHeaders.Value)
-	}
-	if requestBody.OpenAIProbeEndpointVariant.Set {
-		variant, err := resolveOpenAIProbeEndpointVariant(next.APIFamily, requestBody.OpenAIProbeEndpointVariant.Value)
-		if err != nil {
-			return connectionResponse{}, err
-		}
-		next.OpenAIProbeEndpointVariant = variant
 	}
 	if requestBody.PricingTemplateID.Set {
 		pricingTemplateID, err := validatePricingTemplateID(ctx, tx, profileID, requestBody.PricingTemplateID.Value)
@@ -738,20 +723,6 @@ func normalizeOpenAITextCapability(apiFamily string, value *string, requiredForO
 	default:
 		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is invalid"}
 	}
-}
-
-func resolveOpenAIProbeEndpointVariant(apiFamily string, value *string) (*string, error) {
-	variant, err := providercompat.NormalizeConnectionOpenAIProbeEndpointVariant(apiFamily, value)
-	if errors.Is(err, providercompat.ErrOpenAIProbeEndpointVariantUnsupported) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_probe_endpoint_variant is only supported for OpenAI-family connections"}
-	}
-	if errors.Is(err, providercompat.ErrOpenAIProbeEndpointVariantInvalid) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_probe_endpoint_variant is invalid"}
-	}
-	if err != nil {
-		return nil, err
-	}
-	return variant, nil
 }
 
 func normalizeHeaders(value map[string]string) map[string]string {

@@ -1,60 +1,6 @@
 package providercompat
 
-import (
-	"errors"
-	"reflect"
-	"testing"
-)
-
-func TestNormalizeConnectionOpenAIProbeEndpointVariant(t *testing.T) {
-	got, err := NormalizeConnectionOpenAIProbeEndpointVariant(APIFamilyOpenAI, nil)
-	if err != nil || got == nil || *got != DefaultOpenAIProbeEndpointVariant {
-		t.Fatalf("expected default OpenAI probe variant, got value=%#v err=%v", got, err)
-	}
-
-	chatVariant := " chat_completions_minimal "
-	got, err = NormalizeConnectionOpenAIProbeEndpointVariant(APIFamilyOpenAI, &chatVariant)
-	if err != nil || got == nil || *got != OpenAIProbeEndpointVariantChatCompletionsMinimal {
-		t.Fatalf("expected trimmed chat probe variant, got value=%#v err=%v", got, err)
-	}
-
-	upperVariant := "RESPONSES_MINIMAL"
-	if _, err := NormalizeConnectionOpenAIProbeEndpointVariant(APIFamilyOpenAI, &upperVariant); !errors.Is(err, ErrOpenAIProbeEndpointVariantInvalid) {
-		t.Fatalf("expected case-sensitive management variant rejection, got %v", err)
-	}
-
-	unsupportedVariant := "responses_minimal"
-	if _, err := NormalizeConnectionOpenAIProbeEndpointVariant(APIFamilyGemini, &unsupportedVariant); !errors.Is(err, ErrOpenAIProbeEndpointVariantUnsupported) {
-		t.Fatalf("expected non-OpenAI management variant rejection, got %v", err)
-	}
-
-	blankVariant := " \t "
-	got, err = NormalizeConnectionOpenAIProbeEndpointVariant(APIFamilyAnthropic, &blankVariant)
-	if err != nil || got != nil {
-		t.Fatalf("expected blank non-OpenAI management variant to be ignored, got value=%#v err=%v", got, err)
-	}
-}
-
-func TestNormalizeImportedOpenAIProbeEndpointVariant(t *testing.T) {
-	got, err := NormalizeImportedOpenAIProbeEndpointVariant(APIFamilyOpenAI, nil)
-	if err != nil || got != nil {
-		t.Fatalf("expected nil imported variant to stay nil, got value=%#v err=%v", got, err)
-	}
-
-	upperVariant := " RESPONSES_MINIMAL "
-	got, err = NormalizeImportedOpenAIProbeEndpointVariant(APIFamilyOpenAI, &upperVariant)
-	if err != nil || got == nil || *got != OpenAIProbeEndpointVariantResponsesMinimal {
-		t.Fatalf("expected case-insensitive imported variant normalization, got value=%#v err=%v", got, err)
-	}
-
-	blankVariant := " "
-	if _, err := NormalizeImportedOpenAIProbeEndpointVariant(APIFamilyOpenAI, &blankVariant); !errors.Is(err, ErrOpenAIProbeEndpointVariantInvalid) {
-		t.Fatalf("expected blank imported OpenAI variant rejection, got %v", err)
-	}
-	if _, err := NormalizeImportedOpenAIProbeEndpointVariant(APIFamilyGemini, &blankVariant); !errors.Is(err, ErrOpenAIProbeEndpointVariantUnsupported) {
-		t.Fatalf("expected provided non-OpenAI imported variant rejection, got %v", err)
-	}
-}
+import "testing"
 
 func TestOpenAITextCapabilityHelpers(t *testing.T) {
 	tests := []struct {
@@ -125,45 +71,5 @@ func TestResolveAuthProfileAndControlledHeaders(t *testing.T) {
 	unknownAuthType := "unknown"
 	if _, err := ResolveAuthProfile(&unknownAuthType, APIFamilyOpenAI); err == nil || err.Error() != "unsupported auth_type: unknown" {
 		t.Fatalf("expected unsupported auth_type error, got %v", err)
-	}
-}
-
-func TestBuildHealthProbeRequest(t *testing.T) {
-	responsesVariant := OpenAIProbeEndpointVariantResponsesReasoningNone
-	request, err := BuildHealthProbeRequest(APIFamilyOpenAI, "gpt-test", &responsesVariant)
-	if err != nil {
-		t.Fatalf("build OpenAI health probe: %v", err)
-	}
-	if request.Path != "/v1/responses" {
-		t.Fatalf("expected OpenAI responses probe path, got %q", request.Path)
-	}
-	if request.Body["model"] != "gpt-test" || request.Body["max_output_tokens"] != 1 {
-		t.Fatalf("unexpected OpenAI responses body: %+v", request.Body)
-	}
-	if !reflect.DeepEqual(request.Body["reasoning"], map[string]any{"effort": "none"}) {
-		t.Fatalf("expected reasoning none body, got %+v", request.Body)
-	}
-
-	chatVariant := OpenAIProbeEndpointVariantChatCompletionsReasoningNone
-	request, err = BuildHealthProbeRequest(APIFamilyOpenAI, "gpt-chat", &chatVariant)
-	if err != nil {
-		t.Fatalf("build OpenAI chat health probe: %v", err)
-	}
-	if request.Path != "/v1/chat/completions" || request.Body["reasoning_effort"] != "none" {
-		t.Fatalf("unexpected OpenAI chat probe request: %+v", request)
-	}
-
-	request, err = BuildHealthProbeRequest(APIFamilyAnthropic, "claude", nil)
-	if err != nil || request.Path != "/v1/messages" || request.Body["max_tokens"] != 1 {
-		t.Fatalf("unexpected Anthropic probe request: %+v err=%v", request, err)
-	}
-
-	request, err = BuildHealthProbeRequest(APIFamilyGemini, "gemini-pro", nil)
-	if err != nil || request.Path != "/v1beta/models/gemini-pro:generateContent" {
-		t.Fatalf("unexpected Gemini probe request: %+v err=%v", request, err)
-	}
-
-	if _, err = BuildHealthProbeRequest("unknown", "model", nil); err == nil || err.Error() != `unsupported api_family "unknown" for health check` {
-		t.Fatalf("expected unsupported api_family error, got %v", err)
 	}
 }

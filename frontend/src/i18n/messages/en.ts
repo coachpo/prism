@@ -61,7 +61,7 @@ export interface Messages {
     requests24h: string;
     reviewRequests: string;
     routing24hErrors: string;
-    routing24hHealth: string;
+    routing24hStatus: string;
     routing24hSuccessRate: string;
     routing24hSuccessfulRequests: string;
     routing24hTotalRequests: string;
@@ -639,8 +639,6 @@ export interface Messages {
     backToModels: string;
     banned: string;
     cancel: string;
-    checkedAt: (time: string) => string;
-    checkingNow: string;
     connectionActions: string;
     connectionFallback: (id: number) => string;
     currentTargetLabel: (targetId: string) => string;
@@ -704,9 +702,6 @@ export interface Messages {
     failureKindUnknown: string;
     firstTarget: (targetId: string) => string;
     filterConnections: string;
-    healthHealthy: string;
-    healthUnknown: string;
-    healthUnhealthy: string;
     headerKey: string;
     headerValue: string;
     includeInLoadBalancing: string;
@@ -1447,7 +1442,7 @@ export const enMessages: Messages = {
     requests24h: "24h Requests",
     reviewRequests: "Review Requests",
     routing24hErrors: "24h errors",
-    routing24hHealth: "24h health",
+    routing24hStatus: "24h status",
     routing24hSuccessRate: "24h success rate",
     routing24hSuccessfulRequests: "24h successful requests",
     routing24hTotalRequests: "24h total requests",
@@ -2000,8 +1995,6 @@ export const enMessages: Messages = {
     backToModels: "Back to models",
     banned: "Banned",
     cancel: "Cancel",
-    checkedAt: (time) => `Checked ${time}`,
-    checkingNow: "Checking now...",
     connectionActions: "Terminal Target Actions",
     connectionFallback: (id) => `Terminal Target ${id}`,
     currentTargetLabel: (targetId) => `${targetId} (current terminal target)`,
@@ -2066,9 +2059,6 @@ export const enMessages: Messages = {
     failureKindUnknown: "an unknown failure",
     firstTarget: (targetId) => `First ${targetId}`,
     filterConnections: "Filter terminal targets...",
-    healthHealthy: "Healthy",
-    healthUnknown: "Unknown",
-    healthUnhealthy: "Unhealthy",
     headerKey: "Header Key",
     headerValue: "Value",
     includeInLoadBalancing: "Include in load balancing",

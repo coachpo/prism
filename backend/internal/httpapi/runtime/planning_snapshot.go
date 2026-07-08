@@ -830,7 +830,7 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 		`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id,
 			connections.priority, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream,
 			connections.name, connections.auth_type, connections.custom_headers, connections.pricing_template_id,
-			connections.openai_probe_endpoint_variant, connections.openai_text_capability,
+			connections.openai_text_capability,
 			pricing_templates.id, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code,
 			pricing_templates.input_price::text, pricing_templates.output_price::text,
 			pricing_templates.cached_input_price::text, pricing_templates.cache_creation_price::text,
@@ -871,7 +871,6 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	var authType sql.NullString
 	var customHeaders sql.NullString
 	var pricingTemplateID sql.NullInt32
-	var openAIProbeEndpointVariant sql.NullString
 	var openAITextCapability sql.NullString
 	var templateID sql.NullInt32
 	var templatePricingUnit sql.NullString
@@ -897,7 +896,6 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 		&authType,
 		&customHeaders,
 		&pricingTemplateID,
-		&openAIProbeEndpointVariant,
 		&openAITextCapability,
 		&templateID,
 		&templatePricingUnit,
@@ -922,7 +920,6 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	record.AuthType = nullableString(authType)
 	record.CustomHeaders = parseCustomHeaders(customHeaders)
 	record.PricingTemplateID = nullableInt32(pricingTemplateID)
-	record.OpenAIProbeEndpointVariant = nullableString(openAIProbeEndpointVariant)
 	record.OpenAITextCapability = nullableString(openAITextCapability)
 	record.Endpoint.Name = nullableString(endpointName)
 	if templateID.Valid {
@@ -943,21 +940,20 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 
 func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeRecord) runtimeConnection {
 	item := runtimeConnection{
-		ID:                         record.ID,
-		ProfileID:                  record.ProfileID,
-		APIFamily:                  record.APIFamily,
-		EndpointID:                 record.EndpointID,
-		Priority:                   record.Priority,
-		QPSLimit:                   record.QPSLimit,
-		MaxInFlightNonStream:       record.MaxInFlightNonStream,
-		MaxInFlightStream:          record.MaxInFlightStream,
-		Name:                       record.Name,
-		AuthType:                   record.AuthType,
-		EncryptedEndpointAPIKey:    record.Endpoint.EncryptedAPIKey,
-		CustomHeaders:              record.CustomHeaders,
-		PricingTemplateID:          record.PricingTemplateID,
-		OpenAIProbeEndpointVariant: record.OpenAIProbeEndpointVariant,
-		OpenAITextCapability:       record.OpenAITextCapability,
+		ID:                      record.ID,
+		ProfileID:               record.ProfileID,
+		APIFamily:               record.APIFamily,
+		EndpointID:              record.EndpointID,
+		Priority:                record.Priority,
+		QPSLimit:                record.QPSLimit,
+		MaxInFlightNonStream:    record.MaxInFlightNonStream,
+		MaxInFlightStream:       record.MaxInFlightStream,
+		Name:                    record.Name,
+		AuthType:                record.AuthType,
+		EncryptedEndpointAPIKey: record.Endpoint.EncryptedAPIKey,
+		CustomHeaders:           record.CustomHeaders,
+		PricingTemplateID:       record.PricingTemplateID,
+		OpenAITextCapability:    record.OpenAITextCapability,
 		Endpoint: runtimeEndpoint{
 			ID:      record.Endpoint.ID,
 			Name:    record.Endpoint.Name,

@@ -58,3 +58,34 @@ Concerns:
 - Docker/Postgres-backed Go suites cannot complete in this local environment because the harness Postgres container repeatedly fails readiness before tests reach assertions.
 - The focused Playwright run exposed an existing model-settings dialog expectation failure unrelated to connection health probes.
 - Known unrelated local changes were left unstaged and untouched: `.superpowers/sdd/task-12-report.md`, `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, and untracked `docs/TEST_REDUCTION_*.md`.
+
+---
+
+STATUS: REVIEW_FINDINGS_FIXED_WITH_CONCERNS
+
+Fix summary:
+- Removed `openai_probe_endpoint_variant` from owner-scoped connection create/update request shapes and write/read adapters. Strict JSON decoding now rejects the deleted field instead of accepting it as compatibility input.
+- Removed remaining OpenAI probe helper constants/functions and runtime/domain propagation of probe metadata while preserving `openai_text_capability`.
+- Removed dashboard topology `health_status` projection, frontend topology mapping, terminal-target inspector `24h Health` row, stale API example data, and stale i18n health-check copy.
+- Removed direct test fixture writes to `openai_probe_endpoint_variant`; remaining scoped hits are negative rejection tests or retained schema/migration history.
+
+Tests and commands:
+- PASS: `rg -n "HealthCheckResponse|useConnectionHealthChecks|health-check" frontend/src frontend/tests backend/internal/httpapi/management/connections` returned 0.
+- PASS: `rg -n "healthHealthy|healthUnknown|healthUnhealthy|checkedAt|checkingNow|routing24hHealth|24h Health|24h health|health-check|Health Check" frontend/src/i18n/messages/en.ts frontend/src/i18n/messages/zh-CN.ts` returned 0.
+- PASS: `rg -n "health_status|HealthStatus|healthStatus" backend/internal/domain/stats frontend/src/pages/dashboard/routing-diagram frontend/src/lib/types/model-stats.ts frontend/tests/e2e/dashboard-aggregate-fixtures.ts docs/API_SPEC.md` returned 0.
+- PASS: `rg -n "openai_probe_endpoint_variant" backend/internal/httpapi/management/connections backend/internal/httpapi/management/models backend/internal/httpapi/runtime backend/internal/domain/terminaltarget backend/internal/providercompat frontend/src frontend/tests` returns only the backend rejection test.
+- PASS: `go test -count=1 ./internal/providercompat ./internal/httpapi/management/connections ./internal/domain/stats ./internal/httpapi/runtime`
+- PASS: `go test -c -o /tmp/prism-contract.test ./tests/contract && go test -c -o /tmp/prism-integration.test ./tests/integration && go test -c -o /tmp/prism-runtime.test ./tests/runtime && go build ./cmd/prism-backend`
+- PASS: `pnpm run test:lib`
+- PASS: `pnpm exec vitest run src/pages/dashboard/RoutingDiagramCard.test.tsx src/test/model-detail-feature.test.ts`
+- PASS: `pnpm run build`
+- PASS: `pnpm run lint`
+- PASS: `pnpm run test:server`
+- FAIL before assertions: `go test -count=1 ./internal/httpapi/management/models ./internal/httpapi/management/endpoints` did not complete because local Postgres harness containers on ports 33268 and 33269 did not become ready in time.
+- FAIL before assertions: `go test -count=1 ./tests/contract -run 'TestConnectionCapabilitySnapshotsExposeOpenAITextCapability|TestConnectionProbeEndpointVariantIsRemovedFromWrites|TestObservabilityDashboardTopologyGraphIncludesDisabledAndInactiveNodes'` did not complete because the local Postgres harness container on port 33270 did not become ready in time.
+- FAIL before assertions: `go test -count=1 ./tests/integration -run 'TestManagementAuditStatsTopologyGraphDistinguishesTerminalRouteAndEndpointBinding'` did not complete because the local Postgres harness container on port 33271 did not become ready in time.
+- FAIL unrelated: `pnpm run test -- RoutingDiagramCard.test.tsx model-detail-feature.test.ts` ran a broader Vitest set and failed in `src/test/rewrite-harness.test.tsx` waiting for `ok:msw-test-harness`; the explicit targeted `pnpm exec vitest run ...` command passed.
+
+Concerns:
+- Docker/Postgres-backed Go suites still cannot complete in this local environment because the harness Postgres containers fail readiness before tests reach assertions.
+- Existing unrelated dirty files were left untouched except this appended report: `.superpowers/sdd/task-12-report.md`, `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, and untracked `docs/TEST_REDUCTION_*.md`.

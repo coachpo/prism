@@ -127,10 +127,8 @@ func TestBuildRequestPlan_ContextEstimationUnavailablePassesThrough(t *testing.T
 			snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
 			model := snapshot.ModelsByID["gpt-4o"]
 			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
-			responsesVariant := "responses_reasoning_none"
 			addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_711, 9_711, 0, requestPlanConnectionTargetOptions{
-				openAIProbeEndpointVariant: &responsesVariant,
-				openAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityResponsesOnly),
+				openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly),
 			})
 			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
@@ -165,10 +163,8 @@ func TestBuildRequestPlan_ContextEstimationUnavailableChatPassesThroughWithoutTr
 			snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
 			model := snapshot.ModelsByID["gpt-4o"]
 			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
-			chatVariant := "chat_completions_reasoning_none"
 			addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_712, 9_712, 0, requestPlanConnectionTargetOptions{
-				openAIProbeEndpointVariant: &chatVariant,
-				openAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+				openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 			})
 			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
@@ -207,10 +203,8 @@ func TestBuildRequestPlan_UnsupportedTranslatedShapeDoesNotSelectGenericTarget(t
 			addRequestPlanProxyTarget(snapshot, "responses-public", "chat-target-model")
 			child := snapshot.ModelsByID["chat-target-model"]
 			snapshot.AccessTargetsBySourceModelID[child.ID] = nil
-			chatVariant := "chat_completions_reasoning_none"
 			addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_713, 9_713, 0, requestPlanConnectionTargetOptions{
-				openAIProbeEndpointVariant: &chatVariant,
-				openAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+				openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 			})
 			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
@@ -2002,9 +1996,8 @@ func addRequestPlanModelTargetWithMetadata(snapshot *planningSnapshot, proxyMode
 }
 
 type requestPlanConnectionTargetOptions struct {
-	openAIProbeEndpointVariant *string
-	openAITextCapability       *string
-	pricingTemplateSnapshot    *runtimePricingTemplateSnapshot
+	openAITextCapability    *string
+	pricingTemplateSnapshot *runtimePricingTemplateSnapshot
 }
 
 func addRequestPlanConnectionTarget(snapshot *planningSnapshot, model runtimeModelRecord, connectionID int, targetID int, position int) {
@@ -2017,16 +2010,15 @@ func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model
 		openAITextCapability = stringPtr(providercompat.OpenAITextCapabilityDualNative)
 	}
 	snapshot.TerminalTargetsByID[connectionID] = runtimeConnection{
-		ID:                         connectionID,
-		ProfileID:                  model.ProfileID,
-		APIFamily:                  model.APIFamily,
-		ModelConfigID:              model.ID,
-		EndpointID:                 1,
-		Priority:                   position,
-		PricingTemplateSnapshot:    options.pricingTemplateSnapshot,
-		OpenAIProbeEndpointVariant: options.openAIProbeEndpointVariant,
-		OpenAITextCapability:       openAITextCapability,
-		Endpoint:                   runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
+		ID:                      connectionID,
+		ProfileID:               model.ProfileID,
+		APIFamily:               model.APIFamily,
+		ModelConfigID:           model.ID,
+		EndpointID:              1,
+		Priority:                position,
+		PricingTemplateSnapshot: options.pricingTemplateSnapshot,
+		OpenAITextCapability:    openAITextCapability,
+		Endpoint:                runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
 	}
 	snapshot.AccessTargetsBySourceModelID[model.ID] = append(snapshot.AccessTargetsBySourceModelID[model.ID], runtimeAccessTargetRecord{
 		ID:                        targetID,
@@ -2184,7 +2176,6 @@ func TestBuildRequestPlan_EstimationUnavailablePassesThroughForOpenAIText(t *tes
 		path             string
 		modelID          string
 		rawBody          []byte
-		variant          string
 		capability       string
 		wantPath         string
 		wantTranslation  TranslationMode
@@ -2195,7 +2186,6 @@ func TestBuildRequestPlan_EstimationUnavailablePassesThroughForOpenAIText(t *tes
 			path:             "/v1/chat/completions",
 			modelID:          "unknown-tokenizer-chat-public",
 			rawBody:          []byte(`{"model":"unknown-tokenizer-chat-public","messages":[{"role":"user","content":"hello"}]}`),
-			variant:          "responses_reasoning_none",
 			capability:       providercompat.OpenAITextCapabilityResponsesOnly,
 			wantPath:         "/v1/responses",
 			wantTranslation:  TranslationModeOpenAIChatCompletionsToResponses,
@@ -2206,7 +2196,6 @@ func TestBuildRequestPlan_EstimationUnavailablePassesThroughForOpenAIText(t *tes
 			path:             "/v1/responses",
 			modelID:          "unknown-tokenizer-responses-public",
 			rawBody:          []byte(`{"model":"unknown-tokenizer-responses-public","input":"hello"}`),
-			variant:          "chat_completions_reasoning_none",
 			capability:       providercompat.OpenAITextCapabilityChatCompletionsOnly,
 			wantPath:         "/v1/chat/completions",
 			wantTranslation:  TranslationModeOpenAIResponsesToChatCompletions,
@@ -2220,8 +2209,7 @@ func TestBuildRequestPlan_EstimationUnavailablePassesThroughForOpenAIText(t *tes
 			model := snapshot.ModelsByID[test.modelID]
 			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 			addRequestPlanConnectionTargetWithOptions(snapshot, model, test.terminalTargetID, test.terminalTargetID+7_000, 0, requestPlanConnectionTargetOptions{
-				openAIProbeEndpointVariant: &test.variant,
-				openAITextCapability:       &test.capability,
+				openAITextCapability: &test.capability,
 			})
 			request := httptest.NewRequest(http.MethodPost, test.path, nil)
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)

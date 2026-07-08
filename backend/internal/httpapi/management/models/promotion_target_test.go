@@ -259,7 +259,7 @@ func insertPromotionConnection(t *testing.T, ctx context.Context, tx pgx.Tx, pro
 	if apiFamily == "openai" {
 		openAITextCapability = "responses_only"
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $6, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now, openAITextCapability).Scan(&connectionID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, $6, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now, openAITextCapability).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection %q: %v", name, err)
 	}
 	return connectionID

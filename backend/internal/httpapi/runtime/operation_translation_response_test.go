@@ -177,8 +177,7 @@ func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 func TestTranslateOpenAIChatToResponsesResponseWithToolContext(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	connection := runtimeConnection{
-		OpenAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
-		OpenAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+		OpenAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 	}
 	rawRequest := []byte(`{"model":"responses-public","input":"use tools","tools":[{"type":"custom","name":"exec"},{"type":"tool_search"},{"type":"namespace","name":"mcp__apps__gmail","tools":[{"type":"function","name":"_search_emails","parameters":{"type":"object"}}]}]}`)
 	plan, translated, err := planCodingAgentFormatRequest(operation, rawRequest, "chat-target", connection)

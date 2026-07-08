@@ -74,7 +74,6 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 		t.Fatalf("unexpected compiled terminal target identity: %+v", connection)
 	}
 	assertRuntimeStringPtr(t, connection.Name, "primary terminal", "connection name")
-	assertRuntimeStringPtr(t, connection.OpenAIProbeEndpointVariant, "chat_completions_reasoning_none", "OpenAI probe variant")
 	assertRuntimeStringPtr(t, connection.OpenAITextCapability, providercompat.OpenAITextCapabilityChatCompletionsOnly, "OpenAI text capability")
 	assertRuntimeIntPtr(t, connection.QPSLimit, 10, "qps limit")
 	if connection.EncryptedEndpointAPIKey != "" || connection.UpstreamAuth == nil {
@@ -136,7 +135,7 @@ func (tx *runtimePlanningSnapshotFakeTx) connectionRows() pgx.Rows {
 		901, 42, "openai", 801, 2,
 		sql.NullInt32{Int32: 10, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullInt32{Int32: 4, Valid: true},
 		sql.NullString{String: "primary terminal", Valid: true}, sql.NullString{String: "openai", Valid: true}, sql.NullString{String: `{"X-Custom":"allowed"}`, Valid: true}, sql.NullInt32{Int32: 701, Valid: true},
-		sql.NullString{String: "chat_completions_reasoning_none", Valid: true}, sql.NullString{String: providercompat.OpenAITextCapabilityChatCompletionsOnly, Valid: true},
+		sql.NullString{String: providercompat.OpenAITextCapabilityChatCompletionsOnly, Valid: true},
 		sql.NullInt32{Int32: 701, Valid: true}, sql.NullString{String: runtimePricingUnitPerMillion, Valid: true}, sql.NullString{String: "USD", Valid: true},
 		sql.NullString{String: "1", Valid: true}, sql.NullString{String: "2", Valid: true}, sql.NullString{String: "0.5", Valid: true}, sql.NullString{String: "0.25", Valid: true}, sql.NullString{String: "3", Valid: true}, sql.NullInt32{Int32: 3, Valid: true},
 

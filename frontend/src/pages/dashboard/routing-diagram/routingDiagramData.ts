@@ -303,7 +303,6 @@ function normalizeRoutingDiagramNode(
     terminalTargetId: getTerminalTargetId(node),
     endpointId: node.endpoint_id ?? null,
     active: node.active ?? null,
-    healthStatus: node.health_status ?? null,
     requestCount24h,
     successCount24h,
     errorCount24h,

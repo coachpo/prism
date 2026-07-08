@@ -313,7 +313,7 @@ func performRuntimeRawRequest(t *testing.T, harness *runtimeHarness, method stri
 	return response
 }
 
-func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAIProbeEndpointVariant string, openAITextCapability string) seededRuntimeRoute {
+func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAITextCapability string) seededRuntimeRoute {
 	t.Helper()
 	suffix := randomSuffix()
 	strategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-"+suffix, "fill-first")
@@ -323,7 +323,7 @@ func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profi
 	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
 	endpointID := harness.seedEndpoint(t, profileID, publicModelPrefix+"-endpoint-"+suffix, endpointBaseURL, endpointAPIKey, 0)
-	connectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAIProbeEndpointVariant, &openAITextCapability)
+	connectionID := harness.seedConnectionWithOpenAITextCapability(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAITextCapability)
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return seededRuntimeRoute{PublicModelID: publicModelID, TargetModelID: targetModelID, ConnectionID: connectionID}
 }

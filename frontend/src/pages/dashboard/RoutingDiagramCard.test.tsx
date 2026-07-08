@@ -82,7 +82,6 @@ function createTopologyGraph(): RoutingDiagramData {
         terminal_target_id: 501,
         connection_id: 501,
         active: true,
-        health_status: "healthy",
         recent_request_count: 42,
         recent_success_rate: 97.6,
         last_request_at: "2026-04-10T12:34:56Z",

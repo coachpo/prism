@@ -284,8 +284,8 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	if jsonInt(t, created["model_config_id"]) != ownerModelID || created["api_family"] != "openai" || jsonInt(t, created["endpoint_id"]) != ownerEndpointID || jsonInt(t, created["priority"]) != 0 || created["health_status"] != "unknown" {
 		t.Fatalf("expected owner-scoped created connection payload, got %+v", created)
 	}
-	if jsonInt(t, asMap(t, created["endpoint"])["id"]) != ownerEndpointID || created["openai_probe_endpoint_variant"] != "responses_minimal" {
-		t.Fatalf("expected owner-scoped create to hydrate endpoint and OpenAI probe default, got %+v", created)
+	if jsonInt(t, asMap(t, created["endpoint"])["id"]) != ownerEndpointID {
+		t.Fatalf("expected owner-scoped create to hydrate endpoint, got %+v", created)
 	}
 	assertConnectionOwnerTarget(t, harness, ownerModelID, connectionID, 0, true)
 	assertStoredConnectionAPIFamily(t, harness, connectionID, "openai")
@@ -551,19 +551,28 @@ func TestConnectionCapabilitySnapshotsExposeOpenAITextCapability(t *testing.T) {
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
 	connectionID := jsonInt(t, created["id"])
-	if created["openai_probe_endpoint_variant"] != "responses_minimal" || created["openai_text_capability"] != "responses_only" {
+	if created["openai_text_capability"] != "responses_only" {
 		t.Fatalf("expected created connection to expose explicit OpenAI text capability, got %+v", created)
+	}
+	if _, ok := created["openai_probe_endpoint_variant"]; ok {
+		t.Fatalf("created connection must not expose removed openai_probe_endpoint_variant, got %+v", created)
 	}
 	if _, ok := created["openai_upstream_operation"]; ok {
 		t.Fatalf("created connection must not expose removed openai_upstream_operation, got %+v", created)
 	}
 
-	updateResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"openai_probe_endpoint_variant": "chat_completions_reasoning_none"}, modelHeader(defaultProfileID))
+	removedProbeUpdateResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"openai_probe_endpoint_variant": "chat_completions_reasoning_none"}, modelHeader(defaultProfileID))
+	assertErrorResponse(t, removedProbeUpdateResponse, http.StatusBadRequest, "Invalid request body")
+
+	updateResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID), map[string]any{"openai_text_capability": "chat_completions_only"}, modelHeader(defaultProfileID))
 	assertStatus(t, updateResponse, http.StatusOK)
 	var updated map[string]any
 	decodeJSONResponse(t, updateResponse, &updated)
-	if updated["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || updated["openai_text_capability"] != "responses_only" {
-		t.Fatalf("expected updated connection to preserve text capability independently of probe variant, got %+v", updated)
+	if updated["openai_text_capability"] != "chat_completions_only" {
+		t.Fatalf("expected updated connection to expose text capability, got %+v", updated)
+	}
+	if _, ok := updated["openai_probe_endpoint_variant"]; ok {
+		t.Fatalf("updated connection must not expose removed openai_probe_endpoint_variant, got %+v", updated)
 	}
 	if _, ok := updated["openai_upstream_operation"]; ok {
 		t.Fatalf("updated connection must not expose removed openai_upstream_operation, got %+v", updated)
@@ -588,8 +597,11 @@ func TestConnectionCapabilitySnapshotsExposeOpenAITextCapability(t *testing.T) {
 		if jsonInt(t, nested.payload["id"]) != connectionID {
 			t.Fatalf("expected nested %s id %d, got %+v", nested.name, connectionID, nested.payload)
 		}
-		if nested.payload["openai_probe_endpoint_variant"] != "chat_completions_reasoning_none" || nested.payload["openai_text_capability"] != "responses_only" {
-			t.Fatalf("expected nested %s to expose OpenAI text capability independently of probe variant, got %+v", nested.name, nested.payload)
+		if nested.payload["openai_text_capability"] != "chat_completions_only" {
+			t.Fatalf("expected nested %s to expose OpenAI text capability, got %+v", nested.name, nested.payload)
+		}
+		if _, ok := nested.payload["openai_probe_endpoint_variant"]; ok {
+			t.Fatalf("nested %s must not expose removed openai_probe_endpoint_variant, got %+v", nested.name, nested.payload)
 		}
 		if _, ok := nested.payload["openai_upstream_operation"]; ok {
 			t.Fatalf("nested %s must not expose removed openai_upstream_operation, got %+v", nested.name, nested.payload)
@@ -597,14 +609,14 @@ func TestConnectionCapabilitySnapshotsExposeOpenAITextCapability(t *testing.T) {
 	}
 }
 
-func TestConnectionProbeEndpointVariantRejectsNonOpenAIFamily(t *testing.T) {
+func TestConnectionProbeEndpointVariantIsRemovedFromWrites(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-	vendorID := modelLoadVendorIDByKey(t, harness, "anthropic")
-	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Connection Non-OpenAI Probe Strategy")
-	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "anthropic", "connection-non-openai-probe-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Non-OpenAI Probe Endpoint", 0)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Connection Removed Probe Strategy")
+	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "connection-removed-probe-owner", nil, "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Removed Probe Endpoint", 0)
 
 	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "openai_probe_endpoint_variant": "responses_minimal"}, modelHeader(defaultProfileID))
-	assertErrorResponse(t, response, http.StatusUnprocessableEntity, "openai_probe_endpoint_variant is only supported for OpenAI-family connections")
+	assertErrorResponse(t, response, http.StatusBadRequest, "Invalid request body")
 }

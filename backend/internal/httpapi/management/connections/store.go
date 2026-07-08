@@ -413,7 +413,7 @@ func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileI
 
 func insertTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) (int, error) {
 	var terminalTargetID int
-	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthAt), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
+	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthAt), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
 	if err != nil {
 		return 0, fmt.Errorf("insert terminal target: %w", err)
 	}
@@ -428,7 +428,7 @@ func insertOwnerTerminalTargetAccess(ctx context.Context, exec queryExecutor, pr
 }
 
 func updateTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) error {
-	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_probe_endpoint_variant = $8, openai_text_capability = $9, is_active = $10, priority = $11, name = $12, auth_type = $13, custom_headers = $14, health_status = $15, health_detail = $16, last_health_check = $17, updated_at = $18 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthAt), item.UpdatedAt); err != nil {
+	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_text_capability = $8, is_active = $9, priority = $10, name = $11, auth_type = $12, custom_headers = $13, health_status = $14, health_detail = $15, last_health_check = $16, updated_at = $17 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthAt), item.UpdatedAt); err != nil {
 		return fmt.Errorf("update terminal target %d: %w", item.ID, err)
 	}
 	return nil
@@ -500,7 +500,7 @@ func persistConnectionPriorities(ctx context.Context, exec queryExecutor, items 
 	return nil
 }
 
-const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_probe_endpoint_variant, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
+const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
 
 func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionResponse, error) {
 	items := make([]connectionResponse, 0)
@@ -554,7 +554,6 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var connectionName sql.NullString
 	var authType sql.NullString
 	var customHeaders sql.NullString
-	var openAIProbeEndpointVariant sql.NullString
 	var openAITextCapability sql.NullString
 	var pricingTemplateID sql.NullInt32
 	var qpsLimit sql.NullInt32
@@ -568,14 +567,13 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var healthDetail sql.NullString
 	var lastHealthAt sql.NullTime
 	record := terminaltarget.Record{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &openAIProbeEndpointVariant, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.HealthStatus, &healthDetail, &lastHealthAt, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.HealthStatus, &healthDetail, &lastHealthAt, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return terminaltarget.Record{}, err
 	}
 	record.OwnerModelConfigID = nullableInt32(modelConfigID)
 	record.Name = nullableStringValue(connectionName)
 	record.AuthType = nullableStringValue(authType)
 	record.CustomHeaders = parseCustomHeaders(customHeaders)
-	record.OpenAIProbeEndpointVariant = nullableStringValue(openAIProbeEndpointVariant)
 	record.OpenAITextCapability = nullableStringValue(openAITextCapability)
 	record.PricingTemplateID = nullableInt32(pricingTemplateID)
 	record.QPSLimit = nullableInt32(qpsLimit)
@@ -594,27 +592,26 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 
 func terminalTargetRecordFromConnectionResponse(item connectionResponse) terminaltarget.Record {
 	record := terminaltarget.Record{
-		ID:                         item.ID,
-		ProfileID:                  item.ProfileID,
-		OwnerModelConfigID:         item.ModelConfigID,
-		APIFamily:                  item.APIFamily,
-		EndpointID:                 item.EndpointID,
-		IsActive:                   item.IsActive,
-		Priority:                   item.Priority,
-		Name:                       item.Name,
-		AuthType:                   item.AuthType,
-		CustomHeaders:              item.CustomHeaders,
-		OpenAIProbeEndpointVariant: item.OpenAIProbeEndpointVariant,
-		OpenAITextCapability:       item.OpenAITextCapability,
-		PricingTemplateID:          item.PricingTemplateID,
-		QPSLimit:                   item.QPSLimit,
-		MaxInFlightNonStream:       item.MaxInFlightNonStream,
-		MaxInFlightStream:          item.MaxInFlightStream,
-		HealthStatus:               item.HealthStatus,
-		HealthDetail:               item.HealthDetail,
-		LastHealthAt:               item.LastHealthAt,
-		CreatedAt:                  item.CreatedAt,
-		UpdatedAt:                  item.UpdatedAt,
+		ID:                   item.ID,
+		ProfileID:            item.ProfileID,
+		OwnerModelConfigID:   item.ModelConfigID,
+		APIFamily:            item.APIFamily,
+		EndpointID:           item.EndpointID,
+		IsActive:             item.IsActive,
+		Priority:             item.Priority,
+		Name:                 item.Name,
+		AuthType:             item.AuthType,
+		CustomHeaders:        item.CustomHeaders,
+		OpenAITextCapability: item.OpenAITextCapability,
+		PricingTemplateID:    item.PricingTemplateID,
+		QPSLimit:             item.QPSLimit,
+		MaxInFlightNonStream: item.MaxInFlightNonStream,
+		MaxInFlightStream:    item.MaxInFlightStream,
+		HealthStatus:         item.HealthStatus,
+		HealthDetail:         item.HealthDetail,
+		LastHealthAt:         item.LastHealthAt,
+		CreatedAt:            item.CreatedAt,
+		UpdatedAt:            item.UpdatedAt,
 	}
 	if item.Endpoint != nil {
 		record.Endpoint = &terminaltarget.Endpoint{ID: item.Endpoint.ID, ProfileID: item.Endpoint.ProfileID, Name: item.Endpoint.Name, BaseURL: item.Endpoint.BaseURL, Position: item.Endpoint.Position, CreatedAt: item.Endpoint.CreatedAt, UpdatedAt: item.Endpoint.UpdatedAt}
@@ -627,27 +624,26 @@ func terminalTargetRecordFromConnectionResponse(item connectionResponse) termina
 
 func connectionResponseFromTerminalTargetRecord(record terminaltarget.Record) connectionResponse {
 	item := connectionResponse{
-		ID:                         record.ID,
-		ProfileID:                  record.ProfileID,
-		ModelConfigID:              record.OwnerModelConfigID,
-		APIFamily:                  record.APIFamily,
-		EndpointID:                 record.EndpointID,
-		IsActive:                   record.IsActive,
-		Priority:                   record.Priority,
-		Name:                       record.Name,
-		AuthType:                   record.AuthType,
-		CustomHeaders:              record.CustomHeaders,
-		OpenAIProbeEndpointVariant: record.OpenAIProbeEndpointVariant,
-		OpenAITextCapability:       record.OpenAITextCapability,
-		PricingTemplateID:          record.PricingTemplateID,
-		QPSLimit:                   record.QPSLimit,
-		MaxInFlightNonStream:       record.MaxInFlightNonStream,
-		MaxInFlightStream:          record.MaxInFlightStream,
-		HealthStatus:               record.HealthStatus,
-		HealthDetail:               record.HealthDetail,
-		LastHealthAt:               record.LastHealthAt,
-		CreatedAt:                  record.CreatedAt,
-		UpdatedAt:                  record.UpdatedAt,
+		ID:                   record.ID,
+		ProfileID:            record.ProfileID,
+		ModelConfigID:        record.OwnerModelConfigID,
+		APIFamily:            record.APIFamily,
+		EndpointID:           record.EndpointID,
+		IsActive:             record.IsActive,
+		Priority:             record.Priority,
+		Name:                 record.Name,
+		AuthType:             record.AuthType,
+		CustomHeaders:        record.CustomHeaders,
+		OpenAITextCapability: record.OpenAITextCapability,
+		PricingTemplateID:    record.PricingTemplateID,
+		QPSLimit:             record.QPSLimit,
+		MaxInFlightNonStream: record.MaxInFlightNonStream,
+		MaxInFlightStream:    record.MaxInFlightStream,
+		HealthStatus:         record.HealthStatus,
+		HealthDetail:         record.HealthDetail,
+		LastHealthAt:         record.LastHealthAt,
+		CreatedAt:            record.CreatedAt,
+		UpdatedAt:            record.UpdatedAt,
 	}
 	if record.Endpoint != nil {
 		item.Endpoint = &endpointResponse{ID: record.Endpoint.ID, ProfileID: record.Endpoint.ProfileID, Name: record.Endpoint.Name, BaseURL: record.Endpoint.BaseURL, HasAPIKey: endpointdomain.HasAPIKey(record.Endpoint.APIKey), MaskedAPIKey: endpointdomain.MaskedAPIKey(record.Endpoint.APIKey), Position: record.Endpoint.Position, CreatedAt: record.Endpoint.CreatedAt, UpdatedAt: record.Endpoint.UpdatedAt}

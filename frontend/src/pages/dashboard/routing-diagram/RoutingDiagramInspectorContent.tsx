@@ -35,12 +35,6 @@ export function RoutingDiagramInspectorContent({
             }
           />
           <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(node.requestCount24h)} />
-          {node.kind === "terminal_target" ? (
-            <TooltipRow
-              label={messages.dashboard.routing24hHealth}
-              value={getHealthLabel(node.healthStatus, node.requestCount24h, messages)}
-            />
-          ) : null}
           {node.kind === "model" ? (
             <TooltipRow label={messages.requestLogs.view} value={messages.dashboard.routingActionOpenModelDetail} />
           ) : null}
@@ -73,7 +67,7 @@ export function RoutingDiagramInspectorContent({
       <div className="min-w-[16rem] rounded-xl border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-xl">
         <p className="text-sm font-semibold">{edge.sourceLabel} → {edge.targetLabel}</p>
         <div className="mt-3 flex flex-col gap-1.5">
-          <TooltipRow label={messages.dashboard.routing24hHealth} value={routeHealthLabel} />
+          <TooltipRow label={messages.dashboard.routing24hStatus} value={routeHealthLabel} />
           <TooltipRow label={messages.dashboard.routing24hSuccessRate} value={formattedSuccessRate} />
           <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(edge.requestCount24h)} />
           <TooltipRow label={messages.dashboard.routingActiveTerminalTargets} value={formatNumber(edge.activeTerminalTargetCount)} />
@@ -100,26 +94,6 @@ function getNodeTypeLabel(
   }
 
   return messages.dashboard.routingModelNodeType;
-}
-
-function getHealthLabel(
-  healthStatus: string | null,
-  requestCount: number,
-  messages: ReturnType<typeof useLocale>["messages"],
-): string {
-  if (!healthStatus || requestCount <= 0) {
-    return messages.dashboard.routingLegendNoData;
-  }
-
-  if (healthStatus === "healthy") {
-    return messages.modelDetail.healthHealthy;
-  }
-
-  if (healthStatus === "unknown") {
-    return messages.modelDetail.healthUnknown;
-  }
-
-  return messages.modelDetail.healthUnhealthy;
 }
 
 function TooltipRow({ label, value }: { label: string; value: string }) {

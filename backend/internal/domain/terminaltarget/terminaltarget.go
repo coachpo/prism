@@ -34,29 +34,28 @@ type RuntimePricingTemplateSnapshot struct {
 }
 
 type Record struct {
-	ID                         int
-	ProfileID                  int
-	OwnerModelConfigID         *int
-	APIFamily                  string
-	EndpointID                 int
-	Endpoint                   *Endpoint
-	IsActive                   bool
-	Priority                   int
-	Name                       *string
-	AuthType                   *string
-	CustomHeaders              map[string]string
-	OpenAIProbeEndpointVariant *string
-	OpenAITextCapability       *string
-	PricingTemplateID          *int
-	QPSLimit                   *int
-	MaxInFlightNonStream       *int
-	MaxInFlightStream          *int
-	PricingTemplate            *PricingTemplateSummary
-	HealthStatus               string
-	HealthDetail               *string
-	LastHealthAt               *time.Time
-	CreatedAt                  time.Time
-	UpdatedAt                  time.Time
+	ID                   int
+	ProfileID            int
+	OwnerModelConfigID   *int
+	APIFamily            string
+	EndpointID           int
+	Endpoint             *Endpoint
+	IsActive             bool
+	Priority             int
+	Name                 *string
+	AuthType             *string
+	CustomHeaders        map[string]string
+	OpenAITextCapability *string
+	PricingTemplateID    *int
+	QPSLimit             *int
+	MaxInFlightNonStream *int
+	MaxInFlightStream    *int
+	PricingTemplate      *PricingTemplateSummary
+	HealthStatus         string
+	HealthDetail         *string
+	LastHealthAt         *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type RuntimeEndpoint struct {
@@ -67,20 +66,19 @@ type RuntimeEndpoint struct {
 }
 
 type RuntimeRecord struct {
-	ID                         int
-	ProfileID                  int
-	APIFamily                  string
-	EndpointID                 int
-	Priority                   int
-	QPSLimit                   *int
-	MaxInFlightNonStream       *int
-	MaxInFlightStream          *int
-	Name                       *string
-	AuthType                   *string
-	CustomHeaders              map[string]any
-	PricingTemplateID          *int
-	PricingTemplate            *RuntimePricingTemplateSnapshot
-	OpenAIProbeEndpointVariant *string
-	OpenAITextCapability       *string
-	Endpoint                   RuntimeEndpoint
+	ID                   int
+	ProfileID            int
+	APIFamily            string
+	EndpointID           int
+	Priority             int
+	QPSLimit             *int
+	MaxInFlightNonStream *int
+	MaxInFlightStream    *int
+	Name                 *string
+	AuthType             *string
+	CustomHeaders        map[string]any
+	PricingTemplateID    *int
+	PricingTemplate      *RuntimePricingTemplateSnapshot
+	OpenAITextCapability *string
+	Endpoint             RuntimeEndpoint
 }

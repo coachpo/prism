@@ -978,7 +978,6 @@ Response `200`:
         "connection_id": 1,
         "endpoint_id": 12,
         "active": false,
-        "health_status": "healthy",
         "recent_request_count": 2,
         "recent_success_rate": 100,
         "last_request_at": "2026-04-19T11:55:00Z"

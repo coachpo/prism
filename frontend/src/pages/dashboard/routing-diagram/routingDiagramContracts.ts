@@ -20,7 +20,6 @@ export interface RoutingDiagramNode {
   terminalTargetId: number | null;
   endpointId: number | null;
   active: boolean | null;
-  healthStatus: string | null;
   activeTerminalTargetCount: number;
   requestCount24h: number;
   successCount24h: number;

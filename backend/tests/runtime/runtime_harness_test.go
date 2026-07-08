@@ -67,15 +67,14 @@ type seededRuntimeRoute struct {
 }
 
 type runtimeRouteSeed struct {
-	ProfileID                  int
-	APIFamily                  string
-	PublicModelID              string
-	TargetModelID              string
-	EndpointBaseURL            string
-	EndpointAPIKey             string
-	CustomHeaders              map[string]any
-	OpenAIProbeEndpointVariant *string
-	OpenAITextCapability       *string
+	ProfileID            int
+	APIFamily            string
+	PublicModelID        string
+	TargetModelID        string
+	EndpointBaseURL      string
+	EndpointAPIKey       string
+	CustomHeaders        map[string]any
+	OpenAITextCapability *string
 }
 
 type runtimeStateSeed struct {
@@ -701,7 +700,7 @@ func (h *runtimeHarness) seedProxyRoute(tb testing.TB, seed runtimeRouteSeed) se
 	publicModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.PublicModelID, "proxy", &strategyID)
 	h.seedProxyTarget(tb, publicModelConfigID, targetModelConfigID)
 	endpointID := h.seedEndpoint(tb, seed.ProfileID, "endpoint-"+randomSuffix(), seed.EndpointBaseURL, seed.EndpointAPIKey, 0)
-	connectionID := h.seedConnectionWithOpenAIProbeVariantAndTextCapability(tb, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0, seed.OpenAIProbeEndpointVariant, seed.OpenAITextCapability)
+	connectionID := h.seedConnectionWithOpenAITextCapability(tb, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0, seed.OpenAITextCapability)
 	releaseRefresh()
 	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{seed.ProfileID}})
 	return seededRuntimeRoute{
@@ -842,22 +841,14 @@ func (h *runtimeHarness) seedEndpoint(tb testing.TB, profileID int, name string,
 }
 
 func (h *runtimeHarness) seedConnection(tb testing.TB, profileID int, modelConfigID int, endpointID int, name string, authType *string, customHeaders map[string]any, priority int) int {
-	return h.seedConnectionWithOpenAIProbeVariantAndTextCapability(tb, profileID, modelConfigID, endpointID, name, authType, customHeaders, priority, defaultRuntimeHarnessOpenAIProbeEndpointVariant(), defaultRuntimeHarnessOpenAITextCapability())
-}
-
-func defaultRuntimeHarnessOpenAIProbeEndpointVariant() *string {
-	return nil
+	return h.seedConnectionWithOpenAITextCapability(tb, profileID, modelConfigID, endpointID, name, authType, customHeaders, priority, defaultRuntimeHarnessOpenAITextCapability())
 }
 
 func defaultRuntimeHarnessOpenAITextCapability() *string {
 	return runtimeStringPtr("dual_native")
 }
 
-func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariant(tb testing.TB, profileID int, modelConfigID int, endpointID int, name string, authType *string, customHeaders map[string]any, priority int, openAIProbeEndpointVariant *string) int {
-	return h.seedConnectionWithOpenAIProbeVariantAndTextCapability(tb, profileID, modelConfigID, endpointID, name, authType, customHeaders, priority, openAIProbeEndpointVariant, defaultRuntimeHarnessOpenAITextCapability())
-}
-
-func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariantAndTextCapability(tb testing.TB, profileID int, modelConfigID int, endpointID int, name string, authType *string, customHeaders map[string]any, priority int, openAIProbeEndpointVariant *string, openAITextCapability *string) int {
+func (h *runtimeHarness) seedConnectionWithOpenAITextCapability(tb testing.TB, profileID int, modelConfigID int, endpointID int, name string, authType *string, customHeaders map[string]any, priority int, openAITextCapability *string) int {
 	tb.Helper()
 	if openAITextCapability == nil {
 		openAITextCapability = defaultRuntimeHarnessOpenAITextCapability()
@@ -874,7 +865,6 @@ func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariantAndTextCapability(t
 			qps_limit,
 			max_in_flight_non_stream,
 			max_in_flight_stream,
-			openai_probe_endpoint_variant,
 			openai_text_capability,
 			is_active,
 			priority,
@@ -886,7 +876,7 @@ func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariantAndTextCapability(t
 			last_health_check,
 			created_at,
 			updated_at
-		) SELECT $1, model_configs.api_family, $3, NULL, NULL, NULL, NULL, CASE WHEN model_configs.api_family = 'openai' THEN $8 ELSE NULL END, CASE WHEN model_configs.api_family = 'openai' THEN $9 ELSE NULL END, TRUE, $4, $5, $6, $7, 'healthy', NULL, NULL, $10, $10
+		) SELECT $1, model_configs.api_family, $3, NULL, NULL, NULL, NULL, CASE WHEN model_configs.api_family = 'openai' THEN $8 ELSE NULL END, TRUE, $4, $5, $6, $7, 'healthy', NULL, NULL, $9, $9
 		FROM model_configs WHERE model_configs.id = $2
 		RETURNING id`,
 		profileID,
@@ -896,7 +886,6 @@ func (h *runtimeHarness) seedConnectionWithOpenAIProbeVariantAndTextCapability(t
 		name,
 		nullableTestString(authType),
 		marshalNullableJSON(tb, customHeaders),
-		nullableTestString(openAIProbeEndpointVariant),
 		nullableTestString(openAITextCapability),
 		now,
 	).Scan(&connectionID); err != nil {

@@ -622,7 +622,6 @@ export interface DashboardTopologyNode {
   connection_id?: number | null;
   endpoint_id?: number | null;
   active?: boolean | null;
-  health_status?: string | null;
   recent_request_count?: number | null;
   recent_success_rate?: number | null;
   last_request_at?: string | null;

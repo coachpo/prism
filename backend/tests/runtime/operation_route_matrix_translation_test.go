@@ -15,7 +15,6 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 		requestPath           string
 		requestBody           func(seededRuntimeRoute) map[string]any
 		upstreamResponse      string
-		probeVariant          string
 		textCapability        string
 		wantUpstreamPath      string
 		wantOperationName     string
@@ -29,7 +28,6 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "native chat ingress"}}, "max_completion_tokens": 64}
 			},
 			upstreamResponse:      `{"id":"chatcmpl_native_chat","object":"chat.completion","created":1700000001,"model":"chat-only-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"native chat ingress"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
-			probeVariant:          "chat_completions_reasoning_none",
 			textCapability:        "chat_completions_only",
 			wantUpstreamPath:      "/v1/chat/completions",
 			wantOperationName:     "openai.chat_completions",
@@ -43,7 +41,6 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 				return map[string]any{"model": route.PublicModelID, "input": "translated responses ingress", "include": []string{"file_search_call.results"}, "text": map[string]any{"format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "answer", "schema": map[string]any{"type": "object"}}}, "verbosity": "low"}, "reasoning": map[string]any{"effort": "medium", "encrypted_content": "opaque"}, "max_output_tokens": 64}
 			},
 			upstreamResponse:      `{"id":"chatcmpl_translated_responses","object":"chat.completion","created":1700000002,"model":"chat-only-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"translated responses ingress"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
-			probeVariant:          "chat_completions_reasoning_none",
 			textCapability:        "chat_completions_only",
 			wantUpstreamPath:      "/v1/chat/completions",
 			wantOperationName:     "openai.responses",
@@ -57,7 +54,6 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "translated chat ingress"}}, "max_completion_tokens": 64}
 			},
 			upstreamResponse:      `{"id":"resp_translated_chat","object":"response","created_at":1700000003,"model":"responses-only-upstream","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"translated chat ingress"}]}],"usage":{"input_tokens":5,"output_tokens":7,"total_tokens":12}}`,
-			probeVariant:          "responses_reasoning_none",
 			textCapability:        "responses_only",
 			wantUpstreamPath:      "/v1/responses",
 			wantOperationName:     "openai.chat_completions",
@@ -71,7 +67,6 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 				return map[string]any{"model": route.PublicModelID, "input": "native responses ingress", "max_output_tokens": 64}
 			},
 			upstreamResponse:      `{"id":"resp_native_responses","object":"response","created_at":1700000004,"model":"responses-only-upstream","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"native responses ingress"}]}],"usage":{"input_tokens":5,"output_tokens":7,"total_tokens":12}}`,
-			probeVariant:          "responses_reasoning_none",
 			textCapability:        "responses_only",
 			wantUpstreamPath:      "/v1/responses",
 			wantOperationName:     "openai.responses",
@@ -85,7 +80,6 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "dual native chat ingress"}}, "max_completion_tokens": 64}
 			},
 			upstreamResponse:      `{"id":"chatcmpl_dual_native_chat","object":"chat.completion","created":1700000005,"model":"dual-native-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"dual native chat ingress"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
-			probeVariant:          "responses_reasoning_none",
 			textCapability:        "dual_native",
 			wantUpstreamPath:      "/v1/chat/completions",
 			wantOperationName:     "openai.chat_completions",
@@ -99,7 +93,6 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 				return map[string]any{"model": route.PublicModelID, "input": "dual native responses ingress", "max_output_tokens": 64}
 			},
 			upstreamResponse:      `{"id":"resp_dual_native_responses","object":"response","created_at":1700000006,"model":"dual-native-upstream","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"dual native responses ingress"}]}],"usage":{"input_tokens":5,"output_tokens":7,"total_tokens":12}}`,
-			probeVariant:          "chat_completions_reasoning_none",
 			textCapability:        "dual_native",
 			wantUpstreamPath:      "/v1/responses",
 			wantOperationName:     "openai.responses",
@@ -114,7 +107,7 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			profileID := harness.activeProfileID(t)
 			upstream := newTranslatedRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
 			endpointAPIKey := "route-matrix-capability-key-" + routeMatrixSlug(test.name)
-			route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "route-matrix-capability-public", "route-matrix-capability-target", upstream.baseURL(""), endpointAPIKey, test.probeVariant, test.textCapability)
+			route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "route-matrix-capability-public", "route-matrix-capability-target", upstream.baseURL(""), endpointAPIKey, test.textCapability)
 
 			response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)
 			assertStatus(t, response, http.StatusOK)
@@ -167,16 +160,14 @@ func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
 				profileID := harness.activeProfileID(t)
 				upstream := newTranslatedRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
 				endpointAPIKey := "route-matrix-adjunct-key-" + routeMatrixSlug(test.name) + "-" + capability
-				probeVariant := "responses_reasoning_none"
 				route := harness.seedProxyRoute(t, runtimeRouteSeed{
-					ProfileID:                  profileID,
-					APIFamily:                  "openai",
-					PublicModelID:              "route-matrix-adjunct-public-" + routeMatrixSlug(test.name),
-					TargetModelID:              "route-matrix-adjunct-target-" + routeMatrixSlug(test.name),
-					EndpointBaseURL:            upstream.baseURL(""),
-					EndpointAPIKey:             endpointAPIKey,
-					OpenAIProbeEndpointVariant: &probeVariant,
-					OpenAITextCapability:       runtimeStringPtr(capability),
+					ProfileID:            profileID,
+					APIFamily:            "openai",
+					PublicModelID:        "route-matrix-adjunct-public-" + routeMatrixSlug(test.name),
+					TargetModelID:        "route-matrix-adjunct-target-" + routeMatrixSlug(test.name),
+					EndpointBaseURL:      upstream.baseURL(""),
+					EndpointAPIKey:       endpointAPIKey,
+					OpenAITextCapability: runtimeStringPtr(capability),
 				})
 
 				response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)
@@ -198,16 +189,14 @@ func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
 			harness := newRuntimeHarness(t)
 			profileID := harness.activeProfileID(t)
 			upstream := newTranslatedRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
-			probeVariant := "chat_completions_reasoning_none"
 			route := harness.seedProxyRoute(t, runtimeRouteSeed{
-				ProfileID:                  profileID,
-				APIFamily:                  "openai",
-				PublicModelID:              "route-matrix-adjunct-chat-only-public-" + routeMatrixSlug(test.name),
-				TargetModelID:              "route-matrix-adjunct-chat-only-target-" + routeMatrixSlug(test.name),
-				EndpointBaseURL:            upstream.baseURL(""),
-				EndpointAPIKey:             "route-matrix-adjunct-chat-only-key",
-				OpenAIProbeEndpointVariant: &probeVariant,
-				OpenAITextCapability:       runtimeStringPtr("chat_completions_only"),
+				ProfileID:            profileID,
+				APIFamily:            "openai",
+				PublicModelID:        "route-matrix-adjunct-chat-only-public-" + routeMatrixSlug(test.name),
+				TargetModelID:        "route-matrix-adjunct-chat-only-target-" + routeMatrixSlug(test.name),
+				EndpointBaseURL:      upstream.baseURL(""),
+				EndpointAPIKey:       "route-matrix-adjunct-chat-only-key",
+				OpenAITextCapability: runtimeStringPtr("chat_completions_only"),
 			})
 
 			response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)

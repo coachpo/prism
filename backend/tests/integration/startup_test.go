@@ -1189,7 +1189,6 @@ func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed co
 			qps_limit,
 			max_in_flight_non_stream,
 			max_in_flight_stream,
-			openai_probe_endpoint_variant,
 			openai_text_capability,
 			is_active,
 			priority,
@@ -1201,7 +1200,7 @@ func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed co
 			last_health_check,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $8, TRUE, $4, $5, NULL, NULL, 'healthy', NULL, NULL, $6, $7)
+		) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, $8, TRUE, $4, $5, NULL, NULL, 'healthy', NULL, NULL, $6, $7)
 		RETURNING id`,
 		seed.ProfileID,
 		apiFamily,

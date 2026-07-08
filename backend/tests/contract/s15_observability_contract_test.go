@@ -524,8 +524,11 @@ func TestObservabilityDashboardTopologyGraphIncludesDisabledAndInactiveNodes(t *
 		t.Fatalf("expected disabled model node semantics, got %+v", disabledNode)
 	}
 	terminalNode := nodesByID[fmt.Sprintf("terminal-target-%d", terminalTargetID)]
-	if terminalNode == nil || terminalNode["kind"] != "connection" || terminalNode["product_kind"] != "terminal_target" || terminalNode["status"] != "inactive" || terminalNode["active"] != false || jsonInt(t, terminalNode["terminal_target_id"]) != terminalTargetID || jsonInt(t, terminalNode["connection_id"]) != terminalTargetID || terminalNode["health_status"] != "healthy" || jsonInt(t, terminalNode["recent_request_count"]) != 2 || terminalNode["last_request_at"] == nil {
+	if terminalNode == nil || terminalNode["kind"] != "connection" || terminalNode["product_kind"] != "terminal_target" || terminalNode["status"] != "inactive" || terminalNode["active"] != false || jsonInt(t, terminalNode["terminal_target_id"]) != terminalTargetID || jsonInt(t, terminalNode["connection_id"]) != terminalTargetID || jsonInt(t, terminalNode["recent_request_count"]) != 2 || terminalNode["last_request_at"] == nil {
 		t.Fatalf("expected inactive terminal target node semantics, got %+v", terminalNode)
+	}
+	if _, ok := terminalNode["health_status"]; ok {
+		t.Fatalf("topology terminal target must not expose probe-era health_status, got %+v", terminalNode)
 	}
 	if math.Abs(terminalNode["recent_success_rate"].(float64)-50) > 0.001 {
 		t.Fatalf("expected backend-derived terminal target success rate, got %+v", terminalNode)

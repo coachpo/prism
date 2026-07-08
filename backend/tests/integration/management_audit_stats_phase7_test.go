@@ -859,7 +859,7 @@ func TestManagementAuditStatsTopologyGraphDistinguishesTerminalRouteAndEndpointB
 		t.Fatalf("insert topology endpoint: %v", err)
 	}
 	var terminalTargetID int
-	if err := conn.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, NULL, 'chat_completions_only', FALSE, 0, 'Phase 7 Terminal Target', NULL, NULL, 'unhealthy', 'probe failure', $3, $4, $4) RETURNING id`, profileID, endpointID, now.Add(-5*time.Minute), now).Scan(&terminalTargetID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, 'chat_completions_only', FALSE, 0, 'Phase 7 Terminal Target', NULL, NULL, 'unhealthy', 'probe failure', $3, $4, $4) RETURNING id`, profileID, endpointID, now.Add(-5*time.Minute), now).Scan(&terminalTargetID); err != nil {
 		t.Fatalf("insert topology terminal target: %v", err)
 	}
 	var modelToModelEdgeID int
@@ -928,8 +928,11 @@ func TestManagementAuditStatsTopologyGraphDistinguishesTerminalRouteAndEndpointB
 	if disabledNode == nil || disabledNode["status"] != "disabled" {
 		t.Fatalf("expected disabled model node in topology graph, got %+v", topologyGraph["nodes"])
 	}
-	if terminalNode == nil || terminalNode["kind"] != "connection" || terminalNode["product_kind"] != "terminal_target" || terminalNode["active"] != false || terminalNode["health_status"] != "unhealthy" || terminalNode["recent_request_count"] != float64(2) || terminalNode["recent_success_rate"] != float64(50) || terminalNode["last_request_at"] == nil {
+	if terminalNode == nil || terminalNode["kind"] != "connection" || terminalNode["product_kind"] != "terminal_target" || terminalNode["active"] != false || terminalNode["recent_request_count"] != float64(2) || terminalNode["recent_success_rate"] != float64(50) || terminalNode["last_request_at"] == nil {
 		t.Fatalf("expected backend-derived inactive terminal-target telemetry, got %+v", terminalNode)
+	}
+	if _, ok := terminalNode["health_status"]; ok {
+		t.Fatalf("topology terminal target must not expose probe-era health_status, got %+v", terminalNode)
 	}
 	var modelToModelEdge map[string]any
 	var modelToTerminalEdge map[string]any
@@ -1543,7 +1546,7 @@ func phase7InsertDashboardRoutingTarget(t *testing.T, ctx context.Context, exec 
 		t.Fatalf("insert dashboard routing endpoint: %v", err)
 	}
 	var connectionID int
-	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, NULL, 'dual_native', TRUE, 0, $3, NULL, NULL, 'healthy', NULL, NULL, $4, $4) RETURNING id`, profileID, endpointID, "Phase 7 "+suffix+" Connection", now).Scan(&connectionID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, 'dual_native', TRUE, 0, $3, NULL, NULL, 'healthy', NULL, NULL, $4, $4) RETURNING id`, profileID, endpointID, "Phase 7 "+suffix+" Connection", now).Scan(&connectionID); err != nil {
 		t.Fatalf("insert dashboard routing connection: %v", err)
 	}
 	if _, err := exec.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4)`, profileID, modelConfigID, connectionID, now); err != nil {

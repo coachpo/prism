@@ -356,8 +356,7 @@ func newResponsesToolsStreamServiceForModel(client *http.Client, modelID string)
 	model := snapshot.ModelsByID[modelID]
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_891, 9_891, 0, requestPlanConnectionTargetOptions{
-		openAIProbeEndpointVariant: stringPtr("chat_completions_reasoning_none"),
-		openAITextCapability:       stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+		openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
 	})
 	connection := snapshot.TerminalTargetsByID[2_891]
 	connection.Endpoint.BaseURL = "https://upstream.example"

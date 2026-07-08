@@ -819,7 +819,7 @@ func task9InsertRuntimeConnection(t *testing.T, ctx context.Context, exec task9Q
 		t.Fatalf("load task9 runtime model api family: %v", err)
 	}
 	var connectionID int
-	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, $6, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now, openAITextCapabilityForTask9APIFamily(apiFamily)).Scan(&connectionID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, $6, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now, openAITextCapabilityForTask9APIFamily(apiFamily)).Scan(&connectionID); err != nil {
 		t.Fatalf("insert task9 runtime connection: %v", err)
 	}
 	if err := exec.QueryRow(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4) RETURNING id`, profileID, modelConfigID, connectionID, now).Scan(new(int)); err != nil {
