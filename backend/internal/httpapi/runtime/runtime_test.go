@@ -1315,8 +1315,6 @@ func TestNonStreamOperationsCannotUseSSEHooks(t *testing.T) {
 		name        string
 		requestPath string
 	}{
-		{name: "openai image generations", requestPath: "/v1/images/generations"},
-		{name: "openai image edits", requestPath: "/v1/images/edits"},
 		{name: "anthropic count tokens", requestPath: "/v1/messages/count_tokens"},
 		{name: "gemini generate content", requestPath: "/v1beta/models/gemini-2.5-pro:generateContent"},
 		{name: "gemini count tokens", requestPath: "/v1beta/models/gemini-2.5-pro:countTokens"},

@@ -26,7 +26,6 @@ func TestProviderAdaptersExposeCurrentBehavior(t *testing.T) {
 		operation        provider.Operation
 		wantResponseKind string
 		wantStream       bool
-		wantMedia        bool
 	}{
 		{
 			name:             "openai chat completions",
@@ -46,13 +45,6 @@ func TestProviderAdaptersExposeCurrentBehavior(t *testing.T) {
 			adapter:          openai.New(),
 			operation:        provider.Operation{Name: openai.OperationResponsesCompact},
 			wantResponseKind: "text_generation",
-		},
-		{
-			name:             "openai image edit",
-			adapter:          openai.New(),
-			operation:        provider.Operation{Name: "openai.images.edits"},
-			wantResponseKind: "media",
-			wantMedia:        true,
 		},
 		{
 			name:             "anthropic messages",
@@ -92,9 +84,6 @@ func TestProviderAdaptersExposeCurrentBehavior(t *testing.T) {
 			}
 			if behavior.HasStream != test.wantStream {
 				t.Fatalf("expected stream behavior %v, got %+v", test.wantStream, behavior)
-			}
-			if behavior.HasMedia != test.wantMedia {
-				t.Fatalf("expected media behavior %v, got %+v", test.wantMedia, behavior)
 			}
 		})
 	}

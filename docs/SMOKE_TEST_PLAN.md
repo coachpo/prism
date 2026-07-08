@@ -129,8 +129,6 @@ Prepare seed state through API (not manual DB edits):
 | `POST /v1/responses` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/responses/input_tokens` | C16, E08, L08-L10, M11-M13 |
 | `POST /v1/responses/compact` | C17, E08, L08-L10, M11-M13 |
-| `POST /v1/images/generations` | C18, M11-M13 |
-| `POST /v1/images/edits` | C19, M11-M13 |
 | `POST /v1/messages` | C02, C04, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/messages/count_tokens` | C20, E08, L08-L10, M11-M13 |
 | `POST /v1beta/models/{model}:generateContent` | C03, E08, L08-L10, M11-M13 |
@@ -258,8 +256,6 @@ Prepare seed state through API (not manual DB edits):
 | C15 | P0 | OpenAI local models list | `GET /v1/models` returns an OpenAI-shaped list of enabled OpenAI models for frozen Default profile id `1` without contacting upstream |
 | C16 | P0 | OpenAI Responses input-token operation | `POST /v1/responses/input_tokens` is allowlisted, routes only to responses-capable targets, and persists token-count usage |
 | C17 | P0 | OpenAI Responses compact operation | `POST /v1/responses/compact` is allowlisted, routes only to responses-capable targets, and extracts Responses usage |
-| C18 | P1 | OpenAI image generation operation | `POST /v1/images/generations` forwards the media operation without estimating token usage |
-| C19 | P1 | OpenAI image edit operation | `POST /v1/images/edits` supports JSON and multipart model binding and forwards without estimating token usage |
 | C20 | P0 | Anthropic token-count operation | `POST /v1/messages/count_tokens` is allowlisted and persists top-level `input_tokens` as token-count usage |
 | C21 | P0 | Gemini stream generate operation | `POST /v1beta/models/{model}:streamGenerateContent` is streaming by route even without `stream: true` in the body |
 | C22 | P0 | Gemini count tokens operation | `POST /v1beta/models/{model}:countTokens` is allowlisted and persists top-level token-count usage |

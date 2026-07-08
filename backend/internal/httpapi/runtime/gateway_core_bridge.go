@@ -39,10 +39,6 @@ func gatewayCoreOperationDescriptor(operation RuntimeOperation) gatewaycore.Oper
 func gatewayCoreEndpointShape(operation RuntimeOperation) gatewaycore.EndpointShape {
 	operationName := strings.TrimSpace(operation.Name)
 	switch {
-	case operationName == "openai.images.generations":
-		return gatewaycore.EndpointShapeImageGeneration
-	case operationName == "openai.images.edits":
-		return gatewaycore.EndpointShapeImageEdit
 	case strings.Contains(operationName, "count_tokens") || strings.Contains(operationName, "input_tokens"):
 		return gatewaycore.EndpointShapeTokenCount
 	default:

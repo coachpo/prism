@@ -808,9 +808,6 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 	if upstreamRequest, ok, err := buildOpenAITextPlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
 		return upstreamRequest, err
 	}
-	if upstreamRequest, ok, err := buildOpenAIImagePlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
-		return upstreamRequest, err
-	}
 	if upstreamRequest, ok, err := buildAnthropicPlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
 		return upstreamRequest, err
 	}
@@ -829,8 +826,8 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 				effectiveRequestPath = rewriteModelInPath(input.Request.URL.Path, pathModelID, attempt.TargetModel.ModelID)
 			}
 		case RuntimeOperationModelBindingBody:
-			if bodyModelID := extractModelFromBodyForOperation(input.RawBody, operation.ContentType, operation.Match.Operation); bodyModelID != "" && bodyModelID != attempt.TargetModel.ModelID {
-				upstreamBody = rewriteModelInBodyForOperation(input.RawBody, operation.ContentType, operation.Match.Operation, attempt.TargetModel.ModelID)
+			if bodyModelID := extractModelFromBody(input.RawBody); bodyModelID != "" && bodyModelID != attempt.TargetModel.ModelID {
+				upstreamBody = rewriteModelInBody(input.RawBody, attempt.TargetModel.ModelID)
 			}
 		default:
 			return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
@@ -1739,7 +1736,7 @@ func validateResolvedRuntimeOperation(operationMatch RuntimeOperationMatch, requ
 func resolveModelIDForOperation(rawBody []byte, contentType string, operationMatch RuntimeOperationMatch) (string, error) {
 	switch operationMatch.Operation.ModelBindingSource {
 	case RuntimeOperationModelBindingBody:
-		if modelID := extractModelFromBodyForOperation(rawBody, contentType, operationMatch.Operation); modelID != "" {
+		if modelID := extractModelFromBody(rawBody); modelID != "" {
 			return modelID, nil
 		}
 	case RuntimeOperationModelBindingPath:

@@ -699,8 +699,6 @@ Runtime proxy routes ignore management `X-Profile-Id` overrides and always resol
 | OpenAI Responses | `openai.responses` | `POST /v1/responses` |
 | OpenAI Responses input tokens | `openai.responses.input_tokens` | `POST /v1/responses/input_tokens` |
 | OpenAI Responses compact | `openai.responses.compact` | `POST /v1/responses/compact` |
-| OpenAI image generations | `openai.images.generations` | `POST /v1/images/generations` |
-| OpenAI image edits | `openai.images.edits` | `POST /v1/images/edits` |
 | Anthropic Messages | `anthropic.messages` | `POST /v1/messages` |
 | Anthropic token count | `anthropic.count_tokens` | `POST /v1/messages/count_tokens` |
 | Gemini generate content | `gemini.generate_content` | `POST /v1beta/models/{model}:generateContent` |
@@ -815,20 +813,6 @@ POST /v1/responses/compact
 Request uses the OpenAI Responses compaction format, including body-bound `model` and `input`.
 Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses.compact`.
 
-#### Image Generations
-```
-POST /v1/images/generations
-```
-Request uses the upstream OpenAI-compatible image generation body, including body-bound `model`.
-Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.images.generations`.
-
-#### Image Edits
-```
-POST /v1/images/edits
-```
-Request uses the upstream OpenAI-compatible image edit body, including body-bound `model`. JSON and multipart request bodies are supported for model binding and forwarding.
-Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.images.edits`.
-
 ### 2.4 Anthropic Operations
 
 #### Messages
@@ -906,7 +890,6 @@ The gateway extracts token usage from upstream responses and logs canonical disj
 | `anthropic.count_tokens` | `{"input_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
 | `gemini.generate_content`, `gemini.stream_generate_content` when handled as non-stream JSON | `{"usageMetadata": {"promptTokenCount": N, "cachedContentTokenCount": N, "candidatesTokenCount": N, "thoughtsTokenCount": N, "totalTokenCount": N}}` | Base input subtracts cache-read input; base output subtracts reasoning output; provider `totalTokenCount` stays authoritative |
 | `gemini.count_tokens` | `{"totalTokens": N}` or `{"total_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
-| `openai.images.generations`, `openai.images.edits` | Media response bodies | Token fields remain `null`; media hooks copy the upstream response without estimating tokens |
 
 **Streaming responses:**
 The gateway accumulates SSE chunks during streaming and extracts usage from operation-specific terminal events:

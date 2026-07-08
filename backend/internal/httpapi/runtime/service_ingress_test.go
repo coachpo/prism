@@ -160,7 +160,6 @@ func TestHandleStreamingProxyRejectsOversizedRuntimeBodiesBeforePlanning(t *test
 		{name: "OpenAI chat completions JSON", path: "/v1/chat/completions", contentType: "application/json", limitBytes: bodylimits.RuntimeJSONRequestBodyLimitBytes},
 		{name: "OpenAI responses JSON", path: "/v1/responses", contentType: "application/json", limitBytes: bodylimits.RuntimeJSONRequestBodyLimitBytes},
 		{name: "Gemini generateContent JSON", path: "/v1beta/models/gemini-2.5-pro:generateContent", contentType: "application/json", limitBytes: bodylimits.RuntimeJSONRequestBodyLimitBytes},
-		{name: "OpenAI image edits multipart", path: "/v1/images/edits", contentType: "multipart/form-data; boundary=oversized", limitBytes: bodylimits.RuntimeMediaRequestBodyLimitBytes},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

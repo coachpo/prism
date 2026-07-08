@@ -429,16 +429,8 @@ func readBufferedRequestBody(body io.Reader) ([]byte, error) {
 	return rawBody, nil
 }
 
-func runtimeRequestBodyLimitBytes(operation RuntimeOperation, contentType string) int64 {
-	if runtimeOperationUsesMediaLimit(operation, contentType) {
-		return bodylimits.RuntimeMediaRequestBodyLimitBytes
-	}
+func runtimeRequestBodyLimitBytes(RuntimeOperation, string) int64 {
 	return bodylimits.RuntimeJSONRequestBodyLimitBytes
-}
-
-func runtimeOperationUsesMediaLimit(operation RuntimeOperation, contentType string) bool {
-	hooks, ok := mediaHooksForOperation(operation)
-	return ok && hooks.RequestKind == operationMediaRequestKindImageEdit && multipartBoundary(contentType) != ""
 }
 
 func limitRuntimeRequestBody(w http.ResponseWriter, r *http.Request, limitBytes int64) bool {

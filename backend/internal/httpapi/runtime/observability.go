@@ -1474,7 +1474,7 @@ func buildRuntimeAuditLogRows(plan requestPlan, request *http.Request, telemetry
 }
 
 func buildRuntimeAuditLogRow(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext, attempt runtimeTelemetryAttemptContext) auditLogInsert {
-	requestBody := runtimeCapturedAuditRequestBodyForOperation(plan.RuntimeOperation, request.Header.Get("Content-Type"), attempt.attempt.AuditCaptureBodiesAtRequest, attempt.attempt.RequestBody)
+	requestBody := runtimeCapturedAuditBody(attempt.attempt.AuditCaptureBodiesAtRequest, attempt.attempt.RequestBody)
 	auditLog := auditLogInsert{
 		RequestLogAttemptNumber:     attempt.attemptNumber,
 		ProfileID:                   plan.ProfileID,
@@ -1754,18 +1754,6 @@ func runtimeCapturedAuditBody(enabled bool, body []byte) *string {
 		return nil
 	}
 	resolved := string(body)
-	return &resolved
-}
-
-func runtimeCapturedAuditRequestBodyForOperation(operation RuntimeOperation, contentType string, enabled bool, body []byte) *string {
-	if !enabled || len(body) == 0 {
-		return nil
-	}
-	resolvedBody := auditRequestBodyForOperation(body, contentType, operation)
-	if len(resolvedBody) == 0 {
-		return nil
-	}
-	resolved := string(resolvedBody)
 	return &resolved
 }
 

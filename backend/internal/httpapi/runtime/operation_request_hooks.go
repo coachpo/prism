@@ -29,14 +29,6 @@ var operationRequestHooksByCollectionID = map[string]operationRequestHooks{
 		Provider:           "openai",
 		RequestWantsStream: neverStreamRequest,
 	},
-	runtimeHookCollectionOpenAIImagesGeneration: {
-		Provider:           "openai",
-		RequestWantsStream: neverStreamRequest,
-	},
-	runtimeHookCollectionOpenAIImagesEdit: {
-		Provider:           "openai",
-		RequestWantsStream: neverStreamRequest,
-	},
 	"anthropic.messages": {
 		Provider:                        "anthropic",
 		ExtractBufferedGenerationParams: extractAnthropicGenerationParams,

@@ -18,8 +18,6 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 		wantGenerationStatus           string
 		wantResponseKind               operationResponseKind
 		wantUsageRule                  runtimeUsageNormalizationRule
-		wantMediaHooks                 bool
-		wantMediaKind                  operationMediaRequestKind
 		wantStreamHooks                bool
 	}{
 		{
@@ -68,30 +66,6 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 			wantGenerationStatus: requestGenerationParamsStatusMissing,
 			wantResponseKind:     operationResponseKindTextGeneration,
 			wantUsageRule:        runtimeUsageRuleOpenAIResponses,
-		},
-		{
-			name:                 "openai image generations media",
-			requestPath:          "/v1/images/generations",
-			hookCollectionID:     runtimeHookCollectionOpenAIImagesGeneration,
-			provider:             "openai",
-			rawBody:              []byte(`{"model":"gpt-image-1","prompt":"hidden","temperature":0.7,"stream":true}`),
-			wantRequestStream:    false,
-			wantGenerationStatus: requestGenerationParamsStatusMissing,
-			wantResponseKind:     operationResponseKindMedia,
-			wantMediaHooks:       true,
-			wantMediaKind:        operationMediaRequestKindImageGeneration,
-		},
-		{
-			name:                 "openai image edits media",
-			requestPath:          "/v1/images/edits",
-			hookCollectionID:     runtimeHookCollectionOpenAIImagesEdit,
-			provider:             "openai",
-			rawBody:              []byte(`{"model":"gpt-image-1","prompt":"hidden","temperature":0.7,"stream":true}`),
-			wantRequestStream:    false,
-			wantGenerationStatus: requestGenerationParamsStatusMissing,
-			wantResponseKind:     operationResponseKindMedia,
-			wantMediaHooks:       true,
-			wantMediaKind:        operationMediaRequestKindImageEdit,
 		},
 		{
 			name:                           "anthropic messages text generation",
@@ -162,7 +136,6 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 			assertResolvedHookCollection(t, operation, test.hookCollectionID)
 			assertRequestHookResidency(t, operation, test.provider, test.rawBody, test.requestPath, test.wantRequestGenerationExtractor, test.wantStreamingObserver, test.wantRequestStream, test.wantGenerationStatus)
 			assertResponseHookResidency(t, operation, test.provider, test.wantResponseKind, test.wantUsageRule)
-			assertMediaHookResidency(t, operation, test.provider, test.wantMediaHooks, test.wantMediaKind)
 			assertStreamHookResidency(t, operation, test.provider, test.wantRequestStream, test.wantStreamHooks, test.wantUsageRule)
 		})
 	}
@@ -227,23 +200,6 @@ func assertResponseHookResidency(t *testing.T, operation RuntimeOperation, provi
 		}
 	} else if hooks.UsageRule.configured() {
 		t.Fatalf("expected %s response hooks to keep usage normalization outside generation seam, got %+v", operation.Name, hooks.UsageRule)
-	}
-}
-
-func assertMediaHookResidency(t *testing.T, operation RuntimeOperation, provider string, wantMedia bool, wantKind operationMediaRequestKind) {
-	t.Helper()
-	hooks, ok := mediaHooksForOperation(operation)
-	if ok != wantMedia {
-		t.Fatalf("expected media hooks=%v for %s, got %v", wantMedia, operation.Name, ok)
-	}
-	if !wantMedia {
-		return
-	}
-	if hooks.Provider != provider || hooks.RequestKind != wantKind {
-		t.Fatalf("expected %s/%s media hooks for %s, got %+v", provider, wantKind, operation.Name, hooks)
-	}
-	if hooks.ExtractModel == nil || hooks.RewriteModel == nil {
-		t.Fatalf("expected model extract/rewrite media hooks for %s, got %+v", operation.Name, hooks)
 	}
 }
 

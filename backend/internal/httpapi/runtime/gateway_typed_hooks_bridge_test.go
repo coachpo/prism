@@ -10,20 +10,20 @@ import (
 )
 
 func TestRuntimeTypedHookBridgeBuildsSafePayload(t *testing.T) {
-	operationMatch, ok := ResolveRuntimeOperation(http.MethodPost, "/v1/images/generations")
+	operationMatch, ok := ResolveRuntimeOperation(http.MethodPost, "/v1/chat/completions")
 	if !ok {
-		t.Fatal("expected image generation operation")
+		t.Fatal("expected chat completions operation")
 	}
-	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations?trace=true", nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?trace=true", nil)
 	request.Header.Set("Authorization", "Bearer provider-secret")
 	request.Header.Set("X-Api-Key", "provider-key")
 	request.Header.Set("X-Visible", "safe")
-	input := NewRuntimeTypedHookPayloadInput(request, operationMatch, []byte(`{"model":"gpt-image-1","prompt":"hidden"}`), gatewaycore.HookPhaseOnIngress)
+	input := NewRuntimeTypedHookPayloadInput(request, operationMatch, []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hidden"}]}`), gatewaycore.HookPhaseOnIngress)
 
-	if input.Envelope.Operation.Shape != gatewaycore.EndpointShapeImageGeneration {
-		t.Fatalf("expected image generation shape, got %q", input.Envelope.Operation.Shape)
+	if input.Envelope.Operation.Shape != gatewaycore.EndpointShapeTextGeneration {
+		t.Fatalf("expected text generation shape, got %q", input.Envelope.Operation.Shape)
 	}
-	if input.AdditionalMetadata["hook_collection_id"] != runtimeHookCollectionOpenAIImagesGeneration {
+	if input.AdditionalMetadata["hook_collection_id"] != "openai.chat_completions" {
 		t.Fatalf("expected hook collection metadata, got %+v", input.AdditionalMetadata)
 	}
 	defaultPayload := gatewaycore.NewHookPayload(input)
@@ -51,7 +51,6 @@ func TestRuntimeGatewayCoreDescriptorMapsHookShapes(t *testing.T) {
 	}{
 		{path: "/v1/chat/completions", want: gatewaycore.EndpointShapeTextGeneration},
 		{path: "/v1/responses/input_tokens", want: gatewaycore.EndpointShapeTokenCount},
-		{path: "/v1/images/edits", want: gatewaycore.EndpointShapeImageEdit},
 		{path: "/v1beta/models/gemini-2.5-pro:countTokens", want: gatewaycore.EndpointShapeTokenCount},
 	}
 	for _, test := range tests {

@@ -120,14 +120,6 @@ type TokenEstimate struct {
 	Source       string
 }
 
-type MediaRequest struct {
-	Operation     Operation
-	RawBody       []byte
-	ContentType   string
-	TargetModelID string
-	RewrittenBody []byte
-}
-
 type ConversionRequest struct {
 	Operation        Operation
 	RawBody          []byte
@@ -191,13 +183,6 @@ type StreamHookBehavior struct {
 	HasUsageMerger         bool
 }
 
-type MediaHookBehavior struct {
-	Provider          string
-	Kind              string
-	HasModelExtractor bool
-	HasModelRewriter  bool
-}
-
 type CurrentOperationBehavior struct {
 	OperationName    string
 	APIFamily        string
@@ -208,8 +193,6 @@ type CurrentOperationBehavior struct {
 	HasResponse      bool
 	Stream           StreamHookBehavior
 	HasStream        bool
-	Media            MediaHookBehavior
-	HasMedia         bool
 }
 
 type ProviderAdapter interface {
@@ -220,7 +203,6 @@ type ProviderAdapter interface {
 	AdaptStream(context.Context, StreamRequest) (StreamResult, error)
 	ExtractUsage(context.Context, UpstreamResponse) (UsageEnvelope, error)
 	EstimateTokens(context.Context, ProviderRequest) (TokenEstimate, error)
-	HandleMedia(context.Context, MediaRequest) (MediaRequest, error)
 	ConversionCapability(context.Context, ConversionRequest) (ConversionCapability, error)
 	TranslateRequest(context.Context, ConversionRequest) (TranslatedRequest, error)
 	TranslateResponse(context.Context, ConversionRequest) (TranslatedResponse, error)

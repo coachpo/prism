@@ -165,9 +165,6 @@ func (adapter Adapter) ParseRequest(_ context.Context, envelope provider.Request
 }
 
 func RequestWantsStream(operation provider.Operation, rawBody []byte, requestPath string) bool {
-	if _, ok := ImageOperation(operation); ok {
-		return false
-	}
 	if metadata, ok := TextOperation(operation); ok && metadata.TokenCount {
 		return false
 	}
@@ -188,9 +185,6 @@ func requestBodyWantsStream(rawBody []byte, _ string) bool {
 }
 
 func (adapter Adapter) BuildUpstreamRequest(ctx context.Context, request provider.ProviderRequest, target provider.UpstreamTarget) (provider.UpstreamRequest, error) {
-	if IsImageOperation(request.Operation) {
-		return adapter.BuildImageUpstreamRequest(ctx, ImageUpstreamRequest{Operation: request.Operation, RawBody: request.Body, ContentType: request.ContentType, TargetModelID: target.ModelID})
-	}
 	if IsTextOperation(request.Operation) {
 		return adapter.BuildTextUpstreamRequest(ctx, TextUpstreamRequest{Operation: request.Operation, RawBody: request.Body, ContentType: request.ContentType, RequestPath: request.NativePath, TargetModelID: target.ModelID})
 	}
@@ -259,12 +253,6 @@ func (adapter Adapter) CurrentBehavior(_ context.Context, operation provider.Ope
 		if behavior.HasStream {
 			behavior.Stream = provider.StreamHookBehavior{Provider: APIFamily, Kind: kind, UsageRule: metadata.Name, CompleteOnDoneSentinel: true, HasTerminalClassifier: true, HasUsageMerger: true}
 		}
-		return behavior, true
-	}
-	if _, ok := ImageOperation(operation); ok {
-		behavior.Response = provider.ResponseHookBehavior{Provider: APIFamily, Kind: "media", HasNonStreamParser: true}
-		behavior.Media = provider.MediaHookBehavior{Provider: APIFamily, Kind: "media", HasModelExtractor: true, HasModelRewriter: true}
-		behavior.HasMedia = true
 		return behavior, true
 	}
 	return provider.CurrentOperationBehavior{}, false

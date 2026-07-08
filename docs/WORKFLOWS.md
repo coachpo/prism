@@ -267,15 +267,13 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 - `POST /v1/responses`
 - `POST /v1/responses/input_tokens`
 - `POST /v1/responses/compact`
-- `POST /v1/images/generations`
-- `POST /v1/images/edits`
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
 - `POST /v1beta/models/{model}:generateContent`
 - `POST /v1beta/models/{model}:streamGenerateContent`
 - `POST /v1beta/models/{model}:countTokens`
 
-These 12 allowlisted runtime routes are defined in `backend/internal/httpapi/runtime/operations.go` and are intentionally separate from `/api/*` management routes. Prism does not treat `/v1` or `/v1beta` as catch-all prefixes.
+These 10 allowlisted runtime routes are defined in `backend/internal/httpapi/runtime/operations.go` and are intentionally separate from `/api/*` management routes. Prism does not treat `/v1` or `/v1beta` as catch-all prefixes.
 
 ## 9. Priority Operations Runbook
 

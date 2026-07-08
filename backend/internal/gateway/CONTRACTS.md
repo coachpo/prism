@@ -20,8 +20,6 @@ Runtime traffic is operation-registered. The mounted `/v1` and `/v1beta` branche
 | POST | `/v1/responses` | `openai.responses` | `openai` | no | request body |
 | POST | `/v1/responses/input_tokens` | `openai.responses.input_tokens` | `openai` | no | request body |
 | POST | `/v1/responses/compact` | `openai.responses.compact` | `openai` | no | request body |
-| POST | `/v1/images/generations` | `openai.images.generations` | `openai` | no | request body |
-| POST | `/v1/images/edits` | `openai.images.edits` | `openai` | no | request body |
 | POST | `/v1/messages` | `anthropic.messages` | `anthropic` | no | request body |
 | POST | `/v1/messages/count_tokens` | `anthropic.count_tokens` | `anthropic` | no | request body |
 | POST | `/v1beta/models/{model}:generateContent` | `gemini.generate_content` | `gemini` | no | path `{model}` |
@@ -61,7 +59,6 @@ Provider-native differences are currently selected by operation hook collection 
 
 - Text-generation operations use text-generation request, response, stream, and usage parsing rules.
 - Token-count operations stay out of generation-only parsing and usage assumptions.
-- OpenAI image generation and image editing stay on media hooks, including multipart model binding for image edits.
 - Gemini model IDs are bound from the route path, not from a request-body model field.
 - OpenAI and Anthropic model IDs are bound from the request body.
 

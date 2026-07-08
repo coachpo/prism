@@ -55,9 +55,9 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### R5. 图片生成/编辑路由（决策点：确认无此需求后删）
 
-- **现状**：`runtime/operations.go:52-53` 的 `/v1/images/generations|edits` + `gateway/provider/openai/images.go`（~300 LOC，含 multipart 与正文脱敏）+ `operation_media_hooks.go` 等 ≈ **1.5–2k LOC**。线上无任何图片流量。
+- **现状**：图片生成/编辑运行时路由已移除；OpenAI 保留 models、Chat Completions、Responses、Responses input_tokens、Responses compact。
 - **原因**：coding agent 场景用不到图片生成；multipart/媒体钩子是运行时里独有的一条特殊路径，删掉后运行时钩子族更均质。
-- **怎么做**：先查 `request_logs.operation_name` 历史确认为零，然后从 operations 注册表移除两个操作、删媒体钩子与 provider 适配、清对应测试。**注意**：`/v1/responses/input_tokens` 与 `/v1/responses/compact` 是给 coding agent 的令牌计数/压缩服务的（`operations.go:50-51`），与 opencode 用法直接相关——**保留**。
+- **执行结果**：已确认历史使用为零并删除图片运行时路径、媒体钩子、provider 适配和对应测试。**注意**：`/v1/responses/input_tokens` 与 `/v1/responses/compact` 是给 coding agent 的令牌计数/压缩服务的，与 opencode 用法直接相关——**保留**。
 
 ### R6. OTel 遥测（决策点：是否真有 Collector 在收）
 
@@ -195,5 +195,5 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 2. **实时推送**：R7 方案 A（退役 websocket，告警走 webhook + 轮询）还是方案 B（保留并复用为告警通道）？——推荐 A。
 3. **路由拓扑图**：`/observe?tab=routing` 你日常看吗？不看 → R8 删图留表。
 4. **操作员登录**：反代兜底后是否彻底移除用户名密码登录（R3 第二步）？
-5. **图片路由**：确认 `request_logs.operation_name` 无 images 记录后执行 R5。
+5. **图片路由**：R5 已执行；后续如需图片能力按新需求重新设计。
 6. **英文语言包**：是否为开源发布需求（决定 T8 方向）。

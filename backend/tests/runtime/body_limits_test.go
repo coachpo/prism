@@ -54,7 +54,6 @@ func TestRuntimeOversizedBodiesRejectBeforeProviderAndTelemetry(t *testing.T) {
 		{name: "OpenAIChatCompletions", path: "/v1/chat/completions", contentType: "application/json", limitBytes: bodylimits.RuntimeJSONRequestBodyLimitBytes},
 		{name: "OpenAIResponses", path: "/v1/responses", contentType: "application/json", limitBytes: bodylimits.RuntimeJSONRequestBodyLimitBytes},
 		{name: "GeminiGenerateContent", path: "/v1beta/models/body-limit-gemini:generateContent", contentType: "application/json", limitBytes: bodylimits.RuntimeJSONRequestBodyLimitBytes},
-		{name: "OpenAIImageEditsMultipart", path: "/v1/images/edits", contentType: "multipart/form-data; boundary=bodylimit", limitBytes: bodylimits.RuntimeMediaRequestBodyLimitBytes},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -22,7 +22,6 @@ runtime/
 ├── operation_request_hooks.go   # Request hook registry and streaming-intent selection
 ├── operation_response_hooks.go  # Non-stream response parsing by operation
 ├── operation_stream_hooks.go    # SSE terminal and usage parsing by operation
-├── operation_media_hooks.go     # Media model extraction and multipart/json rewrite helpers
 ├── operation_translation.go     # OpenAI Chat/Responses cross-translation boundary
 ├── generations.go               # Generation-request shaping and upstream helpers
 ├── observability.go             # Request-log and usage-event shaping with operation metadata
@@ -40,15 +39,14 @@ runtime/
 - Request planning, model binding, request path rewrites, unified access-target resolution, final-target attribution, exact `planningSnapshot.ModelsByID` requested-model lookup, and shared upstream execution: `runtime.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_snapshot_legacy.go`, `proxy_selector_helpers.go`
 - Runtime-to-gateway adapter seams and usage normalization: `*_adapter_bridge.go`, `gateway_core_bridge.go`, `gateway_typed_hooks_bridge.go`, `provider_usage_conversion.go`
 - Automatic generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
-- Non-stream response parsing for text generation, token count, and media operations: `operation_response_hooks.go`
+- Non-stream response parsing for text generation and token count operations: `operation_response_hooks.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
-- Media-model extraction and multipart/json rewrite rules for OpenAI image operations: `operation_media_hooks.go`
 - OpenAI Chat/Responses translation and adjunct conversion rejection behavior: `operation_translation.go`, `operation_translation_request.go`, `operation_translation_response.go`, `operation_translation_stream.go`, `operation_translation_golden_test.go`, `operation_translation_request_test.go`, `operation_translation_response_test.go`, `operation_translation_stream_test.go`, `testdata/openai_translation/`
 - Request-log and usage-event shaping plus `operation_name` persistence: `observability.go`, `../../../migrations/000001_initial_schema.sql`
 - Runtime trace attributes and runtime metric labels: `runtime_tracing.go`, `observability.go`, `runtime_metrics_test.go`
 - Telemetry, feedback, and runtime side-effect ownership: `telemetry_outbox.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
-- Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_media_hooks_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`
+- Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`
 - Route-matrix, translation, streaming, body-limit, and rejected-route coverage: `../../../tests/runtime/body_limits_test.go`, `../../../tests/runtime/operation_route_matrix_test.go`, `../../../tests/runtime/operation_route_matrix_translation_test.go`, `../../../tests/runtime/responses_translation_streaming_test.go`, `../../../tests/runtime/rejected_route_isolation_test.go`, `../../../tests/runtime/request_generation_params_contract_test.go`, `../../../tests/integration/runtime_route_matrix_test.go`
 
 ## CONVENTIONS
@@ -59,10 +57,9 @@ runtime/
 - Keep management scope out of proxy traffic. Runtime request planning uses the current runtime snapshot, not `X-Profile-Id` management headers.
 - Keep requested-model resolution exact. Runtime planning starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly, then follows ordinary access-target ordering; do not add regex matching or capability-metadata expansion in this package.
 - Keep unsupported or wrong-method requests rejecting before body reads, runtime admission, provider transport, telemetry, audit, feedback, or runtime side effects.
-- Keep the shared execution core in `service.go` and `runtime.go`; provider-native differences belong in request, response, stream, or media hooks instead of forked executors.
+- Keep the shared execution core in `service.go` and `runtime.go`; provider-native differences belong in request, response, or stream hooks instead of forked executors.
 - Keep retired exact-facade and context-fit preflight behavior out of runtime planning; preserve requested/resolved model observability through the ordinary target plan.
 - Keep token-count operations out of generation-only parsing and usage assumptions.
-- Keep media operations on dedicated media hooks instead of text-generation request/response heuristics.
 - Keep operation translation explicit and operation-scoped; do not turn Chat/Responses translation into a generic vendor compatibility layer.
 - Keep telemetry, feedback, and runtime side-effect work on durable outboxes or worker seams instead of the hot request path.
 - Keep runtime partition ensuring here plus `../../platform/logretention/`; handlers must not create or drop partitions ad hoc.
@@ -77,7 +74,7 @@ runtime/
 - Do not add generic OpenAI or vendor fallback behavior outside the allowlist in `operations.go`.
 - Do not inject management-only `X-Profile-Id` logic or auth-session state into runtime proxy handlers.
 - Do not reintroduce exact facades, context-window preflight filtering, or facade-level response-body model rewriting.
-- Do not reuse text-generation hooks for media or token-count operations.
+- Do not reuse text-generation hooks for token-count operations.
 - Do not hide unsupported translation paths behind provider fallbacks or best-effort request rewrites.
 - Do not bypass the telemetry outbox, feedback pipeline, or runtime side-effect manager with inline writes or sends.
 - Do not duplicate upstream auth/header shaping, operation matching, or provider-path parsing in sibling packages.
