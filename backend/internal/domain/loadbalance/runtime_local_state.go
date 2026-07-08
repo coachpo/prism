@@ -181,10 +181,9 @@ func (s *LocalRuntimeStateStore) SnapshotActiveBans(profileID int, referenceNow 
 	items := make([]CurrentStateItem, 0, len(states))
 	for _, state := range states {
 		state.mu.Lock()
-		state.refreshAvailabilityLocked(nowAt)
 		item := currentStateItemFromLocalStateLocked(state, nowAt)
 		state.mu.Unlock()
-		if item.State == "banned" {
+		if (item.BannedUntilAt != nil && item.BannedUntilAt.After(nowAt)) || strings.EqualFold(strings.TrimSpace(item.BanMode), "until_reset") {
 			items = append(items, item)
 		}
 	}

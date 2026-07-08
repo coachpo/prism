@@ -180,6 +180,32 @@ func TestRuntimeLocalRetryCycleAndBanTransitions(t *testing.T) {
 	}
 }
 
+func TestSnapshotActiveBansDoesNotConsumeExpiredTemporaryBan(t *testing.T) {
+	store := NewLocalRuntimeStateStore()
+	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)
+	bannedUntil := nowAt.Add(-time.Millisecond)
+	store.SeedConnectionState(1, 20, 200, RuntimeConnectionState{
+		ConnectionID:            200,
+		BanMode:                 "temporary",
+		BannedUntilAt:           &bannedUntil,
+		CycleRetryAttempts:      2,
+		CumulativeRetryAttempts: 5,
+		LastRetryDelayMS:        1000,
+		LastFailureKind:         stringPointer(runtimeFailureKindConnectError),
+	}, nowAt.Add(-time.Hour), nowAt.Add(-time.Minute))
+
+	if activeBans := store.SnapshotActiveBans(1, nowAt); len(activeBans) != 0 {
+		t.Fatalf("expected expired temporary ban to be hidden from active incidents, got %+v", activeBans)
+	}
+	decision := store.TryBeginConnectionAttempt(RuntimeConnectionAttemptInput{ProfileID: 1, ModelConfigID: 20, ConnectionID: 200, Policy: runtimeAdmissionPolicy{RespectQPSLimit: true, RespectInFlightLimits: true}, ObservedAt: nowAt})
+	if decision.UnbannedRecord == nil {
+		t.Fatalf("expected next runtime attempt to emit unbanned record after snapshot, got %+v", decision)
+	}
+	if decision.UnbannedRecord.BanMode != "off" || decision.UnbannedRecord.BannedUntilAt != nil {
+		t.Fatalf("expected unbanned record to clear temporary ban, got %+v", *decision.UnbannedRecord)
+	}
+}
+
 func TestRuntimeLocalRetryWindowResetsCycleOnly(t *testing.T) {
 	store := NewLocalRuntimeStateStore()
 	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)

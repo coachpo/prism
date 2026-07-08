@@ -56,3 +56,17 @@ Known failing broader checks:
 - The broader runtime and priority failures are outside the Task 21 surfaces and were not fixed here.
 - Live manual `curl`, `nc`, and browser banner checks were not run. The endpoint, outbox worker, webhook POST, and dashboard banner are covered by automated contract/unit/frontend checks.
 - Known unrelated dirty/untracked files were left unstaged and unchanged by this task.
+
+## Reviewer Follow-up Fix
+
+- Fixed `SnapshotActiveBans` to snapshot and filter active bans without clearing expired temporary bans; expiration remains owned by the next runtime attempt so `UnbannedRecord` can still be emitted.
+- Added a focused regression test proving an expired temporary ban is hidden from incidents but still produces `UnbannedRecord` after the snapshot.
+
+Verification:
+
+- `cd backend && go test ./internal/domain/loadbalance -run TestSnapshotActiveBansDoesNotConsumeExpiredTemporaryBan -count=1` failed before the fix with missing `UnbannedRecord`.
+- `cd backend && go test ./internal/domain/loadbalance -run TestSnapshotActiveBansDoesNotConsumeExpiredTemporaryBan -count=1`
+- `cd backend && go test ./internal/domain/loadbalance -count=1`
+- `cd backend && go test ./internal/httpapi/management/loadbalance -run TestLoadbalanceIncidentsRouteReturnsActiveBansAndRecentEvents -count=1`
+- `cd backend && go test ./internal/httpapi/runtime -run TestRuntimeFeedbackIncidentAlertPayloadsOnlyAlertableEvents -count=1`
+- `git diff --check`
